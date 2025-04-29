@@ -1,0 +1,3 @@
+class RelayMetadata:
+    # TODO
+    pass
