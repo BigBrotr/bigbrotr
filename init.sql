@@ -16,8 +16,9 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 -- Indexes for faster queries
-CREATE INDEX IF NOT EXISTS idx_events_pubkey ON events(pubkey);             -- Index on pubkey
-CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind);                 -- Index on kind
+CREATE INDEX IF NOT EXISTS idx_events_pubkey ON events(pubkey) USING BTREE;         -- Index on pubkey using BTREE
+CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind) USING BTREE;             -- Index on kind using BTREE
+CREATE INDEX IF NOT EXISTS idx_events_tags ON events(tags) USING GIN;               -- Index on tags using GIN
 
 -- Create a table for relays   
 CREATE TABLE IF NOT EXISTS relays (
@@ -36,8 +37,8 @@ CREATE TABLE IF NOT EXISTS event_relay (
 );
 
 -- Indexes for faster queries
-CREATE INDEX IF NOT EXISTS idx_event_relay_event_id ON event_relay(event_id);
-CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url ON event_relay(relay_url);
+CREATE INDEX IF NOT EXISTS idx_event_relay_event_id ON event_relay(event_id) USING BTREE;       -- Index on event_id using BTREE
+CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url ON event_relay(relay_url) USING BTREE;     -- Index on relay_url using BTREE
 
 -- Create a table for relay_metadata
 CREATE TABLE IF NOT EXISTS relay_metadata (
@@ -69,7 +70,9 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
 );
 
 -- Indexes for faster queries
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url ON relay_metadata(relay_url); 
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url ON relay_metadata(relay_url);                       -- Index on relay_url  using BTREE
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_supported_nips ON relay_metadata(supported_nips) USING GIN;   -- Index on supported_nips using GIN
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_limitations ON relay_metadata(limitations) USING GIN;         -- Index on limitations using GIN
 
 -- ============================
 -- CONSTRAINTS
