@@ -79,8 +79,12 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url ON relay_metadata(relay_
 
 CREATE OR REPLACE FUNCTION delete_orphan_events() RETURNS VOID AS $$
 BEGIN
-    DELETE FROM events
-    WHERE id NOT IN (SELECT DISTINCT event_id FROM event_relay);
+    DELETE FROM events e
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM event_relay er
+        WHERE er.event_id = e.id
+    );
 END;
 $$ LANGUAGE plpgsql;
 
@@ -150,7 +154,7 @@ CREATE OR REPLACE FUNCTION insert_relay_metadata(
 ) RETURNS VOID AS $$
 BEGIN
     -- Insert the relay URL into the relays table
-    INSERT INTO relay(url)
+    INSERT INTO relays(url)
     VALUES (p_relay_url)
     ON CONFLICT (url) DO NOTHING;
     -- Insert the relay metadata into the relay_metadata table
