@@ -88,6 +88,7 @@ class Event:
         self.tags = tags
         self.content = content
         self.sig = sig
+        # TODO: to remove valid_id and valid_sig and content_obj and reject the event creation if they are not valid
         try:
             self.content_obj = json.loads(re.sub(r"\\", "", self.content))
         except json.JSONDecodeError:

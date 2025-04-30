@@ -219,3 +219,25 @@ class Bigbrotr:
         if not isinstance(size, int):
             raise TypeError(f"size must be an int, not {type(size)}")
         return self.cur.fetchmany(size)
+
+#     # TODO: Evaluate if we need to implement a context manager for the database connection
+#     @contextmanager
+#     def db_transaction(self):
+#         """
+#         Context manager for managing a database transaction.
+#         Rolls back on error and commits on success.
+#         """
+#         try:
+#             yield self
+#             self.commit()
+#         except Exception as e:
+#             print(f"Transaction failed: {e}")
+#             self.conn.rollback()
+
+# # Example of usage with context manager
+# # with Bigbrotr(host, port, user, password, dbname) as bigbrotr:
+# #     query = "SELECT * FROM events"
+# #     bigbrotr.execute(query)
+# #     results = bigbrotr.fetchall()
+# #     for row in results:
+# #         print(row)
