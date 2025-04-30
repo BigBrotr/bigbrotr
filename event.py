@@ -3,6 +3,7 @@ import re
 import json
 from utils import calc_event_id, verify_signature
 
+
 class Event:
     """
     Class to represent a NOSTR event.
@@ -63,11 +64,13 @@ class Event:
         if not isinstance(pubkey, str):
             raise TypeError(f"pubkey must be a str, not {type(pubkey)}")
         if not isinstance(created_at, int):
-            raise TypeError(f"created_at must be an int, not {type(created_at)}")
+            raise TypeError(
+                f"created_at must be an int, not {type(created_at)}")
         if not isinstance(kind, int):
             raise TypeError(f"kind must be an int, not {type(kind)}")
         if not isinstance(tags, list):
-            raise TypeError(f"tags must be a list of lists of str, not {type(tags)}")
+            raise TypeError(
+                f"tags must be a list of lists of str, not {type(tags)}")
         for tag in tags:
             if not isinstance(tag, list):
                 raise TypeError(f"tag must be a list of str, not {type(tag)}")
@@ -89,7 +92,8 @@ class Event:
             self.content_obj = json.loads(re.sub(r"\\", "", self.content))
         except json.JSONDecodeError:
             self.content_obj = None
-        self.valid_id = calc_event_id(self.pubkey, self.created_at, self.kind, self.tags, self.content) == self.id
+        self.valid_id = calc_event_id(
+            self.pubkey, self.created_at, self.kind, self.tags, self.content) == self.id
         self.valid_sig = verify_signature(self.id, self.pubkey, self.sig)
         return
 
@@ -124,7 +128,7 @@ class Event:
     def from_dict(data: dict) -> "Event":
         """
         Create an Event object from a dictionary.
-        
+
         Parameters:
         - data: dict, dictionary representation of the Event object
 
@@ -146,7 +150,7 @@ class Event:
             if key not in data:
                 raise KeyError(f"data must contain key {key}")
         return Event(data["id"], data["pubkey"], data["created_at"], data["kind"], data["tags"], data["content"], data["sig"])
-    
+
     def to_dict(self) -> dict:
         """
         Return a dictionary representation of the Event object.

@@ -1,5 +1,6 @@
 import psycopg2
 
+
 class Bigbrotr:
     """
     Class to connect to the Bigbrotr database.
@@ -37,7 +38,7 @@ class Bigbrotr:
     >>>     print(row)
     >>> bigbrotr.close()
     """
-    
+
     def __init__(self, host: str, port: int, user: str, password: str, dbname: str) -> "Bigbrotr":
         """
         Initialize a Bigbrotr object.
@@ -108,7 +109,7 @@ class Bigbrotr:
         )
         self.cur = self.conn.cursor()
         return
-    
+
     def close(self):
         """
         Close the connection to the database.
@@ -141,7 +142,7 @@ class Bigbrotr:
         """
         self.conn.commit()
         return
-    
+
     def execute(self, query: str, args: tuple = ()):
         """
         Execute a query.
@@ -167,7 +168,7 @@ class Bigbrotr:
             raise TypeError(f"args must be a tuple, not {type(args)}")
         self.cur.execute(query, args)
         return
-    
+
     def fetchall(self):
         """
         Fetch all the results of the query.
@@ -182,7 +183,7 @@ class Bigbrotr:
         - None
         """
         return self.cur.fetchall()
-    
+
     def fetchone(self):
         """
         Fetch one result of the query.
@@ -197,7 +198,7 @@ class Bigbrotr:
         - None
         """
         return self.cur.fetchone()
-    
+
     def fetchmany(self, size: int):
         """
         Fetch many results of the query.
