@@ -1,5 +1,7 @@
 -- init.sql
 
+CREATE EXTENSION IF NOT EXISTS "btree_gin";  -- For GIN indexes on JSONB
+
 -- ============================
 -- TABLE DEFINITIONS
 -- ============================
@@ -16,13 +18,13 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 -- Indexes for faster queries
-CREATE INDEX IF NOT EXISTS idx_events_pubkey ON events(pubkey) USING BTREE;         -- Index on pubkey using BTREE
-CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind) USING BTREE;             -- Index on kind using BTREE
-CREATE INDEX IF NOT EXISTS idx_events_tags ON events(tags) USING GIN;               -- Index on tags using GIN
+CREATE INDEX IF NOT EXISTS idx_events_pubkey ON events USING BTREE (pubkey);    -- Index on pubkey 
+CREATE INDEX IF NOT EXISTS idx_events_kind ON events USING BTREE (kind);        -- Index on kind
+CREATE INDEX IF NOT EXISTS idx_events_tags ON events USING GIN (tags);          -- Index on tags
 
 -- Create a table for relays   
 CREATE TABLE IF NOT EXISTS relays (
-    url TEXT PRIMARY KEY NOT NULL                                           -- Relay URL
+    url TEXT PRIMARY KEY NOT NULL,                                          -- Relay URL
     network TEXT NOT NULL                                                   -- Network name (clear, tor, etc.)
 );
 
@@ -38,8 +40,8 @@ CREATE TABLE IF NOT EXISTS event_relay (
 );
 
 -- Indexes for faster queries
-CREATE INDEX IF NOT EXISTS idx_event_relay_event_id ON event_relay(event_id) USING BTREE;       -- Index on event_id using BTREE
-CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url ON event_relay(relay_url) USING BTREE;     -- Index on relay_url using BTREE
+CREATE INDEX IF NOT EXISTS idx_event_relay_event_id ON event_relay USING BTREE (event_id);      -- Index on event_id
+CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url ON event_relay USING BTREE (relay_url);    -- Index on relay_url
 
 -- Create a table for relay_metadata
 CREATE TABLE IF NOT EXISTS relay_metadata (
@@ -67,19 +69,19 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
     extra_fields JSONB,                                                     -- Extra fields for future use. NULL if connection_success is false
     -- constraints
     PRIMARY KEY (relay_url, generated_at),                                  -- Composite primary key
-    FOREIGN KEY (relay_url) REFERENCES relays(url) ON DELETE CASCADE,       -- Foreign key reference to relays table
+    FOREIGN KEY (relay_url) REFERENCES relays(url) ON DELETE CASCADE        -- Foreign key reference to relays table
 );
 
 -- Indexes for faster queries
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url ON relay_metadata(relay_url);                       -- Index on relay_url  using BTREE
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_supported_nips ON relay_metadata(supported_nips) USING GIN;   -- Index on supported_nips using GIN
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_limitations ON relay_metadata(limitations) USING GIN;         -- Index on limitations using GIN
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url ON relay_metadata USING BTREE (relay_url);          -- Index on relay_url
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_supported_nips ON relay_metadata USING GIN (supported_nips);  -- Index on supported_nips
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_limitations ON relay_metadata USING GIN (limitations);        -- Index on limitations
 
 -- ============================
 -- CONSTRAINTS
 -- ============================
 
--- event <-(1,N)----(1,1)-> event_relay <-(1,1)----(0,N)-> relay <-(0,N)----(1,1)-> relay_metadata
+-- event <-(1,N)----(1,1)-> event_relay <-(1,1)----(0,N)-> relays <-(0,N)----(1,1)-> relay_metadata
 
 -- function to delete orphan events
 -- This function deletes events that are not referenced in the event_relay table
@@ -143,6 +145,7 @@ $$ LANGUAGE plpgsql;
 -- Function to insert relay metadata into the database
 CREATE OR REPLACE FUNCTION insert_relay_metadata(
     p_relay_url TEXT,
+    p_relay_network TEXT,
     p_generated_at BIGINT,
     p_connection_success BOOLEAN,
     p_nip11_success BOOLEAN,
@@ -165,8 +168,8 @@ CREATE OR REPLACE FUNCTION insert_relay_metadata(
 ) RETURNS VOID AS $$
 BEGIN
     -- Insert the relay into the relays table
-    INSERT INTO relays(url)
-    VALUES (p_relay_url)
+    INSERT INTO relays(url, network)
+    VALUES (p_relay_url, p_relay_network)
     ON CONFLICT (url) DO NOTHING;
     -- Insert the relay metadata into the relay_metadata table
     INSERT INTO relay_metadata (
