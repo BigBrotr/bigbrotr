@@ -11,7 +11,7 @@ services:
       - "${DB_PORT}:${DB_PORT}"
     volumes:
       - ${POSTGRES_DB_DATA_PATH}:/var/lib/postgresql/data
-      - ${POSTGRES_DB_INIT_PATH}:/docker-entrypoint-initdb.d
+      - ${POSTGRES_DB_INIT_PATH}:/docker-entrypoint-initdb.d/init.sql
     networks:
       - bigbrotr_network
     restart: unless-stopped
