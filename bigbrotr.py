@@ -1,4 +1,8 @@
 import psycopg2
+from typing import Tuple, Optional
+from event import Event
+from relay import Relay
+from relay_metadata import RelayMetadata
 
 
 class Bigbrotr:
@@ -39,7 +43,7 @@ class Bigbrotr:
     >>> bigbrotr.close()
     """
 
-    def __init__(self, host: str, port: int, user: str, password: str, dbname: str) -> "Bigbrotr":
+    def __init__(self, host: str, port: int, user: str, password: str, dbname: str):
         """
         Initialize a Bigbrotr object.
 
@@ -143,13 +147,13 @@ class Bigbrotr:
         self.conn.commit()
         return
 
-    def execute(self, query: str, args: tuple = ()):
+    def execute(self, query: str, args: Optional[Tuple] = ()):
         """
         Execute a query.
 
         Parameters:
         - query: str, the query to execute
-        - args: tuple, the arguments of the query
+        - args: Optional[Tuple], the arguments to pass to the query
 
         Example:
         >>> query = "SELECT * FROM events"
@@ -160,7 +164,7 @@ class Bigbrotr:
 
         Raises:
         - TypeError: if query is not a str
-        - TypeError: if args is not a tuple        
+        - TypeError: if args is not a tuple
         """
         if not isinstance(query, str):
             raise TypeError(f"query must be a str, not {type(query)}")
@@ -220,24 +224,142 @@ class Bigbrotr:
             raise TypeError(f"size must be an int, not {type(size)}")
         return self.cur.fetchmany(size)
 
-#     # TODO: Evaluate if we need to implement a context manager for the database connection
-#     @contextmanager
-#     def db_transaction(self):
-#         """
-#         Context manager for managing a database transaction.
-#         Rolls back on error and commits on success.
-#         """
-#         try:
-#             yield self
-#             self.commit()
-#         except Exception as e:
-#             print(f"Transaction failed: {e}")
-#             self.conn.rollback()
+    def delete_orphan_events(self):
+        """
+        Delete orphan events from the database.
 
-# # Example of usage with context manager
-# # with Bigbrotr(host, port, user, password, dbname) as bigbrotr:
-# #     query = "SELECT * FROM events"
-# #     bigbrotr.execute(query)
-# #     results = bigbrotr.fetchall()
-# #     for row in results:
-# #         print(row)
+        Parameters:
+        - None
+
+        Example:
+        >>> bigbrotr.delete_orphan_events()
+
+        Returns:
+        - None
+
+        Raises:
+        - None
+        """
+        query = "SELECT delete_orphan_events()"
+        self.execute(query)
+        self.commit()
+        return
+
+    def insert_event(self, event: Event, relay: Relay, seen_at: int) -> None:
+        """
+        Insert an event into the database.
+
+        Parameters:
+        - event: Event, the event to insert
+        - relay: Relay, the relay to insert
+        - seen_at: int, the time the event was seen
+
+        Example:
+        >>> event = Event(...)
+        >>> relay = Relay(...)
+        >>> seen_at = 1234567890
+        >>> bigbrotr.insert_event(event, relay, seen_at)
+
+        Returns:
+        - None
+
+        Raises:
+        - TypeError: if event is not an Event
+        - TypeError: if relay is not a Relay
+        - TypeError: if seen_at is not an int
+        """
+        if not isinstance(event, Event):
+            raise TypeError(f"event must be an Event, not {type(event)}")
+        if not isinstance(relay, Relay):
+            raise TypeError(f"relay must be a Relay, not {type(relay)}")
+        if not isinstance(seen_at, int):
+            raise TypeError(f"seen_at must be an int, not {type(seen_at)}")
+        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s)"
+        args = (
+            event.id,
+            event.pubkey,
+            event.created_at,
+            event.kind,
+            event.tags,
+            event.content,
+            event.sig,
+            relay.url,
+            relay.network,
+            seen_at
+        )
+        self.execute(query, args)
+        self.commit()
+        return
+
+    def insert_relay(self, relay: Relay) -> None:
+        """
+        Insert a relay into the database.
+
+        Parameters:
+        - relay: Relay, the relay to insert
+
+        Example:
+        >>> relay = Relay(...)
+        >>> bigbrotr.insert_relay(relay)
+
+        Returns:
+        - None
+
+        Raises:
+        - TypeError: if relay is not a Relay
+        """
+        if not isinstance(relay, Relay):
+            raise TypeError(f"relay must be a Relay, not {type(relay)}")
+        query = "SELECT insert_relay(%s, %s)"
+        args = (relay.url, relay.network)
+        self.execute(query, args)
+        self.commit()
+        return
+
+    def insert_relay_metadata(self, relay_metadata: RelayMetadata) -> None:
+        """
+        Insert a relay metadata into the database.
+
+        Parameters:
+        - relay_metadata: RelayMetadata, the relay metadata to insert
+
+        Example:
+        >>> relay_metadata = RelayMetadata(...)
+        >>> bigbrotr.insert_relay_metadata(relay_metadata)
+
+        Returns:
+        - None
+
+        Raises:
+        - TypeError: if relay_metadata is not a RelayMetadata
+        """
+        if not isinstance(relay_metadata, RelayMetadata):
+            raise TypeError(
+                f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
+        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
+        args = (
+            relay_metadata.relay_url,
+            relay_metadata.relay_network,
+            relay_metadata.generated_at,
+            relay_metadata.connection_success,
+            relay_metadata.nip11_success,
+            relay_metadata.readable,
+            relay_metadata.writable,
+            relay_metadata.rtt,
+            relay_metadata.name,
+            relay_metadata.description,
+            relay_metadata.banner,
+            relay_metadata.icon,
+            relay_metadata.pubkey,
+            relay_metadata.contact,
+            relay_metadata.supported_nips,
+            relay_metadata.software,
+            relay_metadata.version,
+            relay_metadata.privacy_policy,
+            relay_metadata.terms_of_service,
+            relay_metadata.limitations,
+            relay_metadata.extra_fields
+        )
+        self.execute(query, args)
+        self.commit()
+        return
