@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Any
-# from relay import Relay
+from relay import Relay
 
 
 class RelayMetadata:
@@ -8,6 +8,7 @@ class RelayMetadata:
 
     Attributes:
     - relay_url: str, the URL of the relay
+    - relay_network: str, the network of the relay
     - generated_at: int, the timestamp when the metadata was generated
     - connection_success: bool, indicates if the connection to the relay was successful
     - nip11_success: bool, indicates if the NIP-11 metadata was successfully retrieved
@@ -37,7 +38,7 @@ class RelayMetadata:
 
     def __init__(
         self,
-        relay_url: str,
+        relay: Relay,
         generated_at: int,
         connection_success: bool,
         nip11_success: bool,
@@ -62,7 +63,7 @@ class RelayMetadata:
         Initialize a RelayMetadata object.
 
         Parameters:
-        - relay_url: str, the URL of the relay
+        - relay: Relay, the relay object
         - generated_at: int, the timestamp when the metadata was generated
         - connection_success: bool, indicates if the connection to the relay was successful
         - nip11_success: bool, indicates if the NIP-11 metadata was successfully retrieved
@@ -84,8 +85,9 @@ class RelayMetadata:
         - extra_fields: Optional[Dict[str, Any]], additional fields for custom metadata
 
         Example:
+        >>> relay = Relay("wss://relay.example.com")
         >>> relay_metadata = RelayMetadata(
-        ...     relay_url="wss://relay.example.com",
+        ...     relay=relay,
         ...     generated_at=1612137600,
         ...     connection_success=True,
         ...     nip11_success=True,
@@ -111,7 +113,7 @@ class RelayMetadata:
         - None
 
         Raises:
-        - TypeError: if relay_url is not a str
+        - TypeError: if relay is not a Relay
         - TypeError: if generated_at is not an int
         - TypeError: if connection_success is not a bool
         - TypeError: if nip11_success is not a bool
@@ -133,13 +135,9 @@ class RelayMetadata:
         - TypeError: if extra_fields is not a dict or None
         - TypeError: if limitations keys are not strings
         - TypeError: if extra_fields keys are not strings
-        - ValueError: if relay_url does not start with 'wss://' or 'ws://'
         """
-        if not isinstance(relay_url, str):
-            raise TypeError(f"relay_url must be a str, not {type(relay_url)}")
-        if not relay_url.startswith("wss://") and not relay_url.startswith("ws://"):
-            raise ValueError(
-                f"relay_url must start with 'wss://' or 'ws://', not {relay_url}")
+        if not isinstance(relay, Relay):
+            raise TypeError(f"relay must be a Relay, not {type(relay)}")
         if not isinstance(generated_at, int):
             raise TypeError(
                 f"generated_at must be an int, not {type(generated_at)}")
@@ -210,7 +208,8 @@ class RelayMetadata:
                     raise TypeError(
                         f"extra_fields keys must be strings, not {type(key)}")
         # Relay(relay_url) # to be shure that relay_url is valid
-        self.relay_url = relay_url
+        self.relay_url = relay.url
+        self.relay_network = relay.network
         self.generated_at = generated_at
         self.connection_success = connection_success
         self.nip11_success = nip11_success
@@ -284,8 +283,9 @@ class RelayMetadata:
         for key in required_keys:
             if key not in data:
                 raise KeyError(f"data must contain key {key}")
+        relay = Relay(data["relay_url"])
         return RelayMetadata(
-            relay_url=data["relay_url"],
+            relay=relay,
             generated_at=data["generated_at"],
             connection_success=data["connection_success"],
             nip11_success=data["nip11_success"],
