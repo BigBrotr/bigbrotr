@@ -1,4 +1,5 @@
 from typing import Optional, List, Dict, Any
+# from relay import Relay
 
 
 class RelayMetadata:
@@ -132,9 +133,13 @@ class RelayMetadata:
         - TypeError: if extra_fields is not a dict or None
         - TypeError: if limitations keys are not strings
         - TypeError: if extra_fields keys are not strings
+        - ValueError: if relay_url does not start with 'wss://' or 'ws://'
         """
         if not isinstance(relay_url, str):
             raise TypeError(f"relay_url must be a str, not {type(relay_url)}")
+        if not relay_url.startswith("wss://") and not relay_url.startswith("ws://"):
+            raise ValueError(
+                f"relay_url must start with 'wss://' or 'ws://', not {relay_url}")
         if not isinstance(generated_at, int):
             raise TypeError(
                 f"generated_at must be an int, not {type(generated_at)}")
@@ -204,6 +209,7 @@ class RelayMetadata:
                 if not isinstance(key, str):
                     raise TypeError(
                         f"extra_fields keys must be strings, not {type(key)}")
+        # Relay(relay_url) # to be shure that relay_url is valid
         self.relay_url = relay_url
         self.generated_at = generated_at
         self.connection_success = connection_success
@@ -246,49 +252,6 @@ class RelayMetadata:
         - None
         """
         return f"RelayMetadata(relay_url={self.relay_url}, generated_at={self.generated_at}, connection_success={self.connection_success}, nip11_success={self.nip11_success}"
-
-    def to_dict(self) -> dict:
-        """
-        Return a dictionary representation of the RelayMetadata object.
-
-        Example:
-        >>> relay_metadata = RelayMetadata(
-        ...     relay_url="wss://relay.example.com",
-        ...     generated_at=1612137600,
-        ...     connection_success=False,
-        ...     nip11_success=False
-        ... )
-        >>> print(relay_metadata.to_dict())
-        {'relay_url': 'wss://relay.example.com', 'generated_at': 1612137600, 'connection_success': False, 'nip11_success': False}
-
-        Returns:
-        - dict, dictionary representation of the RelayMetadata object
-
-        Raises:
-        - None
-        """
-        return {
-            "relay_url": self.relay_url,
-            "generated_at": self.generated_at,
-            "connection_success": self.connection_success,
-            "nip11_success": self.nip11_success,
-            "readable": self.readable,
-            "writable": self.writable,
-            "rtt": self.rtt,
-            "name": self.name,
-            "description": self.description,
-            "banner": self.banner,
-            "icon": self.icon,
-            "pubkey": self.pubkey,
-            "contact": self.contact,
-            "supported_nips": self.supported_nips,
-            "software": self.software,
-            "version": self.version,
-            "privacy_policy": self.privacy_policy,
-            "terms_of_service": self.terms_of_service,
-            "limitations": self.limitations,
-            "extra_fields": self.extra_fields,
-        }
 
     @staticmethod
     def from_dict(data: dict) -> "RelayMetadata":
@@ -343,3 +306,46 @@ class RelayMetadata:
             limitations=data.get("limitations"),
             extra_fields=data.get("extra_fields"),
         )
+
+    def to_dict(self) -> dict:
+        """
+        Return a dictionary representation of the RelayMetadata object.
+
+        Example:
+        >>> relay_metadata = RelayMetadata(
+        ...     relay_url="wss://relay.example.com",
+        ...     generated_at=1612137600,
+        ...     connection_success=False,
+        ...     nip11_success=False
+        ... )
+        >>> print(relay_metadata.to_dict())
+        {'relay_url': 'wss://relay.example.com', 'generated_at': 1612137600, 'connection_success': False, 'nip11_success': False}
+
+        Returns:
+        - dict, dictionary representation of the RelayMetadata object
+
+        Raises:
+        - None
+        """
+        return {
+            "relay_url": self.relay_url,
+            "generated_at": self.generated_at,
+            "connection_success": self.connection_success,
+            "nip11_success": self.nip11_success,
+            "readable": self.readable,
+            "writable": self.writable,
+            "rtt": self.rtt,
+            "name": self.name,
+            "description": self.description,
+            "banner": self.banner,
+            "icon": self.icon,
+            "pubkey": self.pubkey,
+            "contact": self.contact,
+            "supported_nips": self.supported_nips,
+            "software": self.software,
+            "version": self.version,
+            "privacy_policy": self.privacy_policy,
+            "terms_of_service": self.terms_of_service,
+            "limitations": self.limitations,
+            "extra_fields": self.extra_fields,
+        }
