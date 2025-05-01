@@ -22,7 +22,8 @@ CREATE INDEX IF NOT EXISTS idx_events_tags ON events(tags) USING GIN;           
 
 -- Create a table for relays   
 CREATE TABLE IF NOT EXISTS relays (
-    url TEXT PRIMARY KEY NOT NULL                                           -- Relay URL          
+    url TEXT PRIMARY KEY NOT NULL                                           -- Relay URL
+    network TEXT NOT NULL                                                   -- Network name (clear, tor, etc.)
 );
 
 -- Create a table for event_relay
@@ -80,6 +81,8 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_limitations ON relay_metadata(limi
 
 -- event <-(1,N)----(1,1)-> event_relay <-(1,1)----(0,N)-> relay <-(0,N)----(1,1)-> relay_metadata
 
+-- function to delete orphan events
+-- This function deletes events that are not referenced in the event_relay table
 CREATE OR REPLACE FUNCTION delete_orphan_events() RETURNS VOID AS $$
 BEGIN
     DELETE FROM events e
@@ -95,6 +98,7 @@ $$ LANGUAGE plpgsql;
 -- INSERTION FUNCTIONS
 -- ============================
 
+-- Function to insert an event into the database
 CREATE OR REPLACE FUNCTION insert_event(
     p_id CHAR(64),
     p_pubkey CHAR(64),
@@ -104,6 +108,7 @@ CREATE OR REPLACE FUNCTION insert_event(
     p_content TEXT,
     p_sig CHAR(128),
     p_relay_url TEXT,
+    p_relay_network TEXT,
     p_seen_at BIGINT
 ) RETURNS VOID AS $$
 BEGIN
@@ -111,28 +116,31 @@ BEGIN
     INSERT INTO events (id, pubkey, created_at, kind, tags, content, sig)
     VALUES (p_id, p_pubkey, p_created_at, p_kind, p_tags, p_content, p_sig)
     ON CONFLICT (id) DO NOTHING;
-    -- Insert the relay URL into the relays table
-    INSERT INTO relays (url)
-    VALUES (p_relay_url)
+    -- Insert the relay into the relays table
+    INSERT INTO relays (url, network)
+    VALUES (p_relay_url, p_relay_network)
     ON CONFLICT (url) DO NOTHING;
-    -- Insert the event ID and relay URL into the event_relay table
+    -- Insert the event-relay relation into the event_relay table
     INSERT INTO event_relay (event_id, relay_url, seen_at)
     VALUES (p_id, p_relay_url, p_seen_at)
     ON CONFLICT (event_id, relay_url) DO NOTHING;
 END;
 $$ LANGUAGE plpgsql;
 
+-- Function to insert a relay into the database
 CREATE OR REPLACE FUNCTION insert_relay(
-    p_url TEXT
+    p_url TEXT,
+    p_network TEXT
 ) RETURNS VOID AS $$
 BEGIN
-    -- Insert the relay URL into the relays table
-    INSERT INTO relays (url)
-    VALUES (p_url)
+    -- Insert the relay into the relays table
+    INSERT INTO relays (url, network)
+    VALUES (p_url, p_network)
     ON CONFLICT (url) DO NOTHING;
 END;
 $$ LANGUAGE plpgsql;
 
+-- Function to insert relay metadata into the database
 CREATE OR REPLACE FUNCTION insert_relay_metadata(
     p_relay_url TEXT,
     p_generated_at BIGINT,
@@ -156,7 +164,7 @@ CREATE OR REPLACE FUNCTION insert_relay_metadata(
     p_extra_fields JSONB
 ) RETURNS VOID AS $$
 BEGIN
-    -- Insert the relay URL into the relays table
+    -- Insert the relay into the relays table
     INSERT INTO relays(url)
     VALUES (p_relay_url)
     ON CONFLICT (url) DO NOTHING;
