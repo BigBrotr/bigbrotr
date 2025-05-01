@@ -16,6 +16,7 @@ class Event:
     - tags: List[List[str]], tags of the event
     - content: str, content of the event
     - sig: str, signature of the event
+    - content_obj: dict or None, content JSON object if content is valid JSON, else None
 
     Methods:
     - __init__(id: str, pubkey: str, created_at: int, kind: int, tags: List[List[str]], content: str, sig: str) -> None: initialize the Event object
@@ -36,6 +37,7 @@ class Event:
         - tags: List[List[str]], tags of the event
         - content: str, content of the event
         - sig: str, signature of the event
+        - content_obj: dict or None, content JSON object if content is valid JSON, else None
 
         Example:
         >>> id = "0x123"
@@ -58,6 +60,8 @@ class Event:
         - TypeError: if tags is not a list of lists of str
         - TypeError: if content is not a str
         - TypeError: if sig is not a str
+        - ValueError: if the event id is invalid
+        - ValueError: if the event signature is invalid
         """
         if not isinstance(id, str):
             raise TypeError(f"id must be a str, not {type(id)}")
@@ -81,6 +85,10 @@ class Event:
             raise TypeError(f"content must be a str, not {type(content)}")
         if not isinstance(sig, str):
             raise TypeError(f"sig must be a str, not {type(sig)}")
+        if calc_event_id(pubkey, created_at, kind, tags, content) != id:
+            raise ValueError(f"Invalid event id: {id}")
+        if verify_signature(id, pubkey, sig) != True:
+            raise ValueError(f"Invalid event signature: {sig}")
         self.id = id
         self.pubkey = pubkey
         self.created_at = created_at
@@ -88,14 +96,10 @@ class Event:
         self.tags = tags
         self.content = content
         self.sig = sig
-        # TODO: to remove valid_id and valid_sig and content_obj and reject the event creation if they are not valid
         try:
             self.content_obj = json.loads(re.sub(r"\\", "", self.content))
         except json.JSONDecodeError:
             self.content_obj = None
-        self.valid_id = calc_event_id(
-            self.pubkey, self.created_at, self.kind, self.tags, self.content) == self.id
-        self.valid_sig = verify_signature(self.id, self.pubkey, self.sig)
         return
 
     def __repr__(self) -> str:
@@ -169,7 +173,7 @@ class Event:
         >>> sig = "0x123"
         >>> event = Event(id, pubkey, created_at, kind, tags, content, sig)
         >>> event.to_dict()
-        {'id': '0x123', 'pubkey': '0x123', 'created_at': 1612137600, 'kind': 0, 'tags': [['tag1', 'tag2']], 'content': 'content', 'sig': '0x123'}
+        {'id': '0x123', 'pubkey': '0x123', 'created_at': 1612137600, 'kind': 0, 'tags': [['tag1', 'tag2']], 'content': 'content', 'sig': '0x123', 'content_obj': None}
 
         Returns:
         - dict, dictionary representation of the Event object
@@ -177,4 +181,4 @@ class Event:
         Raises:
         - None
         """
-        return {"id": self.id, "pubkey": self.pubkey, "created_at": self.created_at, "kind": self.kind, "tags": self.tags, "content": self.content, "sig": self.sig}
+        return {"id": self.id, "pubkey": self.pubkey, "created_at": self.created_at, "kind": self.kind, "tags": self.tags, "content": self.content, "sig": self.sig, "content_obj": self.content_obj}
