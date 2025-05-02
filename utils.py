@@ -4,12 +4,18 @@ import bech32
 import secp256k1
 
 
-def npub_to_hex(npub: str) -> str:
-    if not npub.startswith('npub'):
-        None
-    hrp, data = bech32.bech32_decode(npub)
-    decoded_bytes = bech32.convertbits(data, 5, 8, False)
-    return bytes(decoded_bytes).hex()
+def calc_event_id(public_key: str, created_at: int, kind_number: int, tags: list, content: str) -> str:
+    content = content.replace(r'\n', '\n').replace(r'\"', '\"').replace(r'\\', '\\').replace(
+        r'\r', '\r').replace(r'\t', '\t').replace(r'\b', '\b').replace(r'\f', '\f')
+    data = [0, public_key, created_at, kind_number, tags, content]
+    data_str = json.dumps(data, separators=(',', ':'), ensure_ascii=False)
+    return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
+
+
+# def generate_keypair() -> tuple:
+#     private_key = secp256k1.PrivateKey()
+#     public_key = private_key.pubkey
+#     return private_key.bech32(), public_key.bech32()
 
 
 def hex_to_npub(hex_str: str) -> str:
@@ -19,19 +25,19 @@ def hex_to_npub(hex_str: str) -> str:
     return npub
 
 
+def npub_to_hex(npub: str) -> str:
+    if not npub.startswith('npub'):
+        None
+    hrp, data = bech32.bech32_decode(npub)
+    decoded_bytes = bech32.convertbits(data, 5, 8, False)
+    return bytes(decoded_bytes).hex()
+
+
 def sign_event_id(event_id: str, private_key_hex: str) -> str:
     private_key = secp256k1.PrivateKey(bytes.fromhex(private_key_hex))
     sig = private_key.schnorr_sign(
         bytes.fromhex(event_id), bip340tag=None, raw=True)
     return sig.hex()
-
-
-def calc_event_id(public_key: str, created_at: int, kind_number: int, tags: list, content: str) -> str:
-    content = content.replace(r'\n', '\n').replace(r'\"', '\"').replace(r'\\', '\\').replace(
-        r'\r', '\r').replace(r'\t', '\t').replace(r'\b', '\b').replace(r'\f', '\f')
-    data = [0, public_key, created_at, kind_number, tags, content]
-    data_str = json.dumps(data, separators=(',', ':'), ensure_ascii=False)
-    return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
 
 
 def verify_signature(event_id: str, pubkey: str, sig: str) -> bool:
