@@ -25,7 +25,7 @@ class Event:
     - to_dict() -> dict: return the Event object as a dictionary
     """
 
-    def __init__(self, id: str, pubkey: str, created_at: int, kind: int, tags: List[List[str]], content: str, sig: str) -> None:
+    def __init__(self, id: str, pubkey: str, created_at: int, kind: int, tags: List[List[str]], content: str, sig: str) -> "Event":
         """
         Initialize an Event object.
 
@@ -50,7 +50,7 @@ class Event:
         >>> event = Event(id, pubkey, created_at, kind, tags, content, sig)
 
         Returns:
-        - None
+        - Event, Event object initialized with the provided parameters
 
         Raises:
         - TypeError: if id is not a str
@@ -110,13 +110,6 @@ class Event:
         - None
 
         Example:
-        >>> id = "0x123"
-        >>> pubkey = "0x123"
-        >>> created_at = 1612137600
-        >>> kind = 0
-        >>> tags = [["tag1", "tag2"]]
-        >>> content = "content"
-        >>> sig = "0x123"
         >>> event = Event(id, pubkey, created_at, kind, tags, content, sig)
         >>> event
         Event(id=0x123, pubkey=0x123, created_at=1612137600, kind=0, tags=[["tag1", "tag2"]], content=content, sig=0x123)
@@ -164,13 +157,6 @@ class Event:
         - None
 
         Example:
-        >>> id = "0x123"
-        >>> pubkey = "0x123"
-        >>> created_at = 1612137600
-        >>> kind = 0
-        >>> tags = [["tag1", "tag2"]]
-        >>> content = "content"
-        >>> sig = "0x123"
         >>> event = Event(id, pubkey, created_at, kind, tags, content, sig)
         >>> event.to_dict()
         {'id': '0x123', 'pubkey': '0x123', 'created_at': 1612137600, 'kind': 0, 'tags': [['tag1', 'tag2']], 'content': 'content', 'sig': '0x123', 'content_obj': None}
