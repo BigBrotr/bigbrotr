@@ -28,8 +28,8 @@ CREATE TABLE IF NOT EXISTS relays (
     network TEXT NOT NULL                                                   -- Network name (clear, tor, etc.)
 );
 
--- Create a table for event_relay
-CREATE TABLE IF NOT EXISTS event_relay (
+-- Create a table for events_relays
+CREATE TABLE IF NOT EXISTS events_relays (
     event_id CHAR(64) NOT NULL,                                             -- Event id, fixed length 64 characters
     relay_url TEXT NOT NULL,                                                -- Relay URL
     seen_at BIGINT NOT NULL,                                                -- Timestamp of when the event was seen at the relay
@@ -40,8 +40,8 @@ CREATE TABLE IF NOT EXISTS event_relay (
 );
 
 -- Indexes for faster queries
-CREATE INDEX IF NOT EXISTS idx_event_relay_event_id ON event_relay USING BTREE (event_id);      -- Index on event_id
-CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url ON event_relay USING BTREE (relay_url);    -- Index on relay_url
+CREATE INDEX IF NOT EXISTS idx_events_relays_event_id ON events_relays USING BTREE (event_id);      -- Index on event_id
+CREATE INDEX IF NOT EXISTS idx_events_relays_relay_url ON events_relays USING BTREE (relay_url);    -- Index on relay_url
 
 -- Create a table for relay_metadata
 CREATE TABLE IF NOT EXISTS relay_metadata (
@@ -81,16 +81,16 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_limitations ON relay_metadata USIN
 -- CONSTRAINTS
 -- ============================
 
--- event <-(1,N)----(1,1)-> event_relay <-(1,1)----(0,N)-> relays <-(0,N)----(1,1)-> relay_metadata
+-- event <-(1,N)----(1,1)-> events_relays <-(1,1)----(0,N)-> relays <-(0,N)----(1,1)-> relay_metadata
 
 -- function to delete orphan events
--- This function deletes events that are not referenced in the event_relay table
+-- This function deletes events that are not referenced in the events_relays table
 CREATE OR REPLACE FUNCTION delete_orphan_events() RETURNS VOID AS $$
 BEGIN
     DELETE FROM events e
     WHERE NOT EXISTS (
         SELECT 1
-        FROM event_relay er
+        FROM events_relays er
         WHERE er.event_id = e.id
     );
 END;
@@ -122,8 +122,8 @@ BEGIN
     INSERT INTO relays (url, network)
     VALUES (p_relay_url, p_relay_network)
     ON CONFLICT (url) DO NOTHING;
-    -- Insert the event-relay relation into the event_relay table
-    INSERT INTO event_relay (event_id, relay_url, seen_at)
+    -- Insert the event-relay relation into the events_relays table
+    INSERT INTO events_relays (event_id, relay_url, seen_at)
     VALUES (p_id, p_relay_url, p_seen_at)
     ON CONFLICT (event_id, relay_url) DO NOTHING;
 END;
