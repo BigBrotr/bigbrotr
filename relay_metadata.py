@@ -76,7 +76,7 @@ class RelayMetadata:
         - icon: Optional[str], the URL of the icon image
         - pubkey: Optional[str], the public key of the relay
         - contact: Optional[str], the contact information for the relay
-        - supported_nips: Optional[List[int]], a list of supported NIPs (NOSTR Improvement Possibilities)
+        - supported_nips: Optional[List[int]], a list of supported NIPs
         - software: Optional[str], the software used by the relay
         - version: Optional[str], the version of the software
         - privacy_policy: Optional[str], the URL of the privacy policy
