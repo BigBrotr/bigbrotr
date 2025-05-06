@@ -93,7 +93,7 @@ def verify_signature(event_id: str, pubkey: str, sig: str) -> bool:
     - ValueError: If the public key or signature is invalid.
     """
     try:
-        pub_key = secp256k1.PublicKey(bytes.fromhex("02" + pubkey), True)
+        pub_key = secp256k1.PublicKey(bytes.fromhex(pubkey), True)
         result = pub_key.schnorr_verify(bytes.fromhex(
             event_id), bytes.fromhex(sig), None, raw=True)
         return result
