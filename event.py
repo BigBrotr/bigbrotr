@@ -60,6 +60,7 @@ class Event:
         - TypeError: if tags is not a list of lists of str
         - TypeError: if content is not a str
         - TypeError: if sig is not a str
+        - ValueError: if kind is not between 0 and 65535
         - ValueError: if the event id is invalid
         - ValueError: if the event signature is invalid
         """
@@ -85,6 +86,8 @@ class Event:
             raise TypeError(f"content must be a str, not {type(content)}")
         if not isinstance(sig, str):
             raise TypeError(f"sig must be a str, not {type(sig)}")
+        if kind < 0 or kind > 65535:
+            raise ValueError(f"kind must be between 0 and 65535, not {kind}")
         if calc_event_id(pubkey, created_at, kind, tags, content) != id:
             raise ValueError(f"Invalid event id: {id}")
         if verify_signature(id, pubkey, sig) != True:
