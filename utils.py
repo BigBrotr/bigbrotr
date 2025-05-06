@@ -101,6 +101,42 @@ def verify_signature(event_id: str, pubkey: str, sig: str) -> bool:
         return False
 
 
+def generate_event(sec, pub, created_at, kind, tags, content):
+    """
+    Generate an event with the given parameters.
+
+    Parameters:
+    - sec (str): The private key in hexadecimal format.
+    - pub (str): The public key in hexadecimal format.
+    - created_at (int): The timestamp of the event.
+    - kind (int): The kind of event.
+    - tags (list): A list of tags associated with the event.
+    - content (str): The content of the event.
+
+    Returns:
+    - dict: A dictionary representing the event, containing:
+        - id: The event ID.
+        - pubkey: The public key of the user.
+        - created_at: The timestamp of the event.
+        - kind: The kind of event.
+        - tags: A list of tags associated with the event.
+        - content: The content of the event.
+        - sig: The signature of the event ID.
+    """
+    event_id = calc_event_id(pub, created_at, kind, tags, content)
+    sig = sign_event_id(event_id, sec)
+    event = {
+        "id": event_id,
+        "pubkey": pub,
+        "created_at": created_at,
+        "kind": kind,
+        "tags": tags,
+        "content": content,
+        "sig": sig
+    }
+    return event
+
+
 def generate_keypair():
     """
     Generate a new secp256k1 key pair.
