@@ -1,8 +1,7 @@
 import json
 import hashlib
+import coincurve
 import bech32
-import secp256k1
-import subprocess
 
 
 def calc_event_id(pubkey: str, created_at: int, kind: int, tags: list, content: str) -> str:
@@ -18,7 +17,7 @@ def calc_event_id(pubkey: str, created_at: int, kind: int, tags: list, content: 
 
     Example:
     >>> calc_event_id('pubkey', 1234567890, 1, [['tag1', 'tag2']], 'Hello, World!')
-    'd2c3f4e5b6a7c8d9e0f1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v3'
+    'e41d2f51b631d627f1c5ed83d66e1535ac0f1542a94db987c93f758c364a7600'
 
     Returns:
     - str: The calculated event ID as a hexadecimal string.
@@ -55,7 +54,7 @@ def calc_event_id(pubkey: str, created_at: int, kind: int, tags: list, content: 
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
 
 
-def sign_event_id(event_id: str, private_key_hex: str) -> str:
+def sig_event_id(event_id: str, private_key_hex: str) -> str:
     """
     Sign the event ID using the provided private key.
 
@@ -70,13 +69,17 @@ def sign_event_id(event_id: str, private_key_hex: str) -> str:
     - TypeError: If input parameters are not strings.
     - ValueError: If the private key is invalid.
     """
-    private_key = secp256k1.PrivateKey(bytes.fromhex(private_key_hex))
-    sig = private_key.schnorr_sign(
-        bytes.fromhex(event_id), bip340tag=None, raw=True)
-    return sig.hex()
+    if not isinstance(event_id, str):
+        raise TypeError(f"event_id must be a str, not {type(event_id)}")
+    if not isinstance(private_key_hex, str):
+        raise TypeError(
+            f"private_key_hex must be a str, not {type(private_key_hex)}")
+    private_key = coincurve.PrivateKey(bytes.fromhex(private_key_hex))
+    signature = private_key.sign_schnorr(bytes.fromhex(event_id))
+    return signature.hex()
 
 
-def verify_signature(event_id: str, pubkey: str, sig: str) -> bool:
+def verify_sig(event_id: str, pubkey: str, sig: str) -> bool:
     """
     Verify the signature of an event ID using the provided public key.
 
@@ -92,13 +95,19 @@ def verify_signature(event_id: str, pubkey: str, sig: str) -> bool:
     - TypeError: If inputs are not strings.
     - ValueError: If the public key or signature is invalid.
     """
-    try:
-        pub_key = secp256k1.PublicKey(bytes.fromhex(pubkey), True)
-        result = pub_key.schnorr_verify(bytes.fromhex(
-            event_id), bytes.fromhex(sig), None, raw=True)
-        return result
-    except (ValueError, TypeError):
-        return False
+    if not isinstance(event_id, str):
+        raise TypeError(f"event_id must be a str, not {type(event_id)}")
+    if not isinstance(pubkey, str):
+        raise TypeError(f"pubkey must be a str, not {type(pubkey)}")
+    if not isinstance(sig, str):
+        raise TypeError(f"sig must be a str, not {type(sig)}")
+    if len(pubkey) != 64:
+        raise ValueError(f"Invalid public key length: {len(pubkey)}")
+    if len(sig) != 128:
+        raise ValueError(f"Invalid signature length: {len(sig)}")
+    pubkey_bytes = bytes.fromhex(pubkey)
+    sig_bytes = bytes.fromhex(sig)
+    return coincurve.PublicKey(pubkey_bytes).verify_schnorr(sig_bytes, bytes.fromhex(event_id))
 
 
 def generate_event(sec, pub, created_at, kind, tags, content):
@@ -124,7 +133,7 @@ def generate_event(sec, pub, created_at, kind, tags, content):
         - sig: The signature of the event ID.
     """
     event_id = calc_event_id(pub, created_at, kind, tags, content)
-    sig = sign_event_id(event_id, sec)
+    sig = sig_event_id(event_id, sec)
     event = {
         "id": event_id,
         "pubkey": pub,
@@ -137,100 +146,21 @@ def generate_event(sec, pub, created_at, kind, tags, content):
     return event
 
 
-def generate_keypair():
-    """
-    Generate a new secp256k1 key pair.
-
-    Returns:
-    - tuple: A tuple containing:
-        - str: The private key in hexadecimal format.
-        - str: The compressed public key in hexadecimal format.
-    """
-    def generate_hex_private_key():
-        result = subprocess.run(
-            ["openssl", "rand", "-hex", "32"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        return result.stdout.strip()
-
-    def derive_public_key(hex_key):
-        priv_key_bytes = bytes.fromhex(hex_key)
-        privkey_obj = secp256k1.PrivateKey(privkey=priv_key_bytes, raw=True)
-        pubkey_serialized = privkey_obj.pubkey.serialize(compressed=True)
-        return pubkey_serialized.hex()
-
-    hex_private_key = generate_hex_private_key()
-    hex_public_key = derive_public_key(hex_private_key)
-    return hex_private_key, hex_public_key
+def to_bech32(prefix: str, hex_str: str) -> str:
+    data = bytes.fromhex(hex_str)
+    five_bit_data = bech32.convertbits(data, 8, 5, True)
+    return bech32.bech32_encode(prefix, five_bit_data)
 
 
-def hex_to_nsec(hex_str: str) -> str:
-    """
-    Convert a hexadecimal private key to a Bech32 encoded 'nsec' string.
-
-    Parameters:
-    - hex_str (str): The private key in hexadecimal format.
-
-    Returns:
-    - str: The corresponding Bech32 encoded 'nsec' string.
-    """
-    byte_data = bytes.fromhex(hex_str)
-    data = bech32.convertbits(byte_data, 8, 5, True)
-    return bech32.bech32_encode('nsec', data)
+def to_hex(bech32_str: str) -> str:
+    prefix, data = bech32.bech32_decode(bech32_str)
+    if prefix is None or data is None:
+        raise ValueError("Invalid Bech32 string")
+    hex_data = bech32.convertbits(data, 5, 8, False)
+    return bytes(hex_data).hex()
 
 
-def hex_to_npub(hex_str: str) -> str:
-    """
-    Convert a hexadecimal public key to a Bech32 encoded 'npub' string.
-
-    Parameters:
-    - hex_str (str): The public key in hexadecimal format.
-
-    Returns:
-    - str: The corresponding Bech32 encoded 'npub' string.
-    """
-    byte_data = bytes.fromhex(hex_str)
-    data = bech32.convertbits(byte_data, 8, 5, True)
-    return bech32.bech32_encode('npub', data)
-
-
-def npub_to_hex(npub: str) -> str:
-    """
-    Convert a Bech32 encoded 'npub' string back to hexadecimal format.
-
-    Parameters:
-    - npub (str): The Bech32 encoded 'npub' string.
-
-    Returns:
-    - str: The public key in hexadecimal format.
-
-    Raises:
-    - ValueError: If the input does not start with 'npub' or decoding fails.
-    """
-    if not npub.startswith('npub'):
-        raise ValueError("Invalid npub format")
-    hrp, data = bech32.bech32_decode(npub)
-    decoded_bytes = bech32.convertbits(data, 5, 8, False)
-    return bytes(decoded_bytes).hex()
-
-
-def nsec_to_hex(nsec: str) -> str:
-    """
-    Convert a Bech32 encoded 'nsec' string back to hexadecimal format.
-
-    Parameters:
-    - nsec (str): The Bech32 encoded 'nsec' string.
-
-    Returns:
-    - str: The private key in hexadecimal format.
-
-    Raises:
-    - ValueError: If the input does not start with 'nsec' or decoding fails.
-    """
-    if not nsec.startswith('nsec'):
-        raise ValueError("Invalid nsec format")
-    hrp, data = bech32.bech32_decode(nsec)
-    decoded_bytes = bech32.convertbits(data, 5, 8, False)
-    return bytes(decoded_bytes).hex()
+def generate_nostr_keypair():
+    sk = coincurve.PrivateKey()
+    pk = sk.public_key.format(compressed=True)[1:]
+    return sk.to_hex(), pk.hex()
