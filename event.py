@@ -1,7 +1,7 @@
 from typing import List
 import re
 import json
-from utils import calc_event_id, verify_signature
+from utils import calc_event_id, verify_sig
 
 
 class Event:
@@ -90,7 +90,7 @@ class Event:
             raise ValueError(f"kind must be between 0 and 65535, not {kind}")
         if calc_event_id(pubkey, created_at, kind, tags, content) != id:
             raise ValueError(f"Invalid event id: {id}")
-        if verify_signature(id, pubkey, sig) != True:
+        if verify_sig(id, pubkey, sig) != True:
             raise ValueError(f"Invalid event signature: {sig}")
         self.id = id
         self.pubkey = pubkey
