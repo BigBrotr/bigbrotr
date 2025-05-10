@@ -1,6 +1,7 @@
 import re
 import utils
 
+
 class Relay:
     """
     Class to represent a NOSTR relay.
@@ -38,7 +39,8 @@ class Relay:
             raise TypeError(f"url must be a str, not {type(url)}")
         urls = utils.find_websoket_relays(url)
         if urls == []:
-            raise ValueError(f"Invalid URL format: {url}. Must be a valid clearnet or tor websocket URL.")
+            raise ValueError(
+                f"Invalid URL format: {url}. Must be a valid clearnet or tor websocket URL.")
         url = urls[0].split("/")[2]
         if url.rpartition(":")[0].endswith(".onion"):
             self.network = "tor"
@@ -57,7 +59,7 @@ class Relay:
         >>> url = "wss://relay.nostr.com"
         >>> relay = Relay(url)
         >>> relay
-        Relay(url=wss://relay.nostr.com, network=clearnet)
+        Relay(url=relay.nostr.com, network=clearnet)
 
         Returns:
         - str, string representation of the Relay object
@@ -79,7 +81,7 @@ class Relay:
         >> > data = {"url": "wss://relay.nostr.com"}
         >> > relay = Relay.from_dict(data)
         >> > relay
-        Relay(url=wss://relay.nostr.com, network=clearnet)
+        Relay(url=relay.nostr.com, network=clearnet)
 
         Returns:
         - Relay, a Relay object
@@ -105,7 +107,7 @@ class Relay:
         >> > url = "wss://relay.nostr.com"
         >> > relay = Relay(url)
         >> > relay.to_dict()
-        {"url": "wss://relay.nostr.com", "network": "clearnet"}
+        {"url": "relay.nostr.com", "network": "clearnet"}
 
         Returns:
         - dict, dictionary representation of the Relay object
