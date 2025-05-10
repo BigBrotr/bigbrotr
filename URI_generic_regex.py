@@ -61,9 +61,10 @@ URI_GENERIC_REGEX = r'''
         (?P<domain>                             # Group 6 for domain part
             (?:                                 # Non-capturing group for domain labels:
                 [a-zA-Z0-9]                     # Label must start with a letter or digit
-                (?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])? # Middle part (0–61 chars) ending in letter/digit (no trailing hyphen)
-            )+                                    # Repeat for each subdomain
-            \.                                  # Dot before TLD
+                (?:[a-zA-Z0-9-]{0,61}           # Label can contain letters, digits, and hyphens
+                [a-zA-Z0-9])?                   # Label must end with a letter or digit
+                \.                              # Dot separating labels
+            )*                                    # Repeat for each subdomain
             [a-zA-Z]{2,}                         # TLD must be at least 2 alphabetic characters
         )                                        # End of domain group
         
