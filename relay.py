@@ -1,5 +1,5 @@
 import re
-
+import utils
 
 class Relay:
     """
@@ -36,14 +36,15 @@ class Relay:
         """
         if not isinstance(url, str):
             raise TypeError(f"url must be a str, not {type(url)}")
-        if not url.startswith("wss://") and not url.startswith("ws://"):
-            raise ValueError(
-                f"url must start with 'wss://' or 'ws://', not {url}")
-        self.url = url
-        if re.match(r"^(wss://|ws://)?[abcdefghjkmnpqrstuvwxyz234567]{16,56}\.onion(?::(6553[0-5]|655[0-2]\d|65[0-4]\d{2}|6[0-4]\d{3}|[1-5]?\d{1,4}))?/?$", url):
+        urls = utils.find_websoket_relays(url)
+        if urls == []:
+            raise ValueError(f"Invalid URL format: {url}. Must be a valid clearnet or tor websocket URL.")
+        url = urls[0].split("/")[2]
+        if url.rpartition(":")[0].endswith(".onion"):
             self.network = "tor"
         else:
             self.network = "clearnet"
+        self.url = url
 
     def __repr__(self) -> str:
         """
