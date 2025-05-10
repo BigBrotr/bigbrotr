@@ -225,9 +225,9 @@ def find_websoket_relays(text):
             continue
         if port and (port < 0 or port > 65535):
             continue
-        if domain and domain.lower().endswith(".onion") and not re.match(r"^([a-z2-7]{16}|[a-z2-7]{56})\.onion$", domain.lower()):
+        if domain and domain.lower().endswith(".onion") and (not re.match(r"^([a-z2-7]{16}|[a-z2-7]{56})\.onion$", domain.lower())):
             continue
-        if domain and domain.split(".")[-1].upper() not in ugr.TLDS + ["ONION"]:
+        if domain and (domain.split(".")[-1].upper() not in ugr.TLDS + ["ONION"]):
             continue
         port = ":" + str(port) if port else ""
         url = host.lower() + port + path
