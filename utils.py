@@ -6,6 +6,7 @@ import os
 import re
 import URI_generic_regex as ugr
 
+
 def calc_event_id(pubkey: str, created_at: int, kind: int, tags: list, content: str) -> str:
     """
     Calculate the event ID based on the provided parameters.
@@ -162,6 +163,7 @@ def generate_nostr_keypair():
     public_key_hex = public_key.hex()
     return private_key_hex, public_key_hex
 
+
 def to_bech32(prefix, hex_str):
     """
     Convert a hex string to Bech32 format.
@@ -177,6 +179,7 @@ def to_bech32(prefix, hex_str):
     data = bech32.convertbits(byte_data, 8, 5, True)
     return bech32.bech32_encode(prefix, data)
 
+
 def to_hex(bech32_str):
     """
     Convert a Bech32 string to hex format.
@@ -190,6 +193,7 @@ def to_hex(bech32_str):
     prefix, data = bech32.bech32_decode(bech32_str)
     byte_data = bech32.convertbits(data, 5, 8, False)
     return bytes(byte_data).hex()
+
 
 def find_websoket_relays(text):
     """
@@ -214,15 +218,18 @@ def find_websoket_relays(text):
         host = match.group("host")
         port = match.group("port")
         port = int(port[1:]) if port else None
+        path = match.group("path")
+        path = "" if path in ["", "/", None] else "/" + path.strip("/")
         domain = match.group("domain")
-        domain = domain.lower() if domain else None
         if scheme not in ["ws", "wss"]:
             continue
         if port and (port < 0 or port > 65535):
             continue
-        if domain and domain.endswith(".onion") and not re.match(r"^([a-z2-7]{16}|[a-z2-7]{56})\.onion$", domain):
+        if domain and domain.lower().endswith(".onion") and not re.match(r"^([a-z2-7]{16}|[a-z2-7]{56})\.onion$", domain.lower()):
+            continue
+        if domain and domain.split(".")[-1].upper() not in ugr.TLDS + ["ONION"]:
             continue
         port = ":" + str(port) if port else ""
-        url = host.lower() + str(port) if port else host.lower()
+        url = host.lower() + port + path
         result.append(url)
     return result
