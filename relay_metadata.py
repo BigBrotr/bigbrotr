@@ -242,7 +242,7 @@ class RelayMetadata:
         ...     nip11_success=False
         ... )
         >>> print(relay_metadata)
-        RelayMetadata(relay_url=wss://relay.example.com, generated_at=1612137600, connection_success=False, nip11_success=False)
+        RelayMetadata(relay_url=relay.example.com, generated_at=1612137600, connection_success=False, nip11_success=False)
 
         Returns:
         - str, string representation of the RelayMetadata object
@@ -267,7 +267,7 @@ class RelayMetadata:
         ...     "nip11_success": False
         ... }
         >>> relay_metadata = RelayMetadata.from_dict(data)
-        RelayMetadata(relay_url=wss://relay.example.com, generated_at=1612137600, connection_success=False, nip11_success=False)
+        RelayMetadata(relay_url=relay.example.com, generated_at=1612137600, connection_success=False, nip11_success=False)
 
         Returns:
         - RelayMetadata, RelayMetadata object created from the dictionary
@@ -319,7 +319,7 @@ class RelayMetadata:
         ...     nip11_success=False
         ... )
         >>> print(relay_metadata.to_dict())
-        {'relay_url': 'wss://relay.example.com', 'generated_at': 1612137600, 'connection_success': False, 'nip11_success': False}
+        {'relay_url': 'relay.example.com', 'generated_at': 1612137600, 'connection_success': False, 'nip11_success': False}
 
         Returns:
         - dict, dictionary representation of the RelayMetadata object
