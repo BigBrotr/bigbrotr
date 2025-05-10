@@ -3,6 +3,8 @@ import hashlib
 import bech32
 import secp256k1
 import os
+import re
+import URI_generic_regex as ugr
 
 def calc_event_id(pubkey: str, created_at: int, kind: int, tags: list, content: str) -> str:
     """
@@ -188,3 +190,39 @@ def to_hex(bech32_str):
     prefix, data = bech32.bech32_decode(bech32_str)
     byte_data = bech32.convertbits(data, 5, 8, False)
     return bytes(byte_data).hex()
+
+def find_websoket_relays(text):
+    """
+    Find all WebSocket relays in the given text.
+    Parameters:
+    - text (str): The text to search for WebSocket relays.
+    Example:
+    >>> text = "Connect to wss://relay.example.com:443 and ws://relay.example.com"
+    >>> find_websoket_relays(text)
+    ['relay.example.com:443', 'relay.example.com']
+    Returns:
+    - list: A list of WebSocket relay URLs found in the text.
+    Raises:
+    - TypeError: if text is not a str
+    """
+    if not isinstance(text, str):
+        raise TypeError(f"text must be a str, not {type(text)}")
+    result = []
+    matches = re.finditer(ugr.URI_GENERIC_REGEX, text, re.VERBOSE)
+    for match in matches:
+        scheme = match.group("scheme")
+        host = match.group("host")
+        port = match.group("port")
+        port = int(port[1:]) if port else None
+        domain = match.group("domain")
+        domain = domain.lower() if domain else None
+        if scheme not in ["ws", "wss"]:
+            continue
+        if port and (port < 0 or port > 65535):
+            continue
+        if domain and domain.endswith(".onion") and not re.match(r"^([a-z2-7]{16}|[a-z2-7]{56})\.onion$", domain):
+            continue
+        port = ":" + str(port) if port else ""
+        url = host.lower() + str(port) if port else host.lower()
+        result.append(url)
+    return result
