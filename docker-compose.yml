@@ -2,7 +2,7 @@ services:
 
   db:
     image: postgres:latest
-    container_name: bigbrotr_db
+    container_name: bigbrotr_database
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -28,6 +28,16 @@ services:
       - bigbrotr_network
     depends_on:
       - db
+    restart: unless-stopped
+
+  tor:
+    image: dperson/torproxy
+    container_name: bigbrotr_tor_proxy
+    command: "-a"
+    ports:
+      - "127.0.0.1:${TOR_PROXY_PORT}:9050"
+    networks:
+      - bigbrotr_network
     restart: unless-stopped
 
 networks:
