@@ -299,7 +299,7 @@ class Bigbrotr:
         - relay: Relay, the relay to insert
 
         Example:
-        >>> relay = Relay(...)
+        >>> relay = Relay(url="wss://relay.nostr.com")
         >>> bigbrotr.insert_relay(relay)
 
         Returns:
@@ -338,8 +338,8 @@ class Bigbrotr:
                 f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
         query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
         args = (
-            relay_metadata.relay_url,
-            relay_metadata.relay_network,
+            relay_metadata.relay.url,
+            relay_metadata.relay.network,
             relay_metadata.generated_at,
             relay_metadata.connection_success,
             relay_metadata.nip11_success,

@@ -25,8 +25,7 @@ class Relay:
         - url: str, url of the relay
 
         Example:
-        >>> url = "wss://relay.nostr.com"
-        >>> relay = Relay(url)
+        >>> relay = Relay("wss://relay.nostr.com")
 
         Returns:
         - None
@@ -37,12 +36,12 @@ class Relay:
         """
         if not isinstance(url, str):
             raise TypeError(f"url must be a str, not {type(url)}")
-        urls = utils.find_websoket_relays(url)
+        urls = utils.find_websoket_relay_urls(url)
         if urls == []:
             raise ValueError(
                 f"Invalid URL format: {url}. Must be a valid clearnet or tor websocket URL.")
-        url = urls[0].split("/")[2]
-        if url.rpartition(":")[0].endswith(".onion"):
+        url = urls[0]
+        if url[6:].rpartition(":")[0].endswith(".onion"):
             self.network = "tor"
         else:
             self.network = "clearnet"
@@ -56,8 +55,7 @@ class Relay:
         - None
 
         Example:
-        >>> url = "wss://relay.nostr.com"
-        >>> relay = Relay(url)
+        >>> relay = Relay("wss://relay.nostr.com")
         >>> relay
         Relay(url=relay.nostr.com, network=clearnet)
 
@@ -78,9 +76,9 @@ class Relay:
         - data: dict, dictionary to create the Relay object from
 
         Example:
-        >> > data = {"url": "wss://relay.nostr.com"}
-        >> > relay = Relay.from_dict(data)
-        >> > relay
+        >>> data = {"url": "wss://relay.nostr.com"}
+        >>> relay = Relay.from_dict(data)
+        >>> relay
         Relay(url=relay.nostr.com, network=clearnet)
 
         Returns:
@@ -104,9 +102,8 @@ class Relay:
         - None
 
         Example:
-        >> > url = "wss://relay.nostr.com"
-        >> > relay = Relay(url)
-        >> > relay.to_dict()
+        >>> relay = Relay("wss://relay.nostr.com")
+        >>> relay.to_dict()
         {"url": "relay.nostr.com", "network": "clearnet"}
 
         Returns:

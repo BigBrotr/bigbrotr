@@ -7,8 +7,7 @@ class RelayMetadata:
     Class to represent metadata associated with a NOSTR relay.
 
     Attributes:
-    - relay_url: str, the URL of the relay
-    - relay_network: str, the network of the relay
+    - relay: Relay, the relay object
     - generated_at: int, the timestamp when the metadata was generated
     - connection_success: bool, indicates if the connection to the relay was successful
     - nip11_success: bool, indicates if the NIP-11 metadata was successfully retrieved
@@ -85,9 +84,8 @@ class RelayMetadata:
         - extra_fields: Optional[Dict[str, Any]], additional fields for custom metadata
 
         Example:
-        >>> relay = Relay("wss://relay.example.com")
         >>> relay_metadata = RelayMetadata(
-        ...     relay=relay,
+        ...     relay=Relay("wss://relay.example.com"),
         ...     generated_at=1612137600,
         ...     connection_success=True,
         ...     nip11_success=True,
@@ -207,9 +205,7 @@ class RelayMetadata:
                 if not isinstance(key, str):
                     raise TypeError(
                         f"extra_fields keys must be strings, not {type(key)}")
-        # Relay(relay_url) # to be shure that relay_url is valid
-        self.relay_url = relay.url
-        self.relay_network = relay.network
+        self.relay = relay
         self.generated_at = generated_at
         self.connection_success = connection_success
         self.nip11_success = nip11_success
@@ -236,13 +232,13 @@ class RelayMetadata:
 
         Example:
         >>> relay_metadata = RelayMetadata(
-        ...     relay_url="wss://relay.example.com",
+        ...     relay=Relay("wss://relay.example.com"),
         ...     generated_at=1612137600,
         ...     connection_success=False,
         ...     nip11_success=False
         ... )
         >>> print(relay_metadata)
-        RelayMetadata(relay_url=relay.example.com, generated_at=1612137600, connection_success=False, nip11_success=False)
+        RelayMetadata(relay=Relay(url=wss://relay.example.com, network=clearnet), generated_at=1612137600, connection_success=False, nip11_success=False)
 
         Returns:
         - str, string representation of the RelayMetadata object
@@ -250,7 +246,7 @@ class RelayMetadata:
         Raises:
         - None
         """
-        return f"RelayMetadata(relay_url={self.relay_url}, generated_at={self.generated_at}, connection_success={self.connection_success}, nip11_success={self.nip11_success}"
+        return f"RelayMetadata(relay={self.relay}, generated_at={self.generated_at}, connection_success={self.connection_success}, nip11_success={self.nip11_success})"
 
     @staticmethod
     def from_dict(data: dict) -> "RelayMetadata":
@@ -261,13 +257,13 @@ class RelayMetadata:
         - data: dict, dictionary representation of the RelayMetadata object
         Example:
         >>> data = {
-        ...     "relay_url": "wss://relay.example.com",
+        ...     "relay": Relay("wss://relay.example.com"),
         ...     "generated_at": 1612137600,
         ...     "connection_success": False,
         ...     "nip11_success": False
         ... }
         >>> relay_metadata = RelayMetadata.from_dict(data)
-        RelayMetadata(relay_url=relay.example.com, generated_at=1612137600, connection_success=False, nip11_success=False)
+        RelayMetadata(relay=Relay(url=wss://relay.example.com, network=clearnet), generated_at=1612137600, connection_success=False, nip11_success=False)
 
         Returns:
         - RelayMetadata, RelayMetadata object created from the dictionary
@@ -278,14 +274,13 @@ class RelayMetadata:
         """
         if not isinstance(data, dict):
             raise TypeError(f"data must be a dict, not {type(data)}")
-        required_keys = ["relay_url", "generated_at",
+        required_keys = ["relay", "generated_at",
                          "connection_success", "nip11_success"]
         for key in required_keys:
             if key not in data:
                 raise KeyError(f"data must contain key {key}")
-        relay = Relay(data["relay_url"])
         return RelayMetadata(
-            relay=relay,
+            relay=data["relay"],
             generated_at=data["generated_at"],
             connection_success=data["connection_success"],
             nip11_success=data["nip11_success"],
@@ -313,13 +308,13 @@ class RelayMetadata:
 
         Example:
         >>> relay_metadata = RelayMetadata(
-        ...     relay_url="wss://relay.example.com",
+        ...     relay=Relay("wss://relay.example.com"),
         ...     generated_at=1612137600,
         ...     connection_success=False,
         ...     nip11_success=False
         ... )
         >>> print(relay_metadata.to_dict())
-        {'relay_url': 'relay.example.com', 'generated_at': 1612137600, 'connection_success': False, 'nip11_success': False}
+        {'relay': Relay(url=wss://relay.example.com, network=clearnet), 'generated_at': 1612137600, 'connection_success': False, 'nip11_success': False}
 
         Returns:
         - dict, dictionary representation of the RelayMetadata object
@@ -328,7 +323,7 @@ class RelayMetadata:
         - None
         """
         return {
-            "relay_url": self.relay_url,
+            "relay": self.relay,
             "generated_at": self.generated_at,
             "connection_success": self.connection_success,
             "nip11_success": self.nip11_success,

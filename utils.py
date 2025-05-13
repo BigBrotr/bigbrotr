@@ -195,15 +195,15 @@ def to_hex(bech32_str):
     return bytes(byte_data).hex()
 
 
-def find_websoket_relays(text):
+def find_websoket_relay_urls(text):
     """
     Find all WebSocket relays in the given text.
     Parameters:
     - text (str): The text to search for WebSocket relays.
     Example:
     >>> text = "Connect to wss://relay.example.com:443 and ws://relay.example.com"
-    >>> find_websoket_relays(text)
-    ['relay.example.com:443', 'relay.example.com']
+    >>> find_websoket_relay_urls(text)
+    ['wss://relay.example.com:443', 'wss://relay.example.com']
     Returns:
     - list: A list of WebSocket relay URLs found in the text.
     Raises:
@@ -230,6 +230,6 @@ def find_websoket_relays(text):
         if domain and (domain.split(".")[-1].upper() not in ugr.TLDS + ["ONION"]):
             continue
         port = ":" + str(port) if port else ""
-        url = host.lower() + port + path
+        url = "wss://" + host.lower() + port + path
         result.append(url)
     return result
