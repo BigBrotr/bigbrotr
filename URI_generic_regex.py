@@ -64,7 +64,7 @@ URI_GENERIC_REGEX = r'''
                 (?:[a-zA-Z0-9-]{0,61}           # Label can contain letters, digits, and hyphens
                 [a-zA-Z0-9])?                   # Label must end with a letter or digit
                 \.                              # Dot separating labels
-            )*                                    # Repeat for each subdomain
+            )+                                    # Repeat for each subdomain
             [a-zA-Z]{2,}                         # TLD must be at least 2 alphabetic characters
         )                                        # End of domain group
         
@@ -112,10 +112,10 @@ if __name__ == "__main__":
         - http://example.com/path/to/resource?query=string#fragment
         - https://www.example.com/path/to/file?query=123#fragment
         - ftp://username:password@ftp.example.org:21/path/to/file
-        - http://localhost:8080/test
+        x http://localhost:8080/test
         - https://example.com/path/to/resource?query=string#fragment.
         - http://[1080:0:0:0:8:800:200C:417A]/index.html
-        x ssh://user@host:22/path/to/file
+        - ssh://user@host.com:22/path/to/file
         - telnet://example.com:23
         x mailto:example.gmail.com
         - https://example.com/path/to/resource?query=string#fragment,
