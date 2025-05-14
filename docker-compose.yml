@@ -30,20 +30,13 @@ services:
       - db
     restart: unless-stopped
 
-  tor:
+  torproxy:
     image: dperson/torproxy
-    container_name: bigbrotr_tor_proxy
-    command: "-a"
-    ports:
-      - "127.0.0.1:${TOR_PROXY_PORT}:9050"
+    container_name: bigbrotr_torproxy
+    restart: unless-stopped
     networks:
       - bigbrotr_network
-    restart: unless-stopped
 
 networks:
   bigbrotr_network:
     driver: bridge
-
-volumes:
-  bigbrotr_data:
-    driver: local
