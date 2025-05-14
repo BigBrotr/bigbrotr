@@ -1,5 +1,5 @@
 import psycopg2
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 from event import Event
 from relay import Relay
 from relay_metadata import RelayMetadata
@@ -361,5 +361,138 @@ class Bigbrotr:
             relay_metadata.extra_fields
         )
         self.execute(query, args)
+        self.commit()
+        return
+
+    def insert_event_batch(self, events: list[Event], relay: Relay, seen_at: int) -> None:
+        """
+        Insert a batch of events into the database.
+
+        Parameters:
+        - events: list[Event], the events to insert
+        - relay: Relay, the relay to insert
+        - seen_at: int, the time the event was seen
+
+        Example:
+        >>> events = [Event(...), Event(...)]
+        >>> relay = Relay(...)
+        >>> seen_at = 1234567890
+        >>> bigbrotr.insert_event_batch(events, relay, seen_at)
+
+        Returns:
+        - None
+
+        Raises:
+        - TypeError: if events is not a list of Event
+        - TypeError: if relay is not a Relay
+        - TypeError: if seen_at is not an int
+        """
+        if not isinstance(events, list):
+            raise TypeError(f"events must be a list, not {type(events)}")
+        for event in events:
+            if not isinstance(event, Event):
+                raise TypeError(
+                    f"event must be an Event, not {type(event)}")
+        if not isinstance(relay, Relay):
+            raise TypeError(f"relay must be a Relay, not {type(relay)}")
+        if not isinstance(seen_at, int):
+            raise TypeError(f"seen_at must be an int, not {type(seen_at)}")
+        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s)"
+        args = [
+            (event.id,
+             event.pubkey,
+             event.created_at,
+             event.kind,
+             event.tags,
+             event.content,
+             event.sig,
+             relay.url,
+             relay.network,
+             seen_at)
+            for event in events
+        ]
+        self.cur.executemany(query, args)
+        self.commit()
+        return
+
+    def insert_relay_batch(self, relays: list[Relay]) -> None:
+        """
+        Insert a batch of relays into the database.
+
+        Parameters:
+        - relays: list[Relay], the relays to insert
+
+        Example:
+        >>> relays = [Relay(url="wss://relay1.com"), Relay(url="wss://relay2.com")]
+        >>> bigbrotr.insert_relay_batch(relays)
+
+        Returns:
+        - None
+
+        Raises:
+        - TypeError: if relays is not a list of Relay
+        """
+        if not isinstance(relays, list):
+            raise TypeError(f"relays must be a list, not {type(relays)}")
+        for relay in relays:
+            if not isinstance(relay, Relay):
+                raise TypeError(
+                    f"relay must be a Relay, not {type(relay)}")
+        query = "SELECT insert_relay(%s, %s)"
+        args = [(relay.url, relay.network) for relay in relays]
+        self.cur.executemany(query, args)
+        self.commit()
+        return
+
+    def insert_relay_metadata_batch(self, relay_metadata_list: list[RelayMetadata]) -> None:
+        """
+        Insert a batch of relay metadata into the database.
+
+        Parameters:
+        - relay_metadata_list: list[RelayMetadata], the relay metadata to insert
+
+        Example:
+        >>> relay_metadata_list = [RelayMetadata(...), RelayMetadata(...)]
+        >>> bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
+
+        Returns:
+        - None
+
+        Raises:
+        - TypeError: if relay_metadata_list is not a list of RelayMetadata
+        """
+        if not isinstance(relay_metadata_list, list):
+            raise TypeError(
+                f"relay_metadata_list must be a list, not {type(relay_metadata_list)}")
+        for relay_metadata in relay_metadata_list:
+            if not isinstance(relay_metadata, RelayMetadata):
+                raise TypeError(
+                    f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
+        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
+        args = [
+            (relay_metadata.relay.url,
+             relay_metadata.relay.network,
+             relay_metadata.generated_at,
+             relay_metadata.connection_success,
+             relay_metadata.nip11_success,
+             relay_metadata.readable,
+             relay_metadata.writable,
+             relay_metadata.rtt,
+             relay_metadata.name,
+             relay_metadata.description,
+             relay_metadata.banner,
+             relay_metadata.icon,
+             relay_metadata.pubkey,
+             relay_metadata.contact,
+             relay_metadata.supported_nips,
+             relay_metadata.software,
+             relay_metadata.version,
+             relay_metadata.privacy_policy,
+             relay_metadata.terms_of_service,
+             relay_metadata.limitations,
+             relay_metadata.extra_fields)
+            for relay_metadata in relay_metadata_list
+        ]
+        self.cur.executemany(query, args)
         self.commit()
         return
