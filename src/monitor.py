@@ -4,8 +4,12 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from bigbrotr import Bigbrotr
+from relay import Relay
 from aiohttp import ClientSession, WSMsgType
 from aiohttp_socks import ProxyConnector
+from itertools import islice
+import time
+from multiprocessing import Pool, cpu_count
 
 # --- Logging Config ---
 logging.basicConfig(
@@ -15,10 +19,16 @@ logging.basicConfig(
 )
 
 
+# --- Chunkify Function ---
+def chunkify(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+
 # --- Config Loader ---
 def load_config_from_env():
     try:
-        return {
+        config = {
             "dbhost": str(os.environ["POSTGRES_HOST"]),
             "dbuser": str(os.environ["POSTGRES_USER"]),
             "dbpass": str(os.environ["POSTGRES_PASSWORD"]),
@@ -31,12 +41,35 @@ def load_config_from_env():
             "chunk_size": int(os.environ["MONITOR_CHUNK_SIZE"]),
             "requests_per_core": int(os.environ["MONITOR_REQUESTS_PER_CORE"]),
         }
+        if config["dbport"] < 0 or config["dbport"] > 65535:
+            logging.error("❌ Invalid database port number.")
+            sys.exit(1)
+        if config["torport"] < 0 or config["torport"] > 65535:
+            logging.error("❌ Invalid Tor proxy port number.")
+            sys.exit(1)
+        if config["run_hour"] < 0 or config["run_hour"] > 23:
+            logging.error("❌ Invalid run hour. Must be between 0 and 23.")
+            sys.exit(1)
+        if config["num_cores"] < 1:
+            logging.error("❌ Invalid number of cores. Must be at least 1.")
+            sys.exit(1)
+        if config["chunk_size"] < 1:
+            logging.error("❌ Invalid chunk size. Must be at least 1.")
+            sys.exit(1)
+        if config["requests_per_core"] < 1:
+            logging.error("❌ Invalid requests per core. Must be at least 1.")
+            sys.exit(1)
+        if config["num_cores"] > cpu_count():
+            logging.warning(f"⚠️ Number of cores ({config['num_cores']}) exceeds available CPU cores ({cpu_count()}).")
+            config["num_cores"] = cpu_count()
+            logging.info(f"🔄 Adjusting number of cores to {config['num_cores']}.")
     except KeyError as e:
         logging.error(f"❌ Missing environment variable: {e}")
         sys.exit(1)
     except ValueError as e:
         logging.error(f"❌ Invalid environment variable value: {e}")
         sys.exit(1)
+    return config
 
 
 # --- Database Test ---
@@ -119,25 +152,68 @@ async def wait_for_services(config, retries=5, delay=30):
     raise RuntimeError("❌ Required services not available after retries.")
 
 
+# --- Process Chunk ---
+def process_chunk(chunk, config, generated_at):
+    # TODO: Implement the actual processing logic
+    time.sleep(10)
+    return []
+
+
 # --- Main Loop Placeholder ---
 def main_loop(config):
-    logging.info("🚧 Main loop logic would go here.")
-    # TODO: implement processing logic using bigbrotr, torproxy, etc.
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+    bigbrotr.connect()
+    logging.info("🔌 Database connection established.")
+    logging.info("📦 Fetching relays from database...")
+    query = "SELECT url FROM relays"
+    bigbrotr.execute(query)
+    rows = bigbrotr.fetchall()
+    bigbrotr.close()
+    relays = []
+    for row in rows:
+        try:
+            relay = Relay(row[0])
+            relays.append(relay)
+        except Exception as e:
+            logging.warning(f"⚠️ Invalid relay URL skipped: {row[0]}. Reason: {e}")
+            continue
+    logging.info(f"📦 {len(relays)} relays fetched from database.")
+    chunk_size = config["chunk_size"]
+    num_cores = config["num_cores"]
+    chunks = list(chunkify(relays, chunk_size))
+    generated_at = int(time.time())
+    args = [(chunk, config, generated_at) for chunk in chunks]
+    logging.info(f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
+    relay_metadata_list = []
+    with Pool(processes=num_cores) as pool:
+        results = pool.starmap(process_chunk, args)
+        for result in results:
+            relay_metadata_list.extend(result)
+    logging.info(f"✅ All chunks processed successfully.")
+    logging.info(relay_metadata_list)
+    bigbrotr.connect()
+    logging.info("🔌 Database connection established.")
+    logging.info("🌐 Starting relay metadata insertion process...")
+    bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
+    logging.info(f"✅ Inserted {len(relay_metadata_list)} relay metadata.")
+    bigbrotr.close()
+    logging.info("🔌 Database connection closed.")
+    return
 
 
 # --- Monitor Entrypoint ---
 async def monitor():
     config = load_config_from_env()
     logging.info("🔍 Starting monitor...")
-    await wait_for_services(config)
+    # await wait_for_services(config)
     while True:
-        await wait_until_scheduled_hour(config["run_hour"])
+        # await wait_until_scheduled_hour(config["run_hour"])
         try:
             logging.info("🔄 Starting main loop...")
             main_loop(config)
             logging.info("✅ Main loop completed successfully.")
         except Exception as e:
-            logging.exception("❌ Main loop failed with an error.")
+            logging.exception(f"❌ Main loop failed: {e}")
 
 
 if __name__ == "__main__":
