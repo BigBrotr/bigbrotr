@@ -16,7 +16,7 @@ logging.basicConfig(
 # --- Config Loader ---
 def load_config_from_env():
     try:
-        return {
+        config = {
             "dbhost": str(os.environ["POSTGRES_HOST"]),
             "dbuser": str(os.environ["POSTGRES_USER"]),
             "dbpass": str(os.environ["POSTGRES_PASSWORD"]),
@@ -24,13 +24,17 @@ def load_config_from_env():
             "dbport": int(os.environ["POSTGRES_PORT"]),
             "relays_seed_path": str(os.environ["RELAYS_SEED_PATH"])
         }
+        if config["dbport"] < 0 or config["dbport"] > 65535:
+            logging.error("❌ Invalid database port number.")
+            sys.exit(1)
     except KeyError as e:
         logging.error(f"❌ Missing environment variable: {e}")
         sys.exit(1)
     except ValueError as e:
         logging.error(f"❌ Invalid environment variable value: {e}")
         sys.exit(1)
-
+    return config
+    
 
 # --- Database Connection ---
 def test_database_connection(config):
