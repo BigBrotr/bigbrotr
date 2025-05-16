@@ -1,0 +1,4 @@
+bech32==1.2.0
+psycopg2-binary==2.9.10
+secp256k1==0.14.0
+pandas==2.2.3

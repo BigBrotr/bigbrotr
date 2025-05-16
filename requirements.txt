@@ -1,5 +1,11 @@
 bech32==1.2.0
 cffi==1.17.1
+numpy==2.2.5
+pandas==2.2.3
 psycopg2-binary==2.9.10
 pycparser==2.22
+python-dateutil==2.9.0.post0
+pytz==2025.2
 secp256k1==0.14.0
+six==1.17.0
+tzdata==2025.2
