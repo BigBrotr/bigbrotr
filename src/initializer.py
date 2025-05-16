@@ -1,7 +1,7 @@
 import os
+import sys
 import time
 import logging
-import sys
 from bigbrotr import Bigbrotr
 from relay import Relay
 
@@ -13,16 +13,16 @@ logging.basicConfig(
 )
 
 
-# --- Load Config ---
+# --- Config Loader ---
 def load_config_from_env():
     try:
         return {
-            "dbhost": os.environ["POSTGRES_HOST"],
-            "dbuser": os.environ["POSTGRES_USER"],
-            "dbpass": os.environ["POSTGRES_PASSWORD"],
-            "dbname": os.environ["POSTGRES_DB"],
+            "dbhost": str(os.environ["POSTGRES_HOST"]),
+            "dbuser": str(os.environ["POSTGRES_USER"]),
+            "dbpass": str(os.environ["POSTGRES_PASSWORD"]),
+            "dbname": str(os.environ["POSTGRES_DB"]),
             "dbport": int(os.environ["POSTGRES_PORT"]),
-            "relays_seed_path": os.environ["RELAYS_SEED_PATH"]
+            "relays_seed_path": str(os.environ["RELAYS_SEED_PATH"])
         }
     except KeyError as e:
         logging.error(f"❌ Missing environment variable: {e}")
@@ -32,31 +32,29 @@ def load_config_from_env():
         sys.exit(1)
 
 
-# --- Insert Relays ---
-def initializer():
-    config = load_config_from_env()
-    # Initialize DB instance
+# --- Database Connection ---
+def test_database_connection(config):
+    logging.info(
+        f"🔌 Testing database connection to {config['dbhost']}:{config['dbport']}/{config['dbname']}")
     try:
         db = Bigbrotr(config["dbhost"], config["dbport"],
                       config["dbuser"], config["dbpass"], config["dbname"])
-    except TypeError as e:
-        logging.error(f"❌ Invalid DB connection parameters: {e}")
-        return
-    # Connect to database with retries
-    while True:
-        try:
-            db.connect()
-            logging.info("✅ Connected to the database.")
-            break
-        except Exception as e:
-            logging.warning(
-                f"🔌 Connection failed: {e}. Retrying in 5 seconds...")
-            time.sleep(5)
-    # Read and insert relays
+        db.connect()
+        logging.info("✅ Database connection successful.")
+    except Exception as e:
+        logging.exception("❌ Database connection failed.")
+        raise
+    finally:
+        db.close()
+        logging.info("🔌 Database connection closed.")
+
+
+# --- Insert Relays ---
+def insert_relays(config):
+    logging.info("🌐 Starting relay insertion process...")
     try:
         with open(config["relays_seed_path"], 'r') as f:
             lines = f.read().splitlines()
-
         relays = []
         for raw_url in lines:
             try:
@@ -66,8 +64,12 @@ def initializer():
                 logging.warning(
                     f"⚠️ Invalid relay URL skipped: {raw_url}. Reason: {e}")
         if relays:
+            db = Bigbrotr(config["dbhost"], config["dbport"],
+                          config["dbuser"], config["dbpass"], config["dbname"])
+            db.connect()
             db.insert_relay_batch(relays)
             logging.info(f"✅ Inserted {len(relays)} valid relays.")
+            db.close()
         else:
             logging.warning("⚠️ No valid relays to insert.")
     except FileNotFoundError:
@@ -75,18 +77,35 @@ def initializer():
             f"❌ Relay seed file not found: {config['relays_seed_path']}")
     except Exception as e:
         logging.exception(f"❌ Unexpected error during relay insertion: {e}")
-    finally:
-        db.close()
-        logging.info("🔌 Database connection closed.")
 
 
-# --- Entrypoint ---
+# --- Retry Logic for Database ---
+def wait_for_database_connection(config, retries=5, delay=10):
+    for attempt in range(1, retries + 1):
+        time.sleep(delay)
+        try:
+            test_database_connection(config)
+            return
+        except Exception as e:
+            logging.warning(
+                f"⏳ Database not ready (attempt {attempt}/{retries}): {e}. Retrying in {delay} seconds...")
+    raise RuntimeError("❌ Database not available after retries.")
+
+
+# --- Main Entry Point ---
+def initializer():
+    config = load_config_from_env()
+    logging.info("🔍 Starting initializer...")
+    wait_for_database_connection(config)
+    insert_relays(config)
+    logging.info("✅ Initializer completed successfully.")
+
+
+# --- Monitor Entrypoint ---
 if __name__ == "__main__":
-    logging.info("🚀 Starting initializer...")
-    time.sleep(5)
     try:
+        logging.info("🚀 Starting initializer...")
         initializer()
-        logging.info("✅ Initializer completed successfully.")
     except Exception as e:
         logging.exception("❌ Initializer failed.")
         sys.exit(1)
