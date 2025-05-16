@@ -20,8 +20,8 @@ def load_config_from_env():
     try:
         return {
             "dbhost": str(os.environ["POSTGRES_HOST"]),
-            "user": str(os.environ["POSTGRES_USER"]),
-            "password": str(os.environ["POSTGRES_PASSWORD"]),
+            "dbuser": str(os.environ["POSTGRES_USER"]),
+            "dbpass": str(os.environ["POSTGRES_PASSWORD"]),
             "dbname": str(os.environ["POSTGRES_DB"]),
             "dbport": int(os.environ["POSTGRES_PORT"]),
             "run_hour": int(os.environ["MONITOR_RUN_HOUR"]),
@@ -45,7 +45,7 @@ def test_database_connection(config):
         f"🔌 Testing database connection to {config["dbhost"]}:{config["dbport"]}/{config["dbname"]}")
     try:
         db = Bigbrotr(config["dbhost"], config["dbport"],
-                      config["user"], config["password"], config["dbname"])
+                      config["dbuser"], config["dbpass"], config["dbname"])
         db.connect()
         logging.info("✅ Database connection successful.")
     except Exception as e:
