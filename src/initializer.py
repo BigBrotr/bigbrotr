@@ -17,7 +17,11 @@ def initializer():
     user = os.getenv('POSTGRES_USER')
     password = os.getenv('POSTGRES_PASSWORD')
     dbname = os.getenv('POSTGRES_DB')
-    bigbrotr = Bigbrotr(host, port, user, password, dbname)
+    try:
+        bigbrotr = Bigbrotr(host, port, user, password, dbname)
+    except TypeError as e:
+        logging.error(f"Invalid database connection parameters: {e}")
+        return
     while True:
         try:
             bigbrotr.connect()
@@ -29,7 +33,17 @@ def initializer():
     try:
         with open('relays_seed.txt', 'r') as f:
             relays = f.read().splitlines()
-        relays = [Relay(relay) for relay in relays]
+        relays = []
+        for relay in relays:
+            try:
+                relay = Relay(relay)
+            except ValueError as e:
+                logging.error(f"Invalid relay URL: {relay}. Error: {e}")
+                continue
+            except TypeError as e:
+                logging.error(f"Invalid relay URL: {relay}. Error: {e}")
+                continue
+            relays.append(relay)
         bigbrotr.insert_relay_batch(relays)
         logging.info("Relays inserted successfully.")
     except Exception as e:
