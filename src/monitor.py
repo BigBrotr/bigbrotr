@@ -7,8 +7,8 @@ from bigbrotr import Bigbrotr
 from relay import Relay
 from aiohttp import ClientSession, WSMsgType
 from aiohttp_socks import ProxyConnector
-from itertools import islice
 import time
+import utils
 from multiprocessing import Pool, cpu_count
 
 # --- Logging Config ---
@@ -153,14 +153,27 @@ async def wait_for_services(config, retries=5, delay=30):
 
 
 # --- Process Chunk ---
-def process_chunk(chunk, config, generated_at):
-    # TODO: Implement the actual processing logic
-    time.sleep(10)
-    return []
+async def process_chunk(chunk, config, generated_at):
+    proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
+    requests_per_core = config["requests_per_core"]
+    sem = asyncio.Semaphore(requests_per_core)
+    async def process_single_relay(relay):
+        async with sem:
+            try:
+                metadata = await utils.compute_relay_metadata(relay, proxy_url)
+                if metadata:
+                    metadata.generated_at = generated_at
+                    return metadata
+            except Exception as e:
+                logging.warning(f"⚠️ Failed to compute metadata for relay {relay.url}: {e}")
+        return None
+    tasks = [process_single_relay(relay) for relay in chunk]
+    all_results = await asyncio.gather(*tasks)
+    return [res for res in all_results if res is not None]
 
 
 # --- Main Loop Placeholder ---
-def main_loop(config):
+async def main_loop(config):
     bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
     logging.info("🔌 Database connection established.")
@@ -205,12 +218,12 @@ def main_loop(config):
 async def monitor():
     config = load_config_from_env()
     logging.info("🔍 Starting monitor...")
-    # await wait_for_services(config)
+    await wait_for_services(config)
     while True:
-        # await wait_until_scheduled_hour(config["run_hour"])
+        await wait_until_scheduled_hour(config["run_hour"])
         try:
             logging.info("🔄 Starting main loop...")
-            main_loop(config)
+            await main_loop(config)
             logging.info("✅ Main loop completed successfully.")
         except Exception as e:
             logging.exception(f"❌ Main loop failed: {e}")
