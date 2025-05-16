@@ -1,6 +1,31 @@
-FROM python:3.9
+# ----------- Build Stage -----------
+FROM python:alpine@sha256:452682e4648deafe431ad2f2391d726d7c52f0ff291be8bd4074b10379bb89ff AS build
+
+# Install build dependencies
+RUN apk add --no-cache \
+    build-base \
+    pkgconfig \
+    libffi-dev \
+    openssl-dev \
+    python3-dev \
+    musl-dev
+
 WORKDIR /app
+
+# Copy files
 COPY ../requirements.txt .
 COPY ../src /app
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Install dependencies to a temporary location
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ----------- Final Runtime Stage -----------
+FROM python:alpine@sha256:452682e4648deafe431ad2f2391d726d7c52f0ff291be8bd4074b10379bb89ff
+
+WORKDIR /app
+
+# Install runtime dependencies (from the build stage)
+COPY --from=build /install /usr/local
+COPY ../src /app
+
 CMD ["python", "initializer.py"]
