@@ -33,9 +33,6 @@ services:
   torproxy:
     image: dperson/torproxy
     container_name: bigbrotr_torproxy
-    environment:
-      - TORPROXY_USER=${TORPROXY_USER}
-      - TORPROXY_PASSWORD=${TORPROXY_PASSWORD}
     restart: unless-stopped
     networks:
       - network
@@ -51,6 +48,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_PORT=5432
+      - RELAYS_SEED_PATH=relays_seed.txt
     volumes:
       - ${RELAYS_SEED_PATH}:/app/relays_seed.txt
     depends_on:
@@ -59,20 +57,23 @@ services:
       - network
     restart: no
 
-  syncronizer:
+  monitor:
     build:
       context: .
-      dockerfile: dockerfiles/syncronizer
-    container_name: bigbrotr_syncronizer
+      dockerfile: dockerfiles/monitor
+    container_name: bigbrotr_monitor
     environment:
+      - POSTGRES_HOST=database
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PORT=5432
       - TORPROXY_HOST=torproxy
-      - TORPROXY_PORT=8118
-      - TORPROXY_SCHEME=http
-      - TORPROXY_USER=${TORPROXY_USER}
-      - TORPROXY_PASSWORD=${TORPROXY_PASSWORD}
+      - TORPROXY_PORT=9050
+      - MONITOR_RUN_HOUR=${MONITOR_RUN_HOUR}
+      - MONITOR_NUM_CORES=${MONITOR_NUM_CORES}
+      - MONITOR_CHUNK_SIZE=${MONITOR_CHUNK_SIZE}
+      - MONITOR_REQUESTS_PER_CORE=${MONITOR_REQUESTS_PER_CORE}
     depends_on:
       - database
       - torproxy
@@ -80,20 +81,19 @@ services:
       - network
     restart: unless-stopped
 
-  monitor:
+  syncronizer:
     build:
       context: .
-      dockerfile: dockerfiles/monitor
-    container_name: bigbrotr_monitor
+      dockerfile: dockerfiles/syncronizer
+    container_name: bigbrotr_syncronizer
     environment:
+      - POSTGRES_HOST=database
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PORT=5432
       - TORPROXY_HOST=torproxy
-      - TORPROXY_PORT=8118
-      - TORPROXY_SCHEME=http
-      - TORPROXY_USER=${TORPROXY_USER}
-      - TORPROXY_PASSWORD=${TORPROXY_PASSWORD}
+      - TORPROXY_PORT=9050
     depends_on:
       - database
       - torproxy
