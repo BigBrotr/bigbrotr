@@ -26,7 +26,7 @@ class RelayMetadata:
     - version: Optional[str], the version of the software
     - privacy_policy: Optional[str], the URL of the privacy policy
     - terms_of_service: Optional[str], the URL of the terms of service
-    - limitations: Optional[Dict[str, Any]], limitations of the relay
+    - limitation: Optional[Dict[str, Any]], limitations of the relay
     - extra_fields: Optional[Dict[str, Any]], additional fields for custom metadata
 
     Methods:
@@ -56,7 +56,7 @@ class RelayMetadata:
         version: Optional[str] = None,
         privacy_policy: Optional[str] = None,
         terms_of_service: Optional[str] = None,
-        limitations: Optional[Dict[str, Any]] = None,
+        limitation: Optional[Dict[str, Any]] = None,
         extra_fields: Optional[Dict[str, Any]] = None
     ):
         """
@@ -81,7 +81,7 @@ class RelayMetadata:
         - version: Optional[str], the version of the software
         - privacy_policy: Optional[str], the URL of the privacy policy
         - terms_of_service: Optional[str], the URL of the terms of service
-        - limitations: Optional[Dict[str, Any]], limitations of the relay
+        - limitation: Optional[Dict[str, Any]], limitations of the relay
         - extra_fields: Optional[Dict[str, Any]], additional fields for custom metadata
 
         Example:
@@ -104,7 +104,7 @@ class RelayMetadata:
         ...     version="1.0.0",
         ...     privacy_policy="https://example.com/privacy",
         ...     terms_of_service="https://example.com/terms",
-        ...     limitations={"max_connections": 100},
+        ...     limitation={"max_connections": 100},
         ...     extra_fields={"custom_field": "value"}
         ... )
 
@@ -130,9 +130,9 @@ class RelayMetadata:
         - TypeError: if version is not a str or None
         - TypeError: if privacy_policy is not a str or None
         - TypeError: if terms_of_service is not a str or None
-        - TypeError: if limitations is not a dict or None
+        - TypeError: if limitation is not a dict or None
         - TypeError: if extra_fields is not a dict or None
-        - TypeError: if limitations keys are not strings
+        - TypeError: if limitation keys are not strings
         - TypeError: if extra_fields keys are not strings
         """
         if not isinstance(relay, Relay):
@@ -185,9 +185,9 @@ class RelayMetadata:
         if terms_of_service is not None and not isinstance(terms_of_service, str):
             raise TypeError(
                 f"terms_of_service must be a string or None, not {type(terms_of_service)}")
-        if limitations is not None and not isinstance(limitations, dict):
+        if limitation is not None and not isinstance(limitation, dict):
             raise TypeError(
-                f"limitations must be a dictionary or None, not {type(limitations)}")
+                f"limitation must be a dictionary or None, not {type(limitation)}")
         if extra_fields is not None and not isinstance(extra_fields, dict):
             raise TypeError(
                 f"extra_fields must be a dictionary or None, not {type(extra_fields)}")
@@ -196,16 +196,16 @@ class RelayMetadata:
                 if not (isinstance(nip, int) or isinstance(nip, str)):
                     raise TypeError(
                         f"supported_nips must be a list of integers or strings, not {type(nip)}")
-        if limitations is not None:
-            for key, value in limitations.items():
+        if limitation is not None:
+            for key, value in limitation.items():
                 if not isinstance(key, str):
                     raise TypeError(
-                        f"limitations keys must be strings, not {type(key)}")
+                        f"limitation keys must be strings, not {type(key)}")
                 try:
                     json.dumps(value)
                 except (TypeError, ValueError):
                     raise TypeError(
-                        f"limitations values must be JSON serializable.")
+                        f"limitation values must be JSON serializable.")
         if extra_fields is not None:
             for key, value in extra_fields.items():
                 if not isinstance(key, str):
@@ -234,7 +234,7 @@ class RelayMetadata:
         self.version = version if nip11_success else None
         self.privacy_policy = privacy_policy if nip11_success else None
         self.terms_of_service = terms_of_service if nip11_success else None
-        self.limitations = limitations if connection_success else None
+        self.limitation = limitation if connection_success else None
         self.extra_fields = extra_fields if connection_success else None
 
     def __repr__(self) -> str:
@@ -309,7 +309,7 @@ class RelayMetadata:
             version=data.get("version"),
             privacy_policy=data.get("privacy_policy"),
             terms_of_service=data.get("terms_of_service"),
-            limitations=data.get("limitations"),
+            limitation=data.get("limitation"),
             extra_fields=data.get("extra_fields"),
         )
 
@@ -352,6 +352,6 @@ class RelayMetadata:
             "version": self.version,
             "privacy_policy": self.privacy_policy,
             "terms_of_service": self.terms_of_service,
-            "limitations": self.limitations,
+            "limitation": self.limitation,
             "extra_fields": self.extra_fields,
         }

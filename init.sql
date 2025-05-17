@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
     version TEXT,                                                           -- Version identifier. NOT NULL -> nip11_success is true
     privacy_policy TEXT,                                                    -- Link to a text file describing the relay's privacy policy. NOT NULL -> nip11_success is true
     terms_of_service TEXT,                                                  -- Link to a text file describing the relay's terms of service. NOT NULL -> nip11_success is true
-    limitations JSONB,                                                      -- Limitations of the relay. NULL if connection_success is false
+    limitation JSONB,                                                      -- Limitations of the relay. NULL if connection_success is false
     extra_fields JSONB,                                                     -- Extra fields for future use. NULL if connection_success is false
     -- constraints
     PRIMARY KEY (relay_url, generated_at),                                  -- Composite primary key
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
 -- Indexes for faster queries
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url ON relay_metadata USING BTREE (relay_url);          -- Index on relay_url
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_supported_nips ON relay_metadata USING GIN (supported_nips);  -- Index on supported_nips
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_limitations ON relay_metadata USING GIN (limitations);        -- Index on limitations
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_limitation ON relay_metadata USING GIN (limitation);        -- Index on limitations
 
 -- ============================
 -- CONSTRAINTS
@@ -163,7 +163,7 @@ CREATE OR REPLACE FUNCTION insert_relay_metadata(
     p_version TEXT,
     p_privacy_policy TEXT,
     p_terms_of_service TEXT,
-    p_limitations JSONB,
+    p_limitation JSONB,
     p_extra_fields JSONB
 ) RETURNS VOID AS $$
 BEGIN
@@ -191,7 +191,7 @@ BEGIN
         version,
         privacy_policy,
         terms_of_service,
-        limitations,
+        limitation,
         extra_fields
     )
     VALUES (
@@ -213,7 +213,7 @@ BEGIN
         p_version,
         p_privacy_policy,
         p_terms_of_service,
-        p_limitations,
+        p_limitation,
         p_extra_fields
     )
     ON CONFLICT (relay_url, generated_at) DO NOTHING;

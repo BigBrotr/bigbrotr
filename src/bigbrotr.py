@@ -361,7 +361,7 @@ class Bigbrotr:
             sanitize(relay_metadata.version),
             sanitize(relay_metadata.privacy_policy),
             sanitize(relay_metadata.terms_of_service),
-            sanitize(relay_metadata.limitations),
+            sanitize(relay_metadata.limitation),
             sanitize(relay_metadata.extra_fields)
         )
         self.execute(query, args)
@@ -502,7 +502,7 @@ class Bigbrotr:
                 sanitize(relay_metadata.version),
                 sanitize(relay_metadata.privacy_policy),
                 sanitize(relay_metadata.terms_of_service),
-                sanitize(relay_metadata.limitations),
+                sanitize(relay_metadata.limitation),
                 sanitize(relay_metadata.extra_fields)
             )
             for relay_metadata in relay_metadata_list
