@@ -147,7 +147,7 @@ def calc_event_id(pubkey: str, created_at: int, kind: int, tags: list, content: 
         raise TypeError(f"content must be a str, not {type(content)}")
     # content = content.replace(r'\n', '\n').replace(r'\"', '\"').replace(r'\\', '\\').replace(
     #     r'\r', '\r').replace(r'\t', '\t').replace(r'\b', '\b').replace(r'\f', '\f')
-    data = [0, pubkey, created_at, kind, tags, content]
+    data = [0, pubkey.lower(), created_at, kind, tags, content]
     data_str = json.dumps(data, separators=(',', ':'), ensure_ascii=False)
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
 
