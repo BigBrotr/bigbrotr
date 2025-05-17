@@ -40,7 +40,7 @@ class Relay:
             raise ValueError(
                 f"Invalid URL format: {url}. Must be a valid clearnet or tor websocket URL.")
         url = urls[0]
-        if url[6:].rpartition(":")[0].endswith(".onion"):
+        if url.removeprefix("wss://").partition(":")[0].endswith(".onion"):
             self.network = "tor"
         else:
             self.network = "clearnet"
