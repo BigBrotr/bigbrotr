@@ -1,5 +1,6 @@
 from typing import Optional, List, Dict, Any
 from relay import Relay
+import json
 
 
 class RelayMetadata:
@@ -192,19 +193,29 @@ class RelayMetadata:
                 f"extra_fields must be a dictionary or None, not {type(extra_fields)}")
         if supported_nips is not None:
             for nip in supported_nips:
-                if not isinstance(nip, int):
+                if not (isinstance(nip, int) or isinstance(nip, str)):
                     raise TypeError(
-                        f"supported_nips must be a list of integers, not {type(nip)}")
+                        f"supported_nips must be a list of integers or strings, not {type(nip)}")
         if limitations is not None:
-            for key in limitations.keys():
+            for key, value in limitations.items():
                 if not isinstance(key, str):
                     raise TypeError(
                         f"limitations keys must be strings, not {type(key)}")
+                try:
+                    json.dumps(value)
+                except (TypeError, ValueError):
+                    raise TypeError(
+                        f"limitations values must be JSON serializable.")
         if extra_fields is not None:
-            for key in extra_fields.keys():
+            for key, value in extra_fields.items():
                 if not isinstance(key, str):
                     raise TypeError(
                         f"extra_fields keys must be strings, not {type(key)}")
+                try:
+                    json.dumps(value)
+                except (TypeError, ValueError):
+                    raise TypeError(
+                        f"extra_fields values must be JSON serializable.")
         self.relay = relay
         self.generated_at = generated_at
         self.connection_success = connection_success
