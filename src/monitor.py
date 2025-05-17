@@ -60,9 +60,11 @@ def load_config_from_env():
             logging.error("❌ Invalid requests per core. Must be at least 1.")
             sys.exit(1)
         if config["num_cores"] > cpu_count():
-            logging.warning(f"⚠️ Number of cores ({config['num_cores']}) exceeds available CPU cores ({cpu_count()}).")
+            logging.warning(
+                f"⚠️ Number of cores ({config['num_cores']}) exceeds available CPU cores ({cpu_count()}).")
             config["num_cores"] = cpu_count()
-            logging.info(f"🔄 Adjusting number of cores to {config['num_cores']}.")
+            logging.info(
+                f"🔄 Adjusting number of cores to {config['num_cores']}.")
     except KeyError as e:
         logging.error(f"❌ Missing environment variable: {e}")
         sys.exit(1)
@@ -157,6 +159,7 @@ async def process_chunk(chunk, config, generated_at):
     proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
     requests_per_core = config["requests_per_core"]
     sem = asyncio.Semaphore(requests_per_core)
+
     async def process_single_relay(relay):
         async with sem:
             try:
@@ -165,7 +168,8 @@ async def process_chunk(chunk, config, generated_at):
                     metadata.generated_at = generated_at
                     return metadata
             except Exception as e:
-                logging.warning(f"⚠️ Failed to compute metadata for relay {relay.url}: {e}")
+                logging.warning(
+                    f"⚠️ Failed to compute metadata for relay {relay.url}: {e}")
         return None
     tasks = [process_single_relay(relay) for relay in chunk]
     all_results = await asyncio.gather(*tasks)
@@ -174,7 +178,8 @@ async def process_chunk(chunk, config, generated_at):
 
 # --- Main Loop Placeholder ---
 async def main_loop(config):
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
+                        config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
     logging.info("🔌 Database connection established.")
     logging.info("📦 Fetching relays from database...")
@@ -188,7 +193,8 @@ async def main_loop(config):
             relay = Relay(row[0])
             relays.append(relay)
         except Exception as e:
-            logging.warning(f"⚠️ Invalid relay URL skipped: {row[0]}. Reason: {e}")
+            logging.warning(
+                f"⚠️ Invalid relay URL skipped: {row[0]}. Reason: {e}")
             continue
     logging.info(f"📦 {len(relays)} relays fetched from database.")
     chunk_size = config["chunk_size"]
@@ -196,7 +202,8 @@ async def main_loop(config):
     chunks = list(chunkify(relays, chunk_size))
     generated_at = int(time.time())
     args = [(chunk, config, generated_at) for chunk in chunks]
-    logging.info(f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
+    logging.info(
+        f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
     relay_metadata_list = []
     with Pool(processes=num_cores) as pool:
         results = pool.starmap(process_chunk, args)

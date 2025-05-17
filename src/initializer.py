@@ -34,7 +34,7 @@ def load_config_from_env():
         logging.error(f"❌ Invalid environment variable value: {e}")
         sys.exit(1)
     return config
-    
+
 
 # --- Database Connection ---
 def test_database_connection(config):
