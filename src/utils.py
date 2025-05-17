@@ -328,3 +328,14 @@ def find_websoket_relay_urls(text):
         url = "wss://" + host.lower() + port + path
         result.append(url)
     return result
+
+
+def sanitize(value):
+    if isinstance(value, str):
+        value = re.sub(r'(?<!\\)(\\0x00)', r'\\\\0x00', value)
+        value = re.sub(r'(?<!\\)(\\x00)', r'\\\\x00', value)
+    elif isinstance(value, list):
+        value = [sanitize(item) for item in value]
+    elif isinstance(value, dict):
+        value = {sanitize(key): sanitize(val) for key, val in value.items()}
+    return value
