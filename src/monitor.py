@@ -10,6 +10,7 @@ from aiohttp_socks import ProxyConnector
 import time
 import utils
 from multiprocessing import Pool, cpu_count
+from relay_metadata import RelayMetadata
 
 # --- Logging Config ---
 logging.basicConfig(
@@ -164,7 +165,7 @@ async def process_chunk(chunk, config, generated_at):
         async with sem:
             try:
                 metadata = await utils.compute_relay_metadata(relay, proxy_url)
-                if metadata:
+                if isinstance(metadata, RelayMetadata):
                     metadata.generated_at = generated_at
                     return metadata
             except Exception as e:
@@ -172,8 +173,12 @@ async def process_chunk(chunk, config, generated_at):
                     f"⚠️ Failed to compute metadata for relay {relay.url}: {e}")
         return None
     tasks = [process_single_relay(relay) for relay in chunk]
-    all_results = await asyncio.gather(*tasks)
-    return [res for res in all_results if res is not None]
+    relay_metadata_list = await asyncio.gather(*tasks)
+    return [
+        relay_metadata
+        for relay_metadata in relay_metadata_list
+        if isinstance(relay_metadata, RelayMetadata) and (relay_metadata.connection_success or relay_metadata.nip11_success)
+    ]
 
 
 # --- Worker Function ---
