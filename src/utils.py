@@ -339,3 +339,8 @@ def sanitize(value):
     elif isinstance(value, dict):
         value = {sanitize(key): sanitize(val) for key, val in value.items()}
     return value
+
+
+async def compute_relay_metadata(relay, proxy_url, timeout=10):
+    # TODO: Implement the logic to compute relay metadata
+    return None
