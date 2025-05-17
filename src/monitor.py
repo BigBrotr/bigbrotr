@@ -176,7 +176,15 @@ async def process_chunk(chunk, config, generated_at):
     return [res for res in all_results if res is not None]
 
 
-# --- Main Loop Placeholder ---
+# --- Worker Function ---
+def worker(chunk, config, generated_at):
+    async def worker_async(chunk, config, generated_at):
+        return await process_chunk(chunk, config, generated_at)
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(worker_async(chunk, config, generated_at))
+
+
+# --- Main Loop ---
 async def main_loop(config):
     bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
                         config["dbuser"], config["dbpass"], config["dbname"])
@@ -206,7 +214,7 @@ async def main_loop(config):
         f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
     relay_metadata_list = []
     with Pool(processes=num_cores) as pool:
-        results = pool.starmap(process_chunk, args)
+        results = pool.starmap(worker, args)
         for result in results:
             relay_metadata_list.extend(result)
     logging.info(f"✅ All chunks processed successfully.")
