@@ -1,8 +1,9 @@
 import psycopg2
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional
 from event import Event
 from relay import Relay
 from relay_metadata import RelayMetadata
+from utils import sanitize
 
 
 class Bigbrotr:
@@ -280,10 +281,10 @@ class Bigbrotr:
             event.pubkey,
             event.created_at,
             event.kind,
-            event.tags,
-            event.content,
+            sanitize(event.tags),
+            sanitize(event.content),
             event.sig,
-            relay.url,
+            sanitize(relay.url),
             relay.network,
             seen_at
         )
@@ -311,7 +312,10 @@ class Bigbrotr:
         if not isinstance(relay, Relay):
             raise TypeError(f"relay must be a Relay, not {type(relay)}")
         query = "SELECT insert_relay(%s, %s)"
-        args = (relay.url, relay.network)
+        args = (
+            sanitize(relay.url),
+            relay.network
+        )
         self.execute(query, args)
         self.commit()
         return
@@ -338,7 +342,7 @@ class Bigbrotr:
                 f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
         query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
         args = (
-            relay_metadata.relay.url,
+            sanitize(relay_metadata.relay.url),
             relay_metadata.relay.network,
             relay_metadata.generated_at,
             relay_metadata.connection_success,
@@ -346,19 +350,19 @@ class Bigbrotr:
             relay_metadata.readable,
             relay_metadata.writable,
             relay_metadata.rtt,
-            relay_metadata.name,
-            relay_metadata.description,
-            relay_metadata.banner,
-            relay_metadata.icon,
-            relay_metadata.pubkey,
-            relay_metadata.contact,
-            relay_metadata.supported_nips,
-            relay_metadata.software,
-            relay_metadata.version,
-            relay_metadata.privacy_policy,
-            relay_metadata.terms_of_service,
-            relay_metadata.limitations,
-            relay_metadata.extra_fields
+            sanitize(relay_metadata.name),
+            sanitize(relay_metadata.description),
+            sanitize(relay_metadata.banner),
+            sanitize(relay_metadata.icon),
+            sanitize(relay_metadata.pubkey),
+            sanitize(relay_metadata.contact),
+            sanitize(relay_metadata.supported_nips),
+            sanitize(relay_metadata.software),
+            sanitize(relay_metadata.version),
+            sanitize(relay_metadata.privacy_policy),
+            sanitize(relay_metadata.terms_of_service),
+            sanitize(relay_metadata.limitations),
+            sanitize(relay_metadata.extra_fields)
         )
         self.execute(query, args)
         self.commit()
@@ -399,16 +403,18 @@ class Bigbrotr:
             raise TypeError(f"seen_at must be an int, not {type(seen_at)}")
         query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s)"
         args = [
-            (event.id,
-             event.pubkey,
-             event.created_at,
-             event.kind,
-             event.tags,
-             event.content,
-             event.sig,
-             relay.url,
-             relay.network,
-             seen_at)
+            (
+                event.id,
+                event.pubkey,
+                event.created_at,
+                event.kind,
+                sanitize(event.tags),
+                sanitize(event.content),
+                event.sig,
+                sanitize(relay.url),
+                relay.network,
+                seen_at
+            )
             for event in events
         ]
         self.cur.executemany(query, args)
@@ -439,7 +445,13 @@ class Bigbrotr:
                 raise TypeError(
                     f"relay must be a Relay, not {type(relay)}")
         query = "SELECT insert_relay(%s, %s)"
-        args = [(relay.url, relay.network) for relay in relays]
+        args = [
+            (
+                sanitize(relay.url),
+                relay.network
+            )
+            for relay in relays
+        ]
         self.cur.executemany(query, args)
         self.commit()
         return
@@ -470,27 +482,29 @@ class Bigbrotr:
                     f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
         query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
         args = [
-            (relay_metadata.relay.url,
-             relay_metadata.relay.network,
-             relay_metadata.generated_at,
-             relay_metadata.connection_success,
-             relay_metadata.nip11_success,
-             relay_metadata.readable,
-             relay_metadata.writable,
-             relay_metadata.rtt,
-             relay_metadata.name,
-             relay_metadata.description,
-             relay_metadata.banner,
-             relay_metadata.icon,
-             relay_metadata.pubkey,
-             relay_metadata.contact,
-             relay_metadata.supported_nips,
-             relay_metadata.software,
-             relay_metadata.version,
-             relay_metadata.privacy_policy,
-             relay_metadata.terms_of_service,
-             relay_metadata.limitations,
-             relay_metadata.extra_fields)
+            (
+                sanitize(relay_metadata.relay.url),
+                relay_metadata.relay.network,
+                relay_metadata.generated_at,
+                relay_metadata.connection_success,
+                relay_metadata.nip11_success,
+                relay_metadata.readable,
+                relay_metadata.writable,
+                relay_metadata.rtt,
+                sanitize(relay_metadata.name),
+                sanitize(relay_metadata.description),
+                sanitize(relay_metadata.banner),
+                sanitize(relay_metadata.icon),
+                sanitize(relay_metadata.pubkey),
+                sanitize(relay_metadata.contact),
+                sanitize(relay_metadata.supported_nips),
+                sanitize(relay_metadata.software),
+                sanitize(relay_metadata.version),
+                sanitize(relay_metadata.privacy_policy),
+                sanitize(relay_metadata.terms_of_service),
+                sanitize(relay_metadata.limitations),
+                sanitize(relay_metadata.extra_fields)
+            )
             for relay_metadata in relay_metadata_list
         ]
         self.cur.executemany(query, args)
