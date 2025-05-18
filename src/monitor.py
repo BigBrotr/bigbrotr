@@ -183,9 +183,8 @@ async def process_chunk(chunk, config, generated_at):
                     socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None,
                     timeout=10
                 )
-                if isinstance(metadata, RelayMetadata):
-                    metadata.generated_at = generated_at
-                    return metadata
+                metadata.generated_at = generated_at
+                return metadata
             except Exception as e:
                 logging.exception(
                     f"⚠️ Failed to compute metadata for relay {relay.url}: {e}")
