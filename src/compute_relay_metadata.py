@@ -86,7 +86,7 @@ def generate_nip66_event(nip11_response, relay_url, network, pubkey, seckey, rtt
     content = json.dumps(nip11_response)
     # Generate the event
     event = utils.generate_event(
-        seckey, pubkey, int(time.time()), 30166, tags, content)
+        seckey, pubkey, 30166, tags, content)
     return event
 
 
@@ -139,7 +139,7 @@ async def check_writability(session, relay_url, timeout):
     try:
         async with session.ws_connect(relay_url, timeout=timeout) as ws:
             sec, pub = utils.generate_nostr_keypair()
-            event = utils.generate_event(sec, pub, int(time.time()), 1, [], "")
+            event = utils.generate_event(sec, pub, 1, [], "")
             request = ["EVENT", event]
             print(request)
             time_start = time.time()
