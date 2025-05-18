@@ -238,26 +238,24 @@ def generate_event(sec: str, pub: str, kind: int, tags: list, content: str, crea
     original_tags = tags.copy()
     nonce = 0
     start_time = time.time()
-    fixed_time = created_at
-    using_fixed_time = fixed_time is not None
+    created_at = created_at if created_at is not None else int(time.time())
     non_nonce_tags = [tag for tag in original_tags if tag[0] != "nonce"]
     while True:
-        current_time = fixed_time if using_fixed_time else int(time.time())
         tags = non_nonce_tags + [["nonce", str(nonce), str(target_difficulty)]]
-        event_id = calc_event_id(pub, current_time, kind, tags, content)
+        event_id = calc_event_id(pub, created_at, kind, tags, content)
         difficulty = count_leading_zero_bits(event_id)
         if difficulty >= target_difficulty:
             break
         if (time.time() - start_time) >= timeout:
             tags = original_tags
-            event_id = calc_event_id(pub, current_time, kind, tags, content)
+            event_id = calc_event_id(pub, created_at, kind, tags, content)
             break
         nonce += 1
     sig = sig_event_id(event_id, sec)
     return {
         "id": event_id,
         "pubkey": pub,
-        "created_at": current_time,
+        "created_at": created_at,
         "kind": kind,
         "tags": tags,
         "content": content,
