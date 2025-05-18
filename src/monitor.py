@@ -268,7 +268,7 @@ async def monitor():
     logging.info("🔍 Starting monitor...")
     await wait_for_services(config)
     while True:
-        # await wait_until_scheduled_hour(config["run_hour"])
+        await wait_until_scheduled_hour(config["run_hour"])
         try:
             logging.info("🔄 Starting main loop...")
             await main_loop(config)
