@@ -99,10 +99,8 @@ def wait_for_database_connection(config, retries=5, delay=10):
 # --- Main Entry Point ---
 def initializer():
     config = load_config_from_env()
-    logging.info("🔍 Starting initializer...")
     wait_for_database_connection(config)
     insert_relays(config)
-    logging.info("✅ Initializer completed successfully.")
 
 
 # --- Monitor Entrypoint ---
@@ -110,6 +108,7 @@ if __name__ == "__main__":
     try:
         logging.info("🚀 Starting initializer...")
         initializer()
+        logging.info("✅ Initializer completed successfully.")
     except Exception as e:
         logging.exception("❌ Initializer failed.")
         sys.exit(1)
