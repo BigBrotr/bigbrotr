@@ -4,8 +4,7 @@ import json
 import uuid
 import asyncio
 from relay_metadata import RelayMetadata
-from relay import Relay
-from utils import generate_event, generate_nostr_keypair
+from utils import generate_event
 import time
 
 
@@ -192,8 +191,3 @@ async def compute_relay_metadata(relay, sec, pub, socks5_proxy_url=None, timeout
         **connection_response
     }
     return RelayMetadata.from_dict(metadata)
-
-sec, pub = generate_nostr_keypair()
-socks5_proxy_url = "socks5://127.0.0.1:9050"
-relay = Relay(url="wss://relay.damus.io")
-print(asyncio.run(compute_relay_metadata(relay, sec, pub, socks5_proxy_url)))
