@@ -277,6 +277,16 @@ def generate_nostr_keypair():
     return private_key_hex, public_key_hex
 
 
+def test_keypair(seckey, pubkey):
+    if len(seckey) != 64 or len(pubkey) != 64:
+        return False
+    private_key_bytes = bytes.fromhex(seckey)
+    private_key_obj = secp256k1.PrivateKey(private_key_bytes)
+    generated_public_key = private_key_obj.pubkey.serialize(compressed=True)[
+        1:].hex()
+    return generated_public_key == pubkey
+
+
 def to_bech32(prefix, hex_str):
     """
     Convert a hex string to Bech32 format.
