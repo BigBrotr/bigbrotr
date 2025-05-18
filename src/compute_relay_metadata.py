@@ -5,7 +5,7 @@ import uuid
 import asyncio
 from relay_metadata import RelayMetadata
 from relay import Relay
-from utils import generate_event
+from utils import generate_event, generate_nostr_keypair
 import time
 
 
@@ -48,46 +48,6 @@ def parse_nip11_response(nip11_response):
             ]
         }
     }
-
-
-def generate_nip66_event(nip11_response, relay_url, network, pubkey, seckey, rtt_open=None, rtt_read=None, rtt_write=None):
-    tags = []
-    # Required "d" tag (relay URI)
-    tags.append(["d", relay_url])
-    # Network (assume clearnet unless specified otherwise)
-    tags.append(["n", network])
-    # Supported NIPs
-    supported_nips = nip11_response.get("supported_nips", [])
-    for nip in supported_nips:
-        tags.append(["N", str(nip)])
-    # Relay requirements (auth/payment)
-    limitations = nip11_response.get("limitation", {})
-    if "payment_required" in limitations:
-        if limitations["payment_required"]:
-            tags.append(["R", "payment"])
-        else:
-            tags.append(["R", "!payment"])
-    if "auth_required" in limitations:
-        if limitations["auth_required"]:
-            tags.append(["R", "auth"])
-        else:
-            tags.append(["R", "!auth"])
-    # Topics / tags
-    for tag in nip11_response.get("tags", []):
-        tags.append(["t", tag])
-    # Optional RTT values
-    if rtt_open is not None:
-        tags.append(["rtt-open", str(rtt_open)])
-    if rtt_read is not None:
-        tags.append(["rtt-read", str(rtt_read)])
-    if rtt_write is not None:
-        tags.append(["rtt-write", str(rtt_write)])
-    # Content (stringified NIP-11)
-    content = json.dumps(nip11_response)
-    # Generate the event
-    event = generate_event(
-        seckey, pubkey, 30166, tags, content)
-    return event
 
 
 async def check_connectivity(session, relay_url, timeout):
@@ -139,7 +99,14 @@ async def check_writability(session, relay_url, timeout, sec, pub, target_diffic
     try:
         async with session.ws_connect(relay_url, timeout=timeout) as ws:
             event = generate_event(
-                sec, pub, 1, [], "", target_difficulty=target_difficulty, timeout=20)
+                sec,
+                pub,
+                30166,
+                [["d", relay_url]],
+                "{}",
+                target_difficulty=target_difficulty,
+                timeout=20
+            )
             request = ["EVENT", event]
             time_start = time.time()
             await ws.send_str(json.dumps(request))
@@ -211,6 +178,8 @@ async def compute_relay_metadata(relay, sec, pub, socks5_proxy_url=None, timeout
         nip11_response = parse_nip11_response(nip11_raw)
     target_difficulty = nip11_response.get(
         'limitation', {}).get('min_pow_difficulty', None)
+    target_difficulty = target_difficulty if isinstance(
+        target_difficulty, int) else None
     connector = ProxyConnector.from_url(
         socks5_proxy_url) if relay.network == 'tor' else None
     async with ClientSession(connector=connector, timeout=ClientTimeout(total=timeout)) as session:
@@ -224,6 +193,7 @@ async def compute_relay_metadata(relay, sec, pub, socks5_proxy_url=None, timeout
     }
     return RelayMetadata.from_dict(metadata)
 
+sec, pub = generate_nostr_keypair()
 socks5_proxy_url = "socks5://127.0.0.1:9050"
 relay = Relay(url="wss://relay.damus.io")
-print(asyncio.run(compute_relay_metadata(relay, socks5_proxy_url)))
+print(asyncio.run(compute_relay_metadata(relay, sec, pub, socks5_proxy_url)))
