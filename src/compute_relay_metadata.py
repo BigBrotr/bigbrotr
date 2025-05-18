@@ -76,9 +76,9 @@ async def check_connectivity(session, relay_url, timeout):
     rtt_open = None
     openable = False
     try:
-        time_start = time.time()
+        time_start = time.perf_counter()
         async with session.ws_connect(relay_url, timeout=timeout) as ws:
-            time_end = time.time()
+            time_end = time.perf_counter()
             rtt_open = int((time_end - time_start) * 1000)
             openable = True
     except Exception as e:
@@ -94,7 +94,7 @@ async def check_readability(session, relay_url, timeout):
         async with session.ws_connect(relay_url, timeout=timeout) as ws:
             subscription_id = uuid.uuid4().hex
             request = ["REQ", subscription_id, {"limit": 1}]
-            time_start = time.time()
+            time_start = time.perf_counter()
             await ws.send_str(json.dumps(request))
             while True:
                 try:
@@ -103,7 +103,7 @@ async def check_readability(session, relay_url, timeout):
                     break
                 if msg.type == WSMsgType.TEXT:
                     if rtt_read is None:
-                        time_end = time.time()
+                        time_end = time.perf_counter()
                         rtt_read = int((time_end - time_start) * 1000)
                     data = json.loads(msg.data)
                     if data[0] == "NOTICE":
@@ -136,7 +136,7 @@ async def check_writability(session, relay_url, timeout, sec, pub, target_diffic
                 timeout=timeout*2
             )
             request = ["EVENT", event]
-            time_start = time.time()
+            time_start = time.perf_counter()
             await ws.send_str(json.dumps(request))
             while True:
                 try:
@@ -145,7 +145,7 @@ async def check_writability(session, relay_url, timeout, sec, pub, target_diffic
                     break
                 if msg.type == WSMsgType.TEXT:
                     if rtt_write is None:
-                        time_end = time.time()
+                        time_end = time.perf_counter()
                         rtt_write = int((time_end - time_start) * 1000)
                     data = json.loads(msg.data)
                     if data[0] == "OK" and data[1] == event["id"] and data[2] == True:
