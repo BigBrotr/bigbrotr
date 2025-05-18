@@ -186,7 +186,7 @@ def verify_sig(event_id: str, pubkey: str, sig: str) -> bool:
         return False
 
 
-def generate_event(sec: str, pub: str, kind: int, tags: list, content: str, created_at: int | None = None, target_difficulty: int = 0, timeout: int = 20) -> dict:
+def generate_event(sec: str, pub: str, kind: int, tags: list, content: str, created_at: int | None = None, target_difficulty: int | None = None, timeout: int = 20) -> dict:
     """
     Generates an event with a Proof of Work (PoW) attached, based on given parameters.
 
@@ -236,25 +236,26 @@ def generate_event(sec: str, pub: str, kind: int, tags: list, content: str, crea
                 break
         return bits
     original_tags = tags.copy()
-    nonce = 0
-    start_time = time.time()
     created_at = created_at if created_at is not None else int(time.time())
-    non_nonce_tags = [tag for tag in original_tags if tag[0] != "nonce"]
-    while True:
-        if target_difficulty > 0:
+    if target_difficulty is None:
+        tags = original_tags
+        event_id = calc_event_id(pub, created_at, kind, tags, content)
+    else:
+        nonce = 0
+        non_nonce_tags = [tag for tag in original_tags if tag[0] != "nonce"]
+        start_time = time.time()
+        while True:
             tags = non_nonce_tags + \
                 [["nonce", str(nonce), str(target_difficulty)]]
-        else:
-            tags = non_nonce_tags
-        event_id = calc_event_id(pub, created_at, kind, tags, content)
-        difficulty = count_leading_zero_bits(event_id)
-        if difficulty >= target_difficulty:
-            break
-        if (time.time() - start_time) >= timeout:
-            tags = original_tags
             event_id = calc_event_id(pub, created_at, kind, tags, content)
-            break
-        nonce += 1
+            difficulty = count_leading_zero_bits(event_id)
+            if difficulty >= target_difficulty:
+                break
+            if (time.time() - start_time) >= timeout:
+                tags = original_tags
+                event_id = calc_event_id(pub, created_at, kind, tags, content)
+                break
+            nonce += 1
     sig = sig_event_id(event_id, sec)
     return {
         "id": event_id,
