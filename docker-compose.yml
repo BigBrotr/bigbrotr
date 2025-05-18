@@ -74,6 +74,8 @@ services:
       - MONITOR_NUM_CORES=${MONITOR_NUM_CORES}
       - MONITOR_CHUNK_SIZE=${MONITOR_CHUNK_SIZE}
       - MONITOR_REQUESTS_PER_CORE=${MONITOR_REQUESTS_PER_CORE}
+      - SECRET_KEY=${SECRET_KEY}
+      - PUBLIC_KEY=${PUBLIC_KEY}
     depends_on:
       - database
       - torproxy
