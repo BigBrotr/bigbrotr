@@ -11,7 +11,7 @@ import time
 from utils import test_keypair
 from multiprocessing import Pool, cpu_count
 from relay_metadata import RelayMetadata
-import compute_relay_metadata
+from compute_relay_metadata import compute_relay_metadata
 
 # --- Logging Config ---
 logging.basicConfig(
@@ -116,6 +116,9 @@ async def test_torproxy_connection(config, timeout=10):
         except Exception:
             logging.exception("❌ HTTP test via Tor failed.")
             raise
+        finally:
+            await session.close()
+            logging.info("🌐 HTTP connection closed.")
     # WebSocket Test
     ws_url = "wss://echo.websocket.events"
     connector = ProxyConnector.from_url(socks5_proxy_url)
@@ -133,6 +136,9 @@ async def test_torproxy_connection(config, timeout=10):
         except Exception:
             logging.exception("❌ WebSocket test via Tor failed.")
             raise
+        finally:
+            await ws.close()
+            logging.info("🌐 WebSocket connection closed.")
 
 
 # --- Wait Until Hour ---
@@ -181,23 +187,30 @@ async def process_chunk(chunk, config, generated_at):
                     metadata.generated_at = generated_at
                     return metadata
             except Exception as e:
-                logging.warning(
+                logging.exception(
                     f"⚠️ Failed to compute metadata for relay {relay.url}: {e}")
         return None
     tasks = [process_single_relay(relay) for relay in chunk]
     relay_metadata_list = await asyncio.gather(*tasks)
-    return [
+    relay_metadata_list = [
         relay_metadata
         for relay_metadata in relay_metadata_list
         if isinstance(relay_metadata, RelayMetadata) and (relay_metadata.connection_success or relay_metadata.nip11_success)
     ]
+    logging.info(
+        f"✅ Processed {len(chunk)} relays. Found {len(relay_metadata_list)} valid relay metadata.")
+    return relay_metadata_list
 
 
 # --- Worker Function ---
 def worker(chunk, config, generated_at):
     async def worker_async(chunk, config, generated_at):
         return await process_chunk(chunk, config, generated_at)
-    loop = asyncio.get_event_loop()
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
     return loop.run_until_complete(worker_async(chunk, config, generated_at))
 
 

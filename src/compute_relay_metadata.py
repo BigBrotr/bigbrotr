@@ -23,7 +23,7 @@ async def fetch_nip11_metadata(relay_id, session, timeout):
 
 
 def parse_nip11_response(nip11_response):
-    if nip11_response is None:
+    if not isinstance(nip11_response, dict):
         return {'nip11_success': False}
     return {
         'nip11_success': True,
@@ -156,7 +156,7 @@ async def fetch_connection_metadata(relay_id, session, timeout, sec, pub, target
 
 
 def parse_connection_response(connection_response):
-    if connection_response is None:
+    if not isinstance(connection_response, dict):
         return {'connection_success': False}
     return {
         'connection_success': True,
@@ -170,20 +170,23 @@ def parse_connection_response(connection_response):
 
 async def compute_relay_metadata(relay, sec, pub, socks5_proxy_url=None, timeout=10):
     relay_id = relay.url.removeprefix('wss://')
+    nip11_raw = None
     connector = ProxyConnector.from_url(
         socks5_proxy_url) if relay.network == 'tor' else None
     async with ClientSession(connector=connector, timeout=ClientTimeout(total=timeout)) as session:
         nip11_raw = await fetch_nip11_metadata(relay_id, session, timeout)
-        nip11_response = parse_nip11_response(nip11_raw)
-    target_difficulty = nip11_response.get(
-        'limitation', {}).get('min_pow_difficulty', None)
+    nip11_response = parse_nip11_response(nip11_raw)
+    target_difficulty = nip11_response.get('limitation', {})
+    target_difficulty = None if not isinstance(
+        target_difficulty, dict) else target_difficulty.get('min_pow_difficulty')
     target_difficulty = target_difficulty if isinstance(
         target_difficulty, int) else None
     connector = ProxyConnector.from_url(
         socks5_proxy_url) if relay.network == 'tor' else None
+    connection_raw = None
     async with ClientSession(connector=connector, timeout=ClientTimeout(total=timeout)) as session:
         connection_raw = await fetch_connection_metadata(relay_id, session, timeout, sec, pub, target_difficulty)
-        connection_response = parse_connection_response(connection_raw)
+    connection_response = parse_connection_response(connection_raw)
     metadata = {
         'relay': relay,
         'generated_at': int(time.time()),
