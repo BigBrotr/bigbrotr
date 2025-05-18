@@ -149,7 +149,6 @@ async def check_writability(session, relay_url, timeout, sec, pub, target_diffic
                 else:
                     break
     except Exception as e:
-        print(f"Error: {e}")
         pass
     return rtt_write, writable
 
@@ -189,7 +188,7 @@ def parse_connection_response(connection_response):
             rtt_total += rtt
     return {
         'connection_success': True,
-        'rtt': rtt_total / rtt_count if rtt_count > 0 else None,
+        'rtt': int(rtt_total / rtt_count) if rtt_count > 0 else None,
         'writable': connection_response.get('writable'),
         'readable': connection_response.get('readable')
     }
