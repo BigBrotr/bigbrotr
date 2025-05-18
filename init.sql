@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
     description TEXT,                                                       -- Description of the relay. NOT NULL -> nip11_success is true
     banner TEXT,                                                            -- Link to an image (e.g. in .jpg, or .png format). NOT NULL -> nip11_success is true
     icon TEXT,                                                              -- Link to an icon (e.g. in .jpg, or .png format). NOT NULL -> nip11_success is true
-    pubkey CHAR(64),                                                        -- Administrative contact pubkey. NOT NULL -> nip11_success is true
+    pubkey TEXT,                                                            -- Administrative contact pubkey. NOT NULL -> nip11_success is true
     contact TEXT,                                                           -- Administrative alternate contact. NOT NULL -> nip11_success is true
     supported_nips JSONB,                                                   -- List of NIP numbers supported by the relay. NOT NULL -> nip11_success is true
     software TEXT,                                                          -- Relay software URL. NOT NULL -> nip11_success is true
