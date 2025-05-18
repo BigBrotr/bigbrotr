@@ -1,0 +1,235 @@
+from aiohttp import ClientSession, ClientTimeout, WSMsgType
+from aiohttp_socks import ProxyConnector
+import json
+import uuid
+import asyncio
+from relay_metadata import RelayMetadata
+from relay import Relay
+import utils
+import time
+
+
+async def fetch_nip11_metadata(relay_id, session, timeout):
+    headers = {'Accept': 'application/nostr+json'}
+    for schema in ['https://', 'http://']:
+        try:
+            async with session.get(schema + relay_id, headers=headers, timeout=timeout) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    pass
+        except Exception as e:
+            pass
+    return None
+
+
+def parse_nip11_response(nip11_response):
+    if nip11_response is None:
+        return {'nip11_success': False}
+    return {
+        'nip11_success': True,
+        'name': nip11_response.get('name'),
+        'description': nip11_response.get('description'),
+        'banner': nip11_response.get('banner'),
+        'icon': nip11_response.get('icon'),
+        'pubkey': nip11_response.get('pubkey'),
+        'contact': nip11_response.get('contact'),
+        'supports_nips': nip11_response.get('supported_nips'),
+        'software': nip11_response.get('software'),
+        'version': nip11_response.get('version'),
+        'privacy_policy': nip11_response.get('privacy_policy'),
+        'terms_of_service': nip11_response.get('terms_of_service'),
+        'limitation': nip11_response.get('limitation'),
+        'extra_fields': {
+            key: value for key, value in nip11_response.items() if key not in [
+                'name', 'description', 'banner', 'icon', 'pubkey', 'contact',
+                'supported_nips', 'software', 'version', 'privacy_policy',
+                'terms_of_service', 'limitation'
+            ]
+        }
+    }
+
+
+def generate_nip66_event(nip11_response, relay_url, network, pubkey, seckey, rtt_open=None, rtt_read=None, rtt_write=None):
+    tags = []
+    # Required "d" tag (relay URI)
+    tags.append(["d", relay_url])
+    # Network (assume clearnet unless specified otherwise)
+    tags.append(["n", network])
+    # Supported NIPs
+    supported_nips = nip11_response.get("supported_nips", [])
+    for nip in supported_nips:
+        tags.append(["N", str(nip)])
+    # Relay requirements (auth/payment)
+    limitations = nip11_response.get("limitation", {})
+    if "payment_required" in limitations:
+        if limitations["payment_required"]:
+            tags.append(["R", "payment"])
+        else:
+            tags.append(["R", "!payment"])
+    if "auth_required" in limitations:
+        if limitations["auth_required"]:
+            tags.append(["R", "auth"])
+        else:
+            tags.append(["R", "!auth"])
+    # Topics / tags
+    for tag in nip11_response.get("tags", []):
+        tags.append(["t", tag])
+    # Optional RTT values
+    if rtt_open is not None:
+        tags.append(["rtt-open", str(rtt_open)])
+    if rtt_read is not None:
+        tags.append(["rtt-read", str(rtt_read)])
+    if rtt_write is not None:
+        tags.append(["rtt-write", str(rtt_write)])
+    # Content (stringified NIP-11)
+    content = json.dumps(nip11_response)
+    # Generate the event
+    event = utils.generate_event(
+        seckey, pubkey, int(time.time()), 30166, tags, content)
+    return event
+
+
+async def check_connectivity(session, relay_url, timeout):
+    rtt_open = None
+    try:
+        time_start = time.time()
+        async with session.ws_connect(relay_url, timeout=timeout) as ws:
+            time_end = time.time()
+            rtt_open = int((time_end - time_start) * 1000)
+    except Exception as e:
+        pass
+    return rtt_open
+
+
+async def check_readability(session, relay_url, timeout):
+    rtt_read = None
+    readable = False
+    try:
+        async with session.ws_connect(relay_url, timeout=timeout) as ws:
+            subscription_id = uuid.uuid4().hex
+            request = ["REQ", subscription_id, {"limit": 1}]
+            time_start = time.time()
+            await ws.send_str(json.dumps(request))
+            while True:
+                try:
+                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    break
+                if msg.type == WSMsgType.TEXT:
+                    if rtt_read is None:
+                        time_end = time.time()
+                        rtt_read = int((time_end - time_start) * 1000)
+                    data = json.loads(msg.data)
+                    if data[0] in ["EVENT", "EOSE"] and data[1] == subscription_id:
+                        readable = True
+                        break
+                    else:
+                        break
+                else:
+                    break
+    except Exception as e:
+        pass
+    return rtt_read, readable
+
+
+async def check_writability(session, relay_url, timeout):
+    rtt_write = None
+    writable = False
+    try:
+        async with session.ws_connect(relay_url, timeout=timeout) as ws:
+            sec, pub = utils.generate_nostr_keypair()
+            event = utils.generate_event(sec, pub, int(time.time()), 1, [], "")
+            request = ["EVENT", event]
+            print(request)
+            time_start = time.time()
+            await ws.send_str(json.dumps(request))
+            while True:
+                try:
+                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    break
+                if msg.type == WSMsgType.TEXT:
+                    if rtt_write is None:
+                        time_end = time.time()
+                        rtt_write = int((time_end - time_start) * 1000)
+                    data = json.loads(msg.data)
+                    print(data)
+                    if data[0] == "OK" and data[1] == event["id"] and data[2] == True:
+                        writable = True
+                        break
+                    else:
+                        break
+                else:
+                    break
+    except Exception as e:
+        print(f"Error: {e}")
+        pass
+    return rtt_write, writable
+
+
+async def fetch_connection_metadata(relay_id, session, timeout):
+    rtt_open = None
+    rtt_read = None
+    rtt_write = None
+    writable = False
+    readable = False
+    for schema in ['wss://', 'ws://']:
+        relay_url = schema + relay_id
+        rtt_open = await check_connectivity(session, relay_url, timeout)
+        if rtt_open is not None:
+            rtt_read, readable = await check_readability(session, relay_url, timeout)
+            rtt_write, writable = await check_writability(session, relay_url, timeout)
+            if readable or writable:
+                return {
+                    'rtt_open': rtt_open,
+                    'rtt_read': rtt_read,
+                    'rtt_write': rtt_write,
+                    'writable': writable,
+                    'readable': readable
+                }
+    return None
+
+
+def parse_connection_response(connection_response):
+    if connection_response is None:
+        return {'connection_success': False}
+    return {
+        'connection_success': True,
+        'rtt_open': connection_response.get('rtt_open'),
+        'rtt_read': connection_response.get('rtt_read'),
+        'rtt_write': connection_response.get('rtt_write'),
+        'writable': connection_response.get('writable'),
+        'readable': connection_response.get('readable')
+    }
+
+
+async def compute_relay_metadata(relay, socks5_proxy_url=None, timeout=10):
+    if not isinstance(relay, Relay):
+        raise TypeError(f"relay must be a Relay object, not {type(relay)}")
+    if relay.network == 'tor' and socks5_proxy_url is None:
+        raise ValueError("socks5_proxy_url must be provided for Tor relays")
+    if socks5_proxy_url is not None:
+        if not isinstance(socks5_proxy_url, str):
+            raise TypeError(
+                f"socks5_proxy_url must be a string, not {type(socks5_proxy_url)}")
+        if not socks5_proxy_url.startswith('socks5://'):
+            raise ValueError("socks5_proxy_url must start with 'socks5://'")
+    relay_id = relay.url.removeprefix('wss://')
+    connector = ProxyConnector.from_url(
+        socks5_proxy_url) if relay.network == 'tor' else None
+    async with ClientSession(connector=connector, timeout=ClientTimeout(total=timeout)) as session:
+        nip11_raw = await fetch_nip11_metadata(relay_id, session, timeout)
+        nip11_response = parse_nip11_response(nip11_raw)
+    connector = ProxyConnector.from_url(
+        socks5_proxy_url) if relay.network == 'tor' else None
+    async with ClientSession(connector=connector, timeout=ClientTimeout(total=timeout)) as session:
+        connection_raw = await fetch_connection_metadata(relay_id, session, timeout)
+        connection_response = parse_connection_response(connection_raw)
+    metadata = {
+        'relay': relay,
+        'generated_at': int(time.time()),
+        **nip11_response,
+        **connection_response
+    }
+    return RelayMetadata.from_dict(metadata)
