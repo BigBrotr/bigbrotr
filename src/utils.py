@@ -4,6 +4,7 @@ import bech32
 import secp256k1
 import os
 import re
+import time
 
 # https://data.iana.org/TLD/tlds-alpha-by-domain.txt
 TLDS = ["AAA", "AARP", "ABB", "ABBOTT", "ABBVIE", "ABC", "ABLE", "ABOGADO", "ABUDHABI", "AC", "ACADEMY", "ACCENTURE", "ACCOUNTANT", "ACCOUNTANTS", "ACO", "ACTOR", "AD", "ADS", "ADULT", "AE", "AEG", "AERO", "AETNA", "AF", "AFL", "AFRICA", "AG", "AGAKHAN", "AGENCY", "AI", "AIG", "AIRBUS", "AIRFORCE", "AIRTEL", "AKDN", "AL", "ALIBABA", "ALIPAY", "ALLFINANZ", "ALLSTATE", "ALLY", "ALSACE", "ALSTOM", "AM", "AMAZON", "AMERICANEXPRESS", "AMERICANFAMILY", "AMEX", "AMFAM", "AMICA", "AMSTERDAM", "ANALYTICS", "ANDROID", "ANQUAN", "ANZ", "AO", "AOL", "APARTMENTS", "APP", "APPLE", "AQ", "AQUARELLE", "AR", "ARAB", "ARAMCO", "ARCHI", "ARMY", "ARPA", "ART", "ARTE", "AS", "ASDA", "ASIA", "ASSOCIATES", "AT", "ATHLETA", "ATTORNEY", "AU", "AUCTION", "AUDI", "AUDIBLE", "AUDIO", "AUSPOST", "AUTHOR", "AUTO", "AUTOS", "AW", "AWS", "AX", "AXA", "AZ", "AZURE", "BA", "BABY", "BAIDU", "BANAMEX", "BAND", "BANK", "BAR", "BARCELONA", "BARCLAYCARD", "BARCLAYS", "BAREFOOT", "BARGAINS", "BASEBALL", "BASKETBALL", "BAUHAUS", "BAYERN", "BB", "BBC", "BBT", "BBVA", "BCG", "BCN", "BD", "BE", "BEATS", "BEAUTY", "BEER", "BERLIN", "BEST", "BESTBUY", "BET", "BF", "BG", "BH", "BHARTI", "BI", "BIBLE", "BID", "BIKE", "BING", "BINGO", "BIO", "BIZ", "BJ", "BLACK", "BLACKFRIDAY", "BLOCKBUSTER", "BLOG", "BLOOMBERG", "BLUE", "BM", "BMS", "BMW", "BN", "BNPPARIBAS", "BO", "BOATS", "BOEHRINGER", "BOFA", "BOM", "BOND", "BOO", "BOOK", "BOOKING", "BOSCH", "BOSTIK", "BOSTON", "BOT", "BOUTIQUE", "BOX", "BR", "BRADESCO", "BRIDGESTONE", "BROADWAY", "BROKER", "BROTHER", "BRUSSELS", "BS", "BT", "BUILD", "BUILDERS", "BUSINESS", "BUY", "BUZZ", "BV", "BW", "BY", "BZ", "BZH", "CA", "CAB", "CAFE", "CAL", "CALL", "CALVINKLEIN", "CAM", "CAMERA", "CAMP", "CANON", "CAPETOWN", "CAPITAL", "CAPITALONE", "CAR", "CARAVAN", "CARDS", "CARE", "CAREER", "CAREERS", "CARS", "CASA", "CASE", "CASH", "CASINO", "CAT", "CATERING", "CATHOLIC", "CBA", "CBN", "CBRE", "CC", "CD", "CENTER", "CEO", "CERN", "CF", "CFA", "CFD", "CG", "CH", "CHANEL", "CHANNEL", "CHARITY", "CHASE", "CHAT", "CHEAP", "CHINTAI", "CHRISTMAS", "CHROME", "CHURCH", "CI", "CIPRIANI", "CIRCLE", "CISCO", "CITADEL", "CITI", "CITIC", "CITY", "CK", "CL", "CLAIMS", "CLEANING", "CLICK", "CLINIC", "CLINIQUE", "CLOTHING", "CLOUD", "CLUB", "CLUBMED", "CM", "CN", "CO", "COACH", "CODES", "COFFEE", "COLLEGE", "COLOGNE", "COM", "COMMBANK", "COMMUNITY", "COMPANY", "COMPARE", "COMPUTER", "COMSEC", "CONDOS", "CONSTRUCTION", "CONSULTING", "CONTACT", "CONTRACTORS", "COOKING", "COOL", "COOP", "CORSICA", "COUNTRY", "COUPON", "COUPONS", "COURSES", "CPA", "CR", "CREDIT", "CREDITCARD", "CREDITUNION", "CRICKET", "CROWN", "CRS", "CRUISE", "CRUISES", "CU", "CUISINELLA", "CV", "CW", "CX", "CY", "CYMRU", "CYOU", "CZ", "DAD", "DANCE", "DATA", "DATE", "DATING", "DATSUN", "DAY", "DCLK", "DDS", "DE", "DEAL", "DEALER", "DEALS", "DEGREE", "DELIVERY", "DELL", "DELOITTE", "DELTA", "DEMOCRAT", "DENTAL", "DENTIST", "DESI", "DESIGN", "DEV", "DHL", "DIAMONDS", "DIET", "DIGITAL", "DIRECT", "DIRECTORY", "DISCOUNT", "DISCOVER", "DISH", "DIY", "DJ", "DK", "DM", "DNP", "DO", "DOCS", "DOCTOR", "DOG", "DOMAINS", "DOT", "DOWNLOAD", "DRIVE", "DTV", "DUBAI", "DUNLOP", "DUPONT", "DURBAN", "DVAG", "DVR", "DZ", "EARTH", "EAT", "EC", "ECO", "EDEKA", "EDU", "EDUCATION", "EE", "EG", "EMAIL", "EMERCK", "ENERGY", "ENGINEER", "ENGINEERING", "ENTERPRISES", "EPSON", "EQUIPMENT", "ER", "ERICSSON", "ERNI", "ES", "ESQ", "ESTATE", "ET", "EU", "EUROVISION", "EUS", "EVENTS", "EXCHANGE", "EXPERT", "EXPOSED", "EXPRESS", "EXTRASPACE", "FAGE", "FAIL", "FAIRWINDS", "FAITH", "FAMILY", "FAN", "FANS", "FARM", "FARMERS", "FASHION", "FAST", "FEDEX", "FEEDBACK", "FERRARI", "FERRERO", "FI", "FIDELITY", "FIDO", "FILM", "FINAL", "FINANCE", "FINANCIAL", "FIRE", "FIRESTONE", "FIRMDALE", "FISH", "FISHING", "FIT", "FITNESS", "FJ", "FK", "FLICKR", "FLIGHTS", "FLIR", "FLORIST", "FLOWERS", "FLY", "FM", "FO", "FOO", "FOOD", "FOOTBALL", "FORD", "FOREX", "FORSALE", "FORUM", "FOUNDATION", "FOX", "FR", "FREE", "FRESENIUS", "FRL", "FROGANS", "FRONTIER", "FTR", "FUJITSU", "FUN", "FUND", "FURNITURE", "FUTBOL", "FYI", "GA", "GAL", "GALLERY", "GALLO", "GALLUP", "GAME", "GAMES", "GAP", "GARDEN", "GAY", "GB", "GBIZ", "GD", "GDN", "GE", "GEA", "GENT", "GENTING", "GEORGE", "GF", "GG", "GGEE", "GH", "GI", "GIFT", "GIFTS", "GIVES", "GIVING", "GL", "GLASS", "GLE", "GLOBAL", "GLOBO", "GM", "GMAIL", "GMBH", "GMO", "GMX", "GN", "GODADDY", "GOLD", "GOLDPOINT", "GOLF", "GOO", "GOODYEAR", "GOOG", "GOOGLE", "GOP", "GOT", "GOV", "GP", "GQ", "GR", "GRAINGER", "GRAPHICS", "GRATIS", "GREEN", "GRIPE", "GROCERY", "GROUP", "GS", "GT", "GU", "GUCCI", "GUGE", "GUIDE", "GUITARS", "GURU", "GW", "GY", "HAIR", "HAMBURG", "HANGOUT", "HAUS", "HBO", "HDFC", "HDFCBANK", "HEALTH", "HEALTHCARE", "HELP", "HELSINKI", "HERE", "HERMES", "HIPHOP", "HISAMITSU", "HITACHI", "HIV", "HK", "HKT", "HM", "HN", "HOCKEY", "HOLDINGS", "HOLIDAY", "HOMEDEPOT", "HOMEGOODS", "HOMES", "HOMESENSE", "HONDA", "HORSE", "HOSPITAL", "HOST", "HOSTING", "HOT", "HOTELS", "HOTMAIL", "HOUSE", "HOW", "HR", "HSBC", "HT", "HU", "HUGHES", "HYATT", "HYUNDAI", "IBM", "ICBC", "ICE", "ICU", "ID", "IE", "IEEE", "IFM", "IKANO", "IL", "IM", "IMAMAT", "IMDB", "IMMO", "IMMOBILIEN", "IN", "INC", "INDUSTRIES", "INFINITI", "INFO", "ING", "INK", "INSTITUTE", "INSURANCE", "INSURE", "INT", "INTERNATIONAL", "INTUIT", "INVESTMENTS", "IO", "IPIRANGA", "IQ", "IR", "IRISH", "IS", "ISMAILI", "IST", "ISTANBUL", "IT", "ITAU", "ITV", "JAGUAR", "JAVA", "JCB", "JE", "JEEP", "JETZT", "JEWELRY", "JIO", "JLL", "JM", "JMP", "JNJ", "JO", "JOBS", "JOBURG", "JOT", "JOY", "JP", "JPMORGAN", "JPRS", "JUEGOS", "JUNIPER", "KAUFEN", "KDDI", "KE", "KERRYHOTELS", "KERRYPROPERTIES", "KFH", "KG", "KH", "KI", "KIA", "KIDS", "KIM", "KINDLE", "KITCHEN", "KIWI", "KM", "KN", "KOELN", "KOMATSU", "KOSHER", "KP", "KPMG", "KPN", "KR", "KRD", "KRED", "KUOKGROUP", "KW", "KY", "KYOTO", "KZ", "LA", "LACAIXA", "LAMBORGHINI", "LAMER", "LAND", "LANDROVER", "LANXESS", "LASALLE", "LAT", "LATINO", "LATROBE", "LAW", "LAWYER", "LB", "LC", "LDS", "LEASE", "LECLERC", "LEFRAK", "LEGAL", "LEGO", "LEXUS", "LGBT", "LI", "LIDL", "LIFE", "LIFEINSURANCE", "LIFESTYLE", "LIGHTING", "LIKE", "LILLY", "LIMITED", "LIMO", "LINCOLN", "LINK", "LIVE", "LIVING", "LK", "LLC", "LLP", "LOAN", "LOANS", "LOCKER", "LOCUS", "LOL", "LONDON", "LOTTE", "LOTTO", "LOVE", "LPL", "LPLFINANCIAL", "LR", "LS", "LT", "LTD", "LTDA", "LU", "LUNDBECK", "LUXE", "LUXURY", "LV", "LY", "MA", "MADRID", "MAIF", "MAISON", "MAKEUP", "MAN", "MANAGEMENT", "MANGO", "MAP", "MARKET", "MARKETING", "MARKETS", "MARRIOTT", "MARSHALLS", "MATTEL", "MBA", "MC", "MCKINSEY", "MD", "ME", "MED", "MEDIA", "MEET", "MELBOURNE", "MEME", "MEMORIAL", "MEN", "MENU", "MERCKMSD", "MG", "MH", "MIAMI", "MICROSOFT", "MIL", "MINI", "MINT", "MIT", "MITSUBISHI", "MK", "ML", "MLB", "MLS", "MM", "MMA", "MN", "MO", "MOBI", "MOBILE", "MODA", "MOE", "MOI", "MOM", "MONASH", "MONEY", "MONSTER", "MORMON", "MORTGAGE", "MOSCOW",
@@ -121,30 +122,8 @@ def calc_event_id(pubkey: str, created_at: int, kind: int, tags: list, content: 
     - str: The calculated event ID as a hexadecimal string.
 
     Raises:
-    - TypeError: if pubkey is not a str
-    - TypeError: if created_at is not an int
-    - TypeError: if kind is not an int
-    - TypeError: if tags is not a list of lists of str
-    - TypeError: if content is not a str
+    None
     """
-    if not isinstance(pubkey, str):
-        raise TypeError(f"pubkey must be a str, not {type(pubkey)}")
-    if not isinstance(created_at, int):
-        raise TypeError(
-            f"created_at must be an int, not {type(created_at)}")
-    if not isinstance(kind, int):
-        raise TypeError(f"kind must be an int, not {type(kind)}")
-    if not isinstance(tags, list):
-        raise TypeError(
-            f"tags must be a list of lists of str, not {type(tags)}")
-    for tag in tags:
-        if not isinstance(tag, list):
-            raise TypeError(f"tag must be a list of str, not {type(tag)}")
-        for t in tag:
-            if not isinstance(t, str):
-                raise TypeError(f"tag must contain str, not {type(t)}")
-    if not isinstance(content, str):
-        raise TypeError(f"content must be a str, not {type(content)}")
     # content = content.replace(r'\n', '\n').replace(r'\"', '\"').replace(r'\\', '\\').replace(
     #     r'\r', '\r').replace(r'\t', '\t').replace(r'\b', '\b').replace(r'\f', '\f')
     data = [0, pubkey.lower(), created_at, kind, tags, content]
@@ -168,8 +147,7 @@ def sig_event_id(event_id: str, private_key_hex: str) -> str:
     - str: The signature of the event ID.
 
     Raises:
-    - TypeError: if event_id or private_key_hex is not a str
-    - ValueError: if the private key is invalid
+    None
     """
     private_key = secp256k1.PrivateKey(bytes.fromhex(private_key_hex))
     sig = private_key.schnorr_sign(
@@ -194,8 +172,7 @@ def verify_sig(event_id: str, pubkey: str, sig: str) -> bool:
     - bool: True if the signature is valid, False otherwise.
 
     Raises:
-    - TypeError: if event_id, pubkey, or sig is not a str
-    - ValueError: if the public key or signature is invalid
+    None
     """
     try:
         pub_key = secp256k1.PublicKey(bytes.fromhex("02" + pubkey), True)
@@ -209,48 +186,86 @@ def verify_sig(event_id: str, pubkey: str, sig: str) -> bool:
         return False
 
 
-def generate_event(sec, pub, created_at, kind, tags, content):
+def generate_event(sec: str, pub: str, kind: int, tags: list, content: str, created_at: int | None = None, target_difficulty: int = 0, timeout: int = 10) -> dict:
     """
-    Generate an event with the given parameters.
+    Generates an event with a Proof of Work (PoW) attached, based on given parameters.
 
     Parameters:
-    - sec (str): The private key in hexadecimal format.
-    - pub (str): The public key in hexadecimal format.
-    - created_at (int): The timestamp of the event.
-    - kind (int): The kind of event.
-    - tags (list): A list of tags associated with the event.
-    - content (str): The content of the event.
+    - sec (str): The private key used for signing the event, in hexadecimal format.
+    - pub (str): The public key associated with the user, in hexadecimal format.
+    - kind (int): The type or category of the event (e.g., 1 for a text note).
+    - tags (list): A list of tags associated with the event. The tags can be used for filtering or categorizing the event.
+    - content (str): The main content of the event, such as text or other data.
+    - created_at (int, optional): A timestamp indicating when the event was created. If None, the current time is used.
+    - target_difficulty (int, optional): The difficulty level for the Proof of Work. This defines how many leading zero bits the event's ID must have to be valid. Default is 0.
+    - timeout (int, optional): The maximum time in seconds to attempt finding the valid event ID. Default is 10 seconds.
+
+    Example:
+    >>> generate_event('private_key_hex', 'public_key_hex', 1, [['tag1', 'tag2']], 'Hello, World!')
+    {
+        'id': 'e41d2f51b631d627f1c5ed83d66e1535ac0f1542a94db987c93f758c364a7600',
+        'pubkey': 'public_key_hex',
+        'created_at': 1234567890,
+        'kind': 1,
+        'tags': [['tag1', 'tag2'], ['nonce', '0', '0']],
+        'content': 'Hello, World!',
+        'sig': 'signature'
+    }
 
     Returns:
     - dict: A dictionary representing the event, containing:
-        - id: The event ID.
-        - pubkey: The public key of the user.
+        - id: The event ID, calculated based on the event parameters.
+        - pubkey: The public key of the user who generated the event.
         - created_at: The timestamp of the event.
-        - kind: The kind of event.
-        - tags: A list of tags associated with the event.
+        - kind: The type or category of the event.
+        - tags: The list of tags associated with the event.
         - content: The content of the event.
         - sig: The signature of the event ID.
+
+    Raises:
+    None
     """
-    event_id = calc_event_id(pub, created_at, kind, tags, content)
+    def count_leading_zero_bits(hex_str):
+        bits = 0
+        for char in hex_str:
+            val = int(char, 16)
+            if val == 0:
+                bits += 4
+            else:
+                bits += (4 - val.bit_length())
+                break
+        return bits
+    original_tags = tags.copy()
+    nonce = 0
+    start_time = time.time()
+    fixed_time = created_at
+    using_fixed_time = fixed_time is not None
+    non_nonce_tags = [tag for tag in original_tags if tag[0] != "nonce"]
+    while True:
+        current_time = fixed_time if using_fixed_time else int(time.time())
+        tags = non_nonce_tags + [["nonce", str(nonce), str(target_difficulty)]]
+        event_id = calc_event_id(pub, current_time, kind, tags, content)
+        difficulty = count_leading_zero_bits(event_id)
+        if difficulty >= target_difficulty:
+            break
+        if (time.time() - start_time) >= timeout:
+            tags = original_tags
+            event_id = calc_event_id(pub, current_time, kind, tags, content)
+            break
+        nonce += 1
     sig = sig_event_id(event_id, sec)
-    event = {
+    return {
         "id": event_id,
         "pubkey": pub,
-        "created_at": created_at,
+        "created_at": current_time,
         "kind": kind,
         "tags": tags,
         "content": content,
         "sig": sig
     }
-    return event
 
 
 def generate_nostr_keypair():
-    """
-    Generate a Nostr-compatible secp256k1 keypair.
-    Returns:
-        tuple: (private_key_hex, public_key_hex)
-    """
     private_key = os.urandom(32)
     private_key_obj = secp256k1.PrivateKey(private_key)
     public_key = private_key_obj.pubkey.serialize(compressed=True)[1:]
@@ -293,19 +308,21 @@ def to_hex(bech32_str):
 def find_websoket_relay_urls(text):
     """
     Find all WebSocket relays in the given text.
+
     Parameters:
     - text (str): The text to search for WebSocket relays.
+
     Example:
     >>> text = "Connect to wss://relay.example.com:443 and ws://relay.example.com"
     >>> find_websoket_relay_urls(text)
     ['wss://relay.example.com:443', 'wss://relay.example.com']
+
     Returns:
     - list: A list of WebSocket relay URLs found in the text.
+
     Raises:
-    - TypeError: if text is not a str
+    None
     """
-    if not isinstance(text, str):
-        raise TypeError(f"text must be a str, not {type(text)}")
     result = []
     matches = re.finditer(URI_GENERIC_REGEX, text, re.VERBOSE)
     for match in matches:
@@ -339,8 +356,3 @@ def sanitize(value):
     elif isinstance(value, dict):
         value = {sanitize(key): sanitize(val) for key, val in value.items()}
     return value
-
-
-async def compute_relay_metadata(relay, proxy_url, timeout=10):
-    # TODO: Implement the logic to compute relay metadata
-    return None
