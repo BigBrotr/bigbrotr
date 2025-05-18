@@ -25,7 +25,7 @@ async def fetch_nip11_metadata(relay_id, session, timeout):
 def parse_nip11_response(nip11_response):
     if not isinstance(nip11_response, dict):
         return {'nip11_success': False}
-    return {
+    nip11_response = {
         'nip11_success': True,
         'name': nip11_response.get('name'),
         'description': nip11_response.get('description'),
@@ -47,6 +47,28 @@ def parse_nip11_response(nip11_response):
             ]
         }
     }
+    for key in ['name', 'description', 'banner', 'icon', 'pubkey', 'contact', 'software', 'version', 'privacy_policy', 'terms_of_service']:
+        if not (isinstance(nip11_response[key], str) or nip11_response[key] is None):
+            nip11_response[key] = None
+    if not isinstance(nip11_response['supports_nips'], list):
+        nip11_response['supports_nips'] = None
+    else:
+        nip11_response['supports_nips'] = [
+            nip for nip in nip11_response['supports_nips'] if isinstance(nip, (int, str))]
+    for key in ['limitation', 'extra_fields']:
+        if not isinstance(nip11_response[key], dict):
+            nip11_response[key] = None
+        else:
+            data = {}
+            for key, value in nip11_response[key].items():
+                if isinstance(key, str):
+                    try:
+                        json.dumps(value)
+                        data[key] = value
+                    except (TypeError, ValueError):
+                        pass
+            nip11_response[key] = data
+    return nip11_response
 
 
 async def check_connectivity(session, relay_url, timeout):
@@ -158,11 +180,16 @@ async def fetch_connection_metadata(relay_id, session, timeout, sec, pub, target
 def parse_connection_response(connection_response):
     if not isinstance(connection_response, dict):
         return {'connection_success': False}
+    rtt_count = 0
+    rtt_total = 0
+    for key in ['rtt_open', 'rtt_read', 'rtt_write']:
+        rtt = connection_response.get(key)
+        if isinstance(rtt, int):
+            rtt_count += 1
+            rtt_total += rtt
     return {
         'connection_success': True,
-        'rtt_open': connection_response.get('rtt_open'),
-        'rtt_read': connection_response.get('rtt_read'),
-        'rtt_write': connection_response.get('rtt_write'),
+        'rtt': rtt_total / rtt_count if rtt_count > 0 else None,
         'writable': connection_response.get('writable'),
         'readable': connection_response.get('readable')
     }
