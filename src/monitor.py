@@ -36,42 +36,51 @@ def load_config_from_env():
             "dbpass": str(os.environ["POSTGRES_PASSWORD"]),
             "dbname": str(os.environ["POSTGRES_DB"]),
             "dbport": int(os.environ["POSTGRES_PORT"]),
-            "run_hour": int(os.environ["MONITOR_RUN_HOUR"]),
             "torhost": str(os.environ["TORPROXY_HOST"]),
             "torport": int(os.environ["TORPROXY_PORT"]),
+            "run_hour": int(os.environ["MONITOR_RUN_HOUR"]),
             "num_cores": int(os.environ["MONITOR_NUM_CORES"]),
             "chunk_size": int(os.environ["MONITOR_CHUNK_SIZE"]),
             "requests_per_core": int(os.environ["MONITOR_REQUESTS_PER_CORE"]),
+            "timeout": int(os.environ["MONITOR_REQUEST_TIMEOUT"]),
             "seckey": str(os.environ["SECRET_KEY"]),
-            "pubkey": str(os.environ["PUBLIC_KEY"])
+            "pubkey": str(os.environ["PUBLIC_KEY"]),
         }
         if config["dbport"] < 0 or config["dbport"] > 65535:
-            logging.error("❌ Invalid database port number.")
+            logging.error(
+                "❌ Invalid POSTGRES_PORT. Must be between 0 and 65535.")
             sys.exit(1)
         if config["torport"] < 0 or config["torport"] > 65535:
-            logging.error("❌ Invalid Tor proxy port number.")
+            logging.error(
+                "❌ Invalid TORPROXY_PORT. Must be between 0 and 65535.")
             sys.exit(1)
         if config["run_hour"] < 0 or config["run_hour"] > 23:
-            logging.error("❌ Invalid run hour. Must be between 0 and 23.")
+            logging.error(
+                "❌ Invalid MONITOR_RUN_HOUR. Must be between 0 and 23.")
             sys.exit(1)
         if config["num_cores"] < 1:
-            logging.error("❌ Invalid number of cores. Must be at least 1.")
+            logging.error("❌ Invalid MONITOR_NUM_CORES. Must be at least 1.")
             sys.exit(1)
         if config["chunk_size"] < 1:
-            logging.error("❌ Invalid chunk size. Must be at least 1.")
+            logging.error("❌ Invalid MONITOR_CHUNK_SIZE. Must be at least 1.")
             sys.exit(1)
         if config["requests_per_core"] < 1:
-            logging.error("❌ Invalid requests per core. Must be at least 1.")
+            logging.error(
+                "❌ Invalid MONITOR_REQUESTS_PER_CORE. Must be at least 1.")
             sys.exit(1)
         if not test_keypair(config["seckey"], config["pubkey"]):
-            logging.error("❌ Invalid keypair.")
+            logging.error("❌ Invalid SECRET_KEY or PUBLIC_KEY.")
+            sys.exit(1)
+        if config["timeout"] < 1:
+            logging.error(
+                "❌ Invalid MONITOR_REQUEST_TIMEOUT. Must be 1 or greater.")
             sys.exit(1)
         if config["num_cores"] > cpu_count():
             logging.warning(
-                f"⚠️ Number of cores ({config['num_cores']}) exceeds available CPU cores ({cpu_count()}).")
+                f"⚠️ MONITOR_NUM_CORES exceeds available CPU cores ({cpu_count()}).")
             config["num_cores"] = cpu_count()
             logging.info(
-                f"🔄 Adjusting number of cores to {config['num_cores']}.")
+                f"🔄 MONITOR_NUM_CORES set to {config['num_cores']} (max available).")
     except KeyError as e:
         logging.error(f"❌ Missing environment variable: {e}")
         sys.exit(1)
@@ -175,26 +184,21 @@ async def process_chunk(chunk, config, generated_at):
 
     async def process_single_relay(relay):
         async with sem:
-            try:
-                metadata = await compute_relay_metadata(
-                    relay,
-                    config["seckey"],
-                    config["pubkey"],
-                    socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None,
-                    timeout=10
-                )
-                metadata.generated_at = generated_at
-                return metadata
-            except Exception as e:
-                logging.exception(
-                    f"⚠️ Failed to compute metadata for relay {relay.url}: {e}")
-        return None
+            relay_metadata = await compute_relay_metadata(
+                relay,
+                config["seckey"],
+                config["pubkey"],
+                socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None,
+                timeout=config["timeout"],
+            )
+            relay_metadata.generated_at = generated_at
+            return relay_metadata
     tasks = [process_single_relay(relay) for relay in chunk]
     relay_metadata_list = await asyncio.gather(*tasks)
     relay_metadata_list = [
         relay_metadata
         for relay_metadata in relay_metadata_list
-        if isinstance(relay_metadata, RelayMetadata) and (relay_metadata.connection_success or relay_metadata.nip11_success)
+        if relay_metadata.connection_success or relay_metadata.nip11_success
     ]
     logging.info(
         f"✅ Processed {len(chunk)} relays. Found {len(relay_metadata_list)} valid relay metadata.")
@@ -264,7 +268,7 @@ async def monitor():
     logging.info("🔍 Starting monitor...")
     await wait_for_services(config)
     while True:
-        await wait_until_scheduled_hour(config["run_hour"])
+        # await wait_until_scheduled_hour(config["run_hour"])
         try:
             logging.info("🔄 Starting main loop...")
             await main_loop(config)

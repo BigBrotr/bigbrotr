@@ -18,6 +18,7 @@ async def fetch_nip11_metadata(relay_id, session, timeout):
                 else:
                     pass
         except Exception as e:
+            # print(f"fetch_nip11_metadata error ({relay_id}): {e}")
             pass
     return None
 
@@ -73,14 +74,17 @@ def parse_nip11_response(nip11_response):
 
 async def check_connectivity(session, relay_url, timeout):
     rtt_open = None
+    openable = False
     try:
         time_start = time.time()
         async with session.ws_connect(relay_url, timeout=timeout) as ws:
             time_end = time.time()
             rtt_open = int((time_end - time_start) * 1000)
+            openable = True
     except Exception as e:
+        # print(f"check_connectivity error ({relay_url}): {e}")
         pass
-    return rtt_open
+    return rtt_open, openable
 
 
 async def check_readability(session, relay_url, timeout):
@@ -102,7 +106,9 @@ async def check_readability(session, relay_url, timeout):
                         time_end = time.time()
                         rtt_read = int((time_end - time_start) * 1000)
                     data = json.loads(msg.data)
-                    if data[0] in ["EVENT", "EOSE"] and data[1] == subscription_id:
+                    if data[0] == "NOTICE":
+                        continue
+                    elif data[0] in ["EVENT", "EOSE"] and data[1] == subscription_id:
                         readable = True
                         break
                     else:
@@ -110,6 +116,7 @@ async def check_readability(session, relay_url, timeout):
                 else:
                     break
     except Exception as e:
+        # print(f"check_readability error ({relay_url}): {e}")
         pass
     return rtt_read, readable
 
@@ -149,6 +156,7 @@ async def check_writability(session, relay_url, timeout, sec, pub, target_diffic
                 else:
                     break
     except Exception as e:
+        # print(f"check_writability error ({relay_url}): {e}")
         pass
     return rtt_write, writable
 
@@ -157,19 +165,21 @@ async def fetch_connection_metadata(relay_id, session, timeout, sec, pub, target
     rtt_open = None
     rtt_read = None
     rtt_write = None
+    openable = False
     writable = False
     readable = False
     for schema in ['wss://', 'ws://']:
         relay_url = schema + relay_id
-        rtt_open = await check_connectivity(session, relay_url, timeout)
+        rtt_open, openable = await check_connectivity(session, relay_url, timeout)
         if rtt_open is not None:
             rtt_read, readable = await check_readability(session, relay_url, timeout)
             rtt_write, writable = await check_writability(session, relay_url, timeout, sec, pub, target_difficulty)
-            if readable or writable:
+            if openable or readable or writable:
                 return {
                     'rtt_open': rtt_open,
                     'rtt_read': rtt_read,
                     'rtt_write': rtt_write,
+                    'openable': openable,
                     'writable': writable,
                     'readable': readable
                 }
@@ -179,18 +189,14 @@ async def fetch_connection_metadata(relay_id, session, timeout, sec, pub, target
 def parse_connection_response(connection_response):
     if not isinstance(connection_response, dict):
         return {'connection_success': False}
-    rtt_count = 0
-    rtt_total = 0
-    for key in ['rtt_open', 'rtt_read', 'rtt_write']:
-        rtt = connection_response.get(key)
-        if isinstance(rtt, int):
-            rtt_count += 1
-            rtt_total += rtt
     return {
         'connection_success': True,
-        'rtt': int(rtt_total / rtt_count) if rtt_count > 0 else None,
-        'writable': connection_response.get('writable'),
-        'readable': connection_response.get('readable')
+        'rtt_open': connection_response['rtt_open'],
+        'rtt_read': connection_response['rtt_read'],
+        'rtt_write': connection_response['rtt_write'],
+        'openable': connection_response['openable'],
+        'writable': connection_response['writable'],
+        'readable': connection_response['readable']
     }
 
 

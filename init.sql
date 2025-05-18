@@ -50,9 +50,12 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
     connection_success BOOLEAN NOT NULL,                                    -- Success of the connection to the relay
     nip11_success BOOLEAN NOT NULL,                                         -- Success of the metadata retrieval
     -- connection metadata
+    openable BOOLEAN,                                                       -- Openable status of the relay (if the relay is open to connect). NULL if connection_success is false
     readable BOOLEAN,                                                       -- read possibility on the relay (if the relay is public to read). NULL if connection_success is false
     writable BOOLEAN,                                                       -- write possibility on the relay (if the relay is public to write). NULL if connection_success is false
-    rtt INT,                                                                -- Round-trip time in milliseconds. NULL if connection_success is false
+    rtt_open INT,                                                           -- Round trip time for open connection. NULL if connection_success is false
+    rtt_read INT,                                                           -- Round trip time for read connection. NULL if connection_success is false
+    rtt_write INT,                                                          -- Round trip time for write connection. NULL if connection_success is false
     -- nip11 metadata
     name TEXT,                                                              -- Name of the relay. NOT NULL -> nip11_success is true
     description TEXT,                                                       -- Description of the relay. NOT NULL -> nip11_success is true
@@ -149,9 +152,12 @@ CREATE OR REPLACE FUNCTION insert_relay_metadata(
     p_generated_at BIGINT,
     p_connection_success BOOLEAN,
     p_nip11_success BOOLEAN,
+    p_openable BOOLEAN,
     p_readable BOOLEAN,
     p_writable BOOLEAN,
-    p_rtt INT,
+    p_rtt_open INT,
+    p_rtt_read INT,
+    p_rtt_write INT,
     p_name TEXT,
     p_description TEXT,
     p_banner TEXT,
@@ -177,9 +183,12 @@ BEGIN
         generated_at,
         connection_success,
         nip11_success,
+        openable,
         readable,
         writable,
-        rtt,
+        rtt_open,
+        rtt_read,
+        rtt_write,
         name,
         description,
         banner,
@@ -199,9 +208,12 @@ BEGIN
         p_generated_at,
         p_connection_success,
         p_nip11_success,
+        p_openable,
         p_readable,
         p_writable,
-        p_rtt,
+        p_rtt_open,
+        p_rtt_read,
+        p_rtt_write,
         p_name,
         p_description,
         p_banner,

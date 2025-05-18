@@ -25,7 +25,8 @@ def load_config_from_env():
             "relays_seed_path": str(os.environ["RELAYS_SEED_PATH"])
         }
         if config["dbport"] < 0 or config["dbport"] > 65535:
-            logging.error("❌ Invalid database port number.")
+            logging.error(
+                "❌ Invalid POSTGRES_PORT value. Must be between 0 and 65535.")
             sys.exit(1)
     except KeyError as e:
         logging.error(f"❌ Missing environment variable: {e}")

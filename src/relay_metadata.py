@@ -12,9 +12,12 @@ class RelayMetadata:
     - generated_at: int, the timestamp when the metadata was generated
     - connection_success: bool, indicates if the connection to the relay was successful
     - nip11_success: bool, indicates if the NIP-11 metadata was successfully retrieved
+    - openable: Optional[bool], indicates if the relay is openable
     - readable: Optional[bool], indicates if the relay is readable
     - writable: Optional[bool], indicates if the relay is writable
-    - rtt: Optional[int], the round-trip time for the connection
+    - rtt_open: Optional[int], the round-trip time for the connection
+    - rtt_read: Optional[int], the round-trip time for reading from the relay
+    - rtt_write: Optional[int], the round-trip time for writing to the relay
     - name: Optional[str], the name of the relay
     - description: Optional[str], a description of the relay
     - banner: Optional[str], the URL of the banner image
@@ -42,9 +45,12 @@ class RelayMetadata:
         generated_at: int,
         connection_success: bool,
         nip11_success: bool,
+        openable: Optional[bool] = None,
         readable: Optional[bool] = None,
         writable: Optional[bool] = None,
-        rtt: Optional[int] = None,
+        rtt_open: Optional[int] = None,
+        rtt_read: Optional[int] = None,
+        rtt_write: Optional[int] = None,
         name: Optional[str] = None,
         description: Optional[str] = None,
         banner: Optional[str] = None,
@@ -67,9 +73,12 @@ class RelayMetadata:
         - generated_at: int, the timestamp when the metadata was generated
         - connection_success: bool, indicates if the connection to the relay was successful
         - nip11_success: bool, indicates if the NIP-11 metadata was successfully retrieved
+        - openable: Optional[bool], indicates if the relay is openable
         - readable: Optional[bool], indicates if the relay is readable
         - writable: Optional[bool], indicates if the relay is writable
-        - rtt: Optional[int], the round-trip time for the connection
+        - rtt_open: Optional[int], the round-trip time for the connection
+        - rtt_read: Optional[int], the round-trip time for reading from the relay
+        - rtt_write: Optional[int], the round-trip time for writing to the relay
         - name: Optional[str], the name of the relay
         - description: Optional[str], a description of the relay
         - banner: Optional[str], the URL of the banner image
@@ -90,9 +99,12 @@ class RelayMetadata:
         ...     generated_at=1612137600,
         ...     connection_success=True,
         ...     nip11_success=True,
+        ...     openable=True,
         ...     readable=True,
         ...     writable=True,
-        ...     rtt=100,
+        ...     rtt_open=100,
+        ...     rtt_read=200,
+        ...     rtt_write=300,
         ...     name="Example Relay",
         ...     description="An example NOSTR relay",
         ...     banner="https://example.com/banner.png",
@@ -116,9 +128,12 @@ class RelayMetadata:
         - TypeError: if generated_at is not an int
         - TypeError: if connection_success is not a bool
         - TypeError: if nip11_success is not a bool
+        - TypeError: if openable is not a bool or None
         - TypeError: if readable is not a bool or None
         - TypeError: if writable is not a bool or None
-        - TypeError: if rtt is not an int or None
+        - TypeError: if rtt_open is not an int or None
+        - TypeError: if rtt_read is not an int or None
+        - TypeError: if rtt_write is not an int or None
         - TypeError: if name is not a str or None
         - TypeError: if description is not a str or None
         - TypeError: if banner is not a str or None
@@ -146,14 +161,24 @@ class RelayMetadata:
         if not isinstance(nip11_success, bool):
             raise TypeError(
                 f"nip11_success must be a bool, not {type(nip11_success)}")
+        if openable is not None and not isinstance(openable, bool):
+            raise TypeError(
+                f"openable must be a boolean or None, not {type(openable)}")
         if readable is not None and not isinstance(readable, bool):
             raise TypeError(
                 f"readable must be a boolean or None, not {type(readable)}")
         if writable is not None and not isinstance(writable, bool):
             raise TypeError(
                 f"writable must be a boolean or None, not {type(writable)}")
-        if rtt is not None and not isinstance(rtt, int):
-            raise TypeError(f"rtt must be an int or None, not {type(rtt)}")
+        if rtt_open is not None and not isinstance(rtt_open, int):
+            raise TypeError(
+                f"rtt_open must be an int or None, not {type(rtt_open)}")
+        if rtt_read is not None and not isinstance(rtt_read, int):
+            raise TypeError(
+                f"rtt_read must be an int or None, not {type(rtt_read)}")
+        if rtt_write is not None and not isinstance(rtt_write, int):
+            raise TypeError(
+                f"rtt_write must be an int or None, not {type(rtt_write)}")
         if name is not None and not isinstance(name, str):
             raise TypeError(f"name must be a string or None, not {type(name)}")
         if description is not None and not isinstance(description, str):
@@ -220,9 +245,12 @@ class RelayMetadata:
         self.generated_at = generated_at
         self.connection_success = connection_success
         self.nip11_success = nip11_success
+        self.openable = openable if connection_success else None
         self.readable = readable if connection_success else None
         self.writable = writable if connection_success else None
-        self.rtt = rtt if connection_success else None
+        self.rtt_open = rtt_open if connection_success else None
+        self.rtt_read = rtt_read if connection_success else None
+        self.rtt_write = rtt_write if connection_success else None
         self.name = name if nip11_success else None
         self.description = description if nip11_success else None
         self.banner = banner if nip11_success else None
@@ -257,7 +285,11 @@ class RelayMetadata:
         Raises:
         - None
         """
-        return f"RelayMetadata(relay={self.relay}, generated_at={self.generated_at}, connection_success={self.connection_success}, nip11_success={self.nip11_success})"
+        l = []
+        for key, value in self.__dict__.items():
+            if value is not None:
+                l.append(f"{key}={value}")
+        return f"RelayMetadata({', '.join(l)})"
 
     @staticmethod
     def from_dict(data: dict) -> "RelayMetadata":
@@ -295,9 +327,12 @@ class RelayMetadata:
             generated_at=data["generated_at"],
             connection_success=data["connection_success"],
             nip11_success=data["nip11_success"],
+            openable=data.get("openable"),
             readable=data.get("readable"),
             writable=data.get("writable"),
-            rtt=data.get("rtt"),
+            rtt_open=data.get("rtt_open"),
+            rtt_read=data.get("rtt_read"),
+            rtt_write=data.get("rtt_write"),
             name=data.get("name"),
             description=data.get("description"),
             banner=data.get("banner"),
@@ -338,9 +373,12 @@ class RelayMetadata:
             "generated_at": self.generated_at,
             "connection_success": self.connection_success,
             "nip11_success": self.nip11_success,
+            "openable": self.openable,
             "readable": self.readable,
             "writable": self.writable,
-            "rtt": self.rtt,
+            "rtt_open": self.rtt_open,
+            "rtt_read": self.rtt_read,
+            "rtt_write": self.rtt_write,
             "name": self.name,
             "description": self.description,
             "banner": self.banner,

@@ -4,6 +4,7 @@ from event import Event
 from relay import Relay
 from relay_metadata import RelayMetadata
 from utils import sanitize
+import json
 
 
 class Bigbrotr:
@@ -340,16 +341,19 @@ class Bigbrotr:
         if not isinstance(relay_metadata, RelayMetadata):
             raise TypeError(
                 f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
-        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
+        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
         args = (
             sanitize(relay_metadata.relay.url),
             relay_metadata.relay.network,
             relay_metadata.generated_at,
             relay_metadata.connection_success,
             relay_metadata.nip11_success,
+            relay_metadata.openable,
             relay_metadata.readable,
             relay_metadata.writable,
-            relay_metadata.rtt,
+            relay_metadata.rtt_open,
+            relay_metadata.rtt_read,
+            relay_metadata.rtt_write,
             sanitize(relay_metadata.name),
             sanitize(relay_metadata.description),
             sanitize(relay_metadata.banner),
@@ -361,8 +365,10 @@ class Bigbrotr:
             sanitize(relay_metadata.version),
             sanitize(relay_metadata.privacy_policy),
             sanitize(relay_metadata.terms_of_service),
-            sanitize(relay_metadata.limitation),
-            sanitize(relay_metadata.extra_fields)
+            json.dumps(sanitize(relay_metadata.limitation)
+                       ) if relay_metadata.limitation is not None else None,
+            json.dumps(sanitize(relay_metadata.extra_fields)
+                       ) if relay_metadata.extra_fields is not None else None
         )
         self.execute(query, args)
         self.commit()
@@ -480,7 +486,7 @@ class Bigbrotr:
             if not isinstance(relay_metadata, RelayMetadata):
                 raise TypeError(
                     f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
-        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
+        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
         args = [
             (
                 sanitize(relay_metadata.relay.url),
@@ -488,9 +494,12 @@ class Bigbrotr:
                 relay_metadata.generated_at,
                 relay_metadata.connection_success,
                 relay_metadata.nip11_success,
+                relay_metadata.openable,
                 relay_metadata.readable,
                 relay_metadata.writable,
-                relay_metadata.rtt,
+                relay_metadata.rtt_open,
+                relay_metadata.rtt_read,
+                relay_metadata.rtt_write,
                 sanitize(relay_metadata.name),
                 sanitize(relay_metadata.description),
                 sanitize(relay_metadata.banner),
@@ -502,8 +511,10 @@ class Bigbrotr:
                 sanitize(relay_metadata.version),
                 sanitize(relay_metadata.privacy_policy),
                 sanitize(relay_metadata.terms_of_service),
-                sanitize(relay_metadata.limitation),
-                sanitize(relay_metadata.extra_fields)
+                json.dumps(sanitize(relay_metadata.limitation)
+                           ) if relay_metadata.limitation is not None else None,
+                json.dumps(sanitize(relay_metadata.extra_fields)
+                           ) if relay_metadata.extra_fields is not None else None
             )
             for relay_metadata in relay_metadata_list
         ]
