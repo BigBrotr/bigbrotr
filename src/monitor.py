@@ -8,9 +8,10 @@ from relay import Relay
 from aiohttp import ClientSession, WSMsgType
 from aiohttp_socks import ProxyConnector
 import time
-import utils
+from utils import test_keypair
 from multiprocessing import Pool, cpu_count
 from relay_metadata import RelayMetadata
+import compute_relay_metadata
 
 # --- Logging Config ---
 logging.basicConfig(
@@ -41,6 +42,8 @@ def load_config_from_env():
             "num_cores": int(os.environ["MONITOR_NUM_CORES"]),
             "chunk_size": int(os.environ["MONITOR_CHUNK_SIZE"]),
             "requests_per_core": int(os.environ["MONITOR_REQUESTS_PER_CORE"]),
+            "seckey": str(os.environ["SECRET_KEY"]),
+            "pubkey": str(os.environ["PUBLIC_KEY"])
         }
         if config["dbport"] < 0 or config["dbport"] > 65535:
             logging.error("❌ Invalid database port number.")
@@ -59,6 +62,9 @@ def load_config_from_env():
             sys.exit(1)
         if config["requests_per_core"] < 1:
             logging.error("❌ Invalid requests per core. Must be at least 1.")
+            sys.exit(1)
+        if not test_keypair(config["seckey"], config["pubkey"]):
+            logging.error("❌ Invalid keypair.")
             sys.exit(1)
         if config["num_cores"] > cpu_count():
             logging.warning(
@@ -94,10 +100,10 @@ def test_database_connection(config):
 
 # --- Tor Proxy Test ---
 async def test_torproxy_connection(config, timeout=10):
-    proxy_url = f"socks5://{config["torhost"]}:{config["torport"]}"
+    socks5_proxy_url = f"socks5://{config["torhost"]}:{config["torport"]}"
     # HTTP Test
     http_url = "https://check.torproject.org"
-    connector = ProxyConnector.from_url(proxy_url)
+    connector = ProxyConnector.from_url(socks5_proxy_url)
     async with ClientSession(connector=connector) as session:
         try:
             logging.info("🌐 Testing Tor HTTP access...")
@@ -112,7 +118,7 @@ async def test_torproxy_connection(config, timeout=10):
             raise
     # WebSocket Test
     ws_url = "wss://echo.websocket.events"
-    connector = ProxyConnector.from_url(proxy_url)
+    connector = ProxyConnector.from_url(socks5_proxy_url)
     async with ClientSession(connector=connector) as session:
         try:
             logging.info("🌐 Testing Tor WebSocket access...")
@@ -157,14 +163,20 @@ async def wait_for_services(config, retries=5, delay=30):
 
 # --- Process Chunk ---
 async def process_chunk(chunk, config, generated_at):
-    proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
+    socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
     requests_per_core = config["requests_per_core"]
     sem = asyncio.Semaphore(requests_per_core)
 
     async def process_single_relay(relay):
         async with sem:
             try:
-                metadata = await utils.compute_relay_metadata(relay, proxy_url)
+                metadata = await compute_relay_metadata(
+                    relay,
+                    config["seckey"],
+                    config["pubkey"],
+                    socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None,
+                    timeout=10
+                )
                 if isinstance(metadata, RelayMetadata):
                     metadata.generated_at = generated_at
                     return metadata
