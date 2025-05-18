@@ -104,7 +104,7 @@ async def check_writability(session, relay_url, timeout, sec, pub, target_diffic
                 [["d", relay_url]],
                 "{}",
                 target_difficulty=target_difficulty,
-                timeout=20
+                timeout=timeout*2
             )
             request = ["EVENT", event]
             time_start = time.time()
