@@ -5,7 +5,7 @@ import uuid
 import asyncio
 from relay_metadata import RelayMetadata
 from relay import Relay
-import utils
+from utils import generate_event
 import time
 
 
@@ -85,7 +85,7 @@ def generate_nip66_event(nip11_response, relay_url, network, pubkey, seckey, rtt
     # Content (stringified NIP-11)
     content = json.dumps(nip11_response)
     # Generate the event
-    event = utils.generate_event(
+    event = generate_event(
         seckey, pubkey, 30166, tags, content)
     return event
 
@@ -133,15 +133,14 @@ async def check_readability(session, relay_url, timeout):
     return rtt_read, readable
 
 
-async def check_writability(session, relay_url, timeout):
+async def check_writability(session, relay_url, timeout, sec, pub, target_difficulty):
     rtt_write = None
     writable = False
     try:
         async with session.ws_connect(relay_url, timeout=timeout) as ws:
-            sec, pub = utils.generate_nostr_keypair()
-            event = utils.generate_event(sec, pub, 1, [], "")
+            event = generate_event(
+                sec, pub, 1, [], "", target_difficulty=target_difficulty, timeout=20)
             request = ["EVENT", event]
-            print(request)
             time_start = time.time()
             await ws.send_str(json.dumps(request))
             while True:
@@ -154,7 +153,6 @@ async def check_writability(session, relay_url, timeout):
                         time_end = time.time()
                         rtt_write = int((time_end - time_start) * 1000)
                     data = json.loads(msg.data)
-                    print(data)
                     if data[0] == "OK" and data[1] == event["id"] and data[2] == True:
                         writable = True
                         break
@@ -168,7 +166,7 @@ async def check_writability(session, relay_url, timeout):
     return rtt_write, writable
 
 
-async def fetch_connection_metadata(relay_id, session, timeout):
+async def fetch_connection_metadata(relay_id, session, timeout, sec, pub, target_difficulty):
     rtt_open = None
     rtt_read = None
     rtt_write = None
@@ -179,7 +177,7 @@ async def fetch_connection_metadata(relay_id, session, timeout):
         rtt_open = await check_connectivity(session, relay_url, timeout)
         if rtt_open is not None:
             rtt_read, readable = await check_readability(session, relay_url, timeout)
-            rtt_write, writable = await check_writability(session, relay_url, timeout)
+            rtt_write, writable = await check_writability(session, relay_url, timeout, sec, pub, target_difficulty)
             if readable or writable:
                 return {
                     'rtt_open': rtt_open,
@@ -204,27 +202,19 @@ def parse_connection_response(connection_response):
     }
 
 
-async def compute_relay_metadata(relay, socks5_proxy_url=None, timeout=10):
-    if not isinstance(relay, Relay):
-        raise TypeError(f"relay must be a Relay object, not {type(relay)}")
-    if relay.network == 'tor' and socks5_proxy_url is None:
-        raise ValueError("socks5_proxy_url must be provided for Tor relays")
-    if socks5_proxy_url is not None:
-        if not isinstance(socks5_proxy_url, str):
-            raise TypeError(
-                f"socks5_proxy_url must be a string, not {type(socks5_proxy_url)}")
-        if not socks5_proxy_url.startswith('socks5://'):
-            raise ValueError("socks5_proxy_url must start with 'socks5://'")
+async def compute_relay_metadata(relay, sec, pub, socks5_proxy_url=None, timeout=10):
     relay_id = relay.url.removeprefix('wss://')
     connector = ProxyConnector.from_url(
         socks5_proxy_url) if relay.network == 'tor' else None
     async with ClientSession(connector=connector, timeout=ClientTimeout(total=timeout)) as session:
         nip11_raw = await fetch_nip11_metadata(relay_id, session, timeout)
         nip11_response = parse_nip11_response(nip11_raw)
+    target_difficulty = nip11_response.get(
+        'limitation', {}).get('min_pow_difficulty', None)
     connector = ProxyConnector.from_url(
         socks5_proxy_url) if relay.network == 'tor' else None
     async with ClientSession(connector=connector, timeout=ClientTimeout(total=timeout)) as session:
-        connection_raw = await fetch_connection_metadata(relay_id, session, timeout)
+        connection_raw = await fetch_connection_metadata(relay_id, session, timeout, sec, pub, target_difficulty)
         connection_response = parse_connection_response(connection_raw)
     metadata = {
         'relay': relay,
@@ -233,3 +223,7 @@ async def compute_relay_metadata(relay, socks5_proxy_url=None, timeout=10):
         **connection_response
     }
     return RelayMetadata.from_dict(metadata)
+
+socks5_proxy_url = "socks5://127.0.0.1:9050"
+relay = Relay(url="wss://relay.damus.io")
+print(asyncio.run(compute_relay_metadata(relay, socks5_proxy_url)))
