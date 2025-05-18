@@ -186,7 +186,7 @@ def verify_sig(event_id: str, pubkey: str, sig: str) -> bool:
         return False
 
 
-def generate_event(sec: str, pub: str, kind: int, tags: list, content: str, created_at: int | None = None, target_difficulty: int = 0, timeout: int = 10) -> dict:
+def generate_event(sec: str, pub: str, kind: int, tags: list, content: str, created_at: int | None = None, target_difficulty: int = 0, timeout: int = 20) -> dict:
     """
     Generates an event with a Proof of Work (PoW) attached, based on given parameters.
 
@@ -203,12 +203,12 @@ def generate_event(sec: str, pub: str, kind: int, tags: list, content: str, crea
     Example:
     >>> generate_event('private_key_hex', 'public_key_hex', 1, [['tag1', 'tag2']], 'Hello, World!')
     {
-        'id': 'e41d2f51b631d627f1c5ed83d66e1535ac0f1542a94db987c93f758c364a7600',
-        'pubkey': 'public_key_hex',
-        'created_at': 1234567890,
-        'kind': 1,
-        'tags': [['tag1', 'tag2'], ['nonce', '0', '0']],
-        'content': 'Hello, World!',
+        'id': 'e41d2f51b631d627f1c5ed83d66e1535ac0f1542a94db987c93f758c364a7600', 
+        'pubkey': 'public_key_hex', 
+        'created_at': 1234567890, 
+        'kind': 1, 
+        'tags': [['tag1', 'tag2']], 
+        'content': 'Hello, World!', 
         'sig': 'signature'
     }
 
@@ -241,7 +241,11 @@ def generate_event(sec: str, pub: str, kind: int, tags: list, content: str, crea
     created_at = created_at if created_at is not None else int(time.time())
     non_nonce_tags = [tag for tag in original_tags if tag[0] != "nonce"]
     while True:
-        tags = non_nonce_tags + [["nonce", str(nonce), str(target_difficulty)]]
+        if target_difficulty > 0:
+            tags = non_nonce_tags + \
+                [["nonce", str(nonce), str(target_difficulty)]]
+        else:
+            tags = non_nonce_tags
         event_id = calc_event_id(pub, created_at, kind, tags, content)
         difficulty = count_leading_zero_bits(event_id)
         if difficulty >= target_difficulty:
