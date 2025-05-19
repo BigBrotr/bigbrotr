@@ -157,115 +157,77 @@ async def wait_for_services(config, retries=5, delay=30):
     raise RuntimeError("❌ Required services not available after retries.")
 
 
+async def compute_events(relay_metadata, start_time, end_time, socks5_proxy_url=None, timeout=10, batch_size=1000):
+    return end_time+1, []  # Placeholder for actual implementation
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-# --- Async Relay Processor ---
-async def process_relay_events(relay, config, start_ts, end_ts):
-    collected_events = []
-    window = 60  # iniziale: 60 secondi
-    current_start = start_ts
-    max_ts_seen = start_ts
-
-    while current_start < end_ts:
-        current_end = min(current_start + window, end_ts)
-        # simulate fetch via WSS (da implementare)
-        events = await fetch_events_from_relay_wss(relay, current_start, current_end, config)
-
-        if not events:
-            current_start = current_end
-            continue
-
-        collected_events.extend(events)
-
-        timestamps = [e["timestamp"] for e in events]
-        max_ts = max(timestamps)
-
-        # Heuristic: se ho eventi con timestamp > current_end, allora ho preso tutti gli eventi del range
-        if max_ts > current_end:
-            current_start = current_end
-        else:
-            # troppi eventi? probabilmente non abbiamo tutto -> riduco finestra
-            if len(events) > relay.max_events_per_request:
-                window = max(10, window // 2)
-            else:
-                window = min(3600, window * 2)
-            current_start = max_ts + 1
-
-    logging.info(f"Collected {len(collected_events)} events from {relay.url}")
-    return collected_events
-
-# --- Stub for WSS interaction ---
-async def fetch_events_from_relay_wss(relay, start_ts, end_ts, config):
-    await asyncio.sleep(0.05)  # simulate latency
-    return [{"timestamp": ts, "data": f"event@{ts}"} for ts in range(start_ts, end_ts, 10)]
-
-# --- Async Worker per Processo ---
-async def process_chunk(chunk, config, start_ts, end_ts):
-    sem = asyncio.Semaphore(config["requests_per_core"])
-    all_events = []
-
-    async def handle_relay(relay):
+# --- Process Chunk ---
+async def process_chunk(chunk, config, end_time):
+    socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
+    requests_per_core = config["requests_per_core"]
+    sem = asyncio.Semaphore(requests_per_core)
+    async def process_single_relay_metadata(relay_metadata):
         async with sem:
-            events = await process_relay_events(relay, config, start_ts, end_ts)
-            return events
+            try:
+                n_events = 0
+                bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+                query = """
+                    SELECT MAX(e.created_at) AS max_created_at
+                    FROM events e
+                    JOIN events_relays er ON e.id = er.event_id
+                    WHERE er.relay_url = %s;
+                """
+                bigbrotr.connect()
+                bigbrotr.execute(query, (relay_metadata.relay.url,))
+                row = bigbrotr.fetchone()
+                bigbrotr.close()
+                start_time = row[0]+1 if row and row[0] is not None else 0
+                connector = ProxyConnector.from_url(socks5_proxy_url) if relay_metadata.relay.network == 'tor' else None
+                async with ClientSession(connector=connector) as session:
+                    async with session.ws_connect(relay_metadata.relay.url, timeout=config["timeout"]) as ws: # think if is better to do this in compute events. technically is better here
+                        while start_time <= end_time:
+                            logging.info(f"🔄 Processing relay {relay_metadata.relay.url} (start_time: {start_time}, end_time: {end_time}).")
+                            new_start_time, events = await compute_events(
+                                relay_metadata,
+                                start_time,
+                                end_time,
+                                socks5_proxy_url=socks5_proxy_url,
+                                timeout=config["timeout"],
+                                batch_size=1000,
+                            )
+                            start_time = new_start_time
+                            if len(events) > 0:
+                                logging.info(f"🔄 Inserting {len(events)} new events for relay {relay_metadata.relay.url}.")
+                                bigbrotr.connect()
+                                bigbrotr.insert_event_batch(events, relay_metadata.relay, int(time.time()))
+                                bigbrotr.close()
+                                n_events += len(events)
+                logging.info(f"✅ Finished processing relay {relay_metadata.relay.url}. Total new events: {n_events}.")
+            except Exception as e:
+                logging.exception(
+                    f"❌ Error processing relay metadata for {relay_metadata.relay.url}: {e}")
+            finally:
+                if 'bigbrotr' in locals():
+                    bigbrotr.close()
+                if 'session' in locals():
+                    await session.close()
+            return n_events
+    tasks = [process_single_relay_metadata(relay_metadata) for relay_metadata in chunk]
+    n_events_list = await asyncio.gather(*tasks)
+    logging.info(f"🔄 Processed chunk of {len(chunk)} relay metadata. Total new events inserted: {sum(n_events_list)}")
+    return
 
-    tasks = [handle_relay(relay) for relay in chunk]
-    results = await asyncio.gather(*tasks)
 
-    for relay_events in results:
-        all_events.extend(relay_events)
-
-    return all_events
-
-# --- Worker Sync Wrapper ---
-def worker(chunk, config, start_ts, end_ts):
-    async def run():
-        return await process_chunk(chunk, config, start_ts, end_ts)
-
+# --- Worker Function ---
+def worker(chunk, config, end_time):
+    async def worker_async(chunk, config, end_time):
+        return await process_chunk(chunk, config, end_time)
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    return loop.run_until_complete(run())
-
-# --- Inserimento eventi nel DB (stub) ---
-def insert_events_to_db(events, config):
-    db = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
-    db.connect()
-    db.insert_events_batch(events)
-    db.close()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    return loop.run_until_complete(worker_async(chunk, config, end_time))
 
 
 # --- Fetch Relay Metadata List from Database ---
@@ -330,7 +292,10 @@ async def main_loop(config):
     logging.info(
         f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
     with Pool(processes=num_cores) as pool:
-        results = pool.starmap(worker, args)
+        pool.starmap(worker, args)
+    logging.info("✅ All chunks processed successfully.")
+    return
+
 
 # --- Syncronizer Entrypoint ---
 async def syncronizer():
