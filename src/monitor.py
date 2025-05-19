@@ -149,18 +149,6 @@ async def test_torproxy_connection(config, timeout=10):
             logging.info("🌐 WebSocket connection closed.")
 
 
-# --- Wait Until Hour ---
-async def wait_until_scheduled_hour(run_hour):
-    now = datetime.now()
-    next_run = now.replace(hour=run_hour, minute=0, second=0, microsecond=0)
-    if next_run <= now:
-        next_run += timedelta(days=1)
-    wait_seconds = (next_run - now).total_seconds()
-    logging.info(
-        f"⏰ Waiting for scheduled time at {run_hour}:00 (in {wait_seconds:.2f} seconds)...")
-    await asyncio.sleep(wait_seconds)
-
-
 # --- Wait for Services (Resilience) ---
 async def wait_for_services(config, retries=5, delay=30):
     for attempt in range(1, retries + 1):
@@ -173,6 +161,18 @@ async def wait_for_services(config, retries=5, delay=30):
             logging.warning(
                 f"⏳ Service not ready (attempt {attempt}/{retries}): {e}")
     raise RuntimeError("❌ Required services not available after retries.")
+
+
+# --- Wait Until Hour ---
+async def wait_until_scheduled_hour(run_hour):
+    now = datetime.now()
+    next_run = now.replace(hour=run_hour, minute=0, second=0, microsecond=0)
+    if next_run <= now:
+        next_run += timedelta(days=1)
+    wait_seconds = (next_run - now).total_seconds()
+    logging.info(
+        f"⏰ Waiting for scheduled time at {run_hour}:00 (in {wait_seconds:.2f} seconds)...")
+    await asyncio.sleep(wait_seconds)
 
 
 # --- Process Chunk ---
