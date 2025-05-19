@@ -10,7 +10,6 @@ from aiohttp_socks import ProxyConnector
 import time
 from utils import test_keypair
 from multiprocessing import Pool, cpu_count
-from relay_metadata import RelayMetadata
 from compute_relay_metadata import compute_relay_metadata
 
 # --- Logging Config ---
@@ -217,10 +216,8 @@ def worker(chunk, config, generated_at):
     return loop.run_until_complete(worker_async(chunk, config, generated_at))
 
 
-# --- Main Loop ---
-async def main_loop(config):
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
-                        config["dbuser"], config["dbpass"], config["dbname"])
+# --- Fetch Relays from Database ---
+def fetch_relays_from_db(bigbrotr):
     bigbrotr.connect()
     logging.info("🔌 Database connection established.")
     logging.info("📦 Fetching relays from database...")
@@ -235,9 +232,17 @@ async def main_loop(config):
             relays.append(relay)
         except Exception as e:
             logging.warning(
-                f"⚠️ Invalid relay URL skipped: {row[0]}. Reason: {e}")
+                f"⚠️ Invalid relay {row[0]}: Error: {e}")
             continue
     logging.info(f"📦 {len(relays)} relays fetched from database.")
+    return relays
+
+
+# --- Main Loop ---
+async def main_loop(config):
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
+                        config["dbuser"], config["dbpass"], config["dbname"])
+    relays = fetch_relays_from_db(bigbrotr)
     chunk_size = config["chunk_size"]
     num_cores = config["num_cores"]
     chunks = list(chunkify(relays, chunk_size))
@@ -251,7 +256,6 @@ async def main_loop(config):
         for result in results:
             relay_metadata_list.extend(result)
     logging.info(f"✅ All chunks processed successfully.")
-    logging.info(relay_metadata_list)
     bigbrotr.connect()
     logging.info("🔌 Database connection established.")
     logging.info("🌐 Starting relay metadata insertion process...")
