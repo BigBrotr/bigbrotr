@@ -5,6 +5,7 @@ import uuid
 import json
 import asyncio
 import logging
+import datetime
 from relay import Relay
 from event import Event
 from bigbrotr import Bigbrotr
@@ -194,8 +195,8 @@ async def process_chunk(chunk, config, end_time):
                         
                         while start_time <= end_time:
                             since = start_time
+                            # until_speedup = end_time
                             until = end_time
-                            until_speed_up = end_time
                             logging.info(f"📈 Starting to fetch events from {since} to {until} for {relay_metadata.relay.url}")
 
                             while since <= until:
@@ -204,7 +205,8 @@ async def process_chunk(chunk, config, end_time):
                                 request = json.dumps([
                                     "REQ", subscription_id, {
                                         "since": since,
-                                        "until": min(until, until_speed_up),
+                                        # "until": min(until, until_speedup),
+                                        "until": until,
                                     }
                                 ])
                                 logging.info(f"➡️ Sending request for events from {since} to {until}")
@@ -236,7 +238,7 @@ async def process_chunk(chunk, config, end_time):
                                             if max_limit is not None:
                                                 if n_event_msgs_received >= max_limit and since != until:
                                                     logging.info(f"⚠️ Max limit reached, reducing interval for {relay_metadata.relay.url}")
-                                                    until_speed_up = until
+                                                    # until_speedup = until
                                                     until = since + (until - since) // 2
                                                     await ws.send_str(json.dumps(["CLOSE", subscription_id]))
                                                     logging.info(f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
@@ -362,7 +364,9 @@ async def main_loop(config):
     chunk_size = config["chunk_size"]
     num_cores = config["num_cores"]
     chunks = list(chunkify(relay_metedata_list, chunk_size))
-    end_time = int(time.time())
+    now = datetime.datetime.now()
+    end_time = int(datetime.datetime(now.year, now.month, now.day, 0, 0).timestamp())
+    logging.info(f"📅 End time for processing: {end_time}")
     args = [(chunk, config, end_time) for chunk in chunks]
     logging.info(
         f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
