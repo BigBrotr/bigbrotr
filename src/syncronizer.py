@@ -179,9 +179,6 @@ async def process_chunk(chunk, config, end_time):
                 logging.info(f"📅 Start time for {relay_metadata.relay.url}: {start_time}")
 
                 timeout = config["timeout"]
-                subscription_id = uuid.uuid4().hex
-                logging.info(f"🆔 Subscription ID: {subscription_id}")
-
                 try:
                     max_limit = relay_metadata.limitation.get('max_limit') if isinstance(relay_metadata.limitation, dict) else None
                     max_limit = int(max_limit) if max_limit is not None else None
@@ -206,6 +203,8 @@ async def process_chunk(chunk, config, end_time):
                             logging.info(f"📈 Starting to fetch events from {since} to {until} for {relay_metadata.relay.url}")
 
                             while since <= until:
+                                subscription_id = uuid.uuid4().hex
+                                logging.info(f"🆔 Subscription ID: {subscription_id}")
                                 request = json.dumps([
                                     "REQ", subscription_id, {
                                         "since": since,
@@ -242,6 +241,9 @@ async def process_chunk(chunk, config, end_time):
                                                 if n_event_msgs_received >= max_limit and since != until:
                                                     logging.info(f"⚠️ Max limit reached, reducing interval for {relay_metadata.relay.url}")
                                                     until = since + (until - since) // 2
+                                                    await ws.send_str(json.dumps(["CLOSE", subscription_id]))
+                                                    logging.info(f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
+                                                    await asyncio.sleep(1)
                                                     break
                                             else:
                                                 if buffer_len >= batch_size and len(buffer_timestamps) > 1:
@@ -271,6 +273,12 @@ async def process_chunk(chunk, config, end_time):
                                                 logging.info(f"⏭️ No new events, moving start_time to {until + 1}")
                                                 start_time = until + 1
                                                 since = until + 1
+                                            await ws.send_str(json.dumps(["CLOSE", subscription_id]))
+                                            logging.info(f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
+                                            await asyncio.sleep(1)
+                                            break
+                                        elif data[0] == "CLOSED" and data[1] == subscription_id:
+                                            logging.warning(f"🚫 Subscription {subscription_id} closed by relay: {data[2]}")
                                             break
             except Exception as e:
                 logging.exception(f"❌ Error processing relay metadata for {relay_metadata.relay.url}: {e}")
