@@ -69,7 +69,10 @@ def parse_nip11_response(nip11_response):
                     except (TypeError, ValueError):
                         pass
             nip11_response[key] = data
-    return nip11_response
+    for value in nip11_response.values():
+        if value is not None:
+            return nip11_response
+    return {'nip11_success': False}
 
 
 async def check_connectivity(session, relay_url, timeout):

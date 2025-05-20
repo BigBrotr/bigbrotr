@@ -229,7 +229,7 @@ async def process_chunk(chunk, config, end_time):
                                                 if buffer_len >= batch_size and len(buffer_timestamps) > 1:
                                                     max_timestamp = max(buffer_timestamps)
                                                     events = [e for e in buffer if e.created_at != max_timestamp]
-                                                    bigbrotr.insert_event_batch(events, relay_metadata.relay.url, int(time.time()))
+                                                    bigbrotr.insert_event_batch(events, relay_metadata.relay, int(time.time()))
                                                     n_events += len(events)
                                                     buffer = [e for e in buffer if e.created_at == max_timestamp]
                                                     buffer_len = len(buffer)
@@ -239,7 +239,7 @@ async def process_chunk(chunk, config, end_time):
                                         elif data[0] == "EOSE" and data[1] == subscription_id:
                                             if buffer_len > 0:
                                                 max_timestamp = max(buffer_timestamps)
-                                                bigbrotr.insert_event_batch(buffer, relay_metadata.relay.url, int(time.time()))
+                                                bigbrotr.insert_event_batch(buffer, relay_metadata.relay, int(time.time()))
                                                 n_events += len(buffer)
                                                 buffer = []
                                                 buffer_len = 0
@@ -287,10 +287,9 @@ def fetch_relay_metedata_list(bigbrotr):
     relay_metadata_list = []
     for row in rows:
         try:
-            relay = Relay(row[0])
-            relay_metadata = RelayMetadata(
-                relay.url,
-                **{
+            relay_metadata = RelayMetadata.from_dict(
+                {
+                    "relay": Relay(row[0]),
                     "generated_at": row[1],
                     "connection_success": row[2],
                     "nip11_success": row[3],
