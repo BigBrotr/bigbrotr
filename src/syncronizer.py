@@ -50,10 +50,6 @@ def load_config_from_env():
             logging.error(
                 "❌ Invalid TORPROXY_PORT. Must be between 0 and 65535.")
             sys.exit(1)
-        if config["run_hour"] < 0 or config["run_hour"] > 23:
-            logging.error(
-                "❌ Invalid SYNCRONIZER_RUN_HOUR. Must be between 0 and 23.")
-            sys.exit(1)
         if config["num_cores"] < 1:
             logging.error("❌ Invalid SYNCRONIZER_NUM_CORES. Must be at least 1.")
             sys.exit(1)
@@ -176,7 +172,6 @@ async def process_chunk(chunk, config, end_time):
                 bigbrotr.connect()
                 bigbrotr.execute(query, (relay_metadata.relay.url,))
                 row = bigbrotr.fetchone()
-                bigbrotr.close()
                 start_time = row[0]+1 if row and row[0] is not None else 0
                 timeout = config["timeout"]
                 subscription_id = uuid.uuid4().hex
@@ -227,16 +222,14 @@ async def process_chunk(chunk, config, end_time):
                                                 continue
 
                                             if max_limit is not None:
-                                                if n_event_msgs_received >= max_limit:
-                                                    until = since + (until - since) // 2
-                                                    break
+                                                if n_event_msgs_received >= max_limit and since != until:
+                                                        until = since + (until - since) // 2
+                                                        break
                                             else:
                                                 if buffer_len >= batch_size and len(buffer_timestamps) > 1:
                                                     max_timestamp = max(buffer_timestamps)
                                                     events = [e for e in buffer if e.created_at != max_timestamp]
-                                                    bigbrotr.connect()
                                                     bigbrotr.insert_event_batch(events, relay_metadata.relay.url, int(time.time()))
-                                                    bigbrotr.close()
                                                     n_events += len(events)
                                                     buffer = [e for e in buffer if e.created_at == max_timestamp]
                                                     buffer_len = len(buffer)
@@ -246,9 +239,7 @@ async def process_chunk(chunk, config, end_time):
                                         elif data[0] == "EOSE" and data[1] == subscription_id:
                                             if buffer_len > 0:
                                                 max_timestamp = max(buffer_timestamps)
-                                                bigbrotr.connect()
                                                 bigbrotr.insert_event_batch(buffer, relay_metadata.relay.url, int(time.time()))
-                                                bigbrotr.close()
                                                 n_events += len(buffer)
                                                 buffer = []
                                                 buffer_len = 0
@@ -258,19 +249,13 @@ async def process_chunk(chunk, config, end_time):
                                             else:
                                                 start_time = until + 1
                                                 since = until + 1
-                        
+                                            break
             except Exception as e:
                 logging.exception(
                     f"❌ Error processing relay metadata for {relay_metadata.relay.url}: {e}")
             finally:
                 if 'bigbrotr' in locals():
                     bigbrotr.close()
-                if 'session' in locals():
-                    await session.close()
-                if 'ws' in locals():
-                    await ws.close()
-                if 'connector' in locals():
-                    await connector.close()
             return n_events
     tasks = [process_single_relay_metadata(relay_metadata) for relay_metadata in chunk]
     n_events_list = await asyncio.gather(*tasks)
