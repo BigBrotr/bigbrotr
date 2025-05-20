@@ -113,9 +113,8 @@ async def check_readability(session, relay_url, timeout):
                         continue
                     elif data[0] in ["EVENT", "EOSE"] and data[1] == subscription_id:
                         readable = True
-                        break
-                    else:
-                        break
+                    await ws.send_str(json.dumps(["CLOSE", subscription_id]))
+                    break
                 else:
                     break
     except Exception as e:
@@ -151,11 +150,11 @@ async def check_writability(session, relay_url, timeout, sec, pub, target_diffic
                         time_end = time.perf_counter()
                         rtt_write = int((time_end - time_start) * 1000)
                     data = json.loads(msg.data)
+                    if data[0] == "NOTICE":
+                        continue
                     if data[0] == "OK" and data[1] == event["id"] and data[2] == True:
                         writable = True
-                        break
-                    else:
-                        break
+                    break
                 else:
                     break
     except Exception as e:
