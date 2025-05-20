@@ -1,17 +1,17 @@
 import os
 import sys
+import time
+import uuid
+import json
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from bigbrotr import Bigbrotr
 from relay import Relay
-from aiohttp import ClientSession, WSMsgType
-from aiohttp_socks import ProxyConnector
-import time
-from utils import test_keypair
-from multiprocessing import Pool, cpu_count
+from event import Event
+from bigbrotr import Bigbrotr
 from relay_metadata import RelayMetadata
-from compute_relay_metadata import compute_relay_metadata
+from aiohttp_socks import ProxyConnector
+from multiprocessing import Pool, cpu_count
+from aiohttp import ClientSession, WSMsgType
 
 # --- Logging ---
 logging.basicConfig(
@@ -157,10 +157,6 @@ async def wait_for_services(config, retries=5, delay=30):
     raise RuntimeError("❌ Required services not available after retries.")
 
 
-async def compute_events(relay_metadata, start_time, end_time, socks5_proxy_url=None, timeout=10, batch_size=1000):
-    return end_time+1, []  # Placeholder for actual implementation
-
-
 # --- Process Chunk ---
 async def process_chunk(chunk, config, end_time):
     socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
@@ -168,8 +164,8 @@ async def process_chunk(chunk, config, end_time):
     sem = asyncio.Semaphore(requests_per_core)
     async def process_single_relay_metadata(relay_metadata):
         async with sem:
+            n_events = 0
             try:
-                n_events = 0
                 bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
                 query = """
                     SELECT MAX(e.created_at) AS max_created_at
@@ -182,27 +178,87 @@ async def process_chunk(chunk, config, end_time):
                 row = bigbrotr.fetchone()
                 bigbrotr.close()
                 start_time = row[0]+1 if row and row[0] is not None else 0
+                timeout = config["timeout"]
+                subscription_id = uuid.uuid4().hex
+                try:
+                    max_limit = relay_metadata.limitation.get('max_limit') if isinstance(relay_metadata.limitation, dict) else None
+                    max_limit = int(max_limit) if max_limit is not None else None
+                    max_limit = max_limit if max_limit > 0 else None
+                except (ValueError, TypeError):
+                    max_limit = None
+                batch_size = max(int(max_limit * 1.1), 1000) if max_limit is not None else 1000 # by costruction the batch size will be at least 10% more large than the max_limit
                 connector = ProxyConnector.from_url(socks5_proxy_url) if relay_metadata.relay.network == 'tor' else None
                 async with ClientSession(connector=connector) as session:
-                    async with session.ws_connect(relay_metadata.relay.url, timeout=config["timeout"]) as ws: # think if is better to do this in compute events. technically is better here
+                    async with session.ws_connect(relay_metadata.relay.url, timeout=timeout) as ws:
+                        # start_time and end_time is the time range to fetch
                         while start_time <= end_time:
-                            logging.info(f"🔄 Processing relay {relay_metadata.relay.url} (start_time: {start_time}, end_time: {end_time}).")
-                            new_start_time, events = await compute_events(
-                                relay_metadata,
-                                start_time,
-                                end_time,
-                                socks5_proxy_url=socks5_proxy_url,
-                                timeout=config["timeout"],
-                                batch_size=1000,
-                            )
-                            start_time = new_start_time
-                            if len(events) > 0:
-                                logging.info(f"🔄 Inserting {len(events)} new events for relay {relay_metadata.relay.url}.")
-                                bigbrotr.connect()
-                                bigbrotr.insert_event_batch(events, relay_metadata.relay, int(time.time()))
-                                bigbrotr.close()
-                                n_events += len(events)
-                logging.info(f"✅ Finished processing relay {relay_metadata.relay.url}. Total new events: {n_events}.")
+                            # since and until is the time range that we are trying to fetch
+                            since = start_time
+                            until = end_time
+                            # here by costruction we will fetch an  intervall starting from since and arrive to until. 
+                            # after that start_time will be set to until + 1
+                            while since <= until:
+                                request = json.dumps([
+                                    "REQ", subscription_id, {
+                                        "since": since,
+                                        "until": until,
+                                    }
+                                ])
+                                buffer = []
+                                buffer_len = 0
+                                buffer_timestamps = set()
+                                n_event_msgs_received = 0
+                                await ws.send_str(request)
+                                while True:
+                                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
+                                    if msg.type == WSMsgType.TEXT:
+                                        data = json.loads(msg.data)
+                                        if data[0] == "NOTICE":
+                                            continue
+                                        elif data[0] == "EVENT" and data[1] == subscription_id:
+                                            n_event_msgs_received += 1
+                                            try:
+                                                event = Event.from_dict(data[2])
+                                                if event.created_at >= since and event.created_at <= until:
+                                                    buffer.append(event)
+                                                    buffer_len += 1
+                                                    buffer_timestamps.add(event.created_at)
+                                            except (TypeError, ValueError) as e:
+                                                continue
+
+                                            if max_limit is not None:
+                                                if n_event_msgs_received >= max_limit:
+                                                    until = since + (until - since) // 2
+                                                    break
+                                            else:
+                                                if buffer_len >= batch_size and len(buffer_timestamps) > 1:
+                                                    max_timestamp = max(buffer_timestamps)
+                                                    events = [e for e in buffer if e.created_at != max_timestamp]
+                                                    bigbrotr.connect()
+                                                    bigbrotr.insert_event_batch(events, relay_metadata.relay.url, int(time.time()))
+                                                    bigbrotr.close()
+                                                    n_events += len(events)
+                                                    buffer = [e for e in buffer if e.created_at == max_timestamp]
+                                                    buffer_len = len(buffer)
+                                                    buffer_timestamps = set([max_timestamp])
+                                                    start_time = max_timestamp
+                                                    since = max_timestamp
+                                        elif data[0] == "EOSE" and data[1] == subscription_id:
+                                            if buffer_len > 0:
+                                                max_timestamp = max(buffer_timestamps)
+                                                bigbrotr.connect()
+                                                bigbrotr.insert_event_batch(buffer, relay_metadata.relay.url, int(time.time()))
+                                                bigbrotr.close()
+                                                n_events += len(buffer)
+                                                buffer = []
+                                                buffer_len = 0
+                                                buffer_timestamps = set()
+                                                start_time = max_timestamp + 1
+                                                since = max_timestamp + 1
+                                            else:
+                                                start_time = until + 1
+                                                since = until + 1
+                        
             except Exception as e:
                 logging.exception(
                     f"❌ Error processing relay metadata for {relay_metadata.relay.url}: {e}")
@@ -211,6 +267,10 @@ async def process_chunk(chunk, config, end_time):
                     bigbrotr.close()
                 if 'session' in locals():
                     await session.close()
+                if 'ws' in locals():
+                    await ws.close()
+                if 'connector' in locals():
+                    await connector.close()
             return n_events
     tasks = [process_single_relay_metadata(relay_metadata) for relay_metadata in chunk]
     n_events_list = await asyncio.gather(*tasks)
