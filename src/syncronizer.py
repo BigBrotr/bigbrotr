@@ -177,7 +177,7 @@ async def process_chunk(chunk, config, end_time):
                 row = bigbrotr.fetchone()
                 start_time = row[0] + 1 if row and row[0] is not None else 0
                 logging.info(f"📅 Start time for {relay_metadata.relay.url}: {start_time}")
-
+                batch_size = 1000
                 timeout = config["timeout"]
                 try:
                     max_limit = relay_metadata.limitation.get('max_limit') if isinstance(relay_metadata.limitation, dict) else None
@@ -186,12 +186,7 @@ async def process_chunk(chunk, config, end_time):
                 except (ValueError, TypeError):
                     max_limit = None
                 logging.info(f"📦 max_limit for relay: {max_limit}")
-
-                batch_size = max(int(max_limit * 1.1), 1000) if max_limit is not None else 1000
-                logging.info(f"📦 Calculated batch size: {batch_size}")
-
                 connector = ProxyConnector.from_url(socks5_proxy_url) if relay_metadata.relay.network == 'tor' else None
-
                 async with ClientSession(connector=connector) as session:
                     logging.info(f"🔌 Connecting to relay: {relay_metadata.relay.url}")
                     async with session.ws_connect(relay_metadata.relay.url, timeout=timeout) as ws:
@@ -200,6 +195,7 @@ async def process_chunk(chunk, config, end_time):
                         while start_time <= end_time:
                             since = start_time
                             until = end_time
+                            until_speed_up = end_time
                             logging.info(f"📈 Starting to fetch events from {since} to {until} for {relay_metadata.relay.url}")
 
                             while since <= until:
@@ -208,7 +204,7 @@ async def process_chunk(chunk, config, end_time):
                                 request = json.dumps([
                                     "REQ", subscription_id, {
                                         "since": since,
-                                        "until": until,
+                                        "until": min(until, until_speed_up),
                                     }
                                 ])
                                 logging.info(f"➡️ Sending request for events from {since} to {until}")
@@ -240,6 +236,7 @@ async def process_chunk(chunk, config, end_time):
                                             if max_limit is not None:
                                                 if n_event_msgs_received >= max_limit and since != until:
                                                     logging.info(f"⚠️ Max limit reached, reducing interval for {relay_metadata.relay.url}")
+                                                    until_speed_up = until
                                                     until = since + (until - since) // 2
                                                     await ws.send_str(json.dumps(["CLOSE", subscription_id]))
                                                     logging.info(f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
