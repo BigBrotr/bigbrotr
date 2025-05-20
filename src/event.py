@@ -88,6 +88,14 @@ class Event:
             raise TypeError(f"sig must be a str, not {type(sig)}")
         if kind < 0 or kind > 65535:
             raise ValueError(f"kind must be between 0 and 65535, not {kind}")
+        if created_at < 0:
+            raise ValueError(f"created_at must be a positive int, not {created_at}")
+        if len(id) != 64:
+            raise ValueError(f"id must be 64 characters long, not {len(id)}")
+        if len(pubkey) != 64:
+            raise ValueError(f"pubkey must be 64 characters long, not {len(pubkey)}")
+        if len(sig) != 128:
+            raise ValueError(f"sig must be 128 characters long, not {len(sig)}")
         if calc_event_id(pubkey, created_at, kind, tags, content) != id:
             raise ValueError(f"Invalid event id: {id}")
         if verify_sig(id, pubkey, sig) != True:
