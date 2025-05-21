@@ -25,8 +25,8 @@ CREATE INDEX IF NOT EXISTS idx_events_tags ON events USING GIN (tags);          
 -- Create a table for relays   
 CREATE TABLE IF NOT EXISTS relays (
     url TEXT PRIMARY KEY NOT NULL,                                          -- Relay URL
-    network TEXT NOT NULL                                                   -- Network name (clear, tor, etc.)
-    inserted_at BIGINT NOT NULL,                                            -- Timestamp of when the relay was inserted
+    network TEXT NOT NULL,                                                  -- Network name (clear, tor, etc.)
+    inserted_at BIGINT NOT NULL                                             -- Timestamp of when the relay was inserted
 );
 
 -- Create a table for events_relays
@@ -137,7 +137,7 @@ $$ LANGUAGE plpgsql;
 -- Function to insert a relay into the database
 CREATE OR REPLACE FUNCTION insert_relay(
     p_url TEXT,
-    p_network TEXT
+    p_network TEXT,
     p_inserted_at BIGINT
 ) RETURNS VOID AS $$
 BEGIN
