@@ -18,7 +18,6 @@ async def fetch_nip11_metadata(relay_id, session, timeout):
                 else:
                     pass
         except Exception as e:
-            # print(f"fetch_nip11_metadata error ({relay_id}): {e}")
             pass
     return None
 
@@ -85,7 +84,6 @@ async def check_connectivity(session, relay_url, timeout):
             rtt_open = int((time_end - time_start) * 1000)
             openable = True
     except Exception as e:
-        # print(f"check_connectivity error ({relay_url}): {e}")
         pass
     return rtt_open, openable
 
@@ -118,7 +116,6 @@ async def check_readability(session, relay_url, timeout):
                 else:
                     break
     except Exception as e:
-        # print(f"check_readability error ({relay_url}): {e}")
         pass
     return rtt_read, readable
 
@@ -158,7 +155,6 @@ async def check_writability(session, relay_url, timeout, sec, pub, target_diffic
                 else:
                     break
     except Exception as e:
-        # print(f"check_writability error ({relay_url}): {e}")
         pass
     return rtt_write, writable
 
