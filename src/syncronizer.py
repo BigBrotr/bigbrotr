@@ -224,7 +224,6 @@ async def process_chunk(chunk, config, end_time):
                                 buffer = []
                                 buffer_len = 0
                                 buffer_timestamps = set()
-                                # vedi il caso in cui buffer e' minore di max_limit
                                 n_event_msgs_received = 0
                                 await ws.send_str(request)
 
@@ -290,7 +289,7 @@ async def process_chunk(chunk, config, end_time):
                                                 bigbrotr.insert_event_batch(
                                                     buffer, relay_metadata.relay, int(time.time()))
                                                 logging.info(
-                                                    f"✅ Inserted final {len(buffer)} events into DB for interval ending at {max_timestamp}")
+                                                    f"✅ Inserted final {len(buffer)} events into DB for interval ending at {until}")
                                                 n_events += len(buffer)
                                             else:
                                                 logging.info(
@@ -300,11 +299,12 @@ async def process_chunk(chunk, config, end_time):
                                                 f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
                                             await asyncio.sleep(1)
                                             break
-                                        elif data[0] == "CLOSED" and data[1] == subscription_id:
-                                            logging.warning(
-                                                f"🚫 Subscription {subscription_id} closed by relay: {data[2]}")
-                                            raise RuntimeError(
-                                                f"Subscription {subscription_id} closed by relay: {data[2]}")
+                                        else:
+                                            logging.exception(f"❌ Unexpected message data: {data}")
+                                            raise RuntimeError(f"Unexpected message data: {data}")
+                                    else:
+                                        logging.exception(f"❌ Unexpected message type: {msg.type}")
+                                        raise RuntimeError(f"Unexpected message type: {msg.type}")
             except Exception as e:
                 logging.exception(
                     f"❌ Error processing relay metadata for {relay_metadata.relay.url}: {e}")
