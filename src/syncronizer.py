@@ -202,11 +202,10 @@ async def process_chunk(chunk, config, end_time):
                     async with session.ws_connect(relay_metadata.relay.url, timeout=timeout) as ws:
                         logging.info(
                             f"✅ WebSocket connection established with {relay_metadata.relay.url}")
-
+                        until_stack = [end_time]
                         while start_time <= end_time:
                             since = start_time
-                            # until_speedup = end_time
-                            until = end_time
+                            until = until_stack.pop()
                             logging.info(
                                 f"📈 Starting to fetch events from {since} to {until} for {relay_metadata.relay.url}")
 
@@ -217,7 +216,6 @@ async def process_chunk(chunk, config, end_time):
                                 request = json.dumps([
                                     "REQ", subscription_id, {
                                         "since": since,
-                                        # "until": min(until, until_speedup),
                                         "until": until,
                                     }
                                 ])
@@ -226,6 +224,7 @@ async def process_chunk(chunk, config, end_time):
                                 buffer = []
                                 buffer_len = 0
                                 buffer_timestamps = set()
+                                # vedi il caso in cui buffer e' minore di max_limit
                                 n_event_msgs_received = 0
                                 await ws.send_str(request)
 
@@ -256,7 +255,7 @@ async def process_chunk(chunk, config, end_time):
                                                 if n_event_msgs_received >= max_limit and since != until:
                                                     logging.info(
                                                         f"⚠️ Max limit reached, reducing interval for {relay_metadata.relay.url}")
-                                                    # until_speedup = until
+                                                    until_stack.append(until)
                                                     until = since + \
                                                         (until - since) // 2
                                                     await ws.send_str(json.dumps(["CLOSE", subscription_id]))
@@ -283,26 +282,19 @@ async def process_chunk(chunk, config, end_time):
                                                     start_time = max_timestamp
                                                     since = max_timestamp
                                         elif data[0] == "EOSE" and data[1] == subscription_id:
+                                            start_time = until + 1
+                                            since = until + 1
                                             logging.info(
                                                 f"📴 EOSE received from {relay_metadata.relay.url}")
                                             if buffer_len > 0:
-                                                max_timestamp = max(
-                                                    buffer_timestamps)
                                                 bigbrotr.insert_event_batch(
                                                     buffer, relay_metadata.relay, int(time.time()))
                                                 logging.info(
                                                     f"✅ Inserted final {len(buffer)} events into DB for interval ending at {max_timestamp}")
                                                 n_events += len(buffer)
-                                                buffer = []
-                                                buffer_len = 0
-                                                buffer_timestamps = set()
-                                                start_time = max_timestamp + 1
-                                                since = max_timestamp + 1
                                             else:
                                                 logging.info(
                                                     f"⏭️ No new events, moving start_time to {until + 1}")
-                                                start_time = until + 1
-                                                since = until + 1
                                             await ws.send_str(json.dumps(["CLOSE", subscription_id]))
                                             logging.info(
                                                 f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
@@ -311,7 +303,8 @@ async def process_chunk(chunk, config, end_time):
                                         elif data[0] == "CLOSED" and data[1] == subscription_id:
                                             logging.warning(
                                                 f"🚫 Subscription {subscription_id} closed by relay: {data[2]}")
-                                            break
+                                            raise RuntimeError(
+                                                f"Subscription {subscription_id} closed by relay: {data[2]}")
             except Exception as e:
                 logging.exception(
                     f"❌ Error processing relay metadata for {relay_metadata.relay.url}: {e}")
