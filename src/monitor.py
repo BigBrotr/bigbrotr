@@ -52,7 +52,7 @@ def load_config_from_env():
             logging.error(
                 "❌ Invalid TORPROXY_PORT. Must be between 0 and 65535.")
             sys.exit(1)
-        if config["frequency_hour"] > 0:
+        if config["frequency_hour"] < 1:
             logging.error(
                 "❌ Invalid MONITOR_FREQUENCY_HOUR. Must be at least 1.")
             sys.exit(1)
