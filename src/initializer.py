@@ -72,7 +72,7 @@ def insert_relays(config):
             db = Bigbrotr(config["dbhost"], config["dbport"],
                           config["dbuser"], config["dbpass"], config["dbname"])
             db.connect()
-            db.insert_relay_batch(relays)
+            db.insert_relay_batch(relays, int(time.time()))
             logging.info(f"✅ Inserted {len(relays)} valid relays.")
             db.close()
         else:

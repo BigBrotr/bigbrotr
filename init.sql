@@ -26,6 +26,7 @@ CREATE INDEX IF NOT EXISTS idx_events_tags ON events USING GIN (tags);          
 CREATE TABLE IF NOT EXISTS relays (
     url TEXT PRIMARY KEY NOT NULL,                                          -- Relay URL
     network TEXT NOT NULL                                                   -- Network name (clear, tor, etc.)
+    inserted_at BIGINT NOT NULL,                                            -- Timestamp of when the relay was inserted
 );
 
 -- Create a table for events_relays
@@ -114,6 +115,7 @@ CREATE OR REPLACE FUNCTION insert_event(
     p_sig CHAR(128),
     p_relay_url TEXT,
     p_relay_network TEXT,
+    p_relay_inserted_at BIGINT,
     p_seen_at BIGINT
 ) RETURNS VOID AS $$
 BEGIN
@@ -122,8 +124,8 @@ BEGIN
     VALUES (p_id, p_pubkey, p_created_at, p_kind, p_tags, p_content, p_sig)
     ON CONFLICT (id) DO NOTHING;
     -- Insert the relay into the relays table
-    INSERT INTO relays (url, network)
-    VALUES (p_relay_url, p_relay_network)
+    INSERT INTO relays (url, network, inserted_at)
+    VALUES (p_relay_url, p_relay_network, p_relay_inserted_at)
     ON CONFLICT (url) DO NOTHING;
     -- Insert the event-relay relation into the events_relays table
     INSERT INTO events_relays (event_id, relay_url, seen_at)
@@ -136,11 +138,12 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION insert_relay(
     p_url TEXT,
     p_network TEXT
+    p_inserted_at BIGINT
 ) RETURNS VOID AS $$
 BEGIN
     -- Insert the relay into the relays table
-    INSERT INTO relays (url, network)
-    VALUES (p_url, p_network)
+    INSERT INTO relays (url, network, inserted_at)
+    VALUES (p_url, p_network, p_inserted_at)
     ON CONFLICT (url) DO NOTHING;
 END;
 $$ LANGUAGE plpgsql;
@@ -149,6 +152,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION insert_relay_metadata(
     p_relay_url TEXT,
     p_relay_network TEXT,
+    p_relay_inserted_at BIGINT,
     p_generated_at BIGINT,
     p_connection_success BOOLEAN,
     p_nip11_success BOOLEAN,
@@ -174,8 +178,8 @@ CREATE OR REPLACE FUNCTION insert_relay_metadata(
 ) RETURNS VOID AS $$
 BEGIN
     -- Insert the relay into the relays table
-    INSERT INTO relays(url, network)
-    VALUES (p_relay_url, p_relay_network)
+    INSERT INTO relays(url, network, inserted_at)
+    VALUES (p_relay_url, p_relay_network, p_relay_inserted_at)
     ON CONFLICT (url) DO NOTHING;
     -- Insert the relay metadata into the relay_metadata table
     INSERT INTO relay_metadata (

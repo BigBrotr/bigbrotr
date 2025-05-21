@@ -166,6 +166,10 @@ async def process_chunk(chunk, config, end_time):
     async def process_single_relay_metadata(relay_metadata):
         async with sem:
             n_events = 0
+            batch_size = 1000
+            timeout = config["timeout"]
+            stack_size = 10000
+            until_stack = [end_time]
             try:
                 logging.info(
                     f"📡 Connecting to database to get latest event time for relay: {relay_metadata.relay.url}")
@@ -183,8 +187,6 @@ async def process_chunk(chunk, config, end_time):
                 start_time = row[0] + 1 if row and row[0] is not None else 0
                 logging.info(
                     f"📅 Start time for {relay_metadata.relay.url}: {start_time}")
-                batch_size = 1000
-                timeout = config["timeout"]
                 try:
                     max_limit = relay_metadata.limitation.get('max_limit') if isinstance(
                         relay_metadata.limitation, dict) else None
@@ -202,7 +204,6 @@ async def process_chunk(chunk, config, end_time):
                     async with session.ws_connect(relay_metadata.relay.url, timeout=timeout) as ws:
                         logging.info(
                             f"✅ WebSocket connection established with {relay_metadata.relay.url}")
-                        until_stack = [end_time]
                         while start_time <= end_time:
                             since = start_time
                             until = until_stack.pop()
@@ -254,6 +255,15 @@ async def process_chunk(chunk, config, end_time):
                                                 if n_event_msgs_received >= max_limit and since != until:
                                                     logging.info(
                                                         f"⚠️ Max limit reached, reducing interval for {relay_metadata.relay.url}")
+                                                    if len(until_stack) >= stack_size:
+                                                        logging.info(
+                                                            f"⚠️ Stack size exceeded, closing subscription for {relay_metadata.relay.url}")
+                                                        await ws.send_str(json.dumps(["CLOSE", subscription_id]))
+                                                        logging.info(
+                                                            f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
+                                                        await asyncio.sleep(1)
+                                                        raise RuntimeError(
+                                                            f"Stack size exceeded for {relay_metadata.relay.url}")
                                                     until_stack.append(until)
                                                     until = since + \
                                                         (until - since) // 2

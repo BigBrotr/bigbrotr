@@ -155,6 +155,9 @@ class RelayMetadata:
         if not isinstance(generated_at, int):
             raise TypeError(
                 f"generated_at must be an int, not {type(generated_at)}")
+        if generated_at < 0:
+            raise ValueError(
+                f"generated_at must be a positive integer, not {generated_at}")
         if not isinstance(connection_success, bool):
             raise TypeError(
                 f"connection_success must be a bool, not {type(connection_success)}")

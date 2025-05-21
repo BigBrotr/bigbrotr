@@ -2,7 +2,6 @@ import os
 import sys
 import asyncio
 import logging
-from datetime import datetime, timedelta
 from bigbrotr import Bigbrotr
 from relay import Relay
 from aiohttp import ClientSession, WSMsgType
@@ -37,7 +36,7 @@ def load_config_from_env():
             "dbport": int(os.environ["POSTGRES_PORT"]),
             "torhost": str(os.environ["TORPROXY_HOST"]),
             "torport": int(os.environ["TORPROXY_PORT"]),
-            "run_hour": int(os.environ["MONITOR_RUN_HOUR"]),
+            "frequency_hour": int(os.environ["MONITOR_FREQUENCY_HOUR"]),
             "num_cores": int(os.environ["MONITOR_NUM_CORES"]),
             "chunk_size": int(os.environ["MONITOR_CHUNK_SIZE"]),
             "requests_per_core": int(os.environ["MONITOR_REQUESTS_PER_CORE"]),
@@ -53,9 +52,9 @@ def load_config_from_env():
             logging.error(
                 "❌ Invalid TORPROXY_PORT. Must be between 0 and 65535.")
             sys.exit(1)
-        if config["run_hour"] < 0 or config["run_hour"] > 23:
+        if config["frequency_hour"] > 0:
             logging.error(
-                "❌ Invalid MONITOR_RUN_HOUR. Must be between 0 and 23.")
+                "❌ Invalid MONITOR_FREQUENCY_HOUR. Must be at least 1.")
             sys.exit(1)
         if config["num_cores"] < 1:
             logging.error("❌ Invalid MONITOR_NUM_CORES. Must be at least 1.")
@@ -163,18 +162,6 @@ async def wait_for_services(config, retries=5, delay=30):
     raise RuntimeError("❌ Required services not available after retries.")
 
 
-# --- Wait Until Hour ---
-async def wait_until_scheduled_hour(run_hour):
-    now = datetime.now()
-    next_run = now.replace(hour=run_hour, minute=0, second=0, microsecond=0)
-    if next_run <= now:
-        next_run += timedelta(days=1)
-    wait_seconds = (next_run - now).total_seconds()
-    logging.info(
-        f"⏰ Waiting for scheduled time at {run_hour}:00 (in {wait_seconds:.2f} seconds)...")
-    await asyncio.sleep(wait_seconds)
-
-
 # --- Process Chunk ---
 async def process_chunk(chunk, config, generated_at):
     socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
@@ -199,6 +186,13 @@ async def process_chunk(chunk, config, generated_at):
         for relay_metadata in relay_metadata_list
         if relay_metadata.connection_success or relay_metadata.nip11_success
     ]
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
+                        config["dbuser"], config["dbpass"], config["dbname"])
+    bigbrotr.connect()
+    logging.info("🔌 Database connection established.")
+    logging.info("📦 Inserting relay metadata into database...")
+    bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
+    bigbrotr.close()
     logging.info(
         f"✅ Processed {len(chunk)} relays. Found {len(relay_metadata_list)} valid relay metadata.")
     return relay_metadata_list
@@ -217,11 +211,24 @@ def worker(chunk, config, generated_at):
 
 
 # --- Fetch Relays from Database ---
-def fetch_relays_from_db(bigbrotr):
+def fetch_relays_from_db(config):
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
+                        config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
     logging.info("🔌 Database connection established.")
     logging.info("📦 Fetching relays from database...")
-    query = "SELECT url FROM relays"
+    now = int(time.time())
+    query = f"""
+    SELECT r.url
+    FROM relays r
+    LEFT JOIN (
+        SELECT relay_url, MAX(generated_at) AS last_metadata
+        FROM relay_metadata
+        GROUP BY relay_url
+    ) rm ON r.url = rm.relay_url
+    WHERE rm.last_metadata IS NULL
+    OR rm.last_metadata < {now - 60 * 60 * config["frequency_hour"]}
+    """
     bigbrotr.execute(query)
     rows = bigbrotr.fetchall()
     bigbrotr.close()
@@ -240,9 +247,7 @@ def fetch_relays_from_db(bigbrotr):
 
 # --- Main Loop ---
 async def main_loop(config):
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
-                        config["dbuser"], config["dbpass"], config["dbname"])
-    relays = fetch_relays_from_db(bigbrotr)
+    relays = fetch_relays_from_db(config)
     chunk_size = config["chunk_size"]
     num_cores = config["num_cores"]
     chunks = list(chunkify(relays, chunk_size))
@@ -256,13 +261,6 @@ async def main_loop(config):
         for result in results:
             relay_metadata_list.extend(result)
     logging.info(f"✅ All chunks processed successfully.")
-    bigbrotr.connect()
-    logging.info("🔌 Database connection established.")
-    logging.info("🌐 Starting relay metadata insertion process...")
-    bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
-    logging.info(f"✅ Inserted {len(relay_metadata_list)} relay metadata.")
-    bigbrotr.close()
-    logging.info("🔌 Database connection closed.")
     return
 
 
@@ -272,13 +270,13 @@ async def monitor():
     logging.info("🔍 Starting monitor...")
     await wait_for_services(config)
     while True:
-        await wait_until_scheduled_hour(config["run_hour"])
         try:
             logging.info("🔄 Starting main loop...")
             await main_loop(config)
             logging.info("✅ Main loop completed successfully.")
         except Exception as e:
             logging.exception(f"❌ Main loop failed: {e}")
+        await asyncio.sleep(15 * 60)
 
 
 if __name__ == "__main__":

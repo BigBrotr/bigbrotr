@@ -5,7 +5,7 @@ from relay import Relay
 from relay_metadata import RelayMetadata
 from utils import sanitize
 import json
-
+import time
 
 class Bigbrotr:
     """
@@ -247,7 +247,7 @@ class Bigbrotr:
         self.commit()
         return
 
-    def insert_event(self, event: Event, relay: Relay, seen_at: int) -> None:
+    def insert_event(self, event: Event, relay: Relay, seen_at: Optional[int] = None) -> None:
         """
         Insert an event into the database.
 
@@ -274,9 +274,15 @@ class Bigbrotr:
             raise TypeError(f"event must be an Event, not {type(event)}")
         if not isinstance(relay, Relay):
             raise TypeError(f"relay must be a Relay, not {type(relay)}")
-        if not isinstance(seen_at, int):
-            raise TypeError(f"seen_at must be an int, not {type(seen_at)}")
-        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s)"
+        if seen_at is not None:
+            if not isinstance(seen_at, int):
+                raise TypeError(f"seen_at must be an int, not {type(seen_at)}")
+            if seen_at < 0:
+                raise ValueError(f"seen_at must be a positive int, not {seen_at}")
+        else:
+            seen_at = int(time.time())
+        relay_inserted_at = seen_at
+        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)"
         args = (
             event.id,
             event.pubkey,
@@ -287,13 +293,14 @@ class Bigbrotr:
             event.sig,
             sanitize(relay.url),
             relay.network,
+            relay_inserted_at,
             seen_at
         )
         self.execute(query, args)
         self.commit()
         return
 
-    def insert_relay(self, relay: Relay) -> None:
+    def insert_relay(self, relay: Relay, inserted_at: Optional[int] = None) -> None:
         """
         Insert a relay into the database.
 
@@ -312,10 +319,18 @@ class Bigbrotr:
         """
         if not isinstance(relay, Relay):
             raise TypeError(f"relay must be a Relay, not {type(relay)}")
-        query = "SELECT insert_relay(%s, %s)"
+        if inserted_at is not None:
+            if not isinstance(inserted_at, int):
+                raise TypeError(f"inserted_at must be an int, not {type(inserted_at)}")
+            if inserted_at < 0:
+                raise ValueError(f"inserted_at must be a positive int, not {inserted_at}")
+        else:
+            inserted_at = int(time.time())
+        query = "SELECT insert_relay(%s, %s, %s)"
         args = (
             sanitize(relay.url),
-            relay.network
+            relay.network,
+            inserted_at
         )
         self.execute(query, args)
         self.commit()
@@ -341,10 +356,12 @@ class Bigbrotr:
         if not isinstance(relay_metadata, RelayMetadata):
             raise TypeError(
                 f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
-        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
+        relay_inserted_at = relay_metadata.generated_at
+        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
         args = (
             sanitize(relay_metadata.relay.url),
             relay_metadata.relay.network,
+            relay_inserted_at,
             relay_metadata.generated_at,
             relay_metadata.connection_success,
             relay_metadata.nip11_success,
@@ -374,7 +391,7 @@ class Bigbrotr:
         self.commit()
         return
 
-    def insert_event_batch(self, events: list[Event], relay: Relay, seen_at: int) -> None:
+    def insert_event_batch(self, events: list[Event], relay: Relay, seen_at: Optional[int] = None) -> None:
         """
         Insert a batch of events into the database.
 
@@ -405,9 +422,15 @@ class Bigbrotr:
                     f"event must be an Event, not {type(event)}")
         if not isinstance(relay, Relay):
             raise TypeError(f"relay must be a Relay, not {type(relay)}")
-        if not isinstance(seen_at, int):
-            raise TypeError(f"seen_at must be an int, not {type(seen_at)}")
-        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s)"
+        if seen_at is not None:
+            if not isinstance(seen_at, int):
+                raise TypeError(f"seen_at must be an int, not {type(seen_at)}")
+            if seen_at < 0:
+                raise ValueError(f"seen_at must be a positive int, not {seen_at}")
+        else:
+            seen_at = int(time.time())
+        relay_inserted_at = seen_at
+        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)"
         args = [
             (
                 event.id,
@@ -419,6 +442,7 @@ class Bigbrotr:
                 event.sig,
                 sanitize(relay.url),
                 relay.network,
+                relay_inserted_at,
                 seen_at
             )
             for event in events
@@ -427,7 +451,7 @@ class Bigbrotr:
         self.commit()
         return
 
-    def insert_relay_batch(self, relays: list[Relay]) -> None:
+    def insert_relay_batch(self, relays: list[Relay], inserted_at: Optional[int] = None) -> None:
         """
         Insert a batch of relays into the database.
 
@@ -450,11 +474,19 @@ class Bigbrotr:
             if not isinstance(relay, Relay):
                 raise TypeError(
                     f"relay must be a Relay, not {type(relay)}")
-        query = "SELECT insert_relay(%s, %s)"
+        if inserted_at is not None:
+            if not isinstance(inserted_at, int):
+                raise TypeError(f"inserted_at must be an int, not {type(inserted_at)}")
+            if inserted_at < 0:
+                raise ValueError(f"inserted_at must be a positive int, not {inserted_at}")
+        else:
+            inserted_at = int(time.time())
+        query = "SELECT insert_relay(%s, %s, %s)"
         args = [
             (
                 sanitize(relay.url),
-                relay.network
+                relay.network,
+                inserted_at
             )
             for relay in relays
         ]
@@ -486,11 +518,12 @@ class Bigbrotr:
             if not isinstance(relay_metadata, RelayMetadata):
                 raise TypeError(
                     f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
-        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
+        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
         args = [
             (
                 sanitize(relay_metadata.relay.url),
                 relay_metadata.relay.network,
+                relay_metadata.generated_at,
                 relay_metadata.generated_at,
                 relay_metadata.connection_success,
                 relay_metadata.nip11_success,
