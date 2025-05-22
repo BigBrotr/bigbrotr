@@ -6,6 +6,7 @@ from relay_metadata import RelayMetadata
 from utils import sanitize
 import json
 import time
+import zlib
 
 class Bigbrotr:
     """
@@ -282,14 +283,14 @@ class Bigbrotr:
         else:
             seen_at = int(time.time())
         relay_inserted_at = seen_at
-        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)"
+        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s::bytea, %s, %s, %s, %s, %s)"
         args = (
             event.id,
             event.pubkey,
             event.created_at,
             event.kind,
             json.dumps(sanitize(event.tags)),
-            sanitize(event.content),
+            psycopg2.Binary(zlib.compress(sanitize(event.content).encode("utf-8"))),
             event.sig,
             sanitize(relay.url),
             relay.network,
@@ -430,7 +431,7 @@ class Bigbrotr:
         else:
             seen_at = int(time.time())
         relay_inserted_at = seen_at
-        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)"
+        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s::bytea, %s, %s, %s, %s, %s)"
         args = [
             (
                 event.id,
@@ -438,7 +439,7 @@ class Bigbrotr:
                 event.created_at,
                 event.kind,
                 json.dumps(sanitize(event.tags)),
-                sanitize(event.content),
+                psycopg2.Binary(zlib.compress(sanitize(event.content).encode("utf-8"))),
                 event.sig,
                 sanitize(relay.url),
                 relay.network,
