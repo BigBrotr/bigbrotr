@@ -310,11 +310,15 @@ async def process_chunk(chunk, config, end_time):
                                             await asyncio.sleep(1)
                                             break
                                         else:
-                                            logging.exception(f"❌ Unexpected message data: {data}")
-                                            raise RuntimeError(f"Unexpected message data: {data}")
+                                            logging.exception(
+                                                f"❌ Unexpected message data: {data}")
+                                            raise RuntimeError(
+                                                f"Unexpected message data: {data}")
                                     else:
-                                        logging.exception(f"❌ Unexpected message type: {msg.type}")
-                                        raise RuntimeError(f"Unexpected message type: {msg.type}")
+                                        logging.exception(
+                                            f"❌ Unexpected message type: {msg.type}")
+                                        raise RuntimeError(
+                                            f"Unexpected message type: {msg.type}")
             except Exception as e:
                 logging.exception(
                     f"❌ Error processing relay metadata for {relay_metadata.relay.url}: {e}")
