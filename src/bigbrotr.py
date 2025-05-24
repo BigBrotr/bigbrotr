@@ -11,25 +11,32 @@ import zlib
 
 class Bigbrotr:
     """
-    Class to connect to the Bigbrotr database.
+    Class to connect to and interact with the Bigbrotr database.
 
     Attributes:
-    - host: str, the host of the database
-    - port: int, the port of the database
-    - user: str, the user of the database
-    - password: str, the password of the database
-    - dbname: str, the name of the database
-    - conn: psycopg2.connection, the connection to the database
-    - cur: psycopg2.cursor, the cursor of the database
+    - host (str): database host
+    - port (int): database port
+    - user (str): database user
+    - password (str): password for database access
+    - dbname (str): database name
+    - conn (psycopg2.connection): connection to the database
+    - cur (psycopg2.cursor): cursor to execute queries on the database
 
     Methods:
-    - connect: connect to the database
-    - close: close the connection to the database
-    - commit: commit the transaction
-    - execute: execute a query
-    - fetchall: fetch all the results of the query
-    - fetchone: fetch one result of the query
-    - fetchmany: fetch many results of the query
+    - connect(): establishes connection to the database
+    - close(): closes the connection
+    - commit(): commits the current transaction
+    - execute(query, args): executes an SQL query with optional arguments
+    - fetchall(): retrieves all results from the executed query
+    - fetchone(): retrieves a single result from the query
+    - fetchmany(size): retrieves a specific number of results
+    - delete_orphan_events(): deletes orphan events from the database
+    - insert_event(event, relay, seen_at): inserts a single event into the database
+    - insert_relay(relay, inserted_at): inserts a single relay into the database
+    - insert_relay_metadata(relay_metadata): inserts relay metadata
+    - insert_event_batch(events, relay, seen_at): inserts a batch of events
+    - insert_relay_batch(relays, inserted_at): inserts a batch of relays
+    - insert_relay_metadata_batch(relay_metadata_list): inserts a batch of metadata
 
     Example:
     >>> host = "localhost"
