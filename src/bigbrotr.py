@@ -8,6 +8,7 @@ import json
 import time
 import zlib
 
+
 class Bigbrotr:
     """
     Class to connect to the Bigbrotr database.
@@ -279,7 +280,8 @@ class Bigbrotr:
             if not isinstance(seen_at, int):
                 raise TypeError(f"seen_at must be an int, not {type(seen_at)}")
             if seen_at < 0:
-                raise ValueError(f"seen_at must be a positive int, not {seen_at}")
+                raise ValueError(
+                    f"seen_at must be a positive int, not {seen_at}")
         else:
             seen_at = int(time.time())
         relay_inserted_at = seen_at
@@ -290,7 +292,7 @@ class Bigbrotr:
             event.created_at,
             event.kind,
             json.dumps(sanitize(event.tags)),
-            psycopg2.Binary(zlib.compress(sanitize(event.content).encode("utf-8"))),
+            psycopg2.Binary(zlib.compress(event.content).encode("utf-8")),
             event.sig,
             sanitize(relay.url),
             relay.network,
@@ -322,9 +324,11 @@ class Bigbrotr:
             raise TypeError(f"relay must be a Relay, not {type(relay)}")
         if inserted_at is not None:
             if not isinstance(inserted_at, int):
-                raise TypeError(f"inserted_at must be an int, not {type(inserted_at)}")
+                raise TypeError(
+                    f"inserted_at must be an int, not {type(inserted_at)}")
             if inserted_at < 0:
-                raise ValueError(f"inserted_at must be a positive int, not {inserted_at}")
+                raise ValueError(
+                    f"inserted_at must be a positive int, not {inserted_at}")
         else:
             inserted_at = int(time.time())
         query = "SELECT insert_relay(%s, %s, %s)"
@@ -427,7 +431,8 @@ class Bigbrotr:
             if not isinstance(seen_at, int):
                 raise TypeError(f"seen_at must be an int, not {type(seen_at)}")
             if seen_at < 0:
-                raise ValueError(f"seen_at must be a positive int, not {seen_at}")
+                raise ValueError(
+                    f"seen_at must be a positive int, not {seen_at}")
         else:
             seen_at = int(time.time())
         relay_inserted_at = seen_at
@@ -439,7 +444,7 @@ class Bigbrotr:
                 event.created_at,
                 event.kind,
                 json.dumps(sanitize(event.tags)),
-                psycopg2.Binary(zlib.compress(sanitize(event.content).encode("utf-8"))),
+                psycopg2.Binary(zlib.compress(event.content).encode("utf-8")),
                 event.sig,
                 sanitize(relay.url),
                 relay.network,
@@ -477,9 +482,11 @@ class Bigbrotr:
                     f"relay must be a Relay, not {type(relay)}")
         if inserted_at is not None:
             if not isinstance(inserted_at, int):
-                raise TypeError(f"inserted_at must be an int, not {type(inserted_at)}")
+                raise TypeError(
+                    f"inserted_at must be an int, not {type(inserted_at)}")
             if inserted_at < 0:
-                raise ValueError(f"inserted_at must be a positive int, not {inserted_at}")
+                raise ValueError(
+                    f"inserted_at must be a positive int, not {inserted_at}")
         else:
             inserted_at = int(time.time())
         query = "SELECT insert_relay(%s, %s, %s)"

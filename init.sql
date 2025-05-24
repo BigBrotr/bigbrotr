@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS events (
     created_at BIGINT NOT NULL,                                             -- Timestamp of when the event was created
     kind INT NOT NULL,                                                      -- Integer representing the event kind
     tags JSONB NOT NULL,                                                    -- JSONB array of tags
+    content BYTEA NOT NULL,                                                 -- Event content, stored as binary data
     sig CHAR(128) NOT NULL                                                  -- 64-byte signature, fixed length 128 characters
 );
 
@@ -20,12 +21,6 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_pubkey ON events USING BTREE (pubkey);    -- Index on pubkey 
 CREATE INDEX IF NOT EXISTS idx_events_kind ON events USING BTREE (kind);        -- Index on kind
 CREATE INDEX IF NOT EXISTS idx_events_tags ON events USING GIN (tags);          -- Index on tags
-
-CREATE TABLE IF NOT EXISTS event_contents (
-    event_id CHAR(64) PRIMARY KEY NOT NULL,
-    content_compressed BYTEA NOT NULL,
-    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
-);
 
 -- Create a table for relays   
 CREATE TABLE IF NOT EXISTS relays (
@@ -116,7 +111,7 @@ CREATE OR REPLACE FUNCTION insert_event(
     p_created_at BIGINT,
     p_kind INT,
     p_tags JSONB,
-    p_content_compressed BYTEA,
+    p_content BYTEA,
     p_sig CHAR(128),
     p_relay_url TEXT,
     p_relay_network TEXT,
@@ -125,13 +120,9 @@ CREATE OR REPLACE FUNCTION insert_event(
 ) RETURNS VOID AS $$
 BEGIN
     -- Insert the event into the events table
-    INSERT INTO events (id, pubkey, created_at, kind, tags, sig)
-    VALUES (p_id, p_pubkey, p_created_at, p_kind, p_tags, p_sig)
+    INSERT INTO events (id, pubkey, created_at, kind, tags, p_content, sig)
+    VALUES (p_id, p_pubkey, p_created_at, p_kind, p_tags, p_content, p_sig)
     ON CONFLICT (id) DO NOTHING;
-    -- Insert the event content into the event_contents table
-    INSERT INTO event_contents (event_id, content_compressed)
-    VALUES (p_id, p_content_compressed)
-    ON CONFLICT (event_id) DO NOTHING;
     -- Insert the relay into the relays table
     INSERT INTO relays (url, network, inserted_at)
     VALUES (p_relay_url, p_relay_network, p_relay_inserted_at)
