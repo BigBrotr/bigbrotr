@@ -1,6 +1,4 @@
 from typing import List
-import re
-import json
 from utils import calc_event_id, verify_sig
 
 
@@ -16,7 +14,6 @@ class Event:
     - tags: List[List[str]], tags of the event
     - content: str, content of the event
     - sig: str, signature of the event
-    - content_obj: dict or None, content JSON object if content is valid JSON, else None
 
     Methods:
     - __init__(id: str, pubkey: str, created_at: int, kind: int, tags: List[List[str]], content: str, sig: str) -> None: initialize the Event object
@@ -37,7 +34,6 @@ class Event:
         - tags: List[List[str]], tags of the event
         - content: str, content of the event
         - sig: str, signature of the event
-        - content_obj: dict or None, content JSON object if content is valid JSON, else None
 
         Example:
         >>> id = "0x123"
@@ -99,7 +95,11 @@ class Event:
         if len(sig) != 128:
             raise ValueError(
                 f"sig must be 128 characters long, not {len(sig)}")
-        if calc_event_id(pubkey, created_at, kind, tags, content) != id:
+        if calc_event_id(pubkey, created_at, kind, tags, content) == id:
+            self.content = content
+        elif calc_event_id(pubkey, created_at, kind, tags, content.encode('utf-8').decode('unicode_escape')) == id:
+            self.content = content.encode('utf-8').decode('unicode_escape')
+        else:
             raise ValueError(f"Invalid event id: {id}")
         if verify_sig(id, pubkey, sig) != True:
             raise ValueError(f"Invalid event signature: {sig}")
@@ -108,12 +108,7 @@ class Event:
         self.created_at = created_at
         self.kind = kind
         self.tags = tags
-        self.content = content
         self.sig = sig
-        try:
-            self.content_obj = json.loads(re.sub(r"\\", "", self.content))
-        except json.JSONDecodeError:
-            self.content_obj = None
         return
 
     def __repr__(self) -> str:
