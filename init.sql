@@ -120,7 +120,7 @@ CREATE OR REPLACE FUNCTION insert_event(
 ) RETURNS VOID AS $$
 BEGIN
     -- Insert the event into the events table
-    INSERT INTO events (id, pubkey, created_at, kind, tags, p_content, sig)
+    INSERT INTO events (id, pubkey, created_at, kind, tags, content, sig)
     VALUES (p_id, p_pubkey, p_created_at, p_kind, p_tags, p_content, p_sig)
     ON CONFLICT (id) DO NOTHING;
     -- Insert the relay into the relays table
