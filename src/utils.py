@@ -360,8 +360,7 @@ def find_websoket_relay_urls(text):
 
 def sanitize(value):
     if isinstance(value, str):
-        value = re.sub(r'(?<!\\)(\\0x00)', r'\\\\0x00', value)
-        value = re.sub(r'(?<!\\)(\\x00)', r'\\\\x00', value)
+        value = value.replace('\x00', '')
     elif isinstance(value, list):
         value = [sanitize(item) for item in value]
     elif isinstance(value, dict):

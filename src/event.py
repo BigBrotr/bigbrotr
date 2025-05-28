@@ -1,5 +1,5 @@
 from typing import List
-from utils import calc_event_id, verify_sig
+from utils import calc_event_id, verify_sig, sanitize
 
 
 class Event:
@@ -80,6 +80,8 @@ class Event:
             for t in tag:
                 if not isinstance(t, str):
                     raise TypeError(f"tag must contain str, not {type(t)}")
+        if tags != sanitize(tags):
+            raise ValueError("tags cannot contain \x00 character")
         if not isinstance(content, str):
             raise TypeError(f"content must be a str, not {type(content)}")
         if not isinstance(sig, str):
@@ -97,14 +99,22 @@ class Event:
         if len(sig) != 128:
             raise ValueError(
                 f"sig must be 128 characters long, not {len(sig)}")
-        if calc_event_id(pubkey, created_at, kind, tags, content) == id:
+        try:
+            escaped_content = content.encode('utf-8').decode('unicode_escape', 'replace')
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            escaped_content = content
+        if calc_event_id(pubkey, created_at, kind, tags, escaped_content) == id:
+            self.content = escaped_content
+        elif calc_event_id(pubkey, created_at, kind, tags, content) == id:
             self.content = content
-        elif calc_event_id(pubkey, created_at, kind, tags, content.encode('utf-8').decode('unicode_escape')) == id:
-            self.content = content.encode('utf-8').decode('unicode_escape')
         else:
             raise ValueError(f"Invalid event id: {id}")
         if verify_sig(id, pubkey, sig) != True:
             raise ValueError(f"Invalid event signature: {sig}")
+        if self.content != sanitize(self.content):
+            raise ValueError("content cannot contain \x00 character")
         self.id = id
         self.pubkey = pubkey
         self.created_at = created_at
@@ -170,7 +180,7 @@ class Event:
         Example:
         >>> event = Event(id, pubkey, created_at, kind, tags, content, sig)
         >>> event.to_dict()
-        {'id': '0x123', 'pubkey': '0x123', 'created_at': 1612137600, 'kind': 0, 'tags': [['tag1', 'tag2']], 'content': 'content', 'sig': '0x123', 'content_obj': None}
+        {'id': '0x123', 'pubkey': '0x123', 'created_at': 1612137600, 'kind': 0, 'tags': [['tag1', 'tag2']], 'content': 'content', 'sig': '0x123'}
 
         Returns:
         - dict, dictionary representation of the Event object
@@ -178,4 +188,4 @@ class Event:
         Raises:
         - None
         """
-        return {"id": self.id, "pubkey": self.pubkey, "created_at": self.created_at, "kind": self.kind, "tags": self.tags, "content": self.content, "sig": self.sig, "content_obj": self.content_obj}
+        return {"id": self.id, "pubkey": self.pubkey, "created_at": self.created_at, "kind": self.kind, "tags": self.tags, "content": self.content, "sig": self.sig}
