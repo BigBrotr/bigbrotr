@@ -6,6 +6,19 @@ CREATE EXTENSION IF NOT EXISTS "btree_gin";  -- For GIN indexes on JSONB
 -- TABLE DEFINITIONS
 -- ============================
 
+-- Function to convert JSONB tags to text array
+CREATE OR REPLACE FUNCTION tags_to_tagvalues(jsonb) RETURNS TEXT[] AS $$
+BEGIN
+    RETURN (
+        SELECT array_agg(t->>1)
+        FROM (
+            SELECT jsonb_array_elements($1) AS t
+        ) s
+        WHERE LENGTH(t->>0) = 1
+    );
+END;
+$$ LANGUAGE plpgsql IMMUTABLE RETURNS NULL ON NULL INPUT;
+
 -- Create events table
 CREATE TABLE IF NOT EXISTS events (
     id CHAR(64) PRIMARY KEY NOT NULL,                                       -- Event id, fixed length 64 characters
@@ -13,14 +26,17 @@ CREATE TABLE IF NOT EXISTS events (
     created_at BIGINT NOT NULL,                                             -- Timestamp of when the event was created
     kind INT NOT NULL,                                                      -- Integer representing the event kind
     tags JSONB NOT NULL,                                                    -- JSONB array of tags
-    content BYTEA NOT NULL,                                                 -- Event content, stored as binary data
-    sig CHAR(128) NOT NULL                                                  -- 64-byte signature, fixed length 128 characters
+    content TEXT NOT NULL,                                                  -- Event content, stored as binary data
+    sig CHAR(128) NOT NULL,                                                 -- 64-byte signature, fixed length 128 characters
+    tagvalues TEXT[] GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED
 );
 
 -- Indexes for faster queries
-CREATE INDEX IF NOT EXISTS idx_events_pubkey ON events USING BTREE (pubkey);    -- Index on pubkey 
-CREATE INDEX IF NOT EXISTS idx_events_kind ON events USING BTREE (kind);        -- Index on kind
-CREATE INDEX IF NOT EXISTS idx_events_tags ON events USING GIN (tags);          -- Index on tags
+CREATE INDEX IF NOT EXISTS idx_events_pubkey ON events USING BTREE (pubkey);                            -- Index on pubkey 
+CREATE INDEX IF NOT EXISTS idx_events_created_at ON events USING BTREE (created_at DESC);               -- Index on created_at
+CREATE INDEX IF NOT EXISTS idx_events_kind ON events USING BTREE (kind);                                -- Index on kind
+CREATE INDEX IF NOT EXISTS idx_events_tagvalues ON events USING GIN (tagvalues);                        -- Index on tagvalues
+CREATE INDEX IF NOT EXISTS idx_events_kind_created_at ON events USING BTREE (kind, created_at DESC);    -- Index on kind and created_at
 
 -- Create a table for relays   
 CREATE TABLE IF NOT EXISTS relays (
@@ -111,7 +127,7 @@ CREATE OR REPLACE FUNCTION insert_event(
     p_created_at BIGINT,
     p_kind INT,
     p_tags JSONB,
-    p_content BYTEA,
+    p_content TEXT,
     p_sig CHAR(128),
     p_relay_url TEXT,
     p_relay_network TEXT,
@@ -119,18 +135,24 @@ CREATE OR REPLACE FUNCTION insert_event(
     p_seen_at BIGINT
 ) RETURNS VOID AS $$
 BEGIN
-    -- Insert the event into the events table
-    INSERT INTO events (id, pubkey, created_at, kind, tags, content, sig)
-    VALUES (p_id, p_pubkey, p_created_at, p_kind, p_tags, p_content, p_sig)
-    ON CONFLICT (id) DO NOTHING;
-    -- Insert the relay into the relays table
-    INSERT INTO relays (url, network, inserted_at)
-    VALUES (p_relay_url, p_relay_network, p_relay_inserted_at)
-    ON CONFLICT (url) DO NOTHING;
-    -- Insert the event-relay relation into the events_relays table
-    INSERT INTO events_relays (event_id, relay_url, seen_at)
-    VALUES (p_id, p_relay_url, p_seen_at)
-    ON CONFLICT (event_id, relay_url) DO NOTHING;
+    BEGIN
+        -- Insert the event into the events table
+        INSERT INTO events (id, pubkey, created_at, kind, tags, content, sig)
+        VALUES (p_id, p_pubkey, p_created_at, p_kind, p_tags, p_content, p_sig)
+        ON CONFLICT (id) DO NOTHING;
+        -- Insert the relay into the relays table
+        INSERT INTO relays (url, network, inserted_at)
+        VALUES (p_relay_url, p_relay_network, p_relay_inserted_at)
+        ON CONFLICT (url) DO NOTHING;
+        -- Insert the event-relay relation into the events_relays table
+        INSERT INTO events_relays (event_id, relay_url, seen_at)
+        VALUES (p_id, p_relay_url, p_seen_at)
+        ON CONFLICT (event_id, relay_url) DO NOTHING;
+    EXCEPTION WHEN OTHERS THEN
+        -- Handle any exceptions that occur during the insertion
+        RAISE NOTICE 'Failed to insert event %: %', p_id, SQLERRM;
+        RETURN;
+    END;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -141,10 +163,16 @@ CREATE OR REPLACE FUNCTION insert_relay(
     p_inserted_at BIGINT
 ) RETURNS VOID AS $$
 BEGIN
-    -- Insert the relay into the relays table
-    INSERT INTO relays (url, network, inserted_at)
-    VALUES (p_url, p_network, p_inserted_at)
-    ON CONFLICT (url) DO NOTHING;
+    BEGIN
+        -- Insert the relay into the relays table
+        INSERT INTO relays (url, network, inserted_at)
+        VALUES (p_url, p_network, p_inserted_at)
+        ON CONFLICT (url) DO NOTHING;
+    EXCEPTION WHEN OTHERS THEN
+        -- Handle any exceptions that occur during the insertion
+        RAISE NOTICE 'Failed to insert relay %: %', p_url, SQLERRM;
+        RETURN;
+    END;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -177,61 +205,67 @@ CREATE OR REPLACE FUNCTION insert_relay_metadata(
     p_extra_fields JSONB
 ) RETURNS VOID AS $$
 BEGIN
-    -- Insert the relay into the relays table
-    INSERT INTO relays(url, network, inserted_at)
-    VALUES (p_relay_url, p_relay_network, p_relay_inserted_at)
-    ON CONFLICT (url) DO NOTHING;
-    -- Insert the relay metadata into the relay_metadata table
-    INSERT INTO relay_metadata (
-        relay_url,
-        generated_at,
-        connection_success,
-        nip11_success,
-        openable,
-        readable,
-        writable,
-        rtt_open,
-        rtt_read,
-        rtt_write,
-        name,
-        description,
-        banner,
-        icon,
-        pubkey,
-        contact,
-        supported_nips,
-        software,
-        version,
-        privacy_policy,
-        terms_of_service,
-        limitation,
-        extra_fields
-    )
-    VALUES (
-        p_relay_url,
-        p_generated_at,
-        p_connection_success,
-        p_nip11_success,
-        p_openable,
-        p_readable,
-        p_writable,
-        p_rtt_open,
-        p_rtt_read,
-        p_rtt_write,
-        p_name,
-        p_description,
-        p_banner,
-        p_icon,
-        p_pubkey,
-        p_contact,
-        p_supported_nips,
-        p_software,
-        p_version,
-        p_privacy_policy,
-        p_terms_of_service,
-        p_limitation,
-        p_extra_fields
-    )
-    ON CONFLICT (relay_url, generated_at) DO NOTHING;
+    BEGIN
+        -- Insert the relay into the relays table
+        INSERT INTO relays(url, network, inserted_at)
+        VALUES (p_relay_url, p_relay_network, p_relay_inserted_at)
+        ON CONFLICT (url) DO NOTHING;
+        -- Insert the relay metadata into the relay_metadata table
+        INSERT INTO relay_metadata (
+            relay_url,
+            generated_at,
+            connection_success,
+            nip11_success,
+            openable,
+            readable,
+            writable,
+            rtt_open,
+            rtt_read,
+            rtt_write,
+            name,
+            description,
+            banner,
+            icon,
+            pubkey,
+            contact,
+            supported_nips,
+            software,
+            version,
+            privacy_policy,
+            terms_of_service,
+            limitation,
+            extra_fields
+        )
+        VALUES (
+            p_relay_url,
+            p_generated_at,
+            p_connection_success,
+            p_nip11_success,
+            p_openable,
+            p_readable,
+            p_writable,
+            p_rtt_open,
+            p_rtt_read,
+            p_rtt_write,
+            p_name,
+            p_description,
+            p_banner,
+            p_icon,
+            p_pubkey,
+            p_contact,
+            p_supported_nips,
+            p_software,
+            p_version,
+            p_privacy_policy,
+            p_terms_of_service,
+            p_limitation,
+            p_extra_fields
+        )
+        ON CONFLICT (relay_url, generated_at) DO NOTHING;
+    EXCEPTION WHEN OTHERS THEN
+        -- Handle any exceptions that occur during the insertion
+        RAISE NOTICE 'Failed to insert relay metadata for %: %', p_relay_url, SQLERRM;
+        RETURN;
+    END;
 END;
 $$ LANGUAGE plpgsql;
