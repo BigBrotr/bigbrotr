@@ -6,7 +6,6 @@ from relay_metadata import RelayMetadata
 from utils import sanitize
 import json
 import time
-import zlib
 
 
 class Bigbrotr:
@@ -298,8 +297,8 @@ class Bigbrotr:
             event.pubkey,
             event.created_at,
             event.kind,
-            json.dumps(sanitize(event.tags)),
-            psycopg2.Binary(zlib.compress(event.content.encode("utf-8"))),
+            json.dumps(event.tags),
+            event.content,
             event.sig,
             sanitize(relay.url),
             relay.network,
@@ -450,8 +449,8 @@ class Bigbrotr:
                 event.pubkey,
                 event.created_at,
                 event.kind,
-                json.dumps(sanitize(event.tags)),
-                psycopg2.Binary(zlib.compress(event.content.encode("utf-8"))),
+                json.dumps(event.tags),
+                event.content,
                 event.sig,
                 sanitize(relay.url),
                 relay.network,
