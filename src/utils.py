@@ -367,12 +367,3 @@ def sanitize(value):
     elif isinstance(value, dict):
         value = {sanitize(key): sanitize(val) for key, val in value.items()}
     return value
-
-def encodize(value):
-    if isinstance(value, str):
-        return value.encode('utf-8').hex()
-    elif isinstance(value, list):
-        return [encodize(item) for item in value]
-    elif isinstance(value, dict):
-        return {encodize(key): encodize(val) for key, val in value.items()}
-    return value
