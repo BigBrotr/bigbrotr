@@ -435,6 +435,8 @@ async def syncronizer():
             logging.info("✅ Main loop completed successfully.")
         except Exception as e:
             logging.exception(f"❌ Main loop failed: {e}")
+        logging.info("⏳ Retrying in 30 seconds...")
+        await asyncio.sleep(30)
 
 
 if __name__ == "__main__":
