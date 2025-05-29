@@ -179,7 +179,6 @@ async def wait_for_services(config, retries=5, delay=30):
 
 # --- Process Chunk ---
 async def process_chunk(chunk, config, end_time):
-    logging.info("🚀 Starting process_chunk...")
     socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
     requests_per_core = config["requests_per_core"]
     sem = asyncio.Semaphore(requests_per_core)
@@ -192,10 +191,7 @@ async def process_chunk(chunk, config, end_time):
             stack_size = 10000
             until_stack = [end_time]
             try:
-                logging.info(
-                    f"📡 Connecting to database to get latest event time for relay: {relay_metadata.relay.url}")
-                bigbrotr = Bigbrotr(
-                    config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+                bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
                 query = """
                     SELECT MAX(e.created_at) AS max_created_at
                     FROM events e
@@ -206,8 +202,6 @@ async def process_chunk(chunk, config, end_time):
                 bigbrotr.execute(query, (relay_metadata.relay.url,))
                 row = bigbrotr.fetchone()
                 start_time = row[0] + 1 if row and row[0] is not None else config["start"]
-                logging.info(
-                    f"📅 Start time for {relay_metadata.relay.url}: {start_time}")
                 try:
                     max_limit = relay_metadata.limitation.get('max_limit') if isinstance(
                         relay_metadata.limitation, dict) else None
@@ -216,45 +210,36 @@ async def process_chunk(chunk, config, end_time):
                     max_limit = max_limit if max_limit > 0 else None
                 except (ValueError, TypeError):
                     max_limit = None
-                logging.info(f"📦 max_limit for relay: {max_limit}")
-                connector = ProxyConnector.from_url(
-                    socks5_proxy_url) if relay_metadata.relay.network == 'tor' else None
+                logging.info(f"🔄 Processing relay {relay_metadata.relay.url} with start_time={start_time}, end_time={end_time}, max_limit={max_limit}")
+                connector = ProxyConnector.from_url(socks5_proxy_url) if relay_metadata.relay.network == 'tor' else None
                 async with ClientSession(connector=connector) as session:
-                    logging.info(
-                        f"🔌 Connecting to relay: {relay_metadata.relay.url}")
+                    # logging.info(f"🔌 Connecting to relay: {relay_metadata.relay.url}")
                     async with session.ws_connect(relay_metadata.relay.url, timeout=timeout) as ws:
-                        logging.info(
-                            f"✅ WebSocket connection established with {relay_metadata.relay.url}")
+                        # logging.info(f"✅ WebSocket connection established with {relay_metadata.relay.url}")
                         while start_time <= end_time:
                             since = start_time
                             until = until_stack.pop()
-                            logging.info(
-                                f"📈 Starting to fetch events from {since} to {until} for {relay_metadata.relay.url}")
-
+                            # logging.info(f"📈 Starting to fetch events from {since} to {until} for {relay_metadata.relay.url}")
                             while since <= until:
                                 subscription_id = uuid.uuid4().hex
-                                logging.info(
-                                    f"🆔 Subscription ID: {subscription_id}")
+                                # logging.info(f"🆔 Subscription ID: {subscription_id}")
                                 request = json.dumps([
                                     "REQ", 
                                     subscription_id, 
                                     {**config["filter"], "since": since, "until": until}
                                 ])
-                                logging.info(
-                                    f"➡️ Sending request for events from {since} to {until}")
+                                # logging.info(f"➡️ Sending request for events from {since} to {until}")
                                 buffer = []
                                 buffer_len = 0
                                 buffer_timestamps = set()
                                 n_event_msgs_received = 0
                                 await ws.send_str(request)
-
                                 while True:
                                     msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
                                     if msg.type == WSMsgType.TEXT:
                                         data = json.loads(msg.data)
                                         if data[0] == "NOTICE":
-                                            logging.info(
-                                                f"📢 NOTICE received from {relay_metadata.relay.url}: {data}")
+                                            logging.info(f"📢 NOTICE received from {relay_metadata.relay.url}: {data}")
                                             continue
                                         elif data[0] == "EVENT" and data[1] == subscription_id:
                                             n_event_msgs_received += 1
@@ -267,97 +252,64 @@ async def process_chunk(chunk, config, end_time):
                                                     buffer_timestamps.add(
                                                         event.created_at)
                                             except (TypeError, ValueError) as e:
-                                                logging.warning(
-                                                    f"⚠️ Failed to parse event: {e}")
+                                                logging.warning(f"⚠️ Invalid event data received from {relay_metadata.relay.url}: {data[2]}. Error: {e}")
                                                 continue
-
                                             if max_limit is not None:
                                                 if n_event_msgs_received >= max_limit and since != until:
-                                                    logging.info(
-                                                        f"⚠️ Max limit reached, reducing interval for {relay_metadata.relay.url}")
+                                                    # logging.info(f"⚠️ Max limit reached, reducing interval for {relay_metadata.relay.url}")
                                                     if len(until_stack) >= stack_size:
-                                                        logging.info(
-                                                            f"⚠️ Stack size exceeded, closing subscription for {relay_metadata.relay.url}")
+                                                        # logging.info(f"⚠️ Stack size exceeded, closing subscription for {relay_metadata.relay.url}")
                                                         await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                                                        logging.info(
-                                                            f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
                                                         await asyncio.sleep(1)
-                                                        raise RuntimeError(
-                                                            f"Stack size exceeded for {relay_metadata.relay.url}")
+                                                        raise RuntimeError(f"Stack size exceeded for {relay_metadata.relay.url}. Closing subscription.")
                                                     until_stack.append(until)
-                                                    until = since + \
-                                                        (until - since) // 2
+                                                    until = since + (until - since) // 2
                                                     await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                                                    logging.info(
-                                                        f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
                                                     await asyncio.sleep(1)
+                                                    # logging.info(f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
                                                     break
                                             else:
                                                 if buffer_len >= batch_size and len(buffer_timestamps) > 1:
-                                                    max_timestamp = max(
-                                                        buffer_timestamps)
-                                                    events = [
-                                                        e for e in buffer if e.created_at != max_timestamp]
-                                                    bigbrotr.insert_event_batch(
-                                                        events, relay_metadata.relay, int(time.time()))
-                                                    logging.info(
-                                                        f"✅ Inserted {len(events)} events into DB (excluding timestamp = {max_timestamp})")
+                                                    max_timestamp = max(buffer_timestamps)
+                                                    events = [e for e in buffer if e.created_at != max_timestamp]
+                                                    bigbrotr.insert_event_batch(events, relay_metadata.relay, int(time.time()))
+                                                    # logging.info(f"✅ Inserted {len(events)} events into DB (excluding timestamp = {max_timestamp})")
                                                     n_events += len(events)
-                                                    buffer = [
-                                                        e for e in buffer if e.created_at == max_timestamp]
+                                                    buffer = [e for e in buffer if e.created_at == max_timestamp]
                                                     buffer_len = len(buffer)
-                                                    buffer_timestamps = set(
-                                                        [max_timestamp])
+                                                    buffer_timestamps = set([max_timestamp])
                                                     start_time = max_timestamp
                                                     since = max_timestamp
                                         elif data[0] == "EOSE" and data[1] == subscription_id:
                                             start_time = until + 1
                                             since = until + 1
-                                            logging.info(
-                                                f"📴 EOSE received from {relay_metadata.relay.url}")
+                                            # logging.info(f"📴 EOSE received from {relay_metadata.relay.url}")
                                             if buffer_len > 0:
-                                                bigbrotr.insert_event_batch(
-                                                    buffer, relay_metadata.relay, int(time.time()))
-                                                logging.info(
-                                                    f"✅ Inserted final {len(buffer)} events into DB for interval ending at {until}")
+                                                bigbrotr.insert_event_batch(buffer, relay_metadata.relay, int(time.time()))
+                                                # logging.info(f"✅ Inserted final {len(buffer)} events into DB for interval ending at {until}")
                                                 n_events += len(buffer)
                                             else:
-                                                logging.info(
-                                                    f"⏭️ No new events, moving start_time to {until + 1}")
+                                                # logging.info(f"⏭️ No new events, moving start_time to {until + 1}")
+                                                pass
                                             await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                                            logging.info(
-                                                f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
+                                            # logging.info(f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
                                             await asyncio.sleep(1)
                                             break
                                         else:
-                                            logging.exception(
-                                                f"❌ Unexpected message data: {data}")
-                                            raise RuntimeError(
-                                                f"Unexpected message data: {data}")
+                                            raise RuntimeError(f"Unexpected message format from {relay_metadata.relay.url}: {data}")
                                     else:
-                                        logging.exception(
-                                            f"❌ Unexpected message type: {msg.type}")
-                                        raise RuntimeError(
-                                            f"Unexpected message type: {msg.type}")
+                                        raise RuntimeError(f"Unexpected message type from {relay_metadata.relay.url}: {msg.type}")       
             except Exception as e:
-                logging.exception(
-                    f"❌ Error processing relay metadata for {relay_metadata.relay.url}: {e}")
+                logging.warning(e)
             finally:
                 if 'bigbrotr' in locals():
                     bigbrotr.close()
-                    logging.info(
-                        f"🔒 Database connection closed for relay {relay_metadata.relay.url}")
-            logging.info(
-                f"✅ Finished processing {relay_metadata.relay.url} — Total events inserted: {n_events}")
-            return n_events
+                    # logging.info(f"🔒 Database connection closed for relay {relay_metadata.relay.url}")
+            logging.info(f"✅ Finished processing {relay_metadata.relay.url} — Total events inserted: {n_events}")
+            return
 
-    tasks = [process_single_relay_metadata(
-        relay_metadata) for relay_metadata in chunk]
-    logging.info(f"📦 Launching tasks for {len(chunk)} relays...")
-    n_events_list = await asyncio.gather(*tasks)
-    logging.info(
-        f"✅ Completed processing chunk. Total new events inserted: {sum(n_events_list)}")
-    logging.info("🚀 Finished process_chunk.")
+    tasks = [process_single_relay_metadata(relay_metadata) for relay_metadata in chunk]
+    await asyncio.gather(*tasks)
     return
 
 
