@@ -88,10 +88,8 @@ async def finder():
     await wait_for_services(config)
     while True:
         try:
-            bigbrotr = Bigbrotr(
-                config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
-            relays = []
             # TODO: Implement the main finder logic here
+            pass
         except Exception as e:
             logging.exception(f"❌ Finder encountered an error: {e}")
         await asyncio.sleep(config["frequency_hour"] * 3600)
