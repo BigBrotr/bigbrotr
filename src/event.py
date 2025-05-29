@@ -74,13 +74,9 @@ class Event:
         for tag in tags:
             if not isinstance(tag, list):
                 raise TypeError(f"tag must be a list of str, not {type(tag)}")
-            if tag == []:
-                raise ValueError("tag cannot be an empty list")
             for t in tag:
                 if not isinstance(t, str):
                     raise TypeError(f"tag must contain str, not {type(t)}")
-                if t == "":
-                    raise ValueError("tag cannot be an empty string")
         if not isinstance(content, str):
             raise TypeError(f"content must be a str, not {type(content)}")
         if not isinstance(sig, str):
