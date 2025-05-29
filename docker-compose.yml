@@ -57,6 +57,25 @@ services:
       - network
     restart: no
 
+  finder:
+    build:
+      context: .
+      dockerfile: dockerfiles/finder
+    container_name: bigbrotr_finder
+    environment:
+      - POSTGRES_HOST=database
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PORT=5432
+      - FINDER_FREQUENCY_HOUR=${FINDER_FREQUENCY_HOUR}
+      - FINDER_REQUEST_TIMEOUT=${FINDER_REQUEST_TIMEOUT}
+    depends_on:
+      - database
+    networks:
+      - network
+    restart: unless-stopped
+
   monitor:
     build:
       context: .
@@ -101,6 +120,9 @@ services:
       - SYNCRONIZER_CHUNK_SIZE=${SYNCRONIZER_CHUNK_SIZE}
       - SYNCRONIZER_REQUESTS_PER_CORE=${SYNCRONIZER_REQUESTS_PER_CORE}
       - SYNCRONIZER_REQUEST_TIMEOUT=${SYNCRONIZER_REQUEST_TIMEOUT}
+      - SYNCTONIZER_START_TIMESTAMP=${SYNCTONIZER_START_TIMESTAMP}
+      - SYNCRONIZER_STOP_TIMESTAMP=${SYNCRONIZER_STOP_TIMESTAMP}
+      - SYNCRONIZER_EVENT_FILTER=${SYNCRONIZER_EVENT_FILTER}
     depends_on:
       - database
       - torproxy
