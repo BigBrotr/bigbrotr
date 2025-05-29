@@ -1,6 +1,6 @@
 -- init.sql
 
-CREATE EXTENSION IF NOT EXISTS "btree_gin";  -- For GIN indexes on JSONB
+-- CREATE EXTENSION IF NOT EXISTS "btree_gin";  -- For GIN indexes on JSONB
 
 -- ============================
 -- TABLE DEFINITIONS
@@ -94,8 +94,8 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
 
 -- Indexes for faster queries
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url ON relay_metadata USING BTREE (relay_url);          -- Index on relay_url
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_supported_nips ON relay_metadata USING GIN (supported_nips);  -- Index on supported_nips
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_limitation ON relay_metadata USING GIN (limitation);        -- Index on limitations
+-- CREATE INDEX IF NOT EXISTS idx_relay_metadata_supported_nips ON relay_metadata USING GIN (supported_nips);  -- Index on supported_nips
+-- CREATE INDEX IF NOT EXISTS idx_relay_metadata_limitation ON relay_metadata USING GIN (limitation);          -- Index on limitations
 
 -- ============================
 -- CONSTRAINTS
