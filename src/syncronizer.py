@@ -44,7 +44,7 @@ def load_config_from_env():
             "requests_per_core": int(os.environ["SYNCRONIZER_REQUESTS_PER_CORE"]),
             "timeout": int(os.environ["SYNCRONIZER_REQUEST_TIMEOUT"]),
             "start": int(os.environ["SYNCTONIZER_START_TIMESTAMP"]),
-            "stop": int(os.environ["SYNCTONIZER_STOP_TIMESTAMP"]),
+            "stop": int(os.environ["SYNCRONIZER_STOP_TIMESTAMP"]),
             "filter": json.loads(os.environ["SYNCRONIZER_EVENT_FILTER"])
         }
         if config["dbport"] < 0 or config["dbport"] > 65535:
@@ -83,11 +83,11 @@ def load_config_from_env():
             sys.exit(1)
         if config["stop"] != -1 and config["stop"] < 0:
             logging.error(
-                "❌ Invalid SYNCTONIZER_STOP_TIMESTAMP. Must be 0 or greater.")
+                "❌ Invalid SYNCRONIZER_STOP_TIMESTAMP. Must be 0 or greater.")
             sys.exit(1)
         if config["stop"] != -1 and config["start"] > config["stop"]:
             logging.error(
-                "❌ SYNCTONIZER_START_TIMESTAMP cannot be greater than SYNCTONIZER_STOP_TIMESTAMP.")
+                "❌ SYNCTONIZER_START_TIMESTAMP cannot be greater than SYNCRONIZER_STOP_TIMESTAMP.")
             sys.exit(1)
         if not isinstance(config["filter"], dict):
             logging.error(
