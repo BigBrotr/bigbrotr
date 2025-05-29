@@ -1,5 +1,6 @@
 from typing import List
-from utils import calc_event_id, verify_sig, sanitize
+from utils import calc_event_id, verify_sig
+import json
 
 
 class Event:
@@ -65,13 +66,11 @@ class Event:
         if not isinstance(pubkey, str):
             raise TypeError(f"pubkey must be a str, not {type(pubkey)}")
         if not isinstance(created_at, int):
-            raise TypeError(
-                f"created_at must be an int, not {type(created_at)}")
+            raise TypeError(f"created_at must be an int, not {type(created_at)}")
         if not isinstance(kind, int):
             raise TypeError(f"kind must be an int, not {type(kind)}")
         if not isinstance(tags, list):
-            raise TypeError(
-                f"tags must be a list of lists of str, not {type(tags)}")
+            raise TypeError(f"tags must be a list of lists of str, not {type(tags)}")
         for tag in tags:
             if not isinstance(tag, list):
                 raise TypeError(f"tag must be a list of str, not {type(tag)}")
@@ -80,8 +79,8 @@ class Event:
             for t in tag:
                 if not isinstance(t, str):
                     raise TypeError(f"tag must contain str, not {type(t)}")
-        if tags != sanitize(tags):
-            raise ValueError("tags cannot contain \x00 character")
+                if t == "":
+                    raise ValueError("tag cannot be an empty string")
         if not isinstance(content, str):
             raise TypeError(f"content must be a str, not {type(content)}")
         if not isinstance(sig, str):
@@ -89,37 +88,27 @@ class Event:
         if kind < 0 or kind > 65535:
             raise ValueError(f"kind must be between 0 and 65535, not {kind}")
         if created_at < 0:
-            raise ValueError(
-                f"created_at must be a positive int, not {created_at}")
+            raise ValueError(f"created_at must be a positive int, not {created_at}")
         if len(id) != 64:
             raise ValueError(f"id must be 64 characters long, not {len(id)}")
         if len(pubkey) != 64:
-            raise ValueError(
-                f"pubkey must be 64 characters long, not {len(pubkey)}")
+            raise ValueError(f"pubkey must be 64 characters long, not {len(pubkey)}")
         if len(sig) != 128:
-            raise ValueError(
-                f"sig must be 128 characters long, not {len(sig)}")
-        try:
-            escaped_content = content.encode('utf-8').decode('unicode_escape', 'replace')
-        except KeyboardInterrupt:
-            raise
-        except Exception as e:
-            escaped_content = content
-        if calc_event_id(pubkey, created_at, kind, tags, escaped_content) == id:
-            self.content = escaped_content
-        elif calc_event_id(pubkey, created_at, kind, tags, content) == id:
-            self.content = content
-        else:
+            raise ValueError(f"sig must be 128 characters long, not {len(sig)}")
+        if "\x00" in json.dumps(tags):
+            raise ValueError("tags cannot contain null characters")
+        if "\x00" in content:
+            raise ValueError("content cannot contain null characters")
+        if calc_event_id(pubkey, created_at, kind, tags, content) != id:
             raise ValueError(f"Invalid event id: {id}")
         if verify_sig(id, pubkey, sig) != True:
             raise ValueError(f"Invalid event signature: {sig}")
-        if self.content != sanitize(self.content):
-            raise ValueError("content cannot contain \x00 character")
         self.id = id
         self.pubkey = pubkey
         self.created_at = created_at
         self.kind = kind
         self.tags = tags
+        self.content = content
         self.sig = sig
         return
 
