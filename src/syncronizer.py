@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import time
 import uuid
@@ -42,6 +43,9 @@ def load_config_from_env():
             "chunk_size": int(os.environ["SYNCRONIZER_CHUNK_SIZE"]),
             "requests_per_core": int(os.environ["SYNCRONIZER_REQUESTS_PER_CORE"]),
             "timeout": int(os.environ["SYNCRONIZER_REQUEST_TIMEOUT"]),
+            "start": int(os.environ["SYNCTONIZER_START_TIMESTAMP"]),
+            "stop": int(os.environ["SYNCTONIZER_STOP_TIMESTAMP"]),
+            "filter": json.loads(os.environ["SYNCRONIZER_EVENT_FILTER"])
         }
         if config["dbport"] < 0 or config["dbport"] > 65535:
             logging.error(
@@ -73,6 +77,23 @@ def load_config_from_env():
             config["num_cores"] = cpu_count()
             logging.info(
                 f"🔄 SYNCRONIZER_NUM_CORES set to {config['num_cores']} (max available).")
+        if config["start"] < 0:
+            logging.error(
+                "❌ Invalid SYNCTONIZER_START_TIMESTAMP. Must be 0 or greater.")
+            sys.exit(1)
+        if config["stop"] != -1 and config["stop"] < 0:
+            logging.error(
+                "❌ Invalid SYNCTONIZER_STOP_TIMESTAMP. Must be 0 or greater.")
+            sys.exit(1)
+        if config["stop"] != -1 and config["start"] > config["stop"]:
+            logging.error(
+                "❌ SYNCTONIZER_START_TIMESTAMP cannot be greater than SYNCTONIZER_STOP_TIMESTAMP.")
+            sys.exit(1)
+        if not isinstance(config["filter"], dict):
+            logging.error(
+                "❌ SYNCRONIZER_EVENT_FILTER must be a valid JSON object.")
+            sys.exit(1)
+        config["filter"] = {k: v for k, v in config["filter"].items() if k in {"ids", "authors", "kinds"} or re.fullmatch(r"#([a-zA-Z])", k)}
     except KeyError as e:
         logging.error(f"❌ Missing environment variable: {e}")
         sys.exit(1)
@@ -184,7 +205,7 @@ async def process_chunk(chunk, config, end_time):
                 bigbrotr.connect()
                 bigbrotr.execute(query, (relay_metadata.relay.url,))
                 row = bigbrotr.fetchone()
-                start_time = row[0] + 1 if row and row[0] is not None else 0
+                start_time = row[0] + 1 if row and row[0] is not None else config["start"]
                 logging.info(
                     f"📅 Start time for {relay_metadata.relay.url}: {start_time}")
                 try:
@@ -215,10 +236,9 @@ async def process_chunk(chunk, config, end_time):
                                 logging.info(
                                     f"🆔 Subscription ID: {subscription_id}")
                                 request = json.dumps([
-                                    "REQ", subscription_id, {
-                                        "since": since,
-                                        "until": until,
-                                    }
+                                    "REQ", 
+                                    subscription_id, 
+                                    {**config["filter"], "since": since, "until": until}
                                 ])
                                 logging.info(
                                     f"➡️ Sending request for events from {since} to {until}")
@@ -410,9 +430,11 @@ async def main_loop(config):
     chunk_size = config["chunk_size"]
     num_cores = config["num_cores"]
     chunks = list(chunkify(relay_metedata_list, chunk_size))
-    now = datetime.datetime.now()
-    end_time = int(datetime.datetime(
-        now.year, now.month, now.day, 0, 0).timestamp())
+    if config["stop"] != -1:
+        end_time = config["stop"]
+    else:
+        now = datetime.datetime.now()
+        end_time = int(datetime.datetime(now.year, now.month, now.day, 0, 0).timestamp())
     logging.info(f"📅 End time for processing: {end_time}")
     args = [(chunk, config, end_time) for chunk in chunks]
     logging.info(
