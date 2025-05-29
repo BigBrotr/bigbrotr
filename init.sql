@@ -26,16 +26,16 @@ CREATE TABLE IF NOT EXISTS events (
     created_at BIGINT NOT NULL,                                             -- Timestamp of when the event was created
     kind INT NOT NULL,                                                      -- Integer representing the event kind
     tags JSONB NOT NULL,                                                    -- JSONB array of tags
+    -- tagvalues TEXT[] GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED,  -- Derived text array from tags
     content TEXT NOT NULL,                                                  -- Event content, stored as binary data
-    sig CHAR(128) NOT NULL,                                                 -- 64-byte signature, fixed length 128 characters
-    tagvalues TEXT[] GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED
+    sig CHAR(128) NOT NULL                                                  -- 64-byte signature, fixed length 128 characters
 );
 
 -- Indexes for faster queries
 CREATE INDEX IF NOT EXISTS idx_events_pubkey ON events USING BTREE (pubkey);                            -- Index on pubkey 
 CREATE INDEX IF NOT EXISTS idx_events_created_at ON events USING BTREE (created_at DESC);               -- Index on created_at
 CREATE INDEX IF NOT EXISTS idx_events_kind ON events USING BTREE (kind);                                -- Index on kind
-CREATE INDEX IF NOT EXISTS idx_events_tagvalues ON events USING GIN (tagvalues);                        -- Index on tagvalues
+-- CREATE INDEX IF NOT EXISTS idx_events_tagvalues ON events USING GIN (tagvalues);                        -- Index on tagvalues
 CREATE INDEX IF NOT EXISTS idx_events_kind_created_at ON events USING BTREE (kind, created_at DESC);    -- Index on kind and created_at
 
 -- Create a table for relays   
