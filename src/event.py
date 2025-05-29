@@ -91,10 +91,9 @@ class Event:
             raise ValueError(f"pubkey must be 64 characters long, not {len(pubkey)}")
         if len(sig) != 128:
             raise ValueError(f"sig must be 128 characters long, not {len(sig)}")
-        tags_str = json.dumps(tags)
-        if "\x00" in tags_str or "\u0000" in tags_str:
+        if "\\u0000" in json.dumps(tags):
             raise ValueError("tags cannot contain null characters")
-        if "\x00" in content or "\u0000" in content:
+        if "\\u0000" in json.dumps(content):
             raise ValueError("content cannot contain null characters")
         if calc_event_id(pubkey, created_at, kind, tags, content) != id:
             raise ValueError(f"Invalid event id: {id}")
