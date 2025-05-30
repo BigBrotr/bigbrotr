@@ -183,13 +183,14 @@ async def process_chunk(chunk, config, end_time):
     requests_per_core = config["requests_per_core"]
     sem = asyncio.Semaphore(requests_per_core)
 
-    async def process_single_relay_metadata(relay_metadata):
+    async def process_single_relay_metadata(relay_metadata, end_time):
         async with sem:
             n_events = 0
             batch_size = 1000
             timeout = config["timeout"]
-            stack_size = 10000
+            stack_size = 1000
             until_stack = [end_time]
+            count = 0
             try:
                 bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
                 query = """
@@ -210,25 +211,27 @@ async def process_chunk(chunk, config, end_time):
                     max_limit = max_limit if max_limit > 0 else None
                 except (ValueError, TypeError):
                     max_limit = None
-                logging.info(f"🔄 Processing relay {relay_metadata.relay.url} with start_time={start_time}, end_time={end_time}, max_limit={max_limit}")
                 connector = ProxyConnector.from_url(socks5_proxy_url) if relay_metadata.relay.network == 'tor' else None
                 async with ClientSession(connector=connector) as session:
-                    # logging.info(f"🔌 Connecting to relay: {relay_metadata.relay.url}")
+                    logging.info(f"🔌 Connecting to relay: {relay_metadata.relay.url}")
                     async with session.ws_connect(relay_metadata.relay.url, timeout=timeout) as ws:
-                        # logging.info(f"✅ WebSocket connection established with {relay_metadata.relay.url}")
+                        # logging.info(f"✅ WebSocket connection established with {relay_metadata.relay.url}") # to comment out for production
                         while start_time <= end_time:
                             since = start_time
                             until = until_stack.pop()
-                            # logging.info(f"📈 Starting to fetch events from {since} to {until} for {relay_metadata.relay.url}")
+                            # logging.info(f"📈 Starting to fetch events from {since} to {until} for {relay_metadata.relay.url}") # to comment out for production
                             while since <= until:
+                                count += 1
+                                if count % 10:
+                                    logging.info(f"🔄 Processing {relay_metadata.relay.url} from {since} to {until}")
                                 subscription_id = uuid.uuid4().hex
-                                # logging.info(f"🆔 Subscription ID: {subscription_id}")
+                                # logging.info(f"🆔 Subscription ID: {subscription_id}") # to comment out for production
                                 request = json.dumps([
                                     "REQ", 
                                     subscription_id, 
                                     {**config["filter"], "since": since, "until": until}
                                 ])
-                                # logging.info(f"➡️ Sending request for events from {since} to {until}")
+                                # logging.info(f"➡️ Sending request for events from {since} to {until}") # to comment out for production
                                 buffer = []
                                 buffer_len = 0
                                 buffer_timestamps = set()
@@ -256,43 +259,43 @@ async def process_chunk(chunk, config, end_time):
                                                 continue
                                             if max_limit is not None:
                                                 if n_event_msgs_received >= max_limit and since != until:
-                                                    # logging.info(f"⚠️ Max limit reached, reducing interval for {relay_metadata.relay.url}")
+                                                    logging.info(f"⚠️ Max limit reached, reducing interval for {relay_metadata.relay.url}") # to comment out for production
                                                     if len(until_stack) >= stack_size:
-                                                        # logging.info(f"⚠️ Stack size exceeded, closing subscription for {relay_metadata.relay.url}")
-                                                        await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                                                        await asyncio.sleep(1)
-                                                        raise RuntimeError(f"Stack size exceeded for {relay_metadata.relay.url}. Closing subscription.")
+                                                        until_stack.pop(0)
+                                                        end_time = until_stack[0]
                                                     until_stack.append(until)
                                                     until = since + (until - since) // 2
                                                     await ws.send_str(json.dumps(["CLOSE", subscription_id]))
                                                     await asyncio.sleep(1)
-                                                    # logging.info(f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
+                                                    # logging.info(f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}") # to comment out for production
                                                     break
                                             else:
                                                 if buffer_len >= batch_size and len(buffer_timestamps) > 1:
                                                     max_timestamp = max(buffer_timestamps)
                                                     events = [e for e in buffer if e.created_at != max_timestamp]
                                                     bigbrotr.insert_event_batch(events, relay_metadata.relay, int(time.time()))
-                                                    # logging.info(f"✅ Inserted {len(events)} events into DB (excluding timestamp = {max_timestamp})")
+                                                    # logging.info(f"✅ Inserted {len(events)} events into DB (excluding timestamp = {max_timestamp})") # to comment out for production
                                                     n_events += len(events)
                                                     buffer = [e for e in buffer if e.created_at == max_timestamp]
                                                     buffer_len = len(buffer)
                                                     buffer_timestamps = set([max_timestamp])
                                                     start_time = max_timestamp
                                                     since = max_timestamp
+                                        elif data[0] == "EOSE" and data[1] != subscription_id:
+                                            pass
                                         elif data[0] == "EOSE" and data[1] == subscription_id:
                                             start_time = until + 1
                                             since = until + 1
-                                            # logging.info(f"📴 EOSE received from {relay_metadata.relay.url}")
+                                            # logging.info(f"📴 EOSE received from {relay_metadata.relay.url}") # to comment out for production
                                             if buffer_len > 0:
                                                 bigbrotr.insert_event_batch(buffer, relay_metadata.relay, int(time.time()))
-                                                # logging.info(f"✅ Inserted final {len(buffer)} events into DB for interval ending at {until}")
+                                                # logging.info(f"✅ Inserted final {len(buffer)} events into DB for interval ending at {until}") # to comment out for production
                                                 n_events += len(buffer)
                                             else:
-                                                # logging.info(f"⏭️ No new events, moving start_time to {until + 1}")
+                                                # logging.info(f"⏭️ No new events, moving start_time to {until + 1}") # to comment out for production
                                                 pass
                                             await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                                            # logging.info(f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}")
+                                            # logging.info(f"🔒 Closed subscription {subscription_id} for {relay_metadata.relay.url}") # to comment out for production
                                             await asyncio.sleep(1)
                                             break
                                         else:
@@ -308,7 +311,7 @@ async def process_chunk(chunk, config, end_time):
             logging.info(f"✅ Finished processing {relay_metadata.relay.url} — Total events inserted: {n_events}")
             return
 
-    tasks = [process_single_relay_metadata(relay_metadata) for relay_metadata in chunk]
+    tasks = [process_single_relay_metadata(relay_metadata, end_time) for relay_metadata in chunk]
     await asyncio.gather(*tasks)
     return
 
