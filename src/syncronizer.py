@@ -213,7 +213,7 @@ async def process_chunk(chunk, config, end_time):
                     max_limit = None
                 connector = ProxyConnector.from_url(socks5_proxy_url) if relay_metadata.relay.network == 'tor' else None
                 async with ClientSession(connector=connector) as session:
-                    logging.info(f"🔌 Connecting to relay: {relay_metadata.relay.url}")
+                    # logging.info(f"🔌 Connecting to relay: {relay_metadata.relay.url}") # to comment out for production
                     async with session.ws_connect(relay_metadata.relay.url, timeout=timeout) as ws:
                         # logging.info(f"✅ WebSocket connection established with {relay_metadata.relay.url}") # to comment out for production
                         while start_time <= end_time:
@@ -223,7 +223,7 @@ async def process_chunk(chunk, config, end_time):
                             while since <= until:
                                 count += 1
                                 if count % 10:
-                                    logging.info(f"🔄 Processing {relay_metadata.relay.url} from {since} to {until}")
+                                    logging.info(f"🔄 Processing {relay_metadata.relay.url} from {since} to {until} ({count} requests so far, {len(until_stack)} intervals remaining, {n_events} events inserted so far)")
                                 subscription_id = uuid.uuid4().hex
                                 # logging.info(f"🆔 Subscription ID: {subscription_id}") # to comment out for production
                                 request = json.dumps([
