@@ -217,19 +217,19 @@ def fetch_relays_from_db(config):
     bigbrotr.connect()
     logging.info("🔌 Database connection established.")
     logging.info("📦 Fetching relays from database...")
-    now = int(time.time())
     query = f"""
     SELECT r.url
     FROM relays r
     LEFT JOIN (
-        SELECT relay_url, MAX(generated_at) AS last_metadata
+        SELECT relay_url, MAX(generated_at) AS last_generated_at
         FROM relay_metadata
         GROUP BY relay_url
     ) rm ON r.url = rm.relay_url
-    WHERE rm.last_metadata IS NULL
-    OR rm.last_metadata < {now - 60 * 60 * config["frequency_hour"]}
+    WHERE rm.last_generated_at IS NULL
+    OR rm.last_generated_at < %s
     """
-    bigbrotr.execute(query)
+    threshold = int(time.time()) - 60 * 60 * config["frequency_hour"]
+    bigbrotr.execute(query, (threshold,))
     rows = bigbrotr.fetchall()
     bigbrotr.close()
     relays = []
