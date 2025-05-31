@@ -3,13 +3,6 @@ import sys
 import asyncio
 import logging
 from bigbrotr import Bigbrotr
-from relay import Relay
-from aiohttp import ClientSession, WSMsgType
-from aiohttp_socks import ProxyConnector
-import time
-from utils import test_keypair
-from multiprocessing import Pool, cpu_count
-from compute_relay_metadata import compute_relay_metadata
 
 # --- Logging Config ---
 logging.basicConfig(
@@ -17,6 +10,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
+
 
 # --- Config Loader ---
 def load_config_from_env():

@@ -66,11 +66,13 @@ class Event:
         if not isinstance(pubkey, str):
             raise TypeError(f"pubkey must be a str, not {type(pubkey)}")
         if not isinstance(created_at, int):
-            raise TypeError(f"created_at must be an int, not {type(created_at)}")
+            raise TypeError(
+                f"created_at must be an int, not {type(created_at)}")
         if not isinstance(kind, int):
             raise TypeError(f"kind must be an int, not {type(kind)}")
         if not isinstance(tags, list):
-            raise TypeError(f"tags must be a list of lists of str, not {type(tags)}")
+            raise TypeError(
+                f"tags must be a list of lists of str, not {type(tags)}")
         for tag in tags:
             if not isinstance(tag, list):
                 raise TypeError(f"tag must be a list of str, not {type(tag)}")
@@ -84,13 +86,16 @@ class Event:
         if kind < 0 or kind > 65535:
             raise ValueError(f"kind must be between 0 and 65535, not {kind}")
         if created_at < 0:
-            raise ValueError(f"created_at must be a positive int, not {created_at}")
+            raise ValueError(
+                f"created_at must be a positive int, not {created_at}")
         if len(id) != 64:
             raise ValueError(f"id must be 64 characters long, not {len(id)}")
         if len(pubkey) != 64:
-            raise ValueError(f"pubkey must be 64 characters long, not {len(pubkey)}")
+            raise ValueError(
+                f"pubkey must be 64 characters long, not {len(pubkey)}")
         if len(sig) != 128:
-            raise ValueError(f"sig must be 128 characters long, not {len(sig)}")
+            raise ValueError(
+                f"sig must be 128 characters long, not {len(sig)}")
         if "\\u0000" in json.dumps(tags):
             raise ValueError("tags cannot contain null characters")
         if "\\u0000" in json.dumps(content):
