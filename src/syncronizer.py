@@ -367,8 +367,17 @@ def fetch_relay_metedata_list(bigbrotr):
     bigbrotr.connect()
     logging.info("🔌 Database connection established.")
     logging.info("📦 Fetching relay metadata from database...")
-    query = "SELECT * FROM relay_metadata WHERE generated_at = (SELECT MAX(generated_at) FROM relay_metadata)"
-    bigbrotr.execute(query)
+    query = """
+        SELECT *
+        FROM relay_metadata rm
+        WHERE generated_at = (
+            SELECT MAX(generated_at)
+            FROM relay_metadata
+            WHERE relay_url = rm.relay_url
+        )
+        AND generated_at >= %s;
+    """
+    bigbrotr.execute(query, (int(time.now()) - 86400,))
     rows = bigbrotr.fetchall()
     bigbrotr.close()
     relay_metadata_list = []
