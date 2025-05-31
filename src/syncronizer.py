@@ -216,6 +216,46 @@ async def get_max_limit(config, ws, timeout, start_time, end_time):
     return None
 
 
+# --- Create Event ---
+def create_event(event_data):
+    try:
+        event = Event.from_dict(event_data)
+    except ValueError as e:
+        tags = []
+        for tag in event_data['tags']:
+            tag = [
+                t.replace(r'\n', '\n').replace(r'\"', '\"').replace(r'\\', '\\').replace(
+                    r'\r', '\r').replace(r'\t', '\t').replace(r'\b', '\b').replace(r'\f', '\f')
+                for t in tag
+            ]
+            tags.append(tag)
+        event_data['tags'] = tags
+        event_data['content'] = event_data['content'].replace(r'\n', '\n').replace(r'\"', '\"').replace(
+            r'\\', '\\').replace(r'\r', '\r').replace(r'\t', '\t').replace(r'\b', '\b').replace(r'\f', '\f')
+        event = Event.from_dict(event_data)
+    return event
+
+
+# --- Insert Batch of Events ---
+def insert_batch(bigbrotr, batch, relay, seen_at):
+    event_batch = []
+    event_batch_max_size = 1000
+    for event_data in batch:
+        try:
+            event = create_event(event_data)
+        except Exception as e:
+            logging.warning(f"⚠️ Invalid event data: {event_data}. Error: {e}")
+            continue
+        event_batch.append(event)
+    if len(event_batch) > event_batch_max_size:
+        for i in range(0, len(event_batch), event_batch_max_size):
+            sub_event_batch = event_batch[i:i + event_batch_max_size]
+            bigbrotr.insert_event_batch(sub_event_batch, relay, seen_at)
+    else:
+        bigbrotr.insert_event_batch(event_batch, relay, seen_at)
+    return len(event_batch)
+
+
 # --- Process Relay Metadata ---
 async def process_relay_metadata(config, relay_metadata, end_time):
     socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
@@ -245,7 +285,7 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                             while since <= until:
                                 if n_requests_done % 10 == 0:
                                     logging.info(
-                                        f"🔄 [Requesting {relay_metadata.relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done}] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")
+                                        f"🔄 [Processing {relay_metadata.relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done}] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")
                                 subscription_id = uuid.uuid4().hex
                                 batch = []
                                 request = json.dumps([
@@ -285,23 +325,8 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                                         raise RuntimeError(
                                             f"Unexpected message type: {msg.type} from {relay_metadata.relay.url}")
                                 if len(batch) < max_limit or since == until:
-                                    event_batch = []
-                                    event_batch_max_size = 1000
-                                    for event_data in batch:
-                                        try:
-                                            event = Event.from_dict(event_data)
-                                            event_batch.append(event)
-                                        except (TypeError, ValueError) as e:
-                                            logging.warning(
-                                                f"⚠️ Invalid event data in relay {relay_metadata.relay.url}: {event_data}. Error: {e}")
-                                        if len(event_batch) == event_batch_max_size:
-                                            bigbrotr.insert_event_batch(
-                                                event_batch, relay_metadata.relay, int(time.time()))
-                                            n_events_inserted += len(event_batch)
-                                            event_batch = []
-                                    bigbrotr.insert_event_batch(
-                                        event_batch, relay_metadata.relay, int(time.time()))
-                                    n_events_inserted += len(event_batch)
+                                    n_events_inserted += insert_batch(
+                                        bigbrotr, batch, relay_metadata.relay, int(time.time()))
                                     start_time = until + 1
                                     since = until + 1
                                 n_requests_done += 1
