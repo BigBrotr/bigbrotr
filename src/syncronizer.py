@@ -239,7 +239,6 @@ def create_event(event_data):
 # --- Insert Batch of Events ---
 def insert_batch(bigbrotr, batch, relay, seen_at):
     event_batch = []
-    event_batch_max_size = 1000
     for event_data in batch:
         try:
             event = create_event(event_data)
@@ -247,12 +246,7 @@ def insert_batch(bigbrotr, batch, relay, seen_at):
             logging.warning(f"⚠️ Invalid event data: {event_data}. Error: {e}")
             continue
         event_batch.append(event)
-    if len(event_batch) > event_batch_max_size:
-        for i in range(0, len(event_batch), event_batch_max_size):
-            sub_event_batch = event_batch[i:i + event_batch_max_size]
-            bigbrotr.insert_event_batch(sub_event_batch, relay, seen_at)
-    else:
-        bigbrotr.insert_event_batch(event_batch, relay, seen_at)
+    bigbrotr.insert_event_batch(event_batch, relay, seen_at)
     return len(event_batch)
 
 
