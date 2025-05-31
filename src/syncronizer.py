@@ -279,6 +279,7 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                     async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
                         max_limit = await get_max_limit(config, ws, timeout, start_time, end_time)
                         max_limit = max_limit if max_limit is not None else 1000
+                        max_limit = min(max_limit, 10000)
                         while start_time <= end_time:
                             since = start_time
                             until = stack.pop()
