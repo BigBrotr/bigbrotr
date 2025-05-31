@@ -284,7 +284,7 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                             since = start_time
                             until = stack.pop()
                             while since <= until:
-                                if n_requests_done % 10 == 0:
+                                if n_requests_done % 25 == 0:
                                     logging.info(
                                         f"🔄 [Processing {relay_metadata.relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done}] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")
                                 subscription_id = uuid.uuid4().hex
@@ -333,7 +333,7 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                                 n_requests_done += 1
                     break
                 except Exception as e:
-                    continue
+                    logging.warning(e)
     except Exception as e:
         logging.warning(e)
     finally:
