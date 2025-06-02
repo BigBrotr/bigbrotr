@@ -338,6 +338,7 @@ async def process_relay_metadata(config, relay_metadata, end_time):
         if 'bigbrotr' in locals():
             bigbrotr.close()
     logging.info(f"✅ Finished processing {relay_metadata.relay.url}. Total events inserted: {n_events_inserted}")
+    time.sleep(10)
     return
 
 
