@@ -4,6 +4,7 @@ import sys
 import time
 import uuid
 import json
+import random
 import asyncio
 import logging
 import datetime
@@ -268,16 +269,17 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                     timeout = config["timeout"]
                     n_events_inserted = 0
                     n_requests_done = 0
+                    n_writes = 0
                     stack = [end_time]
                     stack_max_size = 1000
                     async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
                         max_limit = await get_max_limit(config, ws, timeout, start_time, end_time)
                         max_limit = max_limit if max_limit is not None else 1000
                         max_limit = min(max_limit, 10000)
-                        while start_time <= end_time:
+                        while start_time <= end_time and n_writes < 1000:
                             since = start_time
                             until = stack.pop()
-                            while since <= until:
+                            while since <= until and n_writes < 1000:
                                 if n_requests_done % 25 == 0:
                                     logging.info(
                                         f"🔄 [Processing {relay_metadata.relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done}] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")
@@ -324,17 +326,17 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                                         bigbrotr, batch, relay_metadata.relay, int(time.time()))
                                     start_time = until + 1
                                     since = until + 1
+                                    n_writes += 1
                                 n_requests_done += 1
                     break
                 except Exception as e:
-                    logging.warning(e)
+                    logging.warning(f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
     except Exception as e:
-        logging.warning(e)
+        logging.warning(f"⚠️ Failed to process {relay_metadata.relay.url}: {e}")
     finally:
         if 'bigbrotr' in locals():
             bigbrotr.close()
-    logging.info(
-        f"✅ Finished processing {relay_metadata.relay.url} - Total events inserted: {n_events_inserted}")
+    logging.info(f"✅ Finished processing {relay_metadata.relay.url}. Total events inserted: {n_events_inserted}")
     return
 
 
@@ -401,6 +403,7 @@ def fetch_relay_metedata_list(bigbrotr):
             continue
     logging.info(
         f"📦 {len(relay_metadata_list)} relay metadata fetched from database.")
+    random.shuffle(relay_metadata_list)
     return relay_metadata_list
 
 
