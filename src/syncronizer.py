@@ -276,6 +276,7 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                         max_limit = await get_max_limit(config, ws, timeout, start_time, end_time)
                         max_limit = max_limit if max_limit is not None else 1000
                         max_limit = min(max_limit, 10000)
+                        max_limit = max(1, int(max_limit * 0.95))
                         while start_time <= end_time and n_writes < 1000:
                             since = start_time
                             until = stack.pop()
