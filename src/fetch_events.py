@@ -65,3 +65,4 @@ if __name__ == "__main__":
     events = asyncio.run(fetch_events(relay))
     for event in events:
         print(event)
+    print(f"Fetched {len(events)} events.")
