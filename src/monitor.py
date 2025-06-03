@@ -162,40 +162,45 @@ async def wait_for_services(config, retries=5, delay=30):
     raise RuntimeError("❌ Required services not available after retries.")
 
 
+# --- Process Relay Metadata ---
+async def process_relay(config, relay, generated_at):
+    socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
+    relay_metadata = await compute_relay_metadata(
+        relay,
+        config["seckey"],
+        config["pubkey"],
+        socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None,
+        timeout=config["timeout"],
+    )
+    relay_metadata.generated_at = generated_at
+    return relay_metadata
+
+
 # --- Process Chunk ---
 async def process_chunk(chunk, config, generated_at):
-    socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
-    requests_per_core = config["requests_per_core"]
-    sem = asyncio.Semaphore(requests_per_core)
+    semaphore = asyncio.Semaphore(config["requests_per_core"])
+    relay_metadata_list = []
 
-    async def process_single_relay(relay):
-        async with sem:
-            relay_metadata = await compute_relay_metadata(
-                relay,
-                config["seckey"],
-                config["pubkey"],
-                socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None,
-                timeout=config["timeout"],
-            )
-            relay_metadata.generated_at = generated_at
-            return relay_metadata
-    tasks = [process_single_relay(relay) for relay in chunk]
-    relay_metadata_list = await asyncio.gather(*tasks)
-    relay_metadata_list = [
-        relay_metadata
-        for relay_metadata in relay_metadata_list
-        if relay_metadata.connection_success or relay_metadata.nip11_success
-    ]
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
-                        config["dbuser"], config["dbpass"], config["dbname"])
+    async def sem_task(relay):
+        async with semaphore:
+            try:
+                relay_metadata = await process_relay(config, relay, generated_at)
+                if relay_metadata.connection_success or relay_metadata.nip11_success:
+                    return relay_metadata
+            except Exception as e:
+                logging.exception(f"❌ Error processing {relay.url}: {e}")
+            return None
+
+    tasks = [sem_task(relay) for relay in chunk]
+    results = await asyncio.gather(*tasks)
+    relay_metadata_list = [r for r in results if r is not None]
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
-    logging.info("🔌 Database connection established.")
     logging.info("📦 Inserting relay metadata into database...")
     bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
     bigbrotr.close()
-    logging.info(
-        f"✅ Processed {len(chunk)} relays. Found {len(relay_metadata_list)} valid relay metadata.")
-    return relay_metadata_list
+    logging.info(f"✅ Processed {len(chunk)} relays. Found {len(relay_metadata_list)} valid relay metadata.")
+    return
 
 
 # --- Worker Function ---
@@ -211,11 +216,9 @@ def worker(chunk, config, generated_at):
 
 
 # --- Fetch Relays from Database ---
-def fetch_relays_from_db(config):
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
-                        config["dbuser"], config["dbpass"], config["dbname"])
+def fetch_relays(config):
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
-    logging.info("🔌 Database connection established.")
     logging.info("📦 Fetching relays from database...")
     query = f"""
     SELECT r.url
@@ -238,8 +241,7 @@ def fetch_relays_from_db(config):
             relay = Relay(row[0])
             relays.append(relay)
         except Exception as e:
-            logging.warning(
-                f"⚠️ Invalid relay {row[0]}: Error: {e}")
+            logging.warning(f"⚠️ Invalid relay: {row[0]}. Error: {e}")
             continue
     logging.info(f"📦 {len(relays)} relays fetched from database.")
     return relays
@@ -247,19 +249,15 @@ def fetch_relays_from_db(config):
 
 # --- Main Loop ---
 async def main_loop(config):
-    relays = fetch_relays_from_db(config)
+    relays = fetch_relays(config)
     chunk_size = config["chunk_size"]
     num_cores = config["num_cores"]
     chunks = list(chunkify(relays, chunk_size))
     generated_at = int(time.time())
     args = [(chunk, config, generated_at) for chunk in chunks]
-    logging.info(
-        f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
-    relay_metadata_list = []
+    logging.info(f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
     with Pool(processes=num_cores) as pool:
-        results = pool.starmap(worker, args)
-        for result in results:
-            relay_metadata_list.extend(result)
+        pool.starmap(worker, args)
     logging.info(f"✅ All chunks processed successfully.")
     return
 
@@ -274,9 +272,10 @@ async def monitor():
             logging.info("🔄 Starting main loop...")
             await main_loop(config)
             logging.info("✅ Main loop completed successfully.")
+            logging.info(f"⏳ Waiting 15 minutes before next run...")
+            await asyncio.sleep(15 * 60)
         except Exception as e:
             logging.exception(f"❌ Main loop failed: {e}")
-        await asyncio.sleep(15 * 60)
 
 
 if __name__ == "__main__":

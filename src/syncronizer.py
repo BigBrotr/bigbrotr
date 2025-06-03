@@ -4,7 +4,6 @@ import sys
 import time
 import uuid
 import json
-import random
 import asyncio
 import logging
 import datetime
@@ -13,6 +12,7 @@ from event import Event
 from bigbrotr import Bigbrotr
 from relay_metadata import RelayMetadata
 from aiohttp_socks import ProxyConnector
+from multiprocessing import Pool, cpu_count
 from aiohttp import ClientSession, WSMsgType
 
 # --- Logging ---
@@ -20,6 +20,12 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
+
+
+# --- Chunkify Function ---
+def chunkify(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 
 # --- Config Loader ---
@@ -33,7 +39,9 @@ def load_config_from_env():
             "dbport": int(os.environ["POSTGRES_PORT"]),
             "torhost": str(os.environ["TORPROXY_HOST"]),
             "torport": int(os.environ["TORPROXY_PORT"]),
-            "requests": int(os.environ["SYNCRONIZER_PARALLEL_REQUESTS"]),
+            "num_cores": int(os.environ["SYNCRONIZER_NUM_CORES"]),
+            "chunk_size": int(os.environ["SYNCRONIZER_CHUNK_SIZE"]),
+            "requests_per_core": int(os.environ["SYNCRONIZER_REQUESTS_PER_CORE"]),
             "timeout": int(os.environ["SYNCRONIZER_REQUEST_TIMEOUT"]),
             "start": int(os.environ["SYNCTONIZER_START_TIMESTAMP"]),
             "stop": int(os.environ["SYNCRONIZER_STOP_TIMESTAMP"]),
@@ -47,9 +55,15 @@ def load_config_from_env():
             logging.error(
                 "❌ Invalid TORPROXY_PORT. Must be between 0 and 65535.")
             sys.exit(1)
-        if config["requests"] < 1:
+        if config["num_cores"] < 1:
+            logging.error("❌ Invalid SYNCRONIZER_NUM_CORES. Must be at least 1.")
+            sys.exit(1)
+        if config["chunk_size"] < 1:
+            logging.error("❌ Invalid SYNCRONIZER_CHUNK_SIZE. Must be at least 1.")
+            sys.exit(1)
+        if config["requests_per_core"] < 1:
             logging.error(
-                "❌ Invalid SYNCRONIZER_PARALLEL_REQUESTS. Must be 1 or greater.")
+                "❌ Invalid SYNCRONIZER_REQUESTS_PER_CORE. Must be at least 1.")
             sys.exit(1)
         if config["timeout"] < 1:
             logging.error(
@@ -67,6 +81,12 @@ def load_config_from_env():
             logging.error(
                 "❌ SYNCTONIZER_START_TIMESTAMP cannot be greater than SYNCRONIZER_STOP_TIMESTAMP.")
             sys.exit(1)
+        if config["num_cores"] > cpu_count():
+            logging.warning(
+                f"⚠️ SYNCRONIZER_NUM_CORES exceeds available CPU cores ({cpu_count()}).")
+            config["num_cores"] = cpu_count()
+            logging.info(
+                f"🔄 SYNCRONIZER_NUM_CORES set to {config['num_cores']} (max available).")
         if not isinstance(config["filter"], dict):
             logging.error(
                 "❌ SYNCRONIZER_EVENT_FILTER must be a valid JSON object.")
@@ -244,7 +264,7 @@ def insert_batch(bigbrotr, batch, relay, seen_at):
         try:
             event = create_event(event_data)
         except Exception as e:
-            logging.warning(f"⚠️ Invalid event data: {event_data}. Error: {e}")
+            logging.warning(f"⚠️ Invalid event found in {relay.url}. Error: {e}")
             continue
         event_batch.append(event)
     bigbrotr.insert_event_batch(event_batch, relay, seen_at)
@@ -254,104 +274,122 @@ def insert_batch(bigbrotr, batch, relay, seen_at):
 # --- Process Relay Metadata ---
 async def process_relay_metadata(config, relay_metadata, end_time):
     socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
-    try:
-        bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
-                            config["dbuser"], config["dbpass"], config["dbname"])
-        bigbrotr.connect()
-        connector = ProxyConnector.from_url(
-            socks5_proxy_url) if relay_metadata.relay.network == 'tor' else None
-        async with ClientSession(connector=connector) as session:
-            for schema in ['wss://', 'ws://']:
-                try:
-                    start_time = get_start_time(
-                        config, bigbrotr, relay_metadata)
-                    relay_id = relay_metadata.relay.url.removeprefix('wss://')
-                    timeout = config["timeout"]
-                    n_events_inserted = 0
-                    n_requests_done = 0
-                    n_writes = 0
-                    stack = [end_time]
-                    stack_max_size = 1000
-                    async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
-                        max_limit = await get_max_limit(config, ws, timeout, start_time, end_time)
-                        max_limit = max_limit if max_limit is not None else 1000
-                        max_limit = min(max_limit, 10000)
-                        max_limit = max(1, int(max_limit * 0.95))
-                        while start_time <= end_time and n_writes < 1000:
-                            since = start_time
-                            until = stack.pop()
-                            while since <= until and n_writes < 1000:
-                                if n_requests_done % 25 == 0:
-                                    logging.info(
-                                        f"🔄 [Processing {relay_metadata.relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done}] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")
-                                subscription_id = uuid.uuid4().hex
-                                batch = []
-                                request = json.dumps([
-                                    "REQ",
-                                    subscription_id,
-                                    {**config["filter"],
-                                        "since": since, "until": until}
-                                ])
-                                await ws.send_str(request)
-                                while True:
-                                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
-                                    if msg.type == WSMsgType.TEXT:
-                                        data = json.loads(msg.data)
-                                        if data[0] == "NOTICE":
-                                            logging.info(
-                                                f"📢 NOTICE received from {relay_metadata.relay.url}: {data}")
-                                            continue
-                                        elif data[0] == "EVENT" and data[1] == subscription_id:
-                                            batch.append(data[2])
-                                        elif data[0] == "EOSE" and data[1] == subscription_id:
-                                            await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                                            await asyncio.sleep(1)
-                                            break
-                                        elif data[0] == "CLOSED" and data[1] == subscription_id:
-                                            break
-                                        if len(batch) >= max_limit and since != until:
-                                            stack.append(until)
-                                            until = since + \
-                                                (until - since) // 2
-                                            if len(stack) > stack_max_size:
-                                                stack.pop(0)
-                                                end_time = stack[0]
-                                            await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                                            await asyncio.sleep(1)
-                                            break
-                                    else:
-                                        raise RuntimeError(
-                                            f"Unexpected message type: {msg.type} from {relay_metadata.relay.url}")
-                                if len(batch) < max_limit or since == until:
-                                    n_events_inserted += insert_batch(
-                                        bigbrotr, batch, relay_metadata.relay, int(time.time()))
-                                    start_time = until + 1
-                                    since = until + 1
-                                    n_writes += 1
-                                n_requests_done += 1
-                    break
-                except Exception as e:
-                    logging.warning(f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
-    except Exception as e:
-        logging.warning(f"⚠️ Failed to process {relay_metadata.relay.url}: {e}")
-    finally:
-        if 'bigbrotr' in locals():
-            bigbrotr.close()
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+    bigbrotr.connect()
+    for schema in ['wss://', 'ws://']:
+        try:
+            connector = ProxyConnector.from_url(socks5_proxy_url) if relay_metadata.relay.network == 'tor' else None
+            async with ClientSession(connector=connector) as session:
+                start_time = get_start_time(config, bigbrotr, relay_metadata)
+                relay_id = relay_metadata.relay.url.removeprefix('wss://')
+                timeout = config["timeout"]
+                n_events_inserted = 0
+                n_requests_done = 0
+                n_writes = 0
+                stack = [end_time]
+                stack_max_size = 1000
+                async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
+                    max_limit = await get_max_limit(config, ws, timeout, start_time, end_time)
+                    max_limit = max_limit if max_limit is not None else 1000
+                    max_limit = min(max_limit, 10000)
+                    max_limit = max(1, max_limit - 50)
+                    while start_time <= end_time and n_writes < 1000:
+                        since = start_time
+                        until = stack.pop()
+                        while since <= until and n_writes < 1000:
+                            if n_requests_done % 25 == 0:
+                                logging.info(
+                                    f"🔄 [Processing {relay_metadata.relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done}] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")
+                            subscription_id = uuid.uuid4().hex
+                            batch = []
+                            request = json.dumps([
+                                "REQ",
+                                subscription_id,
+                                {**config["filter"],
+                                    "since": since, "until": until}
+                            ])
+                            await ws.send_str(request)
+                            while True:
+                                msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
+                                if msg.type == WSMsgType.TEXT:
+                                    data = json.loads(msg.data)
+                                    if data[0] == "NOTICE":
+                                        logging.info(
+                                            f"📢 NOTICE received from {relay_metadata.relay.url}: {data}")
+                                        continue
+                                    elif data[0] == "EVENT" and data[1] == subscription_id:
+                                        batch.append(data[2])
+                                    elif data[0] == "EOSE" and data[1] == subscription_id:
+                                        await ws.send_str(json.dumps(["CLOSE", subscription_id]))
+                                        await asyncio.sleep(1)
+                                        break
+                                    elif data[0] == "CLOSED" and data[1] == subscription_id:
+                                        break
+                                    if len(batch) >= max_limit and since != until:
+                                        stack.append(until)
+                                        until = since + \
+                                            (until - since) // 2
+                                        if len(stack) > stack_max_size:
+                                            stack.pop(0)
+                                            end_time = stack[0]
+                                        await ws.send_str(json.dumps(["CLOSE", subscription_id]))
+                                        await asyncio.sleep(1)
+                                        break
+                                else:
+                                    raise RuntimeError(
+                                        f"Unexpected message type: {msg.type} from {relay_metadata.relay.url}")
+                            if len(batch) < max_limit or since == until:
+                                n_events_inserted += insert_batch(
+                                    bigbrotr, batch, relay_metadata.relay, int(time.time()))
+                                start_time = until + 1
+                                since = until + 1
+                                n_writes += 1
+                            n_requests_done += 1
+            break
+        except Exception as e:
+            logging.warning(f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
+            if 'session' in locals():
+                await session.close()
+            if 'ws' in locals():
+                await ws.close()
+    if 'bigbrotr' in locals():
+        bigbrotr.close()
     logging.info(f"✅ Finished processing {relay_metadata.relay.url}. Total events inserted: {n_events_inserted}")
-    time.sleep(10)
     return
 
 
-# --- Bounded Process for Concurrency ---
-async def bounded_process(semaphore, config, relay_metadata, end_time):
-    async with semaphore:
-        await process_relay_metadata(config, relay_metadata, end_time)
+# --- Process Chunk ---
+async def process_chunk(chunk, config, end_time):
+    semaphore = asyncio.Semaphore(config["requests_per_core"])
+
+    async def sem_task(relay_metadata):
+        async with semaphore:
+            try:
+                await process_relay_metadata(config, relay_metadata, end_time)
+            except Exception as e:
+                logging.exception(f"❌ Error processing {relay_metadata.relay.url}: {e}")
+
+    tasks = [sem_task(relay_metadata) for relay_metadata in chunk]
+    await asyncio.gather(*tasks)
+    return
+
+
+# --- Worker Function ---
+def worker(chunk, config, end_time):
+    async def worker_async(chunk, config, end_time):
+        return await process_chunk(chunk, config, end_time)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(worker_async(chunk, config, end_time))
 
 
 # --- Fetch Relay Metadata List from Database ---
-def fetch_relay_metedata_list(bigbrotr):
+def fetch_relay_metedata_list(config):
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
-    logging.info("🔌 Database connection established.")
     logging.info("📦 Fetching relay metadata from database...")
     query = """
         SELECT *
@@ -361,11 +399,12 @@ def fetch_relay_metedata_list(bigbrotr):
             FROM relay_metadata
             WHERE relay_url = rm.relay_url
         )
-        AND generated_at >= %s
+        AND generated_at > %s
         AND openable = TRUE
         AND readable = TRUE
     """
-    bigbrotr.execute(query, (int(time.time()) - 86400,))
+    treshold = int(time.time()) - 60 * 60 * 12
+    bigbrotr.execute(query, (treshold,))
     rows = bigbrotr.fetchall()
     bigbrotr.close()
     relay_metadata_list = []
@@ -400,35 +439,28 @@ def fetch_relay_metedata_list(bigbrotr):
             )
             relay_metadata_list.append(relay_metadata)
         except Exception as e:
-            logging.warning(
-                f"⚠️ Invalid relay metadata: {row}. Error: {e}")
+            logging.warning(f"⚠️ Invalid relay metadata: {row}. Error: {e}")
             continue
-    logging.info(
-        f"📦 {len(relay_metadata_list)} relay metadata fetched from database.")
-    random.shuffle(relay_metadata_list)
+    logging.info(f"📦 {len(relay_metadata_list)} relay metadata fetched from database.")
     return relay_metadata_list
 
 
 # --- Main Loop ---
 async def main_loop(config):
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
-                        config["dbuser"], config["dbpass"], config["dbname"])
-    relay_metedata_list = fetch_relay_metedata_list(bigbrotr)
+    relay_metedata_list = fetch_relay_metedata_list(config)
+    chunk_size = config["chunk_size"]
+    num_cores = config["num_cores"]
+    chunks = list(chunkify(relay_metedata_list, chunk_size))
     if config["stop"] != -1:
         end_time = config["stop"]
     else:
         now = datetime.datetime.now()
-        end_time = int(datetime.datetime(
-            now.year, now.month, now.day, 0, 0).timestamp())
-    logging.info(f"📅 End time for processing: {end_time}")
-    semaphore = asyncio.Semaphore(config["requests"])
-    tasks = [
-        bounded_process(semaphore, config, relay_metadata, end_time)
-        for relay_metadata in relay_metedata_list
-    ]
-    logging.info(f"🔄 Starting processing of {len(tasks)} relays...")
-    await asyncio.gather(*tasks)
-    logging.info("✅ All relays processed successfully.")
+        end_time = int(datetime.datetime(now.year, now.month, now.day, 0, 0).timestamp())
+    args = [(chunk, config, end_time) for chunk in chunks]
+    logging.info(f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
+    with Pool(processes=num_cores) as pool:
+        pool.starmap(worker, args)
+    logging.info("✅ All chunks processed successfully.")
     return
 
 
@@ -442,11 +474,11 @@ async def syncronizer():
             logging.info("🔄 Starting main loop...")
             await main_loop(config)
             logging.info("✅ Main loop completed successfully.")
+            logging.info("⏳ Waiting 15 minutes before next run...")
+            await asyncio.sleep(15 * 60)
         except Exception as e:
             logging.exception(f"❌ Main loop failed: {e}")
-        logging.info("⏳ Retrying in 30 seconds...")
-        await asyncio.sleep(30)
-
+        
 
 if __name__ == "__main__":
     try:
