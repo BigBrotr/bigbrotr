@@ -400,7 +400,6 @@ def fetch_relay_metedata_list(config):
             WHERE relay_url = rm.relay_url
         )
         AND generated_at > %s
-        AND openable = TRUE
         AND readable = TRUE
     """
     treshold = int(time.time()) - 60 * 60 * 12
