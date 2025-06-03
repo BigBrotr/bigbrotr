@@ -453,8 +453,7 @@ async def main_loop(config):
     if config["stop"] != -1:
         end_time = config["stop"]
     else:
-        now = datetime.datetime.now()
-        end_time = int(datetime.datetime(now.year, now.month, now.day, 0, 0).timestamp())
+        end_time = int(time.time()) - 60 * 60 * 24
     args = [(chunk, config, end_time) for chunk in chunks]
     logging.info(f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
     with Pool(processes=num_cores) as pool:
