@@ -7,17 +7,17 @@
 -- ============================
 
 -- Function to convert JSONB tags to text array
-CREATE OR REPLACE FUNCTION tags_to_tagvalues(jsonb) RETURNS TEXT[] AS $$
-BEGIN
-    RETURN (
-        SELECT array_agg(t->>1)
-        FROM (
-            SELECT jsonb_array_elements($1) AS t
-        ) s
-        WHERE LENGTH(t->>0) = 1
-    );
-END;
-$$ LANGUAGE plpgsql IMMUTABLE RETURNS NULL ON NULL INPUT;
+-- CREATE OR REPLACE FUNCTION tags_to_tagvalues(jsonb) RETURNS TEXT[] AS $$
+-- BEGIN
+--     RETURN (
+--         SELECT array_agg(t->>1)
+--         FROM (
+--             SELECT jsonb_array_elements($1) AS t
+--         ) s
+--         WHERE LENGTH(t->>0) = 1
+--     );
+-- END;
+-- $$ LANGUAGE plpgsql IMMUTABLE RETURNS NULL ON NULL INPUT;
 
 -- Create events table
 CREATE TABLE IF NOT EXISTS events (
@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS events_relays (
 -- Indexes for faster queries
 CREATE INDEX IF NOT EXISTS idx_events_relays_event_id ON events_relays USING BTREE (event_id);      -- Index on event_id
 CREATE INDEX IF NOT EXISTS idx_events_relays_relay_url ON events_relays USING BTREE (relay_url);    -- Index on relay_url
+CREATE INDEX IF NOT EXISTS idx_events_relays_seen_at ON events_relays USING BTREE (seen_at DESC);  -- Index on seen_at
 
 -- Create a table for relay_metadata
 CREATE TABLE IF NOT EXISTS relay_metadata (
@@ -93,9 +94,12 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
 );
 
 -- Indexes for faster queries
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url ON relay_metadata USING BTREE (relay_url);          -- Index on relay_url
--- CREATE INDEX IF NOT EXISTS idx_relay_metadata_supported_nips ON relay_metadata USING GIN (supported_nips);  -- Index on supported_nips
--- CREATE INDEX IF NOT EXISTS idx_relay_metadata_limitation ON relay_metadata USING GIN (limitation);          -- Index on limitations
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url ON relay_metadata USING BTREE (relay_url);                      -- Index on relay_url
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_generated_at ON relay_metadata USING BTREE (generated_at DESC);           -- Index on generated_at
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_connection_success ON relay_metadata USING BTREE (connection_success);    -- Index on connection_success
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_nip11_success ON relay_metadata USING BTREE (nip11_success);              -- Index on nip11_success
+-- CREATE INDEX IF NOT EXISTS idx_relay_metadata_supported_nips ON relay_metadata USING GIN (supported_nips);              -- Index on supported_nips
+-- CREATE INDEX IF NOT EXISTS idx_relay_metadata_limitation ON relay_metadata USING GIN (limitation);                      -- Index on limitations
 
 -- ============================
 -- CONSTRAINTS
