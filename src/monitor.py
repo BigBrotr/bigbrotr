@@ -196,7 +196,6 @@ async def process_chunk(chunk, config, generated_at):
     relay_metadata_list = [r for r in results if r is not None]
     bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
-    logging.info("📦 Inserting relay metadata into database...")
     bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
     bigbrotr.close()
     logging.info(f"✅ Processed {len(chunk)} relays. Found {len(relay_metadata_list)} valid relay metadata.")
