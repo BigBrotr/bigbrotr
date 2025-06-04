@@ -13,7 +13,7 @@ from bigbrotr import Bigbrotr
 from relay_metadata import RelayMetadata
 from aiohttp_socks import ProxyConnector
 from multiprocessing import Pool, cpu_count
-from aiohttp import ClientSession, WSMsgType
+from aiohttp import ClientSession, WSMsgType, TCPConnector
 
 # --- Logging ---
 logging.basicConfig(
@@ -56,10 +56,12 @@ def load_config_from_env():
                 "❌ Invalid TORPROXY_PORT. Must be between 0 and 65535.")
             sys.exit(1)
         if config["num_cores"] < 1:
-            logging.error("❌ Invalid SYNCRONIZER_NUM_CORES. Must be at least 1.")
+            logging.error(
+                "❌ Invalid SYNCRONIZER_NUM_CORES. Must be at least 1.")
             sys.exit(1)
         if config["chunk_size"] < 1:
-            logging.error("❌ Invalid SYNCRONIZER_CHUNK_SIZE. Must be at least 1.")
+            logging.error(
+                "❌ Invalid SYNCRONIZER_CHUNK_SIZE. Must be at least 1.")
             sys.exit(1)
         if config["requests_per_core"] < 1:
             logging.error(
@@ -264,7 +266,8 @@ def insert_batch(bigbrotr, batch, relay, seen_at):
         try:
             event = create_event(event_data)
         except Exception as e:
-            logging.warning(f"⚠️ Invalid event found in {relay.url}. Error: {e}")
+            logging.warning(
+                f"⚠️ Invalid event found in {relay.url}. Error: {e}")
             continue
         event_batch.append(event)
     bigbrotr.insert_event_batch(event_batch, relay, seen_at)
@@ -274,11 +277,15 @@ def insert_batch(bigbrotr, batch, relay, seen_at):
 # --- Process Relay Metadata ---
 async def process_relay_metadata(config, relay_metadata, end_time):
     socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
+                        config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
     for schema in ['wss://', 'ws://']:
         try:
-            connector = ProxyConnector.from_url(socks5_proxy_url) if relay_metadata.relay.network == 'tor' else None
+            if relay_metadata.relay.network == 'tor':
+                connector = ProxyConnector.from_url(socks5_proxy_url)
+            else:
+                connector = TCPConnector(force_close=True)
             async with ClientSession(connector=connector) as session:
                 start_time = get_start_time(config, bigbrotr, relay_metadata)
                 relay_id = relay_metadata.relay.url.removeprefix('wss://')
@@ -347,14 +354,16 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                             n_requests_done += 1
             break
         except Exception as e:
-            logging.warning(f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
+            logging.warning(
+                f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
             if 'session' in locals():
                 await session.close()
             if 'ws' in locals():
                 await ws.close()
     if 'bigbrotr' in locals():
         bigbrotr.close()
-    logging.info(f"✅ Finished processing {relay_metadata.relay.url}. Total events inserted: {n_events_inserted}")
+    logging.info(
+        f"✅ Finished processing {relay_metadata.relay.url}. Total events inserted: {n_events_inserted}")
     return
 
 
@@ -367,7 +376,8 @@ async def process_chunk(chunk, config, end_time):
             try:
                 await process_relay_metadata(config, relay_metadata, end_time)
             except Exception as e:
-                logging.exception(f"❌ Error processing {relay_metadata.relay.url}: {e}")
+                logging.exception(
+                    f"❌ Error processing {relay_metadata.relay.url}: {e}")
 
     tasks = [sem_task(relay_metadata) for relay_metadata in chunk]
     await asyncio.gather(*tasks)
@@ -388,7 +398,8 @@ def worker(chunk, config, end_time):
 
 # --- Fetch Relay Metadata List from Database ---
 def fetch_relay_metedata_list(config):
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
+                        config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
     logging.info("📦 Fetching relay metadata from database...")
     query = """
@@ -440,7 +451,8 @@ def fetch_relay_metedata_list(config):
         except Exception as e:
             logging.warning(f"⚠️ Invalid relay metadata: {row}. Error: {e}")
             continue
-    logging.info(f"📦 {len(relay_metadata_list)} relay metadata fetched from database.")
+    logging.info(
+        f"📦 {len(relay_metadata_list)} relay metadata fetched from database.")
     return relay_metadata_list
 
 
@@ -455,7 +467,8 @@ async def main_loop(config):
     else:
         end_time = int(time.time()) - 60 * 60 * 24
     args = [(chunk, config, end_time) for chunk in chunks]
-    logging.info(f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
+    logging.info(
+        f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
     with Pool(processes=num_cores) as pool:
         pool.starmap(worker, args)
     logging.info("✅ All chunks processed successfully.")
@@ -476,7 +489,7 @@ async def syncronizer():
             await asyncio.sleep(15 * 60)
         except Exception as e:
             logging.exception(f"❌ Main loop failed: {e}")
-        
+
 
 if __name__ == "__main__":
     try:

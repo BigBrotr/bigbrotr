@@ -1,4 +1,4 @@
-from aiohttp import ClientSession, ClientTimeout, WSMsgType
+from aiohttp import ClientSession, ClientTimeout, WSMsgType, TCPConnector
 from aiohttp_socks import ProxyConnector
 import json
 import uuid
@@ -201,8 +201,10 @@ def parse_connection_response(connection_response):
 async def compute_relay_metadata(relay, sec, pub, socks5_proxy_url=None, timeout=10):
     relay_id = relay.url.removeprefix('wss://')
     nip11_raw = None
-    connector = ProxyConnector.from_url(
-        socks5_proxy_url) if relay.network == 'tor' else None
+    if relay.network == 'tor':
+        connector = ProxyConnector.from_url(socks5_proxy_url)
+    else:
+        connector = TCPConnector(force_close=True)
     async with ClientSession(connector=connector, timeout=ClientTimeout(total=timeout)) as session:
         nip11_raw = await fetch_nip11_metadata(relay_id, session, timeout)
     nip11_response = parse_nip11_response(nip11_raw)
@@ -211,8 +213,10 @@ async def compute_relay_metadata(relay, sec, pub, socks5_proxy_url=None, timeout
         target_difficulty, dict) else target_difficulty.get('min_pow_difficulty')
     target_difficulty = target_difficulty if isinstance(
         target_difficulty, int) else None
-    connector = ProxyConnector.from_url(
-        socks5_proxy_url) if relay.network == 'tor' else None
+    if relay.network == 'tor':
+        connector = ProxyConnector.from_url(socks5_proxy_url)
+    else:
+        connector = TCPConnector(force_close=True)
     connection_raw = None
     async with ClientSession(connector=connector, timeout=ClientTimeout(total=timeout)) as session:
         connection_raw = await fetch_connection_metadata(relay_id, session, timeout, sec, pub, target_difficulty)
