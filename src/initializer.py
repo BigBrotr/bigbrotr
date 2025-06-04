@@ -22,7 +22,7 @@ def load_config_from_env():
             "dbpass": str(os.environ["POSTGRES_PASSWORD"]),
             "dbname": str(os.environ["POSTGRES_DB"]),
             "dbport": int(os.environ["POSTGRES_PORT"]),
-            "relays_seed_path": str(os.environ["RELAYS_SEED_PATH"])
+            "seed_relays_path": str(os.environ["SEED_RELAYS_PATH"])
         }
         if config["dbport"] < 0 or config["dbport"] > 65535:
             logging.error(
@@ -58,7 +58,7 @@ def test_database_connection(config):
 def insert_relays(config):
     logging.info("🌐 Starting relay insertion process...")
     try:
-        with open(config["relays_seed_path"], 'r') as f:
+        with open(config["seed_relays_path"], 'r') as f:
             lines = f.read().splitlines()
         relays = []
         for raw_url in lines:
@@ -79,7 +79,7 @@ def insert_relays(config):
             logging.warning("⚠️ No valid relays to insert.")
     except FileNotFoundError:
         logging.error(
-            f"❌ Relay seed file not found: {config['relays_seed_path']}")
+            f"❌ Relay seed file not found: {config['seed_relays_path']}")
     except Exception as e:
         logging.exception(f"❌ Unexpected error during relay insertion: {e}")
 
