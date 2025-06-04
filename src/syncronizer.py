@@ -113,7 +113,7 @@ def test_database_connection(config):
                       config["dbuser"], config["dbpass"], config["dbname"])
         db.connect()
         logging.info("✅ Database connection successful.")
-    except Exception as e:
+    except Exception:
         logging.exception("❌ Database connection failed.")
         raise
     finally:
@@ -356,7 +356,7 @@ async def process_relay_metadata(config, relay_metadata, end_time):
             logging.info(f"✅ Finished processing {relay_metadata.relay.url}. Total events inserted: {n_events_inserted}")
             return
         except Exception as e:
-            logging.warning(f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
+            logging.exception(f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
 
 
 # --- Process Chunk ---

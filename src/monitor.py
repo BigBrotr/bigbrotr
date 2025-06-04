@@ -97,7 +97,7 @@ def test_database_connection(config):
                       config["dbuser"], config["dbpass"], config["dbname"])
         db.connect()
         logging.info("✅ Database connection successful.")
-    except Exception as e:
+    except Exception:
         logging.exception("❌ Database connection failed.")
         raise
     finally:
