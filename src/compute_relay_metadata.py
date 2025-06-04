@@ -99,7 +99,7 @@ async def check_readability(session, relay_url, timeout):
             await ws.send_str(json.dumps(request))
             while True:
                 try:
-                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
+                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout*10)
                 except asyncio.TimeoutError:
                     break
                 if msg.type == WSMsgType.TEXT:
@@ -132,14 +132,14 @@ async def check_writability(session, relay_url, timeout, sec, pub, target_diffic
                 [["d", relay_url]],
                 "{}",
                 target_difficulty=target_difficulty,
-                timeout=timeout*2
+                timeout=timeout*10
             )
             request = ["EVENT", event]
             time_start = time.perf_counter()
             await ws.send_str(json.dumps(request))
             while True:
                 try:
-                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
+                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout*10)
                 except asyncio.TimeoutError:
                     break
                 if msg.type == WSMsgType.TEXT:

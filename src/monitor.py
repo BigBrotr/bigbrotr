@@ -170,7 +170,7 @@ async def process_relay(config, relay, generated_at):
         config["seckey"],
         config["pubkey"],
         socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None,
-        timeout=config["timeout"],
+        timeout=config["timeout"]
     )
     relay_metadata.generated_at = generated_at
     return relay_metadata

@@ -193,7 +193,7 @@ def get_start_time(config, bigbrotr, relay_metadata):
 
 
 # --- Get Max Limit ---
-async def get_max_limit(config, ws, timeout, start_time, end_time):
+async def get_max_limit(config, session, relay_url, timeout, start_time, end_time):
     n_events = [0, 0]
     min_created_at = None
     since = start_time
@@ -205,35 +205,36 @@ async def get_max_limit(config, ws, timeout, start_time, end_time):
             subscription_id,
             {**config["filter"], "since": since, "until": until}
         ])
-        await ws.send_str(request)
-        while True:
-            try:
-                msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
-                if msg.type == WSMsgType.TEXT:
-                    data = json.loads(msg.data)
-                    if data[0] == "NOTICE":
-                        continue
-                    elif data[0] == "EVENT" and data[1] == subscription_id:
-                        if attempt == 0:
-                            if isinstance(data[2], dict) and "created_at" in data[2]:
-                                if min_created_at is None or data[2]["created_at"] < min_created_at:
-                                    min_created_at = data[2]["created_at"]
-                        n_events[attempt] += 1
-                    elif data[0] == "EOSE" and data[1] == subscription_id:
-                        await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                        await asyncio.sleep(1)
+        async with session.ws_connect(relay_url, timeout=timeout) as ws:
+            await ws.send_str(request)
+            while True:
+                try:
+                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout*10)
+                    if msg.type == WSMsgType.TEXT:
+                        data = json.loads(msg.data)
+                        if data[0] == "NOTICE":
+                            continue
+                        elif data[0] == "EVENT" and data[1] == subscription_id:
+                            if attempt == 0:
+                                if isinstance(data[2], dict) and "created_at" in data[2]:
+                                    if min_created_at is None or data[2]["created_at"] < min_created_at:
+                                        min_created_at = data[2]["created_at"]
+                            n_events[attempt] += 1
+                        elif data[0] == "EOSE" and data[1] == subscription_id:
+                            await ws.send_str(json.dumps(["CLOSE", subscription_id]))
+                            await asyncio.sleep(1)
+                            break
+                        elif data[0] == "CLOSED" and data[1] == subscription_id:
+                            break
+                    else:
                         break
-                    elif data[0] == "CLOSED" and data[1] == subscription_id:
-                        break
-                else:
+                except Exception:
                     break
-            except Exception:
-                break
-        if attempt == 0:
-            if min_created_at is not None:
-                until = max(0, min(min_created_at, until) - 1)
-            else:
-                return None
+            if attempt == 0:
+                if min_created_at is not None:
+                    until = max(0, min(min_created_at, until) - 1)
+                else:
+                    return None
     if n_events[1] > 0:
         return n_events[0]
     return None
@@ -295,11 +296,11 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                 n_writes = 0
                 stack = [end_time]
                 stack_max_size = 1000
+                max_limit = await get_max_limit(config, session, schema + relay_id, timeout, start_time, end_time)
+                max_limit = max_limit if max_limit is not None else 500
+                max_limit = min(max_limit, 10000)
+                max_limit = max(1, max_limit - 50)
                 async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
-                    max_limit = await get_max_limit(config, ws, timeout, start_time, end_time)
-                    max_limit = max_limit if max_limit is not None else 500
-                    max_limit = min(max_limit, 10000)
-                    max_limit = max(1, max_limit - 50)
                     while start_time <= end_time and n_writes < 1000:
                         since = start_time
                         until = stack.pop()
@@ -317,7 +318,7 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                             ])
                             await ws.send_str(request)
                             while True:
-                                msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
+                                msg = await asyncio.wait_for(ws.receive(), timeout=timeout*10)
                                 if msg.type == WSMsgType.TEXT:
                                     data = json.loads(msg.data)
                                     if data[0] == "NOTICE":
@@ -342,6 +343,12 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                                         await ws.send_str(json.dumps(["CLOSE", subscription_id]))
                                         await asyncio.sleep(1)
                                         break
+                                elif msg.type == WSMsgType.ERROR:
+                                    raise RuntimeError(
+                                        f"WebSocket error from {relay_metadata.relay.url}: {msg.data}")
+                                elif msg.type == WSMsgType.CLOSED:
+                                    raise RuntimeError(
+                                        f"WebSocket closed by {relay_metadata.relay.url}")
                                 else:
                                     raise RuntimeError(
                                         f"Unexpected message type: {msg.type} from {relay_metadata.relay.url}")

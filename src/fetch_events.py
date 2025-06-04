@@ -35,7 +35,7 @@ async def fetch_events(relay: Relay, ids=None, authors=None, kinds=None, tags=No
         async with session.ws_connect(relay.url, timeout=timeout) as ws:
             await ws.send_str(request)
             while True:
-                msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
+                msg = await asyncio.wait_for(ws.receive(), timeout=timeout*10)
                 if msg.type == WSMsgType.TEXT:
                     data = json.loads(msg.data)
                     if data[0] == "EVENT" and data[1] == subscription_id:
