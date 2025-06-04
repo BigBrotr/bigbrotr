@@ -281,7 +281,10 @@ async def process_relay_metadata(config, relay_metadata, end_time):
     bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
                         config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
+    skip = False
     for schema in ['wss://', 'ws://']:
+        if skip:
+            break
         try:
             if relay_metadata.relay.network == 'tor':
                 connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
@@ -301,6 +304,7 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                 max_limit = min(max_limit, 10000)
                 max_limit = max(1, max_limit - 50)
                 async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
+                    skip = True
                     while start_time <= end_time and n_writes < 1000:
                         since = start_time
                         until = stack.pop()
