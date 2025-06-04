@@ -194,11 +194,13 @@ async def process_chunk(chunk, config, generated_at):
     tasks = [sem_task(relay) for relay in chunk]
     results = await asyncio.gather(*tasks)
     relay_metadata_list = [r for r in results if r is not None]
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
+                        config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
     bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
     bigbrotr.close()
-    logging.info(f"✅ Processed {len(chunk)} relays. Found {len(relay_metadata_list)} valid relay metadata.")
+    logging.info(
+        f"✅ Processed {len(chunk)} relays. Found {len(relay_metadata_list)} valid relay metadata.")
     return
 
 
@@ -216,7 +218,8 @@ def worker(chunk, config, generated_at):
 
 # --- Fetch Relays from Database ---
 def fetch_relays(config):
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
+                        config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
     logging.info("📦 Fetching relays from database...")
     query = f"""
@@ -254,7 +257,8 @@ async def main_loop(config):
     chunks = list(chunkify(relays, chunk_size))
     generated_at = int(time.time())
     args = [(chunk, config, generated_at) for chunk in chunks]
-    logging.info(f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
+    logging.info(
+        f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
     with Pool(processes=num_cores) as pool:
         pool.starmap(worker, args)
     logging.info(f"✅ All chunks processed successfully.")

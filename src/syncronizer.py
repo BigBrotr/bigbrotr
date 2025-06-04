@@ -280,13 +280,13 @@ async def process_relay_metadata(config, relay_metadata, end_time):
     bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
                         config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
-    for schema in ['wss://', 'ws://']:
-        try:
-            if relay_metadata.relay.network == 'tor':
-                connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
-            else:
-                connector = TCPConnector(force_close=True)
-            async with ClientSession(connector=connector) as session:
+    if relay_metadata.relay.network == 'tor':
+        connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
+    else:
+        connector = TCPConnector(force_close=True)
+    async with ClientSession(connector=connector) as session:
+        for schema in ['wss://', 'ws://']:
+            try:
                 start_time = get_start_time(config, bigbrotr, relay_metadata)
                 relay_id = relay_metadata.relay.url.removeprefix('wss://')
                 timeout = config["timeout"]
@@ -306,7 +306,7 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                         while since <= until and n_writes < 1000:
                             if n_requests_done % 25 == 0:
                                 logging.info(
-                                    f"🔄 [Processing {relay_metadata.relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done}] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")
+                                    f"🔄 [Processing {relay_metadata.relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done} ({n_writes} with events)] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")
                             subscription_id = uuid.uuid4().hex
                             batch = []
                             request = json.dumps([
@@ -352,14 +352,14 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                                 since = until + 1
                                 n_writes += 1
                             n_requests_done += 1
-            break
-        except Exception as e:
-            logging.warning(
-                f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
-            if 'session' in locals():
-                await session.close()
-            if 'ws' in locals():
-                await ws.close()
+                break
+            except Exception as e:
+                logging.warning(
+                    f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
+                if 'session' in locals():
+                    await session.close()
+                if 'ws' in locals():
+                    await ws.close()
     if 'bigbrotr' in locals():
         bigbrotr.close()
     logging.info(
