@@ -28,7 +28,7 @@ async def fetch_events(relay: Relay, ids=None, authors=None, kinds=None, tags=No
     subscription_id = str(uuid.uuid4())
     request = json.dumps(["REQ", subscription_id, filter])
     if relay.network == 'tor':
-        connector = ProxyConnector.from_url(socks5_proxy_url)
+        connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
     else:
         connector = TCPConnector(force_close=True)
     async with ClientSession(connector=connector) as session:

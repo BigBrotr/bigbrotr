@@ -202,7 +202,7 @@ async def compute_relay_metadata(relay, sec, pub, socks5_proxy_url=None, timeout
     relay_id = relay.url.removeprefix('wss://')
     nip11_raw = None
     if relay.network == 'tor':
-        connector = ProxyConnector.from_url(socks5_proxy_url)
+        connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
     else:
         connector = TCPConnector(force_close=True)
     async with ClientSession(connector=connector, timeout=ClientTimeout(total=timeout)) as session:
@@ -214,7 +214,7 @@ async def compute_relay_metadata(relay, sec, pub, socks5_proxy_url=None, timeout
     target_difficulty = target_difficulty if isinstance(
         target_difficulty, int) else None
     if relay.network == 'tor':
-        connector = ProxyConnector.from_url(socks5_proxy_url)
+        connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
     else:
         connector = TCPConnector(force_close=True)
     connection_raw = None

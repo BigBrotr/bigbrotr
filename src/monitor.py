@@ -110,7 +110,7 @@ async def test_torproxy_connection(config, timeout=10):
     socks5_proxy_url = f"socks5://{config["torhost"]}:{config["torport"]}"
     # HTTP Test
     http_url = "https://check.torproject.org"
-    connector = ProxyConnector.from_url(socks5_proxy_url)
+    connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
     async with ClientSession(connector=connector) as session:
         try:
             logging.info("🌐 Testing Tor HTTP access...")
@@ -128,7 +128,7 @@ async def test_torproxy_connection(config, timeout=10):
             logging.info("🌐 HTTP connection closed.")
     # WebSocket Test
     ws_url = "wss://echo.websocket.events"
-    connector = ProxyConnector.from_url(socks5_proxy_url)
+    connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
     async with ClientSession(connector=connector) as session:
         try:
             logging.info("🌐 Testing Tor WebSocket access...")
