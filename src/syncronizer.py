@@ -352,20 +352,11 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                                 since = until + 1
                                 n_writes += 1
                             n_requests_done += 1
-            break
+            bigbrotr.close()
+            logging.info(f"✅ Finished processing {relay_metadata.relay.url}. Total events inserted: {n_events_inserted}")
+            return
         except Exception as e:
-            logging.warning(
-                f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
-            if 'session' in locals():
-                await session.close()
-            if 'ws' in locals():
-                await ws.close()
-            time.sleep(5)
-    if 'bigbrotr' in locals():
-        bigbrotr.close()
-    logging.info(
-        f"✅ Finished processing {relay_metadata.relay.url}. Total events inserted: {n_events_inserted}")
-    return
+            logging.warning(f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
 
 
 # --- Process Chunk ---
