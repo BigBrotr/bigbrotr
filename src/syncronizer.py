@@ -302,7 +302,7 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                 max_limit = await get_max_limit(config, session, schema + relay_id, timeout, start_time, end_time)
                 max_limit = max_limit if max_limit is not None else 500
                 max_limit = min(max_limit, 10000)
-                max_limit = max(1, max_limit - 50)
+                max_limit = max(1, max_limit - 50 if max_limit >= 100 else max_limit - 5)
                 async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
                     skip = True
                     while start_time <= end_time and n_events_inserted < 100000:
