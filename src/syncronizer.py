@@ -305,10 +305,10 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                 max_limit = max(1, max_limit - 50)
                 async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
                     skip = True
-                    while start_time <= end_time and n_writes < 1000:
+                    while start_time <= end_time and n_events_inserted < 100000:
                         since = start_time
                         until = stack.pop()
-                        while since <= until and n_writes < 1000:
+                        while since <= until and n_events_inserted < 100000:
                             if n_requests_done % 25 == 0:
                                 logging.info(
                                     f"🔄 [Processing {relay_metadata.relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done} ({n_writes} with events)] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")

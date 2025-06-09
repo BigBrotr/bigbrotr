@@ -23,7 +23,7 @@ With a mission to improve transparency, enable open research, and foster true de
 ## Get Involved
 
 - **Getting Started**: Spin up your own Bigbrotr instance and start archiving the Nostr universe in minutes. [Follow the setup guide](https://bigbrotr.com/guides/getting-started/)
-- **Read the Documentation**: Dive into the data model, synchronization logic, and modular architecture powering Bigbrotr. [Explore the docs](https://bigbrotr.com//api/bigbrotr/)
+- **Read the Documentation**: Dive into the data model, synchronization logic, and modular architecture powering Bigbrotr. [Explore the docs](https://bigbrotr.com/api/bigbrotr/)
 - **Explore the Architecture**: Learn how the Docker containers work together to find, monitor, and archive the Nostr network. [Architecture guide](https://bigbrotr.com/guides/system-architecture/)
 - **Explore the Database Schema**: View how Bigbrotr organizes and stores Nostr events, relays, and metadata. [Database guide](https://bigbrotr.com/guides/database-schema/)
 
