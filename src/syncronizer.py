@@ -282,92 +282,96 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                         config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
     skip = False
-    for schema in ['wss://', 'ws://']:
-        if skip:
-            break
-        try:
-            if relay_metadata.relay.network == 'tor':
-                connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
-            else:
-                connector = TCPConnector(force_close=True)
-            async with ClientSession(connector=connector) as session:
-                start_time = get_start_time(config, bigbrotr, relay_metadata)
-                relay_id = relay_metadata.relay.url.removeprefix('wss://')
-                timeout = config["timeout"]
-                n_events_inserted = 0
-                n_requests_done = 0
-                n_writes = 0
-                stack = [end_time]
-                stack_max_size = 1000
-                max_limit = await get_max_limit(config, session, schema + relay_id, timeout, start_time, end_time)
-                max_limit = max_limit if max_limit is not None else 500
-                max_limit = min(max_limit, 10000)
-                max_limit = max(1, max_limit - 50 if max_limit >= 100 else max_limit - 5)
-                async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
-                    skip = True
-                    while start_time <= end_time:
-                        since = start_time
-                        until = stack.pop()
-                        while since <= until:
-                            if n_requests_done % 25 == 0:
-                                logging.info(
-                                    f"🔄 [Processing {relay_metadata.relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done} ({n_writes} with events)] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")
-                            subscription_id = uuid.uuid4().hex
-                            batch = []
-                            request = json.dumps([
-                                "REQ",
-                                subscription_id,
-                                {**config["filter"],
-                                    "since": since, "until": until}
-                            ])
-                            await ws.send_str(request)
-                            while True:
-                                msg = await asyncio.wait_for(ws.receive(), timeout=timeout*10)
-                                if msg.type == WSMsgType.TEXT:
-                                    data = json.loads(msg.data)
-                                    if data[0] == "NOTICE":
-                                        logging.info(
-                                            f"📢 NOTICE received from {relay_metadata.relay.url}: {data}")
-                                        continue
-                                    elif data[0] == "EVENT" and data[1] == subscription_id:
-                                        batch.append(data[2])
-                                    elif data[0] == "EOSE" and data[1] == subscription_id:
-                                        await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                                        await asyncio.sleep(1)
-                                        break
-                                    elif data[0] == "CLOSED" and data[1] == subscription_id:
-                                        break
-                                    if len(batch) >= max_limit and since != until:
-                                        stack.append(until)
-                                        until = since + \
-                                            (until - since) // 2
-                                        if len(stack) > stack_max_size:
-                                            stack.pop(0)
-                                            end_time = stack[0]
-                                        await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                                        await asyncio.sleep(1)
-                                        break
-                                elif msg.type == WSMsgType.ERROR:
-                                    raise RuntimeError(
-                                        f"WebSocket error from {relay_metadata.relay.url}: {msg.data}")
-                                elif msg.type == WSMsgType.CLOSED:
-                                    raise RuntimeError(
-                                        f"WebSocket closed by {relay_metadata.relay.url}")
-                                else:
-                                    raise RuntimeError(
-                                        f"Unexpected message type: {msg.type} from {relay_metadata.relay.url}")
-                            if len(batch) < max_limit or since == until:
-                                n_events_inserted += insert_batch(
-                                    bigbrotr, batch, relay_metadata.relay, int(time.time()))
-                                start_time = until + 1
-                                since = until + 1
-                                n_writes += 1
-                            n_requests_done += 1
-            bigbrotr.close()
-            logging.info(f"✅ Finished processing {relay_metadata.relay.url}. Total events inserted: {n_events_inserted}")
-            return
-        except Exception as e:
-            logging.exception(f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
+    try:
+        for schema in ['wss://', 'ws://']:
+            if skip:
+                break
+            try:
+                if relay_metadata.relay.network == 'tor':
+                    connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
+                else:
+                    connector = TCPConnector(force_close=True)
+                async with ClientSession(connector=connector) as session:
+                    start_time = get_start_time(config, bigbrotr, relay_metadata)
+                    relay_id = relay_metadata.relay.url.removeprefix('wss://')
+                    timeout = config["timeout"]
+                    n_events_inserted = 0
+                    n_requests_done = 0
+                    n_writes = 0
+                    stack = [end_time]
+                    stack_max_size = 1000
+                    max_limit = await get_max_limit(config, session, schema + relay_id, timeout, start_time, end_time)
+                    max_limit = max_limit if max_limit is not None else 500
+                    max_limit = min(max_limit, 10000)
+                    max_limit = max(1, max_limit - 50 if max_limit >= 100 else max_limit - 5)
+                    async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
+                        skip = True
+                        while start_time <= end_time:
+                            since = start_time
+                            until = stack.pop()
+                            while since <= until:
+                                if n_requests_done % 25 == 0:
+                                    logging.info(
+                                        f"🔄 [Processing {relay_metadata.relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done} ({n_writes} with events)] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")
+                                subscription_id = uuid.uuid4().hex
+                                batch = []
+                                request = json.dumps([
+                                    "REQ",
+                                    subscription_id,
+                                    {**config["filter"],
+                                        "since": since, "until": until}
+                                ])
+                                await ws.send_str(request)
+                                while True:
+                                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout*10)
+                                    if msg.type == WSMsgType.TEXT:
+                                        data = json.loads(msg.data)
+                                        if data[0] == "NOTICE":
+                                            logging.info(
+                                                f"📢 NOTICE received from {relay_metadata.relay.url}: {data}")
+                                            continue
+                                        elif data[0] == "EVENT" and data[1] == subscription_id:
+                                            batch.append(data[2])
+                                        elif data[0] == "EOSE" and data[1] == subscription_id:
+                                            await ws.send_str(json.dumps(["CLOSE", subscription_id]))
+                                            await asyncio.sleep(1)
+                                            break
+                                        elif data[0] == "CLOSED" and data[1] == subscription_id:
+                                            break
+                                        if len(batch) >= max_limit and since != until:
+                                            stack.append(until)
+                                            until = since + \
+                                                (until - since) // 2
+                                            if len(stack) > stack_max_size:
+                                                stack.pop(0)
+                                                end_time = stack[0]
+                                            await ws.send_str(json.dumps(["CLOSE", subscription_id]))
+                                            await asyncio.sleep(1)
+                                            break
+                                    elif msg.type == WSMsgType.ERROR:
+                                        raise RuntimeError(
+                                            f"WebSocket error from {relay_metadata.relay.url}: {msg.data}")
+                                    elif msg.type == WSMsgType.CLOSED:
+                                        raise RuntimeError(
+                                            f"WebSocket closed by {relay_metadata.relay.url}")
+                                    else:
+                                        raise RuntimeError(
+                                            f"Unexpected message type: {msg.type} from {relay_metadata.relay.url}")
+                                if len(batch) < max_limit or since == until:
+                                    n_events_inserted += insert_batch(
+                                        bigbrotr, batch, relay_metadata.relay, int(time.time()))
+                                    start_time = until + 1
+                                    since = until + 1
+                                    n_writes += 1
+                                n_requests_done += 1
+                bigbrotr.close()
+                logging.info(f"✅ Finished processing {relay_metadata.relay.url}. Total events inserted: {n_events_inserted}")
+                return
+            except Exception as e:
+                logging.exception(f"⚠️ Unexpected error while processing {relay_metadata.relay.url}: {e}")
+    except Exception as e:
+        bigbrotr.close()
+
 
 
 # --- Process Chunk ---
