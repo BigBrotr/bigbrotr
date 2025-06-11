@@ -4,9 +4,9 @@ import sys
 import time
 import uuid
 import json
+import random
 import asyncio
 import logging
-import datetime
 from relay import Relay
 from event import Event
 from bigbrotr import Bigbrotr
@@ -460,6 +460,7 @@ def fetch_relay_metedata_list(config):
             continue
     logging.info(
         f"📦 {len(relay_metadata_list)} relay metadata fetched from database.")
+    random.shuffle(relay_metadata_list)
     return relay_metadata_list
 
 
