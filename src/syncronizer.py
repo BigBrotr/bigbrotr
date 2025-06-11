@@ -305,10 +305,10 @@ async def process_relay_metadata(config, relay_metadata, end_time):
                 max_limit = max(1, max_limit - 50 if max_limit >= 100 else max_limit - 5)
                 async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
                     skip = True
-                    while start_time <= end_time and n_events_inserted < 100000:
+                    while start_time <= end_time:
                         since = start_time
                         until = stack.pop()
-                        while since <= until and n_events_inserted < 100000:
+                        while since <= until:
                             if n_requests_done % 25 == 0:
                                 logging.info(
                                     f"🔄 [Processing {relay_metadata.relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done} ({n_writes} with events)] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")
@@ -377,10 +377,14 @@ async def process_chunk(chunk, config, end_time):
     async def sem_task(relay_metadata):
         async with semaphore:
             try:
-                await process_relay_metadata(config, relay_metadata, end_time)
+                await asyncio.wait_for(
+                    process_relay_metadata(config, relay_metadata, end_time),
+                    timeout=60 * 30
+                )
+            except asyncio.TimeoutError:
+                logging.error(f"⏱️ Timeout: {relay_metadata.relay.url} exceeded the time limit.")
             except Exception as e:
-                logging.exception(
-                    f"❌ Error processing {relay_metadata.relay.url}: {e}")
+                logging.exception(f"❌ Error processing {relay_metadata.relay.url}: {e}")
 
     tasks = [sem_task(relay_metadata) for relay_metadata in chunk]
     await asyncio.gather(*tasks)
