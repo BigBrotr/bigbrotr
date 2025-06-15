@@ -12,6 +12,8 @@ services:
     volumes:
       - ${POSTGRES_DB_DATA_PATH}:/var/lib/postgresql/data
       - ${POSTGRES_DB_INIT_PATH}:/docker-entrypoint-initdb.d/init.sql
+      - ${POSTGRES_CONFIG_PATH}:/etc/postgresql.conf
+    command: -c config_file=/etc/postgresql.conf
     networks:
       - network
     restart: unless-stopped
