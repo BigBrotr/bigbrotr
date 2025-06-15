@@ -445,7 +445,7 @@ def fetch_relays(config):
 # --- Main Loop ---
 async def main_loop(config):
     relays = fetch_relays(config)
-    relays.remove_if(lambda r: r.url == 'wss://relay.nostr.band')
+    relays = [relay for relay in relays if relay.url != 'wss://relay.nostr.band']
     chunk_size = config["chunk_size"]
     num_cores = config["num_cores"]
     chunks = list(chunkify(relays, chunk_size))
