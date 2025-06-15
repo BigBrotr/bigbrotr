@@ -180,7 +180,42 @@ class Bigbrotr:
             raise TypeError(f"query must be a str, not {type(query)}")
         if not isinstance(args, tuple):
             raise TypeError(f"args must be a tuple, not {type(args)}")
-        self.cur.execute(query, args)
+        try:
+            self.cur.execute(query, args)
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Database error: {e}")
+        return
+    
+    def executemany(self, query: str, args: list[Tuple]):
+        """
+        Execute a query with multiple sets of parameters.
+
+        Parameters:
+        - query: str, the query to execute
+        - args: list[Tuple], the list of tuples containing parameters for the query
+
+        Example:
+        >>> query = "INSERT INTO events (id, pubkey) VALUES (%s, %s)"
+        >>> args = [(1, 'pubkey1'), (2, 'pubkey2')]
+        >>> bigbrotr.executemany(query, args)
+
+        Returns:
+        - None
+
+        Raises:
+        - TypeError: if query is not a str
+        - TypeError: if args is not a list of tuples
+        """
+        if not isinstance(query, str):
+            raise TypeError(f"query must be a str, not {type(query)}")
+        if not isinstance(args, list) or not all(isinstance(arg, tuple) for arg in args):
+            raise TypeError(f"args must be a list of tuples, not {type(args)}")
+        try:
+            self.cur.executemany(query, args)
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Database error: {e}")
         return
 
     def fetchall(self):
