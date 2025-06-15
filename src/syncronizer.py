@@ -378,13 +378,10 @@ async def process_chunk(chunk, config, end_time):
     async def sem_task(relay):
         async with semaphore:
             try:
-                if relay.url == 'wss://relay.nostr.band':
-                    process_relay(config, relay, end_time)
-                else:
-                    await asyncio.wait_for(
-                        process_relay(config, relay, end_time),
-                        timeout=60 * 30
-                    )
+                await asyncio.wait_for(
+                    process_relay(config, relay, end_time),
+                    timeout=60 * 30
+                )
             except asyncio.TimeoutError:
                 logging.error(f"⏱️ Timeout: {relay.url} exceeded the time limit.")
             except Exception as e:
@@ -445,11 +442,9 @@ def fetch_relays(config):
 # --- Main Loop ---
 async def main_loop(config):
     relays = fetch_relays(config)
-    relays = [relay for relay in relays if relay.url != 'wss://relay.nostr.band']
     chunk_size = config["chunk_size"]
     num_cores = config["num_cores"]
     chunks = list(chunkify(relays, chunk_size))
-    chunks.insert(0, [Relay('wss://relay.nostr.band')])
     if config["stop"] != -1:
         end_time = config["stop"]
     else:
