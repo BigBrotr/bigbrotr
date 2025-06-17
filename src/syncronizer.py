@@ -379,6 +379,8 @@ async def process_chunk(chunk, config, end_time):
     semaphore = asyncio.Semaphore(config["requests_per_core"])
 
     async def sem_task(relay):
+        if relay.url in ['wss://relay.nostr.band']:
+            return
         async with semaphore:
             try:
                 await asyncio.wait_for(
