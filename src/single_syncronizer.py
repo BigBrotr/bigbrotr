@@ -14,7 +14,8 @@ if __name__ == "__main__":
         "dbpass": "admin",
         "dbname": "bigbrotr",
         "timeout": 20,
-        "filter": {}
+        "filter": {},
+        "start": 0
     }
     relay = Relay(relay_url)
     while True:
