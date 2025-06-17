@@ -301,7 +301,7 @@ async def process_relay(config, relay, end_time, start_time=None):
                     stack_max_size = 1000
                     max_limit = await get_max_limit(config, session, schema + relay_id, timeout, start_time, end_time)
                     max_limit = max_limit if max_limit is not None else 500
-                    max_limit = min(max_limit, 10000)
+                    max_limit = min(max_limit, 2000)
                     max_limit = max(1, max_limit - 50 if max_limit >= 100 else max_limit - 5)
                     async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
                         skip = True
@@ -330,7 +330,10 @@ async def process_relay(config, relay, end_time, start_time=None):
                                                 f"📢 NOTICE received from {relay.url}: {data}")
                                             continue
                                         elif data[0] == "EVENT" and data[1] == subscription_id:
-                                            batch.append(data[2])
+                                            if isinstance(data[2], dict):
+                                                created_at = data[2].get('created_at')
+                                                if isinstance(created_at, int) and since <= created_at <= until:
+                                                    batch.append(data[2])
                                         elif data[0] == "EOSE" and data[1] == subscription_id:
                                             await ws.send_str(json.dumps(["CLOSE", subscription_id]))
                                             break
