@@ -221,6 +221,7 @@ async def get_max_limit(config, session, relay_url, timeout, start_time, end_tim
                             n_events[attempt] += 1
                         elif data[0] == "EOSE" and data[1] == subscription_id:
                             await ws.send_str(json.dumps(["CLOSE", subscription_id]))
+                            await asyncio.sleep(1)
                             break
                         elif data[0] == "CLOSED" and data[1] == subscription_id:
                             break
@@ -336,6 +337,7 @@ async def process_relay(config, relay, end_time, start_time=None):
                                                     batch.append(data[2])
                                         elif data[0] == "EOSE" and data[1] == subscription_id:
                                             await ws.send_str(json.dumps(["CLOSE", subscription_id]))
+                                            await asyncio.sleep(1)
                                             break
                                         elif data[0] == "CLOSED" and data[1] == subscription_id:
                                             break
@@ -347,6 +349,7 @@ async def process_relay(config, relay, end_time, start_time=None):
                                                 stack.pop(0)
                                                 end_time = stack[0]
                                             await ws.send_str(json.dumps(["CLOSE", subscription_id]))
+                                            await asyncio.sleep(1)
                                             break
                                     elif msg.type == WSMsgType.ERROR:
                                         raise RuntimeError(
