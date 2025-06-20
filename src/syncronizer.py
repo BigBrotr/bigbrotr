@@ -456,7 +456,8 @@ async def main_loop(config):
         end_time = int(time.time()) - 60 * 60 * 24
     shared_queue = Queue()
     for relay in relays:
-        shared_queue.put(relay)
+        if relay.url not in ["wss://relay.nostr.band", "wss://relay.vertexlab.io", "wss://a.nos.lol", "wss://bitcoiner.social"]:
+            shared_queue.put(relay)
     logging.info(f"📦 {len(relays)} relays to process.")
     processes = []
     for core_id in range(num_cores):
