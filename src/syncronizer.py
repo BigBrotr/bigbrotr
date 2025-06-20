@@ -10,8 +10,10 @@ import logging
 from relay import Relay
 from event import Event
 from bigbrotr import Bigbrotr
+from queue import Empty
+import threading
 from aiohttp_socks import ProxyConnector
-from multiprocessing import Pool, cpu_count
+from multiprocessing import cpu_count, Queue, Process
 from aiohttp import ClientSession, WSMsgType, TCPConnector
 
 # --- Logging ---
@@ -19,12 +21,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
-
-
-# --- Chunkify Function ---
-def chunkify(lst, n):
-    for i in range(0, len(lst), n):
-        yield lst[i:i + n]
 
 
 # --- Config Loader ---
@@ -39,7 +35,6 @@ def load_config_from_env():
             "torhost": str(os.environ["TORPROXY_HOST"]),
             "torport": int(os.environ["TORPROXY_PORT"]),
             "num_cores": int(os.environ["SYNCRONIZER_NUM_CORES"]),
-            "chunk_size": int(os.environ["SYNCRONIZER_CHUNK_SIZE"]),
             "requests_per_core": int(os.environ["SYNCRONIZER_REQUESTS_PER_CORE"]),
             "timeout": int(os.environ["SYNCRONIZER_REQUEST_TIMEOUT"]),
             "start": int(os.environ["SYNCTONIZER_START_TIMESTAMP"]),
@@ -57,10 +52,6 @@ def load_config_from_env():
         if config["num_cores"] < 1:
             logging.error(
                 "❌ Invalid SYNCRONIZER_NUM_CORES. Must be at least 1.")
-            sys.exit(1)
-        if config["chunk_size"] < 1:
-            logging.error(
-                "❌ Invalid SYNCRONIZER_CHUNK_SIZE. Must be at least 1.")
             sys.exit(1)
         if config["requests_per_core"] < 1:
             logging.error(
@@ -287,7 +278,8 @@ async def process_relay(config, relay, end_time, start_time=None):
                 break
             try:
                 if relay.network == 'tor':
-                    connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
+                    connector = ProxyConnector.from_url(
+                        socks5_proxy_url, force_close=True)
                 else:
                     connector = TCPConnector(force_close=True)
                 async with ClientSession(connector=connector) as session:
@@ -303,7 +295,8 @@ async def process_relay(config, relay, end_time, start_time=None):
                     max_limit = await get_max_limit(config, session, schema + relay_id, timeout, start_time, end_time)
                     max_limit = max_limit if max_limit is not None else 500
                     max_limit = min(max_limit, 2000)
-                    max_limit = max(1, max_limit - 50 if max_limit >= 100 else max_limit - 5)
+                    max_limit = max(
+                        1, max_limit - 50 if max_limit >= 100 else max_limit - 5)
                     async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
                         skip = True
                         while start_time <= end_time:
@@ -332,7 +325,8 @@ async def process_relay(config, relay, end_time, start_time=None):
                                             continue
                                         elif data[0] == "EVENT" and data[1] == subscription_id:
                                             if isinstance(data[2], dict):
-                                                created_at = data[2].get('created_at')
+                                                created_at = data[2].get(
+                                                    'created_at')
                                                 if isinstance(created_at, int) and since <= created_at <= until:
                                                     batch.append(data[2])
                                         elif data[0] == "EOSE" and data[1] == subscription_id:
@@ -368,48 +362,14 @@ async def process_relay(config, relay, end_time, start_time=None):
                                     n_writes += 1
                                 n_requests_done += 1
                 bigbrotr.close()
-                logging.info(f"✅ Finished processing {relay.url}. Total events inserted: {n_events_inserted}")
+                logging.info(
+                    f"✅ Finished processing {relay.url}. Total events inserted: {n_events_inserted}")
                 return
             except Exception as e:
-                logging.exception(f"⚠️ Unexpected error while processing {relay.url}: {e}")
+                logging.exception(
+                    f"⚠️ Unexpected error while processing {relay.url}: {e}")
     except Exception as e:
         bigbrotr.close()
-
-
-
-# --- Process Chunk ---
-async def process_chunk(chunk, config, end_time):
-    semaphore = asyncio.Semaphore(config["requests_per_core"])
-
-    async def sem_task(relay):
-        if relay.url in ['wss://relay.nostr.band']:
-            return
-        async with semaphore:
-            try:
-                await asyncio.wait_for(
-                    process_relay(config, relay, end_time),
-                    timeout=60 * 30
-                )
-            except asyncio.TimeoutError:
-                logging.error(f"⏱️ Timeout: {relay.url} exceeded the time limit.")
-            except Exception as e:
-                logging.exception(f"❌ Error processing {relay.url}: {e}")
-
-    tasks = [sem_task(relay) for relay in chunk]
-    await asyncio.gather(*tasks)
-    return
-
-
-# --- Worker Function ---
-def worker(chunk, config, end_time):
-    async def worker_async(chunk, config, end_time):
-        return await process_chunk(chunk, config, end_time)
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop.run_until_complete(worker_async(chunk, config, end_time))
 
 
 # --- Fetch Relays from Database ---
@@ -447,22 +407,67 @@ def fetch_relays(config):
     return relays
 
 
+# --- Thread Function ---
+def thread_foo(config, shared_queue, end_time):
+    async def run_with_timeout(config, relay, end_time):
+        try:
+            await asyncio.wait_for(
+                process_relay(config, relay, end_time),
+                timeout=60 * 30
+            )
+        except asyncio.TimeoutError:
+            logging.warning(f"⏰ Timeout while processing {relay.url}")
+        except Exception as e:
+            logging.exception(f"❌ Error processing {relay.url}: {e}")
+    while True:
+        try:
+            relay = shared_queue.get(timeout=1)
+        except Empty:
+            break
+        except Exception as e:
+            logging.exception(f"❌ Error reading from shared queue: {e}")
+        asyncio.run(run_with_timeout(config, relay, end_time))
+    return
+
+
+# --- Process Foo ---
+def process_foo(config, shared_queue, end_time):
+    request_per_core = config["requests_per_core"]
+    threads = []
+    for i in range(request_per_core):
+        t = threading.Thread(
+            target=thread_foo,
+            args=(config, shared_queue, end_time)
+        )
+        t.start()
+        threads.append(t)
+    for t in threads:
+        t.join()
+    return
+
+
 # --- Main Loop ---
 async def main_loop(config):
     relays = fetch_relays(config)
-    chunk_size = config["chunk_size"]
     num_cores = config["num_cores"]
-    chunks = list(chunkify(relays, chunk_size))
     if config["stop"] != -1:
         end_time = config["stop"]
     else:
         end_time = int(time.time()) - 60 * 60 * 24
-    args = [(chunk, config, end_time) for chunk in chunks]
-    logging.info(
-        f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
-    with Pool(processes=num_cores) as pool:
-        pool.starmap(worker, args)
-    logging.info("✅ All chunks processed successfully.")
+    shared_queue = Queue()
+    for relay in relays:
+        shared_queue.put(relay)
+    logging.info(f"📦 {len(relays)} relays to process.")
+    processes = []
+    for core_id in range(num_cores):
+        p = Process(
+            target=process_foo,
+            args=(config, shared_queue, end_time)
+        )
+        p.start()
+        processes.append(p)
+    for p in processes:
+        p.join()
     return
 
 
