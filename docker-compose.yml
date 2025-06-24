@@ -124,6 +124,38 @@ services:
       - SYNCTONIZER_START_TIMESTAMP=${SYNCTONIZER_START_TIMESTAMP}
       - SYNCRONIZER_STOP_TIMESTAMP=${SYNCRONIZER_STOP_TIMESTAMP}
       - SYNCRONIZER_EVENT_FILTER=${SYNCRONIZER_EVENT_FILTER}
+      - SYNCRONIZER_PRIORITY_RELAYS_FILEPATH=priority_relays.txt
+    volumes:
+      - ${SYNCRONIZER_PRIORITY_RELAYS_FILEPATH}:/app/priority_relays.txt
+    depends_on:
+      - database
+      - torproxy
+    networks:
+      - network
+    restart: unless-stopped
+
+  priority_syncronizer:
+    build:
+      context: .
+      dockerfile: dockerfiles/priority_syncronizer
+    container_name: bigbrotr_priority_syncronizer
+    environment:
+      - POSTGRES_HOST=database
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PORT=5432
+      - TORPROXY_HOST=torproxy
+      - TORPROXY_PORT=9050
+      - SYNCRONIZER_NUM_CORES=${PRIORITY_SYNCRONIZER_NUM_CORES}
+      - SYNCRONIZER_REQUESTS_PER_CORE=${SYNCRONIZER_REQUESTS_PER_CORE}
+      - SYNCRONIZER_REQUEST_TIMEOUT=${SYNCRONIZER_REQUEST_TIMEOUT}
+      - SYNCTONIZER_START_TIMESTAMP=${SYNCTONIZER_START_TIMESTAMP}
+      - SYNCRONIZER_STOP_TIMESTAMP=${SYNCRONIZER_STOP_TIMESTAMP}
+      - SYNCRONIZER_EVENT_FILTER=${SYNCRONIZER_EVENT_FILTER}
+      - SYNCRONIZER_PRIORITY_RELAYS_FILEPATH=priority_relays.txt
+    volumes:
+      - ${SYNCRONIZER_PRIORITY_RELAYS_FILEPATH}:/app/priority_relays.txt
     depends_on:
       - database
       - torproxy
