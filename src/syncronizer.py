@@ -165,7 +165,7 @@ def fetch_relays_from_filepath(filepath):
 def thread_foo(config, shared_queue, end_time):
     async def run_with_timeout(config, relay, end_time):
         try:
-            await asyncio.sleep(random.randint(0, 300))
+            await asyncio.sleep(random.randint(0, 120))
             await asyncio.wait_for(
                 process_relay(config, relay, end_time),
                 timeout=60 * 30
@@ -216,7 +216,7 @@ async def main_loop(config):
     for relay in relays:
         if relay.url not in priority_relays:
             shared_queue.put(relay)
-    logging.info(f"📦 {len(relays)} relays to process.")
+    logging.info(f"📦 {len(shared_queue)} relays to process.")
     processes = []
     for _ in range(num_cores):
         p = Process(

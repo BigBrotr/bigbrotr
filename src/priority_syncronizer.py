@@ -20,7 +20,7 @@ logging.basicConfig(
 def thread_foo(relay, config, end_time):
     while True:
         try:
-            time.sleep(random.randint(0, 300))
+            time.sleep(random.randint(0, 120))
             asyncio.run(process_relay(config, relay, end_time))
             time.sleep(15 * 60)
         except Exception as e:
