@@ -216,7 +216,7 @@ async def main_loop(config):
     for relay in relays:
         if relay.url not in priority_relays:
             shared_queue.put(relay)
-    logging.info(f"📦 {len(shared_queue)} relays to process.")
+    logging.info(f"📦 {shared_queue.qsize()} relays to process.")
     processes = []
     for _ in range(num_cores):
         p = Process(
