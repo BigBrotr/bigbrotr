@@ -10,7 +10,7 @@ import threading
 from relay import Relay
 from queue import Empty
 from bigbrotr import Bigbrotr
-from process_relay import process_relay
+from process_relay import process_relay, get_start_time
 from multiprocessing import cpu_count, Queue, Process
 from functions import test_database_connection, test_torproxy_connection
 
@@ -166,8 +166,10 @@ def thread_foo(config, shared_queue, end_time):
     async def run_with_timeout(config, relay, end_time):
         try:
             await asyncio.sleep(random.randint(0, 120))
+            bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+            start_time = get_start_time(config["start"], bigbrotr, relay)
             await asyncio.wait_for(
-                process_relay(config, relay, end_time),
+                process_relay(config, relay, bigbrotr, start_time, end_time),
                 timeout=60 * 30
             )
         except asyncio.TimeoutError:

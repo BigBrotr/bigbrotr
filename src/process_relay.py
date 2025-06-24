@@ -49,6 +49,7 @@ def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
     event_id = None
     created_at_todo = True
     created_at = None
+    bigbrotr.connect()
     for attempt in range(retries):
         try:
             if max_seen_at_todo:
@@ -69,6 +70,7 @@ def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
             logging.warning(
                 f"⚠️ Attempt {attempt + 1}/{retries} failed while getting start time for {relay.url}: {e}")
             time.sleep(delay)
+    bigbrotr.close()
     raise RuntimeError(
         f"❌ Failed to get start time for {relay.url} after {retries} attempts. Last error: {e}")
 
@@ -153,10 +155,8 @@ def insert_batch(bigbrotr, batch, relay, seen_at):
     return len(event_batch)
 
 
-async def process_relay(config, relay, end_time, start_time=None):
+async def process_relay(config, relay, bigbrotr, start_time, end_time):
     socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
-                        config["dbuser"], config["dbpass"], config["dbname"])
     bigbrotr.connect()
     skip = False
     try:
@@ -170,9 +170,6 @@ async def process_relay(config, relay, end_time, start_time=None):
                 else:
                     connector = TCPConnector(force_close=True)
                 async with ClientSession(connector=connector) as session:
-                    if start_time is None:
-                        start_time = get_start_time(
-                            config["start"], bigbrotr, relay)
                     relay_id = relay.url.removeprefix('wss://')
                     timeout = config["timeout"]
                     n_events_inserted = 0

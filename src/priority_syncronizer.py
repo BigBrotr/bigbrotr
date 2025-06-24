@@ -4,9 +4,10 @@ import random
 import asyncio
 import logging
 import threading
+from bigbrotr import Bigbrotr
 from functions import chunkify
 from multiprocessing import Process
-from syncronizer import load_config_from_env, wait_for_services, fetch_relays_from_filepath, process_relay
+from syncronizer import load_config_from_env, wait_for_services, fetch_relays_from_filepath, process_relay, get_start_time
 
 
 # --- Logging ---
@@ -21,7 +22,9 @@ def thread_foo(relay, config, end_time):
     while True:
         try:
             time.sleep(random.randint(0, 120))
-            asyncio.run(process_relay(config, relay, end_time))
+            bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+            start_time = get_start_time(config["start"], bigbrotr, relay)
+            asyncio.run(process_relay(config, relay, bigbrotr, start_time, end_time))
             time.sleep(15 * 60)
         except Exception as e:
             logging.exception(f"❌ Error processing relay {relay.url}: {e}")
