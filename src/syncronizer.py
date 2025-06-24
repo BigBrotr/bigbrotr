@@ -2,19 +2,17 @@ import os
 import re
 import sys
 import time
-import uuid
 import json
 import random
 import asyncio
 import logging
-from relay import Relay
-from event import Event
-from bigbrotr import Bigbrotr
-from queue import Empty
 import threading
-from aiohttp_socks import ProxyConnector
+from relay import Relay
+from queue import Empty
+from bigbrotr import Bigbrotr
+from process_relay import process_relay
 from multiprocessing import cpu_count, Queue, Process
-from aiohttp import ClientSession, WSMsgType, TCPConnector
+from functions import test_database_connection, test_torproxy_connection
 
 # --- Logging ---
 logging.basicConfig(
@@ -39,7 +37,8 @@ def load_config_from_env():
             "timeout": int(os.environ["SYNCRONIZER_REQUEST_TIMEOUT"]),
             "start": int(os.environ["SYNCTONIZER_START_TIMESTAMP"]),
             "stop": int(os.environ["SYNCRONIZER_STOP_TIMESTAMP"]),
-            "filter": json.loads(os.environ["SYNCRONIZER_EVENT_FILTER"])
+            "filter": json.loads(os.environ["SYNCRONIZER_EVENT_FILTER"]),
+            "priority": str(os.environ.get("SYNCRONIZER_PRIORITY_RELAYS_FILEPATH"))
         }
         if config["dbport"] < 0 or config["dbport"] > 65535:
             logging.error(
@@ -94,288 +93,26 @@ def load_config_from_env():
     return config
 
 
-# --- Database Test ---
-def test_database_connection(config):
-    logging.info(
-        f"🔌 Testing database connection to {config["dbhost"]}:{config["dbport"]}/{config["dbname"]}")
-    try:
-        db = Bigbrotr(config["dbhost"], config["dbport"],
-                      config["dbuser"], config["dbpass"], config["dbname"])
-        db.connect()
-        logging.info("✅ Database connection successful.")
-    except Exception:
-        logging.exception("❌ Database connection failed.")
-        raise
-    finally:
-        db.close()
-        logging.info("🔌 Database connection closed.")
-
-
-# --- Tor Proxy Test ---
-async def test_torproxy_connection(config, timeout=10):
-    socks5_proxy_url = f"socks5://{config["torhost"]}:{config["torport"]}"
-    # HTTP Test
-    http_url = "https://check.torproject.org"
-    connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
-    async with ClientSession(connector=connector) as session:
-        try:
-            logging.info("🌐 Testing Tor HTTP access...")
-            async with session.get(http_url, timeout=timeout) as resp:
-                text = await resp.text()
-                if "Congratulations. This browser is configured to use Tor" in text:
-                    logging.info("✅ HTTP response confirms Tor usage.")
-                else:
-                    raise RuntimeError("Tor usage not confirmed via HTTP.")
-        except Exception:
-            logging.exception("❌ HTTP test via Tor failed.")
-            raise
-        finally:
-            await session.close()
-            logging.info("🌐 HTTP connection closed.")
-    # WebSocket Test
-    ws_url = "wss://echo.websocket.events"
-    connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
-    async with ClientSession(connector=connector) as session:
-        try:
-            logging.info("🌐 Testing Tor WebSocket access...")
-            async with session.ws_connect(ws_url, timeout=timeout) as ws:
-                await ws.send_str("Hello via WebSocket")
-                msg = await ws.receive(timeout=timeout)
-                if msg.type == WSMsgType.TEXT:
-                    logging.info(f"✅ WebSocket message received: {msg.data}")
-                else:
-                    raise RuntimeError(
-                        f"Unexpected WebSocket response: {msg.type}")
-        except Exception:
-            logging.exception("❌ WebSocket test via Tor failed.")
-            raise
-        finally:
-            await ws.close()
-            logging.info("🌐 WebSocket connection closed.")
-
-
 # --- Wait for Services (Resilience) ---
 async def wait_for_services(config, retries=5, delay=30):
     for attempt in range(1, retries + 1):
         await asyncio.sleep(delay)
-        try:
-            test_database_connection(config)
-            await test_torproxy_connection(config)
+        database_connection = test_database_connection(
+            config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+        torproxy_connection = await test_torproxy_connection(config["torhost"], config["torport"], timeout=config["timeout"])
+        if database_connection and torproxy_connection:
+            logging.info("✅ All required services are available.")
             return
-        except Exception as e:
+        else:
             logging.warning(
-                f"⏳ Service not ready (attempt {attempt}/{retries}): {e}")
-    raise RuntimeError("❌ Required services not available after retries.")
-
-
-# --- Get Start Time ---
-def get_start_time(config, bigbrotr, relay):
-    query = """
-        SELECT MAX(e.created_at) AS max_created_at
-        FROM events e
-        JOIN events_relays er ON e.id = er.event_id
-        WHERE er.relay_url = %s;
-    """
-    bigbrotr.execute(query, (relay.url,))
-    row = bigbrotr.fetchone()
-    start_time = row[0] + 1 if row and row[0] is not None else config["start"]
-    return start_time
-
-
-# --- Get Max Limit ---
-async def get_max_limit(config, session, relay_url, timeout, start_time, end_time):
-    n_events = [0, 0]
-    min_created_at = None
-    since = start_time
-    until = end_time
-    for attempt in range(2):
-        subscription_id = uuid.uuid4().hex
-        request = json.dumps([
-            "REQ",
-            subscription_id,
-            {**config["filter"], "since": since, "until": until}
-        ])
-        async with session.ws_connect(relay_url, timeout=timeout) as ws:
-            await ws.send_str(request)
-            while True:
-                try:
-                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout*10)
-                    if msg.type == WSMsgType.TEXT:
-                        data = json.loads(msg.data)
-                        if data[0] == "NOTICE":
-                            continue
-                        elif data[0] == "EVENT" and data[1] == subscription_id:
-                            if attempt == 0:
-                                if isinstance(data[2], dict) and "created_at" in data[2]:
-                                    if min_created_at is None or data[2]["created_at"] < min_created_at:
-                                        min_created_at = data[2]["created_at"]
-                            n_events[attempt] += 1
-                        elif data[0] == "EOSE" and data[1] == subscription_id:
-                            await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                            await asyncio.sleep(1)
-                            break
-                        elif data[0] == "CLOSED" and data[1] == subscription_id:
-                            break
-                    else:
-                        break
-                except Exception:
-                    break
-            if attempt == 0:
-                if min_created_at is not None:
-                    until = max(0, min(min_created_at, until) - 1)
-                else:
-                    return None
-    if n_events[1] > 0:
-        return n_events[0]
-    return None
-
-
-# --- Create Event ---
-def create_event(event_data):
-    try:
-        event = Event.from_dict(event_data)
-    except ValueError as e:
-        tags = []
-        for tag in event_data['tags']:
-            tag = [
-                t.replace(r'\n', '\n').replace(r'\"', '\"').replace(r'\\', '\\').replace(
-                    r'\r', '\r').replace(r'\t', '\t').replace(r'\b', '\b').replace(r'\f', '\f')
-                for t in tag
-            ]
-            tags.append(tag)
-        event_data['tags'] = tags
-        event_data['content'] = event_data['content'].replace(r'\n', '\n').replace(r'\"', '\"').replace(
-            r'\\', '\\').replace(r'\r', '\r').replace(r'\t', '\t').replace(r'\b', '\b').replace(r'\f', '\f')
-        event = Event.from_dict(event_data)
-    return event
-
-
-# --- Insert Batch of Events ---
-def insert_batch(bigbrotr, batch, relay, seen_at):
-    event_batch = []
-    for event_data in batch:
-        try:
-            event = create_event(event_data)
-        except Exception as e:
-            logging.warning(
-                f"⚠️ Invalid event found in {relay.url}. Error: {e}")
-            continue
-        event_batch.append(event)
-    bigbrotr.insert_event_batch(event_batch, relay, seen_at)
-    return len(event_batch)
-
-
-# --- Process Relay ---
-async def process_relay(config, relay, end_time, start_time=None):
-    socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
-                        config["dbuser"], config["dbpass"], config["dbname"])
-    bigbrotr.connect()
-    skip = False
-    try:
-        for schema in ['wss://', 'ws://']:
-            if skip:
-                break
-            try:
-                if relay.network == 'tor':
-                    connector = ProxyConnector.from_url(
-                        socks5_proxy_url, force_close=True)
-                else:
-                    connector = TCPConnector(force_close=True)
-                async with ClientSession(connector=connector) as session:
-                    if start_time is None:
-                        start_time = get_start_time(config, bigbrotr, relay)
-                    relay_id = relay.url.removeprefix('wss://')
-                    timeout = config["timeout"]
-                    n_events_inserted = 0
-                    n_requests_done = 0
-                    n_writes = 0
-                    stack = [end_time]
-                    stack_max_size = 1000
-                    max_limit = await get_max_limit(config, session, schema + relay_id, timeout, start_time, end_time)
-                    max_limit = max_limit if max_limit is not None else 500
-                    max_limit = min(max_limit, 2000)
-                    max_limit = max(
-                        1, max_limit - 50 if max_limit >= 100 else max_limit - 5)
-                    async with session.ws_connect(schema + relay_id, timeout=timeout) as ws:
-                        skip = True
-                        while start_time <= end_time:
-                            since = start_time
-                            until = stack.pop()
-                            while since <= until:
-                                if n_requests_done % 25 == 0:
-                                    logging.info(
-                                        f"🔄 [Processing {relay.url}] [from {since}] [to {until}] [max limit {max_limit}] [requests done {n_requests_done} ({n_writes} with events)] [requests todo {len(stack)+1}] [events inserted {n_events_inserted}]")
-                                subscription_id = uuid.uuid4().hex
-                                batch = []
-                                request = json.dumps([
-                                    "REQ",
-                                    subscription_id,
-                                    {**config["filter"],
-                                        "since": since, "until": until}
-                                ])
-                                await ws.send_str(request)
-                                while True:
-                                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout*10)
-                                    if msg.type == WSMsgType.TEXT:
-                                        data = json.loads(msg.data)
-                                        if data[0] == "NOTICE":
-                                            logging.info(
-                                                f"📢 NOTICE received from {relay.url}: {data}")
-                                            continue
-                                        elif data[0] == "EVENT" and data[1] == subscription_id:
-                                            if isinstance(data[2], dict):
-                                                created_at = data[2].get(
-                                                    'created_at')
-                                                if isinstance(created_at, int) and since <= created_at <= until:
-                                                    batch.append(data[2])
-                                        elif data[0] == "EOSE" and data[1] == subscription_id:
-                                            await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                                            await asyncio.sleep(1)
-                                            break
-                                        elif data[0] == "CLOSED" and data[1] == subscription_id:
-                                            break
-                                        if len(batch) >= max_limit and since != until:
-                                            stack.append(until)
-                                            until = since + \
-                                                (until - since) // 2
-                                            if len(stack) > stack_max_size:
-                                                stack.pop(0)
-                                                end_time = stack[0]
-                                            await ws.send_str(json.dumps(["CLOSE", subscription_id]))
-                                            await asyncio.sleep(1)
-                                            break
-                                    elif msg.type == WSMsgType.ERROR:
-                                        raise RuntimeError(
-                                            f"WebSocket error from {relay.url}: {msg.data}")
-                                    elif msg.type == WSMsgType.CLOSED:
-                                        raise RuntimeError(
-                                            f"WebSocket closed by {relay.url}")
-                                    else:
-                                        raise RuntimeError(
-                                            f"Unexpected message type: {msg.type} from {relay.url}")
-                                if len(batch) < max_limit or since == until:
-                                    n_events_inserted += insert_batch(
-                                        bigbrotr, batch, relay, int(time.time()))
-                                    start_time = until + 1
-                                    since = until + 1
-                                    n_writes += 1
-                                n_requests_done += 1
-                bigbrotr.close()
-                logging.info(
-                    f"✅ Finished processing {relay.url}. Total events inserted: {n_events_inserted}")
-                return
-            except Exception as e:
-                logging.exception(
-                    f"⚠️ Unexpected error while processing {relay.url}: {e}")
-    except Exception as e:
-        bigbrotr.close()
+                f"⚠️ Attempt {attempt}/{retries} failed. Retrying in {delay} seconds...")
+    raise RuntimeError(
+        "❌ Required services are not available after multiple attempts. Exiting.")
 
 
 # --- Fetch Relays from Database ---
-def fetch_relays(config):
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
-                        config["dbuser"], config["dbpass"], config["dbname"])
+def fetch_relays_from_database(host, port, user, password, dbname):
+    bigbrotr = Bigbrotr(host, port, user, password, dbname)
     bigbrotr.connect()
     logging.info("📦 Fetching relay metadata from database...")
     query = """
@@ -395,14 +132,31 @@ def fetch_relays(config):
     bigbrotr.close()
     relays = []
     for row in rows:
+        relay_url = row[0].strip()
         try:
-            relay = Relay(row[0])
+            relay = Relay(relay_url)
             relays.append(relay)
         except Exception as e:
-            logging.warning(f"⚠️ Invalid relay metadata: {row}. Error: {e}")
+            logging.warning(f"⚠️ Invalid relay: {relay_url}. Error: {e}")
             continue
-    logging.info(
-        f"📦 {len(relays)} relay metadata fetched from database.")
+    logging.info(f"📦 {len(relays)} relay fetched from database.")
+    random.shuffle(relays)
+    return relays
+
+
+# --- Fetch Relays from File ---
+def fetch_relays_from_filepath(filepath):
+    relays = []
+    with open(filepath, "r") as file:
+        for line in file:
+            relay_url = line.strip()
+            try:
+                relay = Relay(relay_url)
+                relays.append(relay)
+            except Exception as e:
+                logging.warning(f"⚠️ Invalid relay: {relay_url}. Error: {e}")
+                continue
+    logging.info(f"📦 {len(relays)} relay fetched from file.")
     random.shuffle(relays)
     return relays
 
@@ -411,6 +165,7 @@ def fetch_relays(config):
 def thread_foo(config, shared_queue, end_time):
     async def run_with_timeout(config, relay, end_time):
         try:
+            await asyncio.sleep(random.randint(0, 300))
             await asyncio.wait_for(
                 process_relay(config, relay, end_time),
                 timeout=60 * 30
@@ -430,11 +185,11 @@ def thread_foo(config, shared_queue, end_time):
     return
 
 
-# --- Process Foo ---
+# --- Process Function ---
 def process_foo(config, shared_queue, end_time):
     request_per_core = config["requests_per_core"]
     threads = []
-    for i in range(request_per_core):
+    for _ in range(request_per_core):
         t = threading.Thread(
             target=thread_foo,
             args=(config, shared_queue, end_time)
@@ -448,7 +203,10 @@ def process_foo(config, shared_queue, end_time):
 
 # --- Main Loop ---
 async def main_loop(config):
-    relays = fetch_relays(config)
+    relays = fetch_relays_from_database(
+        config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+    priority_relays = fetch_relays_from_filepath(config["priority"])
+    priority_relays = [relay.url for relay in priority_relays]
     num_cores = config["num_cores"]
     if config["stop"] != -1:
         end_time = config["stop"]
@@ -456,11 +214,11 @@ async def main_loop(config):
         end_time = int(time.time()) - 60 * 60 * 24
     shared_queue = Queue()
     for relay in relays:
-        if relay.url not in ["wss://relay.nostr.band", "wss://relay.vertexlab.io", "wss://a.nos.lol", "wss://bitcoiner.social"]:
+        if relay.url not in priority_relays:
             shared_queue.put(relay)
     logging.info(f"📦 {len(relays)} relays to process.")
     processes = []
-    for core_id in range(num_cores):
+    for _ in range(num_cores):
         p = Process(
             target=process_foo,
             args=(config, shared_queue, end_time)
