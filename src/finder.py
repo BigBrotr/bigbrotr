@@ -2,7 +2,8 @@ import os
 import sys
 import asyncio
 import logging
-from bigbrotr import Bigbrotr
+from functions import test_database_connection
+
 
 # --- Logging Config ---
 logging.basicConfig(
@@ -45,34 +46,20 @@ def load_config_from_env():
     return config
 
 
-# --- Database Test ---
-def test_database_connection(config):
-    logging.info(
-        f"🔌 Testing database connection to {config["dbhost"]}:{config["dbport"]}/{config["dbname"]}")
-    try:
-        db = Bigbrotr(config["dbhost"], config["dbport"],
-                      config["dbuser"], config["dbpass"], config["dbname"])
-        db.connect()
-        logging.info("✅ Database connection successful.")
-    except Exception:
-        logging.exception("❌ Database connection failed.")
-        raise
-    finally:
-        db.close()
-        logging.info("🔌 Database connection closed.")
-
-
 # --- Wait for Services (Resilience) ---
 async def wait_for_services(config, retries=5, delay=30):
     for attempt in range(1, retries + 1):
         await asyncio.sleep(delay)
-        try:
-            test_database_connection(config)
+        database_connection = test_database_connection(
+            config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+        if database_connection:
+            logging.info("✅ All required services are available.")
             return
-        except Exception as e:
+        else:
             logging.warning(
-                f"⏳ Service not ready (attempt {attempt}/{retries}): {e}")
-    raise RuntimeError("❌ Required services not available after retries.")
+                f"⚠️ Attempt {attempt}/{retries} failed. Retrying in {delay} seconds...")
+    raise RuntimeError(
+        "❌ Required services are not available after multiple attempts. Exiting.")
 
 
 # --- Finder Entrypoint ---

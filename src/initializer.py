@@ -4,6 +4,8 @@ import time
 import logging
 from bigbrotr import Bigbrotr
 from relay import Relay
+from functions import test_database_connection
+
 
 # --- Logging Config ---
 logging.basicConfig(
@@ -37,23 +39,6 @@ def load_config_from_env():
     return config
 
 
-# --- Database Connection ---
-def test_database_connection(config):
-    logging.info(
-        f"🔌 Testing database connection to {config['dbhost']}:{config['dbport']}/{config['dbname']}")
-    try:
-        db = Bigbrotr(config["dbhost"], config["dbport"],
-                      config["dbuser"], config["dbpass"], config["dbname"])
-        db.connect()
-        logging.info("✅ Database connection successful.")
-    except Exception:
-        logging.exception("❌ Database connection failed.")
-        raise
-    finally:
-        db.close()
-        logging.info("🔌 Database connection closed.")
-
-
 # --- Insert Relays ---
 def insert_relays(config):
     logging.info("🌐 Starting relay insertion process...")
@@ -85,22 +70,25 @@ def insert_relays(config):
 
 
 # --- Retry Logic for Database ---
-def wait_for_database_connection(config, retries=5, delay=10):
+def wait_for_services(config, retries=5, delay=10):
     for attempt in range(1, retries + 1):
         time.sleep(delay)
-        try:
-            test_database_connection(config)
+        database_connection = test_database_connection(
+            config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+        if database_connection:
+            logging.info("✅ All required services are available.")
             return
-        except Exception as e:
+        else:
             logging.warning(
-                f"⏳ Database not ready (attempt {attempt}/{retries}): {e}. Retrying in {delay} seconds...")
-    raise RuntimeError("❌ Database not available after retries.")
+                f"⚠️ Attempt {attempt}/{retries} failed. Retrying in {delay} seconds...")
+    raise RuntimeError(
+        "❌ Required services are not available after multiple attempts. Exiting.")
 
 
 # --- Main Entry Point ---
 def initializer():
     config = load_config_from_env()
-    wait_for_database_connection(config)
+    wait_for_services(config)
     insert_relays(config)
 
 
