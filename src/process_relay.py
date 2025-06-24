@@ -16,28 +16,61 @@ logging.basicConfig(
 
 
 def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
-    query = """
-        SELECT MAX(e.created_at) AS max_created_at
-        FROM events e
-        JOIN events_relays er ON e.id = er.event_id
-        WHERE er.relay_url = %s;
-    """
-    for attempt in range(1, retries + 1):
+    def get_max_seen_at():
+        query = """
+            SELECT MAX(seen_at)
+            FROM events_relays
+            WHERE relay_url = %s
+        """
+        bigbrotr.execute(query, (relay.url,))
+        return bigbrotr.fetchone()[0]
+
+    def get_event_id(max_seen_at):
+        query = """
+            SELECT event_id
+            FROM events_relays
+            WHERE relay_url = %s AND seen_at = %s
+            LIMIT 1
+        """
+        bigbrotr.execute(query, (relay.url, max_seen_at))
+        return bigbrotr.fetchone()[0]
+
+    def get_created_at(event_id):
+        query = """
+            SELECT created_at
+            FROM events
+            WHERE id = %s
+        """
+        bigbrotr.execute(query, (event_id,))
+        return bigbrotr.fetchone()[0]
+    max_seen_at_todo = True
+    max_seen_at = None
+    event_id_todo = True
+    event_id = None
+    created_at_todo = True
+    created_at = None
+    for attempt in range(retries):
         try:
-            bigbrotr.execute(query, (relay.url,))
-            row = bigbrotr.fetchone()
-            start_time = row[0] + \
-                1 if row and row[0] is not None else default_start_time
-            return start_time
+            if max_seen_at_todo:
+                max_seen_at = get_max_seen_at()
+                max_seen_at_todo = False
+            if max_seen_at is not None:
+                if event_id_todo:
+                    event_id = get_event_id(max_seen_at)
+                    event_id_todo = False
+                if event_id is not None:
+                    if created_at_todo:
+                        created_at = get_created_at(event_id)
+                        created_at_todo = False
+                    if created_at is not None:
+                        return created_at + 1
+            return default_start_time
         except Exception as e:
-            if attempt < retries:
-                print(
-                    f"⚠️ Attempt {attempt} failed: {e}. Retrying in {delay:.2f}s...")
-                time.sleep(delay)
-            else:
-                print(
-                    f"❌ All {retries} attempts failed. Raising last exception.")
-                raise e
+            logging.warning(
+                f"⚠️ Attempt {attempt + 1}/{retries} failed while getting start time for {relay.url}: {e}")
+            time.sleep(delay)
+    raise RuntimeError(
+        f"❌ Failed to get start time for {relay.url} after {retries} attempts. Last error: {e}")
 
 
 async def get_max_limit(filter, session, relay_url, timeout, start_time, end_time):
