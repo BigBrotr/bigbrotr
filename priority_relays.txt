@@ -14,7 +14,6 @@ wss://relay.nostrplebs.com
 wss://nostr.bit4use.com
 wss://relay.wellorder.net
 wss://orangepiller.org
-wss://relay.casualcrypto.date
 wss://relay.dwadziesciajeden.pl
 wss://user.kindpag.es
 wss://nostrja-kari.heguro.com
@@ -30,7 +29,6 @@ wss://bostr.syobon.net
 wss://relay.corpum.com
 wss://primus.nostr1.com
 wss://relay.lumina.rocks
-wss://social.protest.net/relay
 wss://directory.yabu.me
 wss://soloco.nl
 wss://relay.mostr.pub
@@ -67,7 +65,6 @@ wss://nostr.bitcoiner.social
 wss://nos.lol
 wss://relay.coinos.io
 wss://relay.minds.com/nostr/v1/ws
-wss://f7z.io
 wss://relay.satlantis.io
 wss://nostr.noones.com
 wss://relay.s-w.art
@@ -96,11 +93,9 @@ wss://nostr.openhoofd.nl
 wss://n.ok0.org
 wss://test.nfrelay.app
 wss://relay.nostr.ai
-wss://custom.fiatjaf.com
 wss://relay.bitdevs.tw
 wss://profiles.nostr1.com
 wss://relay.chakany.systems
-wss://rebelbase.social/relay
 wss://relay1.nostrchat.io
 wss://nostr-03.dorafactory.org
 wss://relay.sincensura.org
@@ -117,13 +112,10 @@ wss://relay.nostr.wirednet.jp
 wss://nostr.0xtr.dev
 wss://ditto.pub/relay
 wss://relay.damus.io
-wss://relay.nostr.vet
 wss://relay.nos.social
 wss://nostr-pub.wellorder.net
 wss://nostr.mom
 wss://a.nos.lol
 wss://relay.nostr.band
 wss://nostr.bar/relay
-wss://henhouse.social/relay
-wss://none.ecency.com
-wss://relay.nostrverified.fyi
+wss://relay.vertexlab.io
