@@ -7,7 +7,7 @@ import threading
 from bigbrotr import Bigbrotr
 from functions import chunkify
 from multiprocessing import Process
-from syncronizer import load_config_from_env, wait_for_services, fetch_relays_from_filepath, process_relay, get_start_time
+from synchronizer import load_config_from_env, wait_for_services, fetch_relays_from_filepath, process_relay, get_start_time
 
 
 # --- Logging ---
@@ -71,7 +71,7 @@ async def main_loop(config):
 
 
 # --- Syncronizer Entrypoint ---
-async def priority_syncronizer():
+async def priority_synchronizer():
     config = load_config_from_env()
     logging.info("🔄 Starting Priority Syncronizer...")
     await wait_for_services(config)
@@ -88,7 +88,7 @@ async def priority_syncronizer():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(priority_syncronizer())
+        asyncio.run(priority_synchronizer())
     except Exception:
         logging.exception("❌ Priority Syncronizer failed to start.")
         sys.exit(1)

@@ -32,13 +32,13 @@ def load_config_from_env():
             "dbport": int(os.environ["POSTGRES_PORT"]),
             "torhost": str(os.environ["TORPROXY_HOST"]),
             "torport": int(os.environ["TORPROXY_PORT"]),
-            "num_cores": int(os.environ["SYNCRONIZER_NUM_CORES"]),
-            "requests_per_core": int(os.environ["SYNCRONIZER_REQUESTS_PER_CORE"]),
-            "timeout": int(os.environ["SYNCRONIZER_REQUEST_TIMEOUT"]),
-            "start": int(os.environ["SYNCTONIZER_START_TIMESTAMP"]),
-            "stop": int(os.environ["SYNCRONIZER_STOP_TIMESTAMP"]),
-            "filter": json.loads(os.environ["SYNCRONIZER_EVENT_FILTER"]),
-            "priority": str(os.environ.get("SYNCRONIZER_PRIORITY_RELAYS_FILEPATH"))
+            "num_cores": int(os.environ["SYNCHRONIZER_NUM_CORES"]),
+            "requests_per_core": int(os.environ["SYNCHRONIZER_REQUESTS_PER_CORE"]),
+            "timeout": int(os.environ["SYNCHRONIZER_REQUEST_TIMEOUT"]),
+            "start": int(os.environ["SYNCHRONIZER_START_TIMESTAMP"]),
+            "stop": int(os.environ["SYNCHRONIZER_STOP_TIMESTAMP"]),
+            "filter": json.loads(os.environ["SYNCHRONIZER_EVENT_FILTER"]),
+            "priority": str(os.environ.get("SYNCHRONIZER_PRIORITY_RELAYS_FILEPATH"))
         }
         if config["dbport"] < 0 or config["dbport"] > 65535:
             logging.error(
@@ -50,37 +50,37 @@ def load_config_from_env():
             sys.exit(1)
         if config["num_cores"] < 1:
             logging.error(
-                "❌ Invalid SYNCRONIZER_NUM_CORES. Must be at least 1.")
+                "❌ Invalid SYNCHRONIZER_NUM_CORES. Must be at least 1.")
             sys.exit(1)
         if config["requests_per_core"] < 1:
             logging.error(
-                "❌ Invalid SYNCRONIZER_REQUESTS_PER_CORE. Must be at least 1.")
+                "❌ Invalid SYNCHRONIZER_REQUESTS_PER_CORE. Must be at least 1.")
             sys.exit(1)
         if config["timeout"] < 1:
             logging.error(
-                "❌ Invalid SYNCRONIZER_REQUEST_TIMEOUT. Must be 1 or greater.")
+                "❌ Invalid SYNCHRONIZER_REQUEST_TIMEOUT. Must be 1 or greater.")
             sys.exit(1)
         if config["start"] < 0:
             logging.error(
-                "❌ Invalid SYNCTONIZER_START_TIMESTAMP. Must be 0 or greater.")
+                "❌ Invalid SYNCHRONIZER_START_TIMESTAMP. Must be 0 or greater.")
             sys.exit(1)
         if config["stop"] != -1 and config["stop"] < 0:
             logging.error(
-                "❌ Invalid SYNCRONIZER_STOP_TIMESTAMP. Must be 0 or greater.")
+                "❌ Invalid SYNCHRONIZER_STOP_TIMESTAMP. Must be 0 or greater.")
             sys.exit(1)
         if config["stop"] != -1 and config["start"] > config["stop"]:
             logging.error(
-                "❌ SYNCTONIZER_START_TIMESTAMP cannot be greater than SYNCRONIZER_STOP_TIMESTAMP.")
+                "❌ SYNCHRONIZER_START_TIMESTAMP cannot be greater than SYNCHRONIZER_STOP_TIMESTAMP.")
             sys.exit(1)
         if config["num_cores"] > cpu_count():
             logging.warning(
-                f"⚠️ SYNCRONIZER_NUM_CORES exceeds available CPU cores ({cpu_count()}).")
+                f"⚠️ SYNCHRONIZER_NUM_CORES exceeds available CPU cores ({cpu_count()}).")
             config["num_cores"] = cpu_count()
             logging.info(
-                f"🔄 SYNCRONIZER_NUM_CORES set to {config['num_cores']} (max available).")
+                f"🔄 SYNCHRONIZER_NUM_CORES set to {config['num_cores']} (max available).")
         if not isinstance(config["filter"], dict):
             logging.error(
-                "❌ SYNCRONIZER_EVENT_FILTER must be a valid JSON object.")
+                "❌ SYNCHRONIZER_EVENT_FILTER must be a valid JSON object.")
             sys.exit(1)
         config["filter"] = {k: v for k, v in config["filter"].items(
         ) if k in {"ids", "authors", "kinds"} or re.fullmatch(r"#([a-zA-Z])", k)}
@@ -233,7 +233,7 @@ async def main_loop(config):
 
 
 # --- Syncronizer Entrypoint ---
-async def syncronizer():
+async def synchronizer():
     config = load_config_from_env()
     logging.info("🔄 Starting Syncronizer...")
     await wait_for_services(config)
@@ -250,7 +250,7 @@ async def syncronizer():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(syncronizer())
+        asyncio.run(synchronizer())
     except Exception:
         logging.exception("❌ Syncronizer failed to start.")
         sys.exit(1)

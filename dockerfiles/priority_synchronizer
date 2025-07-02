@@ -28,4 +28,4 @@ WORKDIR /app
 COPY --from=build /install /usr/local
 COPY ../src /app
 
-CMD ["python", "priority_syncronizer.py"]
+CMD ["python", "priority_synchronizer.py"]
