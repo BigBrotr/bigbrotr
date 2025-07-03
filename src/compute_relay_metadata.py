@@ -33,7 +33,7 @@ def parse_nip11_response(nip11_response):
         'icon': nip11_response.get('icon'),
         'pubkey': nip11_response.get('pubkey'),
         'contact': nip11_response.get('contact'),
-        'supports_nips': nip11_response.get('supported_nips'),
+        'supported_nips': nip11_response.get('supported_nips'),
         'software': nip11_response.get('software'),
         'version': nip11_response.get('version'),
         'privacy_policy': nip11_response.get('privacy_policy'),
@@ -50,11 +50,11 @@ def parse_nip11_response(nip11_response):
     for key in ['name', 'description', 'banner', 'icon', 'pubkey', 'contact', 'software', 'version', 'privacy_policy', 'terms_of_service']:
         if not (isinstance(nip11_response[key], str) or nip11_response[key] is None):
             nip11_response[key] = None
-    if not isinstance(nip11_response['supports_nips'], list):
-        nip11_response['supports_nips'] = None
+    if not isinstance(nip11_response['supported_nips'], list):
+        nip11_response['supported_nips'] = None
     else:
-        nip11_response['supports_nips'] = [
-            nip for nip in nip11_response['supports_nips'] if isinstance(nip, (int, str))]
+        nip11_response['supported_nips'] = [
+            nip for nip in nip11_response['supported_nips'] if isinstance(nip, (int, str))]
     for key in ['limitation', 'extra_fields']:
         if not isinstance(nip11_response[key], dict):
             nip11_response[key] = None
