@@ -1,9 +1,6 @@
 import psycopg2
 from typing import Tuple, Optional
-from event import Event
-from relay import Relay
-from relay_metadata import RelayMetadata
-from utils import sanitize
+from nostr_tools import Event, Relay, RelayMetadata, sanitize
 import json
 import time
 
@@ -403,35 +400,42 @@ class Bigbrotr:
             raise TypeError(
                 f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
         relay_inserted_at = relay_metadata.generated_at
+
+        # Extract NIP-11 and NIP-66 data
+        nip11 = relay_metadata.nip11
+        nip66 = relay_metadata.nip66
+
+        # Determine connection and NIP-11 success based on data availability
+        connection_success = nip66 is not None and nip66.openable
+        nip11_success = nip11 is not None
+
         query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
         args = (
             sanitize(relay_metadata.relay.url),
             relay_metadata.relay.network,
             relay_inserted_at,
             relay_metadata.generated_at,
-            relay_metadata.connection_success,
-            relay_metadata.nip11_success,
-            relay_metadata.openable,
-            relay_metadata.readable,
-            relay_metadata.writable,
-            relay_metadata.rtt_open,
-            relay_metadata.rtt_read,
-            relay_metadata.rtt_write,
-            sanitize(relay_metadata.name),
-            sanitize(relay_metadata.description),
-            sanitize(relay_metadata.banner),
-            sanitize(relay_metadata.icon),
-            sanitize(relay_metadata.pubkey),
-            sanitize(relay_metadata.contact),
-            json.dumps(sanitize(relay_metadata.supported_nips)),
-            sanitize(relay_metadata.software),
-            sanitize(relay_metadata.version),
-            sanitize(relay_metadata.privacy_policy),
-            sanitize(relay_metadata.terms_of_service),
-            json.dumps(sanitize(relay_metadata.limitation)
-                       ) if relay_metadata.limitation is not None else None,
-            json.dumps(sanitize(relay_metadata.extra_fields)
-                       ) if relay_metadata.extra_fields is not None else None
+            connection_success,
+            nip11_success,
+            nip66.openable if nip66 else None,
+            nip66.readable if nip66 else None,
+            nip66.writable if nip66 else None,
+            nip66.rtt_open if nip66 else None,
+            nip66.rtt_read if nip66 else None,
+            nip66.rtt_write if nip66 else None,
+            sanitize(nip11.name) if nip11 else None,
+            sanitize(nip11.description) if nip11 else None,
+            sanitize(nip11.banner) if nip11 else None,
+            sanitize(nip11.icon) if nip11 else None,
+            sanitize(nip11.pubkey) if nip11 else None,
+            sanitize(nip11.contact) if nip11 else None,
+            json.dumps(sanitize(nip11.supported_nips)) if nip11 and nip11.supported_nips else None,
+            sanitize(nip11.software) if nip11 else None,
+            sanitize(nip11.version) if nip11 else None,
+            sanitize(nip11.privacy_policy) if nip11 else None,
+            sanitize(nip11.terms_of_service) if nip11 else None,
+            json.dumps(sanitize(nip11.limitation)) if nip11 and nip11.limitation else None,
+            json.dumps(sanitize(nip11.extra_fields)) if nip11 and nip11.extra_fields else None
         )
         self.execute(query, args)
         self.commit()
@@ -568,38 +572,39 @@ class Bigbrotr:
                 raise TypeError(
                     f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
         query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
-        args = [
-            (
+        args = []
+        for relay_metadata in relay_metadata_list:
+            nip11 = relay_metadata.nip11
+            nip66 = relay_metadata.nip66
+            connection_success = nip66 is not None and nip66.openable
+            nip11_success = nip11 is not None
+            args.append((
                 sanitize(relay_metadata.relay.url),
                 relay_metadata.relay.network,
                 relay_metadata.generated_at,
                 relay_metadata.generated_at,
-                relay_metadata.connection_success,
-                relay_metadata.nip11_success,
-                relay_metadata.openable,
-                relay_metadata.readable,
-                relay_metadata.writable,
-                relay_metadata.rtt_open,
-                relay_metadata.rtt_read,
-                relay_metadata.rtt_write,
-                sanitize(relay_metadata.name),
-                sanitize(relay_metadata.description),
-                sanitize(relay_metadata.banner),
-                sanitize(relay_metadata.icon),
-                sanitize(relay_metadata.pubkey),
-                sanitize(relay_metadata.contact),
-                json.dumps(sanitize(relay_metadata.supported_nips)),
-                sanitize(relay_metadata.software),
-                sanitize(relay_metadata.version),
-                sanitize(relay_metadata.privacy_policy),
-                sanitize(relay_metadata.terms_of_service),
-                json.dumps(sanitize(relay_metadata.limitation)
-                           ) if relay_metadata.limitation is not None else None,
-                json.dumps(sanitize(relay_metadata.extra_fields)
-                           ) if relay_metadata.extra_fields is not None else None
-            )
-            for relay_metadata in relay_metadata_list
-        ]
+                connection_success,
+                nip11_success,
+                nip66.openable if nip66 else None,
+                nip66.readable if nip66 else None,
+                nip66.writable if nip66 else None,
+                nip66.rtt_open if nip66 else None,
+                nip66.rtt_read if nip66 else None,
+                nip66.rtt_write if nip66 else None,
+                sanitize(nip11.name) if nip11 else None,
+                sanitize(nip11.description) if nip11 else None,
+                sanitize(nip11.banner) if nip11 else None,
+                sanitize(nip11.icon) if nip11 else None,
+                sanitize(nip11.pubkey) if nip11 else None,
+                sanitize(nip11.contact) if nip11 else None,
+                json.dumps(sanitize(nip11.supported_nips)) if nip11 and nip11.supported_nips else None,
+                sanitize(nip11.software) if nip11 else None,
+                sanitize(nip11.version) if nip11 else None,
+                sanitize(nip11.privacy_policy) if nip11 else None,
+                sanitize(nip11.terms_of_service) if nip11 else None,
+                json.dumps(sanitize(nip11.limitation)) if nip11 and nip11.limitation else None,
+                json.dumps(sanitize(nip11.extra_fields)) if nip11 and nip11.extra_fields else None
+            ))
         self.cur.executemany(query, args)
         self.commit()
         return

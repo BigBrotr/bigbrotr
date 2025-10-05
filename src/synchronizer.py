@@ -7,7 +7,7 @@ import random
 import asyncio
 import logging
 import threading
-from relay import Relay
+from nostr_tools import Relay
 from queue import Empty
 from bigbrotr import Bigbrotr
 from process_relay import process_relay, get_start_time

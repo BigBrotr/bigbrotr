@@ -3,7 +3,7 @@ import uuid
 import json
 import asyncio
 import logging
-from event import Event
+from nostr_tools import Event
 from bigbrotr import Bigbrotr
 from aiohttp_socks import ProxyConnector
 from aiohttp import ClientSession, WSMsgType, TCPConnector

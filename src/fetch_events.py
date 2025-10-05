@@ -1,8 +1,7 @@
 import uuid
 import json
 import asyncio
-from event import Event
-from relay import Relay
+from nostr_tools import Event, Relay
 from aiohttp_socks import ProxyConnector
 from aiohttp import ClientSession, WSMsgType, TCPConnector
 

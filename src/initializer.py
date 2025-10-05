@@ -3,7 +3,7 @@ import sys
 import time
 import logging
 from bigbrotr import Bigbrotr
-from relay import Relay
+from nostr_tools import Relay
 from functions import test_database_connection
 
 

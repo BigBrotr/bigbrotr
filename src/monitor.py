@@ -3,9 +3,8 @@ import sys
 import time
 import asyncio
 import logging
-from relay import Relay
+from nostr_tools import Relay, validate_keypair
 from bigbrotr import Bigbrotr
-from utils import test_keypair
 from multiprocessing import Pool, cpu_count
 from compute_relay_metadata import compute_relay_metadata
 from functions import chunkify, test_database_connection, test_torproxy_connection
@@ -60,7 +59,7 @@ def load_config_from_env():
             logging.error(
                 "❌ Invalid MONITOR_REQUESTS_PER_CORE. Must be at least 1.")
             sys.exit(1)
-        if not test_keypair(config["seckey"], config["pubkey"]):
+        if not validate_keypair(config["seckey"], config["pubkey"]):
             logging.error("❌ Invalid SECRET_KEY or PUBLIC_KEY.")
             sys.exit(1)
         if config["timeout"] < 1:

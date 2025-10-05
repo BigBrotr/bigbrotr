@@ -2,4 +2,4 @@
 venv
 data
 dump
-**/__pycache__
+**/__pycache__nostr-tools/
