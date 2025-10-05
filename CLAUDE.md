@@ -26,16 +26,17 @@ Bigbrotr uses a **microservices architecture** with Docker containers coordinati
 
 3. **Monitor** (`src/monitor.py`)
    - Tests relay health and connectivity
-   - Fetches NIP-11 metadata for each relay
+   - Uses `nostr-tools.fetch_relay_metadata()` to get NIP-11 and NIP-66 data
    - Uses multiprocessing with configurable cores and chunk sizes
-   - Runs `compute_relay_metadata()` to test relay capabilities (openable, readable, writable, RTT)
+   - Tests relay capabilities (openable, readable, writable, RTT) via nostr-tools
    - Stores results in `relay_metadata` table with timestamped snapshots
 
 4. **Synchronizer** (`src/synchronizer.py`)
    - Main event archival service
    - Fetches all events from relays with `readable = TRUE`
    - Processes relays in parallel using multiprocessing + threading
-   - Uses `process_relay()` to connect and stream events from each relay
+   - Uses `process_relay()` with custom optimized batching and pagination logic
+   - Validates events using nostr-tools Event class
    - Excludes relays listed in `priority_relays.txt`
 
 5. **Priority Synchronizer** (`src/priority_synchronizer.py`)
@@ -158,8 +159,7 @@ Services are resilient to failures:
 
 ## Code Locations
 
-- Event processing: `src/fetch_events.py` and `src/process_relay.py` (custom WebSocket handling with nostr-tools Event validation)
-- Relay metadata computation: `src/compute_relay_metadata.py` (wraps `nostr-tools.fetch_relay_metadata`)
+- Event processing: `src/process_relay.py` (custom optimized WebSocket handling with nostr-tools Event validation)
 - Utility functions: `src/functions.py` (database/network utilities)
 - Database adapter: `src/bigbrotr.py` (converts nostr-tools objects to PostgreSQL)
 - Service entry points: `src/initializer.py`, `src/finder.py`, `src/monitor.py`, `src/synchronizer.py`, `src/priority_synchronizer.py`

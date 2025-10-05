@@ -3,10 +3,9 @@ import sys
 import time
 import asyncio
 import logging
-from nostr_tools import Relay, validate_keypair
+from nostr_tools import Relay, validate_keypair, Client, fetch_relay_metadata
 from bigbrotr import Bigbrotr
 from multiprocessing import Pool, cpu_count
-from compute_relay_metadata import compute_relay_metadata
 from functions import chunkify, test_database_connection, test_torproxy_connection
 
 
@@ -101,12 +100,15 @@ async def wait_for_services(config, retries=5, delay=30):
 # --- Process Relay Metadata ---
 async def process_relay(config, relay, generated_at):
     socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
-    relay_metadata = await compute_relay_metadata(
-        relay,
-        config["seckey"],
-        config["pubkey"],
-        socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None,
-        timeout=config["timeout"]
+    client = Client(
+        relay=relay,
+        timeout=config["timeout"],
+        socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None
+    )
+    relay_metadata = await fetch_relay_metadata(
+        client=client,
+        private_key=config["seckey"],
+        public_key=config["pubkey"]
     )
     relay_metadata.generated_at = generated_at
     return relay_metadata
@@ -121,7 +123,8 @@ async def process_chunk(chunk, config, generated_at):
         async with semaphore:
             try:
                 relay_metadata = await process_relay(config, relay, generated_at)
-                if relay_metadata.connection_success or relay_metadata.nip11_success:
+                # Check if we got any useful metadata (nip66 or nip11)
+                if relay_metadata and (relay_metadata.nip66 or relay_metadata.nip11):
                     return relay_metadata
             except Exception as e:
                 logging.exception(f"❌ Error processing {relay.url}: {e}")
