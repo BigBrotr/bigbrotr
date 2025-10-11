@@ -74,32 +74,6 @@ def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
         f"❌ Failed to get start time for {relay.url} after {retries} attempts. Last error: {e}")
 
 
-# async def get_max_limit(client, filter):
-#     """
-#     Compute the actual maximum limit supported by the relay.
-#     """
-#     if not isinstance(filter, Filter) or not filter.is_valid or filter.since is None or filter.until is None:
-#         return None
-#     min_created_at = None
-#     first_count = 0
-#     second_count = 0
-#     async with client:
-#         async for event in stream_events(client, filter):
-#             first_count += 1
-#             min_created_at = min(
-#                 min_created_at if min_created_at is not None else event.created_at,
-#                 event.created_at
-#             )
-#         if min_created_at is not None:
-#             filter.until = min_created_at - 1
-#             if filter.is_valid:
-#                 async for event in stream_events(client, filter):
-#                     second_count += 1
-#     if second_count > 0:
-#         return first_count
-#     return None
-
-
 def insert_batch(bigbrotr, batch, relay, seen_at):
     """Insert batch of events into database."""
     event_batch = []
