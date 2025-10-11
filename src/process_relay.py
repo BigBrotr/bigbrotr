@@ -1,7 +1,7 @@
 import time
 import logging
 from bigbrotr import Bigbrotr
-from nostr_tools import Event, Client, Filter, stream_events
+from nostr_tools import Event, Client, Filter
 
 
 logging.basicConfig(
@@ -116,7 +116,48 @@ def insert_batch(bigbrotr, batch, relay, seen_at):
         bigbrotr.insert_event_batch(event_batch, relay, seen_at)
     return len(event_batch)
 
+class RawEventBatch:
+    def __init__(self, since, until, limit):
+        self.since = since
+        self.until = until
+        self.limit = limit
+        self.size = 0
+        self.raw_events = []
+        self.min_created_at = None
+        self.max_created_at = None
 
+    def append(self, raw_event):
+        if not isinstance(raw_event, dict):
+            return
+        created_at = raw_event.get("created_at")
+        if not isinstance(created_at, int) or created_at < 0 or created_at < self.since or created_at > self.until:
+            return
+        if self.size < self.limit:
+            self.raw_events.append(raw_event)
+            self.size += 1
+            if self.min_created_at is None or created_at < self.min_created_at:
+                self.min_created_at = created_at
+            if self.max_created_at is None or created_at > self.max_created_at:
+                self.max_created_at = created_at
+        else:
+            raise OverflowError("Batch limit reached")
+
+    def is_full(self):
+        return self.size >= self.limit
+    
+    def is_empty(self):
+        return self.size == 0
+
+async def process_batch(client, filter):
+    batch = RawEventBatch(filter.since, filter.until, filter.limit)
+    subscription_id = client.subscribe(filter)
+    async for message in client.listen_events(subscription_id):
+        if batch.is_full():
+            break
+        batch.append(message[2])
+    client.unsubscribe(subscription_id)
+    return batch
+    
 async def process_relay(bigbrotr: Bigbrotr, client: Client, filter: Filter):
     # check arguments
     for argument, argument_type in zip([bigbrotr, client, filter], [Bigbrotr, Client, Filter]):
@@ -131,29 +172,50 @@ async def process_relay(bigbrotr: Bigbrotr, client: Client, filter: Filter):
         raise ValueError("client must be disconnected")
     if filter.since is None or filter.until is None:
         raise ValueError("filter must have since and until")
+    if filter.limit is None:
+        raise ValueError("filter must have limit")
     # logic
     async with bigbrotr:
         async with client:
-            old_batch = []
-            batch = []
-            while True:
-                subfilter = Filter.from_dict(filter.to_dict())
-                subscription_id = client.subscribe(subfilter)
-                async for message in client.listen_events(subscription_id):
-                    event_data = message[2]
-                    if isinstance(event_data, dict):
-                        created_at = event_data.get('created_at')
-                        if isinstance(created_at, int) and filter.since <= created_at <= filter.until:
-                            batch.append(event_data)
-                client.unsubscribe(subscription_id)
-                # TODO: implement batching not using max_limit
-                # IDEA: terminate when you find empty batch and so is possible to insert the previous batch
-                if batch:
-                    old_batch = batch
+            until_stack = [filter.until]
+            while until_stack:
+                # fetch [since, until] interval
+                filter.until = until_stack[0]
+                first_batch = await process_batch(client, filter)
+                if first_batch.is_empty():
+                    # no events found -> interval [since, until] done
+                    until_stack.pop(0)
+                    filter.since = filter.until + 1
+                elif filter.since == filter.until:
+                     # events found AND [since, until] is one timestamp interval -> interval [since, until] done
+                    insert_batch(bigbrotr, first_batch.raw_events, client.relay, int(time.time()))
+                    until_stack.pop(0)
+                    filter.since = filter.until + 1
                 else:
-                    insert_batch(bigbrotr, old_batch,
-                                 client.relay, int(time.time()))
-                    old_batch = []
-                    batch = []
-            pass
+                    # events found AND [since, until] is multiple timestamp interval -> fetch [since, first_batch.min_created_at] interval
+                    filter.until = first_batch.min_created_at
+                    second_batch = await process_batch(client, filter)
+                    if second_batch.is_empty() or first_batch.min_created_at != second_batch.max_created_at:
+                        # no events found OR not found first_batch.min_created_at as second_batch.max_created_at -> wrong relay behaviour -> stop processing
+                        logging.warning(f"⚠️ Relay {client.relay.url} returned unexpected results. Stopping processing.")
+                        break
+                    elif second_batch.min_created_at != first_batch.min_created_at:
+                        # found events in [since, first_batch.min_created_at - 1] -> first batch did not fetch all events -> add mid point to stack
+                        mid = (filter.until - filter.since) // 2 + filter.since
+                        until_stack.insert(0, mid)
+                    else:
+                        # found only first_batch.min_created_at events in [since, first_batch.min_created_at] -> fetch [since, first_batch.min_created_at - 1] interval
+                        filter.until = first_batch.min_created_at - 1
+                        filter.limit = 1
+                        third_batch = await process_batch(client, filter)
+                        if third_batch.is_empty():
+                            # no events found -> all events [filter.since, until_stack[0]] fetched -> add fetched events to db
+                            batch = [rew_event for rew_event in first_batch.raw_events if rew_event.created_at != first_batch.min_created_at]
+                            batch.extend(second_batch.raw_events)
+                            insert_batch(bigbrotr, batch, client.relay, int(time.time()))
+                            filter.since = until_stack.pop(0) + 1
+                        else:
+                            # events found -> not all events fetched -> add mid point to stack
+                            mid = (filter.until - filter.since) // 2 + filter.since
+                            until_stack.insert(0, mid)
     return
