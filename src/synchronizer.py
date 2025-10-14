@@ -38,7 +38,7 @@ def load_config_from_env():
             "start": int(os.environ["SYNCHRONIZER_START_TIMESTAMP"]),
             "stop": int(os.environ["SYNCHRONIZER_STOP_TIMESTAMP"]),
             "filter": json.loads(os.environ["SYNCHRONIZER_EVENT_FILTER"]),
-            "priority": str(os.environ.get("SYNCHRONIZER_PRIORITY_RELAYS_FILEPATH"))
+            "priority": str(os.environ.get("SYNCHRONIZER_PRIORITY_RELAYS_PATH"))
         }
         if config["dbport"] < 0 or config["dbport"] > 65535:
             logging.error(

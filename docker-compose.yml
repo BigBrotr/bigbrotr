@@ -124,9 +124,9 @@ services:
       - SYNCHRONIZER_START_TIMESTAMP=${SYNCHRONIZER_START_TIMESTAMP}
       - SYNCHRONIZER_STOP_TIMESTAMP=${SYNCHRONIZER_STOP_TIMESTAMP}
       - SYNCHRONIZER_EVENT_FILTER=${SYNCHRONIZER_EVENT_FILTER}
-      - SYNCHRONIZER_PRIORITY_RELAYS_FILEPATH=priority_relays.txt
+      - SYNCHRONIZER_PRIORITY_RELAYS_PATH=priority_relays.txt
     volumes:
-      - ${SYNCHRONIZER_PRIORITY_RELAYS_FILEPATH}:/app/priority_relays.txt
+      - ${SYNCHRONIZER_PRIORITY_RELAYS_PATH}:/app/priority_relays.txt
     depends_on:
       - database
       - torproxy
@@ -153,9 +153,9 @@ services:
       - SYNCHRONIZER_START_TIMESTAMP=${SYNCHRONIZER_START_TIMESTAMP}
       - SYNCHRONIZER_STOP_TIMESTAMP=${SYNCHRONIZER_STOP_TIMESTAMP}
       - SYNCHRONIZER_EVENT_FILTER=${SYNCHRONIZER_EVENT_FILTER}
-      - SYNCHRONIZER_PRIORITY_RELAYS_FILEPATH=priority_relays.txt
+      - SYNCHRONIZER_PRIORITY_RELAYS_PATH=priority_relays.txt
     volumes:
-      - ${SYNCHRONIZER_PRIORITY_RELAYS_FILEPATH}:/app/priority_relays.txt
+      - ${SYNCHRONIZER_PRIORITY_RELAYS_PATH}:/app/priority_relays.txt
     depends_on:
       - database
       - torproxy
