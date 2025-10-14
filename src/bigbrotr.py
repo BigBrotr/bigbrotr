@@ -405,24 +405,24 @@ class Bigbrotr:
         nip11 = relay_metadata.nip11
         nip66 = relay_metadata.nip66
 
-        # Determine connection and NIP-11 success based on data availability
-        connection_success = nip66 is not None and nip66.openable
-        nip11_success = nip11 is not None
+        # Determine if nip11/nip66 objects are present (not None)
+        nip66_present = nip66 is not None
+        nip11_present = nip11 is not None
 
-        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
+        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
         args = (
             sanitize(relay_metadata.relay.url),
             relay_metadata.relay.network,
             relay_inserted_at,
             relay_metadata.generated_at,
-            connection_success,
-            nip11_success,
+            nip66_present,
             nip66.openable if nip66 else None,
             nip66.readable if nip66 else None,
             nip66.writable if nip66 else None,
             nip66.rtt_open if nip66 else None,
             nip66.rtt_read if nip66 else None,
             nip66.rtt_write if nip66 else None,
+            nip11_present,
             sanitize(nip11.name) if nip11 else None,
             sanitize(nip11.description) if nip11 else None,
             sanitize(nip11.banner) if nip11 else None,
@@ -571,26 +571,26 @@ class Bigbrotr:
             if not isinstance(relay_metadata, RelayMetadata):
                 raise TypeError(
                     f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
-        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
+        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
         args = []
         for relay_metadata in relay_metadata_list:
             nip11 = relay_metadata.nip11
             nip66 = relay_metadata.nip66
-            connection_success = nip66 is not None and nip66.openable
-            nip11_success = nip11 is not None
+            nip66_present = nip66 is not None
+            nip11_present = nip11 is not None
             args.append((
                 sanitize(relay_metadata.relay.url),
                 relay_metadata.relay.network,
                 relay_metadata.generated_at,
                 relay_metadata.generated_at,
-                connection_success,
-                nip11_success,
+                nip66_present,
                 nip66.openable if nip66 else None,
                 nip66.readable if nip66 else None,
                 nip66.writable if nip66 else None,
                 nip66.rtt_open if nip66 else None,
                 nip66.rtt_read if nip66 else None,
                 nip66.rtt_write if nip66 else None,
+                nip11_present,
                 sanitize(nip11.name) if nip11 else None,
                 sanitize(nip11.description) if nip11 else None,
                 sanitize(nip11.banner) if nip11 else None,
