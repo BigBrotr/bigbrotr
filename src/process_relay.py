@@ -1,7 +1,9 @@
 import time
 import logging
+import asyncio
+from typing import Optional, List, Dict, Any
 from bigbrotr import Bigbrotr
-from nostr_tools import Event, Client, Filter
+from nostr_tools import Event, Client, Filter, Relay
 
 
 logging.basicConfig(
@@ -10,8 +12,73 @@ logging.basicConfig(
 )
 
 
-def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
-    """Get the starting timestamp for event synchronization from database."""
+async def get_start_time_async(
+    default_start_time: int,
+    bigbrotr: Bigbrotr,
+    relay: Relay,
+    retries: int = 5,
+    delay: int = 30
+) -> int:
+    """Get the starting timestamp for event synchronization from database (async version)."""
+    for attempt in range(retries):
+        try:
+            # Get max seen_at for this relay
+            query = """
+                SELECT MAX(seen_at)
+                FROM events_relays
+                WHERE relay_url = $1
+            """
+            result = await bigbrotr.fetchone(query, relay.url)
+            max_seen_at = result[0] if result else None
+
+            if max_seen_at is None:
+                return default_start_time
+
+            # Get event_id for that seen_at
+            query = """
+                SELECT event_id
+                FROM events_relays
+                WHERE relay_url = $1 AND seen_at = $2
+                LIMIT 1
+            """
+            result = await bigbrotr.fetchone(query, relay.url, max_seen_at)
+            event_id = result[0] if result else None
+
+            if event_id is None:
+                return default_start_time
+
+            # Get created_at for that event
+            query = """
+                SELECT created_at
+                FROM events
+                WHERE id = $1
+            """
+            result = await bigbrotr.fetchone(query, event_id)
+            created_at = result[0] if result else None
+
+            if created_at is not None:
+                return created_at + 1
+            return default_start_time
+
+        except Exception as e:
+            logging.warning(
+                f"⚠️ Attempt {attempt + 1}/{retries} failed while getting start time for {relay.url}: {e}")
+            await asyncio.sleep(delay)
+
+    raise RuntimeError(
+        f"❌ Failed to get start time for {relay.url} after {retries} attempts.")
+
+# Keep the old sync version for backwards compatibility
+
+
+def get_start_time(
+    default_start_time: int,
+    bigbrotr: Bigbrotr,
+    relay: Relay,
+    retries: int = 5,
+    delay: int = 30
+) -> int:
+    """Get the starting timestamp for event synchronization from database (sync version - deprecated)."""
     def get_max_seen_at():
         query = """
             SELECT MAX(seen_at)
@@ -71,12 +138,17 @@ def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
 
     bigbrotr.close()
     raise RuntimeError(
-        f"❌ Failed to get start time for {relay.url} after {retries} attempts. Last error: {e}")
+        f"❌ Failed to get start time for {relay.url} after {retries} attempts.")
 
 
-def insert_batch(bigbrotr, batch, relay, seen_at):
+async def insert_batch(
+    bigbrotr: Bigbrotr,
+    batch: List[Dict[str, Any]],
+    relay: Relay,
+    seen_at: int
+) -> int:
     """Insert batch of events into database."""
-    event_batch = []
+    event_batch: List[Event] = []
     for event_data in batch:
         try:
             event = Event.from_dict(event_data)
@@ -87,20 +159,24 @@ def insert_batch(bigbrotr, batch, relay, seen_at):
             continue
 
     if event_batch:
-        bigbrotr.insert_event_batch(event_batch, relay, seen_at)
+        await bigbrotr.insert_event_batch(event_batch, relay, seen_at)
     return len(event_batch)
 
-class RawEventBatch:
-    def __init__(self, since, until, limit):
-        self.since = since
-        self.until = until
-        self.limit = limit
-        self.size = 0
-        self.raw_events = []
-        self.min_created_at = None
-        self.max_created_at = None
 
-    def append(self, raw_event):
+class RawEventBatch:
+    """Batch container for raw Nostr events."""
+
+    def __init__(self, since: int, until: int, limit: int) -> None:
+        self.since: int = since
+        self.until: int = until
+        self.limit: int = limit
+        self.size: int = 0
+        self.raw_events: List[Dict[str, Any]] = []
+        self.min_created_at: Optional[int] = None
+        self.max_created_at: Optional[int] = None
+
+    def append(self, raw_event: Dict[str, Any]) -> None:
+        """Append a raw event to the batch."""
         if not isinstance(raw_event, dict):
             return
         created_at = raw_event.get("created_at")
@@ -116,13 +192,17 @@ class RawEventBatch:
         else:
             raise OverflowError("Batch limit reached")
 
-    def is_full(self):
+    def is_full(self) -> bool:
+        """Check if batch is full."""
         return self.size >= self.limit
-    
-    def is_empty(self):
+
+    def is_empty(self) -> bool:
+        """Check if batch is empty."""
         return self.size == 0
 
-async def process_batch(client, filter):
+
+async def process_batch(client: Client, filter: Filter) -> RawEventBatch:
+    """Process a batch of events from a relay."""
     batch = RawEventBatch(filter.since, filter.until, filter.limit)
     subscription_id = client.subscribe(filter)
     async for message in client.listen_events(subscription_id):
@@ -131,8 +211,10 @@ async def process_batch(client, filter):
         batch.append(message[2])
     client.unsubscribe(subscription_id)
     return batch
-    
-async def process_relay(bigbrotr: Bigbrotr, client: Client, filter: Filter):
+
+
+async def process_relay(bigbrotr: Bigbrotr, client: Client, filter: Filter) -> None:
+    """Process relay events and insert them into the database."""
     # check arguments
     for argument, argument_type in zip([bigbrotr, client, filter], [Bigbrotr, Client, Filter]):
         if not isinstance(argument, argument_type):
@@ -141,9 +223,9 @@ async def process_relay(bigbrotr: Bigbrotr, client: Client, filter: Filter):
         if not argument.is_valid:
             raise ValueError(f"{argument} must be valid")
     if bigbrotr.is_connected:
-        raise ValueError("bigbrotr must be disconnected")
+        raise ValueError("bigbrotr must be disconnected before calling process_relay")
     if client.is_connected:
-        raise ValueError("client must be disconnected")
+        raise ValueError("client must be disconnected before calling process_relay")
     if filter.since is None or filter.until is None:
         raise ValueError("filter must have since and until")
     if filter.limit is None:
@@ -161,35 +243,47 @@ async def process_relay(bigbrotr: Bigbrotr, client: Client, filter: Filter):
                     until_stack.pop(0)
                     filter.since = filter.until + 1
                 elif filter.since == filter.until:
-                     # events found AND [since, until] is one timestamp interval -> interval [since, until] done
-                    insert_batch(bigbrotr, first_batch.raw_events, client.relay, int(time.time()))
+                    # events found AND [since, until] is one timestamp interval -> interval [since, until] done
+                    await insert_batch(bigbrotr, first_batch.raw_events,
+                                       client.relay, int(time.time()))
                     until_stack.pop(0)
                     filter.since = filter.until + 1
                 else:
-                    # events found AND [since, until] is multiple timestamp interval -> fetch [since, first_batch.min_created_at] interval
+                    # Events found AND [since, until] is multiple timestamp interval
+                    # Fetch [since, first_batch.min_created_at] interval
                     filter.until = first_batch.min_created_at
                     second_batch = await process_batch(client, filter)
-                    if second_batch.is_empty() or first_batch.min_created_at != second_batch.max_created_at:
-                        # no events found OR not found first_batch.min_created_at as second_batch.max_created_at -> wrong relay behaviour -> stop processing
-                        logging.warning(f"⚠️ Relay {client.relay.url} returned unexpected results. Stopping processing.")
+
+                    # Check if relay behaved correctly
+                    batch_min_matches = first_batch.min_created_at == second_batch.max_created_at
+                    if second_batch.is_empty() or not batch_min_matches:
+                        logging.warning(
+                            f"⚠️ Relay {client.relay.url} returned unexpected results. Stopping processing.")
                         break
                     elif second_batch.min_created_at != first_batch.min_created_at:
-                        # found events in [since, first_batch.min_created_at - 1] -> first batch did not fetch all events -> add mid point to stack
+                        # Found events in [since, first_batch.min_created_at - 1]
+                        # First batch did not fetch all events - add mid point to stack
                         mid = (filter.until - filter.since) // 2 + filter.since
                         until_stack.insert(0, mid)
                     else:
-                        # found only first_batch.min_created_at events in [since, first_batch.min_created_at] -> fetch [since, first_batch.min_created_at - 1] interval
+                        # Found only first_batch.min_created_at events
+                        # Fetch [since, first_batch.min_created_at - 1] interval
                         filter.until = first_batch.min_created_at - 1
                         filter.limit = 1
                         third_batch = await process_batch(client, filter)
                         if third_batch.is_empty():
-                            # no events found -> all events [filter.since, until_stack[0]] fetched -> add fetched events to db
-                            batch = [rew_event for rew_event in first_batch.raw_events if rew_event.created_at != first_batch.min_created_at]
+                            # No events found - all events fetched
+                            # Add fetched events to db
+                            batch = [
+                                raw_event for raw_event in first_batch.raw_events
+                                if raw_event.get("created_at") != first_batch.min_created_at
+                            ]
                             batch.extend(second_batch.raw_events)
-                            insert_batch(bigbrotr, batch, client.relay, int(time.time()))
+                            await insert_batch(bigbrotr, batch,
+                                               client.relay, int(time.time()))
                             filter.since = until_stack.pop(0) + 1
                         else:
                             # events found -> not all events fetched -> add mid point to stack
-                            mid = (filter.until - filter.since) // 2 + filter.since
+                            mid = (filter.until - filter.since) // 2 + \
+                                filter.since
                             until_stack.insert(0, mid)
-    return

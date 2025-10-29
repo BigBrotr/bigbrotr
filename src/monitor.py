@@ -1,105 +1,51 @@
-import os
-import sys
-import time
 import asyncio
 import logging
-from nostr_tools import Relay, validate_keypair, Client, fetch_relay_metadata
+import signal
+import time
+from multiprocessing import Pool
+from typing import Dict, Any, List
+
 from bigbrotr import Bigbrotr
-from multiprocessing import Pool, cpu_count
-from functions import chunkify, test_database_connection, test_torproxy_connection
+from nostr_tools import Relay, Client, fetch_relay_metadata, RelayMetadata
+
+from config import load_monitor_config
+from constants import DB_POOL_MIN_SIZE_PER_WORKER, DB_POOL_MAX_SIZE_PER_WORKER, HEALTH_CHECK_PORT
+from functions import chunkify, wait_for_services
+from healthcheck import HealthCheckServer
+from logging_config import setup_logging
+from relay_loader import fetch_relays_needing_metadata
+
+# Setup logging
+setup_logging("MONITOR")
+
+# Global shutdown flag
+shutdown_flag = False
+service_ready = False
 
 
-# --- Logging Config ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
-
-
-# --- Config Loader ---
-def load_config_from_env():
-    try:
-        config = {
-            "dbhost": str(os.environ["POSTGRES_HOST"]),
-            "dbuser": str(os.environ["POSTGRES_USER"]),
-            "dbpass": str(os.environ["POSTGRES_PASSWORD"]),
-            "dbname": str(os.environ["POSTGRES_DB"]),
-            "dbport": int(os.environ["POSTGRES_PORT"]),
-            "torhost": str(os.environ["TORPROXY_HOST"]),
-            "torport": int(os.environ["TORPROXY_PORT"]),
-            "frequency_hour": int(os.environ["MONITOR_FREQUENCY_HOUR"]),
-            "num_cores": int(os.environ["MONITOR_NUM_CORES"]),
-            "chunk_size": int(os.environ["MONITOR_CHUNK_SIZE"]),
-            "requests_per_core": int(os.environ["MONITOR_REQUESTS_PER_CORE"]),
-            "timeout": int(os.environ["MONITOR_REQUEST_TIMEOUT"]),
-            "seckey": str(os.environ["SECRET_KEY"]),
-            "pubkey": str(os.environ["PUBLIC_KEY"]),
-        }
-        if config["dbport"] < 0 or config["dbport"] > 65535:
-            logging.error(
-                "❌ Invalid POSTGRES_PORT. Must be between 0 and 65535.")
-            sys.exit(1)
-        if config["torport"] < 0 or config["torport"] > 65535:
-            logging.error(
-                "❌ Invalid TORPROXY_PORT. Must be between 0 and 65535.")
-            sys.exit(1)
-        if config["frequency_hour"] < 1:
-            logging.error(
-                "❌ Invalid MONITOR_FREQUENCY_HOUR. Must be at least 1.")
-            sys.exit(1)
-        if config["num_cores"] < 1:
-            logging.error("❌ Invalid MONITOR_NUM_CORES. Must be at least 1.")
-            sys.exit(1)
-        if config["chunk_size"] < 1:
-            logging.error("❌ Invalid MONITOR_CHUNK_SIZE. Must be at least 1.")
-            sys.exit(1)
-        if config["requests_per_core"] < 1:
-            logging.error(
-                "❌ Invalid MONITOR_REQUESTS_PER_CORE. Must be at least 1.")
-            sys.exit(1)
-        if not validate_keypair(config["seckey"], config["pubkey"]):
-            logging.error("❌ Invalid SECRET_KEY or PUBLIC_KEY.")
-            sys.exit(1)
-        if config["timeout"] < 1:
-            logging.error(
-                "❌ Invalid MONITOR_REQUEST_TIMEOUT. Must be 1 or greater.")
-            sys.exit(1)
-        if config["num_cores"] > cpu_count():
-            logging.warning(
-                f"⚠️ MONITOR_NUM_CORES exceeds available CPU cores ({cpu_count()}).")
-            config["num_cores"] = cpu_count()
-            logging.info(
-                f"🔄 MONITOR_NUM_CORES set to {config['num_cores']} (max available).")
-    except KeyError as e:
-        logging.error(f"❌ Missing environment variable: {e}")
-        sys.exit(1)
-    except ValueError as e:
-        logging.error(f"❌ Invalid environment variable value: {e}")
-        sys.exit(1)
-    return config
-
-
-# --- Wait for Services (Resilience) ---
-async def wait_for_services(config, retries=5, delay=30):
-    for attempt in range(1, retries + 1):
-        await asyncio.sleep(delay)
-        database_connection = test_database_connection(
-            config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
-        torproxy_connection = await test_torproxy_connection(config["torhost"], config["torport"], timeout=config["timeout"])
-        if database_connection and torproxy_connection:
-            logging.info("✅ All required services are available.")
-            return
-        else:
-            logging.warning(
-                f"⚠️ Attempt {attempt}/{retries} failed. Retrying in {delay} seconds...")
-    raise RuntimeError(
-        "❌ Required services are not available after multiple attempts. Exiting.")
+def signal_handler(signum: int, frame) -> None:
+    """Handle shutdown signals gracefully."""
+    global shutdown_flag
+    signal_name = signal.Signals(signum).name
+    logging.info(f"⚠️ Received {signal_name} signal. Initiating graceful shutdown...")
+    shutdown_flag = True
 
 
 # --- Process Relay Metadata ---
-async def process_relay(config, relay, generated_at):
-    socks5_proxy_url = f"socks5://{config['torhost']}:{config['torport']}"
+async def process_relay(config: Dict[str, Any], relay: Relay, generated_at: int) -> RelayMetadata:
+    """Process a single relay and fetch its metadata.
+
+    Args:
+        config: Configuration dictionary with torproxy settings and keys
+        relay: Relay object to fetch metadata from
+        generated_at: Timestamp for when metadata was generated
+
+    Returns:
+        RelayMetadata object with nip11 and nip66 data
+    """
+    torproxy_host = config.get("torproxy_host")
+    torproxy_port = config.get("torproxy_port")
+    socks5_proxy_url = f"socks5://{torproxy_host}:{torproxy_port}"
     client = Client(
         relay=relay,
         timeout=config["timeout"],
@@ -107,19 +53,27 @@ async def process_relay(config, relay, generated_at):
     )
     relay_metadata = await fetch_relay_metadata(
         client=client,
-        private_key=config["seckey"],
-        public_key=config["pubkey"]
+        private_key=config["secret_key"],
+        public_key=config["public_key"]
     )
     relay_metadata.generated_at = generated_at
     return relay_metadata
 
 
 # --- Process Chunk ---
-async def process_chunk(chunk, config, generated_at):
-    semaphore = asyncio.Semaphore(config["requests_per_core"])
-    relay_metadata_list = []
+async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str, Any], generated_at: int, bigbrotr: Bigbrotr) -> None:
+    """Process a chunk of relays and save their metadata.
 
-    async def sem_task(relay):
+    Args:
+        chunk: List of relays to process
+        config: Configuration dictionary
+        generated_at: Timestamp for metadata generation
+        bigbrotr: Shared database connection (must be connected)
+    """
+    semaphore = asyncio.Semaphore(config["requests_per_core"])
+    relay_metadata_list: List[RelayMetadata] = []
+
+    async def sem_task(relay: Relay) -> RelayMetadata:
         async with semaphore:
             try:
                 relay_metadata = await process_relay(config, relay, generated_at)
@@ -133,64 +87,61 @@ async def process_chunk(chunk, config, generated_at):
     tasks = [sem_task(relay) for relay in chunk]
     results = await asyncio.gather(*tasks)
     relay_metadata_list = [r for r in results if r is not None]
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
-                        config["dbuser"], config["dbpass"], config["dbname"])
-    bigbrotr.connect()
-    bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
-    bigbrotr.close()
+
+    # Use the shared connection instead of creating a new one
+    await bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
+
     logging.info(
         f"✅ Processed {len(chunk)} relays. Found {len(relay_metadata_list)} valid relay metadata.")
-    return
 
 
 # --- Worker Function ---
-def worker(chunk, config, generated_at):
-    async def worker_async(chunk, config, generated_at):
-        return await process_chunk(chunk, config, generated_at)
+def metadata_monitor_worker(chunk: List[Relay], config: Dict[str, Any], generated_at: int) -> None:
+    """Worker function for multiprocessing pool.
+
+    Each worker process creates its own database connection pool
+    to avoid sharing connections across processes.
+
+    Args:
+        chunk: List of relays to process
+        config: Configuration dictionary
+        generated_at: Timestamp for metadata generation
+    """
+    async def worker_async(chunk: List[Relay], config: Dict[str, Any], generated_at: int) -> None:
+        # Create a database connection for this worker process
+        async with Bigbrotr(
+            config["database_host"],
+            config["database_port"],
+            config["database_user"],
+            config["database_password"],
+            config["database_name"],
+            min_pool_size=DB_POOL_MIN_SIZE_PER_WORKER,
+            max_pool_size=DB_POOL_MAX_SIZE_PER_WORKER
+        ) as bigbrotr:
+            return await process_relay_chunk_for_metadata(chunk, config, generated_at, bigbrotr)
+
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    return loop.run_until_complete(worker_async(chunk, config, generated_at))
 
-
-# --- Fetch Relays from Database ---
-def fetch_relays(config):
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
-                        config["dbuser"], config["dbpass"], config["dbname"])
-    bigbrotr.connect()
-    logging.info("📦 Fetching relays from database...")
-    query = f"""
-    SELECT r.url
-    FROM relays r
-    LEFT JOIN (
-        SELECT relay_url, MAX(generated_at) AS last_generated_at
-        FROM relay_metadata
-        GROUP BY relay_url
-    ) rm ON r.url = rm.relay_url
-    WHERE rm.last_generated_at IS NULL
-    OR rm.last_generated_at < %s
-    """
-    threshold = int(time.time()) - 60 * 60 * config["frequency_hour"]
-    bigbrotr.execute(query, (threshold,))
-    rows = bigbrotr.fetchall()
-    bigbrotr.close()
-    relays = []
-    for row in rows:
-        try:
-            relay = Relay(row[0])
-            relays.append(relay)
-        except Exception as e:
-            logging.warning(f"⚠️ Invalid relay: {row[0]}. Error: {e}")
-            continue
-    logging.info(f"📦 {len(relays)} relays fetched from database.")
-    return relays
+    try:
+        return loop.run_until_complete(worker_async(chunk, config, generated_at))
+    finally:
+        # Only close the loop if we created it
+        if loop != asyncio.get_event_loop():
+            try:
+                loop.close()
+            except Exception:
+                # Ignore cleanup errors - don't want to mask other exceptions
+                pass
 
 
 # --- Main Loop ---
-async def main_loop(config):
-    relays = fetch_relays(config)
+async def main_loop(config: Dict[str, Any]) -> None:
+    """Main processing loop for monitoring relays."""
+    relays = await fetch_relays_needing_metadata(config, config["frequency_hour"])
     chunk_size = config["chunk_size"]
     num_cores = config["num_cores"]
     chunks = list(chunkify(relays, chunk_size))
@@ -199,30 +150,63 @@ async def main_loop(config):
     logging.info(
         f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
     with Pool(processes=num_cores) as pool:
-        pool.starmap(worker, args)
+        pool.starmap(metadata_monitor_worker, args)
     logging.info(f"✅ All chunks processed successfully.")
-    return
 
 
 # --- Monitor Entrypoint ---
-async def monitor():
-    config = load_config_from_env()
+async def monitor() -> None:
+    """Monitor service entry point."""
+    global shutdown_flag, service_ready
+
+    config = load_monitor_config()
     logging.info("🔍 Starting monitor...")
-    await wait_for_services(config)
-    while True:
-        try:
-            logging.info("🔄 Starting main loop...")
-            await main_loop(config)
-            logging.info("✅ Main loop completed successfully.")
-            logging.info(f"⏳ Waiting 15 minutes before next run...")
-            await asyncio.sleep(15 * 60)
-        except Exception as e:
-            logging.exception(f"❌ Main loop failed: {e}")
+
+    # Start health check server
+    async def is_ready():
+        return service_ready
+
+    health_server = HealthCheckServer(port=HEALTH_CHECK_PORT, ready_check=is_ready)
+    await health_server.start()
+
+    try:
+        await wait_for_services(config)
+        service_ready = True
+
+        while not shutdown_flag:
+            try:
+                logging.info("🔄 Starting main loop...")
+                await main_loop(config)
+                logging.info("✅ Main loop completed successfully.")
+
+                # Sleep in small intervals to respond quickly to shutdown signals
+                sleep_seconds = config["loop_interval_minutes"] * 60
+                logging.info(f"⏳ Waiting {config['loop_interval_minutes']} minutes before next run...")
+
+                for _ in range(sleep_seconds):
+                    if shutdown_flag:
+                        break
+                    await asyncio.sleep(1)
+
+            except Exception as e:
+                if not shutdown_flag:
+                    logging.exception(f"❌ Main loop failed: {e}")
+
+    finally:
+        await health_server.stop()
+        logging.info("✅ Monitor shutdown complete.")
 
 
 if __name__ == "__main__":
+    # Register signal handlers
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
     try:
         asyncio.run(monitor())
+    except KeyboardInterrupt:
+        logging.info("⚠️ Received keyboard interrupt.")
     except Exception:
+        import sys
         logging.exception("❌ Monitor failed to start.")
         sys.exit(1)
