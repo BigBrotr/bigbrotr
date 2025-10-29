@@ -1,4 +1,54 @@
+# Environment and secrets
 .env
-venv
+docker-compose.override.yml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+.venv
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.pytest_cache/
+.coverage
+.mypy_cache/
+.pytype/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Database and data
 data
 dump
+pgdata/
+postgres-data/
+pgadmin_data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+*.out
+
+# OS specific
+.DS_Store
+._*
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
