@@ -310,6 +310,10 @@ CREATE INDEX IF NOT EXISTS idx_events_relays_relay_url
 CREATE INDEX IF NOT EXISTS idx_events_relays_seen_at
     ON events_relays USING btree (seen_at DESC);
 
+-- Composite index for MAX(seen_at) WHERE relay_url queries (critical for synchronizer)
+CREATE INDEX IF NOT EXISTS idx_events_relays_relay_seen
+    ON events_relays USING btree (relay_url, seen_at DESC);
+
 -- NIP-66 data indexes
 CREATE INDEX IF NOT EXISTS idx_nip66_openable
     ON nip66 USING btree (openable)
@@ -335,6 +339,10 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_nip11_id
 
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_nip66_id
     ON relay_metadata USING btree (nip66_id);
+
+-- Composite index for ROW_NUMBER() OVER (PARTITION BY relay_url ORDER BY generated_at) queries
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_generated
+    ON relay_metadata USING btree (relay_url, generated_at DESC);
 
 -- ============================================================================
 -- DATA INTEGRITY FUNCTIONS
