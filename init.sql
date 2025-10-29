@@ -435,8 +435,16 @@ BEGIN
     VALUES (p_event_id, p_relay_url, p_seen_at)
     ON CONFLICT (event_id, relay_url) DO NOTHING;
 
-EXCEPTION WHEN OTHERS THEN
-    RAISE NOTICE 'insert_event failed for event %: %', p_event_id, SQLERRM;
+EXCEPTION
+    WHEN unique_violation THEN
+        -- OK, duplicate record (idempotent operation)
+        RETURN;
+    WHEN foreign_key_violation THEN
+        -- Critical: relay doesn't exist
+        RAISE EXCEPTION 'Relay % does not exist for event %', p_relay_url, p_event_id;
+    WHEN OTHERS THEN
+        -- Unknown error, fail loudly
+        RAISE EXCEPTION 'insert_event failed for event %: %', p_event_id, SQLERRM;
 END;
 $$;
 
@@ -459,8 +467,13 @@ BEGIN
     VALUES (p_url, p_network, p_inserted_at)
     ON CONFLICT (url) DO NOTHING;
 
-EXCEPTION WHEN OTHERS THEN
-    RAISE NOTICE 'insert_relay failed for %: %', p_url, SQLERRM;
+EXCEPTION
+    WHEN unique_violation THEN
+        -- OK, duplicate relay (idempotent operation)
+        RETURN;
+    WHEN OTHERS THEN
+        -- Unknown error, fail loudly
+        RAISE EXCEPTION 'insert_relay failed for %: %', p_url, SQLERRM;
 END;
 $$;
 
@@ -584,8 +597,16 @@ BEGIN
     VALUES (p_relay_url, p_generated_at, v_nip11_id, v_nip66_id)
     ON CONFLICT (relay_url, generated_at) DO NOTHING;
 
-EXCEPTION WHEN OTHERS THEN
-    RAISE NOTICE 'insert_relay_metadata failed for %: %', p_relay_url, SQLERRM;
+EXCEPTION
+    WHEN unique_violation THEN
+        -- OK, duplicate metadata (idempotent operation)
+        RETURN;
+    WHEN foreign_key_violation THEN
+        -- Critical: relay doesn't exist
+        RAISE EXCEPTION 'Relay % does not exist for metadata insert', p_relay_url;
+    WHEN OTHERS THEN
+        -- Unknown error, fail loudly
+        RAISE EXCEPTION 'insert_relay_metadata failed for %: %', p_relay_url, SQLERRM;
 END;
 $$;
 

@@ -148,9 +148,15 @@ async def main_loop(config: Dict[str, Any]) -> None:
     args = [(chunk, config, generated_at) for chunk in chunks]
     logging.info(
         f"🔄 Processing {len(chunks)} chunks with {num_cores} cores...")
-    with Pool(processes=num_cores) as pool:
+
+    pool = Pool(processes=num_cores)
+    try:
         pool.starmap(metadata_monitor_worker, args)
-    logging.info(f"✅ All chunks processed successfully.")
+        logging.info(f"✅ All chunks processed successfully.")
+    finally:
+        pool.close()
+        pool.terminate()  # Ensure workers are killed
+        pool.join(timeout=30)  # Wait max 30s for cleanup
 
 
 # --- Monitor Entrypoint ---
