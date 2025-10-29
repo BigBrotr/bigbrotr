@@ -83,9 +83,24 @@ def priority_relay_worker_thread(config: Dict[str, Any], shared_queue: Queue, en
             logging.info(f"✅ Completed processing priority relay {relay.url}")
 
         except asyncio.TimeoutError:
-            logging.warning(f"⏰ Timeout while processing {relay.url} (exceeded {relay_timeout}s)")
+            logging.warning(
+                f"⏰ Timeout while processing priority relay (exceeded {relay_timeout}s)",
+                extra={
+                    "relay_url": relay.url,
+                    "relay_network": relay.network,
+                    "operation": "event_sync_priority",
+                    "timeout_seconds": relay_timeout
+                }
+            )
         except Exception as e:
-            logging.exception(f"❌ Error processing {relay.url}: {e}")
+            logging.exception(
+                f"❌ Error processing priority relay: {e}",
+                extra={
+                    "relay_url": relay.url,
+                    "relay_network": relay.network,
+                    "operation": "event_sync_priority"
+                }
+            )
 
     # Create event loop once for this thread
     loop = asyncio.new_event_loop()

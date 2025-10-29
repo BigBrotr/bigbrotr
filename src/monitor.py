@@ -81,7 +81,14 @@ async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str,
                 if relay_metadata and (relay_metadata.nip66 or relay_metadata.nip11):
                     return relay_metadata
             except Exception as e:
-                logging.exception(f"❌ Error processing {relay.url}: {e}")
+                logging.exception(
+                    f"❌ Error processing relay: {e}",
+                    extra={
+                        "relay_url": relay.url,
+                        "relay_network": relay.network,
+                        "operation": "metadata_fetch"
+                    }
+                )
             return None
 
     tasks = [sem_task(relay) for relay in chunk]
