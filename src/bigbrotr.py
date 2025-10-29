@@ -1,84 +1,40 @@
-import psycopg2
-from typing import Tuple, Optional
-from nostr_tools import Event, Relay, RelayMetadata, sanitize
+"""Async database wrapper for Bigbrotr using asyncpg for better performance."""
+import asyncpg
 import json
 import time
+from typing import Optional, List, Any
+from nostr_tools import Event, Relay, RelayMetadata, sanitize
 
 
 class Bigbrotr:
     """
-    Class to connect to and interact with the Bigbrotr database.
+    Async database wrapper for Bigbrotr using asyncpg connection pool.
+
+    This class provides async database operations with connection pooling
+    for better performance in async contexts.
 
     Attributes:
-    - host (str): database host
-    - port (int): database port
-    - user (str): database user
-    - password (str): password for database access
-    - dbname (str): database name
-    - conn (psycopg2.connection): connection to the database
-    - cur (psycopg2.cursor): cursor to execute queries on the database
-
-    Methods:
-    - connect(): establishes connection to the database
-    - close(): closes the connection
-    - commit(): commits the current transaction
-    - execute(query, args): executes an SQL query with optional arguments
-    - fetchall(): retrieves all results from the executed query
-    - fetchone(): retrieves a single result from the query
-    - fetchmany(size): retrieves a specific number of results
-    - delete_orphan_events(): deletes orphan events from the database
-    - insert_event(event, relay, seen_at): inserts a single event into the database
-    - insert_relay(relay, inserted_at): inserts a single relay into the database
-    - insert_relay_metadata(relay_metadata): inserts relay metadata
-    - insert_event_batch(events, relay, seen_at): inserts a batch of events
-    - insert_relay_batch(relays, inserted_at): inserts a batch of relays
-    - insert_relay_metadata_batch(relay_metadata_list): inserts a batch of metadata
-
-    Example:
-    >>> host = "localhost"
-    >>> port = 5432
-    >>> user = "admin"
-    >>> password = "admin"
-    >>> dbname = "bigbrotr"
-    >>> bigbrotr = Bigbrotr(host, port, user, password, dbname)
-    >>> bigbrotr.connect()
-    >>> query = "SELECT * FROM events"
-    >>> bigbrotr.execute(query)
-    >>> results = bigbrotr.fetchall()
-    >>> for row in results:
-    >>>     print(row)
-    >>> bigbrotr.close()
+        host (str): Database host
+        port (int): Database port
+        user (str): Database user
+        password (str): Database password
+        dbname (str): Database name
+        pool (asyncpg.Pool): Connection pool
+        min_pool_size (int): Minimum connections in pool
+        max_pool_size (int): Maximum connections in pool
     """
 
-    def __init__(self, host: str, port: int, user: str, password: str, dbname: str):
-        """
-        Initialize a Bigbrotr object.
-
-        Parameters:
-        - host: str, the host of the database
-        - port: int, the port of the database
-        - user: str, the user of the database
-        - password: str, the password of the database
-        - dbname: str, the name of the database
-
-        Example:
-        >>> host = "localhost"
-        >>> port = 5432
-        >>> user = "admin"
-        >>> password = "admin"
-        >>> dbname = "bigbrotr"
-        >>> bigbrotr = Bigbrotr(host, port, user, password, dbname)
-
-        Returns:
-        - Bigbrotr, a Bigbrotr object
-
-        Raises:
-        - TypeError: if host is not a str
-        - TypeError: if port is not an int
-        - TypeError: if user is not a str
-        - TypeError: if password is not a str
-        - TypeError: if dbname is not a str
-        """
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        user: str,
+        password: str,
+        dbname: str,
+        min_pool_size: int = 5,
+        max_pool_size: int = 20,
+    ):
+        """Initialize Bigbrotr instance with connection parameters."""
         if not isinstance(host, str):
             raise TypeError(f"host must be a str, not {type(host)}")
         if not isinstance(port, int):
@@ -89,226 +45,108 @@ class Bigbrotr:
             raise TypeError(f"password must be a str, not {type(password)}")
         if not isinstance(dbname, str):
             raise TypeError(f"dbname must be a str, not {type(dbname)}")
+
         self.host = host
         self.port = port
         self.user = user
         self.password = password
         self.dbname = dbname
-        self.conn = None
-        self.cur = None
-        return
+        self.min_pool_size = min_pool_size
+        self.max_pool_size = max_pool_size
+        self.pool: Optional[asyncpg.Pool] = None
 
-    def connect(self):
-        """
-        Connect to the database.
+    async def connect(self) -> None:
+        """Create connection pool."""
+        if self.pool is not None:
+            return
 
-        Example:
-        >>> bigbrotr.connect()
-
-        Returns:
-        - None
-
-        Raises:
-        - None
-        """
-        self.conn = psycopg2.connect(
+        self.pool = await asyncpg.create_pool(
             host=self.host,
             port=self.port,
             user=self.user,
             password=self.password,
-            dbname=self.dbname
+            database=self.dbname,
+            min_size=self.min_pool_size,
+            max_size=self.max_pool_size,
+            command_timeout=60,
         )
-        self.cur = self.conn.cursor()
-        return
 
-    def close(self):
-        """
-        Close the connection to the database.
+    async def close(self) -> None:
+        """Close connection pool."""
+        if self.pool is not None:
+            await self.pool.close()
+            self.pool = None
 
-        Example:
-        >>> bigbrotr.close()
+    async def __aenter__(self):
+        """Async context manager entry."""
+        await self.connect()
+        return self
 
-        Returns:
-        - None
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.close()
 
-        Raises:
-        - None
-        """
-        self.cur.close()
-        self.conn.close()
-        return
+    @property
+    def is_connected(self) -> bool:
+        """Check if connection pool is active."""
+        return self.pool is not None
 
-    def commit(self):
-        """
-        Commit the transaction.
+    @property
+    def is_valid(self) -> bool:
+        """Check if instance is valid (has required attributes)."""
+        return all([self.host, self.port, self.user, self.password, self.dbname])
 
-        Example:
-        >>> bigbrotr.commit()
-
-        Returns:
-        - None
-
-        Raises:
-        - None
-        """
-        self.conn.commit()
-        return
-
-    def execute(self, query: str, args: Optional[Tuple] = ()):
-        """
-        Execute a query.
-
-        Parameters:
-        - query: str, the query to execute
-        - args: Optional[Tuple], the arguments to pass to the query
-
-        Example:
-        >>> query = "SELECT * FROM events"
-        >>> bigbrotr.execute(query)
-
-        Returns:
-        - None
-
-        Raises:
-        - TypeError: if query is not a str
-        - TypeError: if args is not a tuple
-        """
+    async def execute(self, query: str, *args: Any) -> str:
+        """Execute a query without returning results."""
         if not isinstance(query, str):
             raise TypeError(f"query must be a str, not {type(query)}")
-        if not isinstance(args, tuple):
-            raise TypeError(f"args must be a tuple, not {type(args)}")
-        try:
-            self.cur.execute(query, args)
-        except psycopg2.Error as e:
-            self.conn.rollback()
-            raise RuntimeError(f"Database error: {e}")
-        return
-    
-    def executemany(self, query: str, args: list[Tuple]):
-        """
-        Execute a query with multiple sets of parameters.
+        if self.pool is None:
+            raise RuntimeError(
+                "Connection pool not initialized. Call connect() first.")
 
-        Parameters:
-        - query: str, the query to execute
-        - args: list[Tuple], the list of tuples containing parameters for the query
+        async with self.pool.acquire() as conn:
+            return await conn.execute(query, *args)
 
-        Example:
-        >>> query = "INSERT INTO events (id, pubkey) VALUES (%s, %s)"
-        >>> args = [(1, 'pubkey1'), (2, 'pubkey2')]
-        >>> bigbrotr.executemany(query, args)
-
-        Returns:
-        - None
-
-        Raises:
-        - TypeError: if query is not a str
-        - TypeError: if args is not a list of tuples
-        """
+    async def fetch(self, query: str, *args: Any) -> List[asyncpg.Record]:
+        """Fetch all results from a query."""
         if not isinstance(query, str):
             raise TypeError(f"query must be a str, not {type(query)}")
-        if not isinstance(args, list) or not all(isinstance(arg, tuple) for arg in args):
-            raise TypeError(f"args must be a list of tuples, not {type(args)}")
-        try:
-            self.cur.executemany(query, args)
-        except psycopg2.Error as e:
-            self.conn.rollback()
-            raise RuntimeError(f"Database error: {e}")
-        return
+        if self.pool is None:
+            raise RuntimeError(
+                "Connection pool not initialized. Call connect() first.")
 
-    def fetchall(self):
-        """
-        Fetch all the results of the query.
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(query, *args)
 
-        Example:
-        >>> bigbrotr.fetchall()
+    async def fetchone(self, query: str, *args: Any) -> Optional[asyncpg.Record]:
+        """Fetch one result from a query."""
+        if not isinstance(query, str):
+            raise TypeError(f"query must be a str, not {type(query)}")
+        if self.pool is None:
+            raise RuntimeError(
+                "Connection pool not initialized. Call connect() first.")
 
-        Returns:
-        - List[Tuple], a list of tuples
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(query, *args)
 
-        Raises:
-        - None
-        """
-        return self.cur.fetchall()
-
-    def fetchone(self):
-        """
-        Fetch one result of the query.
-
-        Example:
-        >>> bigbrotr.fetchone()
-
-        Returns:
-        - Tuple, a tuple
-
-        Raises:
-        - None
-        """
-        return self.cur.fetchone()
-
-    def fetchmany(self, size: int):
-        """
-        Fetch many results of the query.
-
-        Parameters:
-        - size: int, the number of results to fetch
-
-        Example:
-        >>> size = 5
-        >>> bigbrotr.fetchmany(size)
-
-        Returns:
-        - List[Tuple], a list of tuples
-
-        Raises:
-        - TypeError: if size is not an int
-        """
-        if not isinstance(size, int):
-            raise TypeError(f"size must be an int, not {type(size)}")
-        return self.cur.fetchmany(size)
-
-    def delete_orphan_events(self):
-        """
-        Delete orphan events from the database.
-
-        Parameters:
-        - None
-
-        Example:
-        >>> bigbrotr.delete_orphan_events()
-
-        Returns:
-        - None
-
-        Raises:
-        - None
-        """
+    async def delete_orphan_events(self) -> None:
+        """Delete orphan events from the database."""
         query = "SELECT delete_orphan_events()"
-        self.execute(query)
-        self.commit()
-        return
+        await self.execute(query)
 
-    def insert_event(self, event: Event, relay: Relay, seen_at: Optional[int] = None) -> None:
-        """
-        Insert an event into the database.
+    async def insert_event(
+        self, event: Event, relay: Relay, seen_at: Optional[int] = None
+    ) -> None:
+        """Insert an event into the database.
 
-        Parameters:
-        - event: Event, the event to insert
-        - relay: Relay, the relay to insert
-        - seen_at: int, the time the event was seen
-
-        Example:
-        >>> event = Event(...)
-        >>> relay = Relay(...)
-        >>> seen_at = 1234567890
-        >>> bigbrotr.insert_event(event, relay, seen_at)
-
-        Returns:
-        - None
+        Args:
+            event: Event to insert
+            relay: Relay where event was seen
+            seen_at: Timestamp when event was seen (defaults to now)
 
         Raises:
-        - TypeError: if event is not an Event
-        - TypeError: if relay is not a Relay
-        - TypeError: if seen_at is not an int
+            TypeError: If parameters have incorrect types
+            ValueError: If seen_at is negative
         """
         if not isinstance(event, Event):
             raise TypeError(f"event must be an Event, not {type(event)}")
@@ -322,9 +160,16 @@ class Bigbrotr:
                     f"seen_at must be a positive int, not {seen_at}")
         else:
             seen_at = int(time.time())
+
         relay_inserted_at = seen_at
-        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)"
-        args = (
+        query = """
+            SELECT insert_event(
+                $1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11
+            )
+        """
+
+        await self.execute(
+            query,
             event.id,
             event.pubkey,
             event.created_at,
@@ -332,31 +177,84 @@ class Bigbrotr:
             json.dumps(event.tags),
             event.content,
             event.sig,
-            sanitize(relay.url),
+            relay.url,
             relay.network,
             relay_inserted_at,
-            seen_at
+            seen_at,
         )
-        self.execute(query, args)
-        self.commit()
-        return
 
-    def insert_relay(self, relay: Relay, inserted_at: Optional[int] = None) -> None:
-        """
-        Insert a relay into the database.
+    async def insert_event_batch(
+        self, events: List[Event], relay: Relay, seen_at: Optional[int] = None
+    ) -> None:
+        """Insert a batch of events efficiently.
 
-        Parameters:
-        - relay: Relay, the relay to insert
-
-        Example:
-        >>> relay = Relay(url="wss://relay.nostr.com")
-        >>> bigbrotr.insert_relay(relay)
-
-        Returns:
-        - None
+        Args:
+            events: List of events to insert
+            relay: Relay where events were seen
+            seen_at: Timestamp when events were seen
 
         Raises:
-        - TypeError: if relay is not a Relay
+            TypeError: If parameters have incorrect types
+            ValueError: If seen_at is negative
+        """
+        if not isinstance(events, list):
+            raise TypeError(f"events must be a list, not {type(events)}")
+        for event in events:
+            if not isinstance(event, Event):
+                raise TypeError(f"event must be an Event, not {type(event)}")
+        if not isinstance(relay, Relay):
+            raise TypeError(f"relay must be a Relay, not {type(relay)}")
+        if seen_at is not None:
+            if not isinstance(seen_at, int):
+                raise TypeError(f"seen_at must be an int, not {type(seen_at)}")
+            if seen_at < 0:
+                raise ValueError(
+                    f"seen_at must be a positive int, not {seen_at}")
+        else:
+            seen_at = int(time.time())
+
+        if not events:
+            return
+
+        relay_inserted_at = seen_at
+        query = """
+            SELECT insert_event(
+                $1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11
+            )
+        """
+
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.executemany(
+                    query,
+                    [
+                        (
+                            event.id,
+                            event.pubkey,
+                            event.created_at,
+                            event.kind,
+                            json.dumps(event.tags),
+                            event.content,
+                            event.sig,
+                            relay.url,
+                            relay.network,
+                            relay_inserted_at,
+                            seen_at,
+                        )
+                        for event in events
+                    ],
+                )
+
+    async def insert_relay(self, relay: Relay, inserted_at: Optional[int] = None) -> None:
+        """Insert a relay into the database.
+
+        Args:
+            relay: Relay to insert
+            inserted_at: Timestamp when relay was inserted
+
+        Raises:
+            TypeError: If parameters have incorrect types
+            ValueError: If inserted_at is negative
         """
         if not isinstance(relay, Relay):
             raise TypeError(f"relay must be a Relay, not {type(relay)}")
@@ -369,49 +267,84 @@ class Bigbrotr:
                     f"inserted_at must be a positive int, not {inserted_at}")
         else:
             inserted_at = int(time.time())
-        query = "SELECT insert_relay(%s, %s, %s)"
-        args = (
-            sanitize(relay.url),
-            relay.network,
-            inserted_at
-        )
-        self.execute(query, args)
-        self.commit()
-        return
 
-    def insert_relay_metadata(self, relay_metadata: RelayMetadata) -> None:
-        """
-        Insert a relay metadata into the database.
+        query = "SELECT insert_relay($1, $2, $3)"
+        await self.execute(query, relay.url, relay.network, inserted_at)
 
-        Parameters:
-        - relay_metadata: RelayMetadata, the relay metadata to insert
+    async def insert_relay_batch(
+        self, relays: List[Relay], inserted_at: Optional[int] = None
+    ) -> None:
+        """Insert a batch of relays efficiently.
 
-        Example:
-        >>> relay_metadata = RelayMetadata(...)
-        >>> bigbrotr.insert_relay_metadata(relay_metadata)
-
-        Returns:
-        - None
+        Args:
+            relays: List of relays to insert
+            inserted_at: Timestamp when relays were inserted
 
         Raises:
-        - TypeError: if relay_metadata is not a RelayMetadata
+            TypeError: If parameters have incorrect types
+            ValueError: If inserted_at is negative
+        """
+        if not isinstance(relays, list):
+            raise TypeError(f"relays must be a list, not {type(relays)}")
+        for relay in relays:
+            if not isinstance(relay, Relay):
+                raise TypeError(f"relay must be a Relay, not {type(relay)}")
+        if inserted_at is not None:
+            if not isinstance(inserted_at, int):
+                raise TypeError(
+                    f"inserted_at must be an int, not {type(inserted_at)}")
+            if inserted_at < 0:
+                raise ValueError(
+                    f"inserted_at must be a positive int, not {inserted_at}")
+        else:
+            inserted_at = int(time.time())
+
+        if not relays:
+            return
+
+        query = "SELECT insert_relay($1, $2, $3)"
+
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.executemany(
+                    query,
+                    [(relay.url, relay.network, inserted_at)
+                     for relay in relays],
+                )
+
+    async def insert_relay_metadata(self, relay_metadata: RelayMetadata) -> None:
+        """Insert relay metadata into the database.
+
+        Args:
+            relay_metadata: RelayMetadata to insert
+
+        Raises:
+            TypeError: If relay_metadata is not a RelayMetadata instance
         """
         if not isinstance(relay_metadata, RelayMetadata):
             raise TypeError(
-                f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
-        relay_inserted_at = relay_metadata.generated_at
+                f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}"
+            )
 
-        # Extract NIP-11 and NIP-66 data
+        relay_inserted_at = relay_metadata.generated_at
         nip11 = relay_metadata.nip11
         nip66 = relay_metadata.nip66
 
-        # Determine if nip11/nip66 objects are present (not None)
+        # Determine if NIP-11 and NIP-66 objects are present (matches new schema)
         nip66_present = nip66 is not None
         nip11_present = nip11 is not None
 
-        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
-        args = (
-            sanitize(relay_metadata.relay.url),
+        query = """
+            SELECT insert_relay_metadata(
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                $13, $14, $15, $16, $17, $18, $19::jsonb, $20, $21,
+                $22, $23, $24::jsonb, $25::jsonb
+            )
+        """
+
+        await self.execute(
+            query,
+            relay_metadata.relay.url,
             relay_metadata.relay.network,
             relay_inserted_at,
             relay_metadata.generated_at,
@@ -429,182 +362,93 @@ class Bigbrotr:
             sanitize(nip11.icon) if nip11 else None,
             sanitize(nip11.pubkey) if nip11 else None,
             sanitize(nip11.contact) if nip11 else None,
-            json.dumps(sanitize(nip11.supported_nips)) if nip11 and nip11.supported_nips else None,
+            json.dumps(sanitize(nip11.supported_nips)
+                       ) if nip11 and nip11.supported_nips else None,
             sanitize(nip11.software) if nip11 else None,
             sanitize(nip11.version) if nip11 else None,
             sanitize(nip11.privacy_policy) if nip11 else None,
             sanitize(nip11.terms_of_service) if nip11 else None,
-            json.dumps(sanitize(nip11.limitation)) if nip11 and nip11.limitation else None,
-            json.dumps(sanitize(nip11.extra_fields)) if nip11 and nip11.extra_fields else None
+            json.dumps(sanitize(nip11.limitation)
+                       ) if nip11 and nip11.limitation else None,
+            json.dumps(sanitize(nip11.extra_fields)
+                       ) if nip11 and nip11.extra_fields else None,
         )
-        self.execute(query, args)
-        self.commit()
-        return
 
-    def insert_event_batch(self, events: list[Event], relay: Relay, seen_at: Optional[int] = None) -> None:
-        """
-        Insert a batch of events into the database.
+    async def insert_relay_metadata_batch(
+        self, relay_metadata_list: List[RelayMetadata]
+    ) -> None:
+        """Insert a batch of relay metadata efficiently.
 
-        Parameters:
-        - events: list[Event], the events to insert
-        - relay: Relay, the relay to insert
-        - seen_at: int, the time the event was seen
-
-        Example:
-        >>> events = [Event(...), Event(...)]
-        >>> relay = Relay(...)
-        >>> seen_at = 1234567890
-        >>> bigbrotr.insert_event_batch(events, relay, seen_at)
-
-        Returns:
-        - None
+        Args:
+            relay_metadata_list: List of RelayMetadata to insert
 
         Raises:
-        - TypeError: if events is not a list of Event
-        - TypeError: if relay is not a Relay
-        - TypeError: if seen_at is not an int
-        """
-        if not isinstance(events, list):
-            raise TypeError(f"events must be a list, not {type(events)}")
-        for event in events:
-            if not isinstance(event, Event):
-                raise TypeError(
-                    f"event must be an Event, not {type(event)}")
-        if not isinstance(relay, Relay):
-            raise TypeError(f"relay must be a Relay, not {type(relay)}")
-        if seen_at is not None:
-            if not isinstance(seen_at, int):
-                raise TypeError(f"seen_at must be an int, not {type(seen_at)}")
-            if seen_at < 0:
-                raise ValueError(
-                    f"seen_at must be a positive int, not {seen_at}")
-        else:
-            seen_at = int(time.time())
-        relay_inserted_at = seen_at
-        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)"
-        args = [
-            (
-                event.id,
-                event.pubkey,
-                event.created_at,
-                event.kind,
-                json.dumps(event.tags),
-                event.content,
-                event.sig,
-                sanitize(relay.url),
-                relay.network,
-                relay_inserted_at,
-                seen_at
-            )
-            for event in events
-        ]
-        self.cur.executemany(query, args)
-        self.commit()
-        return
-
-    def insert_relay_batch(self, relays: list[Relay], inserted_at: Optional[int] = None) -> None:
-        """
-        Insert a batch of relays into the database.
-
-        Parameters:
-        - relays: list[Relay], the relays to insert
-
-        Example:
-        >>> relays = [Relay(url="wss://relay1.com"), Relay(url="wss://relay2.com")]
-        >>> bigbrotr.insert_relay_batch(relays)
-
-        Returns:
-        - None
-
-        Raises:
-        - TypeError: if relays is not a list of Relay
-        """
-        if not isinstance(relays, list):
-            raise TypeError(f"relays must be a list, not {type(relays)}")
-        for relay in relays:
-            if not isinstance(relay, Relay):
-                raise TypeError(
-                    f"relay must be a Relay, not {type(relay)}")
-        if inserted_at is not None:
-            if not isinstance(inserted_at, int):
-                raise TypeError(
-                    f"inserted_at must be an int, not {type(inserted_at)}")
-            if inserted_at < 0:
-                raise ValueError(
-                    f"inserted_at must be a positive int, not {inserted_at}")
-        else:
-            inserted_at = int(time.time())
-        query = "SELECT insert_relay(%s, %s, %s)"
-        args = [
-            (
-                sanitize(relay.url),
-                relay.network,
-                inserted_at
-            )
-            for relay in relays
-        ]
-        self.cur.executemany(query, args)
-        self.commit()
-        return
-
-    def insert_relay_metadata_batch(self, relay_metadata_list: list[RelayMetadata]) -> None:
-        """
-        Insert a batch of relay metadata into the database.
-
-        Parameters:
-        - relay_metadata_list: list[RelayMetadata], the relay metadata to insert
-
-        Example:
-        >>> relay_metadata_list = [RelayMetadata(...), RelayMetadata(...)]
-        >>> bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
-
-        Returns:
-        - None
-
-        Raises:
-        - TypeError: if relay_metadata_list is not a list of RelayMetadata
+            TypeError: If relay_metadata_list is not a list of RelayMetadata
         """
         if not isinstance(relay_metadata_list, list):
             raise TypeError(
-                f"relay_metadata_list must be a list, not {type(relay_metadata_list)}")
+                f"relay_metadata_list must be a list, not {type(relay_metadata_list)}"
+            )
         for relay_metadata in relay_metadata_list:
             if not isinstance(relay_metadata, RelayMetadata):
                 raise TypeError(
-                    f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}")
-        query = "SELECT insert_relay_metadata(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb)"
+                    f"relay_metadata must be a RelayMetadata, not {type(relay_metadata)}"
+                )
+
+        if not relay_metadata_list:
+            return
+
+        query = """
+            SELECT insert_relay_metadata(
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                $13, $14, $15, $16, $17, $18, $19::jsonb, $20, $21,
+                $22, $23, $24::jsonb, $25::jsonb
+            )
+        """
+
         args = []
         for relay_metadata in relay_metadata_list:
             nip11 = relay_metadata.nip11
             nip66 = relay_metadata.nip66
+            # Determine if NIP-11 and NIP-66 objects are present (matches new schema)
             nip66_present = nip66 is not None
             nip11_present = nip11 is not None
-            args.append((
-                sanitize(relay_metadata.relay.url),
-                relay_metadata.relay.network,
-                relay_metadata.generated_at,
-                relay_metadata.generated_at,
-                nip66_present,
-                nip66.openable if nip66 else None,
-                nip66.readable if nip66 else None,
-                nip66.writable if nip66 else None,
-                nip66.rtt_open if nip66 else None,
-                nip66.rtt_read if nip66 else None,
-                nip66.rtt_write if nip66 else None,
-                nip11_present,
-                sanitize(nip11.name) if nip11 else None,
-                sanitize(nip11.description) if nip11 else None,
-                sanitize(nip11.banner) if nip11 else None,
-                sanitize(nip11.icon) if nip11 else None,
-                sanitize(nip11.pubkey) if nip11 else None,
-                sanitize(nip11.contact) if nip11 else None,
-                json.dumps(sanitize(nip11.supported_nips)) if nip11 and nip11.supported_nips else None,
-                sanitize(nip11.software) if nip11 else None,
-                sanitize(nip11.version) if nip11 else None,
-                sanitize(nip11.privacy_policy) if nip11 else None,
-                sanitize(nip11.terms_of_service) if nip11 else None,
-                json.dumps(sanitize(nip11.limitation)) if nip11 and nip11.limitation else None,
-                json.dumps(sanitize(nip11.extra_fields)) if nip11 and nip11.extra_fields else None
-            ))
-        self.cur.executemany(query, args)
-        self.commit()
-        return
+
+            args.append(
+                (
+                    relay_metadata.relay.url,
+                    relay_metadata.relay.network,
+                    relay_metadata.generated_at,
+                    relay_metadata.generated_at,
+                    nip66_present,
+                    nip66.openable if nip66 else None,
+                    nip66.readable if nip66 else None,
+                    nip66.writable if nip66 else None,
+                    nip66.rtt_open if nip66 else None,
+                    nip66.rtt_read if nip66 else None,
+                    nip66.rtt_write if nip66 else None,
+                    nip11_present,
+                    sanitize(nip11.name) if nip11 else None,
+                    sanitize(nip11.description) if nip11 else None,
+                    sanitize(nip11.banner) if nip11 else None,
+                    sanitize(nip11.icon) if nip11 else None,
+                    sanitize(nip11.pubkey) if nip11 else None,
+                    sanitize(nip11.contact) if nip11 else None,
+                    json.dumps(sanitize(nip11.supported_nips))
+                    if nip11 and nip11.supported_nips
+                    else None,
+                    sanitize(nip11.software) if nip11 else None,
+                    sanitize(nip11.version) if nip11 else None,
+                    sanitize(nip11.privacy_policy) if nip11 else None,
+                    sanitize(nip11.terms_of_service) if nip11 else None,
+                    json.dumps(sanitize(nip11.limitation)
+                               ) if nip11 and nip11.limitation else None,
+                    json.dumps(sanitize(nip11.extra_fields))
+                    if nip11 and nip11.extra_fields
+                    else None,
+                )
+            )
+
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.executemany(query, args)
