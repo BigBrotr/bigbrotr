@@ -1,5 +1,9 @@
 # ----------- Build Stage -----------
-FROM python:alpine@sha256:a94caf6aab428e086bc398beaf64a6b7a0fad4589573462f52362fd760e64cc9 AS build
+FROM python:3.11-alpine AS build
+
+# Add metadata
+LABEL maintainer="bigbrotr"
+LABEL description="Bigbrotr Priority Synchronizer Service - High-Priority Relay Archival"
 
 # Install build dependencies
 RUN apk add --no-cache \
@@ -10,22 +14,49 @@ RUN apk add --no-cache \
     python3-dev \
     musl-dev
 
-WORKDIR /app
+WORKDIR /build
 
-# Copy files
-COPY ../requirements.txt .
-COPY ../src /app
+# Copy requirements first for better layer caching
+COPY requirements.txt .
 
 # Install dependencies to a temporary location
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ----------- Final Runtime Stage -----------
-FROM python:alpine@sha256:a94caf6aab428e086bc398beaf64a6b7a0fad4589573462f52362fd760e64cc9
+FROM python:3.11-alpine
+
+# Add metadata
+LABEL maintainer="bigbrotr"
+LABEL description="Bigbrotr Priority Synchronizer Service - High-Priority Relay Archival"
+LABEL version="1.0.0"
+
+# Install runtime dependencies (only what's needed)
+RUN apk add --no-cache libffi openssl wget
+
+# Create non-root user
+RUN addgroup -g 1000 bigbrotr && \
+    adduser -D -u 1000 -G bigbrotr bigbrotr
 
 WORKDIR /app
 
-# Install runtime dependencies (from the build stage)
+# Copy Python packages from build stage
 COPY --from=build /install /usr/local
-COPY ../src /app
 
+# Copy application code
+COPY src/ /app/
+
+# Change ownership to non-root user
+RUN chown -R bigbrotr:bigbrotr /app
+
+# Switch to non-root user
+USER bigbrotr
+
+# Expose health check port
+EXPOSE 8080
+
+# Add health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+# Run the application
 CMD ["python", "priority_synchronizer.py"]

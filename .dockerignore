@@ -1,0 +1,46 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Documentation (build from source)
+*.md
+!README.md
+!CLAUDE.md
+
+# Data directories
+data/
+logs/
+*.log
+
+# Environment files (should use docker secrets/env vars)
+.env
+.env.*
+*.env
+
+# PgBouncer runtime files (generated in container)
+userlist.txt
+
+# Temporary/backup files
+*.tmp
+*.bak
+*.backup
+*~
