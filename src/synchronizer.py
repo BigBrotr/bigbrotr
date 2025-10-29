@@ -1,256 +1,234 @@
-import os
-import re
-import sys
-import time
-import json
-import random
 import asyncio
 import logging
+import signal
 import threading
-from nostr_tools import Relay
+import time
+from multiprocessing import Queue, Process
 from queue import Empty
+from typing import Dict, Any, List
+
 from bigbrotr import Bigbrotr
-from process_relay import process_relay, get_start_time
-from multiprocessing import cpu_count, Queue, Process
-from functions import test_database_connection, test_torproxy_connection
+from nostr_tools import Relay, Client, Filter
 
-# --- Logging ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+from config import load_synchronizer_config
+from constants import (
+    DB_POOL_MIN_SIZE_PER_WORKER,
+    DB_POOL_MAX_SIZE_PER_WORKER,
+    HEALTH_CHECK_PORT,
+    RELAY_TIMEOUT_MULTIPLIER,
+    SECONDS_PER_DAY
 )
+from functions import wait_for_services
+from healthcheck import HealthCheckServer
+from logging_config import setup_logging
+from process_relay import get_start_time_async, process_relay
+from relay_loader import fetch_relays_from_database, fetch_relays_from_file
+
+# Setup logging
+setup_logging("SYNCHRONIZER")
+
+# Global shutdown flag
+shutdown_flag = False
+service_ready = False
 
 
-# --- Config Loader ---
-def load_config_from_env():
-    try:
-        config = {
-            "dbhost": str(os.environ["POSTGRES_HOST"]),
-            "dbuser": str(os.environ["POSTGRES_USER"]),
-            "dbpass": str(os.environ["POSTGRES_PASSWORD"]),
-            "dbname": str(os.environ["POSTGRES_DB"]),
-            "dbport": int(os.environ["POSTGRES_PORT"]),
-            "torhost": str(os.environ["TORPROXY_HOST"]),
-            "torport": int(os.environ["TORPROXY_PORT"]),
-            "num_cores": int(os.environ["SYNCHRONIZER_NUM_CORES"]),
-            "requests_per_core": int(os.environ["SYNCHRONIZER_REQUESTS_PER_CORE"]),
-            "timeout": int(os.environ["SYNCHRONIZER_REQUEST_TIMEOUT"]),
-            "start": int(os.environ["SYNCHRONIZER_START_TIMESTAMP"]),
-            "stop": int(os.environ["SYNCHRONIZER_STOP_TIMESTAMP"]),
-            "filter": json.loads(os.environ["SYNCHRONIZER_EVENT_FILTER"]),
-            "priority": str(os.environ.get("SYNCHRONIZER_PRIORITY_RELAYS_PATH"))
-        }
-        if config["dbport"] < 0 or config["dbport"] > 65535:
-            logging.error(
-                "❌ Invalid POSTGRES_PORT. Must be between 0 and 65535.")
-            sys.exit(1)
-        if config["torport"] < 0 or config["torport"] > 65535:
-            logging.error(
-                "❌ Invalid TORPROXY_PORT. Must be between 0 and 65535.")
-            sys.exit(1)
-        if config["num_cores"] < 1:
-            logging.error(
-                "❌ Invalid SYNCHRONIZER_NUM_CORES. Must be at least 1.")
-            sys.exit(1)
-        if config["requests_per_core"] < 1:
-            logging.error(
-                "❌ Invalid SYNCHRONIZER_REQUESTS_PER_CORE. Must be at least 1.")
-            sys.exit(1)
-        if config["timeout"] < 1:
-            logging.error(
-                "❌ Invalid SYNCHRONIZER_REQUEST_TIMEOUT. Must be 1 or greater.")
-            sys.exit(1)
-        if config["start"] < 0:
-            logging.error(
-                "❌ Invalid SYNCHRONIZER_START_TIMESTAMP. Must be 0 or greater.")
-            sys.exit(1)
-        if config["stop"] != -1 and config["stop"] < 0:
-            logging.error(
-                "❌ Invalid SYNCHRONIZER_STOP_TIMESTAMP. Must be 0 or greater.")
-            sys.exit(1)
-        if config["stop"] != -1 and config["start"] > config["stop"]:
-            logging.error(
-                "❌ SYNCHRONIZER_START_TIMESTAMP cannot be greater than SYNCHRONIZER_STOP_TIMESTAMP.")
-            sys.exit(1)
-        if config["num_cores"] > cpu_count():
-            logging.warning(
-                f"⚠️ SYNCHRONIZER_NUM_CORES exceeds available CPU cores ({cpu_count()}).")
-            config["num_cores"] = cpu_count()
-            logging.info(
-                f"🔄 SYNCHRONIZER_NUM_CORES set to {config['num_cores']} (max available).")
-        if not isinstance(config["filter"], dict):
-            logging.error(
-                "❌ SYNCHRONIZER_EVENT_FILTER must be a valid JSON object.")
-            sys.exit(1)
-        config["filter"] = {k: v for k, v in config["filter"].items(
-        ) if k in {"ids", "authors", "kinds"} or re.fullmatch(r"#([a-zA-Z])", k)}
-    except KeyError as e:
-        logging.error(f"❌ Missing environment variable: {e}")
-        sys.exit(1)
-    except ValueError as e:
-        logging.error(f"❌ Invalid environment variable value: {e}")
-        sys.exit(1)
-    return config
-
-
-# --- Wait for Services (Resilience) ---
-async def wait_for_services(config, retries=5, delay=30):
-    for attempt in range(1, retries + 1):
-        await asyncio.sleep(delay)
-        database_connection = test_database_connection(
-            config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
-        torproxy_connection = await test_torproxy_connection(config["torhost"], config["torport"], timeout=config["timeout"])
-        if database_connection and torproxy_connection:
-            logging.info("✅ All required services are available.")
-            return
-        else:
-            logging.warning(
-                f"⚠️ Attempt {attempt}/{retries} failed. Retrying in {delay} seconds...")
-    raise RuntimeError(
-        "❌ Required services are not available after multiple attempts. Exiting.")
-
-
-# --- Fetch Relays from Database ---
-def fetch_relays_from_database(host, port, user, password, dbname):
-    bigbrotr = Bigbrotr(host, port, user, password, dbname)
-    bigbrotr.connect()
-    logging.info("📦 Fetching relay metadata from database...")
-    query = """
-        SELECT relay_url
-        FROM relay_metadata rm
-        WHERE generated_at = (
-            SELECT MAX(generated_at)
-            FROM relay_metadata
-            WHERE relay_url = rm.relay_url
-        )
-        AND generated_at > %s
-        AND readable = TRUE
-    """
-    treshold = int(time.time()) - 60 * 60 * 12
-    bigbrotr.execute(query, (treshold,))
-    rows = bigbrotr.fetchall()
-    bigbrotr.close()
-    relays = []
-    for row in rows:
-        relay_url = row[0].strip()
-        try:
-            relay = Relay(relay_url)
-            relays.append(relay)
-        except Exception as e:
-            logging.warning(f"⚠️ Invalid relay: {relay_url}. Error: {e}")
-            continue
-    logging.info(f"📦 {len(relays)} relay fetched from database.")
-    random.shuffle(relays)
-    return relays
-
-
-# --- Fetch Relays from File ---
-def fetch_relays_from_filepath(filepath):
-    relays = []
-    with open(filepath, "r") as file:
-        for line in file:
-            relay_url = line.strip()
-            try:
-                relay = Relay(relay_url)
-                relays.append(relay)
-            except Exception as e:
-                logging.warning(f"⚠️ Invalid relay: {relay_url}. Error: {e}")
-                continue
-    logging.info(f"📦 {len(relays)} relay fetched from file.")
-    random.shuffle(relays)
-    return relays
+def signal_handler(signum: int, frame) -> None:
+    """Handle shutdown signals gracefully."""
+    global shutdown_flag
+    signal_name = signal.Signals(signum).name
+    logging.info(f"⚠️ Received {signal_name} signal. Initiating graceful shutdown...")
+    shutdown_flag = True
 
 
 # --- Thread Function ---
-def thread_foo(config, shared_queue, end_time):
-    async def run_with_timeout(config, relay, end_time):
+def relay_worker_thread(config: Dict[str, Any], shared_queue: Queue, end_time: int) -> None:
+    """Worker thread that processes relays from queue.
+
+    Creates one database connection pool and one event loop per thread,
+    reusing them across all relays processed by this thread.
+    """
+    async def run_with_timeout(bigbrotr: Bigbrotr, relay: Relay, end_time: int) -> None:
+        """Process a single relay with timeout."""
         try:
-            await asyncio.sleep(random.randint(0, 120))
-            bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
-            start_time = get_start_time(config["start"], bigbrotr, relay)
-            await asyncio.wait_for(
-                process_relay(config, relay, bigbrotr, start_time, end_time),
-                timeout=60 * 30
+            # Get start time from database
+            start_time = await get_start_time_async(config["start_timestamp"], bigbrotr, relay)
+
+            # Create client with Tor proxy if needed
+            socks5_proxy_url = f"socks5://{config['torproxy_host']}:{config['torproxy_port']}"
+            client = Client(
+                relay=relay,
+                timeout=config["timeout"],
+                socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None
             )
+
+            # Create filter based on config
+            filter_dict = config["event_filter"].copy()
+            filter_dict["since"] = start_time
+            filter_dict["until"] = end_time
+            filter_dict["limit"] = config["batch_size"]
+
+            event_filter = Filter(**filter_dict)
+
+            # Process relay events with timeout
+            logging.info(
+                f"🔄 Processing relay {relay.url} from {start_time} to {end_time}")
+
+            # Set a timeout for the entire relay processing
+            relay_timeout = config["timeout"] * RELAY_TIMEOUT_MULTIPLIER
+            await asyncio.wait_for(
+                process_relay(bigbrotr, client, event_filter),
+                timeout=relay_timeout
+            )
+
+            logging.info(f"✅ Completed processing relay {relay.url}")
+
         except asyncio.TimeoutError:
-            logging.warning(f"⏰ Timeout while processing {relay.url}")
+            logging.warning(f"⏰ Timeout while processing {relay.url} (exceeded {relay_timeout}s)")
         except Exception as e:
             logging.exception(f"❌ Error processing {relay.url}: {e}")
-    while True:
-        try:
-            relay = shared_queue.get(timeout=1)
-        except Empty:
-            break
-        except Exception as e:
-            logging.exception(f"❌ Error reading from shared queue: {e}")
-        asyncio.run(run_with_timeout(config, relay, end_time))
-    return
+
+    # Create event loop once for this thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    # Create database connection pool once for this thread
+    bigbrotr = Bigbrotr(
+        config["database_host"],
+        config["database_port"],
+        config["database_user"],
+        config["database_password"],
+        config["database_name"],
+        min_pool_size=DB_POOL_MIN_SIZE_PER_WORKER,
+        max_pool_size=DB_POOL_MAX_SIZE_PER_WORKER
+    )
+
+    try:
+        # Connect database pool
+        loop.run_until_complete(bigbrotr.connect())
+
+        # Process relays from queue
+        while not shutdown_flag:
+            try:
+                relay = shared_queue.get(timeout=1)
+            except Empty:
+                break
+            except Exception as e:
+                logging.exception(f"❌ Error reading from shared queue: {e}")
+                continue
+
+            # Reuse bigbrotr and event loop for each relay
+            loop.run_until_complete(run_with_timeout(bigbrotr, relay, end_time))
+    finally:
+        # Cleanup: close database connection pool and event loop
+        loop.run_until_complete(bigbrotr.close())
+        loop.close()
 
 
 # --- Process Function ---
-def process_foo(config, shared_queue, end_time):
-    request_per_core = config["requests_per_core"]
-    threads = []
+def relay_processor_worker(config: Dict[str, Any], shared_queue: Queue, end_time: int) -> None:
+    """Spawn multiple threads to process relays from queue."""
+    request_per_core: int = config["requests_per_core"]
+    threads: List[threading.Thread] = []
     for _ in range(request_per_core):
         t = threading.Thread(
-            target=thread_foo,
+            target=relay_worker_thread,
             args=(config, shared_queue, end_time)
         )
         t.start()
         threads.append(t)
     for t in threads:
         t.join()
-    return
 
 
 # --- Main Loop ---
-async def main_loop(config):
-    relays = fetch_relays_from_database(
-        config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
-    priority_relays = fetch_relays_from_filepath(config["priority"])
-    priority_relays = [relay.url for relay in priority_relays]
-    num_cores = config["num_cores"]
-    if config["stop"] != -1:
-        end_time = config["stop"]
+async def main_loop(config: Dict[str, Any]) -> None:
+    """Main processing loop for synchronizer."""
+    relays = await fetch_relays_from_database(
+        config,
+        threshold_hours=config["relay_metadata_threshold_hours"],
+        readable_only=True
+    )
+    priority_relays = await fetch_relays_from_file(config["priority_relays_path"])
+    priority_relay_urls: List[str] = [relay.url for relay in priority_relays]
+    num_cores: int = config["num_cores"]
+
+    end_time: int
+    if config["stop_timestamp"] != -1:
+        end_time = config["stop_timestamp"]
     else:
-        end_time = int(time.time()) - 60 * 60 * 24
-    shared_queue = Queue()
+        end_time = int(time.time()) - SECONDS_PER_DAY
+
+    shared_queue: Queue = Queue()
     for relay in relays:
-        if relay.url not in priority_relays:
+        if relay.url not in priority_relay_urls:
             shared_queue.put(relay)
+
     logging.info(f"📦 {shared_queue.qsize()} relays to process.")
-    processes = []
+    processes: List[Process] = []
     for _ in range(num_cores):
         p = Process(
-            target=process_foo,
+            target=relay_processor_worker,
             args=(config, shared_queue, end_time)
         )
         p.start()
         processes.append(p)
     for p in processes:
         p.join()
-    return
 
 
-# --- Syncronizer Entrypoint ---
-async def synchronizer():
-    config = load_config_from_env()
-    logging.info("🔄 Starting Syncronizer...")
-    await wait_for_services(config)
-    while True:
-        try:
-            logging.info("🔄 Starting main loop...")
-            await main_loop(config)
-            logging.info("✅ Main loop completed successfully.")
-            logging.info("⏳ Waiting 15 minutes before next run...")
-            await asyncio.sleep(15 * 60)
-        except Exception as e:
-            logging.exception(f"❌ Main loop failed: {e}")
+# --- Synchronizer Entrypoint ---
+async def synchronizer() -> None:
+    """Synchronizer service entry point."""
+    global shutdown_flag, service_ready
+
+    config = load_synchronizer_config()
+    logging.info("🔄 Starting Synchronizer...")
+
+    # Start health check server
+    async def is_ready():
+        return service_ready
+
+    health_server = HealthCheckServer(port=HEALTH_CHECK_PORT, ready_check=is_ready)
+    await health_server.start()
+
+    try:
+        await wait_for_services(config)
+        service_ready = True
+
+        while not shutdown_flag:
+            try:
+                logging.info("🔄 Starting main loop...")
+                await main_loop(config)
+                logging.info("✅ Main loop completed successfully.")
+
+                # Sleep in small intervals to respond quickly to shutdown signals
+                sleep_seconds = config["loop_interval_minutes"] * 60
+                logging.info(f"⏳ Waiting {config['loop_interval_minutes']} minutes before next run...")
+
+                for _ in range(sleep_seconds):
+                    if shutdown_flag:
+                        break
+                    await asyncio.sleep(1)
+
+            except Exception as e:
+                if not shutdown_flag:
+                    logging.exception(f"❌ Main loop failed: {e}")
+
+    finally:
+        await health_server.stop()
+        logging.info("✅ Synchronizer shutdown complete.")
 
 
 if __name__ == "__main__":
+    # Register signal handlers
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
     try:
         asyncio.run(synchronizer())
+    except KeyboardInterrupt:
+        logging.info("⚠️ Received keyboard interrupt.")
     except Exception:
-        logging.exception("❌ Syncronizer failed to start.")
+        import sys
+        logging.exception("❌ Synchronizer failed to start.")
         sys.exit(1)
