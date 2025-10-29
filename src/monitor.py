@@ -120,22 +120,15 @@ def metadata_monitor_worker(chunk: List[Relay], config: Dict[str, Any], generate
         ) as bigbrotr:
             return await process_relay_chunk_for_metadata(chunk, config, generated_at, bigbrotr)
 
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    # Create new event loop for this worker process
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     try:
         return loop.run_until_complete(worker_async(chunk, config, generated_at))
     finally:
-        # Only close the loop if we created it
-        if loop != asyncio.get_event_loop():
-            try:
-                loop.close()
-            except Exception:
-                # Ignore cleanup errors - don't want to mask other exceptions
-                pass
+        # Always close the loop we created
+        loop.close()
 
 
 # --- Main Loop ---
