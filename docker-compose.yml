@@ -17,6 +17,14 @@ services:
     networks:
       - network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
 
   pgadmin:
     image: dpage/pgadmin4
@@ -129,6 +137,14 @@ services:
     networks:
       - network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
 
   synchronizer:
     build:
@@ -161,6 +177,14 @@ services:
     networks:
       - network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '6.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
 
   priority_synchronizer:
     build:
@@ -193,6 +217,14 @@ services:
     networks:
       - network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '6.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
 
 networks:
   network:
