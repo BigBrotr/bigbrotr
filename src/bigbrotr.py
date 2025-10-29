@@ -33,6 +33,7 @@ class Bigbrotr:
         dbname: str,
         min_pool_size: int = 5,
         max_pool_size: int = 20,
+        command_timeout: int = 60
     ):
         """Initialize Bigbrotr instance with connection parameters."""
         if not isinstance(host, str):
@@ -53,6 +54,7 @@ class Bigbrotr:
         self.dbname = dbname
         self.min_pool_size = min_pool_size
         self.max_pool_size = max_pool_size
+        self.command_timeout = command_timeout
         self.pool: Optional[asyncpg.Pool] = None
 
     async def connect(self) -> None:
@@ -68,7 +70,7 @@ class Bigbrotr:
             database=self.dbname,
             min_size=self.min_pool_size,
             max_size=self.max_pool_size,
-            command_timeout=60,
+            command_timeout=self.command_timeout,
         )
 
     async def close(self) -> None:

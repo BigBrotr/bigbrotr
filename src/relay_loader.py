@@ -28,7 +28,8 @@ def _get_db_config(config: Dict[str, Any]) -> tuple:
 async def fetch_relays_from_database(
     config: Dict[str, Any],
     threshold_hours: int = 12,
-    readable_only: bool = True
+    readable_only: bool = True,
+    shuffle: bool = True
 ) -> List[Relay]:
     """Fetch relays from database with optional filtering.
 
@@ -36,9 +37,10 @@ async def fetch_relays_from_database(
         config: Configuration dictionary with database connection info
         threshold_hours: Only fetch relays with metadata newer than this many hours
         readable_only: If True, only fetch relays marked as readable
+        shuffle: If True, randomly shuffle the relay list (default: True)
 
     Returns:
-        List of Relay objects, shuffled randomly
+        List of Relay objects, optionally shuffled
     """
     logging.info("📦 Fetching relay metadata from database...")
 
@@ -92,18 +94,20 @@ async def fetch_relays_from_database(
             continue
 
     logging.info(f"📦 {len(relays)} relays fetched from database.")
-    random.shuffle(relays)
+    if shuffle:
+        random.shuffle(relays)
     return relays
 
 
-async def fetch_relays_from_file(filepath: str) -> List[Relay]:
+async def fetch_relays_from_file(filepath: str, shuffle: bool = True) -> List[Relay]:
     """Fetch relays from a text file (one URL per line).
 
     Args:
         filepath: Path to text file containing relay URLs
+        shuffle: If True, randomly shuffle the relay list (default: True)
 
     Returns:
-        List of Relay objects, shuffled randomly
+        List of Relay objects, optionally shuffled
     """
     import aiofiles
 
@@ -125,7 +129,8 @@ async def fetch_relays_from_file(filepath: str) -> List[Relay]:
                 continue
 
     logging.info(f"📦 {len(relays)} relays loaded from file.")
-    random.shuffle(relays)
+    if shuffle:
+        random.shuffle(relays)
     return relays
 
 
