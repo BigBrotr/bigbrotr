@@ -62,21 +62,25 @@ LANGUAGE plpgsql
 IMMUTABLE
 AS $$
 BEGIN
+    -- Use jsonb_build_object to avoid delimiter collision attacks
+    -- This properly escapes all field values and prevents hash collisions
     RETURN encode(
         digest(
-            COALESCE(p_name, '') || '|' ||
-            COALESCE(p_description, '') || '|' ||
-            COALESCE(p_banner, '') || '|' ||
-            COALESCE(p_icon, '') || '|' ||
-            COALESCE(p_pubkey, '') || '|' ||
-            COALESCE(p_contact, '') || '|' ||
-            COALESCE(p_supported_nips::text, '') || '|' ||
-            COALESCE(p_software, '') || '|' ||
-            COALESCE(p_version, '') || '|' ||
-            COALESCE(p_privacy_policy, '') || '|' ||
-            COALESCE(p_terms_of_service, '') || '|' ||
-            COALESCE(p_limitation::text, '') || '|' ||
-            COALESCE(p_extra_fields::text, ''),
+            jsonb_build_object(
+                'name', p_name,
+                'description', p_description,
+                'banner', p_banner,
+                'icon', p_icon,
+                'pubkey', p_pubkey,
+                'contact', p_contact,
+                'supported_nips', p_supported_nips,
+                'software', p_software,
+                'version', p_version,
+                'privacy_policy', p_privacy_policy,
+                'terms_of_service', p_terms_of_service,
+                'limitation', p_limitation,
+                'extra_fields', p_extra_fields
+            )::text,
             'sha256'
         ),
         'hex'
@@ -101,14 +105,18 @@ LANGUAGE plpgsql
 IMMUTABLE
 AS $$
 BEGIN
+    -- Use jsonb_build_object to avoid delimiter collision attacks
+    -- This properly escapes all field values and prevents hash collisions
     RETURN encode(
         digest(
-            COALESCE(p_openable::text, 'false') || '|' ||
-            COALESCE(p_readable::text, 'false') || '|' ||
-            COALESCE(p_writable::text, 'false') || '|' ||
-            COALESCE(p_rtt_open::text, '') || '|' ||
-            COALESCE(p_rtt_read::text, '') || '|' ||
-            COALESCE(p_rtt_write::text, ''),
+            jsonb_build_object(
+                'openable', p_openable,
+                'readable', p_readable,
+                'writable', p_writable,
+                'rtt_open', p_rtt_open,
+                'rtt_read', p_rtt_read,
+                'rtt_write', p_rtt_write
+            )::text,
             'sha256'
         ),
         'hex'
