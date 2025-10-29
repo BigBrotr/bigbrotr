@@ -1,5 +1,0 @@
-; PgBouncer userlist file
-; Format: "username" "password"
-; Note: This file should be generated from environment variables at runtime
-; Example: "myuser" "md5<md5 hash of password+username>"
-
