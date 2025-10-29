@@ -175,9 +175,12 @@ async def main_loop(config: Dict[str, Any]) -> None:
         pool.starmap(metadata_monitor_worker, args)
         logging.info(f"✅ All chunks processed successfully.")
     finally:
-        pool.close()
-        pool.terminate()  # Ensure workers are killed
-        pool.join(timeout=30)  # Wait max 30s for cleanup
+        pool.close()  # Prevent new tasks
+        pool.join(timeout=30)  # Wait for workers to finish gracefully
+        if any(p.is_alive() for p in pool._pool):
+            logging.warning("⚠️ Some workers did not finish gracefully, terminating...")
+            pool.terminate()  # Force kill remaining workers
+            pool.join(timeout=5)  # Wait for termination
 
 
 # --- Monitor Entrypoint ---

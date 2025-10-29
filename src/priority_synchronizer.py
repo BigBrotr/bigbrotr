@@ -193,8 +193,17 @@ async def main_loop(config: Dict[str, Any]) -> None:
         )
         p.start()
         processes.append(p)
+
+    # Wait for all processes to complete gracefully
     for p in processes:
-        p.join()
+        p.join(timeout=30)
+
+    # Terminate any remaining processes
+    for p in processes:
+        if p.is_alive():
+            logging.warning(f"⚠️ Process {p.pid} did not finish gracefully, terminating...")
+            p.terminate()
+            p.join(timeout=5)
 
 
 # --- Priority Synchronizer Entrypoint ---
