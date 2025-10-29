@@ -1,7 +1,7 @@
 services:
 
   database:
-    image: postgres:latest
+    image: postgres:15-alpine
     container_name: bigbrotr_database
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
@@ -39,6 +39,25 @@ services:
     networks:
       - network
 
+  pgbouncer:
+    build:
+      context: .
+      dockerfile: dockerfiles/pgbouncer
+    container_name: bigbrotr_pgbouncer
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - PGBOUNCER_ADMIN_USER=admin
+      - PGBOUNCER_ADMIN_PASSWORD=${PGBOUNCER_ADMIN_PASSWORD:-admin}
+    ports:
+      - "${PGBOUNCER_PORT:-6432}:6432"
+    depends_on:
+      - database
+    networks:
+      - network
+    restart: unless-stopped
+
   initializer:
     build:
       context: .
@@ -64,16 +83,19 @@ services:
       context: .
       dockerfile: dockerfiles/finder
     container_name: bigbrotr_finder
+    ports:
+      - "8084:8080"  # Health check endpoint
     environment:
-      - POSTGRES_HOST=database
+      - POSTGRES_HOST=pgbouncer
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_PORT=5432
+      - POSTGRES_PORT=6432
       - FINDER_FREQUENCY_HOUR=${FINDER_FREQUENCY_HOUR}
       - FINDER_REQUEST_TIMEOUT=${FINDER_REQUEST_TIMEOUT}
     depends_on:
       - database
+      - pgbouncer
     networks:
       - network
     restart: unless-stopped
@@ -83,12 +105,14 @@ services:
       context: .
       dockerfile: dockerfiles/monitor
     container_name: bigbrotr_monitor
+    ports:
+      - "8081:8080"  # Health check endpoint
     environment:
-      - POSTGRES_HOST=database
+      - POSTGRES_HOST=pgbouncer
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_PORT=5432
+      - POSTGRES_PORT=6432
       - TORPROXY_HOST=torproxy
       - TORPROXY_PORT=9050
       - MONITOR_FREQUENCY_HOUR=${MONITOR_FREQUENCY_HOUR}
@@ -100,6 +124,7 @@ services:
       - PUBLIC_KEY=${PUBLIC_KEY}
     depends_on:
       - database
+      - pgbouncer
       - torproxy
     networks:
       - network
@@ -110,12 +135,14 @@ services:
       context: .
       dockerfile: dockerfiles/synchronizer
     container_name: bigbrotr_synchronizer
+    ports:
+      - "8082:8080"  # Health check endpoint
     environment:
-      - POSTGRES_HOST=database
+      - POSTGRES_HOST=pgbouncer
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_PORT=5432
+      - POSTGRES_PORT=6432
       - TORPROXY_HOST=torproxy
       - TORPROXY_PORT=9050
       - SYNCHRONIZER_NUM_CORES=${SYNCHRONIZER_NUM_CORES}
@@ -129,6 +156,7 @@ services:
       - ${SYNCHRONIZER_PRIORITY_RELAYS_PATH}:/app/priority_relays.txt
     depends_on:
       - database
+      - pgbouncer
       - torproxy
     networks:
       - network
@@ -139,12 +167,14 @@ services:
       context: .
       dockerfile: dockerfiles/priority_synchronizer
     container_name: bigbrotr_priority_synchronizer
+    ports:
+      - "8083:8080"  # Health check endpoint
     environment:
-      - POSTGRES_HOST=database
+      - POSTGRES_HOST=pgbouncer
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_PORT=5432
+      - POSTGRES_PORT=6432
       - TORPROXY_HOST=torproxy
       - TORPROXY_PORT=9050
       - SYNCHRONIZER_NUM_CORES=${PRIORITY_SYNCHRONIZER_NUM_CORES}
@@ -158,6 +188,7 @@ services:
       - ${SYNCHRONIZER_PRIORITY_RELAYS_PATH}:/app/priority_relays.txt
     depends_on:
       - database
+      - pgbouncer
       - torproxy
     networks:
       - network
