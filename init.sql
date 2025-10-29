@@ -297,6 +297,9 @@ CREATE INDEX IF NOT EXISTS idx_events_kind
 CREATE INDEX IF NOT EXISTS idx_events_kind_created_at
     ON events USING btree (kind, created_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_events_pubkey_created_at
+    ON events USING btree (pubkey, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_events_tagvalues
     ON events USING gin (tagvalues);
 
