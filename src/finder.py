@@ -32,6 +32,12 @@ async def finder() -> None:
     config = load_finder_config()
     logging.info("🔍 Starting finder...")
 
+    # TORPROXY configuration loaded for future relay discovery implementation:
+    # - Discovering relays from .onion NIP-11 documents (requires Tor proxy)
+    # - Fetching kind 10002 events from Tor relays
+    # - Cross-referencing relay URLs in Tor network metadata
+    # When implemented, will use config["torproxy_host"] and config["torproxy_port"]
+
     # Start health check server
     async def is_ready():
         return service_ready
