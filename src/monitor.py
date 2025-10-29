@@ -183,7 +183,7 @@ async def main_loop(config: Dict[str, Any]) -> None:
 # --- Monitor Entrypoint ---
 async def monitor() -> None:
     """Monitor service entry point."""
-    global shutdown_flag, service_ready
+    global service_ready
 
     config = load_monitor_config()
     logging.info("🔍 Starting monitor...")

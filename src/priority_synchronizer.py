@@ -200,7 +200,7 @@ async def main_loop(config: Dict[str, Any]) -> None:
 # --- Priority Synchronizer Entrypoint ---
 async def priority_synchronizer() -> None:
     """Priority synchronizer service entry point."""
-    global shutdown_flag, service_ready
+    global service_ready
 
     config = load_synchronizer_config()
     logging.info("🔄 Starting Priority Synchronizer...")
