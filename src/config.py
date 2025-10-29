@@ -119,6 +119,21 @@ def load_synchronizer_config() -> Dict[str, Any]:
             config["num_cores"] = cpu_count()
             logging.info(f"🔄 SYNCHRONIZER_NUM_CORES set to {config['num_cores']} (max available).")
 
+        # Validate priority relays file exists, create if missing
+        if config["priority_relays_path"]:
+            if not os.path.exists(config["priority_relays_path"]):
+                logging.warning(f"⚠️ Priority relays file not found: {config['priority_relays_path']}")
+                logging.info("📝 Creating empty priority relays file...")
+                try:
+                    with open(config["priority_relays_path"], 'w', encoding='utf-8') as f:
+                        f.write("# Priority relays (one URL per line)\n")
+                        f.write("# Example:\n")
+                        f.write("# wss://relay.example.com\n")
+                    logging.info(f"✅ Created {config['priority_relays_path']}")
+                except IOError as e:
+                    logging.error(f"❌ Failed to create priority relays file: {e}")
+                    sys.exit(1)
+
     except KeyError as e:
         logging.error(f"❌ Missing environment variable: {e}")
         sys.exit(1)
