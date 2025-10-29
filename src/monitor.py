@@ -2,7 +2,7 @@ import asyncio
 import logging
 import signal
 import time
-from multiprocessing import Pool
+from multiprocessing import Pool, Event
 from typing import Dict, Any, List
 
 from bigbrotr import Bigbrotr
@@ -18,17 +18,16 @@ from relay_loader import fetch_relays_needing_metadata
 # Setup logging
 setup_logging("MONITOR")
 
-# Global shutdown flag
-shutdown_flag = False
+# Global shutdown event (thread-safe across processes)
+shutdown_event = Event()
 service_ready = False
 
 
 def signal_handler(signum: int, frame) -> None:
     """Handle shutdown signals gracefully."""
-    global shutdown_flag
     signal_name = signal.Signals(signum).name
     logging.info(f"⚠️ Received {signal_name} signal. Initiating graceful shutdown...")
-    shutdown_flag = True
+    shutdown_event.set()
 
 
 # --- Process Relay Metadata ---
@@ -173,7 +172,7 @@ async def monitor() -> None:
         await wait_for_services(config)
         service_ready = True
 
-        while not shutdown_flag:
+        while not shutdown_event.is_set():
             try:
                 logging.info("🔄 Starting main loop...")
                 await main_loop(config)
@@ -184,12 +183,12 @@ async def monitor() -> None:
                 logging.info(f"⏳ Waiting {config['loop_interval_minutes']} minutes before next run...")
 
                 for _ in range(sleep_seconds):
-                    if shutdown_flag:
+                    if shutdown_event.is_set():
                         break
                     await asyncio.sleep(1)
 
             except Exception as e:
-                if not shutdown_flag:
+                if not shutdown_event.is_set():
                     logging.exception(f"❌ Main loop failed: {e}")
 
     finally:

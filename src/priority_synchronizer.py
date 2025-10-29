@@ -3,7 +3,7 @@ import logging
 import signal
 import threading
 import time
-from multiprocessing import Queue, Process
+from multiprocessing import Queue, Process, Event
 from queue import Empty
 from typing import Dict, Any, List
 
@@ -28,16 +28,16 @@ from relay_loader import fetch_relays_from_file
 setup_logging("PRIORITY_SYNCHRONIZER")
 
 # Global shutdown flag
-shutdown_flag = False
+shutdown_event = Event()
 service_ready = False
 
 
 def signal_handler(signum: int, frame) -> None:
     """Handle shutdown signals gracefully."""
-    global shutdown_flag
+    # No global needed, using Event()
     signal_name = signal.Signals(signum).name
     logging.info(f"⚠️ Received {signal_name} signal. Initiating graceful shutdown...")
-    shutdown_flag = True
+    shutdown_event.set()
 
 
 # --- Worker Thread Function ---
@@ -122,7 +122,7 @@ def priority_relay_worker_thread(config: Dict[str, Any], shared_queue: Queue, en
         loop.run_until_complete(bigbrotr.connect())
 
         # Process relays from queue
-        while not shutdown_flag:
+        while not shutdown_event.is_set():
             try:
                 relay = shared_queue.get(timeout=1)
             except Empty:
@@ -203,7 +203,7 @@ async def priority_synchronizer() -> None:
         await wait_for_services(config)
         service_ready = True
 
-        while not shutdown_flag:
+        while not shutdown_event.is_set():
             try:
                 logging.info("🔄 Starting main loop...")
                 await main_loop(config)
@@ -214,12 +214,12 @@ async def priority_synchronizer() -> None:
                 logging.info(f"⏳ Waiting {config['loop_interval_minutes']} minutes before next run...")
 
                 for _ in range(sleep_seconds):
-                    if shutdown_flag:
+                    if shutdown_event.is_set():
                         break
                     await asyncio.sleep(1)
 
             except Exception as e:
-                if not shutdown_flag:
+                if not shutdown_event.is_set():
                     logging.exception(f"❌ Main loop failed: {e}")
 
     finally:

@@ -3,7 +3,7 @@ import logging
 import signal
 import threading
 import time
-from multiprocessing import Queue, Process
+from multiprocessing import Queue, Process, Event
 from queue import Empty
 from typing import Dict, Any, List
 
@@ -27,17 +27,16 @@ from relay_loader import fetch_relays_from_database, fetch_relays_from_file
 # Setup logging
 setup_logging("SYNCHRONIZER")
 
-# Global shutdown flag
-shutdown_flag = False
+# Global shutdown event (thread-safe across processes)
+shutdown_event = Event()
 service_ready = False
 
 
 def signal_handler(signum: int, frame) -> None:
     """Handle shutdown signals gracefully."""
-    global shutdown_flag
     signal_name = signal.Signals(signum).name
     logging.info(f"⚠️ Received {signal_name} signal. Initiating graceful shutdown...")
-    shutdown_flag = True
+    shutdown_event.set()
 
 
 # --- Thread Function ---
@@ -122,7 +121,7 @@ def relay_worker_thread(config: Dict[str, Any], shared_queue: Queue, end_time: i
         loop.run_until_complete(bigbrotr.connect())
 
         # Process relays from queue
-        while not shutdown_flag:
+        while not shutdown_event.is_set():
             try:
                 relay = shared_queue.get(timeout=1)
             except Empty:
@@ -194,7 +193,7 @@ async def main_loop(config: Dict[str, Any]) -> None:
 # --- Synchronizer Entrypoint ---
 async def synchronizer() -> None:
     """Synchronizer service entry point."""
-    global shutdown_flag, service_ready
+    global service_ready
 
     config = load_synchronizer_config()
     logging.info("🔄 Starting Synchronizer...")
@@ -210,7 +209,7 @@ async def synchronizer() -> None:
         await wait_for_services(config)
         service_ready = True
 
-        while not shutdown_flag:
+        while not shutdown_event.is_set():
             try:
                 logging.info("🔄 Starting main loop...")
                 await main_loop(config)
@@ -221,12 +220,12 @@ async def synchronizer() -> None:
                 logging.info(f"⏳ Waiting {config['loop_interval_minutes']} minutes before next run...")
 
                 for _ in range(sleep_seconds):
-                    if shutdown_flag:
+                    if shutdown_event.is_set():
                         break
                     await asyncio.sleep(1)
 
             except Exception as e:
-                if not shutdown_flag:
+                if not shutdown_event.is_set():
                     logging.exception(f"❌ Main loop failed: {e}")
 
     finally:

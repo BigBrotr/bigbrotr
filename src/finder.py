@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import signal
+from multiprocessing import Event
 
 from config import load_finder_config
 from constants import HEALTH_CHECK_PORT
@@ -11,23 +12,22 @@ from logging_config import setup_logging
 # Setup logging
 setup_logging("FINDER")
 
-# Global shutdown flag
-shutdown_flag = False
+# Global shutdown event (thread-safe across processes)
+shutdown_event = Event()
 service_ready = False
 
 
 def signal_handler(signum: int, frame) -> None:
     """Handle shutdown signals gracefully."""
-    global shutdown_flag
     signal_name = signal.Signals(signum).name
     logging.info(f"⚠️ Received {signal_name} signal. Initiating graceful shutdown...")
-    shutdown_flag = True
+    shutdown_event.set()
 
 
 # --- Finder Entrypoint ---
 async def finder() -> None:
     """Finder service entry point."""
-    global shutdown_flag, service_ready
+    global service_ready
 
     config = load_finder_config()
     logging.info("🔍 Starting finder...")
@@ -49,7 +49,7 @@ async def finder() -> None:
         await wait_for_services(config)
         service_ready = True
 
-        while not shutdown_flag:
+        while not shutdown_event.is_set():
             try:
                 logging.info("🔍 Starting relay discovery...")
 
@@ -72,12 +72,12 @@ async def finder() -> None:
                 logging.info(f"⏳ Waiting {config['frequency_hour']} hours before next run...")
 
                 for _ in range(sleep_seconds):
-                    if shutdown_flag:
+                    if shutdown_event.is_set():
                         break
                     await asyncio.sleep(1)
 
             except Exception as e:
-                if not shutdown_flag:
+                if not shutdown_event.is_set():
                     logging.exception(f"❌ Finder encountered an error: {e}")
 
     finally:
