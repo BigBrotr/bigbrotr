@@ -44,19 +44,37 @@ async def fetch_relays_from_database(
 
     host, port, user, password, dbname = _get_db_config(config)
 
-    query = """
-        SELECT relay_url
-        FROM relay_metadata rm
-        WHERE generated_at = (
-            SELECT MAX(generated_at)
-            FROM relay_metadata
-            WHERE relay_url = rm.relay_url
-        )
-        AND generated_at > $1
-    """
-
+    # Use window function for better performance (O(N) instead of O(N²))
+    # Avoids correlated subquery that runs for each row
     if readable_only:
-        query += " AND readable = TRUE"
+        query = """
+            WITH ranked_metadata AS (
+                SELECT
+                    relay_url,
+                    generated_at,
+                    ROW_NUMBER() OVER (PARTITION BY relay_url ORDER BY generated_at DESC) as rn
+                FROM relay_metadata rm
+                JOIN nip66 n ON rm.nip66_id = n.id
+                WHERE rm.generated_at > $1 AND n.readable = TRUE
+            )
+            SELECT relay_url
+            FROM ranked_metadata
+            WHERE rn = 1
+        """
+    else:
+        query = """
+            WITH ranked_metadata AS (
+                SELECT
+                    relay_url,
+                    generated_at,
+                    ROW_NUMBER() OVER (PARTITION BY relay_url ORDER BY generated_at DESC) as rn
+                FROM relay_metadata
+                WHERE generated_at > $1
+            )
+            SELECT relay_url
+            FROM ranked_metadata
+            WHERE rn = 1
+        """
 
     threshold = int(time.time()) - 60 * 60 * threshold_hours
 
@@ -160,16 +178,18 @@ async def fetch_relays_needing_metadata(
 
     host, port, user, password, dbname = _get_db_config(config)
 
+    # Use LATERAL join for better performance on large tables
     query = """
     SELECT r.url
     FROM relays r
-    LEFT JOIN (
-        SELECT relay_url, MAX(generated_at) AS last_generated_at
+    LEFT JOIN LATERAL (
+        SELECT generated_at
         FROM relay_metadata
-        GROUP BY relay_url
-    ) rm ON r.url = rm.relay_url
-    WHERE rm.last_generated_at IS NULL
-    OR rm.last_generated_at < $1
+        WHERE relay_url = r.url
+        ORDER BY generated_at DESC
+        LIMIT 1
+    ) rm ON TRUE
+    WHERE rm.generated_at IS NULL OR rm.generated_at < $1
     """
 
     threshold = int(time.time()) - 60 * 60 * frequency_hours
