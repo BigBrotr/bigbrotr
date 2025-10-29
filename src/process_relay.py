@@ -7,9 +7,6 @@ from nostr_tools import Event, Client, Filter, Relay
 
 from logging_config import setup_logging
 
-# Setup centralized logging
-setup_logging("PROCESS_RELAY")
-
 
 async def get_start_time_async(
     default_start_time: int,
@@ -66,9 +63,6 @@ async def get_start_time_async(
 
     raise RuntimeError(
         f"❌ Failed to get start time for {relay.url} after {retries} attempts.")
-
-# Keep the old sync version for backwards compatibility
-
 
 
 async def insert_batch(
