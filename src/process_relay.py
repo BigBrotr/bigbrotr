@@ -105,13 +105,17 @@ class RawEventBatch:
         self.min_created_at: Optional[int] = None
         self.max_created_at: Optional[int] = None
 
-    def append(self, raw_event: Dict[str, Any]) -> None:
-        """Append a raw event to the batch."""
+    def append(self, raw_event: Dict[str, Any]) -> bool:
+        """Append a raw event to the batch.
+
+        Returns:
+            True if event was added successfully, False if batch is full or event is invalid.
+        """
         if not isinstance(raw_event, dict):
-            return
+            return False
         created_at = raw_event.get("created_at")
         if not isinstance(created_at, int) or created_at < 0 or created_at < self.since or created_at > self.until:
-            return
+            return False
         if self.size < self.limit:
             self.raw_events.append(raw_event)
             self.size += 1
@@ -119,8 +123,9 @@ class RawEventBatch:
                 self.min_created_at = created_at
             if self.max_created_at is None or created_at > self.max_created_at:
                 self.max_created_at = created_at
+            return True
         else:
-            raise OverflowError("Batch limit reached")
+            return False
 
     def is_full(self) -> bool:
         """Check if batch is full."""
