@@ -1,6 +1,7 @@
 from typing import Generator, List, TypeVar, Optional, Any, Dict
 
 import asyncio
+import logging
 
 from aiohttp import ClientSession, WSMsgType
 from aiohttp_socks import ProxyConnector
@@ -9,6 +10,65 @@ from bigbrotr import Bigbrotr
 from constants import TOR_CHECK_HTTP_URL, TOR_CHECK_WS_URL
 
 T = TypeVar('T')
+
+
+class RelayFailureTracker:
+    """Track relay processing failures and alert on high failure rates.
+
+    This class maintains statistics on relay processing success/failure rates
+    and emits alerts when failure rates exceed configured thresholds.
+    """
+
+    def __init__(self, alert_threshold: float = 0.1, check_interval: int = 100):
+        """Initialize failure tracker.
+
+        Args:
+            alert_threshold: Failure rate threshold for alerts (default: 0.1 = 10%)
+            check_interval: Check failure rate every N relays (default: 100)
+        """
+        self.total = 0
+        self.failures = 0
+        self.alert_threshold = alert_threshold
+        self.check_interval = check_interval
+
+    def record_success(self) -> None:
+        """Record successful relay processing."""
+        self.total += 1
+        self._check_and_alert()
+
+    def record_failure(self) -> None:
+        """Record failed relay processing."""
+        self.total += 1
+        self.failures += 1
+        self._check_and_alert()
+
+    def _check_and_alert(self) -> None:
+        """Check failure rate and emit alert if threshold exceeded."""
+        if self.total >= self.check_interval and self.total % self.check_interval == 0:
+            failure_rate = self.failures / self.total
+            if failure_rate > self.alert_threshold:
+                logging.error(
+                    f"🚨 High relay failure rate detected: {failure_rate:.1%} "
+                    f"({self.failures}/{self.total} relays failed)"
+                )
+            else:
+                logging.info(
+                    f"📊 Relay processing stats: {failure_rate:.1%} failure rate "
+                    f"({self.total - self.failures}/{self.total} successful)"
+                )
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get current failure statistics.
+
+        Returns:
+            Dictionary with total, failures, successes, and failure_rate
+        """
+        return {
+            'total': self.total,
+            'failures': self.failures,
+            'successes': self.total - self.failures,
+            'failure_rate': self.failures / self.total if self.total > 0 else 0.0
+        }
 
 
 def chunkify(lst: List[T], n: int) -> Generator[List[T], None, None]:

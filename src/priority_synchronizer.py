@@ -18,7 +18,7 @@ from constants import (
     RELAY_TIMEOUT_MULTIPLIER,
     SECONDS_PER_DAY
 )
-from functions import wait_for_services, connect_bigbrotr_with_retry
+from functions import wait_for_services, connect_bigbrotr_with_retry, RelayFailureTracker
 from healthcheck import HealthCheckServer
 from logging_config import setup_logging
 from process_relay import get_start_time_async, process_relay
@@ -47,6 +47,9 @@ def priority_relay_worker_thread(config: Dict[str, Any], shared_queue: Queue, en
     Creates one database connection pool and one event loop per thread,
     reusing them across all relays processed by this thread.
     """
+    # Create failure tracker for this thread
+    failure_tracker = RelayFailureTracker(alert_threshold=0.1, check_interval=100)
+
     async def run_with_timeout(bigbrotr: Bigbrotr, relay: Relay, end_time: int) -> None:
         """Process a single relay with timeout."""
         try:
@@ -81,8 +84,10 @@ def priority_relay_worker_thread(config: Dict[str, Any], shared_queue: Queue, en
             )
 
             logging.info(f"✅ Completed processing priority relay {relay.url}")
+            failure_tracker.record_success()
 
         except asyncio.TimeoutError:
+            failure_tracker.record_failure()
             logging.warning(
                 f"⏰ Timeout while processing priority relay (exceeded {relay_timeout}s)",
                 extra={
@@ -93,6 +98,7 @@ def priority_relay_worker_thread(config: Dict[str, Any], shared_queue: Queue, en
                 }
             )
         except Exception as e:
+            failure_tracker.record_failure()
             logging.exception(
                 f"❌ Error processing priority relay: {e}",
                 extra={
@@ -134,6 +140,13 @@ def priority_relay_worker_thread(config: Dict[str, Any], shared_queue: Queue, en
             # Reuse bigbrotr and event loop for each relay
             loop.run_until_complete(run_with_timeout(bigbrotr, relay, end_time))
     finally:
+        # Log final stats
+        stats = failure_tracker.get_stats()
+        if stats['total'] > 0:
+            logging.info(
+                f"📊 Thread final stats: {stats['successes']}/{stats['total']} successful "
+                f"({stats['failure_rate']:.1%} failure rate)"
+            )
         # Cleanup: close database connection pool and event loop
         loop.run_until_complete(bigbrotr.close())
         loop.close()

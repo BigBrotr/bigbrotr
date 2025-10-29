@@ -10,7 +10,7 @@ from nostr_tools import Relay, Client, fetch_relay_metadata, RelayMetadata
 
 from config import load_monitor_config
 from constants import DB_POOL_MIN_SIZE_PER_WORKER, DB_POOL_MAX_SIZE_PER_WORKER, HEALTH_CHECK_PORT
-from functions import chunkify, wait_for_services, connect_bigbrotr_with_retry
+from functions import chunkify, wait_for_services, connect_bigbrotr_with_retry, RelayFailureTracker
 from healthcheck import HealthCheckServer
 from logging_config import setup_logging
 from relay_loader import fetch_relays_needing_metadata
@@ -60,7 +60,7 @@ async def process_relay(config: Dict[str, Any], relay: Relay, generated_at: int)
 
 
 # --- Process Chunk ---
-async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str, Any], generated_at: int, bigbrotr: Bigbrotr) -> None:
+async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str, Any], generated_at: int, bigbrotr: Bigbrotr, failure_tracker: RelayFailureTracker) -> None:
     """Process a chunk of relays and save their metadata.
 
     Args:
@@ -68,6 +68,7 @@ async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str,
         config: Configuration dictionary
         generated_at: Timestamp for metadata generation
         bigbrotr: Shared database connection (must be connected)
+        failure_tracker: Tracker for monitoring relay processing failures
     """
     semaphore = asyncio.Semaphore(config["requests_per_core"])
     relay_metadata_list: List[RelayMetadata] = []
@@ -78,8 +79,12 @@ async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str,
                 relay_metadata = await process_relay(config, relay, generated_at)
                 # Check if we got any useful metadata (nip66 or nip11)
                 if relay_metadata and (relay_metadata.nip66 or relay_metadata.nip11):
+                    failure_tracker.record_success()
                     return relay_metadata
+                else:
+                    failure_tracker.record_failure()
             except Exception as e:
+                failure_tracker.record_failure()
                 logging.exception(
                     f"❌ Error processing relay: {e}",
                     extra={
@@ -126,9 +131,20 @@ def metadata_monitor_worker(chunk: List[Relay], config: Dict[str, Any], generate
         )
         # Connect with retry logic
         await connect_bigbrotr_with_retry(bigbrotr, logging=logging)
+
+        # Create failure tracker for this worker
+        failure_tracker = RelayFailureTracker(alert_threshold=0.1, check_interval=100)
+
         try:
-            return await process_relay_chunk_for_metadata(chunk, config, generated_at, bigbrotr)
+            return await process_relay_chunk_for_metadata(chunk, config, generated_at, bigbrotr, failure_tracker)
         finally:
+            # Log final stats
+            stats = failure_tracker.get_stats()
+            if stats['total'] > 0:
+                logging.info(
+                    f"📊 Worker final stats: {stats['successes']}/{stats['total']} successful "
+                    f"({stats['failure_rate']:.1%} failure rate)"
+                )
             await bigbrotr.close()
 
     # Create new event loop for this worker process
