@@ -39,6 +39,45 @@ async def test_database_connection_async(
         return False
 
 
+async def connect_bigbrotr_with_retry(
+    bigbrotr: Bigbrotr,
+    max_retries: int = 5,
+    base_delay: int = 1,
+    logging: Optional[Any] = None
+) -> None:
+    """Connect Bigbrotr instance with exponential backoff retry logic.
+
+    Args:
+        bigbrotr: Bigbrotr instance to connect
+        max_retries: Maximum number of retry attempts (default: 5)
+        base_delay: Base delay in seconds for exponential backoff (default: 1)
+        logging: Optional logging object for output
+
+    Raises:
+        Exception: If connection fails after all retry attempts
+    """
+    for attempt in range(max_retries):
+        try:
+            await bigbrotr.connect()
+            if logging:
+                logging.info(f"✅ Database connected on attempt {attempt + 1}")
+            return
+        except Exception as e:
+            if attempt == max_retries - 1:
+                if logging:
+                    logging.exception(
+                        f"❌ Database connection failed after {max_retries} attempts"
+                    )
+                raise
+            delay = base_delay * (2 ** attempt)  # Exponential backoff
+            if logging:
+                logging.warning(
+                    f"⚠️ Database connection failed (attempt {attempt + 1}/{max_retries}): {e}"
+                )
+                logging.info(f"⏳ Retrying in {delay} seconds...")
+            await asyncio.sleep(delay)
+
+
 async def test_torproxy_connection(
     host: str,
     port: int,

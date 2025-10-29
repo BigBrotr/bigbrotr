@@ -18,7 +18,7 @@ from constants import (
     RELAY_TIMEOUT_MULTIPLIER,
     SECONDS_PER_DAY
 )
-from functions import wait_for_services
+from functions import wait_for_services, connect_bigbrotr_with_retry
 from healthcheck import HealthCheckServer
 from logging_config import setup_logging
 from process_relay import get_start_time_async, process_relay
@@ -118,8 +118,8 @@ def priority_relay_worker_thread(config: Dict[str, Any], shared_queue: Queue, en
     )
 
     try:
-        # Connect database pool
-        loop.run_until_complete(bigbrotr.connect())
+        # Connect database pool with retry logic
+        loop.run_until_complete(connect_bigbrotr_with_retry(bigbrotr, logging=logging))
 
         # Process relays from queue
         while not shutdown_event.is_set():

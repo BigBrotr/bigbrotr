@@ -10,7 +10,7 @@ from nostr_tools import Relay, Client, fetch_relay_metadata, RelayMetadata
 
 from config import load_monitor_config
 from constants import DB_POOL_MIN_SIZE_PER_WORKER, DB_POOL_MAX_SIZE_PER_WORKER, HEALTH_CHECK_PORT
-from functions import chunkify, wait_for_services
+from functions import chunkify, wait_for_services, connect_bigbrotr_with_retry
 from healthcheck import HealthCheckServer
 from logging_config import setup_logging
 from relay_loader import fetch_relays_needing_metadata
@@ -115,7 +115,7 @@ def metadata_monitor_worker(chunk: List[Relay], config: Dict[str, Any], generate
     """
     async def worker_async(chunk: List[Relay], config: Dict[str, Any], generated_at: int) -> None:
         # Create a database connection for this worker process
-        async with Bigbrotr(
+        bigbrotr = Bigbrotr(
             config["database_host"],
             config["database_port"],
             config["database_user"],
@@ -123,8 +123,13 @@ def metadata_monitor_worker(chunk: List[Relay], config: Dict[str, Any], generate
             config["database_name"],
             min_pool_size=DB_POOL_MIN_SIZE_PER_WORKER,
             max_pool_size=DB_POOL_MAX_SIZE_PER_WORKER
-        ) as bigbrotr:
+        )
+        # Connect with retry logic
+        await connect_bigbrotr_with_retry(bigbrotr, logging=logging)
+        try:
             return await process_relay_chunk_for_metadata(chunk, config, generated_at, bigbrotr)
+        finally:
+            await bigbrotr.close()
 
     # Create new event loop for this worker process
     loop = asyncio.new_event_loop()
