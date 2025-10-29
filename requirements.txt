@@ -1,3 +1,7 @@
-psycopg2-binary==2.9.9
-pandas==2.2.3
+aiofiles==23.2.1
+aiohttp==3.9.3
+aiohttp-socks==0.8.4
+asyncpg==0.29.0
 nostr-tools==1.2.1
+pandas==2.2.3
+typing-extensions==4.9.0
