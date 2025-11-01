@@ -22,7 +22,7 @@ Dependencies:
 import asyncio
 import logging
 from functools import wraps
-from typing import Callable, Any, TypeVar, cast
+from typing import Callable, Any, TypeVar, Optional, cast
 
 try:
     import asyncpg
@@ -192,7 +192,7 @@ async def retry_on_db_error(
 def with_db_retry(
     max_retries: int = DEFAULT_DB_OPERATION_RETRIES,
     retry_delay: int = DEFAULT_DB_OPERATION_RETRY_DELAY,
-    operation_name: str | None = None
+    operation_name: Optional[str] = None
 ):
     """Decorator to add automatic retry logic to async database operations.
 

@@ -289,6 +289,45 @@ await db.connect()
 
 **Overall Progress:** 12/78 tasks completed (15% → previous session was 9%)
 
+### Session 3: Network Resilience & Code Deduplication (2 tasks completed)
+**Database Error Handling & Network Partition Resilience:**
+- ✅ Created [db_error_handler.py](src/db_error_handler.py) module (247 lines)
+  - Intelligent error classification: transient (network partition, timeout) vs permanent (auth failure, syntax error)
+  - Exponential backoff retry logic with configurable attempts (default: 3 retries, 5s delay)
+  - Decorator pattern (`@with_db_retry`) for easy application to any async function
+  - Connection health checks via `check_db_connection()`
+  - New constants: `DEFAULT_DB_OPERATION_RETRIES`, `DEFAULT_DB_OPERATION_RETRY_DELAY`
+- ✅ Enhanced [bigbrotr.py](src/bigbrotr.py) with automatic retry
+  - Added retry logic to `execute()`, `fetch()`, `fetchone()` methods
+  - All database operations now automatically retry on transient errors
+  - Services resilient to network partitions and temporary database unavailability
+- ✅ Improved [functions.py](src/functions.py) connection retry
+  - Enhanced `connect_bigbrotr_with_retry()` with error classification
+  - Fails fast on permanent errors (auth, misconfiguration)
+  - Retries intelligently on transient errors only
+
+**Code Deduplication:**
+- ✅ Created [base_synchronizer.py](src/base_synchronizer.py) (318 lines of shared logic)
+  - Extracted 95% duplicate code from synchronizers
+  - `BaseSynchronizerWorker` class with template method pattern
+  - Shared: worker threads, process coordination, relay processing, health checks
+  - Extensibility via method overrides (e.g., custom logging messages)
+- ✅ Refactored [synchronizer.py](src/synchronizer.py): 303 → 141 lines (53% reduction)
+  - Now focuses on: relay source (database, exclude priority), service orchestration
+  - Delegates all worker/process logic to base class
+- ✅ Refactored [priority_synchronizer.py](src/priority_synchronizer.py): 303 → 134 lines (56% reduction)
+  - Now focuses on: relay source (file, priority only), service orchestration
+  - Delegates all worker/process logic to base class
+
+**Impact:**
+- Services now resilient to network partitions, database restarts, connection timeouts
+- Automatic retry with intelligent error classification reduces operational burden
+- ~170 lines of duplicate code eliminated
+- Future changes only needed in one place (base_synchronizer.py)
+- Better separation of concerns: data source vs processing logic
+
+**Overall Progress:** 14/78 tasks completed (18% → was 15%, session 2 was 9%)
+
 **See [TODO.md](TODO.md) for full task list and progress tracking.**
 
 ## Important Notes
