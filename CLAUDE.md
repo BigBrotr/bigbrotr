@@ -143,10 +143,27 @@ docker stats bigbrotr_synchronizer bigbrotr_monitor
 
 ### Key Source Files
 
-**Core Classes:**
-- [src/bigbrotr.py](src/bigbrotr.py): Async database wrapper using asyncpg (connection pooling, all DB operations)
+**Core Database Layer (Repository Pattern):**
+- [src/bigbrotr.py](src/bigbrotr.py): Facade class composing all repositories with convenience methods
+- [src/database_pool.py](src/database_pool.py): Connection pool manager with generic SQL operations
+- [src/event_repository.py](src/event_repository.py): Event-specific database operations
+- [src/relay_repository.py](src/relay_repository.py): Relay-specific database operations
+- [src/metadata_repository.py](src/metadata_repository.py): Metadata-specific database operations (NIP-11/NIP-66)
+
+**Processing Layer:**
+- [src/process_relay.py](src/process_relay.py): Modular relay event processor with binary search algorithm
+  - `RelayProcessor`: Main orchestrator class
+  - `BatchValidator`: Relay behavior validation
+  - `IntervalStack`: Time interval queue management
+  - `EventInserter`: Database insertion operations
+  - `RawEventBatch`: Event batch container (dataclass)
+
+**Service Infrastructure:**
+- [src/base_synchronizer.py](src/base_synchronizer.py): Base class for synchronizer services (template method pattern)
+- [src/rate_limiter.py](src/rate_limiter.py): Token bucket rate limiting for relay connections
+- [src/relay_loader.py](src/relay_loader.py): Relay loading with pagination support
 - [src/config.py](src/config.py): Centralized configuration loading and validation
-- [src/functions.py](src/functions.py): Shared utilities (chunking, connection testing, retry logic, `RelayFailureTracker`)
+- [src/functions.py](src/functions.py): Shared utilities (chunking, connection testing, retry logic)
 - [src/constants.py](src/constants.py): System-wide constants and defaults
 
 **Service Entrypoints:**
@@ -156,8 +173,7 @@ docker stats bigbrotr_synchronizer bigbrotr_monitor
 - [src/initializer.py](src/initializer.py): Database initialization
 
 **Supporting Modules:**
-- [src/process_relay.py](src/process_relay.py): Relay processing logic for synchronizers
-- [src/relay_loader.py](src/relay_loader.py): Fetch relays from database or files
+- [src/db_error_handler.py](src/db_error_handler.py): Database error handling with automatic retry
 - [src/healthcheck.py](src/healthcheck.py): HTTP health check server for all services
 - [src/logging_config.py](src/logging_config.py): Logging configuration
 
@@ -193,8 +209,13 @@ All configuration is via environment variables in `.env` (see [env.example](env.
 **When modifying database schema:**
 1. Update [init.sql](init.sql) with new tables/functions
 2. Create migration SQL if needed (no migration framework in use)
-3. Update `Bigbrotr` class methods in [src/bigbrotr.py](src/bigbrotr.py)
-4. Rebuild database: `docker-compose down -v && docker-compose up -d`
+3. Update appropriate repository in `src/`:
+   - Events: [src/event_repository.py](src/event_repository.py)
+   - Relays: [src/relay_repository.py](src/relay_repository.py)
+   - Metadata: [src/metadata_repository.py](src/metadata_repository.py)
+   - Generic queries: [src/database_pool.py](src/database_pool.py)
+4. Add convenience methods to [src/bigbrotr.py](src/bigbrotr.py) if needed (delegates to repositories)
+5. Rebuild database: `docker-compose down -v && docker-compose up -d`
 
 **When adding new services:**
 1. Create service module in `src/`
@@ -328,13 +349,80 @@ await db.connect()
 
 **Overall Progress:** 14/78 tasks completed (18% → was 15%, session 2 was 9%)
 
+### Session 4: Modern Architecture Refactoring (5 tasks completed)
+**Repository Pattern Implementation:**
+- ✅ Split 484-line God Object ([bigbrotr.py](src/bigbrotr.py)) into focused repositories
+  - Created [database_pool.py](src/database_pool.py) (236 lines): Connection pool management + generic SQL ops
+  - Created [event_repository.py](src/event_repository.py) (169 lines): Event-specific database operations
+  - Created [relay_repository.py](src/relay_repository.py) (109 lines): Relay-specific database operations
+  - Created [metadata_repository.py](src/metadata_repository.py) (192 lines): NIP-11/NIP-66 metadata operations
+  - Refactored [bigbrotr.py](src/bigbrotr.py) (174 lines): Clean facade pattern with direct repository access
+  - Benefits: Single Responsibility Principle, better testability, clearer separation of concerns
+
+**Reduced Cyclomatic Complexity:**
+- ✅ Refactored 70-line `process_relay()` function into modular class architecture
+  - Created [process_relay.py](src/process_relay.py) (412 lines) with focused components:
+    - `RawEventBatch`: Dataclass with `field(default_factory=list)` for clean batch management
+    - `IntervalStack`: Time interval queue for binary search algorithm
+    - `BatchValidator`: Static methods for relay behavior validation
+    - `EventInserter`: Static methods for database operations
+    - `RelayProcessor`: Main orchestrator with 8-10 line focused methods
+  - Benefits: Each method has single responsibility, much easier to test and understand
+
+**Rate Limiting System:**
+- ✅ Created [rate_limiter.py](src/rate_limiter.py) (276 lines): Token bucket algorithm
+  - Per-relay independent rate limiting (prevents overwhelming relay operators)
+  - Configurable burst size (default: 2) and refill rate (default: 1 req/sec)
+  - Async-aware with asyncio locks for thread safety
+  - Integrated into [monitor.py](src/monitor.py) and [base_synchronizer.py](src/base_synchronizer.py)
+  - Added constants: `DEFAULT_RELAY_REQUESTS_PER_SECOND`, `DEFAULT_RELAY_BURST_SIZE`
+
+**Memory-Efficient Pagination:**
+- ✅ Enhanced [relay_loader.py](src/relay_loader.py) with async generator functions:
+  - `fetch_relays_from_database_paginated()`: Memory-efficient relay loading (1000/page default)
+  - `fetch_relays_needing_metadata_paginated()`: Memory-efficient metadata query
+  - Uses LIMIT/OFFSET pagination with ordered results for consistency
+  - Yields batches instead of loading all relays into memory
+  - Added constant: `DEFAULT_RELAY_PAGE_SIZE`
+
+**Code Quality Improvements:**
+- ✅ Added `__all__` exports to 10 key modules for clean public APIs
+  - [bigbrotr.py](src/bigbrotr.py), [database_pool.py](src/database_pool.py), [event_repository.py](src/event_repository.py)
+  - [relay_repository.py](src/relay_repository.py), [metadata_repository.py](src/metadata_repository.py)
+  - [process_relay.py](src/process_relay.py), [rate_limiter.py](src/rate_limiter.py), [relay_loader.py](src/relay_loader.py)
+  - [base_synchronizer.py](src/base_synchronizer.py)
+- ✅ Modern type hints throughout: `Optional`, `List`, `Dict`, `Any`, `Final`, `field(default_factory=...)`
+- ✅ Comprehensive docstrings with architecture documentation
+- ✅ All 19 Python files compile without errors
+
+**Architecture Benefits:**
+- **Testability**: Each repository and processor component independently testable
+- **Maintainability**: Clear single responsibilities, easy to modify
+- **Performance**: Rate limiting prevents blocking, pagination reduces memory usage
+- **Scalability**: Repository pattern allows easy addition of new data sources
+- **Type Safety**: Comprehensive type hints for better IDE support
+- **SOLID Principles**: SRP, OCP, DIP properly applied throughout
+
+**Files Created/Modified (10 files):**
+- Created: database_pool.py, event_repository.py, relay_repository.py, metadata_repository.py, rate_limiter.py
+- Replaced: bigbrotr.py (484→174 lines), process_relay.py (218→412 modular lines)
+- Enhanced: relay_loader.py (+pagination), base_synchronizer.py (+__all__), constants.py (+3 constants)
+
+**Overall Progress:** 19/78 tasks completed (24% → was 18%)
+
 **See [TODO.md](TODO.md) for full task list and progress tracking.**
 
 ## Important Notes
 
+- **Modern Architecture**: Codebase follows repository pattern with SOLID principles
+  - Database operations split into focused repositories (events, relays, metadata)
+  - All modules have `__all__` exports for clean public APIs
+  - Comprehensive type hints with modern Python typing (`Optional`, `field(default_factory=...)`)
+  - Each class has single responsibility for better testability
+- **Rate Limiting**: All relay connections are rate limited (1 req/sec, burst of 2) to prevent service blocking
+- **Pagination Support**: Use `*_paginated()` functions for memory-efficient relay loading (1000/page)
 - **Finder service is disabled** ([docker-compose.yml](docker-compose.yml):95-123): Implementation incomplete. Re-enable when relay discovery logic is fully implemented.
-- **No type hints enforcement yet**: Codebase uses some type hints but not comprehensive. Improvements planned.
-- **No test suite**: Unit and integration tests are on the roadmap.
+- **No test suite**: Unit and integration tests are on the roadmap (architecture now supports easy testing).
 - **Resource limits**: Docker resource limits are configured in [docker-compose.yml](docker-compose.yml) (adjust based on hardware).
 - **PgBouncer transaction pooling**: Prepared statements are not supported. Use parameterized queries with `$1, $2, ...` syntax.
 - **Nostr library**: Uses `nostr-tools` 1.2.1 (custom Python library, not the JavaScript one).
