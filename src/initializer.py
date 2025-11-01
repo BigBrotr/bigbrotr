@@ -1,3 +1,29 @@
+"""Initializer service for seeding the database with initial relay list.
+
+This service runs once on startup to populate the database with seed relays from
+seed_relays.txt. It's designed to be idempotent and can be safely run multiple times.
+
+Service Flow:
+    1. Wait for database to be ready
+    2. Read seed relays from file
+    3. Parse and validate relay URLs
+    4. Insert relays into database (skips duplicates via ON CONFLICT DO NOTHING)
+    5. Exit after completion
+
+Configuration:
+    - SEED_RELAYS_PATH: Path to seed relays file (one URL per line)
+    - Database connection settings from environment
+
+File Format:
+    - One relay URL per line (wss:// or ws://)
+    - Lines starting with # are comments
+    - Empty lines are ignored
+    - Invalid URLs are logged and skipped
+
+Dependencies:
+    - bigbrotr: Database wrapper for async operations
+    - nostr_tools: Relay URL parsing and validation
+"""
 import asyncio
 import logging
 import time

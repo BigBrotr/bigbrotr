@@ -3,6 +3,7 @@
 # Database connection pool settings
 DB_POOL_MIN_SIZE_PER_WORKER = 2
 DB_POOL_MAX_SIZE_PER_WORKER = 5
+DB_POOL_ACQUIRE_TIMEOUT = 30  # seconds to wait for connection from pool
 
 # Health check server settings
 HEALTH_CHECK_PORT = 8080

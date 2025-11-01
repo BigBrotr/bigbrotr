@@ -1,3 +1,20 @@
+"""Shared utility functions for Bigbrotr services.
+
+This module provides common utility functions used across all Bigbrotr services,
+including chunking, connection testing, retry logic, and failure tracking.
+
+Key Components:
+    - chunkify: Split iterables into fixed-size chunks for parallel processing
+    - RelayFailureTracker: Monitor and alert on relay processing failure rates
+    - wait_for_services: Wait for dependent services (database, Tor proxy) to be ready
+    - connect_bigbrotr_with_retry: Retry logic for database connection establishment
+    - test_tor_connectivity: Verify Tor proxy is working for both HTTP and WebSocket
+
+Dependencies:
+    - bigbrotr: Database wrapper for async operations
+    - aiohttp: HTTP client for connectivity testing
+    - aiohttp_socks: SOCKS5 proxy support for Tor connections
+"""
 from typing import Generator, List, TypeVar, Optional, Any, Dict
 
 import asyncio

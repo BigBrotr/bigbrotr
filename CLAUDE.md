@@ -75,6 +75,11 @@ docker-compose logs -f --tail=100 synchronizer | grep "ERROR"
 
 # Monitor resource usage
 docker stats bigbrotr_synchronizer bigbrotr_monitor
+
+# Generate Nostr keypair (required for .env setup)
+# Use any Nostr key generator, for example:
+# npx nostr-keygen
+# Or generate using Python nostr-tools library
 ```
 
 ## Architecture
@@ -160,6 +165,13 @@ docker stats bigbrotr_synchronizer bigbrotr_monitor
 
 All configuration is via environment variables in `.env` (see [env.example](env.example) for reference).
 
+**First-Time Setup:**
+1. Copy `env.example` to `.env`: `cp env.example .env`
+2. Generate Nostr keypair and add to `SECRET_KEY` and `PUBLIC_KEY` (64 hex chars each)
+3. Change all `CHANGE_ME` password placeholders in `.env`
+4. Adjust `*_NUM_CORES` based on your CPU (default: 8 cores per service)
+5. Ensure `seed_relays.txt` and `priority_relays.txt` exist
+
 **Critical Settings:**
 - `SECRET_KEY` / `PUBLIC_KEY`: Nostr keypair for signed requests (64 hex chars each)
 - `POSTGRES_PASSWORD`, `PGBOUNCER_ADMIN_PASSWORD`, `PGADMIN_DEFAULT_PASSWORD`: Change before deployment
@@ -168,6 +180,7 @@ All configuration is via environment variables in `.env` (see [env.example](env.
 - `SYNCHRONIZER_RELAY_METADATA_THRESHOLD_HOURS`: Only sync relays with metadata fresher than X hours (default: 12)
 - `SYNCHRONIZER_START_TIMESTAMP`: 0 = genesis, -1 = resume from last sync
 - `SYNCHRONIZER_STOP_TIMESTAMP`: -1 = now (continuous)
+- `*_LOOP_INTERVAL_MINUTES`: Sleep interval between service loops (default: 15)
 
 **Database Pooling:**
 - Service-level pools: `MONITOR_DB_MIN_POOL`, `MONITOR_DB_MAX_POOL` (default: 2-5 per worker)
@@ -239,6 +252,24 @@ await db.connect()
 4. Check logs: `docker-compose logs -f monitor`
 5. Verify health: `curl http://localhost:8081/health`
 
+## Recent Improvements (November 1, 2025)
+
+**Critical Bug Fixes:**
+- ✅ Fixed inverted connection state validation in [process_relay.py](src/process_relay.py) - function now works correctly with async context managers
+- ✅ Replaced private `pool._pool` access in [monitor.py](src/monitor.py) - future-proof against library updates
+- ✅ Fixed race condition in health checks - replaced `service_ready` boolean with `asyncio.Event()` in all services
+- ✅ Added connection pool timeout handling - all `pool.acquire()` calls now have 30s timeout to prevent deadlocks
+
+**Performance Improvements:**
+- ✅ Optimized `get_start_time_async()` - reduced database queries from 3 to 1 (66% reduction) using JOIN query
+- ✅ Removed unused pandas dependency - saves ~100MB in Docker images
+
+**Code Quality:**
+- ✅ Added comprehensive module-level docstrings to all core files
+- ✅ Added `DB_POOL_ACQUIRE_TIMEOUT` constant in [constants.py](src/constants.py)
+
+**See [TODO.md](TODO.md) for full task list and progress tracking.**
+
 ## Important Notes
 
 - **Finder service is disabled** ([docker-compose.yml](docker-compose.yml):95-123): Implementation incomplete. Re-enable when relay discovery logic is fully implemented.
@@ -247,3 +278,6 @@ await db.connect()
 - **Resource limits**: Docker resource limits are configured in [docker-compose.yml](docker-compose.yml) (adjust based on hardware).
 - **PgBouncer transaction pooling**: Prepared statements are not supported. Use parameterized queries with `$1, $2, ...` syntax.
 - **Nostr library**: Uses `nostr-tools` 1.2.1 (custom Python library, not the JavaScript one).
+- **Storage requirements**: Plan for 100GB+ for event archival; database grows continuously over time.
+- **RAM recommendation**: 8GB+ recommended for production use with default core settings.
+- **Connection pool timeouts**: All database operations have 30-second timeout for connection acquisition

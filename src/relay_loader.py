@@ -1,4 +1,24 @@
-"""Relay loading utilities for fetching relays from database or files."""
+"""Relay loading utilities for fetching relays from database or files.
+
+This module provides functions to load relay lists from various sources:
+- Database queries (with filtering by metadata freshness and readability)
+- Files (seed_relays.txt, priority_relays.txt)
+
+Key Functions:
+    - fetch_relays_from_database: Query database for relays with recent metadata
+    - fetch_relays_from_file: Load relays from text file
+    - fetch_relays_needing_metadata: Find relays that need metadata updates
+
+Features:
+    - Metadata freshness filtering: Only fetch relays updated within threshold
+    - Readable relay filtering: Only fetch relays marked as readable
+    - Network shuffling: Randomize relay order for load distribution
+    - Legacy config support: Backward compatible with old config key names
+
+Dependencies:
+    - bigbrotr: Database wrapper for async operations
+    - nostr_tools: Relay URL parsing and validation
+"""
 import logging
 import random
 import time

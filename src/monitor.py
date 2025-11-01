@@ -1,3 +1,31 @@
+"""Monitor service for fetching and tracking Nostr relay metadata.
+
+This service periodically connects to Nostr relays to fetch and store their metadata,
+including NIP-11 relay information and NIP-66 connection test results. It uses multiprocessing
+to parallelize metadata fetching across multiple relays.
+
+Service Architecture:
+    - Main loop: Orchestrates periodic metadata collection cycles
+    - Worker processes: Each process handles a chunk of relays
+    - Per-process connection pools: Each worker creates its own database connection pool
+    - Health check server: Exposes /health endpoint for monitoring
+
+Metadata Collection:
+    - NIP-11: Relay information (name, description, supported NIPs, etc.)
+    - NIP-66: Connection test results (RTT, openable, readable, writable status)
+    - Tor support: Routes .onion relay requests through SOCKS5 proxy
+
+Configuration:
+    - MONITOR_FREQUENCY_HOUR: How often to update metadata for each relay
+    - MONITOR_NUM_CORES: Number of worker processes to spawn
+    - MONITOR_REQUESTS_PER_CORE: Concurrent requests per worker process
+    - MONITOR_CHUNK_SIZE: Number of relays per worker chunk
+
+Dependencies:
+    - bigbrotr: Database wrapper for async operations
+    - nostr_tools: Nostr protocol client and metadata fetching
+    - multiprocessing: Parallel processing across CPU cores
+"""
 import asyncio
 import logging
 import signal
@@ -20,7 +48,7 @@ setup_logging("MONITOR")
 
 # Global shutdown event (thread-safe across processes)
 shutdown_event = Event()
-service_ready = False
+service_ready_event = asyncio.Event()
 
 
 def signal_handler(signum: int, frame) -> None:
@@ -177,30 +205,29 @@ async def main_loop(config: Dict[str, Any]) -> None:
     finally:
         pool.close()  # Prevent new tasks
         pool.join(timeout=30)  # Wait for workers to finish gracefully
-        if any(p.is_alive() for p in pool._pool):
-            logging.warning("⚠️ Some workers did not finish gracefully, terminating...")
-            pool.terminate()  # Force kill remaining workers
-            pool.join(timeout=5)  # Wait for termination
+        # Terminate pool if workers didn't finish gracefully
+        # Note: No reliable public API to check worker status, so we terminate unconditionally
+        # after timeout. Workers should have finished by now if they're going to.
+        pool.terminate()  # Force kill any remaining workers
+        pool.join(timeout=5)  # Wait for termination
 
 
 # --- Monitor Entrypoint ---
 async def monitor() -> None:
     """Monitor service entry point."""
-    global service_ready
-
     config = load_monitor_config()
     logging.info("🔍 Starting monitor...")
 
     # Start health check server
     async def is_ready():
-        return service_ready
+        return service_ready_event.is_set()
 
     health_server = HealthCheckServer(port=HEALTH_CHECK_PORT, ready_check=is_ready)
     await health_server.start()
 
     try:
         await wait_for_services(config)
-        service_ready = True
+        service_ready_event.set()
 
         while not shutdown_event.is_set():
             try:

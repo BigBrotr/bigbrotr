@@ -1,3 +1,27 @@
+"""Relay event processing and synchronization logic.
+
+This module contains the core logic for processing and synchronizing events from Nostr relays.
+It implements an adaptive binary search algorithm to efficiently fetch events from relays that
+may have inconsistent or incomplete event histories.
+
+Key Components:
+    - get_start_time_async: Determines the starting timestamp for relay synchronization
+    - insert_batch: Batch inserts events into the database
+    - RawEventBatch: Container for managing batches of raw Nostr events
+    - process_batch: Processes a single batch of events from a relay
+    - process_relay: Main orchestration function that processes all events from a relay
+
+The binary search algorithm handles:
+    - Relays with gaps in their event history
+    - Relays that return inconsistent results
+    - Efficient batching to minimize round trips
+    - Detection of misbehaving relays
+
+Dependencies:
+    - bigbrotr: Database wrapper for async operations
+    - nostr_tools: Nostr protocol client and data structures
+    - asyncio: Async I/O operations
+"""
 import time
 import logging
 import asyncio
@@ -15,45 +39,26 @@ async def get_start_time_async(
     retries: int = 5,
     delay: int = 30
 ) -> int:
-    """Get the starting timestamp for event synchronization from database (async version)."""
+    """Get the starting timestamp for event synchronization from database (async version).
+
+    Uses a single JOIN query to avoid N+1 query pattern.
+    """
     for attempt in range(retries):
         try:
-            # Get max seen_at for this relay
+            # Single JOIN query to get the created_at of the most recently seen event
             query = """
-                SELECT MAX(seen_at)
-                FROM events_relays
-                WHERE relay_url = $1
-            """
-            result = await bigbrotr.fetchone(query, relay.url)
-            max_seen_at = result[0] if result else None
-
-            if max_seen_at is None:
-                return default_start_time
-
-            # Get event_id for that seen_at
-            query = """
-                SELECT event_id
-                FROM events_relays
-                WHERE relay_url = $1 AND seen_at = $2
+                SELECT e.created_at
+                FROM events_relays er
+                JOIN events e ON er.event_id = e.id
+                WHERE er.relay_url = $1
+                ORDER BY er.seen_at DESC
                 LIMIT 1
             """
-            result = await bigbrotr.fetchone(query, relay.url, max_seen_at)
-            event_id = result[0] if result else None
+            result = await bigbrotr.fetchone(query, relay.url)
 
-            if event_id is None:
-                return default_start_time
+            if result and result[0] is not None:
+                return result[0] + 1
 
-            # Get created_at for that event
-            query = """
-                SELECT created_at
-                FROM events
-                WHERE id = $1
-            """
-            result = await bigbrotr.fetchone(query, event_id)
-            created_at = result[0] if result else None
-
-            if created_at is not None:
-                return created_at + 1
             return default_start_time
 
         except Exception as e:
@@ -151,10 +156,6 @@ async def process_relay(bigbrotr: Bigbrotr, client: Client, filter: Filter) -> N
                 f"{argument} must be an instance of {argument_type}")
         if not argument.is_valid:
             raise ValueError(f"{argument} must be valid")
-    if bigbrotr.is_connected:
-        raise ValueError("bigbrotr must be disconnected before calling process_relay")
-    if client.is_connected:
-        raise ValueError("client must be disconnected before calling process_relay")
     if filter.since is None or filter.until is None:
         raise ValueError("filter must have since and until")
     if filter.limit is None:

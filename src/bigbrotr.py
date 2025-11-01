@@ -98,37 +98,55 @@ class Bigbrotr:
         """Check if instance is valid (has required attributes)."""
         return all([self.host, self.port, self.user, self.password, self.dbname])
 
-    async def execute(self, query: str, *args: Any) -> str:
-        """Execute a query without returning results."""
+    async def execute(self, query: str, *args: Any, timeout: float = 30) -> str:
+        """Execute a query without returning results.
+
+        Args:
+            query: SQL query to execute
+            *args: Query parameters
+            timeout: Timeout in seconds for acquiring connection from pool (default: 30)
+        """
         if not isinstance(query, str):
             raise TypeError(f"query must be a str, not {type(query)}")
         if self.pool is None:
             raise RuntimeError(
                 "Connection pool not initialized. Call connect() first.")
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=timeout) as conn:
             return await conn.execute(query, *args)
 
-    async def fetch(self, query: str, *args: Any) -> List[asyncpg.Record]:
-        """Fetch all results from a query."""
+    async def fetch(self, query: str, *args: Any, timeout: float = 30) -> List[asyncpg.Record]:
+        """Fetch all results from a query.
+
+        Args:
+            query: SQL query to execute
+            *args: Query parameters
+            timeout: Timeout in seconds for acquiring connection from pool (default: 30)
+        """
         if not isinstance(query, str):
             raise TypeError(f"query must be a str, not {type(query)}")
         if self.pool is None:
             raise RuntimeError(
                 "Connection pool not initialized. Call connect() first.")
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=timeout) as conn:
             return await conn.fetch(query, *args)
 
-    async def fetchone(self, query: str, *args: Any) -> Optional[asyncpg.Record]:
-        """Fetch one result from a query."""
+    async def fetchone(self, query: str, *args: Any, timeout: float = 30) -> Optional[asyncpg.Record]:
+        """Fetch one result from a query.
+
+        Args:
+            query: SQL query to execute
+            *args: Query parameters
+            timeout: Timeout in seconds for acquiring connection from pool (default: 30)
+        """
         if not isinstance(query, str):
             raise TypeError(f"query must be a str, not {type(query)}")
         if self.pool is None:
             raise RuntimeError(
                 "Connection pool not initialized. Call connect() first.")
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=timeout) as conn:
             return await conn.fetchrow(query, *args)
 
     async def delete_orphan_events(self) -> None:
@@ -225,7 +243,7 @@ class Bigbrotr:
             )
         """
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=30) as conn:
             async with conn.transaction():
                 await conn.executemany(
                     query,
@@ -306,7 +324,7 @@ class Bigbrotr:
 
         query = "SELECT insert_relay($1, $2, $3)"
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=30) as conn:
             async with conn.transaction():
                 await conn.executemany(
                     query,
@@ -451,6 +469,6 @@ class Bigbrotr:
                 )
             )
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=30) as conn:
             async with conn.transaction():
                 await conn.executemany(query, args)

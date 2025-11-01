@@ -1,3 +1,41 @@
+"""Priority Synchronizer service for archiving events from high-priority Nostr relays.
+
+This service is dedicated to archiving events from a curated list of high-priority relays
+defined in priority_relays.txt. It operates independently from the main synchronizer to
+ensure critical relays receive dedicated resources and guaranteed processing time.
+
+Service Architecture:
+    - Main loop: Fetches priority relay list and distributes work
+    - Worker processes: Each process spawns multiple worker threads
+    - Worker threads: Each thread processes relays from a shared queue
+    - Per-thread resources: Each thread has its own event loop and database connection pool
+
+Why Separate Priority Synchronizer:
+    - Guaranteed resources: Priority relays always get processed
+    - Isolated failures: Issues with general relays don't affect priority relay sync
+    - Different scheduling: Can run on different intervals/configurations
+    - Performance isolation: Priority relay performance not impacted by slow general relays
+
+Event Synchronization:
+    - Resumes from last seen event per relay (or starts from configured timestamp)
+    - Uses binary search algorithm to handle gaps in relay event history
+    - Filters events based on configurable criteria (kinds, authors, etc.)
+    - Batches inserts for efficiency
+
+Configuration:
+    - SYNCHRONIZER_PRIORITY_RELAYS_PATH: Path to priority relays file
+    - SYNCHRONIZER_START_TIMESTAMP: Starting timestamp (0=genesis, -1=resume)
+    - SYNCHRONIZER_STOP_TIMESTAMP: End timestamp (-1=continuous)
+    - SYNCHRONIZER_EVENT_FILTER: JSON filter for event kinds/authors/tags
+    - SYNCHRONIZER_NUM_CORES: Number of worker processes
+    - SYNCHRONIZER_REQUESTS_PER_CORE: Number of threads per process
+
+Dependencies:
+    - bigbrotr: Database wrapper for async operations
+    - nostr_tools: Nostr protocol client and event structures
+    - multiprocessing: Process-level parallelism
+    - threading: Thread-level parallelism within processes
+"""
 import asyncio
 import logging
 import signal
@@ -29,7 +67,7 @@ setup_logging("PRIORITY_SYNCHRONIZER")
 
 # Global shutdown flag
 shutdown_event = Event()
-service_ready = False
+service_ready_event = asyncio.Event()
 
 
 def signal_handler(signum: int, frame) -> None:
@@ -209,21 +247,19 @@ async def main_loop(config: Dict[str, Any]) -> None:
 # --- Priority Synchronizer Entrypoint ---
 async def priority_synchronizer() -> None:
     """Priority synchronizer service entry point."""
-    global service_ready
-
     config = load_synchronizer_config()
     logging.info("🔄 Starting Priority Synchronizer...")
 
     # Start health check server
     async def is_ready():
-        return service_ready
+        return service_ready_event.is_set()
 
     health_server = HealthCheckServer(port=HEALTH_CHECK_PORT, ready_check=is_ready)
     await health_server.start()
 
     try:
         await wait_for_services(config)
-        service_ready = True
+        service_ready_event.set()
 
         while not shutdown_event.is_set():
             try:
