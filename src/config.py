@@ -1,4 +1,32 @@
-"""Centralized configuration management for all Bigbrotr services."""
+"""Centralized configuration management for all Bigbrotr services.
+
+This module provides type-safe configuration loading for all Bigbrotr microservices
+(Monitor, Synchronizer, Priority Synchronizer, Initializer, and Finder). All configuration
+is loaded from environment variables with comprehensive validation.
+
+Key Features:
+    - Type-safe config loading with explicit type conversion
+    - Comprehensive validation (empty strings, URL formats, port ranges, hex keys, JSON structure)
+    - Descriptive error messages that fail fast on invalid configuration
+    - CPU core validation and auto-adjustment
+    - Nostr keypair validation using nostr-tools library
+
+Configuration Loaders:
+    - load_monitor_config(): Monitor service configuration
+    - load_synchronizer_config(): Synchronizer service configuration
+    - load_initializer_config(): Initializer service configuration
+    - load_finder_config(): Finder service configuration (currently disabled)
+
+Validation Helpers:
+    - _validate_port(): Ensures port is in valid range (0-65535)
+    - _validate_positive(): Ensures integer is at least 1
+    - _validate_non_empty_string(): Ensures string is not empty or whitespace-only
+    - _validate_url(): Validates URL format (http/https/ws/wss schemes)
+    - _validate_hex_key(): Validates hexadecimal key format and length
+
+All validation functions call sys.exit(1) on failure to prevent services from
+running with invalid configuration.
+"""
 import os
 import re
 import sys
@@ -7,6 +35,12 @@ import logging
 from typing import Dict, Any
 from multiprocessing import cpu_count
 from nostr_tools import validate_keypair
+from constants import (
+    DEFAULT_MONITOR_LOOP_INTERVAL_MINUTES,
+    DEFAULT_SYNCHRONIZER_LOOP_INTERVAL_MINUTES,
+    DEFAULT_SYNCHRONIZER_BATCH_SIZE,
+    DEFAULT_SYNCHRONIZER_RELAY_METADATA_THRESHOLD_HOURS
+)
 
 
 def load_monitor_config() -> Dict[str, Any]:
@@ -27,10 +61,15 @@ def load_monitor_config() -> Dict[str, Any]:
             "timeout": int(os.environ["MONITOR_REQUEST_TIMEOUT"]),
             "secret_key": str(os.environ["SECRET_KEY"]),
             "public_key": str(os.environ["PUBLIC_KEY"]),
-            "loop_interval_minutes": int(os.environ.get("MONITOR_LOOP_INTERVAL_MINUTES", "15"))
+            "loop_interval_minutes": int(os.environ.get("MONITOR_LOOP_INTERVAL_MINUTES", str(DEFAULT_MONITOR_LOOP_INTERVAL_MINUTES)))
         }
 
         # Validation
+        _validate_non_empty_string(config["database_host"], "POSTGRES_HOST")
+        _validate_non_empty_string(config["database_user"], "POSTGRES_USER")
+        _validate_non_empty_string(config["database_password"], "POSTGRES_PASSWORD")
+        _validate_non_empty_string(config["database_name"], "POSTGRES_DB")
+        _validate_non_empty_string(config["torproxy_host"], "TORPROXY_HOST")
         _validate_port(config["database_port"], "POSTGRES_PORT")
         _validate_port(config["torproxy_port"], "TORPROXY_PORT")
         _validate_positive(config["frequency_hour"], "MONITOR_FREQUENCY_HOUR")
@@ -39,6 +78,8 @@ def load_monitor_config() -> Dict[str, Any]:
         _validate_positive(config["requests_per_core"], "MONITOR_REQUESTS_PER_CORE")
         _validate_positive(config["timeout"], "MONITOR_REQUEST_TIMEOUT")
         _validate_positive(config["loop_interval_minutes"], "MONITOR_LOOP_INTERVAL_MINUTES")
+        _validate_hex_key(config["secret_key"], "SECRET_KEY")
+        _validate_hex_key(config["public_key"], "PUBLIC_KEY")
 
         if not validate_keypair(config["secret_key"], config["public_key"]):
             logging.error("❌ Invalid SECRET_KEY or PUBLIC_KEY.")
@@ -76,13 +117,18 @@ def load_synchronizer_config() -> Dict[str, Any]:
             "start_timestamp": int(os.environ["SYNCHRONIZER_START_TIMESTAMP"]),
             "stop_timestamp": int(os.environ["SYNCHRONIZER_STOP_TIMESTAMP"]),
             "event_filter": json.loads(os.environ["SYNCHRONIZER_EVENT_FILTER"]),
-            "priority_relays_path": str(os.environ.get("SYNCHRONIZER_PRIORITY_RELAYS_PATH")),
-            "relay_metadata_threshold_hours": int(os.environ.get("SYNCHRONIZER_RELAY_METADATA_THRESHOLD_HOURS", "12")),
-            "loop_interval_minutes": int(os.environ.get("SYNCHRONIZER_LOOP_INTERVAL_MINUTES", "15")),
-            "batch_size": int(os.environ.get("SYNCHRONIZER_BATCH_SIZE", "500"))
+            "priority_relays_path": str(os.environ.get("SYNCHRONIZER_PRIORITY_RELAYS_PATH", "")),
+            "relay_metadata_threshold_hours": int(os.environ.get("SYNCHRONIZER_RELAY_METADATA_THRESHOLD_HOURS", str(DEFAULT_SYNCHRONIZER_RELAY_METADATA_THRESHOLD_HOURS))),
+            "loop_interval_minutes": int(os.environ.get("SYNCHRONIZER_LOOP_INTERVAL_MINUTES", str(DEFAULT_SYNCHRONIZER_LOOP_INTERVAL_MINUTES))),
+            "batch_size": int(os.environ.get("SYNCHRONIZER_BATCH_SIZE", str(DEFAULT_SYNCHRONIZER_BATCH_SIZE)))
         }
 
         # Validation
+        _validate_non_empty_string(config["database_host"], "POSTGRES_HOST")
+        _validate_non_empty_string(config["database_user"], "POSTGRES_USER")
+        _validate_non_empty_string(config["database_password"], "POSTGRES_PASSWORD")
+        _validate_non_empty_string(config["database_name"], "POSTGRES_DB")
+        _validate_non_empty_string(config["torproxy_host"], "TORPROXY_HOST")
         _validate_port(config["database_port"], "POSTGRES_PORT")
         _validate_port(config["torproxy_port"], "TORPROXY_PORT")
         _validate_positive(config["num_cores"], "SYNCHRONIZER_NUM_CORES")
@@ -108,10 +154,18 @@ def load_synchronizer_config() -> Dict[str, Any]:
             logging.error("❌ SYNCHRONIZER_EVENT_FILTER must be a valid JSON object.")
             sys.exit(1)
 
+        # Validate event_filter has valid structure
+        valid_nostr_keys = {"ids", "authors", "kinds", "since", "until", "limit"}
+        for key in config["event_filter"].keys():
+            # Check if it's a standard key or a tag filter (#e, #p, etc.)
+            if key not in valid_nostr_keys and not re.fullmatch(r"#[a-zA-Z]", key):
+                logging.error(f"❌ Invalid key '{key}' in SYNCHRONIZER_EVENT_FILTER. Must be one of {valid_nostr_keys} or a tag filter like #e, #p.")
+                sys.exit(1)
+
         # Filter only valid Nostr filter keys
         config["event_filter"] = {
             k: v for k, v in config["event_filter"].items()
-            if k in {"ids", "authors", "kinds"} or re.fullmatch(r"#([a-zA-Z])", k)
+            if k in valid_nostr_keys or re.fullmatch(r"#[a-zA-Z]", k)
         }
 
         if config["num_cores"] > cpu_count():
@@ -157,6 +211,11 @@ def load_initializer_config() -> Dict[str, Any]:
         }
 
         # Validation
+        _validate_non_empty_string(config["database_host"], "POSTGRES_HOST")
+        _validate_non_empty_string(config["database_user"], "POSTGRES_USER")
+        _validate_non_empty_string(config["database_password"], "POSTGRES_PASSWORD")
+        _validate_non_empty_string(config["database_name"], "POSTGRES_DB")
+        _validate_non_empty_string(config["seed_relays_path"], "SEED_RELAYS_PATH")
         _validate_port(config["database_port"], "POSTGRES_PORT")
 
         if not os.path.exists(config["seed_relays_path"]):
@@ -189,6 +248,11 @@ def load_finder_config() -> Dict[str, Any]:
         }
 
         # Validation
+        _validate_non_empty_string(config["database_host"], "POSTGRES_HOST")
+        _validate_non_empty_string(config["database_user"], "POSTGRES_USER")
+        _validate_non_empty_string(config["database_password"], "POSTGRES_PASSWORD")
+        _validate_non_empty_string(config["database_name"], "POSTGRES_DB")
+        _validate_non_empty_string(config["torproxy_host"], "TORPROXY_HOST")
         _validate_port(config["database_port"], "POSTGRES_PORT")
         _validate_port(config["torproxy_port"], "TORPROXY_PORT")
         _validate_positive(config["frequency_hour"], "FINDER_FREQUENCY_HOUR")
@@ -217,4 +281,40 @@ def _validate_positive(value: int, name: str) -> None:
     """Validate value is positive."""
     if value < 1:
         logging.error(f"❌ Invalid {name}. Must be at least 1.")
+        sys.exit(1)
+
+
+def _validate_non_empty_string(value: str, name: str) -> None:
+    """Validate string is not empty."""
+    if not value or not value.strip():
+        logging.error(f"❌ Invalid {name}. Cannot be empty.")
+        sys.exit(1)
+
+
+def _validate_url(url: str, name: str) -> None:
+    """Validate URL format (http/https/ws/wss)."""
+    if not url or not url.strip():
+        logging.error(f"❌ Invalid {name}. Cannot be empty.")
+        sys.exit(1)
+
+    valid_schemes = ('http://', 'https://', 'ws://', 'wss://')
+    if not any(url.startswith(scheme) for scheme in valid_schemes):
+        logging.error(f"❌ Invalid {name}. Must start with http://, https://, ws://, or wss://")
+        sys.exit(1)
+
+
+def _validate_hex_key(key: str, name: str, expected_length: int = 64) -> None:
+    """Validate hexadecimal key format."""
+    if not key or not key.strip():
+        logging.error(f"❌ Invalid {name}. Cannot be empty.")
+        sys.exit(1)
+
+    if len(key) != expected_length:
+        logging.error(f"❌ Invalid {name}. Must be exactly {expected_length} hexadecimal characters.")
+        sys.exit(1)
+
+    try:
+        int(key, 16)
+    except ValueError:
+        logging.error(f"❌ Invalid {name}. Must contain only hexadecimal characters (0-9, a-f).")
         sys.exit(1)

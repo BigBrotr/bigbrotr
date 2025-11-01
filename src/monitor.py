@@ -37,7 +37,14 @@ from bigbrotr import Bigbrotr
 from nostr_tools import Relay, Client, fetch_relay_metadata, RelayMetadata
 
 from config import load_monitor_config
-from constants import DB_POOL_MIN_SIZE_PER_WORKER, DB_POOL_MAX_SIZE_PER_WORKER, HEALTH_CHECK_PORT
+from constants import (
+    DB_POOL_MIN_SIZE_PER_WORKER,
+    DB_POOL_MAX_SIZE_PER_WORKER,
+    HEALTH_CHECK_PORT,
+    WORKER_GRACEFUL_SHUTDOWN_TIMEOUT,
+    WORKER_FORCE_SHUTDOWN_TIMEOUT,
+    NetworkType
+)
 from functions import chunkify, wait_for_services, connect_bigbrotr_with_retry, RelayFailureTracker
 from healthcheck import HealthCheckServer
 from logging_config import setup_logging
@@ -76,7 +83,7 @@ async def process_relay(config: Dict[str, Any], relay: Relay, generated_at: int)
     client = Client(
         relay=relay,
         timeout=config["timeout"],
-        socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None
+        socks5_proxy_url=socks5_proxy_url if relay.network == NetworkType.TOR else None
     )
     relay_metadata = await fetch_relay_metadata(
         client=client,
@@ -204,12 +211,12 @@ async def main_loop(config: Dict[str, Any]) -> None:
         logging.info(f"✅ All chunks processed successfully.")
     finally:
         pool.close()  # Prevent new tasks
-        pool.join(timeout=30)  # Wait for workers to finish gracefully
+        pool.join(timeout=WORKER_GRACEFUL_SHUTDOWN_TIMEOUT)  # Wait for workers to finish gracefully
         # Terminate pool if workers didn't finish gracefully
         # Note: No reliable public API to check worker status, so we terminate unconditionally
         # after timeout. Workers should have finished by now if they're going to.
         pool.terminate()  # Force kill any remaining workers
-        pool.join(timeout=5)  # Wait for termination
+        pool.join(timeout=WORKER_FORCE_SHUTDOWN_TIMEOUT)  # Wait for termination
 
 
 # --- Monitor Entrypoint ---

@@ -54,7 +54,10 @@ from constants import (
     DB_POOL_MAX_SIZE_PER_WORKER,
     HEALTH_CHECK_PORT,
     RELAY_TIMEOUT_MULTIPLIER,
-    SECONDS_PER_DAY
+    SECONDS_PER_DAY,
+    WORKER_GRACEFUL_SHUTDOWN_TIMEOUT,
+    WORKER_FORCE_SHUTDOWN_TIMEOUT,
+    NetworkType
 )
 from functions import wait_for_services, connect_bigbrotr_with_retry, RelayFailureTracker
 from healthcheck import HealthCheckServer
@@ -99,7 +102,7 @@ def priority_relay_worker_thread(config: Dict[str, Any], shared_queue: Queue, en
             client = Client(
                 relay=relay,
                 timeout=config["timeout"],
-                socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None
+                socks5_proxy_url=socks5_proxy_url if relay.network == NetworkType.TOR else None
             )
 
             # Create filter based on config
@@ -234,14 +237,14 @@ async def main_loop(config: Dict[str, Any]) -> None:
 
     # Wait for all processes to complete gracefully
     for p in processes:
-        p.join(timeout=30)
+        p.join(timeout=WORKER_GRACEFUL_SHUTDOWN_TIMEOUT)
 
     # Terminate any remaining processes
     for p in processes:
         if p.is_alive():
             logging.warning(f"⚠️ Process {p.pid} did not finish gracefully, terminating...")
             p.terminate()
-            p.join(timeout=5)
+            p.join(timeout=WORKER_FORCE_SHUTDOWN_TIMEOUT)
 
 
 # --- Priority Synchronizer Entrypoint ---

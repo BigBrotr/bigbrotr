@@ -28,16 +28,15 @@ import asyncio
 from typing import Optional, List, Dict, Any
 from bigbrotr import Bigbrotr
 from nostr_tools import Event, Client, Filter, Relay
-
-from logging_config import setup_logging
+from constants import DEFAULT_MAX_RETRIES, DEFAULT_DB_RETRY_DELAY
 
 
 async def get_start_time_async(
     default_start_time: int,
     bigbrotr: Bigbrotr,
     relay: Relay,
-    retries: int = 5,
-    delay: int = 30
+    retries: int = DEFAULT_MAX_RETRIES,
+    delay: int = DEFAULT_DB_RETRY_DELAY
 ) -> int:
     """Get the starting timestamp for event synchronization from database (async version).
 

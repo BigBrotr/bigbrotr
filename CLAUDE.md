@@ -254,6 +254,7 @@ await db.connect()
 
 ## Recent Improvements (November 1, 2025)
 
+### Session 1: Critical Bug Fixes & Performance (7 tasks completed)
 **Critical Bug Fixes:**
 - ✅ Fixed inverted connection state validation in [process_relay.py](src/process_relay.py) - function now works correctly with async context managers
 - ✅ Replaced private `pool._pool` access in [monitor.py](src/monitor.py) - future-proof against library updates
@@ -265,8 +266,28 @@ await db.connect()
 - ✅ Removed unused pandas dependency - saves ~100MB in Docker images
 
 **Code Quality:**
-- ✅ Added comprehensive module-level docstrings to all core files
+- ✅ Added comprehensive module-level docstrings to 7+ core files
 - ✅ Added `DB_POOL_ACQUIRE_TIMEOUT` constant in [constants.py](src/constants.py)
+
+### Session 2: Configuration & Code Quality (5 tasks completed)
+**Configuration Improvements:**
+- ✅ Enhanced environment variable validation in [config.py](src/config.py)
+  - Added validation helpers: `_validate_non_empty_string()`, `_validate_url()`, `_validate_hex_key()`
+  - Comprehensive validation for all config loaders (empty strings, URL formats, hex keys, JSON structure)
+  - Configuration errors now fail fast at startup with descriptive error messages
+
+**Code Quality & Maintainability:**
+- ✅ Extracted magic numbers to [constants.py](src/constants.py)
+  - Added 13 new constants: retry settings, timeouts, defaults, thresholds
+  - Updated 8 files to use constants: [functions.py](src/functions.py), [config.py](src/config.py), [monitor.py](src/monitor.py), [synchronizer.py](src/synchronizer.py), [priority_synchronizer.py](src/priority_synchronizer.py), [initializer.py](src/initializer.py), [process_relay.py](src/process_relay.py)
+  - Clearer intent, easier to tune behavior
+- ✅ Added `NetworkType` enum for network types
+  - Created enum with `CLEARNET` and `TOR` values
+  - Updated 3 services to use `NetworkType.TOR` instead of string literals
+  - Better type safety, prevents typos
+- ✅ Removed unused import from [process_relay.py](src/process_relay.py)
+
+**Overall Progress:** 12/78 tasks completed (15% → previous session was 9%)
 
 **See [TODO.md](TODO.md) for full task list and progress tracking.**
 

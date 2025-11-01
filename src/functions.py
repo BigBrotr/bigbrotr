@@ -24,7 +24,16 @@ from aiohttp import ClientSession, WSMsgType
 from aiohttp_socks import ProxyConnector
 
 from bigbrotr import Bigbrotr
-from constants import TOR_CHECK_HTTP_URL, TOR_CHECK_WS_URL
+from constants import (
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_RETRY_BASE_DELAY,
+    DEFAULT_DB_RETRY_DELAY,
+    DEFAULT_FAILURE_THRESHOLD,
+    DEFAULT_FAILURE_CHECK_INTERVAL,
+    DEFAULT_TORPROXY_TIMEOUT,
+    TOR_CHECK_HTTP_URL,
+    TOR_CHECK_WS_URL
+)
 
 T = TypeVar('T')
 
@@ -36,11 +45,11 @@ class RelayFailureTracker:
     and emits alerts when failure rates exceed configured thresholds.
     """
 
-    def __init__(self, alert_threshold: float = 0.1, check_interval: int = 100):
+    def __init__(self, alert_threshold: float = DEFAULT_FAILURE_THRESHOLD, check_interval: int = DEFAULT_FAILURE_CHECK_INTERVAL):
         """Initialize failure tracker.
 
         Args:
-            alert_threshold: Failure rate threshold for alerts (default: 0.1 = 10%)
+            alert_threshold: Failure rate threshold for alerts (default: 10%)
             check_interval: Check failure rate every N relays (default: 100)
         """
         self.total = 0
@@ -118,8 +127,8 @@ async def test_database_connection_async(
 
 async def connect_bigbrotr_with_retry(
     bigbrotr: Bigbrotr,
-    max_retries: int = 5,
-    base_delay: int = 1,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    base_delay: int = DEFAULT_RETRY_BASE_DELAY,
     logging: Optional[Any] = None
 ) -> None:
     """Connect Bigbrotr instance with exponential backoff retry logic.
@@ -158,7 +167,7 @@ async def connect_bigbrotr_with_retry(
 async def test_torproxy_connection(
     host: str,
     port: int,
-    timeout: int = 10,
+    timeout: int = DEFAULT_TORPROXY_TIMEOUT,
     logging: Optional[Any] = None
 ) -> bool:
     """Test Tor proxy connection with HTTP and WebSocket.
@@ -215,7 +224,7 @@ async def test_torproxy_connection(
         return False
 
 
-async def wait_for_services(config: Dict[str, Any], retries: int = 5, delay: int = 30) -> None:
+async def wait_for_services(config: Dict[str, Any], retries: int = DEFAULT_MAX_RETRIES, delay: int = DEFAULT_DB_RETRY_DELAY) -> None:
     """Wait for required services (database and Tor proxy) to be available.
 
     Args:

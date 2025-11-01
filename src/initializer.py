@@ -33,6 +33,7 @@ from bigbrotr import Bigbrotr
 from nostr_tools import Relay
 
 from config import load_initializer_config
+from constants import DEFAULT_INITIALIZER_RETRY_DELAY
 from functions import wait_for_services
 from logging_config import setup_logging
 
@@ -80,7 +81,7 @@ async def initializer() -> None:
     config = load_initializer_config()
 
     # Wait for database to be available
-    await wait_for_services(config, retries=5, delay=10)
+    await wait_for_services(config, retries=5, delay=DEFAULT_INITIALIZER_RETRY_DELAY)
 
     await insert_relays(config)
 

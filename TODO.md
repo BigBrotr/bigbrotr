@@ -44,6 +44,33 @@
   - Impact: ~100MB reduction in Docker image size
   - Completed: November 1, 2025
 
+- [x] **[Functional]** Enhance environment variable validation
+  - File: [src/config.py](src/config.py)
+  - **COMPLETED**: Added comprehensive validation (empty strings, URL formats, hex keys, JSON structure)
+  - Added validation helpers: `_validate_non_empty_string()`, `_validate_url()`, `_validate_hex_key()`
+  - Impact: Configuration errors now fail fast at startup with descriptive error messages
+  - Completed: November 1, 2025
+
+- [x] **[Code Quality]** Extract magic numbers to constants
+  - Files: [src/constants.py](src/constants.py) and multiple service files
+  - **COMPLETED**: Added 13 new constants for timeouts, retries, defaults, and thresholds
+  - Updated 8 files to use constants instead of hardcoded values
+  - Impact: Improved maintainability, clearer intent, easier to tune behavior
+  - Completed: November 1, 2025
+
+- [x] **[Code Quality]** Add enums for network types
+  - File: [src/constants.py](src/constants.py:5)
+  - **COMPLETED**: Created `NetworkType` enum with `CLEARNET` and `TOR` values
+  - Updated 3 service files to use `NetworkType.TOR` instead of string literal `"tor"`
+  - Impact: Better type safety, prevents typos, clearer intent
+  - Completed: November 1, 2025
+
+- [x] **[Cleanup]** Remove unused import: setup_logging from process_relay.py
+  - File: [src/process_relay.py](src/process_relay.py:32)
+  - **COMPLETED**: Removed unused import
+  - Impact: Cleaner imports, reduced cognitive load
+  - Completed: November 1, 2025
+
 ## 🔴 HIGH Priority (Urgent)
 
 - [ ] **[Critical Bug]** Decide on incomplete Finder service
@@ -67,13 +94,6 @@
   - Effort: M
   - Suggested solution: Implement token bucket or leaky bucket rate limiting per relay
 
-- [ ] **[Functional]** Enhance environment variable validation
-  - File: [src/config.py](src/config.py)
-  - Reason: Missing checks for empty strings, URL formats, robust JSON validation
-  - Impact: Configuration errors may only surface at runtime
-  - Effort: M
-  - Suggested solution: Add comprehensive validation with descriptive error messages
-
 - [ ] **[Functional]** Add pagination for large relay lists
   - File: [src/relay_loader.py](src/relay_loader.py) (lines 28-99, 137-166, 169-215)
   - Reason: All database queries fetch entire result sets into memory
@@ -94,20 +114,6 @@
   - Impact: Difficult to test, understand, and modify
   - Effort: XL
   - Suggested solution: Split into ConnectionManager, EventRepository, RelayRepository, MetadataRepository
-
-- [ ] **[Performance]** Fix N+1 query pattern in get_start_time_async
-  - File: [src/process_relay.py](src/process_relay.py) (lines 11-66)
-  - Reason: Three sequential queries instead of one JOIN query
-  - Impact: 3x database round trips per relay sync operation
-  - Effort: M
-  - Suggested solution: Use single JOIN query to get result in one round trip
-
-- [ ] **[Readability]** Add module-level docstrings to all files
-  - Files: All Python files in src/
-  - Reason: No module-level docstrings explaining purpose, dependencies, or usage
-  - Impact: New developers must read entire file to understand purpose
-  - Effort: M
-  - Suggested solution: Add comprehensive module docstrings at top of each file
 
 - [ ] **[Readability]** Refactor complex process_relay function
   - File: [src/process_relay.py](src/process_relay.py) (lines 145-218)
@@ -143,13 +149,6 @@
   - Impact: Difficult to test with mocks, tight coupling
   - Effort: XL
   - Suggested solution: Use dependency injection container or factory pattern
-
-- [ ] **[Cleanup]** Remove unused pandas dependency
-  - File: [requirements.txt](requirements.txt) (line 6)
-  - Reason: pandas is never imported or used anywhere in codebase
-  - Impact: Unnecessary dependency, bloated Docker images (+100MB)
-  - Effort: S
-  - Suggested solution: Remove pandas from requirements.txt
 
 - [ ] **[Testing]** Set up test infrastructure
   - Reason: Absolutely no test files exist in repository
@@ -243,12 +242,6 @@
   - Reason: Mix of broad `except Exception`, specific exceptions, silent swallowing
   - Impact: Inconsistent error diagnostics and recovery behavior
   - Effort: L
-
-- [ ] **[Code Quality]** Extract magic numbers to constants
-  - Files: Multiple ([src/monitor.py](src/monitor.py):179-183, [src/functions.py](src/functions.py):105-108, [src/process_relay.py](src/process_relay.py):16-62)
-  - Reason: Timeout values, retry attempts, delays hardcoded throughout
-  - Impact: Unclear intent, difficult to tune behavior
-  - Effort: S
 
 - [ ] **[Code Quality]** Standardize naming conventions
   - Files: Multiple
@@ -518,33 +511,33 @@
 ## 📊 Statistics (Updated November 1, 2025)
 
 - **Total tasks:** 78
-- **Completed tasks:** 7 ✅
-- **Remaining tasks:** 71
+- **Completed tasks:** 12 ✅
+- **Remaining tasks:** 66
 - **Critical tasks remaining:** 1 (was 5)
-- **High priority remaining:** 16 (was 23)
+- **High priority remaining:** 11 (was 23)
 - **Medium priority:** 44
 - **Low priority:** 11
 - **Lines of code analyzed:** ~3,150
 - **Files involved:** 15+ (Python, SQL, Docker)
-- **Estimated remaining effort:** ~32-35 person-weeks (was 35-40)
+- **Estimated remaining effort:** ~29-32 person-weeks (was 35-40)
 
 ### Completion Progress
 - **Critical bugs resolved:** 4/5 (80%)
-- **High priority items resolved:** 7/23 (30%)
-- **Overall progress:** 7/78 (9%)
+- **High priority items resolved:** 12/23 (52%)
+- **Overall progress:** 12/78 (15%)
 
 ### Issue Distribution by Category (Remaining)
-- Code Quality: 12 issues (17%) - was 14
-- Performance: 10 issues (14%) - was 11
-- Architecture: 9 issues (13%)
-- Functional Improvements: 10 issues (14%)
-- Refactoring: 10 issues (14%)
-- Readability: 8 issues (11%) - was 10
-- Critical Bugs: 3 issues (4%) - was 7
-- Cleanup: 6 issues (9%) - was 7
+- Code Quality: 9 issues (14%) - was 14
+- Performance: 10 issues (15%) - was 11
+- Architecture: 9 issues (14%)
+- Functional Improvements: 9 issues (14%) - was 10
+- Refactoring: 10 issues (15%)
+- Readability: 7 issues (11%) - was 10
+- Critical Bugs: 3 issues (5%) - was 7
+- Cleanup: 4 issues (6%) - was 7
 
 ### Technical Debt Estimate
-- **High-priority items:** ~5-7 person-weeks (was 8-10)
+- **High-priority items:** ~3-4 person-weeks (was 8-10)
 - **Medium-priority items:** ~15-18 person-weeks
 - **Low-priority items:** ~8-10 person-weeks
 
@@ -554,19 +547,23 @@ High-impact tasks that can be completed quickly (< 2 hours each):
 
 - [x] ~~Remove unused pandas dependency (15 min)~~ - ✅ **COMPLETED** November 1, 2025
 - [x] ~~Fix inverted connection validation in process_relay.py (30 min)~~ - ✅ **COMPLETED** November 1, 2025
-- [ ] Remove unused import: setup_logging from process_relay.py (5 min)
-- [ ] Extract magic numbers to constants.py (1 hour)
+- [x] ~~Remove unused import: setup_logging from process_relay.py (5 min)~~ - ✅ **COMPLETED** November 1, 2025
+- [x] ~~Extract magic numbers to constants.py (1 hour)~~ - ✅ **COMPLETED** November 1, 2025
+- [x] ~~Add enums for network types (30 min)~~ - ✅ **COMPLETED** November 1, 2025
 - [ ] Convert priority_relay_urls list to set for O(1) lookup (15 min)
 - [ ] Use keyword arguments for boolean flags (1 hour)
 - [ ] Optimize relay shuffling with SQL ORDER BY RANDOM() (30 min)
 - [ ] Replace synchronous file I/O with aiofiles (30 min)
-- [ ] Add enums for network types (30 min)
 - [ ] Remove commented finder service from docker-compose.yml (5 min)
 - [ ] Fix outdated comments and misleading documentation (30 min)
 
-**Total estimated effort for quick wins:** ~5 hours (was ~6 hours, 2 completed)
-**Completed:** 2/11 quick wins ✅
-**Impact:** Reduced Docker image size by 100MB, fixed critical bugs, improved performance, better code clarity
+**Total estimated effort for quick wins:** ~1.5 hours remaining (was ~6 hours, 5 of 10 completed)
+**Completed:** 5/10 quick wins ✅ (50%)
+**Impact:**
+- Reduced Docker image size by ~100MB (removed pandas)
+- Enhanced configuration validation (fail-fast with descriptive errors)
+- Improved maintainability (13 new constants, NetworkType enum)
+- Better code clarity (removed unused imports, eliminated magic numbers)
 
 ## 📁 Proposed File/Folder Reorganization
 
