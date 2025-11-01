@@ -21,7 +21,7 @@ File Format:
     - Invalid URLs are logged and skipped
 
 Dependencies:
-    - bigbrotr: Database wrapper for async operations
+    - brotr: Database wrapper for async operations
     - nostr_tools: Relay URL parsing and validation
 """
 import asyncio
@@ -29,13 +29,13 @@ import logging
 import time
 from typing import Dict, Any, List
 
-from bigbrotr import Bigbrotr
+from brotr_core.database.brotr import Brotr
 from nostr_tools import Relay
 
-from config import load_initializer_config
-from constants import DEFAULT_INITIALIZER_RETRY_DELAY
-from functions import wait_for_services
-from logging_config import setup_logging
+from shared.config.config import load_initializer_config
+from shared.utils.constants import DEFAULT_INITIALIZER_RETRY_DELAY
+from shared.utils.functions import wait_for_services
+from shared.utils.logging_config import setup_logging
 
 # Setup logging
 setup_logging("INITIALIZER")
@@ -57,7 +57,7 @@ async def insert_relays(config: Dict[str, Any]) -> None:
                 logging.warning(
                     f"⚠️ Invalid relay URL skipped: {raw_url}. Reason: {e}")
         if relays:
-            async with Bigbrotr(
+            async with Brotr(
                 config["database_host"],
                 config["database_port"],
                 config["database_user"],

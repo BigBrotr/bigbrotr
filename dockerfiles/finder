@@ -44,6 +44,9 @@ COPY --from=build /install /usr/local
 
 # Copy application code
 COPY src/ /app/
+COPY brotr_core/ /app/brotr_core/
+COPY implementations/ /app/implementations/
+COPY shared/ /app/shared/
 
 # Change ownership to non-root user
 RUN chown -R bigbrotr:bigbrotr /app

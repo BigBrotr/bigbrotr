@@ -204,7 +204,7 @@ def with_db_retry(
     Example:
         @with_db_retry(max_retries=3, retry_delay=5, operation_name="insert_events")
         async def insert_events_batch(bigbrotr, events):
-            await bigbrotr.insert_event_batch(events)
+            await brotr.insert_event_batch(events)
     """
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
@@ -222,11 +222,11 @@ def with_db_retry(
     return decorator
 
 
-async def check_db_connection(bigbrotr: Any, logging_module: Any = None) -> bool:
+async def check_db_connection(brotr: Any, logging_module: Any = None) -> bool:
     """Check if database connection is healthy.
 
     Args:
-        bigbrotr: Bigbrotr instance to check
+        brotr: Brotr instance to check
         logging_module: Logging module for output (optional)
 
     Returns:
@@ -234,7 +234,7 @@ async def check_db_connection(bigbrotr: Any, logging_module: Any = None) -> bool
     """
     try:
         # Simple query to check connection
-        await bigbrotr.fetch("SELECT 1")
+        await brotr.fetch("SELECT 1")
         return True
     except Exception as e:
         if logging_module:

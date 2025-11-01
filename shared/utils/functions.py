@@ -1,17 +1,17 @@
-"""Shared utility functions for Bigbrotr services.
+"""Shared utility functions for Brotr services.
 
-This module provides common utility functions used across all Bigbrotr services,
+This module provides common utility functions used across all Brotr services,
 including chunking, connection testing, retry logic, and failure tracking.
 
 Key Components:
     - chunkify: Split iterables into fixed-size chunks for parallel processing
     - RelayFailureTracker: Monitor and alert on relay processing failure rates
     - wait_for_services: Wait for dependent services (database, Tor proxy) to be ready
-    - connect_bigbrotr_with_retry: Retry logic for database connection establishment
+    - connect_brotr_with_retry: Retry logic for database connection establishment
     - test_tor_connectivity: Verify Tor proxy is working for both HTTP and WebSocket
 
 Dependencies:
-    - bigbrotr: Database wrapper for async operations
+    - brotr: Database wrapper for async operations
     - aiohttp: HTTP client for connectivity testing
     - aiohttp_socks: SOCKS5 proxy support for Tor connections
 """
@@ -23,8 +23,8 @@ import logging
 from aiohttp import ClientSession, WSMsgType
 from aiohttp_socks import ProxyConnector
 
-from bigbrotr import Bigbrotr
-from constants import (
+from brotr_core.database.brotr import Brotr
+from shared.utils.constants import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_BASE_DELAY,
     DEFAULT_DB_RETRY_DELAY,
@@ -34,7 +34,7 @@ from constants import (
     TOR_CHECK_HTTP_URL,
     TOR_CHECK_WS_URL
 )
-from db_error_handler import is_transient_db_error, is_permanent_db_error
+from brotr_core.database.db_error_handler import is_transient_db_error, is_permanent_db_error
 
 T = TypeVar('T')
 
@@ -114,7 +114,7 @@ async def test_database_connection_async(
 ) -> bool:
     """Test database connection asynchronously."""
     try:
-        async with Bigbrotr(host, port, user, password, dbname) as db:
+        async with Brotr(host, port, user, password, dbname) as db:
             # Try a simple query to verify connection
             await db.fetch("SELECT 1")
             if logging:
@@ -126,20 +126,20 @@ async def test_database_connection_async(
         return False
 
 
-async def connect_bigbrotr_with_retry(
-    bigbrotr: Bigbrotr,
+async def connect_brotr_with_retry(
+    brotr: Brotr,
     max_retries: int = DEFAULT_MAX_RETRIES,
     base_delay: int = DEFAULT_RETRY_BASE_DELAY,
     logging: Optional[Any] = None
 ) -> None:
-    """Connect Bigbrotr instance with exponential backoff retry logic.
+    """Connect Brotr instance with exponential backoff retry logic.
 
     Automatically distinguishes between transient and permanent connection errors.
     Only retries on transient errors (network partition, temporary unavailability).
     Fails fast on permanent errors (authentication, misconfiguration).
 
     Args:
-        bigbrotr: Bigbrotr instance to connect
+        brotr: Brotr instance to connect
         max_retries: Maximum number of retry attempts (default: 5)
         base_delay: Base delay in seconds for exponential backoff (default: 1)
         logging: Optional logging object for output

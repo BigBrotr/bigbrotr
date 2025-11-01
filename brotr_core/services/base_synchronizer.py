@@ -112,7 +112,7 @@ class BaseSynchronizerWorker:
             # Get start time from database
             start_time = await get_start_time_async(
                 self.config["start_timestamp"],
-                brotr,
+                bigbrotr,
                 relay
             )
 
@@ -136,7 +136,7 @@ class BaseSynchronizerWorker:
             self._log_processing_start(relay, start_time, end_time)
 
             # Create processor and process relay
-            processor = RelayProcessor(brotr, client, event_filter)
+            processor = RelayProcessor(bigbrotr, client, event_filter)
             relay_timeout = self.config["timeout"] * RELAY_TIMEOUT_MULTIPLIER
             await asyncio.wait_for(
                 processor.process(),
@@ -186,7 +186,7 @@ class BaseSynchronizerWorker:
         asyncio.set_event_loop(loop)
 
         # Create database connection pool once for this thread
-        brotr = Brotr(
+        bigbrotr = Brotr(
             self.config["database_host"],
             self.config["database_port"],
             self.config["database_user"],
@@ -199,7 +199,7 @@ class BaseSynchronizerWorker:
         try:
             # Connect database pool with retry logic
             loop.run_until_complete(
-                connect_brotr_with_retry(brotr, logging=logging)
+                connect_brotr_with_retry(bigbrotr, logging=logging)
             )
 
             # Process relays from queue
@@ -212,9 +212,9 @@ class BaseSynchronizerWorker:
                     logging.exception(f"❌ Error reading from shared queue: {e}")
                     continue
 
-                # Reuse brotr and event loop for each relay
+                # Reuse bigbrotr and event loop for each relay
                 loop.run_until_complete(
-                    self.process_single_relay(brotr, relay, self.end_time)
+                    self.process_single_relay(bigbrotr, relay, self.end_time)
                 )
         finally:
             # Log final stats
@@ -225,7 +225,7 @@ class BaseSynchronizerWorker:
                     f"({stats['failure_rate']:.1%} failure rate)"
                 )
             # Cleanup: close database connection pool and event loop
-            loop.run_until_complete(brotr.close())
+            loop.run_until_complete(bigbrotr.close())
             loop.close()
 
 

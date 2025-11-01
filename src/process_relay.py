@@ -18,7 +18,7 @@ The binary search algorithm handles:
     - Detection of misbehaving relays
 
 Dependencies:
-    - bigbrotr: Database wrapper using repository pattern
+    - brotr: Database wrapper using repository pattern
     - nostr_tools: Nostr protocol client and data structures
     - asyncio: Async I/O operations
 """
@@ -27,9 +27,9 @@ import logging
 import asyncio
 from typing import Optional, List, Dict, Any, Final
 from dataclasses import dataclass, field
-from bigbrotr import Bigbrotr
+from brotr_core.database.brotr import Brotr
 from nostr_tools import Event, Client, Filter, Relay
-from constants import DEFAULT_MAX_RETRIES, DEFAULT_DB_RETRY_DELAY
+from shared.utils.constants import DEFAULT_MAX_RETRIES, DEFAULT_DB_RETRY_DELAY
 
 __all__ = [
     'RawEventBatch',
@@ -157,7 +157,7 @@ class EventInserter:
 
     @staticmethod
     async def insert_batch(
-        bigbrotr: Bigbrotr,
+        brotr: Brotr,
         batch: List[Dict[str, Any]],
         relay: Relay,
         seen_at: int
@@ -165,7 +165,7 @@ class EventInserter:
         """Insert batch of events into database.
 
         Args:
-            bigbrotr: Database connection
+            brotr: Database connection
             batch: List of raw event dictionaries
             relay: Relay where events were seen
             seen_at: Timestamp when events were seen
@@ -184,7 +184,7 @@ class EventInserter:
                 continue
 
         if event_batch:
-            await bigbrotr.insert_event_batch(event_batch, relay, seen_at)
+            await brotr.insert_event_batch(event_batch, relay, seen_at)
         return len(event_batch)
 
     @staticmethod
@@ -209,28 +209,28 @@ class EventInserter:
 class RelayProcessor:
     """Main processor for relay event synchronization using adaptive binary search."""
 
-    def __init__(self, bigbrotr: Bigbrotr, client: Client, filter: Filter):
+    def __init__(self, brotr: Brotr, client: Client, filter: Filter):
         """Initialize relay processor.
 
         Args:
-            bigbrotr: Database connection
+            brotr: Database connection
             client: Nostr client connected to relay
             filter: Event filter with since, until, and limit
 
         Raises:
             ValueError: If arguments are invalid
         """
-        self._validate_arguments(bigbrotr, client, filter)
-        self.bigbrotr = bigbrotr
+        self._validate_arguments(brotr, client, filter)
+        self.brotr = brotr
         self.client = client
         self.filter = filter
         self.validator = BatchValidator()
         self.inserter = EventInserter()
 
     @staticmethod
-    def _validate_arguments(bigbrotr: Bigbrotr, client: Client, filter: Filter) -> None:
+    def _validate_arguments(brotr: Brotr, client: Client, filter: Filter) -> None:
         """Validate processor arguments."""
-        for argument, argument_type in zip([bigbrotr, client, filter], [Bigbrotr, Client, Filter]):
+        for argument, argument_type in zip([brotr, client, filter], [Brotr, Client, Filter]):
             if not isinstance(argument, argument_type):
                 raise ValueError(
                     f"{argument} must be an instance of {argument_type}")
@@ -271,7 +271,7 @@ class RelayProcessor:
     ) -> None:
         """Handle interval with events at single timestamp."""
         await self.inserter.insert_batch(
-            self.bigbrotr,
+            self.brotr,
             first_batch.raw_events,
             self.client.relay,
             int(time.time())
@@ -325,7 +325,7 @@ class RelayProcessor:
             # No earlier events - all events fetched for this interval
             combined_batch = self.inserter.combine_batches(first_batch, second_batch)
             await self.inserter.insert_batch(
-                self.bigbrotr,
+                self.brotr,
                 combined_batch,
                 self.client.relay,
                 int(time.time())
@@ -337,7 +337,7 @@ class RelayProcessor:
 
     async def process(self) -> None:
         """Process all events from relay using adaptive binary search."""
-        async with self.bigbrotr:
+        async with self.brotr:
             async with self.client:
                 stack = IntervalStack(self.filter.until)
 
@@ -365,7 +365,7 @@ class RelayProcessor:
 # Utility functions
 async def get_start_time_async(
     default_start_time: int,
-    bigbrotr: Bigbrotr,
+    brotr: Brotr,
     relay: Relay,
     retries: int = DEFAULT_MAX_RETRIES,
     delay: int = DEFAULT_DB_RETRY_DELAY
@@ -374,7 +374,7 @@ async def get_start_time_async(
 
     Args:
         default_start_time: Default start time if no events found
-        bigbrotr: Database connection
+        brotr: Database connection
         relay: Relay to get start time for
         retries: Number of retry attempts
         delay: Delay between retries in seconds
@@ -396,7 +396,7 @@ async def get_start_time_async(
                 ORDER BY er.seen_at DESC
                 LIMIT 1
             """
-            result = await bigbrotr.fetchone(query, relay.url)
+            result = await brotr.fetchone(query, relay.url)
 
             if result and result[0] is not None:
                 return result[0] + 1

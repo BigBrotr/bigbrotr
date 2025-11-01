@@ -16,7 +16,7 @@ Dependencies:
 import json
 from typing import List
 from nostr_tools import RelayMetadata, sanitize
-from database_pool import DatabasePool
+from brotr_core.database.database_pool import DatabasePool
 
 __all__ = ['MetadataRepository']
 

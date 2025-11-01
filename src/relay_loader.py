@@ -19,7 +19,7 @@ Features:
     - Legacy config support: Backward compatible with old config key names
 
 Dependencies:
-    - bigbrotr: Database wrapper for async operations
+    - brotr: Database wrapper for async operations
     - nostr_tools: Relay URL parsing and validation
 """
 import logging
@@ -27,7 +27,7 @@ import random
 import time
 from typing import List, Dict, Any, AsyncGenerator
 
-from bigbrotr import Bigbrotr
+from brotr_core.database.brotr import Brotr
 from nostr_tools import Relay
 
 __all__ = [
@@ -112,8 +112,8 @@ async def fetch_relays_from_database(
 
     threshold = int(time.time()) - 60 * 60 * threshold_hours
 
-    async with Bigbrotr(host, port, user, password, dbname) as bigbrotr:
-        rows = await bigbrotr.fetch(query, threshold)
+    async with Brotr(host, port, user, password, dbname) as brotr:
+        rows = await brotr.fetch(query, threshold)
 
     relays: List[Relay] = []
     for row in rows:
@@ -194,9 +194,9 @@ async def fetch_relays_from_database_paginated(
     offset = 0
     total_relays = 0
 
-    async with Bigbrotr(host, port, user, password, dbname) as bigbrotr:
+    async with Brotr(host, port, user, password, dbname) as brotr:
         while True:
-            rows = await bigbrotr.fetch(query, threshold, page_size, offset)
+            rows = await brotr.fetch(query, threshold, page_size, offset)
 
             if not rows:
                 break
@@ -274,8 +274,8 @@ async def fetch_all_relays_from_database(config: Dict[str, Any]) -> List[Relay]:
 
     query = "SELECT url FROM relays"
 
-    async with Bigbrotr(host, port, user, password, dbname) as bigbrotr:
-        rows = await bigbrotr.fetch(query)
+    async with Brotr(host, port, user, password, dbname) as brotr:
+        rows = await brotr.fetch(query)
 
     relays: List[Relay] = []
     for row in rows:
@@ -324,8 +324,8 @@ async def fetch_relays_needing_metadata(
 
     threshold = int(time.time()) - 60 * 60 * frequency_hours
 
-    async with Bigbrotr(host, port, user, password, dbname) as bigbrotr:
-        rows = await bigbrotr.fetch(query, threshold)
+    async with Brotr(host, port, user, password, dbname) as brotr:
+        rows = await brotr.fetch(query, threshold)
 
     relays: List[Relay] = []
     for row in rows:
@@ -382,9 +382,9 @@ async def fetch_relays_needing_metadata_paginated(
     offset = 0
     total_relays = 0
 
-    async with Bigbrotr(host, port, user, password, dbname) as bigbrotr:
+    async with Brotr(host, port, user, password, dbname) as brotr:
         while True:
-            rows = await bigbrotr.fetch(query, threshold, page_size, offset)
+            rows = await brotr.fetch(query, threshold, page_size, offset)
 
             if not rows:
                 break

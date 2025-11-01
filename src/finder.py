@@ -3,11 +3,11 @@ import logging
 import signal
 from multiprocessing import Event
 
-from config import load_finder_config
-from constants import HEALTH_CHECK_PORT
-from functions import wait_for_services
-from healthcheck import HealthCheckServer
-from logging_config import setup_logging
+from shared.config.config import load_finder_config
+from shared.utils.constants import HEALTH_CHECK_PORT
+from shared.utils.functions import wait_for_services
+from shared.utils.healthcheck import HealthCheckServer
+from shared.utils.logging_config import setup_logging
 
 # Setup logging
 setup_logging("FINDER")

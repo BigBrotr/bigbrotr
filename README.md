@@ -1,449 +1,453 @@
-# Bigbrotr
+# Brotr - Extensible Nostr Relay Archiving Platform
 
-<div align="center">
+**A modular, plugin-based system for archiving and monitoring the Nostr network with customizable storage strategies.**
 
-**Full-Network Archival System for the Nostr Protocol**
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![PostgreSQL 15](https://img.shields.io/badge/PostgreSQL-15-blue.svg)](https://www.postgresql.org/)
-[![Docker](https://img.shields.io/badge/Docker-required-blue.svg)](https://www.docker.com/)
-
-[Features](#-features) • [Architecture](#-architecture) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Contributing](#-contributing)
-
-</div>
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
 
 ---
 
-## 📖 What is Bigbrotr?
+## 🎯 What is Brotr?
 
-**Bigbrotr** is an advanced, open-source archival infrastructure built for the [Nostr](https://nostr.com) protocol. It continuously monitors, archives, and analyzes **all public events** across the entire network—including both clearnet and Tor relays—while providing deep insights into relay behavior, event redundancy, network topology, and relay health metrics.
+Brotr is an **extensible platform** for archiving and monitoring Nostr relays with **customizable storage strategies**. Through its plugin architecture, developers can create implementations tailored to their specific needs—from full archival to minimal indexing.
 
-Think of Bigbrotr as a "black box" recorder for Nostr: continuously collecting, mapping, and analyzing everything happening across relays in real time. Unlike solutions that focus on isolated protocol features, Bigbrotr functions as a **full-archive instance** of the entire network, offering structured metadata and powerful analytical tools tailored for developers, researchers, relay operators, and power users.
+### Available Implementations
 
-### Why It Matters
-
-Nostr's decentralized nature eliminates central authority, granting unprecedented freedom but also creating challenges around network visibility, coordination, and data integrity. Bigbrotr addresses these challenges by serving as a comprehensive, transparent archive of the entire Nostr ecosystem, enabling:
-
-- **Network Transparency**: Understand relay uptime, behavior, and real-world performance metrics
-- **Decentralization Monitoring**: Detect and prevent centralization risks by discovering and mapping new relays
-- **Research & Analysis**: Access structured data ideal for social graph analysis, spam detection, and protocol research
-- **Historical Preservation**: Archive valuable network data before it disappears from ephemeral relays
-- **Advanced Services**: Build Data Vending Machines (DVMs) and custom integrations on top of comprehensive data
-
-Built by and for the FOSS community, Bigbrotr is MIT licensed and designed to foster a transparent, open, and truly decentralized Nostr ecosystem.
+- **Bigbrotr**: Full event storage including tags and content (complete archival)
+- **Lilbrotr**: Minimal event storage without tags/content (lightweight indexing)
+- **YourBrotr**: Create your own! See [How to Create a Brotr Implementation](#-create-your-own-implementation)
 
 ---
 
-## ✨ Features
+## ✨ Key Features
 
-### Core Capabilities
+### 🔌 Plugin Architecture
+- **Create custom implementations** by just adding a folder
+- **Automatic discovery** and registration
+- **No core code changes** needed
+- Choose the storage strategy that fits your needs
 
-- 🗂 **Full Event Archive** - Chronologically stores all events from every reachable relay
-- 🌍 **Relay Discovery** - Detects and indexes new relays across the network
-- 🛰 **Live Monitoring** - Measures relay health and connectivity (RTT, availability, NIP compliance)
-- 🔍 **Redundancy Tracking** - Tracks which relays host each event, revealing true network distribution
-- 🧅 **Tor-Enabled** - Built-in Tor support for full `.onion` relay access
-- 📊 **Network Analytics** - Provides insights into relay performance, event propagation, and network topology
-- 🧠 **Graph Analysis Ready** - Ideal for social graph research, spam detection, and protocol analysis
+### 📊 Multiple Storage Strategies
+- **Bigbrotr**: Complete archival (100% storage)
+- **Lilbrotr**: Minimal indexing (10-20% storage)
+- **Community**: Infinite possibilities
 
-### Technical Highlights
+### 🚀 High Performance
+- Asynchronous Python with `asyncio` and `asyncpg`
+- Connection pooling with PgBouncer
+- Efficient batch operations
+- Optimized for millions of events
 
-- ⚡ **High-Performance Async Architecture** - Built with Python asyncio and asyncpg for maximum throughput
-- 🔄 **Optimized Connection Pooling** - PgBouncer + per-thread pools reduce database connections by 80%
-- 🏛️ **Modern Repository Pattern** - Clean separation of data access with focused repositories
-- 🚦 **Built-in Rate Limiting** - Token bucket algorithm prevents relay blocking
-- 🐳 **Docker-Native Microservices** - Easy deployment with docker-compose
-- 🗄️ **Normalized Database Schema** - Efficient storage with hash-based deduplication
-- 🔐 **Security-First Design** - Non-root containers, input validation, configurable resource limits
-- 📊 **Production-Ready** - Health checks, graceful shutdown, failure tracking, and monitoring endpoints
+### 🛡️ Robust Design
+- Microservices architecture
+- Health monitoring and auto-restart
+- Rate limiting and error handling
+- Tor support for anonymity
+
+### 📡 Comprehensive Monitoring
+- NIP-11 relay information tracking
+- NIP-66 connection testing
+- Relay discovery and metadata
 
 ---
 
 ## 🏗️ Architecture
 
-Bigbrotr uses a **microservices architecture** with Docker containers coordinating through a shared PostgreSQL database with PgBouncer connection pooling.
-
-### Service Overview
-
 ```
-┌─────────────────┐
-│   Initializer   │  Seeds database with initial relay list
-└────────┬────────┘
-         │
-    ┌────▼─────────────────────────────────────┐
-    │         PostgreSQL + PgBouncer           │  Normalized schema with deduplication
-    └────▲─────────────────────────────────────┘
-         │
-    ┌────┴────┬──────────┬────────────┬────────────┐
-    │         │          │            │            │
-┌───▼───┐ ┌──▼──┐  ┌────▼─────┐ ┌────▼──────────┐ │
-│Monitor│ │Sync │  │Priority  │ │   TorProxy    │ │
-│       │ │     │  │   Sync   │ │   (SOCKS5)    │ │
-└───────┘ └─────┘  └──────────┘ └───────────────┘ │
-                                                   │
-                                            ┌──────▼─────┐
-                                            │  pgAdmin   │
-                                            └────────────┘
+brotr/
+├── brotr_core/                   # Core framework
+│   ├── database/                 # Database abstractions
+│   │   ├── brotr.py             # Unified Brotr class
+│   │   ├── base_event_repository.py  # Abstract base
+│   │   └── ...
+│   ├── registry.py              # Plugin discovery system
+│   └── services/                # Shared services
+│
+├── implementations/              # 🔌 Plugin directory
+│   ├── bigbrotr/                # Full storage
+│   ├── lilbrotr/                # Minimal storage
+│   ├── _template/               # Quick-start template
+│   └── yourbrotr/               # Add your own!
+│
+├── deployments/                 # Deployment configs
+│   ├── bigbrotr/
+│   └── lilbrotr/
+│
+└── shared/                      # Shared utilities
 ```
 
-### Service Descriptions
+### Microservices
 
-| Service | Purpose | Health Check |
-|---------|---------|--------------|
-| **Initializer** | Seeds database with initial relay URLs from `seed_relays.txt` | One-time |
-| **Monitor** | Tests relay health, fetches NIP-11/NIP-66 metadata, measures RTT | `localhost:8081/health` |
-| **Synchronizer** | Archives events from all readable relays (excludes priority list) | `localhost:8082/health` |
-| **Priority Synchronizer** | Archives events from high-priority relays with dedicated resources | `localhost:8083/health` |
-| **PgBouncer** | Connection pooling layer (1000 max clients, 100 DB connections) | Transaction pooling |
-| **TorProxy** | SOCKS5 proxy for accessing `.onion` relays | Built-in |
-| **pgAdmin** | Web UI for database management | `localhost:8080` |
-
-### Database Schema
-
-**Normalized PostgreSQL 15 schema** with hash-based deduplication:
-
-- **events** - All Nostr events (id, pubkey, created_at, kind, tags, content, sig)
-- **relays** - Relay registry (url, network, inserted_at)
-- **events_relays** - Junction table tracking event distribution across relays
-- **nip11** - Deduplicated NIP-11 relay information (SHA-256 hash PK)
-- **nip66** - Deduplicated NIP-66 connection test results (SHA-256 hash PK)
-- **relay_metadata** - Time-series snapshots linking relays to metadata
-
-**Stored Procedures**: Atomic operations for event insertion, relay management, and metadata deduplication
-
-**Views**: `relay_metadata_latest`, `readable_relays` for optimized queries
+- **Synchronizer**: Fetches events from relays using adaptive binary search
+- **Priority Synchronizer**: Dedicated service for high-priority relays
+- **Monitor**: Collects relay metadata (NIP-11, NIP-66)
+- **Finder**: Discovers new relays from Nostr events
+- **Initializer**: Seeds database with relay lists
+- **Database**: PostgreSQL with optimized schema
+- **PgBouncer**: Connection pooling layer
+- **PgAdmin**: Web-based database management
+- **TorProxy**: Optional Tor routing for anonymity
 
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
+- Docker & Docker Compose
+- 4GB+ RAM (8GB+ recommended for Bigbrotr)
+- Python 3.9+ (for development)
 
-- **Docker** and **Docker Compose** installed
-- **8GB+ RAM** recommended for production use
-- **100GB+ storage** for event archival (grows over time)
+### 1. Choose Your Implementation
 
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/bigbrotr.git
-   cd bigbrotr
-   ```
-
-2. **Configure environment**
-   ```bash
-   cp env.example .env
-   nano .env  # Edit configuration (set passwords, adjust cores, etc.)
-   ```
-
-3. **Generate Nostr keypair** (for relay authentication)
-   ```bash
-   # Use any Nostr key generator or:
-   # npx nostr-keygen
-   # Add keys to .env: SECRET_KEY and PUBLIC_KEY
-   ```
-
-4. **Start services**
-   ```bash
-   docker-compose up -d
-   ```
-
-5. **Monitor logs**
-   ```bash
-   docker-compose logs -f monitor synchronizer
-   ```
-
-6. **Access pgAdmin** (optional)
-   - Navigate to `http://localhost:8080`
-   - Login with credentials from `.env`
-
-### Verify Deployment
-
-Check service health:
+**Bigbrotr** (Full Archival):
 ```bash
-curl http://localhost:8081/health  # Monitor
-curl http://localhost:8082/health  # Synchronizer
-curl http://localhost:8083/health  # Priority Synchronizer
+cd deployments/bigbrotr
 ```
 
-Check database:
+**Lilbrotr** (Lightweight):
 ```bash
-docker exec -it bigbrotr_database psql -U admin -d bigbrotr -c "SELECT COUNT(*) FROM events;"
+cd deployments/lilbrotr
+```
+
+### 2. Configure Environment
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Key settings:
+```bash
+BROTR_MODE=bigbrotr  # or lilbrotr
+POSTGRES_PASSWORD=your_secure_password
+NOSTR_PRIVATE_KEY=your_nostr_private_key_hex
+```
+
+### 3. Launch
+
+```bash
+docker-compose up -d
+```
+
+### 4. Monitor
+
+```bash
+# View logs
+docker-compose logs -f synchronizer
+
+# Check status
+docker-compose ps
+
+# Access PgAdmin
+open http://localhost:5050
 ```
 
 ---
 
-## ⚙️ Configuration
+## 🔌 Create Your Own Implementation
 
-All configuration is done via environment variables in `.env`. Key settings:
+The power of Brotr is its **extensibility**. Create a custom implementation in just **3 steps**:
 
-### Database & Infrastructure
-
-```bash
-POSTGRES_USER=admin
-POSTGRES_PASSWORD=your_secure_password_here
-POSTGRES_DB=bigbrotr
-DB_PORT=5432
-PGADMIN_PORT=8080
-```
-
-### Nostr Authentication
+### Step 1: Create Directory
 
 ```bash
-SECRET_KEY=your_64_hex_char_private_key
-PUBLIC_KEY=your_64_hex_char_public_key
+cd implementations/
+cp -r _template yourbrotr
+cd yourbrotr
 ```
 
-### Monitor Service
+### Step 2: Customize Schema
+
+Edit `sql/init.sql`:
+```sql
+CREATE TABLE events (
+    id          CHAR(64)    PRIMARY KEY,
+    pubkey      CHAR(64)    NOT NULL,
+    created_at  BIGINT      NOT NULL,
+    kind        INTEGER     NOT NULL,
+    -- ADD YOUR CUSTOM FIELDS HERE
+    sig         CHAR(128)   NOT NULL
+);
+```
+
+### Step 3: Implement Repository
+
+Edit `repositories/event_repository.py`:
+```python
+class EventRepository(BaseEventRepository):
+    async def insert_event(self, event, relay, seen_at=None):
+        # Your custom storage logic
+        pass
+```
+
+**That's it!** The system automatically discovers your implementation.
+
+### Deploy Your Implementation
 
 ```bash
-MONITOR_FREQUENCY_HOUR=8         # Run every 8 hours
-MONITOR_NUM_CORES=8              # CPU cores to use
-MONITOR_CHUNK_SIZE=50            # Relays per chunk
-MONITOR_REQUESTS_PER_CORE=10     # Parallel requests per core
-MONITOR_REQUEST_TIMEOUT=20       # Timeout in seconds
+export BROTR_MODE=yourbrotr
+docker-compose up -d
 ```
 
-### Synchronizer Service
+**Full guide**: [docs/HOW_TO_CREATE_BROTR.md](docs/HOW_TO_CREATE_BROTR.md)
 
-```bash
-SYNCHRONIZER_NUM_CORES=8                    # CPU cores to use
-SYNCHRONIZER_REQUESTS_PER_CORE=10           # Parallel requests per core
-SYNCHRONIZER_BATCH_SIZE=500                 # Events per pagination request
-SYNCHRONIZER_RELAY_METADATA_THRESHOLD_HOURS=12  # Only sync relays with fresh metadata
-SYNCHRONIZER_START_TIMESTAMP=0              # Start time (0 = genesis, -1 = from last sync)
-SYNCHRONIZER_STOP_TIMESTAMP=-1              # End time (-1 = now)
-```
+---
 
-### Resource Limits
+## 📊 Implementation Comparison
 
-Services have Docker resource limits configured in `docker-compose.yml`:
-- Database: 4 CPU / 4GB RAM
-- Synchronizers: 6 CPU / 4GB RAM
-- Monitor: 4 CPU / 2GB RAM
+| Feature | Bigbrotr | Lilbrotr | Custom |
+|---------|----------|----------|--------|
+| Event ID | ✅ | ✅ | ✅ |
+| Pubkey | ✅ | ✅ | ✅ |
+| Kind | ✅ | ✅ | ✅ |
+| Tags | ✅ | ❌ | Your choice |
+| Content | ✅ | ❌ | Your choice |
+| Signature | ✅ | ✅ | ✅ |
+| **Storage/Event** | ~500 bytes | ~100 bytes | **You decide!** |
+| **Use Case** | Full archival | Network indexing | **Your needs!** |
 
-Adjust these based on your hardware.
+**Detailed comparison**: [docs/architecture/COMPARISON.md](docs/architecture/COMPARISON.md)
 
 ---
 
 ## 📚 Documentation
 
-### For Users
+### Getting Started
+- [README.md](README.md) - This file
+- [docs/PLUGIN_ARCHITECTURE_SUMMARY.md](docs/PLUGIN_ARCHITECTURE_SUMMARY.md) - Architecture overview
+- [docs/HOW_TO_CREATE_BROTR.md](docs/HOW_TO_CREATE_BROTR.md) - Create your own implementation
 
-- **[Quick Start Guide](CLAUDE.md#development-commands)** - Get up and running in minutes
-- **[Configuration Reference](CLAUDE.md#configuration)** - All environment variables explained
-- **[Database Schema](CLAUDE.md#database-schema)** - Understanding the data model
-- **[Health Checks](CLAUDE.md#health-checks)** - Monitoring service status
+### Architecture
+- [docs/architecture/BROTR_ARCHITECTURE.md](docs/architecture/BROTR_ARCHITECTURE.md) - Technical design
+- [docs/architecture/COMPARISON.md](docs/architecture/COMPARISON.md) - Implementation comparison
+- [docs/PLUGIN_ARCHITECTURE_SUMMARY.md](docs/PLUGIN_ARCHITECTURE_SUMMARY.md) - Plugin system overview
 
-### For Developers
+### Migration & Deployment
+- [docs/MIGRATION_GUIDE.md](docs/MIGRATION_GUIDE.md) - Upgrade from old architecture
+- [deployments/bigbrotr/](deployments/bigbrotr/) - Bigbrotr deployment
+- [deployments/lilbrotr/](deployments/lilbrotr/) - Lilbrotr deployment
 
-- **[Architecture Overview](CLAUDE.md#architecture)** - System design and service interactions
-- **[Development Guide](CLAUDE.md#best-practices)** - Code patterns and best practices
-- **[API Reference](CLAUDE.md#core-classes)** - Core classes and methods
-- **[Improvements Roadmap](IMPROVEMENTS_ROADMAP.md)** - Planned enhancements (89 items)
+### Development
+- [CLAUDE.md](CLAUDE.md) - Development guide
+- [implementations/_template/](implementations/_template/) - Implementation template
+- [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - Quick reference card
 
-### Dependencies
-
-Built with modern Python async stack:
-
-- **[nostr-tools](https://pypi.org/project/nostr-tools/)** v1.2.1 - Nostr protocol library
-- **asyncpg** v0.29.0 - High-performance async PostgreSQL driver
-- **aiohttp** v3.9.3 - Async HTTP client
-- **aiohttp-socks** v0.8.4 - Tor proxy support
-- **PostgreSQL** 15 (Alpine) - Relational database
-- **PgBouncer** - Connection pooling
+### Project History & Summaries
+- [docs/summaries/](docs/summaries/) - Historical summaries and migration docs
 
 ---
 
-## 🛠️ Common Tasks
+## 🛠️ Development
 
-### View Service Status
+### Setup Development Environment
 
 ```bash
-docker-compose ps
+# Clone repository
+git clone https://github.com/yourusername/bigbrotr.git
+cd bigbrotr
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-### Check Database Connection Pool
+### Run Tests
 
 ```bash
-docker exec -it bigbrotr_pgbouncer psql -p 6432 -U admin pgbouncer -c "SHOW POOLS;"
+# Test plugin discovery
+python3 -c "from brotr_core.registry import list_implementations; print(list_implementations())"
+
+# Expected output: ['bigbrotr', 'lilbrotr', ...]
 ```
 
-### Query Event Count by Relay
+### Create New Implementation
 
 ```bash
-docker exec -it bigbrotr_database psql -U admin -d bigbrotr -c "
-  SELECT relay_url, COUNT(*) as event_count
-  FROM events_relays
-  GROUP BY relay_url
-  ORDER BY event_count DESC
-  LIMIT 10;
-"
-```
+# Copy template
+cp -r implementations/_template implementations/mediumbrotr
 
-### Manually Trigger Monitor
+# Edit files
+nano implementations/mediumbrotr/sql/init.sql
+nano implementations/mediumbrotr/repositories/event_repository.py
 
-```bash
-docker-compose restart monitor
-```
-
-### View Real-Time Logs
-
-```bash
-docker-compose logs -f --tail=100 synchronizer
-```
-
-### Backup Database
-
-```bash
-docker exec bigbrotr_database pg_dump -U admin bigbrotr | gzip > backup_$(date +%Y%m%d).sql.gz
-```
-
-### Restore Database
-
-```bash
-gunzip -c backup_20250129.sql.gz | docker exec -i bigbrotr_database psql -U admin bigbrotr
+# Test
+export BROTR_MODE=mediumbrotr
+python3 -c "from brotr_core.registry import get_implementation; print(get_implementation('mediumbrotr'))"
 ```
 
 ---
 
-## 🔍 Use Cases
+## 🎯 Use Cases
 
-### 1. Relay Operators
+### Bigbrotr (Full Archival)
+- 📚 **Complete Event Archive**: Store everything for historical analysis
+- 🔍 **Content Search**: Full-text search across event content
+- 🏷️ **Tag Analysis**: Complex queries on event tags
+- 📊 **Data Research**: Comprehensive dataset for research
 
-- Monitor your relay's health and performance metrics
-- Compare your relay's uptime against network averages
-- Understand event propagation patterns to your relay
+### Lilbrotr (Lightweight Indexing)
+- 📱 **Low-Resource Devices**: Run on Raspberry Pi, VPS
+- 🌐 **Network Topology**: Track relay distribution and event propagation
+- ⚡ **High-Performance**: Index millions of events with minimal resources
+- 📈 **Scaling**: Handle high throughput with limited storage
 
-### 2. Researchers
+### Custom Implementations
+- 🎯 **Filtered Storage**: Store only specific event kinds
+- 🔒 **Compliance**: Exclude content for regulatory requirements
+- 💾 **Compression**: Store compressed content to save space
+- 🎨 **Domain-Specific**: Tailor storage to your application
 
-- Analyze social graph structures and user interaction patterns
-- Study event propagation and network topology
-- Detect spam, abuse, and centralization risks
-- Export data snapshots for external analysis
+---
 
-### 3. Developers
+## 🌟 Example Community Implementations
 
-- Build DVMs (Data Vending Machines) on comprehensive event data
-- Create analytics dashboards and visualization tools
-- Develop relay discovery and recommendation systems
-- Test NIP compliance and protocol behavior
+### MediumBrotr (Tags Only)
+```
+Stores: id, pubkey, kind, tags, sig
+Use case: Tag queries without content
+Storage: ~40% of Bigbrotr
+```
 
-### 4. Power Users
+### TinyBrotr (Existence Only)
+```
+Stores: id
+Use case: Event existence verification
+Storage: ~1% of Bigbrotr
+```
 
-- Track event redundancy across relays
-- Discover new relays and assess their reliability
-- Archive personal data before relay shutdowns
-- Access historical network data
+### KindBrotr (Filtered by Kind)
+```
+Stores: Only specific event kinds
+Use case: Domain-specific archival
+Storage: Depends on filter
+```
+
+**Want to share your implementation?** Submit a PR!
+
+---
+
+## 📈 Performance
+
+### Bigbrotr
+- **Throughput**: ~500-1000 events/second
+- **Storage**: ~500 bytes/event
+- **RAM**: 4-8GB recommended
+- **CPU**: 2-4 cores
+
+### Lilbrotr
+- **Throughput**: ~2000-5000 events/second
+- **Storage**: ~100 bytes/event
+- **RAM**: 2-4GB recommended
+- **CPU**: 1-2 cores
+
+*Performance varies based on hardware, network, and configuration.*
+
+---
+
+## 🔒 Security & Privacy
+
+- **Tor Support**: Route traffic through Tor for anonymity
+- **Connection Pooling**: Isolated database connections
+- **Rate Limiting**: Prevent overwhelming relays
+- **Error Isolation**: Failures don't propagate
+- **Health Checks**: Automatic service restart
 
 ---
 
 ## 🤝 Contributing
 
-Bigbrotr is open-source and welcomes contributions! Here's how you can help:
+We welcome contributions!
 
 ### Ways to Contribute
+1. **Create implementations**: Share your custom storage strategies
+2. **Improve core**: Enhance the plugin system
+3. **Documentation**: Help others understand the system
+4. **Bug reports**: File issues on GitHub
+5. **Feature requests**: Suggest new capabilities
 
-- 🐛 **Report Bugs** - Open an issue with reproduction steps
-- 💡 **Suggest Features** - Share ideas for improvements
-- 📝 **Improve Documentation** - Fix typos, add examples, clarify concepts
-- 🔧 **Submit Pull Requests** - Fix bugs or implement new features
-- 🧪 **Test & Review** - Try new features and provide feedback
-
-### Development Setup
-
+### Submission Process
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+2. Create your feature branch
 3. Make your changes
-4. Test thoroughly (see [CLAUDE.md](CLAUDE.md) for development commands)
-5. Commit with clear messages (`git commit -m 'Add amazing feature'`)
-6. Push to your branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
-
-### Code Standards
-
-- Follow PEP 8 style guidelines
-- Use type hints for all functions
-- Add docstrings for public APIs
-- Test async code with proper error handling
-- Use async context managers for resource management
+4. Test thoroughly
+5. Submit a Pull Request
 
 ---
 
-## 📊 Roadmap
+## 🗺️ Roadmap
 
-### Near-Term (Q1 2025)
+### Completed ✅
+- [x] Plugin architecture design
+- [x] Auto-discovery system
+- [x] Bigbrotr implementation
+- [x] Lilbrotr implementation
+- [x] Comprehensive documentation
+- [x] Template for new implementations
 
-- [ ] Interactive dashboards for real-time network insights
-- [ ] Public API for relay health monitoring
-- [ ] Exportable metrics for relay operators
-- [ ] Circuit breaker pattern for failed relays
-- [ ] Comprehensive type hints across codebase
+### In Progress 🚧
+- [ ] Community implementations
+- [ ] Performance benchmarking
+- [ ] Migration tools
+- [ ] Web UI for implementation selection
 
-### Medium-Term (Q2 2025)
-
-- [ ] Grafana integration with Prometheus endpoints
-- [ ] Public explorer to browse relays and events
-- [ ] Downloadable data snapshots for researchers
-- [ ] Unit and integration test suite
-- [ ] Advanced query optimization with prepared statements
-
-### Long-Term (Q3+ 2025)
-
-- [ ] Nostr bot for network statistics
-- [ ] Data Vending Machines leveraging archived data
-- [ ] Machine learning for spam detection
-- [ ] Distributed archival across multiple instances
-- [ ] GraphQL API for flexible querying
-
-See [IMPROVEMENTS_ROADMAP.md](IMPROVEMENTS_ROADMAP.md) for detailed breakdown (89 planned improvements).
+### Future 🔮
+- [ ] Implementation marketplace
+- [ ] Automated testing framework
+- [ ] Monitoring dashboard
+- [ ] Multi-implementation support (run multiple simultaneously)
 
 ---
 
-## 📜 License
+## 📞 Support
 
-Bigbrotr is released under the **MIT License**. See [LICENSE](LICENSE) for details.
+- **Documentation**: Check the `docs/` directory
+- **Issues**: [GitHub Issues](https://github.com/yourusername/bigbrotr/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/bigbrotr/discussions)
+- **Email**: support@brotr.dev (if applicable)
 
-```
-Copyright (c) 2024 Bigbrotr Contributors
+---
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+## 📄 License
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-```
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
 ## 🙏 Acknowledgments
 
-- **Nostr Protocol** - For creating a truly decentralized communication protocol
-- **nostr-tools** - Python library that powers Bigbrotr's Nostr interactions
-- **PostgreSQL & PgBouncer** - Robust database foundation
-- **Docker** - Simplifying deployment and scaling
-- **FOSS Community** - For inspiring open, transparent infrastructure
+- **Nostr Community**: For the decentralized protocol
+- **Contributors**: Everyone who helps improve Brotr
+- **OpenSats**: For grant support (if applicable)
+- **You**: For using and contributing to Brotr!
 
 ---
 
-## 📞 Support & Community
+## 🚀 Get Started Now!
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/bigbrotr/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/bigbrotr/discussions)
-- **Nostr**: Follow project updates on Nostr (coming soon)
+```bash
+# Clone and choose your implementation
+git clone https://github.com/yourusername/bigbrotr.git
+cd bigbrotr/deployments/bigbrotr  # or lilbrotr
+
+# Configure
+cp .env.example .env
+nano .env
+
+# Launch
+docker-compose up -d
+
+# Monitor
+docker-compose logs -f
+```
+
+**Questions?** Check [docs/HOW_TO_CREATE_BROTR.md](docs/HOW_TO_CREATE_BROTR.md) or open an issue!
 
 ---
 
-<div align="center">
+**Built with ❤️ for the Nostr ecosystem**
 
-**Built with ⚡ for a decentralized future**
-
-[⬆ Back to Top](#bigbrotr)
-
-</div>
+**Brotr**: Because your relay data deserves customizable storage! 🚀

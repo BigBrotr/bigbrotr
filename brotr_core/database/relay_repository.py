@@ -15,7 +15,7 @@ Dependencies:
 import time
 from typing import List, Optional
 from nostr_tools import Relay
-from database_pool import DatabasePool
+from brotr_core.database.database_pool import DatabasePool
 
 __all__ = ['RelayRepository']
 

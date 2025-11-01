@@ -22,7 +22,7 @@ Configuration:
     - MONITOR_CHUNK_SIZE: Number of relays per worker chunk
 
 Dependencies:
-    - bigbrotr: Database wrapper for async operations
+    - brotr: Database wrapper for async operations
     - nostr_tools: Nostr protocol client and metadata fetching
     - multiprocessing: Parallel processing across CPU cores
 """
@@ -33,11 +33,11 @@ import time
 from multiprocessing import Pool, Event
 from typing import Dict, Any, List
 
-from bigbrotr import Bigbrotr
+from brotr_core.database.brotr import Brotr
 from nostr_tools import Relay, Client, fetch_relay_metadata, RelayMetadata
 
-from config import load_monitor_config
-from constants import (
+from shared.config.config import load_monitor_config
+from shared.utils.constants import (
     DB_POOL_MIN_SIZE_PER_WORKER,
     DB_POOL_MAX_SIZE_PER_WORKER,
     HEALTH_CHECK_PORT,
@@ -47,11 +47,11 @@ from constants import (
     DEFAULT_RELAY_BURST_SIZE,
     NetworkType
 )
-from functions import chunkify, wait_for_services, connect_bigbrotr_with_retry, RelayFailureTracker
-from healthcheck import HealthCheckServer
-from logging_config import setup_logging
-from rate_limiter import RelayRateLimiter
-from relay_loader import fetch_relays_needing_metadata
+from shared.utils.functions import chunkify, wait_for_services, connect_brotr_with_retry, RelayFailureTracker
+from shared.utils.healthcheck import HealthCheckServer
+from shared.utils.logging_config import setup_logging
+from brotr_core.services.rate_limiter import RelayRateLimiter
+from src.relay_loader import fetch_relays_needing_metadata
 
 # Setup logging
 setup_logging("MONITOR")
@@ -107,14 +107,14 @@ async def process_relay(
 
 
 # --- Process Chunk ---
-async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str, Any], generated_at: int, bigbrotr: Bigbrotr, failure_tracker: RelayFailureTracker) -> None:
+async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str, Any], generated_at: int, brotr: Brotr, failure_tracker: RelayFailureTracker) -> None:
     """Process a chunk of relays and save their metadata.
 
     Args:
         chunk: List of relays to process
         config: Configuration dictionary
         generated_at: Timestamp for metadata generation
-        bigbrotr: Shared database connection (must be connected)
+        brotr: Shared database connection (must be connected)
         failure_tracker: Tracker for monitoring relay processing failures
     """
     semaphore = asyncio.Semaphore(config["requests_per_core"])
@@ -153,7 +153,7 @@ async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str,
     relay_metadata_list = [r for r in results if r is not None]
 
     # Use the shared connection instead of creating a new one
-    await bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
+    await brotr.insert_relay_metadata_batch(relay_metadata_list)
 
     logging.info(
         f"✅ Processed {len(chunk)} relays. Found {len(relay_metadata_list)} valid relay metadata.")
@@ -173,7 +173,7 @@ def metadata_monitor_worker(chunk: List[Relay], config: Dict[str, Any], generate
     """
     async def worker_async(chunk: List[Relay], config: Dict[str, Any], generated_at: int) -> None:
         # Create a database connection for this worker process
-        bigbrotr = Bigbrotr(
+        brotr = Brotr(
             config["database_host"],
             config["database_port"],
             config["database_user"],
@@ -183,7 +183,7 @@ def metadata_monitor_worker(chunk: List[Relay], config: Dict[str, Any], generate
             max_pool_size=DB_POOL_MAX_SIZE_PER_WORKER
         )
         # Connect with retry logic
-        await connect_bigbrotr_with_retry(bigbrotr, logging=logging)
+        await connect_brotr_with_retry(brotr, logging=logging)
 
         # Create failure tracker for this worker
         failure_tracker = RelayFailureTracker(alert_threshold=0.1, check_interval=100)
@@ -198,7 +198,7 @@ def metadata_monitor_worker(chunk: List[Relay], config: Dict[str, Any], generate
                     f"📊 Worker final stats: {stats['successes']}/{stats['total']} successful "
                     f"({stats['failure_rate']:.1%} failure rate)"
                 )
-            await bigbrotr.close()
+            await brotr.close()
 
     # Create new event loop for this worker process
     loop = asyncio.new_event_loop()

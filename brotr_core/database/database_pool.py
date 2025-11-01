@@ -15,7 +15,7 @@ Dependencies:
 """
 import asyncpg
 from typing import Optional, List, Any
-from db_error_handler import retry_on_db_error
+from brotr_core.database.db_error_handler import retry_on_db_error
 
 __all__ = ['DatabasePool']
 

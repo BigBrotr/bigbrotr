@@ -25,7 +25,7 @@ Configuration:
     - SYNCHRONIZER_RELAY_METADATA_THRESHOLD_HOURS: Only sync relays with recent metadata
 
 Dependencies:
-    - bigbrotr: Database wrapper for async operations
+    - brotr: Database wrapper for async operations
     - nostr_tools: Nostr protocol client and event structures
     - multiprocessing: Process-level parallelism
     - threading: Thread-level parallelism within processes
@@ -38,13 +38,13 @@ from typing import List
 
 from nostr_tools import Relay
 
-from base_synchronizer import main_loop_base
-from config import load_synchronizer_config
-from constants import HEALTH_CHECK_PORT
-from functions import wait_for_services
-from healthcheck import HealthCheckServer
-from logging_config import setup_logging
-from relay_loader import fetch_relays_from_database, fetch_relays_from_file
+from brotr_core.services.base_synchronizer import main_loop_base
+from shared.config.config import load_synchronizer_config
+from shared.utils.constants import HEALTH_CHECK_PORT
+from shared.utils.functions import wait_for_services
+from shared.utils.healthcheck import HealthCheckServer
+from shared.utils.logging_config import setup_logging
+from src.relay_loader import fetch_relays_from_database, fetch_relays_from_file
 
 # Setup logging
 setup_logging("SYNCHRONIZER")
