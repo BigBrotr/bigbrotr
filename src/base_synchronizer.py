@@ -26,7 +26,7 @@ import asyncio
 import logging
 import time
 from multiprocessing import Queue, Process
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from queue import Empty
 
 from bigbrotr import Bigbrotr
@@ -39,10 +39,19 @@ from constants import (
     SECONDS_PER_DAY,
     WORKER_GRACEFUL_SHUTDOWN_TIMEOUT,
     WORKER_FORCE_SHUTDOWN_TIMEOUT,
+    DEFAULT_RELAY_REQUESTS_PER_SECOND,
+    DEFAULT_RELAY_BURST_SIZE,
     NetworkType
 )
 from functions import connect_bigbrotr_with_retry, RelayFailureTracker
-from process_relay import get_start_time_async, process_relay
+from process_relay import get_start_time_async, RelayProcessor
+from rate_limiter import RelayRateLimiter
+
+__all__ = [
+    'BaseSynchronizerWorker',
+    'worker_thread',
+    'main_loop_base'
+]
 
 
 class BaseSynchronizerWorker:
@@ -59,7 +68,8 @@ class BaseSynchronizerWorker:
         shared_queue: Queue,
         end_time: int,
         shutdown_event: Any,
-        operation_name: str = "event_sync"
+        operation_name: str = "event_sync",
+        rate_limiter: Optional[RelayRateLimiter] = None
     ):
         """Initialize worker.
 
@@ -69,6 +79,7 @@ class BaseSynchronizerWorker:
             end_time: End timestamp for event synchronization
             shutdown_event: Multiprocessing Event for shutdown signaling
             operation_name: Name for logging (e.g., "event_sync", "event_sync_priority")
+            rate_limiter: Optional rate limiter for relay connections
         """
         self.config = config
         self.shared_queue = shared_queue
@@ -76,6 +87,10 @@ class BaseSynchronizerWorker:
         self.shutdown_event = shutdown_event
         self.operation_name = operation_name
         self.failure_tracker = RelayFailureTracker(alert_threshold=0.1, check_interval=100)
+        self.rate_limiter = rate_limiter or RelayRateLimiter(
+            requests_per_second=DEFAULT_RELAY_REQUESTS_PER_SECOND,
+            burst_size=DEFAULT_RELAY_BURST_SIZE
+        )
 
     async def process_single_relay(
         self,
@@ -83,7 +98,7 @@ class BaseSynchronizerWorker:
         relay: Relay,
         end_time: int
     ) -> None:
-        """Process a single relay with timeout.
+        """Process a single relay with timeout and rate limiting.
 
         Args:
             bigbrotr: Database connection
@@ -91,6 +106,9 @@ class BaseSynchronizerWorker:
             end_time: End timestamp for event synchronization
         """
         try:
+            # Apply rate limiting before processing
+            await self.rate_limiter.acquire(relay.url)
+
             # Get start time from database
             start_time = await get_start_time_async(
                 self.config["start_timestamp"],
@@ -117,10 +135,11 @@ class BaseSynchronizerWorker:
             # Process relay events with timeout
             self._log_processing_start(relay, start_time, end_time)
 
-            # Set a timeout for the entire relay processing
+            # Create processor and process relay
+            processor = RelayProcessor(bigbrotr, client, event_filter)
             relay_timeout = self.config["timeout"] * RELAY_TIMEOUT_MULTIPLIER
             await asyncio.wait_for(
-                process_relay(bigbrotr, client, event_filter),
+                processor.process(),
                 timeout=relay_timeout
             )
 

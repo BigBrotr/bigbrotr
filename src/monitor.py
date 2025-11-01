@@ -43,11 +43,14 @@ from constants import (
     HEALTH_CHECK_PORT,
     WORKER_GRACEFUL_SHUTDOWN_TIMEOUT,
     WORKER_FORCE_SHUTDOWN_TIMEOUT,
+    DEFAULT_RELAY_REQUESTS_PER_SECOND,
+    DEFAULT_RELAY_BURST_SIZE,
     NetworkType
 )
 from functions import chunkify, wait_for_services, connect_bigbrotr_with_retry, RelayFailureTracker
 from healthcheck import HealthCheckServer
 from logging_config import setup_logging
+from rate_limiter import RelayRateLimiter
 from relay_loader import fetch_relays_needing_metadata
 
 # Setup logging
@@ -66,17 +69,26 @@ def signal_handler(signum: int, frame) -> None:
 
 
 # --- Process Relay Metadata ---
-async def process_relay(config: Dict[str, Any], relay: Relay, generated_at: int) -> RelayMetadata:
-    """Process a single relay and fetch its metadata.
+async def process_relay(
+    config: Dict[str, Any],
+    relay: Relay,
+    generated_at: int,
+    rate_limiter: RelayRateLimiter
+) -> RelayMetadata:
+    """Process a single relay and fetch its metadata with rate limiting.
 
     Args:
         config: Configuration dictionary with torproxy settings and keys
         relay: Relay object to fetch metadata from
         generated_at: Timestamp for when metadata was generated
+        rate_limiter: Rate limiter for relay connections
 
     Returns:
         RelayMetadata object with nip11 and nip66 data
     """
+    # Apply rate limiting before fetching metadata
+    await rate_limiter.acquire(relay.url)
+
     torproxy_host = config.get("torproxy_host")
     torproxy_port = config.get("torproxy_port")
     socks5_proxy_url = f"socks5://{torproxy_host}:{torproxy_port}"
@@ -108,10 +120,16 @@ async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str,
     semaphore = asyncio.Semaphore(config["requests_per_core"])
     relay_metadata_list: List[RelayMetadata] = []
 
+    # Create rate limiter for this chunk
+    rate_limiter = RelayRateLimiter(
+        requests_per_second=DEFAULT_RELAY_REQUESTS_PER_SECOND,
+        burst_size=DEFAULT_RELAY_BURST_SIZE
+    )
+
     async def sem_task(relay: Relay) -> RelayMetadata:
         async with semaphore:
             try:
-                relay_metadata = await process_relay(config, relay, generated_at)
+                relay_metadata = await process_relay(config, relay, generated_at, rate_limiter)
                 # Check if we got any useful metadata (nip66 or nip11)
                 if relay_metadata and (relay_metadata.nip66 or relay_metadata.nip11):
                     failure_tracker.record_success()
