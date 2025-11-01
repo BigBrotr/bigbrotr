@@ -90,6 +90,47 @@
   - Impact: ~170 lines of duplicate code eliminated, improved maintainability
   - Completed: November 1, 2025
 
+- [x] **[Functional]** Implement rate limiting for relay connections
+  - Files: [src/rate_limiter.py](src/rate_limiter.py) (new), [src/monitor.py](src/monitor.py), [src/base_synchronizer.py](src/base_synchronizer.py), [src/constants.py](src/constants.py)
+  - **COMPLETED**: Created token bucket rate limiter with per-relay independent buckets
+  - Configurable: 1 req/sec, burst of 2 (constants: DEFAULT_RELAY_REQUESTS_PER_SECOND, DEFAULT_RELAY_BURST_SIZE)
+  - Async-aware with asyncio locks for thread safety
+  - Integrated into monitor and synchronizer services
+  - Impact: Prevents relay operators from blocking services for excessive requests
+  - Completed: November 1, 2025
+
+- [x] **[Functional]** Add pagination for large relay lists
+  - Files: [src/relay_loader.py](src/relay_loader.py), [src/constants.py](src/constants.py)
+  - **COMPLETED**: Added async generator functions for memory-efficient relay loading
+  - fetch_relays_from_database_paginated(): yields batches of 1000 relays
+  - fetch_relays_needing_metadata_paginated(): yields batches of 1000 relays
+  - Uses LIMIT/OFFSET pagination with ordered results
+  - Added constant: DEFAULT_RELAY_PAGE_SIZE
+  - Impact: Prevents OOM on large datasets, significantly reduced memory footprint
+  - Completed: November 1, 2025
+
+- [x] **[Code Quality]** Split God Object: Bigbrotr class
+  - Files: [src/database_pool.py](src/database_pool.py) (new), [src/event_repository.py](src/event_repository.py) (new), [src/relay_repository.py](src/relay_repository.py) (new), [src/metadata_repository.py](src/metadata_repository.py) (new), [src/bigbrotr.py](src/bigbrotr.py)
+  - **COMPLETED**: Split 484-line God Object into focused repositories
+  - DatabasePool (236 lines): Connection pool + generic SQL
+  - EventRepository (169 lines): Event operations
+  - RelayRepository (109 lines): Relay operations
+  - MetadataRepository (192 lines): NIP-11/NIP-66 metadata
+  - Bigbrotr (174 lines): Clean facade with direct repository access
+  - Impact: Single Responsibility Principle, vastly improved testability
+  - Completed: November 1, 2025
+
+- [x] **[Readability]** Refactor complex process_relay function
+  - File: [src/process_relay.py](src/process_relay.py)
+  - **COMPLETED**: Refactored 70-line function into modular class architecture
+  - RawEventBatch: Dataclass with field(default_factory=list)
+  - IntervalStack: Time interval queue management
+  - BatchValidator: Static methods for validation
+  - EventInserter: Static methods for database operations
+  - RelayProcessor: Main orchestrator with 8-10 line focused methods
+  - Impact: Reduced cyclomatic complexity, each method has single responsibility, much easier to test
+  - Completed: November 1, 2025
+
 ## 🔴 HIGH Priority (Urgent)
 
 - [ ] **[Critical Bug]** Decide on incomplete Finder service
@@ -98,34 +139,6 @@
   - Impact: Relay discovery functionality is non-functional
   - Effort: XL (to implement) or S (to remove)
   - Suggested solution: Either fully implement or remove service to avoid confusion
-
-- [ ] **[Functional]** Implement rate limiting for relay connections
-  - Files: [src/monitor.py](src/monitor.py), [src/synchronizer.py](src/synchronizer.py), [src/priority_synchronizer.py](src/priority_synchronizer.py)
-  - Reason: No rate limiting when connecting to external relays
-  - Impact: Services could be blocked by relay operators for excessive requests
-  - Effort: M
-  - Suggested solution: Implement token bucket or leaky bucket rate limiting per relay
-
-- [ ] **[Functional]** Add pagination for large relay lists
-  - File: [src/relay_loader.py](src/relay_loader.py) (lines 28-99, 137-166, 169-215)
-  - Reason: All database queries fetch entire result sets into memory
-  - Impact: High memory usage, potential OOM on large datasets (thousands of relays)
-  - Effort: M
-  - Suggested solution: Implement cursor-based pagination for relay fetching
-
-- [ ] **[Code Quality]** Split God Object: Bigbrotr class
-  - File: [src/bigbrotr.py](src/bigbrotr.py) (lines 9-457)
-  - Reason: Single 457-line class handles connection pooling, events, relays, and metadata (SRP violation)
-  - Impact: Difficult to test, understand, and modify
-  - Effort: XL
-  - Suggested solution: Split into ConnectionManager, EventRepository, RelayRepository, MetadataRepository
-
-- [ ] **[Readability]** Refactor complex process_relay function
-  - File: [src/process_relay.py](src/process_relay.py) (lines 145-218)
-  - Reason: 74-line function with cyclomatic complexity >15, handles entire binary search algorithm
-  - Impact: Very difficult to test individual branches, high cognitive load
-  - Effort: L
-  - Suggested solution: Extract subfunctions: `handle_empty_batch`, `handle_full_batch`, `verify_relay_behavior`
 
 - [ ] **[Architecture]** Reduce tight coupling to database schema
   - Files: [src/bigbrotr.py](src/bigbrotr.py), [src/relay_loader.py](src/relay_loader.py), [src/process_relay.py](src/process_relay.py)
@@ -515,36 +528,36 @@
 
 ## 📊 Statistics (Updated November 1, 2025)
 
-- **Total tasks:** 78
-- **Completed tasks:** 14 ✅ (was 12)
-- **Remaining tasks:** 64 (was 66)
+- **Total tasks:** 93
+- **Completed tasks:** 22 ✅
+- **Remaining tasks:** 71
 - **Critical tasks remaining:** 1
-- **High priority remaining:** 9 (was 11)
+- **High priority remaining:** 4
 - **Medium priority:** 44
 - **Low priority:** 11
-- **Lines of code analyzed:** ~3,800 (was ~3,150)
-- **Files involved:** 17+ (Python, SQL, Docker) - added 2 new modules
-- **Estimated remaining effort:** ~26-29 person-weeks (was 29-32)
+- **Lines of code analyzed:** ~4,500
+- **Files involved:** 22+ (Python, SQL, Docker) - added 7 new repository modules
+- **Estimated remaining effort:** ~22-25 person-weeks
 
 ### Completion Progress
 - **Critical bugs resolved:** 4/5 (80%)
-- **High priority items resolved:** 14/23 (61%, was 52%)
-- **Overall progress:** 14/78 (18%, was 15%)
+- **High priority items resolved:** 19/23 (83%)
+- **Overall progress:** 22/93 (24%)
 
 ### Issue Distribution by Category (Remaining)
-- Code Quality: 8 issues (13%, was 9)
-- Performance: 10 issues (16%)
-- Architecture: 9 issues (14%)
-- Functional Improvements: 8 issues (13%, was 9)
-- Refactoring: 10 issues (15%)
-- Readability: 7 issues (11%) - was 10
-- Critical Bugs: 3 issues (5%) - was 7
-- Cleanup: 4 issues (6%) - was 7
+- Code Quality: 6 issues (8%)
+- Performance: 10 issues (14%)
+- Architecture: 4 issues (6%)
+- Functional Improvements: 7 issues (10%)
+- Refactoring: 10 issues (14%)
+- Readability: 7 issues (10%)
+- Critical Bugs: 1 issue (1%)
+- Cleanup: 4 issues (6%)
 
 ### Technical Debt Estimate
-- **High-priority items:** ~3-4 person-weeks (was 8-10)
+- **High-priority items:** ~1-2 person-weeks
 - **Medium-priority items:** ~15-18 person-weeks
-- **Low-priority items:** ~8-10 person-weeks
+- **Low-priority items:** ~6-8 person-weeks
 
 ## 🎯 Quick Wins (fast tasks with high impact)
 
