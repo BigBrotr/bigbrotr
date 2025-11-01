@@ -4,6 +4,7 @@ import json
 import time
 from typing import Optional, List, Any
 from nostr_tools import Event, Relay, RelayMetadata, sanitize
+from db_error_handler import retry_on_db_error
 
 
 class Bigbrotr:
@@ -99,7 +100,7 @@ class Bigbrotr:
         return all([self.host, self.port, self.user, self.password, self.dbname])
 
     async def execute(self, query: str, *args: Any, timeout: float = 30) -> str:
-        """Execute a query without returning results.
+        """Execute a query without returning results with automatic retry on transient errors.
 
         Args:
             query: SQL query to execute
@@ -112,11 +113,14 @@ class Bigbrotr:
             raise RuntimeError(
                 "Connection pool not initialized. Call connect() first.")
 
-        async with self.pool.acquire(timeout=timeout) as conn:
-            return await conn.execute(query, *args)
+        async def _execute_query():
+            async with self.pool.acquire(timeout=timeout) as conn:
+                return await conn.execute(query, *args)
+
+        return await retry_on_db_error(_execute_query, operation_name="execute_query")
 
     async def fetch(self, query: str, *args: Any, timeout: float = 30) -> List[asyncpg.Record]:
-        """Fetch all results from a query.
+        """Fetch all results from a query with automatic retry on transient errors.
 
         Args:
             query: SQL query to execute
@@ -129,11 +133,14 @@ class Bigbrotr:
             raise RuntimeError(
                 "Connection pool not initialized. Call connect() first.")
 
-        async with self.pool.acquire(timeout=timeout) as conn:
-            return await conn.fetch(query, *args)
+        async def _fetch_query():
+            async with self.pool.acquire(timeout=timeout) as conn:
+                return await conn.fetch(query, *args)
+
+        return await retry_on_db_error(_fetch_query, operation_name="fetch_query")
 
     async def fetchone(self, query: str, *args: Any, timeout: float = 30) -> Optional[asyncpg.Record]:
-        """Fetch one result from a query.
+        """Fetch one result from a query with automatic retry on transient errors.
 
         Args:
             query: SQL query to execute
@@ -146,8 +153,11 @@ class Bigbrotr:
             raise RuntimeError(
                 "Connection pool not initialized. Call connect() first.")
 
-        async with self.pool.acquire(timeout=timeout) as conn:
-            return await conn.fetchrow(query, *args)
+        async def _fetchone_query():
+            async with self.pool.acquire(timeout=timeout) as conn:
+                return await conn.fetchrow(query, *args)
+
+        return await retry_on_db_error(_fetchone_query, operation_name="fetchone_query")
 
     async def delete_orphan_events(self) -> None:
         """Delete orphan events from the database."""

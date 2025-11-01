@@ -34,6 +34,7 @@ from constants import (
     TOR_CHECK_HTTP_URL,
     TOR_CHECK_WS_URL
 )
+from db_error_handler import is_transient_db_error, is_permanent_db_error
 
 T = TypeVar('T')
 
@@ -133,6 +134,10 @@ async def connect_bigbrotr_with_retry(
 ) -> None:
     """Connect Bigbrotr instance with exponential backoff retry logic.
 
+    Automatically distinguishes between transient and permanent connection errors.
+    Only retries on transient errors (network partition, temporary unavailability).
+    Fails fast on permanent errors (authentication, misconfiguration).
+
     Args:
         bigbrotr: Bigbrotr instance to connect
         max_retries: Maximum number of retry attempts (default: 5)
@@ -140,28 +145,58 @@ async def connect_bigbrotr_with_retry(
         logging: Optional logging object for output
 
     Raises:
-        Exception: If connection fails after all retry attempts
+        Exception: If connection fails after all retry attempts or permanent error
     """
     for attempt in range(max_retries):
         try:
             await bigbrotr.connect()
             if logging:
-                logging.info(f"✅ Database connected on attempt {attempt + 1}")
+                if attempt > 0:
+                    logging.info(f"✅ Database connected after {attempt + 1} attempts")
+                else:
+                    logging.info("✅ Database connected")
             return
         except Exception as e:
-            if attempt == max_retries - 1:
+            # Check for permanent errors (fail fast)
+            if is_permanent_db_error(e):
                 if logging:
-                    logging.exception(
-                        f"❌ Database connection failed after {max_retries} attempts"
+                    logging.error(
+                        f"❌ Database connection failed with permanent error: {e}",
+                        extra={"error_type": type(e).__name__}
                     )
                 raise
-            delay = base_delay * (2 ** attempt)  # Exponential backoff
-            if logging:
-                logging.warning(
-                    f"⚠️ Database connection failed (attempt {attempt + 1}/{max_retries}): {e}"
-                )
-                logging.info(f"⏳ Retrying in {delay} seconds...")
-            await asyncio.sleep(delay)
+
+            # Check if we've exhausted retries
+            if attempt == max_retries - 1:
+                if logging:
+                    logging.error(
+                        f"❌ Database connection failed after {max_retries} attempts: {e}",
+                        extra={"error_type": type(e).__name__}
+                    )
+                raise
+
+            # Transient error - retry with exponential backoff
+            if is_transient_db_error(e):
+                delay = base_delay * (2 ** attempt)
+                if logging:
+                    logging.warning(
+                        f"⚠️ Database connection failed with transient error: {e}"
+                    )
+                    logging.info(
+                        f"⏳ Retrying in {delay}s (attempt {attempt + 2}/{max_retries})..."
+                    )
+                await asyncio.sleep(delay)
+            else:
+                # Unknown error - retry anyway but log as unknown
+                delay = base_delay * (2 ** attempt)
+                if logging:
+                    logging.warning(
+                        f"⚠️ Database connection failed with unknown error: {e}"
+                    )
+                    logging.info(
+                        f"⏳ Retrying in {delay}s (attempt {attempt + 2}/{max_retries})..."
+                    )
+                await asyncio.sleep(delay)
 
 
 async def test_torproxy_connection(

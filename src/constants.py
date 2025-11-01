@@ -30,6 +30,8 @@ BINARY_SEARCH_MIN_RANGE = 1
 DEFAULT_MAX_RETRIES = 5
 DEFAULT_RETRY_BASE_DELAY = 1  # seconds
 DEFAULT_DB_RETRY_DELAY = 30  # seconds for database operations
+DEFAULT_DB_OPERATION_RETRIES = 3  # retries for individual database operations
+DEFAULT_DB_OPERATION_RETRY_DELAY = 5  # seconds between database operation retries
 
 # Service shutdown settings
 WORKER_GRACEFUL_SHUTDOWN_TIMEOUT = 30  # seconds to wait for workers before termination
