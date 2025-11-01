@@ -41,6 +41,13 @@ WORKER_FORCE_SHUTDOWN_TIMEOUT = 5  # seconds to wait after termination signal
 DEFAULT_FAILURE_THRESHOLD = 0.1  # 10% failure rate threshold for alerts
 DEFAULT_FAILURE_CHECK_INTERVAL = 100  # Check failure rate every N relays
 
+# Rate limiting settings
+DEFAULT_RELAY_REQUESTS_PER_SECOND = 1.0  # Maximum requests per second per relay
+DEFAULT_RELAY_BURST_SIZE = 2  # Maximum burst size (allows brief spikes)
+
+# Pagination settings
+DEFAULT_RELAY_PAGE_SIZE = 1000  # Number of relays to fetch per page
+
 # Default configuration values
 DEFAULT_MONITOR_LOOP_INTERVAL_MINUTES = 15
 DEFAULT_SYNCHRONIZER_LOOP_INTERVAL_MINUTES = 15
