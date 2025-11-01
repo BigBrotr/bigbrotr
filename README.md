@@ -51,10 +51,12 @@ Built by and for the FOSS community, Bigbrotr is MIT licensed and designed to fo
 
 - ⚡ **High-Performance Async Architecture** - Built with Python asyncio and asyncpg for maximum throughput
 - 🔄 **Optimized Connection Pooling** - PgBouncer + per-thread pools reduce database connections by 80%
+- 🏛️ **Modern Repository Pattern** - Clean separation of data access with focused repositories
+- 🚦 **Built-in Rate Limiting** - Token bucket algorithm prevents relay blocking
 - 🐳 **Docker-Native Microservices** - Easy deployment with docker-compose
 - 🗄️ **Normalized Database Schema** - Efficient storage with hash-based deduplication
 - 🔐 **Security-First Design** - Non-root containers, input validation, configurable resource limits
-- �� **Production-Ready** - Health checks, graceful shutdown, failure tracking, and monitoring endpoints
+- 📊 **Production-Ready** - Health checks, graceful shutdown, failure tracking, and monitoring endpoints
 
 ---
 
