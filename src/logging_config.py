@@ -1,10 +1,10 @@
-"""Centralized logging configuration for all Bigbrotr services."""
+"""Centralized logging configuration for all BigBrotr services."""
 import logging
 import sys
 
 
 def setup_logging(service_name: str, level: str = "INFO") -> None:
-    """Configure logging for a Bigbrotr service.
+    """Configure logging for a BigBrotr service.
 
     Args:
         service_name: Name of the service (e.g., "monitor", "synchronizer")

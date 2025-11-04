@@ -1,31 +1,47 @@
 -- ============================================================================
--- Lilbrotr Database Initialization Script
+-- BigBrotr Database Initialization Script
 -- ============================================================================
--- Description: Minimal PostgreSQL schema for lightweight Nostr network archival
--- Version: 1.0 (Lightweight - no tags, content, or redundant info)
+-- Description: PostgreSQL schema for Nostr network archival system
+-- Version: 2.0 (Normalized NIP-11/NIP-66 design)
 -- Database: PostgreSQL 14+
 -- Dependencies: btree_gin extension
--- 
--- Key Differences from Bigbrotr:
---   - NO event tags storage (reduces storage by ~40%)
---   - NO event content storage (reduces storage by ~50%)
---   - Minimal event metadata (id, pubkey, created_at, kind, sig only)
---   - Same relay tracking and metadata capabilities
---   - Ideal for: event indexing, relay monitoring, network analysis
 -- ============================================================================
 
 -- ============================================================================
 -- EXTENSIONS
 -- ============================================================================
 
+-- Enable GIN indexing on btree-compatible types (used for JSONB + scalar indexes)
 CREATE EXTENSION IF NOT EXISTS "btree_gin";
 
 -- ============================================================================
 -- UTILITY FUNCTIONS
 -- ============================================================================
 
+-- Function: tags_to_tagvalues
+-- Description: Extracts single-character tag keys and their values from JSONB array
+-- Purpose: Enables efficient GIN indexing on Nostr event tags
+-- Parameters: JSONB array of tags in format [["key", "value"], ...]
+-- Returns: TEXT[] of tag values where key length = 1
+CREATE OR REPLACE FUNCTION tags_to_tagvalues(p_tags JSONB)
+RETURNS TEXT[]
+LANGUAGE plpgsql
+IMMUTABLE
+RETURNS NULL ON NULL INPUT
+AS $$
+BEGIN
+    RETURN (
+        SELECT array_agg(tag_element->>1)
+        FROM jsonb_array_elements(p_tags) AS tag_element
+        WHERE length(tag_element->>0) = 1
+    );
+END;
+$$;
+
 -- Function: compute_nip11_hash
 -- Description: Computes deterministic hash for NIP-11 data
+-- Purpose: Enables deduplication of identical NIP-11 records
+-- Returns: SHA-256 hash of NIP-11 fields (even if all fields are NULL)
 CREATE OR REPLACE FUNCTION compute_nip11_hash(
     p_name                  TEXT,
     p_description           TEXT,
@@ -46,6 +62,8 @@ LANGUAGE plpgsql
 IMMUTABLE
 AS $$
 BEGIN
+    -- Use jsonb_build_object to avoid delimiter collision attacks
+    -- This properly escapes all field values and prevents hash collisions
     RETURN encode(
         digest(
             jsonb_build_object(
@@ -72,6 +90,8 @@ $$;
 
 -- Function: compute_nip66_hash
 -- Description: Computes deterministic hash for NIP-66 data
+-- Purpose: Enables deduplication of identical NIP-66 records
+-- Returns: SHA-256 hash of NIP-66 fields
 CREATE OR REPLACE FUNCTION compute_nip66_hash(
     p_openable      BOOLEAN,
     p_readable      BOOLEAN,
@@ -85,6 +105,8 @@ LANGUAGE plpgsql
 IMMUTABLE
 AS $$
 BEGIN
+    -- Use jsonb_build_object to avoid delimiter collision attacks
+    -- This properly escapes all field values and prevents hash collisions
     RETURN encode(
         digest(
             jsonb_build_object(
@@ -108,6 +130,7 @@ $$;
 
 -- Table: relays
 -- Description: Registry of all known Nostr relays
+-- Notes: Primary table - no dependencies
 CREATE TABLE IF NOT EXISTS relays (
     url         TEXT        PRIMARY KEY,
     network     TEXT        NOT NULL,
@@ -120,25 +143,32 @@ COMMENT ON COLUMN relays.network IS 'Network type: clearnet or tor';
 COMMENT ON COLUMN relays.inserted_at IS 'Unix timestamp when relay was first discovered';
 
 -- Table: events
--- Description: Minimal Nostr events storage (NO tags, NO content)
--- Purpose: Event existence tracking, relay distribution, network analysis
+-- Description: Stores all Nostr events with computed tag index
+-- Notes: Uses generated column for efficient tag searching
 CREATE TABLE IF NOT EXISTS events (
     id          CHAR(64)    PRIMARY KEY,
     pubkey      CHAR(64)    NOT NULL,
     created_at  BIGINT      NOT NULL,
     kind        INTEGER     NOT NULL,
+    tags        JSONB       NOT NULL,
+    tagvalues   TEXT[]      GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED,
+    content     TEXT        NOT NULL,
     sig         CHAR(128)   NOT NULL
 );
 
-COMMENT ON TABLE events IS 'Minimal Nostr events (no tags, no content - lightweight indexing only)';
+COMMENT ON TABLE events IS 'Nostr events with cryptographic validation via nostr-tools';
 COMMENT ON COLUMN events.id IS 'SHA-256 hash of serialized event (hex-encoded, 64 chars)';
 COMMENT ON COLUMN events.pubkey IS 'Author public key (hex-encoded, 64 chars)';
 COMMENT ON COLUMN events.created_at IS 'Unix timestamp when event was created';
 COMMENT ON COLUMN events.kind IS 'Event kind per NIP-01 (0=metadata, 1=text, 3=contacts, etc.)';
+COMMENT ON COLUMN events.tags IS 'JSONB array of [key, value, ...] arrays per NIP-01';
+COMMENT ON COLUMN events.tagvalues IS 'Computed array of single-char tag values for GIN indexing';
+COMMENT ON COLUMN events.content IS 'Event content (plaintext or encrypted depending on kind)';
 COMMENT ON COLUMN events.sig IS 'Schnorr signature over event fields (hex-encoded, 128 chars)';
 
 -- Table: events_relays
 -- Description: Junction table tracking which events are hosted on which relays
+-- Notes: Composite PK ensures uniqueness, foreign keys ensure referential integrity
 CREATE TABLE IF NOT EXISTS events_relays (
     event_id    CHAR(64)    NOT NULL,
     relay_url   TEXT        NOT NULL,
@@ -155,46 +185,89 @@ COMMENT ON COLUMN events_relays.seen_at IS 'Unix timestamp when event was first 
 
 -- Table: nip11
 -- Description: Deduplicated NIP-11 relay information documents
+-- Notes: Aligned with nostr-tools RelayMetadata.Nip11 class
+-- Purpose: One NIP-11 record can be shared by multiple relays (normalized)
 CREATE TABLE IF NOT EXISTS nip11 (
     id                      CHAR(64)    PRIMARY KEY,
+
+    -- Basic information
     name                    TEXT,
     description             TEXT,
     banner                  TEXT,
     icon                    TEXT,
+
+    -- Contact information
     pubkey                  TEXT,
     contact                 TEXT,
+
+    -- Technical details
     supported_nips          JSONB,
     software                TEXT,
     version                 TEXT,
+
+    -- Policies
     privacy_policy          TEXT,
     terms_of_service        TEXT,
+
+    -- Additional metadata
     limitation              JSONB,
     extra_fields            JSONB
 );
 
 COMMENT ON TABLE nip11 IS 'Deduplicated NIP-11 relay information documents (shared across relays)';
+COMMENT ON COLUMN nip11.id IS 'SHA-256 hash of NIP-11 fields (computed via compute_nip11_hash)';
+COMMENT ON COLUMN nip11.name IS 'Relay name';
+COMMENT ON COLUMN nip11.description IS 'Relay description';
+COMMENT ON COLUMN nip11.banner IS 'URL to banner image';
+COMMENT ON COLUMN nip11.icon IS 'URL to relay icon';
+COMMENT ON COLUMN nip11.pubkey IS 'Administrative contact public key';
+COMMENT ON COLUMN nip11.contact IS 'Alternative contact method (email, npub, etc.)';
+COMMENT ON COLUMN nip11.supported_nips IS 'Array of supported NIP numbers (JSONB)';
+COMMENT ON COLUMN nip11.software IS 'Relay software identifier';
+COMMENT ON COLUMN nip11.version IS 'Software version string';
+COMMENT ON COLUMN nip11.privacy_policy IS 'URL to privacy policy document';
+COMMENT ON COLUMN nip11.terms_of_service IS 'URL to terms of service document';
+COMMENT ON COLUMN nip11.limitation IS 'Relay limitations (JSONB per NIP-11)';
+COMMENT ON COLUMN nip11.extra_fields IS 'Additional custom fields from NIP-11 document (JSONB)';
 
 -- Table: nip66
 -- Description: Deduplicated NIP-66 connection and performance test results
+-- Notes: Aligned with nostr-tools RelayMetadata.Nip66 class
+-- Purpose: One NIP-66 record can be referenced by multiple relay metadata snapshots
 CREATE TABLE IF NOT EXISTS nip66 (
     id          CHAR(64)    PRIMARY KEY,
+
+    -- Connection capabilities
     openable    BOOLEAN     NOT NULL,
     readable    BOOLEAN     NOT NULL,
     writable    BOOLEAN     NOT NULL,
+
+    -- Round-trip time measurements (milliseconds)
     rtt_open    INTEGER,
     rtt_read    INTEGER,
     rtt_write   INTEGER
 );
 
 COMMENT ON TABLE nip66 IS 'Deduplicated NIP-66 connection test results (shared across snapshots)';
+COMMENT ON COLUMN nip66.id IS 'SHA-256 hash of NIP-66 fields (computed via compute_nip66_hash)';
+COMMENT ON COLUMN nip66.openable IS 'Whether relay accepts WebSocket connections';
+COMMENT ON COLUMN nip66.readable IS 'Whether relay allows REQ subscriptions';
+COMMENT ON COLUMN nip66.writable IS 'Whether relay accepts EVENT messages';
+COMMENT ON COLUMN nip66.rtt_open IS 'Round-trip time for WebSocket open handshake (ms)';
+COMMENT ON COLUMN nip66.rtt_read IS 'Round-trip time for REQ/EOSE cycle (ms)';
+COMMENT ON COLUMN nip66.rtt_write IS 'Round-trip time for EVENT/OK cycle (ms)';
 
 -- Table: relay_metadata
 -- Description: Time-series metadata snapshots linking relays to NIP-11/NIP-66 data
+-- Notes: Root table for relay metadata, references deduplicated NIP-11 and NIP-66 records
+-- Purpose: Tracks metadata changes over time with minimal duplication
 CREATE TABLE IF NOT EXISTS relay_metadata (
     relay_url       TEXT        NOT NULL,
     generated_at    BIGINT      NOT NULL,
     nip11_id        CHAR(64),
     nip66_id        CHAR(64),
+
+    -- Constraints
     PRIMARY KEY (relay_url, generated_at),
     FOREIGN KEY (relay_url)  REFERENCES relays(url)   ON DELETE CASCADE,
     FOREIGN KEY (nip11_id)   REFERENCES nip11(id)     ON DELETE SET NULL,
@@ -202,12 +275,16 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
 );
 
 COMMENT ON TABLE relay_metadata IS 'Time-series relay metadata snapshots (references NIP-11 and NIP-66 data)';
+COMMENT ON COLUMN relay_metadata.relay_url IS 'Reference to relays.url';
+COMMENT ON COLUMN relay_metadata.generated_at IS 'Unix timestamp when metadata snapshot was created';
+COMMENT ON COLUMN relay_metadata.nip11_id IS 'Reference to nip11.id (NULL if NIP-11 unavailable)';
+COMMENT ON COLUMN relay_metadata.nip66_id IS 'Reference to nip66.id (NULL if NIP-66 test not performed)';
 
 -- ============================================================================
 -- INDEXES
 -- ============================================================================
 
--- Events table indexes (minimal)
+-- Events table indexes
 CREATE INDEX IF NOT EXISTS idx_events_pubkey
     ON events USING btree (pubkey);
 
@@ -223,6 +300,9 @@ CREATE INDEX IF NOT EXISTS idx_events_kind_created_at
 CREATE INDEX IF NOT EXISTS idx_events_pubkey_created_at
     ON events USING btree (pubkey, created_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_events_tagvalues
+    ON events USING gin (tagvalues);
+
 -- Events_relays table indexes
 CREATE INDEX IF NOT EXISTS idx_events_relays_event_id
     ON events_relays USING btree (event_id);
@@ -233,6 +313,7 @@ CREATE INDEX IF NOT EXISTS idx_events_relays_relay_url
 CREATE INDEX IF NOT EXISTS idx_events_relays_seen_at
     ON events_relays USING btree (seen_at DESC);
 
+-- Composite index for MAX(seen_at) WHERE relay_url queries (critical for synchronizer)
 CREATE INDEX IF NOT EXISTS idx_events_relays_relay_seen
     ON events_relays USING btree (relay_url, seen_at DESC);
 
@@ -262,6 +343,7 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_nip11_id
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_nip66_id
     ON relay_metadata USING btree (nip66_id);
 
+-- Composite index for ROW_NUMBER() OVER (PARTITION BY relay_url ORDER BY generated_at) queries
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_generated
     ON relay_metadata USING btree (relay_url, generated_at DESC);
 
@@ -270,6 +352,10 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_generated
 -- ============================================================================
 
 -- Function: delete_orphan_events
+-- Description: Removes events that have no associated relay references
+-- Purpose: Maintains data integrity constraint (events must have ≥1 relay)
+-- Returns: VOID
+-- Usage: SELECT delete_orphan_events();
 CREATE OR REPLACE FUNCTION delete_orphan_events()
 RETURNS VOID
 LANGUAGE plpgsql
@@ -286,6 +372,10 @@ $$;
 COMMENT ON FUNCTION delete_orphan_events() IS 'Deletes events without relay associations (maintains 1:N relationship)';
 
 -- Function: delete_orphan_nip11
+-- Description: Removes NIP-11 records that are not referenced by any relay metadata
+-- Purpose: Cleanup unused NIP-11 data
+-- Returns: VOID
+-- Usage: SELECT delete_orphan_nip11();
 CREATE OR REPLACE FUNCTION delete_orphan_nip11()
 RETURNS VOID
 LANGUAGE plpgsql
@@ -300,7 +390,13 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION delete_orphan_nip11() IS 'Deletes NIP-11 records without relay metadata references';
+
 -- Function: delete_orphan_nip66
+-- Description: Removes NIP-66 records that are not referenced by any relay metadata
+-- Purpose: Cleanup unused NIP-66 data
+-- Returns: VOID
+-- Usage: SELECT delete_orphan_nip66();
 CREATE OR REPLACE FUNCTION delete_orphan_nip66()
 RETURNS VOID
 LANGUAGE plpgsql
@@ -315,16 +411,24 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION delete_orphan_nip66() IS 'Deletes NIP-66 records without relay metadata references';
+
 -- ============================================================================
 -- STORED PROCEDURES FOR BATCH OPERATIONS
 -- ============================================================================
 
--- Procedure: insert_event (minimal version - no tags, no content)
+-- Procedure: insert_event
+-- Description: Atomically inserts event + relay + event-relay junction record
+-- Parameters: Event fields, relay info, and seen_at timestamp
+-- Returns: VOID
+-- Notes: Uses ON CONFLICT DO NOTHING for idempotency
 CREATE OR REPLACE FUNCTION insert_event(
     p_event_id              CHAR(64),
     p_pubkey                CHAR(64),
     p_created_at            BIGINT,
     p_kind                  INTEGER,
+    p_tags                  JSONB,
+    p_content               TEXT,
     p_sig                   CHAR(128),
     p_relay_url             TEXT,
     p_relay_network         TEXT,
@@ -335,9 +439,9 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    -- Insert event (idempotent) - NO tags, NO content
-    INSERT INTO events (id, pubkey, created_at, kind, sig)
-    VALUES (p_event_id, p_pubkey, p_created_at, p_kind, p_sig)
+    -- Insert event (idempotent)
+    INSERT INTO events (id, pubkey, created_at, kind, tags, content, sig)
+    VALUES (p_event_id, p_pubkey, p_created_at, p_kind, p_tags, p_content, p_sig)
     ON CONFLICT (id) DO NOTHING;
 
     -- Insert relay (idempotent)
@@ -352,17 +456,23 @@ BEGIN
 
 EXCEPTION
     WHEN unique_violation THEN
+        -- OK, duplicate record (idempotent operation)
         RETURN;
     WHEN foreign_key_violation THEN
+        -- Critical: relay doesn't exist
         RAISE EXCEPTION 'Relay % does not exist for event %', p_relay_url, p_event_id;
     WHEN OTHERS THEN
+        -- Unknown error, fail loudly
         RAISE EXCEPTION 'insert_event failed for event %: %', p_event_id, SQLERRM;
 END;
 $$;
 
-COMMENT ON FUNCTION insert_event IS 'Atomically inserts event (minimal), relay, and their association';
+COMMENT ON FUNCTION insert_event IS 'Atomically inserts event, relay, and their association';
 
 -- Procedure: insert_relay
+-- Description: Inserts a relay record
+-- Parameters: Relay URL, network type, insertion timestamp
+-- Returns: VOID
 CREATE OR REPLACE FUNCTION insert_relay(
     p_url           TEXT,
     p_network       TEXT,
@@ -378,26 +488,44 @@ BEGIN
 
 EXCEPTION
     WHEN unique_violation THEN
+        -- OK, duplicate relay (idempotent operation)
         RETURN;
     WHEN OTHERS THEN
+        -- Unknown error, fail loudly
         RAISE EXCEPTION 'insert_relay failed for %: %', p_url, SQLERRM;
 END;
 $$;
 
+COMMENT ON FUNCTION insert_relay IS 'Inserts relay with conflict handling';
+
 -- Procedure: insert_relay_metadata
+-- Description: Inserts relay metadata with automatic deduplication of NIP-11/NIP-66 data
+-- Parameters: All fields from nostr-tools RelayMetadata structure
+-- Returns: VOID
+-- Notes: Computes hashes and reuses existing NIP-11/NIP-66 records when identical
+--        NIP-11/NIP-66 objects are inserted even if all fields are NULL
 CREATE OR REPLACE FUNCTION insert_relay_metadata(
+    -- Relay identification
     p_relay_url                 TEXT,
     p_relay_network             TEXT,
     p_relay_inserted_at         BIGINT,
     p_generated_at              BIGINT,
+
+    -- NIP-66 presence flag (TRUE if nip66 object exists, FALSE if none)
     p_nip66_present             BOOLEAN,
+
+    -- NIP-66 connection data
     p_nip66_openable            BOOLEAN,
     p_nip66_readable            BOOLEAN,
     p_nip66_writable            BOOLEAN,
     p_nip66_rtt_open            INTEGER,
     p_nip66_rtt_read            INTEGER,
     p_nip66_rtt_write           INTEGER,
+
+    -- NIP-11 presence flag (TRUE if nip11 object exists, FALSE if none)
     p_nip11_present             BOOLEAN,
+
+    -- NIP-11 information document
     p_nip11_name                TEXT,
     p_nip11_description         TEXT,
     p_nip11_banner              TEXT,
@@ -426,6 +554,7 @@ BEGIN
 
     -- Handle NIP-11 data if object is present
     IF p_nip11_present THEN
+        -- Compute NIP-11 hash
         v_nip11_id := compute_nip11_hash(
             p_nip11_name, p_nip11_description, p_nip11_banner, p_nip11_icon,
             p_nip11_pubkey, p_nip11_contact, p_nip11_supported_nips,
@@ -433,6 +562,7 @@ BEGIN
             p_nip11_terms_of_service, p_nip11_limitation, p_nip11_extra_fields
         );
 
+        -- Insert NIP-11 data (idempotent via hash-based PK)
         INSERT INTO nip11 (
             id, name, description, banner, icon, pubkey, contact,
             supported_nips, software, version, privacy_policy,
@@ -452,6 +582,7 @@ BEGIN
 
     -- Handle NIP-66 data if object is present
     IF p_nip66_present THEN
+        -- Compute NIP-66 hash
         v_nip66_id := compute_nip66_hash(
             COALESCE(p_nip66_openable, FALSE),
             COALESCE(p_nip66_readable, FALSE),
@@ -461,6 +592,7 @@ BEGIN
             p_nip66_rtt_write
         );
 
+        -- Insert NIP-66 data (idempotent via hash-based PK)
         INSERT INTO nip66 (
             id, openable, readable, writable,
             rtt_open, rtt_read, rtt_write
@@ -486,10 +618,13 @@ BEGIN
 
 EXCEPTION
     WHEN unique_violation THEN
+        -- OK, duplicate metadata (idempotent operation)
         RETURN;
     WHEN foreign_key_violation THEN
+        -- Critical: relay doesn't exist
         RAISE EXCEPTION 'Relay % does not exist for metadata insert', p_relay_url;
     WHEN OTHERS THEN
+        -- Unknown error, fail loudly
         RAISE EXCEPTION 'insert_relay_metadata failed for %: %', p_relay_url, SQLERRM;
 END;
 $$;
@@ -501,12 +636,16 @@ COMMENT ON FUNCTION insert_relay_metadata IS 'Inserts relay metadata with automa
 -- ============================================================================
 
 -- View: relay_metadata_latest
+-- Description: Latest metadata for each relay (joins with NIP-11 and NIP-66)
+-- Purpose: Provides a unified view of the most recent relay information
 CREATE OR REPLACE VIEW relay_metadata_latest AS
 SELECT
     r.url AS relay_url,
     r.network,
     r.inserted_at,
     rm.generated_at,
+
+    -- NIP-66 data
     n66.id AS nip66_id,
     n66.openable AS nip66_openable,
     n66.readable AS nip66_readable,
@@ -514,6 +653,8 @@ SELECT
     n66.rtt_open AS nip66_rtt_open,
     n66.rtt_read AS nip66_rtt_read,
     n66.rtt_write AS nip66_rtt_write,
+
+    -- NIP-11 data
     n11.id AS nip11_id,
     n11.name AS nip11_name,
     n11.description AS nip11_description,
@@ -542,6 +683,8 @@ LEFT JOIN nip11 n11 ON rm.nip11_id = n11.id;
 COMMENT ON VIEW relay_metadata_latest IS 'Latest metadata per relay (combines most recent snapshot with NIP-11/NIP-66 data)';
 
 -- View: readable_relays
+-- Description: Relays that are currently readable (based on latest NIP-66 test)
+-- Purpose: Quick access to relays available for synchronization
 CREATE OR REPLACE VIEW readable_relays AS
 SELECT
     relay_url,
@@ -558,24 +701,17 @@ COMMENT ON VIEW readable_relays IS 'Relays with readable=TRUE in latest test (so
 -- INITIALIZATION COMPLETE
 -- ============================================================================
 
+-- Verify installation
 DO $$
 BEGIN
     RAISE NOTICE '============================================================================';
-    RAISE NOTICE 'Lilbrotr database schema initialized successfully';
+    RAISE NOTICE 'BigBrotr database schema initialized successfully';
     RAISE NOTICE '============================================================================';
-    RAISE NOTICE 'Lightweight schema features:';
-    RAISE NOTICE '  - NO event tags storage (~40%% space savings)';
-    RAISE NOTICE '  - NO event content storage (~50%% space savings)';
-    RAISE NOTICE '  - Minimal event metadata (id, pubkey, created_at, kind, sig)';
-    RAISE NOTICE '  - Full relay tracking and metadata capabilities';
-    RAISE NOTICE '  - Ideal for: event indexing, relay monitoring, network analysis';
-    RAISE NOTICE '============================================================================';
-    RAISE NOTICE 'Core tables: relays, events (minimal), events_relays';
+    RAISE NOTICE 'Core tables: relays, events, events_relays';
     RAISE NOTICE 'Metadata tables: nip11, nip66, relay_metadata';
     RAISE NOTICE 'Hash functions: compute_nip11_hash, compute_nip66_hash';
-    RAISE NOTICE 'Utility functions: delete_orphan_*';
-    RAISE NOTICE 'Procedures: insert_event (minimal), insert_relay, insert_relay_metadata';
+    RAISE NOTICE 'Utility functions: tags_to_tagvalues, delete_orphan_*';
+    RAISE NOTICE 'Procedures: insert_event, insert_relay, insert_relay_metadata';
     RAISE NOTICE 'Views: relay_metadata_latest, readable_relays';
     RAISE NOTICE '============================================================================';
 END $$;
-

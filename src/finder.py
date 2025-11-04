@@ -2,12 +2,14 @@ import asyncio
 import logging
 import signal
 from multiprocessing import Event
+from types import FrameType
+from typing import Optional
 
-from shared.config.config import load_finder_config
-from shared.utils.constants import HEALTH_CHECK_PORT
-from shared.utils.functions import wait_for_services
-from shared.utils.healthcheck import HealthCheckServer
-from shared.utils.logging_config import setup_logging
+from config import load_finder_config
+from constants import HEALTH_CHECK_PORT
+from functions import wait_for_services
+from healthcheck import HealthCheckServer
+from logging_config import setup_logging
 
 # Setup logging
 setup_logging("FINDER")
@@ -17,7 +19,7 @@ shutdown_event = Event()
 service_ready = False
 
 
-def signal_handler(signum: int, frame) -> None:
+def signal_handler(signum: int, frame: Optional[FrameType]) -> None:
     """Handle shutdown signals gracefully."""
     signal_name = signal.Signals(signum).name
     logging.info(f"⚠️ Received {signal_name} signal. Initiating graceful shutdown...")
@@ -32,11 +34,8 @@ async def finder() -> None:
     config = load_finder_config()
     logging.info("🔍 Starting finder...")
 
-    # TORPROXY configuration loaded for future relay discovery implementation:
-    # - Discovering relays from .onion NIP-11 documents (requires Tor proxy)
-    # - Fetching kind 10002 events from Tor relays
-    # - Cross-referencing relay URLs in Tor network metadata
-    # When implemented, will use config["torproxy_host"] and config["torproxy_port"]
+    # Tor proxy configuration for accessing .onion relay aggregator websites
+    # and discovering relays from Tor network sources
 
     # Start health check server
     async def is_ready():
@@ -53,19 +52,14 @@ async def finder() -> None:
             try:
                 logging.info("🔍 Starting relay discovery...")
 
-                # TODO: Implement comprehensive relay discovery:
-                # 1. Fetch kind 10002 events (relay list metadata) from known relays
-                # 2. Parse NIP-11 documents for relay cross-references
-                # 3. Extract relay URLs from event tags
-                # 4. Validate and insert new relays to database
+                # TODO: Implement relay discovery logic:
+                # 1. Query database for specific event kinds (e.g., kind 10002 relay list metadata)
+                # 2. Extract relay URLs from event tags (e.g., 'r' tags and other relay references)
+                # 3. Fetch relay lists from aggregator websites (e.g., nostr.watch, relay.exchange)
+                # 4. Parse and validate all discovered relay URLs
+                # 5. Insert new relays to database using bigbrotr.insert_relay_batch()
 
-                # For now, just log that discovery would run
-                logging.info("📋 Relay discovery not yet fully implemented")
-                logging.info("💡 Future implementation will:")
-                logging.info("   - Query kind 10002 events from existing relays")
-                logging.info("   - Parse relay references from NIP-11 metadata")
-                logging.info("   - Extract 'r' tags from events")
-                logging.info("   - Discover relays from relay list events")
+                logging.info("📋 Relay discovery logic pending implementation")
 
                 # Sleep in small intervals to respond quickly to shutdown signals
                 sleep_seconds = config["frequency_hour"] * 3600

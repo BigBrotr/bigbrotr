@@ -1,41 +1,15 @@
-"""Initializer service for seeding the database with initial relay list.
-
-This service runs once on startup to populate the database with seed relays from
-seed_relays.txt. It's designed to be idempotent and can be safely run multiple times.
-
-Service Flow:
-    1. Wait for database to be ready
-    2. Read seed relays from file
-    3. Parse and validate relay URLs
-    4. Insert relays into database (skips duplicates via ON CONFLICT DO NOTHING)
-    5. Exit after completion
-
-Configuration:
-    - SEED_RELAYS_PATH: Path to seed relays file (one URL per line)
-    - Database connection settings from environment
-
-File Format:
-    - One relay URL per line (wss:// or ws://)
-    - Lines starting with # are comments
-    - Empty lines are ignored
-    - Invalid URLs are logged and skipped
-
-Dependencies:
-    - brotr: Database wrapper for async operations
-    - nostr_tools: Relay URL parsing and validation
-"""
 import asyncio
 import logging
 import time
 from typing import Dict, Any, List
 
-from brotr_core.database.brotr import Brotr
+from bigbrotr import BigBrotr
 from nostr_tools import Relay
+from nostr_tools.exceptions.errors import RelayValidationError
 
-from shared.config.config import load_initializer_config
-from shared.utils.constants import DEFAULT_INITIALIZER_RETRY_DELAY
-from shared.utils.functions import wait_for_services
-from shared.utils.logging_config import setup_logging
+from config import load_initializer_config
+from functions import wait_for_services
+from logging_config import setup_logging
 
 # Setup logging
 setup_logging("INITIALIZER")
@@ -50,14 +24,18 @@ async def insert_relays(config: Dict[str, Any]) -> None:
             lines = f.read().splitlines()
         relays: List[Relay] = []
         for raw_url in lines:
+            raw_url = raw_url.strip()
+            if not raw_url or raw_url.startswith("#"):
+                # Skip empty lines and comments
+                continue
             try:
                 relay = Relay(raw_url)
                 relays.append(relay)
-            except (ValueError, TypeError) as e:
+            except (ValueError, TypeError, RelayValidationError) as e:
                 logging.warning(
                     f"⚠️ Invalid relay URL skipped: {raw_url}. Reason: {e}")
         if relays:
-            async with Brotr(
+            async with BigBrotr(
                 config["database_host"],
                 config["database_port"],
                 config["database_user"],
@@ -81,7 +59,7 @@ async def initializer() -> None:
     config = load_initializer_config()
 
     # Wait for database to be available
-    await wait_for_services(config, retries=5, delay=DEFAULT_INITIALIZER_RETRY_DELAY)
+    await wait_for_services(config, retries=5, delay=10)
 
     await insert_relays(config)
 

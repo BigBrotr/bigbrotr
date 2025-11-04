@@ -2,7 +2,7 @@ services:
 
   database:
     image: postgres:15-alpine
-    container_name: lilbrotr_database
+    container_name: bigbrotr_database
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -26,15 +26,15 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'          # Reduced from 4.0 (Lilbrotr uses less CPU)
-          memory: 2G           # Reduced from 4G (minimal storage = less RAM)
+          cpus: '4.0'
+          memory: 4G
         reservations:
-          cpus: '0.5'
-          memory: 256M
+          cpus: '1.0'
+          memory: 512M
 
   pgadmin:
     image: dpage/pgadmin4
-    container_name: lilbrotr_pgadmin
+    container_name: bigbrotr_pgadmin
     environment:
       - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL}
       - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
@@ -48,22 +48,22 @@ services:
 
   torproxy:
     image: dperson/torproxy
-    container_name: lilbrotr_torproxy
+    container_name: bigbrotr_torproxy
     restart: unless-stopped
     networks:
       - network
 
   pgbouncer:
     build:
-      context: ../../
+      context: .
       dockerfile: dockerfiles/pgbouncer
-    container_name: lilbrotr_pgbouncer
+    container_name: bigbrotr_pgbouncer
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
       - PGBOUNCER_ADMIN_USER=admin
-      - PGBOUNCER_ADMIN_PASSWORD=${PGBOUNCER_ADMIN_PASSWORD:-admin}
+      - PGBOUNCER_ADMIN_PASSWORD=${PGBOUNCER_ADMIN_PASSWORD}
     ports:
       - "${PGBOUNCER_PORT:-6432}:6432"
     depends_on:
@@ -74,9 +74,9 @@ services:
 
   initializer:
     build:
-      context: ../../
-      dockerfile: dockerfiles/lilbrotr_initializer
-    container_name: lilbrotr_initializer
+      context: .
+      dockerfile: dockerfiles/initializer
+    container_name: bigbrotr_initializer
     environment:
       - POSTGRES_HOST=database
       - POSTGRES_USER=${POSTGRES_USER}
@@ -84,7 +84,6 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_PORT=5432
       - SEED_RELAYS_PATH=seed_relays.txt
-      - BROTR_MODE=lilbrotr
     volumes:
       - ${SEED_RELAYS_PATH}:/app/seed_relays.txt
     depends_on:
@@ -93,11 +92,42 @@ services:
       - network
     restart: no
 
+  finder:
+    build:
+      context: .
+      dockerfile: dockerfiles/finder
+    container_name: bigbrotr_finder
+    ports:
+      - "8084:8080"  # Health check endpoint
+    environment:
+      - POSTGRES_HOST=pgbouncer
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PORT=6432
+      - TORPROXY_HOST=torproxy
+      - TORPROXY_PORT=9050
+      - FINDER_FREQUENCY_HOUR=${FINDER_FREQUENCY_HOUR}
+      - FINDER_REQUEST_TIMEOUT=${FINDER_REQUEST_TIMEOUT}
+    depends_on:
+      - database
+      - pgbouncer
+      - torproxy
+    networks:
+      - network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   monitor:
     build:
-      context: ../../
-      dockerfile: dockerfiles/lilbrotr_monitor
-    container_name: lilbrotr_monitor
+      context: .
+      dockerfile: dockerfiles/monitor
+    container_name: bigbrotr_monitor
     ports:
       - "8081:8080"  # Health check endpoint
     environment:
@@ -113,9 +143,9 @@ services:
       - MONITOR_CHUNK_SIZE=${MONITOR_CHUNK_SIZE}
       - MONITOR_REQUESTS_PER_CORE=${MONITOR_REQUESTS_PER_CORE}
       - MONITOR_REQUEST_TIMEOUT=${MONITOR_REQUEST_TIMEOUT}
+      - MONITOR_LOOP_INTERVAL_MINUTES=${MONITOR_LOOP_INTERVAL_MINUTES}
       - SECRET_KEY=${SECRET_KEY}
       - PUBLIC_KEY=${PUBLIC_KEY}
-      - BROTR_MODE=lilbrotr
     depends_on:
       - database
       - pgbouncer
@@ -124,7 +154,7 @@ services:
       - network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -132,17 +162,17 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'          # Reduced from 4.0 (less processing overhead)
-          memory: 1G           # Reduced from 2G (minimal metadata)
+          cpus: '4.0'
+          memory: 2G
         reservations:
-          cpus: '0.25'
-          memory: 128M
+          cpus: '0.5'
+          memory: 256M
 
   synchronizer:
     build:
-      context: ../../
-      dockerfile: dockerfiles/lilbrotr_synchronizer
-    container_name: lilbrotr_synchronizer
+      context: .
+      dockerfile: dockerfiles/synchronizer
+    container_name: bigbrotr_synchronizer
     ports:
       - "8082:8080"  # Health check endpoint
     environment:
@@ -160,7 +190,9 @@ services:
       - SYNCHRONIZER_STOP_TIMESTAMP=${SYNCHRONIZER_STOP_TIMESTAMP}
       - SYNCHRONIZER_EVENT_FILTER=${SYNCHRONIZER_EVENT_FILTER}
       - SYNCHRONIZER_PRIORITY_RELAYS_PATH=priority_relays.txt
-      - BROTR_MODE=lilbrotr
+      - SYNCHRONIZER_RELAY_METADATA_THRESHOLD_HOURS=${SYNCHRONIZER_RELAY_METADATA_THRESHOLD_HOURS}
+      - SYNCHRONIZER_LOOP_INTERVAL_MINUTES=${SYNCHRONIZER_LOOP_INTERVAL_MINUTES}
+      - SYNCHRONIZER_BATCH_SIZE=${SYNCHRONIZER_BATCH_SIZE}
     volumes:
       - ${SYNCHRONIZER_PRIORITY_RELAYS_PATH}:/app/priority_relays.txt
     depends_on:
@@ -171,7 +203,7 @@ services:
       - network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -179,17 +211,17 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4.0'          # Reduced from 6.0 (less data to process)
-          memory: 2G           # Reduced from 4G (smaller events)
+          cpus: '6.0'
+          memory: 4G
         reservations:
-          cpus: '0.5'
-          memory: 256M
+          cpus: '1.0'
+          memory: 512M
 
   priority_synchronizer:
     build:
-      context: ../../
-      dockerfile: dockerfiles/lilbrotr_priority_synchronizer
-    container_name: lilbrotr_priority_synchronizer
+      context: .
+      dockerfile: dockerfiles/priority_synchronizer
+    container_name: bigbrotr_priority_synchronizer
     ports:
       - "8083:8080"  # Health check endpoint
     environment:
@@ -207,7 +239,9 @@ services:
       - SYNCHRONIZER_STOP_TIMESTAMP=${SYNCHRONIZER_STOP_TIMESTAMP}
       - SYNCHRONIZER_EVENT_FILTER=${SYNCHRONIZER_EVENT_FILTER}
       - SYNCHRONIZER_PRIORITY_RELAYS_PATH=priority_relays.txt
-      - BROTR_MODE=lilbrotr
+      - SYNCHRONIZER_RELAY_METADATA_THRESHOLD_HOURS=${SYNCHRONIZER_RELAY_METADATA_THRESHOLD_HOURS}
+      - SYNCHRONIZER_LOOP_INTERVAL_MINUTES=${SYNCHRONIZER_LOOP_INTERVAL_MINUTES}
+      - SYNCHRONIZER_BATCH_SIZE=${SYNCHRONIZER_BATCH_SIZE}
     volumes:
       - ${SYNCHRONIZER_PRIORITY_RELAYS_PATH}:/app/priority_relays.txt
     depends_on:
@@ -218,7 +252,7 @@ services:
       - network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -226,13 +260,12 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4.0'          # Reduced from 6.0 (less data to process)
-          memory: 2G           # Reduced from 4G (smaller events)
+          cpus: '6.0'
+          memory: 4G
         reservations:
-          cpus: '0.5'
-          memory: 256M
+          cpus: '1.0'
+          memory: 512M
 
 networks:
   network:
     driver: bridge
-

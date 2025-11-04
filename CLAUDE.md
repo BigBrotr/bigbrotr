@@ -1,431 +1,1573 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+# BigBrotr Project - Complete Technical Documentation
 
 ## Project Overview
 
-Bigbrotr is a full-network archival system for the Nostr protocol. It's a microservices-based Python application that continuously monitors, archives, and analyzes all public events across the entire Nostr network (both clearnet and Tor relays). The system provides deep insights into relay behavior, event redundancy, network topology, and relay health metrics.
+**BigBrotr** is a distributed Nostr network archival system designed to discover, monitor, and synchronize events from Nostr relays across both clearnet and Tor networks. The system provides comprehensive relay monitoring, metadata collection (NIP-11/NIP-66), and event archival capabilities.
 
-**Key Technologies**: Python 3.11+, asyncio, asyncpg, PostgreSQL 15, PgBouncer, Docker, Tor
+### Architecture Type
+- **Microservices Architecture**: 7 independent services orchestrated via Docker Compose
+- **Database-Centric**: PostgreSQL 15 with normalized schema and optimized indexing
+- **Connection Pooling**: PgBouncer in transaction mode for efficient database access
+- **Multi-Process/Multi-Threaded**: Concurrent processing using Python multiprocessing and threading
 
-## Development Commands
+---
 
-### Docker Operations
+## System Components
 
+### 1. Database (PostgreSQL 15)
+**Purpose**: Central data store for events, relays, and metadata
+
+**Schema Design**:
+- **Core Tables**: `relays`, `events`, `events_relays`
+- **Metadata Tables**: `nip11`, `nip66`, `relay_metadata`
+- **Normalization**: NIP-11 and NIP-66 data deduplicated using SHA-256 hashing
+- **Indexes**: 15 specialized indexes for query optimization
+
+**Key Features**:
+- Stored procedures: `insert_event`, `insert_relay`, `insert_relay_metadata`
+- Utility functions: `delete_orphan_events`, `delete_orphan_nip11`, `delete_orphan_nip66`
+- Hash functions: `compute_nip11_hash`, `compute_nip66_hash`
+- Views: `relay_metadata_latest`, `readable_relays`
+
+**Performance Configuration**:
+- `shared_buffers`: 16GB
+- `effective_cache_size`: 48GB
+- `max_connections`: 300
+- `max_worker_processes`: 300
+- `max_parallel_workers`: 300
+
+### 2. PgBouncer
+**Purpose**: Connection pooling and traffic management
+
+**Configuration**:
+- **Pool Mode**: `transaction` (optimal for microservices)
+- **Authentication**: SCRAM-SHA-256
+- **Connection Limits**: 1000 max clients, 25 default pool size
+- **Timeouts**: Server idle (600s), server lifetime (3600s)
+
+**Why Transaction Mode**:
+- No prepared statements (disabled in BigBrotr client)
+- Better resource utilization
+- Handles bursty workloads effectively
+
+### 3. Tor Proxy (dperson/torproxy)
+**Purpose**: Provides SOCKS5 proxy for accessing .onion relays
+
+**Integration**:
+- SOCKS5 proxy at `torproxy:9050`
+- Automatic network detection in `Relay` class
+- Conditional proxy usage based on relay URL
+
+### 4. Initializer Service
+**Purpose**: One-time database seeding with initial relay list
+
+**Implementation**: [src/initializer.py](src/initializer.py)
+
+**Process**:
+1. Wait for database availability
+2. Read `seed_relays.txt` (8,865 relay URLs)
+3. Validate relay URLs
+4. Batch insert using `BigBrotr.insert_relay_batch()`
+5. Exit (`restart: no`)
+
+### 5. Finder Service
+**Purpose**: Relay discovery (currently pending implementation)
+
+**Implementation**: [src/finder.py](src/finder.py)
+
+**Planned Features**:
+- Query events for kind 10002 (relay list metadata)
+- Extract relay URLs from event tags
+- Fetch from aggregator websites (nostr.watch, relay.exchange)
+- Insert discovered relays to database
+
+**Current Status**: Skeleton with health check server, awaiting full implementation
+
+### 6. Monitor Service
+**Purpose**: Relay health monitoring and metadata collection
+
+**Implementation**: [src/monitor.py](src/monitor.py)
+
+**Architecture**:
+- **Multiprocessing**: `num_cores` processes
+- **Per-Process**: Multiple async requests (`requests_per_core`)
+- **Database**: Each worker has its own connection pool (2-5 connections)
+
+**Process Flow**:
+1. Fetch relays needing metadata updates (frequency_hour threshold)
+2. Split into chunks (`chunk_size`)
+3. Distribute chunks across worker processes
+4. Each worker:
+   - Fetches relay metadata (NIP-11, NIP-66)
+   - Measures RTT (round-trip time)
+   - Batch inserts metadata
+5. Repeat every `loop_interval_minutes`
+
+**Configuration**:
+- Frequency: Every 8 hours (default)
+- Chunk Size: 50 relays per worker
+- Concurrent Requests: 10 per core
+- Health Check: Port 8080
+
+### 7. Synchronizer Service
+**Purpose**: Event synchronization from readable relays
+
+**Implementation**: [src/synchronizer.py](src/synchronizer.py)
+
+**Architecture**:
+- **Multiprocessing**: `num_cores` processes
+- **Threading**: `requests_per_core` threads per process
+- **Queue-Based**: Shared queue for relay distribution
+
+**Process Flow**:
+1. Fetch readable relays from database (with metadata < threshold_hours)
+2. Load priority relays from file (excluded from standard sync)
+3. Create shared queue with all relays
+4. Spawn worker processes:
+   - Each process spawns worker threads
+   - Each thread:
+     - Gets relay from queue
+     - Determines start_time from last seen event
+     - Creates Filter (since, until, batch_size)
+     - Processes relay using binary search algorithm
+     - Inserts events in batches
+5. Repeat every `loop_interval_minutes`
+
+**Binary Search Algorithm**: [src/process_relay.py](src/process_relay.py:155)
+- Handles pagination limits intelligently
+- Detects relay behavior inconsistencies
+- Optimizes event retrieval efficiency
+
+**Configuration**:
+- Start Timestamp: 0 (from beginning)
+- Stop Timestamp: -1 (current time - 1 day)
+- Batch Size: 500 events
+- Event Filter: `{}` (all events)
+
+### 8. Priority Synchronizer Service
+**Purpose**: Dedicated synchronization for high-priority relays
+
+**Implementation**: [src/priority_synchronizer.py](src/priority_synchronizer.py)
+
+**Differences from Standard Synchronizer**:
+- Reads exclusively from `priority_relays.txt`
+- Same architecture and algorithm
+- Separate resource allocation
+- Independent scheduling
+
+**Use Case**: Ensure critical relays (e.g., relay.damus.io, nos.lol) are always up-to-date
+
+---
+
+## Core Library: BigBrotr Database Wrapper
+
+**File**: [src/bigbrotr.py](src/bigbrotr.py)
+
+**Purpose**: Async database abstraction with connection pooling
+
+**Key Features**:
+- **Connection Pool**: asyncpg-based with configurable size
+- **Context Manager**: `async with BigBrotr(...) as db`
+- **Type Safety**: Extensive type checking and validation
+- **Batch Operations**: Optimized for bulk inserts
+- **Error Handling**: Comprehensive exception management
+
+**Methods**:
+- `insert_event()` / `insert_event_batch()` - Event insertion
+- `insert_relay()` / `insert_relay_batch()` - Relay insertion
+- `insert_relay_metadata()` / `insert_relay_metadata_batch()` - Metadata insertion
+- `execute()`, `fetch()`, `fetchone()` - Generic query execution
+
+**Connection Pool Configuration**:
+- Disabled prepared statements (PgBouncer transaction mode compatibility)
+- Configurable min/max pool sizes per worker
+- Command timeout: 60 seconds
+
+---
+
+## nostr-tools Library (v1.4.0) - Complete Reference
+
+### Overview
+
+**nostr-tools** is a comprehensive Python library developed by BigBrotr for building Nostr protocol applications. Version 1.4.0 provides production-ready async APIs with full NIP-01, NIP-11, and NIP-66 support.
+
+### Installation
 ```bash
-# Start all services
-docker-compose up -d
+pip install nostr-tools==1.4.0
+```
 
-# View logs (specific service)
-docker-compose logs -f monitor
-docker-compose logs -f synchronizer
-docker-compose logs -f priority_synchronizer
+### Core Classes
 
-# Restart a service
-docker-compose restart monitor
+#### 1. Event
+**Purpose**: Represents Nostr events
 
-# Stop all services
-docker-compose down
+**Properties**:
+- `id` (str): SHA-256 event ID (64 hex chars)
+- `pubkey` (str): Author's public key (64 hex chars)
+- `created_at` (int): Unix timestamp
+- `kind` (int): Event type (0-65535)
+- `tags` (List[List[str]]): Tag arrays
+- `content` (str): Event content
+- `sig` (str): Schnorr signature (128 hex chars)
 
-# Rebuild after code changes
-docker-compose build
+**Methods**:
+- `Event.from_dict(data: dict) -> Event` - Deserialize from dict
+- `event.to_dict() -> dict` - Serialize to dict
+- `event.is_valid -> bool` - Validation property
+- `event.has_tag(tag_name: str) -> bool` - Check tag existence
+- `event.get_tag_values(tag_name: str) -> List[str]` - Extract tag values
+
+**Example**:
+```python
+from nostr_tools import Event
+
+event_dict = {
+    "id": "abc123...",
+    "pubkey": "def456...",
+    "created_at": 1234567890,
+    "kind": 1,
+    "tags": [["t", "nostr"]],
+    "content": "Hello Nostr!",
+    "sig": "789xyz..."
+}
+
+event = Event.from_dict(event_dict)
+if event.is_valid:
+    print(f"Valid event: {event.content}")
+```
+
+#### 2. Relay
+**Purpose**: Represents relay connections
+
+**Properties**:
+- `url` (str): WebSocket URL (wss:// or ws://)
+- `network` (str): "clearnet" or "tor" (auto-detected)
+- `is_valid` (bool): URL validation
+
+**Methods**:
+- `Relay(url: str)` - Constructor with validation
+- `relay.to_dict() -> dict` - Serialize
+- `Relay.from_dict(data: dict) -> Relay` - Deserialize
+
+**Network Detection**:
+```python
+from nostr_tools import Relay
+
+clearnet_relay = Relay("wss://relay.damus.io")
+print(clearnet_relay.network)  # "clearnet"
+
+tor_relay = Relay("wss://oxtr...onion")
+print(tor_relay.network)  # "tor"
+```
+
+#### 3. Client
+**Purpose**: WebSocket client for relay communication
+
+**Constructor**:
+```python
+Client(
+    relay: Relay,
+    timeout: int = 10,
+    socks5_proxy_url: Optional[str] = None
+)
+```
+
+**Properties**:
+- `client.relay` - Associated Relay instance
+- `client.is_connected` - Connection status
+- `client.is_valid` - Validation state
+- `client.active_subscriptions` - Current subscription IDs
+
+**Methods**:
+- `async connect()` - Establish WebSocket connection
+- `async disconnect()` - Close connection
+- `async publish(event: Event) -> bool` - Publish event
+- `subscribe(filter: Filter) -> str` - Create subscription (returns ID)
+- `unsubscribe(subscription_id: str)` - Cancel subscription
+- `async listen_events(subscription_id: str) -> AsyncGenerator` - Event stream
+
+**Context Manager**:
+```python
+async with Client(relay, timeout=10) as client:
+    # Automatic connect/disconnect
+    subscription_id = client.subscribe(filter)
+    async for message in client.listen_events(subscription_id):
+        print(message)
+```
+
+#### 4. Filter
+**Purpose**: Event query criteria
+
+**Properties**:
+- `ids` (Optional[List[str]]): Event IDs
+- `authors` (Optional[List[str]]): Author pubkeys
+- `kinds` (Optional[List[int]]): Event kinds
+- `since` (Optional[int]): Unix timestamp (inclusive)
+- `until` (Optional[int]): Unix timestamp (inclusive)
+- `limit` (Optional[int]): Max results
+- Tag filters: `#e`, `#p`, `#t`, etc. (as dict keys with `#` prefix)
+
+**Methods**:
+- `Filter(**kwargs)` - Constructor
+- `filter.to_dict() -> dict` - Serialize
+- `filter.is_valid` - Validation property
+
+**Example**:
+```python
+from nostr_tools import Filter
+
+# Text notes from specific author in last 24 hours
+filter = Filter(
+    kinds=[1],
+    authors=["pubkey..."],
+    since=int(time.time()) - 86400,
+    limit=100
+)
+
+# Events tagged with specific event ID
+filter_with_tags = Filter(
+    kinds=[1, 6, 7],
+    **{"#e": ["event_id..."]}
+)
+```
+
+#### 5. RelayMetadata
+**Purpose**: Comprehensive relay information
+
+**Properties**:
+- `relay` (Relay): Associated relay
+- `generated_at` (int): Timestamp
+- `nip11` (Optional[Nip11]): NIP-11 information document
+- `nip66` (Optional[Nip66]): NIP-66 test results
+- `is_valid` (bool): Validation property
+
+**Sub-Classes**:
+
+**Nip11** (Relay Information Document):
+- `name`, `description`, `banner`, `icon` (str)
+- `pubkey`, `contact` (str)
+- `supported_nips` (List[int])
+- `software`, `version` (str)
+- `privacy_policy`, `terms_of_service` (str)
+- `limitation` (dict): Rate limits, file size, etc.
+- `extra_fields` (dict): Custom fields
+
+**Nip66** (Connection Test Results):
+- `openable` (bool): WebSocket opens successfully
+- `readable` (bool): Accepts REQ subscriptions
+- `writable` (bool): Accepts EVENT messages
+- `rtt_open` (int): WebSocket handshake RTT (ms)
+- `rtt_read` (int): REQ/EOSE cycle RTT (ms)
+- `rtt_write` (int): EVENT/OK cycle RTT (ms)
+
+### Key Functions
+
+#### Cryptography
+
+**generate_keypair() -> Tuple[str, str]**
+```python
+from nostr_tools import generate_keypair
+
+private_key, public_key = generate_keypair()
+```
+
+**to_bech32(key: str, prefix: str) -> str**
+```python
+from nostr_tools import to_bech32
+
+nsec = to_bech32(private_key, "nsec")
+npub = to_bech32(public_key, "npub")
+```
+
+**from_bech32(encoded: str) -> str**
+```python
+from nostr_tools import from_bech32
+
+private_key = from_bech32(nsec)
+public_key = from_bech32(npub)
+```
+
+**validate_keypair(private_key: str, public_key: str) -> bool**
+```python
+from nostr_tools import validate_keypair
+
+if validate_keypair(sk, pk):
+    print("Valid keypair!")
+```
+
+#### Event Operations
+
+**generate_event(private_key: str, public_key: str, kind: int, tags: List[List[str]], content: str) -> dict**
+```python
+from nostr_tools import generate_event
+
+event_dict = generate_event(
+    private_key=sk,
+    public_key=pk,
+    kind=1,
+    tags=[["t", "test"]],
+    content="Hello World"
+)
+```
+
+**fetch_events(client: Client, filter: Filter) -> List[Event]**
+```python
+from nostr_tools import fetch_events
+
+async with Client(relay) as client:
+    events = await fetch_events(client, filter)
+```
+
+**stream_events(client: Client, filter: Filter) -> AsyncGenerator[Event, None]**
+```python
+from nostr_tools import stream_events
+
+async with Client(relay) as client:
+    async for event in stream_events(client, filter):
+        print(event.content)
+```
+
+#### Relay Testing
+
+**check_connectivity(client: Client) -> Tuple[bool, Optional[int]]**
+```python
+from nostr_tools import check_connectivity
+
+async with Client(relay) as client:
+    is_open, rtt_ms = await check_connectivity(client)
+```
+
+**check_readability(client: Client) -> Tuple[bool, Optional[int]]**
+```python
+from nostr_tools import check_readability
+
+async with Client(relay) as client:
+    can_read, rtt_ms = await check_readability(client)
+```
+
+**check_writability(client: Client, event: Event) -> Tuple[bool, Optional[int]]**
+```python
+from nostr_tools import check_writability
+
+async with Client(relay) as client:
+    can_write, rtt_ms = await check_writability(client, test_event)
+```
+
+**fetch_nip11(relay: Relay, timeout: int = 10) -> Optional[Nip11]**
+```python
+from nostr_tools import fetch_nip11
+
+nip11 = await fetch_nip11(relay)
+if nip11:
+    print(f"Relay: {nip11.name}")
+```
+
+**fetch_relay_metadata(client: Client) -> RelayMetadata**
+```python
+from nostr_tools import fetch_relay_metadata, Client
+
+async with Client(relay, timeout=20) as client:
+    metadata = await fetch_relay_metadata(client)
+    print(f"Openable: {metadata.nip66.openable}")
+    print(f"Readable: {metadata.nip66.readable}")
+    print(f"RTT: {metadata.nip66.rtt_read}ms")
+```
+
+#### Utility Functions
+
+**sanitize(data: Any) -> Any**
+```python
+from nostr_tools import sanitize
+
+# Removes potentially dangerous content
+clean_data = sanitize(untrusted_input)
+```
+
+### Advanced Usage Patterns
+
+#### 1. Multi-Relay Broadcasting
+```python
+relays = [
+    Relay("wss://relay.damus.io"),
+    Relay("wss://nos.lol"),
+    Relay("wss://relay.nostr.band")
+]
+
+event = Event.from_dict(generate_event(...))
+
+results = []
+for relay in relays:
+    async with Client(relay) as client:
+        success = await client.publish(event)
+        results.append((relay.url, success))
+```
+
+#### 2. Event Filtering with Tags
+```python
+# Find all reactions to a specific note
+filter = Filter(
+    kinds=[7],  # Reaction kind
+    **{"#e": ["note_id_here"]},
+    limit=1000
+)
+
+async with Client(relay) as client:
+    reactions = await fetch_events(client, filter)
+    print(f"Found {len(reactions)} reactions")
+```
+
+#### 3. Tor Relay Connection
+```python
+tor_relay = Relay("wss://oxtr...onion")
+socks5_url = "socks5://torproxy:9050"
+
+async with Client(tor_relay, timeout=30, socks5_proxy_url=socks5_url) as client:
+    # Automatically routes through Tor
+    events = await fetch_events(client, Filter(kinds=[1], limit=10))
+```
+
+#### 4. Batch Event Processing
+```python
+from bigbrotr import BigBrotr
+
+events = [Event.from_dict(e) for e in event_dicts]
+relay = Relay("wss://relay.example.com")
+
+async with BigBrotr(host, port, user, password, dbname) as db:
+    await db.insert_event_batch(
+        events=events,
+        relay=relay,
+        seen_at=int(time.time())
+    )
+```
+
+---
+
+## Configuration Management
+
+### Environment Variables
+
+**File**: [src/config.py](src/config.py)
+
+**Configuration Loaders**:
+- `load_monitor_config()` - Monitor service
+- `load_synchronizer_config()` - Synchronizer/Priority Synchronizer
+- `load_finder_config()` - Finder service
+- `load_initializer_config()` - Initializer service
+
+**Validation Functions**:
+- `_validate_port(port, name)` - Port range (0-65535)
+- `_validate_positive(value, name)` - Positive integers
+
+**Special Handling**:
+- CPU core validation (warns if exceeds available cores)
+- Keypair validation (uses `nostr_tools.validate_keypair()`)
+- Event filter JSON parsing and NIP-01 key filtering
+- Priority relays file auto-creation
+
+### Constants
+
+**File**: [src/constants.py](src/constants.py)
+
+**Categories**:
+- Database: `DB_POOL_MIN_SIZE_PER_WORKER`, `DB_POOL_MAX_SIZE_PER_WORKER`
+- Health: `HEALTH_CHECK_PORT`
+- Time: `SECONDS_PER_HOUR`, `SECONDS_PER_DAY`
+- Relay: `RELAY_TIMEOUT_MULTIPLIER`
+- Binary Search: `BINARY_SEARCH_MIN_RANGE`
+- Tor: `TOR_CHECK_HTTP_URL`, `TOR_CHECK_WS_URL`
+- Logging: Emoji prefixes for log parsing
+
+---
+
+## Utility Functions
+
+### File: [src/functions.py](src/functions.py)
+
+#### RelayFailureTracker
+**Purpose**: Monitor and alert on relay processing failures
+
+**Usage**:
+```python
+tracker = RelayFailureTracker(alert_threshold=0.1, check_interval=100)
+
+# In processing loop
+try:
+    process_relay(relay)
+    tracker.record_success()
+except Exception:
+    tracker.record_failure()
+
+# Get statistics
+stats = tracker.get_stats()
+print(f"Failure rate: {stats['failure_rate']:.1%}")
+```
+
+**Features**:
+- Configurable alert threshold (default: 10%)
+- Periodic status logging
+- Comprehensive statistics
+
+#### chunkify()
+```python
+def chunkify(lst: List[T], n: int) -> Generator[List[T], None, None]
+```
+**Purpose**: Split list into equal chunks for parallel processing
+
+#### test_database_connection_async()
+```python
+async def test_database_connection_async(
+    host: str, port: int, user: str, password: str, dbname: str, logger=None
+) -> bool
+```
+
+#### connect_bigbrotr_with_retry()
+```python
+async def connect_bigbrotr_with_retry(
+    bigbrotr: BigBrotr, max_retries: int = 5, base_delay: int = 1, logger=None
+) -> None
+```
+**Purpose**: Exponential backoff retry logic for database connections
+
+#### test_torproxy_connection()
+```python
+async def test_torproxy_connection(
+    host: str, port: int, timeout: int = 10, logger=None
+) -> bool
+```
+
+#### wait_for_services()
+```python
+async def wait_for_services(
+    config: Dict[str, Any], retries: int = 5, delay: int = 30
+) -> None
+```
+**Purpose**: Wait for database and Tor proxy availability before starting service
+
+### File: [src/relay_loader.py](src/relay_loader.py)
+
+#### fetch_relays_from_database()
+```python
+async def fetch_relays_from_database(
+    config: Dict[str, Any],
+    threshold_hours: int = 12,
+    readable_only: bool = True,
+    shuffle: bool = True
+) -> List[Relay]
+```
+**Purpose**: Fetch relays with recent metadata
+
+**SQL Optimization**: Uses window functions (ROW_NUMBER) instead of correlated subqueries
+
+#### fetch_relays_from_file()
+```python
+async def fetch_relays_from_file(filepath: str, shuffle: bool = True) -> List[Relay]
+```
+**Purpose**: Load relays from text file (supports comments with #)
+
+#### fetch_all_relays_from_database()
+```python
+async def fetch_all_relays_from_database(config: Dict[str, Any]) -> List[Relay]
+```
+
+#### fetch_relays_needing_metadata()
+```python
+async def fetch_relays_needing_metadata(
+    config: Dict[str, Any], frequency_hours: int
+) -> List[Relay]
+```
+**Purpose**: Find relays with outdated or missing metadata
+
+**SQL Optimization**: Uses LATERAL join for better performance
+
+### File: [src/process_relay.py](src/process_relay.py)
+
+#### get_start_time_async()
+```python
+async def get_start_time_async(
+    default_start_time: int,
+    bigbrotr: BigBrotr,
+    relay: Relay,
+    retries: int = 5,
+    delay: int = 30
+) -> int
+```
+**Purpose**: Determine starting timestamp for synchronization (last seen event + 1)
+
+**Logic**:
+1. Get MAX(seen_at) for relay
+2. Find event_id at that timestamp
+3. Get created_at for that event
+4. Return created_at + 1 (or default if not found)
+
+#### insert_batch()
+```python
+async def insert_batch(
+    bigbrotr: BigBrotr,
+    batch: List[Dict[str, Any]],
+    relay: Relay,
+    seen_at: int
+) -> int
+```
+**Purpose**: Batch event insertion with error handling
+
+#### RawEventBatch
+**Purpose**: Container for managing event batches during pagination
+
+**Properties**:
+- `since`, `until`, `limit` - Filter parameters
+- `raw_events` - List of raw event dicts
+- `min_created_at`, `max_created_at` - Timestamp bounds
+
+**Methods**:
+- `append(raw_event)` - Add event (returns False if full or invalid)
+- `is_full()` - Check capacity
+- `is_empty()` - Check if no events
+
+#### process_batch()
+```python
+async def process_batch(client: Client, filter: Filter) -> RawEventBatch
+```
+**Purpose**: Fetch one batch of events
+
+#### process_relay()
+```python
+async def process_relay(bigbrotr: BigBrotr, client: Client, filter: Filter) -> None
+```
+**Purpose**: Complete relay synchronization using binary search algorithm
+
+**Binary Search Logic**:
+1. Fetch [since, until] interval
+2. If empty → mark interval done
+3. If full AND single timestamp → insert and continue
+4. If full AND multiple timestamps:
+   - Fetch [since, min_created_at]
+   - Validate relay behavior
+   - If more events exist before min → split interval
+   - If only min_created_at events → fetch [since, min-1]
+   - Continue splitting until all events retrieved
+
+**Why Binary Search**:
+- Handles relay limit restrictions
+- Detects relay misbehavior
+- Optimizes network roundtrips
+
+---
+
+## Health Check System
+
+**File**: [src/healthcheck.py](src/healthcheck.py)
+
+**Class**: `HealthCheckServer`
+
+**Endpoints**:
+- `GET /health` - Liveness probe (returns 200 if running)
+- `GET /ready` - Readiness probe (calls optional `ready_check` callback)
+- `GET /` - Service info
+
+**Usage**:
+```python
+async def is_ready():
+    return service_ready
+
+health_server = HealthCheckServer(port=8080, ready_check=is_ready)
+await health_server.start()
+
+# Later
+await health_server.stop()
+```
+
+**Docker Integration**:
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 30s
+```
+
+---
+
+## Logging System
+
+**File**: [src/logging_config.py](src/logging_config.py)
+
+**Function**: `setup_logging(service_name: str, level: str = "INFO")`
+
+**Configuration**:
+- Format: `%(asctime)s - {service_name} - %(levelname)s - %(message)s`
+- Handler: `StreamHandler(sys.stdout)` (Docker-friendly)
+- Noise Reduction: aiohttp and asyncio set to WARNING
+
+**Service Names**:
+- `FINDER`, `MONITOR`, `SYNCHRONIZER`, `PRIORITY_SYNCHRONIZER`, `INITIALIZER`
+
+---
+
+## Docker Configuration
+
+### Multi-Stage Builds
+
+All Python services use optimized multi-stage Dockerfiles:
+
+**Stage 1 (Build)**:
+- Base: `python:3.11-alpine`
+- Install build dependencies: build-base, libffi-dev, openssl-dev
+- Install Python packages to `/install`
+
+**Stage 2 (Runtime)**:
+- Base: `python:3.11-alpine`
+- Copy only `/install` from build stage
+- Install runtime dependencies: libffi, openssl
+- Create non-root user `bigbrotr:bigbrotr` (UID/GID 1000)
+- Copy application code
+- Health checks (where applicable)
+
+**Benefits**:
+- Smaller image size (no build tools in runtime)
+- Security (non-root user)
+- Layer caching efficiency
+
+### Service Dependencies
+
+**Dependency Graph**:
+```
+database
+ ├── pgbouncer
+ ├── initializer
+ └── (all services)
+
+pgbouncer
+ ├── finder
+ ├── monitor
+ ├── synchronizer
+ └── priority_synchronizer
+
+torproxy
+ ├── finder
+ ├── monitor
+ ├── synchronizer
+ └── priority_synchronizer
+```
+
+### Resource Limits
+
+**Database**:
+- CPUs: 1-4 cores
+- Memory: 512MB-4GB
+
+**Monitor/Synchronizers**:
+- CPUs: 1-6 cores
+- Memory: 512MB-4GB
+
+---
+
+## Deployment Guide
+
+### Prerequisites
+- Docker 20.10+
+- Docker Compose 2.0+
+- 8GB+ RAM recommended
+- SSD storage for PostgreSQL
+
+### Quick Start
+
+1. **Clone Repository**:
+```bash
+git clone https://github.com/bigbrotr/bigbrotr.git
+cd bigbrotr
+```
+
+2. **Configure Environment**:
+```bash
+cp env.example .env
+nano .env
+```
+
+**Critical Variables**:
+```env
+# Security (CHANGE THESE!)
+POSTGRES_PASSWORD=your_strong_password_here
+PGBOUNCER_ADMIN_PASSWORD=another_strong_password
+PGADMIN_DEFAULT_PASSWORD=yet_another_strong_password
+
+# Nostr Keys (for signed requests)
+SECRET_KEY=your_64_hex_char_private_key
+PUBLIC_KEY=your_64_hex_char_public_key
+```
+
+3. **Generate Nostr Keypair**:
+```python
+from nostr_tools import generate_keypair, to_bech32
+
+sk, pk = generate_keypair()
+print(f"SECRET_KEY={sk}")
+print(f"PUBLIC_KEY={pk}")
+```
+
+4. **Customize Relay Lists**:
+```bash
+nano seed_relays.txt        # Initial relays
+nano priority_relays.txt     # High-priority relays
+```
+
+5. **Start Services**:
+```bash
 docker-compose up -d
 ```
 
-### Database Operations
-
+6. **Monitor Logs**:
 ```bash
-# Access PostgreSQL directly
-docker exec -it bigbrotr_database psql -U admin -d bigbrotr
-
-# Check database connection pool (PgBouncer)
-docker exec -it bigbrotr_pgbouncer psql -p 6432 -U admin pgbouncer -c "SHOW POOLS;"
-
-# Run SQL query
-docker exec -it bigbrotr_database psql -U admin -d bigbrotr -c "SELECT COUNT(*) FROM events;"
-
-# Backup database
-docker exec bigbrotr_database pg_dump -U admin bigbrotr | gzip > backup_$(date +%Y%m%d).sql.gz
-
-# Restore database
-gunzip -c backup_20250129.sql.gz | docker exec -i bigbrotr_database psql -U admin bigbrotr
+docker-compose logs -f
 ```
 
-### Health Checks
-
+7. **Verify Health**:
 ```bash
-# Check service health
 curl http://localhost:8081/health  # Monitor
 curl http://localhost:8082/health  # Synchronizer
 curl http://localhost:8083/health  # Priority Synchronizer
-
-# Check service status
-docker-compose ps
+curl http://localhost:8084/health  # Finder
 ```
 
-### Testing & Development
+### Service Management
 
+**Stop All Services**:
 ```bash
-# Access pgAdmin web UI
-# Navigate to: http://localhost:8080
-# Credentials from .env file
-
-# View real-time logs with filtering
-docker-compose logs -f --tail=100 synchronizer | grep "ERROR"
-
-# Monitor resource usage
-docker stats bigbrotr_synchronizer bigbrotr_monitor
-
-# Generate Nostr keypair (required for .env setup)
-# Use any Nostr key generator, for example:
-# npx nostr-keygen
-# Or generate using Python nostr-tools library
+docker-compose down
 ```
 
-## Architecture
+**Stop Without Removing Volumes**:
+```bash
+docker-compose stop
+```
 
-### Service Responsibilities
+**Restart Specific Service**:
+```bash
+docker-compose restart monitor
+```
 
-**Bigbrotr uses a microservices architecture with per-service connection pooling:**
+**View Service Logs**:
+```bash
+docker-compose logs -f synchronizer
+```
 
-1. **Initializer** ([src/initializer.py](src/initializer.py)): One-time service that seeds the database with initial relays from `seed_relays.txt`. Runs once on startup.
+**Rebuild After Code Changes**:
+```bash
+docker-compose up -d --build
+```
 
-2. **Monitor** ([src/monitor.py](src/monitor.py)): Tests relay health, fetches NIP-11/NIP-66 metadata, and measures RTT. Uses multiprocessing with connection pools. Runs periodically based on `MONITOR_FREQUENCY_HOUR`. Health check on port 8081.
+---
 
-3. **Synchronizer** ([src/synchronizer.py](src/synchronizer.py)): Archives events from all readable relays (excluding priority list). Uses multithreading with per-thread connection pools. Runs continuously with configurable intervals. Health check on port 8082.
+## Database Management
 
-4. **Priority Synchronizer** ([src/priority_synchronizer.py](src/priority_synchronizer.py)): Archives events from high-priority relays defined in `priority_relays.txt`. Separate service with dedicated resources. Health check on port 8083.
+### Accessing Database
 
-5. **PgBouncer**: Connection pooling layer (1000 max clients, 100 DB connections) that sits between services and PostgreSQL. Uses transaction pooling mode.
+**Via psql**:
+```bash
+docker exec -it bigbrotr_database psql -U admin -d bigbrotr
+```
 
-6. **TorProxy**: SOCKS5 proxy (dperson/torproxy) for accessing `.onion` relays.
+**Via PgBouncer**:
+```bash
+psql "host=localhost port=6432 user=admin dbname=bigbrotr"
+```
 
-### Core Architecture Patterns
+**Via pgAdmin**:
+- URL: http://localhost:8080
+- Email: admin@example.com (from .env)
+- Password: (from PGADMIN_DEFAULT_PASSWORD)
 
-**Connection Pooling Strategy:**
-- Each service creates its own asyncpg connection pools (NOT shared across processes/threads)
-- Monitor: One pool per worker process (`min_size=2, max_size=5` per worker)
-- Synchronizer/Priority: One pool per worker thread (`min_size=2, max_size=5` per thread)
-- All services connect through PgBouncer (port 6432) which provides an additional pooling layer
-- This design reduces database connections by ~80% compared to direct connections
+### Useful Queries
 
-**Async/Concurrency Model:**
-- Monitor uses `multiprocessing.Pool` with async functions (`asyncio.run()` per process)
-- Synchronizers use `threading.Thread` with dedicated event loops per thread
-- All I/O operations (database, HTTP, WebSocket) use asyncio
-- Graceful shutdown via `multiprocessing.Event` or `threading.Event`
+**Count Events**:
+```sql
+SELECT COUNT(*) FROM events;
+```
 
-**Database Access Pattern:**
-- All services use the `Bigbrotr` class ([src/bigbrotr.py](src/bigbrotr.py)) as an async database wrapper
-- Connection pools are created per worker (process or thread), not globally
-- Context managers (`async with`) for automatic connection lifecycle management
-- Stored procedures for all inserts (deduplication handled by database)
+**Count Relays**:
+```sql
+SELECT COUNT(*) FROM relays;
+SELECT network, COUNT(*) FROM relays GROUP BY network;
+```
 
-### Database Schema (PostgreSQL 15)
+**Latest Relay Metadata**:
+```sql
+SELECT * FROM relay_metadata_latest LIMIT 10;
+```
 
-**Core Tables:**
-- `events`: Nostr events (id, pubkey, created_at, kind, tags, content, sig)
-- `relays`: Relay registry (url, network, inserted_at)
-- `events_relays`: Junction table tracking event distribution across relays
-- `nip11`: Deduplicated NIP-11 relay information (SHA-256 hash PK)
-- `nip66`: Deduplicated NIP-66 connection test results (SHA-256 hash PK)
-- `relay_metadata`: Time-series snapshots linking relays to metadata
+**Readable Relays**:
+```sql
+SELECT * FROM readable_relays;
+```
 
-**Views:**
-- `relay_metadata_latest`: Latest metadata snapshot per relay
-- `readable_relays`: Relays marked as readable in latest metadata
+**Top Relays by Event Count**:
+```sql
+SELECT relay_url, COUNT(*) as event_count
+FROM events_relays
+GROUP BY relay_url
+ORDER BY event_count DESC
+LIMIT 10;
+```
 
-**Stored Procedures** (see [init.sql](init.sql)):
-- `insert_event()`: Atomic event insertion with relay tracking
-- `insert_relay()`: Upsert relay (ON CONFLICT DO NOTHING)
-- `insert_relay_metadata()`: Insert metadata with hash-based deduplication
-- `delete_orphan_events()`: Cleanup events without relay associations
+**Recent Events**:
+```sql
+SELECT id, kind, created_at, content
+FROM events
+ORDER BY created_at DESC
+LIMIT 10;
+```
 
-### Key Source Files
+**Relay Statistics**:
+```sql
+SELECT
+    r.url,
+    r.network,
+    COUNT(DISTINCT er.event_id) as event_count,
+    rm.generated_at as last_check,
+    n66.readable,
+    n66.rtt_read
+FROM relays r
+LEFT JOIN events_relays er ON r.url = er.relay_url
+LEFT JOIN relay_metadata_latest rm ON r.url = rm.relay_url
+LEFT JOIN nip66 n66 ON rm.nip66_id = n66.id
+GROUP BY r.url, r.network, rm.generated_at, n66.readable, n66.rtt_read
+ORDER BY event_count DESC;
+```
 
-**Core Database Layer (Repository Pattern):**
-- [src/bigbrotr.py](src/bigbrotr.py): Facade class composing all repositories with convenience methods
-- [src/database_pool.py](src/database_pool.py): Connection pool manager with generic SQL operations
-- [src/event_repository.py](src/event_repository.py): Event-specific database operations
-- [src/relay_repository.py](src/relay_repository.py): Relay-specific database operations
-- [src/metadata_repository.py](src/metadata_repository.py): Metadata-specific database operations (NIP-11/NIP-66)
+### Maintenance
 
-**Processing Layer:**
-- [src/process_relay.py](src/process_relay.py): Modular relay event processor with binary search algorithm
-  - `RelayProcessor`: Main orchestrator class
-  - `BatchValidator`: Relay behavior validation
-  - `IntervalStack`: Time interval queue management
-  - `EventInserter`: Database insertion operations
-  - `RawEventBatch`: Event batch container (dataclass)
+**Delete Orphan Events**:
+```sql
+SELECT delete_orphan_events();
+```
 
-**Service Infrastructure:**
-- [src/base_synchronizer.py](src/base_synchronizer.py): Base class for synchronizer services (template method pattern)
-- [src/rate_limiter.py](src/rate_limiter.py): Token bucket rate limiting for relay connections
-- [src/relay_loader.py](src/relay_loader.py): Relay loading with pagination support
-- [src/config.py](src/config.py): Centralized configuration loading and validation
-- [src/functions.py](src/functions.py): Shared utilities (chunking, connection testing, retry logic)
-- [src/constants.py](src/constants.py): System-wide constants and defaults
+**Delete Orphan Metadata**:
+```sql
+SELECT delete_orphan_nip11();
+SELECT delete_orphan_nip66();
+```
 
-**Service Entrypoints:**
-- [src/monitor.py](src/monitor.py): Monitor service main loop
-- [src/synchronizer.py](src/synchronizer.py): Synchronizer service main loop
-- [src/priority_synchronizer.py](src/priority_synchronizer.py): Priority synchronizer main loop
-- [src/initializer.py](src/initializer.py): Database initialization
+**Vacuum Database**:
+```bash
+docker exec -it bigbrotr_database psql -U admin -d bigbrotr -c "VACUUM ANALYZE;"
+```
 
-**Supporting Modules:**
-- [src/db_error_handler.py](src/db_error_handler.py): Database error handling with automatic retry
-- [src/healthcheck.py](src/healthcheck.py): HTTP health check server for all services
-- [src/logging_config.py](src/logging_config.py): Logging configuration
+---
 
-## Configuration
+## Troubleshooting
 
-All configuration is via environment variables in `.env` (see [env.example](env.example) for reference).
+### Database Connection Issues
 
-**First-Time Setup:**
-1. Copy `env.example` to `.env`: `cp env.example .env`
-2. Generate Nostr keypair and add to `SECRET_KEY` and `PUBLIC_KEY` (64 hex chars each)
-3. Change all `CHANGE_ME` password placeholders in `.env`
-4. Adjust `*_NUM_CORES` based on your CPU (default: 8 cores per service)
-5. Ensure `seed_relays.txt` and `priority_relays.txt` exist
+**Symptom**: Services can't connect to database
 
-**Critical Settings:**
-- `SECRET_KEY` / `PUBLIC_KEY`: Nostr keypair for signed requests (64 hex chars each)
-- `POSTGRES_PASSWORD`, `PGBOUNCER_ADMIN_PASSWORD`, `PGADMIN_DEFAULT_PASSWORD`: Change before deployment
-- `*_NUM_CORES`: Number of CPU cores per service (monitor, synchronizer, priority_synchronizer)
-- `*_REQUESTS_PER_CORE`: Parallel requests per core/thread
-- `SYNCHRONIZER_RELAY_METADATA_THRESHOLD_HOURS`: Only sync relays with metadata fresher than X hours (default: 12)
-- `SYNCHRONIZER_START_TIMESTAMP`: 0 = genesis, -1 = resume from last sync
-- `SYNCHRONIZER_STOP_TIMESTAMP`: -1 = now (continuous)
-- `*_LOOP_INTERVAL_MINUTES`: Sleep interval between service loops (default: 15)
+**Solutions**:
+1. Check database is running: `docker ps | grep database`
+2. Check health: `docker exec bigbrotr_database pg_isready -U admin`
+3. Verify credentials in .env
+4. Check logs: `docker-compose logs database`
 
-**Database Pooling:**
-- Service-level pools: `MONITOR_DB_MIN_POOL`, `MONITOR_DB_MAX_POOL` (default: 2-5 per worker)
-- PgBouncer: Configured in [pgbouncer.ini](pgbouncer.ini) (1000 max clients, 100 default pool size)
+### Tor Proxy Timeouts
 
-## Best Practices
+**Symptom**: .onion relay connections timeout
 
-### Adding New Features
+**Solutions**:
+1. Increase timeouts in .env:
+   ```env
+   MONITOR_REQUEST_TIMEOUT=30
+   SYNCHRONIZER_REQUEST_TIMEOUT=30
+   ```
+2. Check Tor proxy: `docker logs bigbrotr_torproxy`
+3. Test connectivity: `docker exec bigbrotr_torproxy wget -qO- https://check.torproject.org/api/ip`
 
-**When modifying database schema:**
-1. Update [init.sql](init.sql) with new tables/functions
-2. Create migration SQL if needed (no migration framework in use)
-3. Update appropriate repository in `src/`:
-   - Events: [src/event_repository.py](src/event_repository.py)
-   - Relays: [src/relay_repository.py](src/relay_repository.py)
-   - Metadata: [src/metadata_repository.py](src/metadata_repository.py)
-   - Generic queries: [src/database_pool.py](src/database_pool.py)
-4. Add convenience methods to [src/bigbrotr.py](src/bigbrotr.py) if needed (delegates to repositories)
-5. Rebuild database: `docker-compose down -v && docker-compose up -d`
+### High CPU Usage
 
-**When adding new services:**
-1. Create service module in `src/`
-2. Add Dockerfile in `dockerfiles/`
-3. Add service definition to [docker-compose.yml](docker-compose.yml)
-4. Add configuration loader in [src/config.py](src/config.py)
-5. Add health check endpoint using `HealthCheckServer` class
-6. Document environment variables in [env.example](env.example)
+**Symptom**: Services consuming too many resources
 
-**When modifying async code:**
-- Always use `async with` for connection pools and clients
-- Use `asyncio.run()` or create event loops explicitly (no top-level await in services)
-- Handle `asyncio.CancelledError` for graceful shutdown
-- Use `asyncio.create_task()` for concurrent operations
-- Never share connection pools across processes/threads
+**Solutions**:
+1. Reduce worker counts:
+   ```env
+   MONITOR_NUM_CORES=4
+   SYNCHRONIZER_NUM_CORES=4
+   ```
+2. Reduce concurrency:
+   ```env
+   MONITOR_REQUESTS_PER_CORE=5
+   SYNCHRONIZER_REQUESTS_PER_CORE=5
+   ```
+3. Increase loop intervals:
+   ```env
+   MONITOR_LOOP_INTERVAL_MINUTES=30
+   SYNCHRONIZER_LOOP_INTERVAL_MINUTES=30
+   ```
 
-### Error Handling
+### Disk Space Issues
 
-- Services use `RelayFailureTracker` to monitor relay processing success rates
-- Alert threshold: 10% failure rate (configurable)
-- Retry logic with exponential backoff: `connect_bigbrotr_with_retry()` (5 retries)
-- Graceful shutdown on SIGTERM/SIGINT via `shutdown_event`
-- Health checks return 503 during startup, 200 when ready
+**Symptom**: Database filling disk
 
-### Connection Pool Management
+**Solutions**:
+1. Enable auto-vacuum in postgresql.conf
+2. Implement retention policy:
+   ```sql
+   DELETE FROM events WHERE created_at < EXTRACT(EPOCH FROM NOW() - INTERVAL '90 days');
+   SELECT delete_orphan_events();
+   VACUUM FULL;
+   ```
+3. Monitor disk usage: `docker exec bigbrotr_database df -h`
 
-**Critical Rule:** Never share asyncpg pools across processes or threads. Each worker must create its own pool.
+### PgBouncer Connection Errors
+
+**Symptom**: "prepared statement does not exist"
+
+**Solution**: Already handled - BigBrotr disables prepared statements:
+```python
+self.pool = await asyncpg.create_pool(
+    ...
+    statement_cache_size=0  # Required for PgBouncer transaction mode
+)
+```
+
+---
+
+## Performance Optimization
+
+### Database Tuning
+
+**Index Maintenance**:
+```sql
+REINDEX INDEX CONCURRENTLY idx_events_pubkey;
+REINDEX INDEX CONCURRENTLY idx_events_created_at;
+REINDEX INDEX CONCURRENTLY idx_events_relays_relay_seen;
+```
+
+**Statistics Update**:
+```sql
+ANALYZE events;
+ANALYZE events_relays;
+ANALYZE relay_metadata;
+```
+
+**Connection Pool Sizing**:
+- Monitor active connections: `SELECT count(*) FROM pg_stat_activity;`
+- Adjust PgBouncer `default_pool_size` if needed
+- Adjust worker pool sizes in .env:
+  ```env
+  MONITOR_DB_MIN_POOL=2
+  MONITOR_DB_MAX_POOL=5
+  SYNCHRONIZER_DB_MIN_POOL=2
+  SYNCHRONIZER_DB_MAX_POOL=5
+  ```
+
+### Synchronizer Optimization
+
+**Batch Size Tuning**:
+- Small batches (100-200): More roundtrips, better real-time performance
+- Large batches (500-1000): Fewer roundtrips, better throughput
+- Current default: 500
+
+**Relay Selection**:
+- Use `threshold_hours` to sync only healthy relays
+- Prioritize low-latency relays (sort by nip66.rtt_read)
+
+### Monitor Optimization
+
+**Chunk Size**:
+```env
+MONITOR_CHUNK_SIZE=50  # Increase for fewer workers, decrease for more parallelism
+```
+
+**Request Timeout**:
+```env
+MONITOR_REQUEST_TIMEOUT=20  # Increase for slow relays, decrease for faster feedback
+```
+
+---
+
+## Security Considerations
+
+### Network Isolation
+
+**Best Practice**: Create isolated Docker network
+```yaml
+networks:
+  network:
+    driver: bridge
+    internal: false  # Set to true for complete isolation
+```
+
+### Secrets Management
+
+**Do NOT commit**:
+- `.env` file
+- Private keys
+- Passwords
+
+**Use**:
+- Docker secrets (Swarm mode)
+- Kubernetes secrets
+- External secret managers (Vault, AWS Secrets Manager)
+
+### Database Security
+
+1. **Change default passwords** (POSTGRES_PASSWORD, PGBOUNCER_ADMIN_PASSWORD)
+2. **Restrict network access**: Bind PostgreSQL to localhost or Docker network only
+3. **Enable SSL** for production:
+   ```yaml
+   database:
+     environment:
+       - POSTGRES_SSL_MODE=require
+     volumes:
+       - ./certs:/var/lib/postgresql/certs:ro
+   ```
+4. **Regular backups**:
+   ```bash
+   docker exec bigbrotr_database pg_dump -U admin bigbrotr > backup_$(date +%Y%m%d).sql
+   ```
+
+### Application Security
+
+1. **Non-root containers**: All services run as user `bigbrotr:bigbrotr`
+2. **Read-only filesystems** (optional):
+   ```yaml
+   synchronizer:
+     read_only: true
+     tmpfs:
+       - /tmp
+   ```
+3. **Resource limits**: All services have CPU/memory limits
+4. **No privileged mode**: No containers use `privileged: true`
+
+---
+
+## Monitoring and Observability
+
+### Health Checks
+
+All services expose `/health` endpoint:
+```bash
+curl http://localhost:8081/health  # Monitor → 200 OK
+curl http://localhost:8082/health  # Synchronizer → 200 OK
+curl http://localhost:8083/health  # Priority Synchronizer → 200 OK
+curl http://localhost:8084/health  # Finder → 200 OK
+```
+
+### Logs
+
+**Structured Logging Format**:
+```
+2025-01-03 12:34:56,789 - SYNCHRONIZER - INFO - 🔄 Processing relay wss://relay.damus.io from 1234567890 to 1234577890
+```
+
+**Emoji Prefixes**:
+- ❌ Error
+- ⚠️ Warning
+- ✅ Success
+- 📦 Info
+- 🔄 Process
+- ⏳ Wait
+- 🚀 Start
+- 🔍 Search
+- 🌐 Network
+- ⏰ Timer
+
+**Log Aggregation**:
+```bash
+# All services
+docker-compose logs -f
+
+# Specific service
+docker-compose logs -f synchronizer
+
+# Filter by level
+docker-compose logs synchronizer | grep ERROR
+
+# Follow with timestamps
+docker-compose logs -f --timestamps
+```
+
+### Metrics (Future Enhancement)
+
+**Recommended**: Add Prometheus + Grafana
+
+**Metrics to Track**:
+- Events/second ingestion rate
+- Relay response times
+- Database connection pool utilization
+- Worker process/thread counts
+- Failure rates (via RelayFailureTracker)
+
+---
+
+## Development Guide
+
+### Local Development Setup
+
+1. **Install Dependencies**:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+2. **Run Database Locally**:
+```bash
+docker-compose up -d database pgbouncer
+```
+
+3. **Run Service**:
+```bash
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=6432
+export POSTGRES_USER=admin
+export POSTGRES_PASSWORD=yourpassword
+export POSTGRES_DB=bigbrotr
+# ... other environment variables
+
+python src/monitor.py
+```
+
+### Testing
+
+**Unit Tests** (Future Enhancement):
+```bash
+pytest tests/
+```
+
+**Integration Tests**:
+```bash
+pytest tests/integration/
+```
+
+**Relay Testing**:
+```python
+from nostr_tools import Client, Relay, check_connectivity
+
+relay = Relay("wss://relay.example.com")
+async with Client(relay, timeout=10) as client:
+    is_open, rtt = await check_connectivity(client)
+    print(f"Relay: {relay.url}, Open: {is_open}, RTT: {rtt}ms")
+```
+
+### Code Quality
+
+**Type Checking**:
+```bash
+mypy src/
+```
+
+**Linting**:
+```bash
+pylint src/
+```
+
+**Formatting**:
+```bash
+black src/
+```
+
+---
+
+## API Reference Summary
+
+### BigBrotr Database Wrapper
 
 ```python
-# CORRECT: Pool per worker
-def worker_thread(config):
-    async def run():
-        async with Bigbrotr(...) as db:  # Creates pool
-            # Use db connection
-            pass
-    asyncio.run(run())
+from bigbrotr import BigBrotr
 
-# INCORRECT: Sharing pool across workers
-db = Bigbrotr(...)  # Global pool
+# Initialize
+db = BigBrotr(host, port, user, password, dbname, min_pool_size=5, max_pool_size=20)
+
+# Connect
 await db.connect()
-# Then using db in multiple threads/processes
+
+# Context manager (recommended)
+async with BigBrotr(...) as db:
+    # Insert single event
+    await db.insert_event(event, relay, seen_at)
+
+    # Insert batch
+    await db.insert_event_batch(events, relay, seen_at)
+
+    # Insert relay
+    await db.insert_relay(relay, inserted_at)
+
+    # Insert relay metadata
+    await db.insert_relay_metadata(relay_metadata, relay_inserted_at)
+
+    # Raw queries
+    results = await db.fetch("SELECT * FROM relays")
+    row = await db.fetchone("SELECT * FROM relays WHERE url = $1", url)
+    await db.execute("DELETE FROM events WHERE id = $1", event_id)
+
+# Close
+await db.close()
 ```
 
-### Logging
+### nostr-tools Quick Reference
 
-- Use [src/logging_config.py](src/logging_config.py): `setup_logging(service_name)`
-- Services log to stdout (captured by Docker)
-- Log levels: INFO for normal operations, WARNING for recoverable issues, ERROR for failures
+```python
+from nostr_tools import (
+    # Classes
+    Event, Relay, Client, Filter, RelayMetadata,
 
-### Testing Changes
+    # Crypto
+    generate_keypair, to_bech32, from_bech32, validate_keypair,
 
-1. Modify code in `src/`
-2. Rebuild specific service: `docker-compose build monitor`
-3. Restart service: `docker-compose up -d monitor`
-4. Check logs: `docker-compose logs -f monitor`
-5. Verify health: `curl http://localhost:8081/health`
+    # Events
+    generate_event, fetch_events, stream_events,
 
-## Recent Improvements (November 1, 2025)
+    # Relay Testing
+    check_connectivity, check_readability, check_writability,
+    fetch_nip11, fetch_relay_metadata,
 
-### Session 1: Critical Bug Fixes & Performance (7 tasks completed)
-**Critical Bug Fixes:**
-- ✅ Fixed inverted connection state validation in [process_relay.py](src/process_relay.py) - function now works correctly with async context managers
-- ✅ Replaced private `pool._pool` access in [monitor.py](src/monitor.py) - future-proof against library updates
-- ✅ Fixed race condition in health checks - replaced `service_ready` boolean with `asyncio.Event()` in all services
-- ✅ Added connection pool timeout handling - all `pool.acquire()` calls now have 30s timeout to prevent deadlocks
+    # Utility
+    sanitize
+)
 
-**Performance Improvements:**
-- ✅ Optimized `get_start_time_async()` - reduced database queries from 3 to 1 (66% reduction) using JOIN query
-- ✅ Removed unused pandas dependency - saves ~100MB in Docker images
+# Basic workflow
+private_key, public_key = generate_keypair()
+relay = Relay("wss://relay.damus.io")
+client = Client(relay, timeout=10)
 
-**Code Quality:**
-- ✅ Added comprehensive module-level docstrings to 7+ core files
-- ✅ Added `DB_POOL_ACQUIRE_TIMEOUT` constant in [constants.py](src/constants.py)
+async with client:
+    # Publish
+    event_dict = generate_event(private_key, public_key, kind=1, tags=[], content="Hello!")
+    event = Event.from_dict(event_dict)
+    await client.publish(event)
 
-### Session 2: Configuration & Code Quality (5 tasks completed)
-**Configuration Improvements:**
-- ✅ Enhanced environment variable validation in [config.py](src/config.py)
-  - Added validation helpers: `_validate_non_empty_string()`, `_validate_url()`, `_validate_hex_key()`
-  - Comprehensive validation for all config loaders (empty strings, URL formats, hex keys, JSON structure)
-  - Configuration errors now fail fast at startup with descriptive error messages
+    # Query
+    filter = Filter(kinds=[1], limit=10)
+    events = await fetch_events(client, filter)
 
-**Code Quality & Maintainability:**
-- ✅ Extracted magic numbers to [constants.py](src/constants.py)
-  - Added 13 new constants: retry settings, timeouts, defaults, thresholds
-  - Updated 8 files to use constants: [functions.py](src/functions.py), [config.py](src/config.py), [monitor.py](src/monitor.py), [synchronizer.py](src/synchronizer.py), [priority_synchronizer.py](src/priority_synchronizer.py), [initializer.py](src/initializer.py), [process_relay.py](src/process_relay.py)
-  - Clearer intent, easier to tune behavior
-- ✅ Added `NetworkType` enum for network types
-  - Created enum with `CLEARNET` and `TOR` values
-  - Updated 3 services to use `NetworkType.TOR` instead of string literals
-  - Better type safety, prevents typos
-- ✅ Removed unused import from [process_relay.py](src/process_relay.py)
+    # Stream
+    async for event in stream_events(client, filter):
+        print(event.content)
+```
 
-**Overall Progress:** 12/78 tasks completed (15% → previous session was 9%)
+---
 
-### Session 3: Network Resilience & Code Deduplication (2 tasks completed)
-**Database Error Handling & Network Partition Resilience:**
-- ✅ Created [db_error_handler.py](src/db_error_handler.py) module (247 lines)
-  - Intelligent error classification: transient (network partition, timeout) vs permanent (auth failure, syntax error)
-  - Exponential backoff retry logic with configurable attempts (default: 3 retries, 5s delay)
-  - Decorator pattern (`@with_db_retry`) for easy application to any async function
-  - Connection health checks via `check_db_connection()`
-  - New constants: `DEFAULT_DB_OPERATION_RETRIES`, `DEFAULT_DB_OPERATION_RETRY_DELAY`
-- ✅ Enhanced [bigbrotr.py](src/bigbrotr.py) with automatic retry
-  - Added retry logic to `execute()`, `fetch()`, `fetchone()` methods
-  - All database operations now automatically retry on transient errors
-  - Services resilient to network partitions and temporary database unavailability
-- ✅ Improved [functions.py](src/functions.py) connection retry
-  - Enhanced `connect_bigbrotr_with_retry()` with error classification
-  - Fails fast on permanent errors (auth, misconfiguration)
-  - Retries intelligently on transient errors only
+## Future Enhancements
 
-**Code Deduplication:**
-- ✅ Created [base_synchronizer.py](src/base_synchronizer.py) (318 lines of shared logic)
-  - Extracted 95% duplicate code from synchronizers
-  - `BaseSynchronizerWorker` class with template method pattern
-  - Shared: worker threads, process coordination, relay processing, health checks
-  - Extensibility via method overrides (e.g., custom logging messages)
-- ✅ Refactored [synchronizer.py](src/synchronizer.py): 303 → 141 lines (53% reduction)
-  - Now focuses on: relay source (database, exclude priority), service orchestration
-  - Delegates all worker/process logic to base class
-- ✅ Refactored [priority_synchronizer.py](src/priority_synchronizer.py): 303 → 134 lines (56% reduction)
-  - Now focuses on: relay source (file, priority only), service orchestration
-  - Delegates all worker/process logic to base class
+### 1. Finder Service Implementation
+- Implement kind 10002 relay list parsing
+- Add aggregator website scraping (nostr.watch, relay.exchange)
+- Scheduled discovery runs
 
-**Impact:**
-- Services now resilient to network partitions, database restarts, connection timeouts
-- Automatic retry with intelligent error classification reduces operational burden
-- ~170 lines of duplicate code eliminated
-- Future changes only needed in one place (base_synchronizer.py)
-- Better separation of concerns: data source vs processing logic
+### 2. Advanced Event Filtering
+- NIP-12 generic tag queries
+- NIP-40 expiration handling
+- Event kind-specific processing
 
-**Overall Progress:** 14/78 tasks completed (18% → was 15%, session 2 was 9%)
+### 3. Monitoring Dashboard
+- Real-time relay statistics
+- Event ingestion graphs
+- Network topology visualization
+- Relay health maps
 
-### Session 4: Modern Architecture Refactoring (5 tasks completed)
-**Repository Pattern Implementation:**
-- ✅ Split 484-line God Object ([bigbrotr.py](src/bigbrotr.py)) into focused repositories
-  - Created [database_pool.py](src/database_pool.py) (236 lines): Connection pool management + generic SQL ops
-  - Created [event_repository.py](src/event_repository.py) (169 lines): Event-specific database operations
-  - Created [relay_repository.py](src/relay_repository.py) (109 lines): Relay-specific database operations
-  - Created [metadata_repository.py](src/metadata_repository.py) (192 lines): NIP-11/NIP-66 metadata operations
-  - Refactored [bigbrotr.py](src/bigbrotr.py) (174 lines): Clean facade pattern with direct repository access
-  - Benefits: Single Responsibility Principle, better testability, clearer separation of concerns
+### 4. Data Retention Policies
+- Configurable event TTL
+- Automated archival to cold storage
+- Selective event kind retention
 
-**Reduced Cyclomatic Complexity:**
-- ✅ Refactored 70-line `process_relay()` function into modular class architecture
-  - Created [process_relay.py](src/process_relay.py) (412 lines) with focused components:
-    - `RawEventBatch`: Dataclass with `field(default_factory=list)` for clean batch management
-    - `IntervalStack`: Time interval queue for binary search algorithm
-    - `BatchValidator`: Static methods for relay behavior validation
-    - `EventInserter`: Static methods for database operations
-    - `RelayProcessor`: Main orchestrator with 8-10 line focused methods
-  - Benefits: Each method has single responsibility, much easier to test and understand
+### 5. Performance Improvements
+- Implement connection pooling at relay level
+- Add event caching layer (Redis)
+- Optimize batch insert sizes dynamically
+- Implement adaptive timeout adjustment
 
-**Rate Limiting System:**
-- ✅ Created [rate_limiter.py](src/rate_limiter.py) (276 lines): Token bucket algorithm
-  - Per-relay independent rate limiting (prevents overwhelming relay operators)
-  - Configurable burst size (default: 2) and refill rate (default: 1 req/sec)
-  - Async-aware with asyncio locks for thread safety
-  - Integrated into [monitor.py](src/monitor.py) and [base_synchronizer.py](src/base_synchronizer.py)
-  - Added constants: `DEFAULT_RELAY_REQUESTS_PER_SECOND`, `DEFAULT_RELAY_BURST_SIZE`
+### 6. High Availability
+- Multi-region deployment
+- Database replication (PostgreSQL streaming replication)
+- Service redundancy
+- Automatic failover
 
-**Memory-Efficient Pagination:**
-- ✅ Enhanced [relay_loader.py](src/relay_loader.py) with async generator functions:
-  - `fetch_relays_from_database_paginated()`: Memory-efficient relay loading (1000/page default)
-  - `fetch_relays_needing_metadata_paginated()`: Memory-efficient metadata query
-  - Uses LIMIT/OFFSET pagination with ordered results for consistency
-  - Yields batches instead of loading all relays into memory
-  - Added constant: `DEFAULT_RELAY_PAGE_SIZE`
+### 7. API Server
+- REST API for querying events
+- WebSocket API for real-time subscriptions
+- NIP-50 search implementation
+- Rate limiting and authentication
 
-**Code Quality Improvements:**
-- ✅ Added `__all__` exports to 10 key modules for clean public APIs
-  - [bigbrotr.py](src/bigbrotr.py), [database_pool.py](src/database_pool.py), [event_repository.py](src/event_repository.py)
-  - [relay_repository.py](src/relay_repository.py), [metadata_repository.py](src/metadata_repository.py)
-  - [process_relay.py](src/process_relay.py), [rate_limiter.py](src/rate_limiter.py), [relay_loader.py](src/relay_loader.py)
-  - [base_synchronizer.py](src/base_synchronizer.py)
-- ✅ Modern type hints throughout: `Optional`, `List`, `Dict`, `Any`, `Final`, `field(default_factory=...)`
-- ✅ Comprehensive docstrings with architecture documentation
-- ✅ All 19 Python files compile without errors
+---
 
-**Architecture Benefits:**
-- **Testability**: Each repository and processor component independently testable
-- **Maintainability**: Clear single responsibilities, easy to modify
-- **Performance**: Rate limiting prevents blocking, pagination reduces memory usage
-- **Scalability**: Repository pattern allows easy addition of new data sources
-- **Type Safety**: Comprehensive type hints for better IDE support
-- **SOLID Principles**: SRP, OCP, DIP properly applied throughout
+## Glossary
 
-**Files Created/Modified (10 files):**
-- Created: database_pool.py, event_repository.py, relay_repository.py, metadata_repository.py, rate_limiter.py
-- Replaced: bigbrotr.py (484→174 lines), process_relay.py (218→412 modular lines)
-- Enhanced: relay_loader.py (+pagination), base_synchronizer.py (+__all__), constants.py (+3 constants)
+**Nostr**: Notes and Other Stuff Transmitted by Relays - a decentralized social protocol
 
-**Overall Progress:** 19/78 tasks completed (24% → was 18%)
+**Relay**: WebSocket server that stores and distributes Nostr events
 
-**See [TODO.md](TODO.md) for full task list and progress tracking.**
+**Event**: Signed JSON object containing content, metadata, and cryptographic proof
 
-## Important Notes
+**NIP**: Nostr Implementation Possibility - protocol extension specification
 
-- **Modern Architecture**: Codebase follows repository pattern with SOLID principles
-  - Database operations split into focused repositories (events, relays, metadata)
-  - All modules have `__all__` exports for clean public APIs
-  - Comprehensive type hints with modern Python typing (`Optional`, `field(default_factory=...)`)
-  - Each class has single responsibility for better testability
-- **Rate Limiting**: All relay connections are rate limited (1 req/sec, burst of 2) to prevent service blocking
-- **Pagination Support**: Use `*_paginated()` functions for memory-efficient relay loading (1000/page)
-- **Finder service is disabled** ([docker-compose.yml](docker-compose.yml):95-123): Implementation incomplete. Re-enable when relay discovery logic is fully implemented.
-- **No test suite**: Unit and integration tests are on the roadmap (architecture now supports easy testing).
-- **Resource limits**: Docker resource limits are configured in [docker-compose.yml](docker-compose.yml) (adjust based on hardware).
-- **PgBouncer transaction pooling**: Prepared statements are not supported. Use parameterized queries with `$1, $2, ...` syntax.
-- **Nostr library**: Uses `nostr-tools` 1.2.1 (custom Python library, not the JavaScript one).
-- **Storage requirements**: Plan for 100GB+ for event archival; database grows continuously over time.
-- **RAM recommendation**: 8GB+ recommended for production use with default core settings.
-- **Connection pool timeouts**: All database operations have 30-second timeout for connection acquisition
+**NIP-01**: Core protocol specification (events, filters, subscriptions)
+
+**NIP-11**: Relay information document (metadata, capabilities, policies)
+
+**NIP-66**: Relay monitoring and testing specification (connectivity, RTT)
+
+**Clearnet**: Regular internet (wss://)
+
+**Tor**: The Onion Router - anonymity network (.onion relays)
+
+**SOCKS5**: Proxy protocol used for Tor connections
+
+**RTT**: Round-Trip Time - latency measurement in milliseconds
+
+**PgBouncer**: Connection pooler for PostgreSQL
+
+**Multiprocessing**: Python module for spawning separate OS processes
+
+**Async/Await**: Python coroutine syntax for concurrent I/O operations
+
+---
+
+## Support and Resources
+
+### Official Links
+- **Repository**: https://github.com/bigbrotr/bigbrotr
+- **nostr-tools**: https://github.com/bigbrotr/nostr-tools
+- **Documentation**: https://bigbrotr.github.io/
+
+### Nostr Protocol
+- **Main Site**: https://nostr.com
+- **NIPs Repository**: https://github.com/nostr-protocol/nips
+- **Nostr Resources**: https://nostr.net
+
+### Community
+- **Nostr Discord**: [Link if available]
+- **Issue Tracker**: https://github.com/bigbrotr/bigbrotr/issues
+- **Pull Requests**: https://github.com/bigbrotr/bigbrotr/pulls
+
+---
+
+## License
+
+MIT License - Copyright (c) 2025 BigBrotr
+
+See [LICENSE](LICENSE) file for details.
+
+---
+
+## Changelog
+
+### Version 2.0.0 (Current)
+- Normalized NIP-11/NIP-66 schema with deduplication
+- Implemented comprehensive relay metadata tracking
+- Added health check servers to all services
+- Optimized database queries with window functions
+- Enhanced error handling and logging
+- Added RelayFailureTracker for monitoring
+- Improved Docker multi-stage builds
+- Updated to nostr-tools 1.4.0
+
+### Version 1.x
+- Initial implementation
+- Basic relay synchronization
+- PostgreSQL schema v1
+- Simple metadata tracking
+
+---
+
+**Document Version**: 1.0
+**Last Updated**: 2025-01-03
+**Maintainer**: BigBrotr Team

@@ -1,5 +1,10 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
 # Python cache
-__pycache__/
+__pycache__
 *.py[cod]
 *$py.class
 *.so
@@ -9,38 +14,49 @@ __pycache__/
 venv/
 env/
 ENV/
+.venv
 
-# IDE
+# IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# Git
-.git/
-.gitignore
-
-# Documentation (build from source)
+# Documentation
 *.md
-!README.md
-!CLAUDE.md
+docs/
+CLAUDE.md
+README.md
+LICENSE
+TODO.md
+RELEASE.md
 
-# Data directories
+# Data and logs
 data/
 logs/
 *.log
 
-# Environment files (should use docker secrets/env vars)
+# Environment files
 .env
-.env.*
-*.env
+.env.local
+.env.*.local
 
-# PgBouncer runtime files (generated in container)
-userlist.txt
-
-# Temporary/backup files
+# Temporary files
+tmp.txt
 *.tmp
 *.bak
-*.backup
-*~
+
+# Docker files (not needed in build context for services)
+Dockerfile
+docker-compose.yml
+
+# Test files
+tests/
+pytest.ini
+.coverage
+htmlcov/
+
+# OS files
+.DS_Store
+Thumbs.db

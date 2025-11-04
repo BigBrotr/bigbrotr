@@ -3,8 +3,13 @@ FROM alpine:3.19
 # Install PgBouncer
 RUN apk add --no-cache pgbouncer
 
+# Create non-root user for PgBouncer
+RUN addgroup -g 1000 pgbouncer && \
+    adduser -D -u 1000 -G pgbouncer pgbouncer
+
 # Create config directory
-RUN mkdir -p /etc/pgbouncer
+RUN mkdir -p /etc/pgbouncer && \
+    chown -R pgbouncer:pgbouncer /etc/pgbouncer
 
 # Copy entrypoint script
 COPY dockerfiles/pgbouncer_entrypoint.sh /usr/local/bin/entrypoint.sh
@@ -12,6 +17,10 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Copy configuration
 COPY pgbouncer.ini /etc/pgbouncer/pgbouncer.ini
+RUN chown pgbouncer:pgbouncer /etc/pgbouncer/pgbouncer.ini
+
+# Switch to non-root user
+USER pgbouncer
 
 # Expose PgBouncer port
 EXPOSE 6432

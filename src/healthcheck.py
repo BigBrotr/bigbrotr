@@ -42,7 +42,7 @@ class HealthCheckServer:
                 else:
                     return web.Response(text='NOT READY', status=503)
             except Exception as e:
-                logging.warning(f"Readiness check failed: {e}")
+                logging.warning(f"⚠️ Readiness check failed: {e}")
                 return web.Response(text=f'ERROR: {e}', status=503)
         else:
             # No readiness check configured, assume ready if healthy
@@ -50,7 +50,7 @@ class HealthCheckServer:
 
     async def root_handler(self, request: web.Request) -> web.Response:
         """Root handler - provides service info."""
-        return web.Response(text='Bigbrotr Health Check Server\n/health - liveness\n/ready - readiness', status=200)
+        return web.Response(text='BigBrotr Health Check Server\n/health - liveness\n/ready - readiness', status=200)
 
     async def start(self):
         """Start the health check server."""

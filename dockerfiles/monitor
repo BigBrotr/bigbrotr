@@ -3,7 +3,7 @@ FROM python:3.11-alpine AS build
 
 # Add metadata
 LABEL maintainer="bigbrotr"
-LABEL description="Bigbrotr Monitor Service - Nostr Relay Health Monitoring"
+LABEL description="BigBrotr Monitor Service - Nostr Relay Health Monitoring"
 
 # Install build dependencies
 RUN apk add --no-cache \
@@ -27,7 +27,7 @@ FROM python:3.11-alpine
 
 # Add metadata
 LABEL maintainer="bigbrotr"
-LABEL description="Bigbrotr Monitor Service - Nostr Relay Health Monitoring"
+LABEL description="BigBrotr Monitor Service - Nostr Relay Health Monitoring"
 LABEL version="1.0.0"
 
 # Install runtime dependencies (only what's needed)
@@ -44,9 +44,6 @@ COPY --from=build /install /usr/local
 
 # Copy application code
 COPY src/ /app/
-COPY brotr_core/ /app/brotr_core/
-COPY implementations/ /app/implementations/
-COPY shared/ /app/shared/
 
 # Change ownership to non-root user
 RUN chown -R bigbrotr:bigbrotr /app

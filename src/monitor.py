@@ -1,67 +1,30 @@
-"""Monitor service for fetching and tracking Nostr relay metadata.
-
-This service periodically connects to Nostr relays to fetch and store their metadata,
-including NIP-11 relay information and NIP-66 connection test results. It uses multiprocessing
-to parallelize metadata fetching across multiple relays.
-
-Service Architecture:
-    - Main loop: Orchestrates periodic metadata collection cycles
-    - Worker processes: Each process handles a chunk of relays
-    - Per-process connection pools: Each worker creates its own database connection pool
-    - Health check server: Exposes /health endpoint for monitoring
-
-Metadata Collection:
-    - NIP-11: Relay information (name, description, supported NIPs, etc.)
-    - NIP-66: Connection test results (RTT, openable, readable, writable status)
-    - Tor support: Routes .onion relay requests through SOCKS5 proxy
-
-Configuration:
-    - MONITOR_FREQUENCY_HOUR: How often to update metadata for each relay
-    - MONITOR_NUM_CORES: Number of worker processes to spawn
-    - MONITOR_REQUESTS_PER_CORE: Concurrent requests per worker process
-    - MONITOR_CHUNK_SIZE: Number of relays per worker chunk
-
-Dependencies:
-    - brotr: Database wrapper for async operations
-    - nostr_tools: Nostr protocol client and metadata fetching
-    - multiprocessing: Parallel processing across CPU cores
-"""
 import asyncio
 import logging
 import signal
 import time
 from multiprocessing import Pool, Event
-from typing import Dict, Any, List
+from types import FrameType
+from typing import Dict, Any, List, Optional
 
-from brotr_core.database.brotr import Brotr
+from bigbrotr import BigBrotr
 from nostr_tools import Relay, Client, fetch_relay_metadata, RelayMetadata
 
-from shared.config.config import load_monitor_config
-from shared.utils.constants import (
-    DB_POOL_MIN_SIZE_PER_WORKER,
-    DB_POOL_MAX_SIZE_PER_WORKER,
-    HEALTH_CHECK_PORT,
-    WORKER_GRACEFUL_SHUTDOWN_TIMEOUT,
-    WORKER_FORCE_SHUTDOWN_TIMEOUT,
-    DEFAULT_RELAY_REQUESTS_PER_SECOND,
-    DEFAULT_RELAY_BURST_SIZE,
-    NetworkType
-)
-from shared.utils.functions import chunkify, wait_for_services, connect_brotr_with_retry, RelayFailureTracker
-from shared.utils.healthcheck import HealthCheckServer
-from shared.utils.logging_config import setup_logging
-from brotr_core.services.rate_limiter import RelayRateLimiter
-from src.relay_loader import fetch_relays_needing_metadata
+from config import load_monitor_config
+from constants import DB_POOL_MIN_SIZE_PER_WORKER, DB_POOL_MAX_SIZE_PER_WORKER, HEALTH_CHECK_PORT
+from functions import chunkify, wait_for_services, connect_bigbrotr_with_retry, RelayFailureTracker
+from healthcheck import HealthCheckServer
+from logging_config import setup_logging
+from relay_loader import fetch_relays_needing_metadata
 
 # Setup logging
 setup_logging("MONITOR")
 
 # Global shutdown event (thread-safe across processes)
 shutdown_event = Event()
-service_ready_event = asyncio.Event()
+service_ready = False
 
 
-def signal_handler(signum: int, frame) -> None:
+def signal_handler(signum: int, frame: Optional[FrameType]) -> None:
     """Handle shutdown signals gracefully."""
     signal_name = signal.Signals(signum).name
     logging.info(f"⚠️ Received {signal_name} signal. Initiating graceful shutdown...")
@@ -69,67 +32,52 @@ def signal_handler(signum: int, frame) -> None:
 
 
 # --- Process Relay Metadata ---
-async def process_relay(
-    config: Dict[str, Any],
-    relay: Relay,
-    generated_at: int,
-    rate_limiter: RelayRateLimiter
-) -> RelayMetadata:
-    """Process a single relay and fetch its metadata with rate limiting.
+async def process_relay(config: Dict[str, Any], relay: Relay, generated_at: int) -> RelayMetadata:
+    """Process a single relay and fetch its metadata.
 
     Args:
         config: Configuration dictionary with torproxy settings and keys
         relay: Relay object to fetch metadata from
         generated_at: Timestamp for when metadata was generated
-        rate_limiter: Rate limiter for relay connections
 
     Returns:
         RelayMetadata object with nip11 and nip66 data
     """
-    # Apply rate limiting before fetching metadata
-    await rate_limiter.acquire(relay.url)
-
     torproxy_host = config.get("torproxy_host")
     torproxy_port = config.get("torproxy_port")
     socks5_proxy_url = f"socks5://{torproxy_host}:{torproxy_port}"
     client = Client(
         relay=relay,
         timeout=config["timeout"],
-        socks5_proxy_url=socks5_proxy_url if relay.network == NetworkType.TOR else None
+        socks5_proxy_url=socks5_proxy_url if relay.network == "tor" else None
     )
     relay_metadata = await fetch_relay_metadata(
         client=client,
-        private_key=config["secret_key"],
-        public_key=config["public_key"]
+        sec=config.get("secret_key"),
+        pub=config.get("public_key")
     )
     relay_metadata.generated_at = generated_at
     return relay_metadata
 
 
 # --- Process Chunk ---
-async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str, Any], generated_at: int, brotr: Brotr, failure_tracker: RelayFailureTracker) -> None:
+async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str, Any], generated_at: int, bigbrotr: BigBrotr, failure_tracker: RelayFailureTracker) -> None:
     """Process a chunk of relays and save their metadata.
 
     Args:
         chunk: List of relays to process
         config: Configuration dictionary
         generated_at: Timestamp for metadata generation
-        brotr: Shared database connection (must be connected)
+        bigbrotr: Shared database connection (must be connected)
         failure_tracker: Tracker for monitoring relay processing failures
     """
     semaphore = asyncio.Semaphore(config["requests_per_core"])
     relay_metadata_list: List[RelayMetadata] = []
 
-    # Create rate limiter for this chunk
-    rate_limiter = RelayRateLimiter(
-        requests_per_second=DEFAULT_RELAY_REQUESTS_PER_SECOND,
-        burst_size=DEFAULT_RELAY_BURST_SIZE
-    )
-
     async def sem_task(relay: Relay) -> RelayMetadata:
         async with semaphore:
             try:
-                relay_metadata = await process_relay(config, relay, generated_at, rate_limiter)
+                relay_metadata = await process_relay(config, relay, generated_at)
                 # Check if we got any useful metadata (nip66 or nip11)
                 if relay_metadata and (relay_metadata.nip66 or relay_metadata.nip11):
                     failure_tracker.record_success()
@@ -153,7 +101,7 @@ async def process_relay_chunk_for_metadata(chunk: List[Relay], config: Dict[str,
     relay_metadata_list = [r for r in results if r is not None]
 
     # Use the shared connection instead of creating a new one
-    await brotr.insert_relay_metadata_batch(relay_metadata_list)
+    await bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
 
     logging.info(
         f"✅ Processed {len(chunk)} relays. Found {len(relay_metadata_list)} valid relay metadata.")
@@ -173,7 +121,7 @@ def metadata_monitor_worker(chunk: List[Relay], config: Dict[str, Any], generate
     """
     async def worker_async(chunk: List[Relay], config: Dict[str, Any], generated_at: int) -> None:
         # Create a database connection for this worker process
-        brotr = Brotr(
+        bigbrotr = BigBrotr(
             config["database_host"],
             config["database_port"],
             config["database_user"],
@@ -183,7 +131,7 @@ def metadata_monitor_worker(chunk: List[Relay], config: Dict[str, Any], generate
             max_pool_size=DB_POOL_MAX_SIZE_PER_WORKER
         )
         # Connect with retry logic
-        await connect_brotr_with_retry(brotr, logging=logging)
+        await connect_bigbrotr_with_retry(bigbrotr, logger=logging)
 
         # Create failure tracker for this worker
         failure_tracker = RelayFailureTracker(alert_threshold=0.1, check_interval=100)
@@ -198,7 +146,7 @@ def metadata_monitor_worker(chunk: List[Relay], config: Dict[str, Any], generate
                     f"📊 Worker final stats: {stats['successes']}/{stats['total']} successful "
                     f"({stats['failure_rate']:.1%} failure rate)"
                 )
-            await brotr.close()
+            await bigbrotr.close()
 
     # Create new event loop for this worker process
     loop = asyncio.new_event_loop()
@@ -229,30 +177,27 @@ async def main_loop(config: Dict[str, Any]) -> None:
         logging.info(f"✅ All chunks processed successfully.")
     finally:
         pool.close()  # Prevent new tasks
-        pool.join(timeout=WORKER_GRACEFUL_SHUTDOWN_TIMEOUT)  # Wait for workers to finish gracefully
-        # Terminate pool if workers didn't finish gracefully
-        # Note: No reliable public API to check worker status, so we terminate unconditionally
-        # after timeout. Workers should have finished by now if they're going to.
-        pool.terminate()  # Force kill any remaining workers
-        pool.join(timeout=WORKER_FORCE_SHUTDOWN_TIMEOUT)  # Wait for termination
+        pool.join()  # Wait for workers to finish gracefully
 
 
 # --- Monitor Entrypoint ---
 async def monitor() -> None:
     """Monitor service entry point."""
+    global service_ready
+
     config = load_monitor_config()
     logging.info("🔍 Starting monitor...")
 
     # Start health check server
     async def is_ready():
-        return service_ready_event.is_set()
+        return service_ready
 
     health_server = HealthCheckServer(port=HEALTH_CHECK_PORT, ready_check=is_ready)
     await health_server.start()
 
     try:
         await wait_for_services(config)
-        service_ready_event.set()
+        service_ready = True
 
         while not shutdown_event.is_set():
             try:
