@@ -4,6 +4,7 @@ import re
 import sys
 import json
 import logging
+import time
 from typing import Dict, Any
 from multiprocessing import cpu_count
 from nostr_tools import validate_keypair
@@ -104,14 +105,21 @@ def load_synchronizer_config() -> Dict[str, Any]:
             logging.error("❌ SYNCHRONIZER_START_TIMESTAMP cannot be greater than SYNCHRONIZER_STOP_TIMESTAMP.")
             sys.exit(1)
 
+        # Warn about future timestamps
+        current_time = int(time.time())
+        if config["start_timestamp"] > current_time:
+            logging.warning(f"⚠️ SYNCHRONIZER_START_TIMESTAMP ({config['start_timestamp']}) is in the future")
+        if config["stop_timestamp"] != -1 and config["stop_timestamp"] > current_time:
+            logging.warning(f"⚠️ SYNCHRONIZER_STOP_TIMESTAMP ({config['stop_timestamp']}) is in the future")
+
         if not isinstance(config["event_filter"], dict):
             logging.error("❌ SYNCHRONIZER_EVENT_FILTER must be a valid JSON object.")
             sys.exit(1)
 
-        # Filter only valid Nostr filter keys
+        # Filter only valid Nostr filter keys (NIP-01: single lowercase letter tags)
         config["event_filter"] = {
             k: v for k, v in config["event_filter"].items()
-            if k in {"ids", "authors", "kinds"} or re.fullmatch(r"#([a-zA-Z])", k)
+            if k in {"ids", "authors", "kinds"} or re.fullmatch(r"#[a-z]", k)
         }
 
         if config["num_cores"] > cpu_count():

@@ -1,6 +1,8 @@
 """Async database wrapper for BigBrotr using asyncpg for better performance."""
+import asyncio
 import asyncpg
 import json
+import logging
 import time
 from typing import Optional, List, Any
 from nostr_tools import Event, Relay, RelayMetadata, sanitize
@@ -75,10 +77,16 @@ class BigBrotr:
         )
 
     async def close(self) -> None:
-        """Close connection pool."""
+        """Close connection pool gracefully."""
         if self.pool is not None:
-            await self.pool.close()
-            self.pool = None
+            try:
+                await asyncio.wait_for(self.pool.close(), timeout=10)
+            except asyncio.TimeoutError:
+                logging.warning("⚠️ Pool closure timed out")
+            except Exception as e:
+                logging.error(f"❌ Error closing pool: {e}")
+            finally:
+                self.pool = None
 
     async def __aenter__(self):
         """Async context manager entry."""
@@ -180,8 +188,8 @@ class BigBrotr:
                 event.pubkey,
                 event.created_at,
                 event.kind,
-                json.dumps(event.tags),
-                event.content,
+                json.dumps(sanitize(event.tags)),
+                sanitize(event.content),
                 event.sig,
                 relay.url,
                 relay.network,
@@ -228,7 +236,11 @@ class BigBrotr:
         """
 
         if not skip_validation:
+            valid_count = len(events)
             events = [event for event in events if event.is_valid]
+            invalid_count = valid_count - len(events)
+            if invalid_count > 0:
+                logging.warning(f"⚠️ Filtered {invalid_count} invalid events from batch")
             if not relay.is_valid:
                 return
 
@@ -245,8 +257,8 @@ class BigBrotr:
                             event.pubkey,
                             event.created_at,
                             event.kind,
-                            json.dumps(event.tags),
-                            event.content,
+                            json.dumps(sanitize(event.tags)),
+                            sanitize(event.content),
                             event.sig,
                             relay.url,
                             relay.network,
@@ -317,7 +329,11 @@ class BigBrotr:
         query = "SELECT insert_relay($1, $2, $3)"
 
         if not skip_validation:
+            valid_count = len(relays)
             relays = [relay for relay in relays if relay.is_valid]
+            invalid_count = valid_count - len(relays)
+            if invalid_count > 0:
+                logging.warning(f"⚠️ Filtered {invalid_count} invalid relays from batch")
 
         if not relays:
             return
@@ -435,9 +451,13 @@ class BigBrotr:
             relay_inserted_at = min(rm.generated_at for rm in relay_metadata_list)
 
         if not skip_validation:
+            valid_count = len(relay_metadata_list)
             relay_metadata_list = [
                 rm for rm in relay_metadata_list if rm.is_valid
             ]
+            invalid_count = valid_count - len(relay_metadata_list)
+            if invalid_count > 0:
+                logging.warning(f"⚠️ Filtered {invalid_count} invalid relay metadata from batch")
 
         if not relay_metadata_list:
             return

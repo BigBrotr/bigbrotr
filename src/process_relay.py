@@ -192,7 +192,12 @@ async def process_relay(bigbrotr: BigBrotr, client: Client, filter: Filter) -> N
                 batch_min_matches = first_batch.min_created_at == second_batch.max_created_at
                 if second_batch.is_empty() or not batch_min_matches:
                     logging.warning(
-                        f"⚠️ Relay {client.relay.url} returned unexpected results. Stopping processing.")
+                        f"⚠️ Relay {client.relay.url} returned unexpected results. "
+                        f"Expected max: {first_batch.min_created_at}, "
+                        f"Got max: {second_batch.max_created_at if not second_batch.is_empty() else 'None'}, "
+                        f"Second batch empty: {second_batch.is_empty()}. "
+                        f"Stopping processing."
+                    )
                     break
                 elif second_batch.min_created_at != first_batch.min_created_at:
                     # Found events in [since, first_batch.min_created_at - 1]
@@ -202,9 +207,11 @@ async def process_relay(bigbrotr: BigBrotr, client: Client, filter: Filter) -> N
                 else:
                     # Found only first_batch.min_created_at events
                     # Fetch [since, first_batch.min_created_at - 1] interval
+                    original_limit = filter.limit  # Save original limit
                     filter.until = first_batch.min_created_at - 1
                     filter.limit = 1
                     third_batch = await process_batch(client, filter)
+                    filter.limit = original_limit  # Restore original limit
                     if third_batch.is_empty():
                         # No events found - all events fetched
                         # Add fetched events to db

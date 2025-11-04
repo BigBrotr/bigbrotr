@@ -23,17 +23,25 @@ async def insert_relays(config: Dict[str, Any]) -> None:
         with open(config["seed_relays_path"], 'r', encoding='utf-8') as f:
             lines = f.read().splitlines()
         relays: List[Relay] = []
+        seen_urls = set()
+        duplicate_count = 0
         for raw_url in lines:
             raw_url = raw_url.strip()
             if not raw_url or raw_url.startswith("#"):
                 # Skip empty lines and comments
                 continue
+            if raw_url in seen_urls:
+                duplicate_count += 1
+                continue
+            seen_urls.add(raw_url)
             try:
                 relay = Relay(raw_url)
                 relays.append(relay)
             except (ValueError, TypeError, RelayValidationError) as e:
                 logging.warning(
                     f"⚠️ Invalid relay URL skipped: {raw_url}. Reason: {e}")
+        if duplicate_count > 0:
+            logging.info(f"📊 Skipped {duplicate_count} duplicate relay URLs")
         if relays:
             async with BigBrotr(
                 config["database_host"],

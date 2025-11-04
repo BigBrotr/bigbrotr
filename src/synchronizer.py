@@ -194,11 +194,19 @@ async def main_loop(config: Dict[str, Any]) -> None:
         end_time = int(time.time()) - SECONDS_PER_DAY
 
     shared_queue: Queue = Queue()
+    excluded_count = 0
     for relay in relays:
         if relay.url not in priority_relay_urls:
             shared_queue.put(relay)
+        else:
+            excluded_count += 1
 
-    logging.info(f"📦 {shared_queue.qsize()} relays to process.")
+    queue_size = shared_queue.qsize()
+    if queue_size == 0:
+        logging.warning("⚠️ No relays to process. Skipping this cycle.")
+        return
+
+    logging.info(f"📦 {queue_size} relays to process ({excluded_count} excluded as priority relays).")
     processes: List[Process] = []
     for _ in range(num_cores):
         p = Process(
