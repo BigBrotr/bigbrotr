@@ -3,4 +3,5 @@ aiohttp==3.13.2
 aiohttp-socks==0.10.1
 asyncpg==0.30.0
 nostr-tools==1.4.0
+prometheus-client==0.21.0
 typing-extensions==4.12.2

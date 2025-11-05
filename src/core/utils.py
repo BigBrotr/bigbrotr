@@ -1,0 +1,274 @@
+from bigbrotr import Bigbrotr
+from aiohttp import ClientSession, WSMsgType
+from aiohttp_socks import ProxyConnector
+
+
+def chunkify(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+
+def test_database_connection(host, port, user, password, dbname, logging=None):
+    db = None
+    try:
+        db = Bigbrotr(host, port, user, password, dbname)
+        db.connect()
+        if logging:
+            logging.info("✅ Database connection successful.")
+        return True
+    except Exception as e:
+        if logging:
+            logging.exception("❌ Database connection failed.")
+        return False
+    finally:
+        if db:
+            try:
+                db.close()
+                if logging:
+                    logging.info("🧹 Database connection closed.")
+            except Exception:
+                if logging:
+                    logging.warning(
+                        "⚠️ Failed to close database connection cleanly.")
+
+
+async def test_torproxy_connection(host, port, timeout=10, logging=None):
+    socks5_proxy_url = f"socks5://{host}:{port}"
+    # HTTP Test
+    http_url = "https://check.torproject.org"
+    connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
+    try:
+        async with ClientSession(connector=connector) as session:
+            async with session.get(http_url, timeout=timeout) as resp:
+                text = await resp.text()
+                if "Congratulations. This browser is configured to use Tor" in text:
+                    if logging:
+                        logging.info("✅ HTTP response confirms Tor usage.")
+                else:
+                    if logging:
+                        logging.error("❌ Tor usage not confirmed via HTTP.")
+                    return False
+    except Exception:
+        if logging:
+            logging.exception("❌ HTTP test via Tor failed.")
+        return False
+    # WebSocket Test
+    ws_url = "wss://echo.websocket.events"
+    connector = ProxyConnector.from_url(socks5_proxy_url, force_close=True)
+    try:
+        async with ClientSession(connector=connector) as session:
+            if logging:
+                logging.info("🌐 Testing Tor WebSocket access...")
+            async with session.ws_connect(ws_url, timeout=timeout) as ws:
+                await ws.send_str("Hello via WebSocket")
+                msg = await ws.receive(timeout=timeout)
+                if msg.type == WSMsgType.TEXT:
+                    if logging:
+                        logging.info(
+                            f"✅ WebSocket message received: {msg.data}")
+                    return True
+                else:
+                    if logging:
+                        logging.error(
+                            f"❌ Unexpected WebSocket response: {msg.type}")
+                    return False
+    except Exception:
+        if logging:
+            logging.exception("❌ WebSocket test via Tor failed.")
+        return False
+
+import time
+import logging
+from bigbrotr import Bigbrotr
+from nostr_tools import Event, Client, Filter
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+
+def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
+    """Get the starting timestamp for event synchronization from database."""
+    def get_max_seen_at():
+        query = """
+            SELECT MAX(seen_at)
+            FROM events_relays
+            WHERE relay_url = %s
+        """
+        bigbrotr.execute(query, (relay.url,))
+        return bigbrotr.fetchone()[0]
+
+    def get_event_id(max_seen_at):
+        query = """
+            SELECT event_id
+            FROM events_relays
+            WHERE relay_url = %s AND seen_at = %s
+            LIMIT 1
+        """
+        bigbrotr.execute(query, (relay.url, max_seen_at))
+        return bigbrotr.fetchone()[0]
+
+    def get_created_at(event_id):
+        query = """
+            SELECT created_at
+            FROM events
+            WHERE id = %s
+        """
+        bigbrotr.execute(query, (event_id,))
+        return bigbrotr.fetchone()[0]
+
+    max_seen_at_todo = True
+    max_seen_at = None
+    event_id_todo = True
+    event_id = None
+    created_at_todo = True
+    created_at = None
+    bigbrotr.connect()
+
+    for attempt in range(retries):
+        try:
+            if max_seen_at_todo:
+                max_seen_at = get_max_seen_at()
+                max_seen_at_todo = False
+            if max_seen_at is not None:
+                if event_id_todo:
+                    event_id = get_event_id(max_seen_at)
+                    event_id_todo = False
+                if event_id is not None:
+                    if created_at_todo:
+                        created_at = get_created_at(event_id)
+                        created_at_todo = False
+                    if created_at is not None:
+                        return created_at + 1
+            return default_start_time
+        except Exception as e:
+            logging.warning(
+                f"⚠️ Attempt {attempt + 1}/{retries} failed while getting start time for {relay.url}: {e}")
+            time.sleep(delay)
+
+    bigbrotr.close()
+    raise RuntimeError(
+        f"❌ Failed to get start time for {relay.url} after {retries} attempts. Last error: {e}")
+
+
+def insert_batch(bigbrotr, batch, relay, seen_at):
+    """Insert batch of events into database."""
+    event_batch = []
+    for event_data in batch:
+        try:
+            event = Event.from_dict(event_data)
+            event_batch.append(event)
+        except Exception as e:
+            logging.warning(
+                f"⚠️ Invalid event found in {relay.url}. Error: {e}")
+            continue
+
+    if event_batch:
+        bigbrotr.insert_event_batch(event_batch, relay, seen_at)
+    return len(event_batch)
+
+class RawEventBatch:
+    def __init__(self, since, until, limit):
+        self.since = since
+        self.until = until
+        self.limit = limit
+        self.size = 0
+        self.raw_events = []
+        self.min_created_at = None
+        self.max_created_at = None
+
+    def append(self, raw_event):
+        if not isinstance(raw_event, dict):
+            return
+        created_at = raw_event.get("created_at")
+        if not isinstance(created_at, int) or created_at < 0 or created_at < self.since or created_at > self.until:
+            return
+        if self.size < self.limit:
+            self.raw_events.append(raw_event)
+            self.size += 1
+            if self.min_created_at is None or created_at < self.min_created_at:
+                self.min_created_at = created_at
+            if self.max_created_at is None or created_at > self.max_created_at:
+                self.max_created_at = created_at
+        else:
+            raise OverflowError("Batch limit reached")
+
+    def is_full(self):
+        return self.size >= self.limit
+    
+    def is_empty(self):
+        return self.size == 0
+
+async def process_batch(client, filter):
+    batch = RawEventBatch(filter.since, filter.until, filter.limit)
+    subscription_id = client.subscribe(filter)
+    async for message in client.listen_events(subscription_id):
+        if batch.is_full():
+            break
+        batch.append(message[2])
+    client.unsubscribe(subscription_id)
+    return batch
+    
+async def process_relay(bigbrotr: Bigbrotr, client: Client, filter: Filter):
+    # check arguments
+    for argument, argument_type in zip([bigbrotr, client, filter], [Bigbrotr, Client, Filter]):
+        if not isinstance(argument, argument_type):
+            raise ValueError(
+                f"{argument} must be an instance of {argument_type}")
+        if not argument.is_valid:
+            raise ValueError(f"{argument} must be valid")
+    if bigbrotr.is_connected:
+        raise ValueError("bigbrotr must be disconnected")
+    if client.is_connected:
+        raise ValueError("client must be disconnected")
+    if filter.since is None or filter.until is None:
+        raise ValueError("filter must have since and until")
+    if filter.limit is None:
+        raise ValueError("filter must have limit")
+    # logic
+    async with bigbrotr:
+        async with client:
+            until_stack = [filter.until]
+            while until_stack:
+                # fetch [since, until] interval
+                filter.until = until_stack[0]
+                first_batch = await process_batch(client, filter)
+                if first_batch.is_empty():
+                    # no events found -> interval [since, until] done
+                    until_stack.pop(0)
+                    filter.since = filter.until + 1
+                elif filter.since == filter.until:
+                     # events found AND [since, until] is one timestamp interval -> interval [since, until] done
+                    insert_batch(bigbrotr, first_batch.raw_events, client.relay, int(time.time()))
+                    until_stack.pop(0)
+                    filter.since = filter.until + 1
+                else:
+                    # events found AND [since, until] is multiple timestamp interval -> fetch [since, first_batch.min_created_at] interval
+                    filter.until = first_batch.min_created_at
+                    second_batch = await process_batch(client, filter)
+                    if second_batch.is_empty() or first_batch.min_created_at != second_batch.max_created_at:
+                        # no events found OR not found first_batch.min_created_at as second_batch.max_created_at -> wrong relay behaviour -> stop processing
+                        logging.warning(f"⚠️ Relay {client.relay.url} returned unexpected results. Stopping processing.")
+                        break
+                    elif second_batch.min_created_at != first_batch.min_created_at:
+                        # found events in [since, first_batch.min_created_at - 1] -> first batch did not fetch all events -> add mid point to stack
+                        mid = (filter.until - filter.since) // 2 + filter.since
+                        until_stack.insert(0, mid)
+                    else:
+                        # found only first_batch.min_created_at events in [since, first_batch.min_created_at] -> fetch [since, first_batch.min_created_at - 1] interval
+                        filter.until = first_batch.min_created_at - 1
+                        filter.limit = 1
+                        third_batch = await process_batch(client, filter)
+                        if third_batch.is_empty():
+                            # no events found -> all events [filter.since, until_stack[0]] fetched -> add fetched events to db
+                            batch = [rew_event for rew_event in first_batch.raw_events if rew_event.created_at != first_batch.min_created_at]
+                            batch.extend(second_batch.raw_events)
+                            insert_batch(bigbrotr, batch, client.relay, int(time.time()))
+                            filter.since = until_stack.pop(0) + 1
+                        else:
+                            # events found -> not all events fetched -> add mid point to stack
+                            mid = (filter.until - filter.since) // 2 + filter.since
+                            until_stack.insert(0, mid)
+    return
