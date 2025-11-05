@@ -9,7 +9,7 @@ import logging
 import threading
 from nostr_tools import Relay
 from queue import Empty
-from bigbrotr import Bigbrotr
+from brotr import Brotr
 from process_relay import process_relay, get_start_time
 from multiprocessing import cpu_count, Queue, Process
 from functions import test_database_connection, test_torproxy_connection
@@ -112,8 +112,8 @@ async def wait_for_services(config, retries=5, delay=30):
 
 # --- Fetch Relays from Database ---
 def fetch_relays_from_database(host, port, user, password, dbname):
-    bigbrotr = Bigbrotr(host, port, user, password, dbname)
-    bigbrotr.connect()
+    brotr = Brotr(host, port, user, password, dbname)
+    brotr.connect()
     logging.info("📦 Fetching relay metadata from database...")
     query = """
         SELECT relay_url
@@ -127,9 +127,9 @@ def fetch_relays_from_database(host, port, user, password, dbname):
         AND readable = TRUE
     """
     treshold = int(time.time()) - 60 * 60 * 12
-    bigbrotr.execute(query, (treshold,))
-    rows = bigbrotr.fetchall()
-    bigbrotr.close()
+    brotr.execute(query, (treshold,))
+    rows = brotr.fetchall()
+    brotr.close()
     relays = []
     for row in rows:
         relay_url = row[0].strip()
@@ -166,10 +166,10 @@ def thread_foo(config, shared_queue, end_time):
     async def run_with_timeout(config, relay, end_time):
         try:
             await asyncio.sleep(random.randint(0, 120))
-            bigbrotr = Bigbrotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
-            start_time = get_start_time(config["start"], bigbrotr, relay)
+            brotr = Brotr(config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
+            start_time = get_start_time(config["start"], brotr, relay)
             await asyncio.wait_for(
-                process_relay(config, relay, bigbrotr, start_time, end_time),
+                process_relay(config, relay, brotr, start_time, end_time),
                 timeout=60 * 30
             )
         except asyncio.TimeoutError:

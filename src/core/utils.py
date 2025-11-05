@@ -1,4 +1,4 @@
-from bigbrotr import Bigbrotr
+from brotr import Brotr
 from aiohttp import ClientSession, WSMsgType
 from aiohttp_socks import ProxyConnector
 
@@ -11,7 +11,7 @@ def chunkify(lst, n):
 def test_database_connection(host, port, user, password, dbname, logging=None):
     db = None
     try:
-        db = Bigbrotr(host, port, user, password, dbname)
+        db = Brotr(host, port, user, password, dbname)
         db.connect()
         if logging:
             logging.info("✅ Database connection successful.")
@@ -79,7 +79,7 @@ async def test_torproxy_connection(host, port, timeout=10, logging=None):
 
 import time
 import logging
-from bigbrotr import Bigbrotr
+from brotr import Brotr
 from nostr_tools import Event, Client, Filter
 
 
@@ -89,7 +89,7 @@ logging.basicConfig(
 )
 
 
-def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
+def get_start_time(default_start_time, brotr, relay, retries=5, delay=30):
     """Get the starting timestamp for event synchronization from database."""
     def get_max_seen_at():
         query = """
@@ -97,8 +97,8 @@ def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
             FROM events_relays
             WHERE relay_url = %s
         """
-        bigbrotr.execute(query, (relay.url,))
-        return bigbrotr.fetchone()[0]
+        brotr.execute(query, (relay.url,))
+        return brotr.fetchone()[0]
 
     def get_event_id(max_seen_at):
         query = """
@@ -107,8 +107,8 @@ def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
             WHERE relay_url = %s AND seen_at = %s
             LIMIT 1
         """
-        bigbrotr.execute(query, (relay.url, max_seen_at))
-        return bigbrotr.fetchone()[0]
+        brotr.execute(query, (relay.url, max_seen_at))
+        return brotr.fetchone()[0]
 
     def get_created_at(event_id):
         query = """
@@ -116,8 +116,8 @@ def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
             FROM events
             WHERE id = %s
         """
-        bigbrotr.execute(query, (event_id,))
-        return bigbrotr.fetchone()[0]
+        brotr.execute(query, (event_id,))
+        return brotr.fetchone()[0]
 
     max_seen_at_todo = True
     max_seen_at = None
@@ -125,7 +125,7 @@ def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
     event_id = None
     created_at_todo = True
     created_at = None
-    bigbrotr.connect()
+    brotr.connect()
 
     for attempt in range(retries):
         try:
@@ -148,12 +148,12 @@ def get_start_time(default_start_time, bigbrotr, relay, retries=5, delay=30):
                 f"⚠️ Attempt {attempt + 1}/{retries} failed while getting start time for {relay.url}: {e}")
             time.sleep(delay)
 
-    bigbrotr.close()
+    brotr.close()
     raise RuntimeError(
         f"❌ Failed to get start time for {relay.url} after {retries} attempts. Last error: {e}")
 
 
-def insert_batch(bigbrotr, batch, relay, seen_at):
+def insert_batch(brotr, batch, relay, seen_at):
     """Insert batch of events into database."""
     event_batch = []
     for event_data in batch:
@@ -166,7 +166,7 @@ def insert_batch(bigbrotr, batch, relay, seen_at):
             continue
 
     if event_batch:
-        bigbrotr.insert_event_batch(event_batch, relay, seen_at)
+        brotr.insert_event_batch(event_batch, relay, seen_at)
     return len(event_batch)
 
 class RawEventBatch:
@@ -211,16 +211,16 @@ async def process_batch(client, filter):
     client.unsubscribe(subscription_id)
     return batch
     
-async def process_relay(bigbrotr: Bigbrotr, client: Client, filter: Filter):
+async def process_relay(brotr: Brotr, client: Client, filter: Filter):
     # check arguments
-    for argument, argument_type in zip([bigbrotr, client, filter], [Bigbrotr, Client, Filter]):
+    for argument, argument_type in zip([brotr, client, filter], [Brotr, Client, Filter]):
         if not isinstance(argument, argument_type):
             raise ValueError(
                 f"{argument} must be an instance of {argument_type}")
         if not argument.is_valid:
             raise ValueError(f"{argument} must be valid")
-    if bigbrotr.is_connected:
-        raise ValueError("bigbrotr must be disconnected")
+    if brotr.is_connected:
+        raise ValueError("brotr must be disconnected")
     if client.is_connected:
         raise ValueError("client must be disconnected")
     if filter.since is None or filter.until is None:
@@ -228,7 +228,7 @@ async def process_relay(bigbrotr: Bigbrotr, client: Client, filter: Filter):
     if filter.limit is None:
         raise ValueError("filter must have limit")
     # logic
-    async with bigbrotr:
+    async with brotr:
         async with client:
             until_stack = [filter.until]
             while until_stack:
@@ -241,7 +241,7 @@ async def process_relay(bigbrotr: Bigbrotr, client: Client, filter: Filter):
                     filter.since = filter.until + 1
                 elif filter.since == filter.until:
                      # events found AND [since, until] is one timestamp interval -> interval [since, until] done
-                    insert_batch(bigbrotr, first_batch.raw_events, client.relay, int(time.time()))
+                    insert_batch(brotr, first_batch.raw_events, client.relay, int(time.time()))
                     until_stack.pop(0)
                     filter.since = filter.until + 1
                 else:
@@ -265,7 +265,7 @@ async def process_relay(bigbrotr: Bigbrotr, client: Client, filter: Filter):
                             # no events found -> all events [filter.since, until_stack[0]] fetched -> add fetched events to db
                             batch = [rew_event for rew_event in first_batch.raw_events if rew_event.created_at != first_batch.min_created_at]
                             batch.extend(second_batch.raw_events)
-                            insert_batch(bigbrotr, batch, client.relay, int(time.time()))
+                            insert_batch(brotr, batch, client.relay, int(time.time()))
                             filter.since = until_stack.pop(0) + 1
                         else:
                             # events found -> not all events fetched -> add mid point to stack

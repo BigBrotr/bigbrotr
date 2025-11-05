@@ -5,9 +5,9 @@ import json
 import time
 
 
-class Bigbrotr:
+class Brotr:
     """
-    Class to connect to and interact with the Bigbrotr database.
+    Class to connect to and interact with the Brotr database.
 
     Attributes:
     - host (str): database host
@@ -39,20 +39,20 @@ class Bigbrotr:
     >>> port = 5432
     >>> user = "admin"
     >>> password = "admin"
-    >>> dbname = "bigbrotr"
-    >>> bigbrotr = Bigbrotr(host, port, user, password, dbname)
-    >>> bigbrotr.connect()
+    >>> dbname = "brotr"
+    >>> brotr = Brotr(host, port, user, password, dbname)
+    >>> brotr.connect()
     >>> query = "SELECT * FROM events"
-    >>> bigbrotr.execute(query)
-    >>> results = bigbrotr.fetchall()
+    >>> brotr.execute(query)
+    >>> results = brotr.fetchall()
     >>> for row in results:
     >>>     print(row)
-    >>> bigbrotr.close()
+    >>> brotr.close()
     """
 
     def __init__(self, host: str, port: int, user: str, password: str, dbname: str):
         """
-        Initialize a Bigbrotr object.
+        Initialize a Brotr object.
 
         Parameters:
         - host: str, the host of the database
@@ -66,11 +66,11 @@ class Bigbrotr:
         >>> port = 5432
         >>> user = "admin"
         >>> password = "admin"
-        >>> dbname = "bigbrotr"
-        >>> bigbrotr = Bigbrotr(host, port, user, password, dbname)
+        >>> dbname = "brotr"
+        >>> brotr = Brotr(host, port, user, password, dbname)
 
         Returns:
-        - Bigbrotr, a Bigbrotr object
+        - Brotr, a Brotr object
 
         Raises:
         - TypeError: if host is not a str
@@ -103,7 +103,7 @@ class Bigbrotr:
         Connect to the database.
 
         Example:
-        >>> bigbrotr.connect()
+        >>> brotr.connect()
 
         Returns:
         - None
@@ -126,7 +126,7 @@ class Bigbrotr:
         Close the connection to the database.
 
         Example:
-        >>> bigbrotr.close()
+        >>> brotr.close()
 
         Returns:
         - None
@@ -143,7 +143,7 @@ class Bigbrotr:
         Commit the transaction.
 
         Example:
-        >>> bigbrotr.commit()
+        >>> brotr.commit()
 
         Returns:
         - None
@@ -164,7 +164,7 @@ class Bigbrotr:
 
         Example:
         >>> query = "SELECT * FROM events"
-        >>> bigbrotr.execute(query)
+        >>> brotr.execute(query)
 
         Returns:
         - None
@@ -195,7 +195,7 @@ class Bigbrotr:
         Example:
         >>> query = "INSERT INTO events (id, pubkey) VALUES (%s, %s)"
         >>> args = [(1, 'pubkey1'), (2, 'pubkey2')]
-        >>> bigbrotr.executemany(query, args)
+        >>> brotr.executemany(query, args)
 
         Returns:
         - None
@@ -220,7 +220,7 @@ class Bigbrotr:
         Fetch all the results of the query.
 
         Example:
-        >>> bigbrotr.fetchall()
+        >>> brotr.fetchall()
 
         Returns:
         - List[Tuple], a list of tuples
@@ -235,7 +235,7 @@ class Bigbrotr:
         Fetch one result of the query.
 
         Example:
-        >>> bigbrotr.fetchone()
+        >>> brotr.fetchone()
 
         Returns:
         - Tuple, a tuple
@@ -254,7 +254,7 @@ class Bigbrotr:
 
         Example:
         >>> size = 5
-        >>> bigbrotr.fetchmany(size)
+        >>> brotr.fetchmany(size)
 
         Returns:
         - List[Tuple], a list of tuples
@@ -274,7 +274,7 @@ class Bigbrotr:
         - None
 
         Example:
-        >>> bigbrotr.delete_orphan_events()
+        >>> brotr.delete_orphan_events()
 
         Returns:
         - None
@@ -300,7 +300,7 @@ class Bigbrotr:
         >>> event = Event(...)
         >>> relay = Relay(...)
         >>> seen_at = 1234567890
-        >>> bigbrotr.insert_event(event, relay, seen_at)
+        >>> brotr.insert_event(event, relay, seen_at)
 
         Returns:
         - None
@@ -350,7 +350,7 @@ class Bigbrotr:
 
         Example:
         >>> relay = Relay(url="wss://relay.nostr.com")
-        >>> bigbrotr.insert_relay(relay)
+        >>> brotr.insert_relay(relay)
 
         Returns:
         - None
@@ -388,7 +388,7 @@ class Bigbrotr:
 
         Example:
         >>> relay_metadata = RelayMetadata(...)
-        >>> bigbrotr.insert_relay_metadata(relay_metadata)
+        >>> brotr.insert_relay_metadata(relay_metadata)
 
         Returns:
         - None
@@ -454,7 +454,7 @@ class Bigbrotr:
         >>> events = [Event(...), Event(...)]
         >>> relay = Relay(...)
         >>> seen_at = 1234567890
-        >>> bigbrotr.insert_event_batch(events, relay, seen_at)
+        >>> brotr.insert_event_batch(events, relay, seen_at)
 
         Returns:
         - None
@@ -511,7 +511,7 @@ class Bigbrotr:
 
         Example:
         >>> relays = [Relay(url="wss://relay1.com"), Relay(url="wss://relay2.com")]
-        >>> bigbrotr.insert_relay_batch(relays)
+        >>> brotr.insert_relay_batch(relays)
 
         Returns:
         - None
@@ -556,7 +556,7 @@ class Bigbrotr:
 
         Example:
         >>> relay_metadata_list = [RelayMetadata(...), RelayMetadata(...)]
-        >>> bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
+        >>> brotr.insert_relay_metadata_batch(relay_metadata_list)
 
         Returns:
         - None

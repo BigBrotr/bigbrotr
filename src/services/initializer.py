@@ -2,7 +2,7 @@ import os
 import sys
 import time
 import logging
-from bigbrotr import Bigbrotr
+from brotr import Brotr
 from nostr_tools import Relay
 from functions import test_database_connection
 
@@ -54,7 +54,7 @@ def insert_relays(config):
                 logging.warning(
                     f"⚠️ Invalid relay URL skipped: {raw_url}. Reason: {e}")
         if relays:
-            db = Bigbrotr(config["dbhost"], config["dbport"],
+            db = Brotr(config["dbhost"], config["dbport"],
                           config["dbuser"], config["dbpass"], config["dbname"])
             db.connect()
             db.insert_relay_batch(relays, int(time.time()))

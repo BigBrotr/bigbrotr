@@ -4,7 +4,7 @@ import time
 import asyncio
 import logging
 from nostr_tools import Relay, validate_keypair, Client, fetch_relay_metadata
-from bigbrotr import Bigbrotr
+from brotr import Brotr
 from multiprocessing import Pool, cpu_count
 from functions import chunkify, test_database_connection, test_torproxy_connection
 
@@ -133,11 +133,11 @@ async def process_chunk(chunk, config, generated_at):
     tasks = [sem_task(relay) for relay in chunk]
     results = await asyncio.gather(*tasks)
     relay_metadata_list = [r for r in results if r is not None]
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
+    brotr = Brotr(config["dbhost"], config["dbport"],
                         config["dbuser"], config["dbpass"], config["dbname"])
-    bigbrotr.connect()
-    bigbrotr.insert_relay_metadata_batch(relay_metadata_list)
-    bigbrotr.close()
+    brotr.connect()
+    brotr.insert_relay_metadata_batch(relay_metadata_list)
+    brotr.close()
     logging.info(
         f"✅ Processed {len(chunk)} relays. Found {len(relay_metadata_list)} valid relay metadata.")
     return
@@ -157,9 +157,9 @@ def worker(chunk, config, generated_at):
 
 # --- Fetch Relays from Database ---
 def fetch_relays(config):
-    bigbrotr = Bigbrotr(config["dbhost"], config["dbport"],
+    brotr = Brotr(config["dbhost"], config["dbport"],
                         config["dbuser"], config["dbpass"], config["dbname"])
-    bigbrotr.connect()
+    brotr.connect()
     logging.info("📦 Fetching relays from database...")
     query = f"""
     SELECT r.url
@@ -173,9 +173,9 @@ def fetch_relays(config):
     OR rm.last_generated_at < %s
     """
     threshold = int(time.time()) - 60 * 60 * config["frequency_hour"]
-    bigbrotr.execute(query, (threshold,))
-    rows = bigbrotr.fetchall()
-    bigbrotr.close()
+    brotr.execute(query, (threshold,))
+    rows = brotr.fetchall()
+    brotr.close()
     relays = []
     for row in rows:
         try:
