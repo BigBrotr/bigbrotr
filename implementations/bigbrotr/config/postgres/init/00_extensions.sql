@@ -6,7 +6,10 @@
 -- Dependencies: None
 -- ============================================================================
 
--- Enable GIN indexing on btree-compatible types (used for JSONB + scalar indexes)
+-- Extension: btree_gin
+-- Purpose: Enables GIN (Generalized Inverted Index) support for btree-comparable types
+-- Usage: Required for efficient array containment queries on events.tagvalues column
+-- Note: Powers the idx_events_tagvalues index for fast tag-based event filtering
 CREATE EXTENSION IF NOT EXISTS "btree_gin";
 
 -- ============================================================================

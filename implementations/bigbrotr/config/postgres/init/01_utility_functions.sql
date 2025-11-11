@@ -26,6 +26,8 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION tags_to_tagvalues(JSONB) IS 'Extracts single-character tag keys and values from JSONB array for efficient GIN indexing';
+
 -- Function: compute_nip11_hash
 -- Description: Computes deterministic hash for NIP-11 data
 -- Purpose: Enables deduplication of identical NIP-11 records
@@ -76,6 +78,8 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION compute_nip11_hash(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB, TEXT, TEXT, TEXT, TEXT, JSONB, JSONB) IS 'Computes SHA-256 hash of NIP-11 data for content-based deduplication';
+
 -- Function: compute_nip66_hash
 -- Description: Computes deterministic hash for NIP-66 data
 -- Purpose: Enables deduplication of identical NIP-66 records
@@ -111,6 +115,8 @@ BEGIN
     );
 END;
 $$;
+
+COMMENT ON FUNCTION compute_nip66_hash(BOOLEAN, BOOLEAN, BOOLEAN, INTEGER, INTEGER, INTEGER) IS 'Computes SHA-256 hash of NIP-66 test results for content-based deduplication';
 
 -- ============================================================================
 -- UTILITY FUNCTIONS CREATED

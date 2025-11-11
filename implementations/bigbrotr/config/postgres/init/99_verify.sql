@@ -17,6 +17,6 @@ BEGIN
     RAISE NOTICE 'Hash functions: compute_nip11_hash, compute_nip66_hash';
     RAISE NOTICE 'Utility functions: tags_to_tagvalues, delete_orphan_*';
     RAISE NOTICE 'Procedures: insert_event, insert_relay, insert_relay_metadata';
-    RAISE NOTICE 'Views: relay_metadata_latest, readable_relays';
+    RAISE NOTICE 'Views: relay_metadata_latest, readable_relays, relay_last_event_timestamp';
     RAISE NOTICE '============================================================================';
 END $$;
