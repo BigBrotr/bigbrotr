@@ -11,11 +11,11 @@
 -- Purpose: Optimize common query patterns for event retrieval
 -- ============================================================================
 
--- Index: idx_events_pubkey
--- Purpose: Fast lookups by author public key (user timeline queries)
--- Usage: WHERE pubkey = ? ORDER BY created_at DESC
-CREATE INDEX IF NOT EXISTS idx_events_pubkey
-    ON events USING btree (pubkey);
+-- Index: idx_events_pubkey (REMOVED - Redundant)
+-- This index is covered by idx_events_pubkey_created_at
+-- Keeping the composite index provides better performance for ORDER BY queries
+-- CREATE INDEX IF NOT EXISTS idx_events_pubkey
+--     ON events USING btree (pubkey);
 
 -- Index: idx_events_created_at
 -- Purpose: Fast retrieval of recent events (global timeline queries)
@@ -40,6 +40,13 @@ CREATE INDEX IF NOT EXISTS idx_events_kind_created_at
 -- Usage: WHERE pubkey = ? ORDER BY created_at DESC
 CREATE INDEX IF NOT EXISTS idx_events_pubkey_created_at
     ON events USING btree (pubkey, created_at DESC);
+
+-- Index: idx_events_pubkey_kind_created_at
+-- Purpose: Efficient queries filtering by both author and event type
+-- Usage: WHERE pubkey = ? AND kind = ? ORDER BY created_at DESC
+-- Note: Critical for user-specific event type queries (e.g., user's text notes only)
+CREATE INDEX IF NOT EXISTS idx_events_pubkey_kind_created_at
+    ON events USING btree (pubkey, kind, created_at DESC);
 
 -- Index: idx_events_tagvalues
 -- Purpose: Fast tag-based queries using GIN index on computed tagvalues array
@@ -112,11 +119,11 @@ CREATE INDEX IF NOT EXISTS idx_nip66_writable
 -- Purpose: Optimize metadata history and snapshot queries
 -- ============================================================================
 
--- Index: idx_relay_metadata_relay_url
--- Purpose: Find all metadata snapshots for a specific relay
--- Usage: WHERE relay_url = ? (relay history queries)
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url
-    ON relay_metadata USING btree (relay_url);
+-- Index: idx_relay_metadata_relay_url (REMOVED - Redundant)
+-- This index is covered by idx_relay_metadata_url_generated
+-- The composite index provides better performance for both filtering and ordering
+-- CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url
+--     ON relay_metadata USING btree (relay_url);
 
 -- Index: idx_relay_metadata_generated_at
 -- Purpose: Find most recent metadata snapshots across all relays

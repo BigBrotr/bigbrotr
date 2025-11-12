@@ -323,7 +323,8 @@ class Brotr:
         else:
             seen_at = int(time.time())
         relay_inserted_at = seen_at
-        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)"
+        # Convert hex strings to bytea using decode function
+        query = "SELECT insert_event(decode(%s, 'hex'), decode(%s, 'hex'), %s, %s, %s::jsonb, %s, decode(%s, 'hex'), %s, %s, %s, %s)"
         args = (
             event.id,
             event.pubkey,
@@ -481,7 +482,8 @@ class Brotr:
         else:
             seen_at = int(time.time())
         relay_inserted_at = seen_at
-        query = "SELECT insert_event(%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)"
+        # Convert hex strings to bytea using decode function
+        query = "SELECT insert_event(decode(%s, 'hex'), decode(%s, 'hex'), %s, %s, %s::jsonb, %s, decode(%s, 'hex'), %s, %s, %s, %s)"
         args = [
             (
                 event.id,

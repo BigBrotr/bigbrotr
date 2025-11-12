@@ -22,33 +22,33 @@ COMMENT ON COLUMN relays.inserted_at IS 'Unix timestamp when relay was first dis
 
 -- Table: events
 -- Description: Stores all Nostr events with computed tag index
--- Notes: Uses generated column for efficient tag searching
+-- Notes: Uses BYTEA for efficient storage (50% space savings vs CHAR)
 CREATE TABLE IF NOT EXISTS events (
-    id          CHAR(64)    PRIMARY KEY,
-    pubkey      CHAR(64)    NOT NULL,
+    id          BYTEA       PRIMARY KEY,
+    pubkey      BYTEA       NOT NULL,
     created_at  BIGINT      NOT NULL,
     kind        INTEGER     NOT NULL,
     tags        JSONB       NOT NULL,
     tagvalues   TEXT[]      GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED,
     content     TEXT        NOT NULL,
-    sig         CHAR(128)   NOT NULL
+    sig         BYTEA       NOT NULL
 );
 
 COMMENT ON TABLE events IS 'Nostr events with cryptographic validation via nostr-tools';
-COMMENT ON COLUMN events.id IS 'SHA-256 hash of serialized event (hex-encoded, 64 chars)';
-COMMENT ON COLUMN events.pubkey IS 'Author public key (hex-encoded, 64 chars)';
+COMMENT ON COLUMN events.id IS 'SHA-256 hash of serialized event (stored as bytea from hex string)';
+COMMENT ON COLUMN events.pubkey IS 'Author public key (stored as bytea from hex string)';
 COMMENT ON COLUMN events.created_at IS 'Unix timestamp when event was created';
 COMMENT ON COLUMN events.kind IS 'Event kind per NIP-01 (0=metadata, 1=text, 3=contacts, etc.)';
 COMMENT ON COLUMN events.tags IS 'JSONB array of [key, value, ...] arrays per NIP-01';
 COMMENT ON COLUMN events.tagvalues IS 'Computed array of single-char tag values for GIN indexing';
 COMMENT ON COLUMN events.content IS 'Event content (plaintext or encrypted depending on kind)';
-COMMENT ON COLUMN events.sig IS 'Schnorr signature over event fields (hex-encoded, 128 chars)';
+COMMENT ON COLUMN events.sig IS 'Schnorr signature over event fields (stored as bytea from hex string)';
 
 -- Table: events_relays
 -- Description: Junction table tracking which events are hosted on which relays
 -- Notes: Composite PK ensures uniqueness, foreign keys ensure referential integrity
 CREATE TABLE IF NOT EXISTS events_relays (
-    event_id    CHAR(64)    NOT NULL,
+    event_id    BYTEA       NOT NULL,
     relay_url   TEXT        NOT NULL,
     seen_at     BIGINT      NOT NULL,
     PRIMARY KEY (event_id, relay_url),
@@ -66,7 +66,7 @@ COMMENT ON COLUMN events_relays.seen_at IS 'Unix timestamp when event was first 
 -- Notes: Aligned with nostr-tools RelayMetadata.Nip11 class
 -- Purpose: One NIP-11 record can be shared by multiple relays (normalized)
 CREATE TABLE IF NOT EXISTS nip11 (
-    id                      CHAR(64)    PRIMARY KEY,
+    id                      BYTEA       PRIMARY KEY,
 
     -- Basic information
     name                    TEXT,
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS nip11 (
 );
 
 COMMENT ON TABLE nip11 IS 'Deduplicated NIP-11 relay information documents (shared across relays)';
-COMMENT ON COLUMN nip11.id IS 'SHA-256 hash of NIP-11 fields (computed via compute_nip11_hash)';
+COMMENT ON COLUMN nip11.id IS 'SHA-256 hash of NIP-11 fields (stored as bytea from hex string)';
 COMMENT ON COLUMN nip11.name IS 'Relay name';
 COMMENT ON COLUMN nip11.description IS 'Relay description';
 COMMENT ON COLUMN nip11.banner IS 'URL to banner image';
@@ -113,7 +113,7 @@ COMMENT ON COLUMN nip11.extra_fields IS 'Additional custom fields from NIP-11 do
 -- Notes: Aligned with nostr-tools RelayMetadata.Nip66 class
 -- Purpose: One NIP-66 record can be referenced by multiple relay metadata snapshots
 CREATE TABLE IF NOT EXISTS nip66 (
-    id          CHAR(64)    PRIMARY KEY,
+    id          BYTEA       PRIMARY KEY,
 
     -- Connection capabilities
     openable    BOOLEAN     NOT NULL,
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS nip66 (
 );
 
 COMMENT ON TABLE nip66 IS 'Deduplicated NIP-66 connection test results (shared across snapshots)';
-COMMENT ON COLUMN nip66.id IS 'SHA-256 hash of NIP-66 fields (computed via compute_nip66_hash)';
+COMMENT ON COLUMN nip66.id IS 'SHA-256 hash of NIP-66 fields (stored as bytea from hex string)';
 COMMENT ON COLUMN nip66.openable IS 'Whether relay accepts WebSocket connections';
 COMMENT ON COLUMN nip66.readable IS 'Whether relay allows REQ subscriptions';
 COMMENT ON COLUMN nip66.writable IS 'Whether relay accepts EVENT messages';
@@ -142,8 +142,8 @@ COMMENT ON COLUMN nip66.rtt_write IS 'Round-trip time for EVENT/OK cycle (ms)';
 CREATE TABLE IF NOT EXISTS relay_metadata (
     relay_url       TEXT        NOT NULL,
     generated_at    BIGINT      NOT NULL,
-    nip11_id        CHAR(64),
-    nip66_id        CHAR(64),
+    nip11_id        BYTEA,
+    nip66_id        BYTEA,
 
     -- Constraints
     PRIMARY KEY (relay_url, generated_at),
