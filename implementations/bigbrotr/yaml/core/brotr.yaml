@@ -1,0 +1,56 @@
+# ============================================================================
+# Brotr - Unified Configuration
+# ============================================================================
+# Description: Complete configuration for Brotr database interface
+# Used by: src/core/brotr.py (Brotr class)
+# ============================================================================
+
+# Connection pool configuration
+pool:
+  # Database connection parameters
+  database:
+    host: localhost
+    port: 5432
+    database: brotr
+    user: admin
+    # password: loaded from environment variable DB_PASSWORD
+
+  # Connection pool size and resource limits
+  limits:
+    min_size: 5              # Minimum number of connections in the pool
+    max_size: 20             # Maximum number of connections in the pool
+    max_queries: 50000       # Max queries per connection before recycling
+    max_inactive_connection_lifetime: 300.0  # Seconds before idle connection is closed
+
+  # Pool-level timeouts
+  timeouts:
+    acquisition: 10.0        # Timeout for acquiring connection from pool (seconds)
+
+  # Retry logic for connection failures
+  retry:
+    max_attempts: 3          # Maximum connection retry attempts
+    initial_delay: 1.0       # Initial delay between retries (seconds)
+    max_delay: 10.0          # Maximum delay between retries (seconds)
+    exponential_backoff: true # Use exponential backoff for retries
+
+# Batch operation settings
+batch:
+  default_batch_size: 100   # Default size for batch operations
+  max_batch_size: 1000      # Maximum batch size to prevent memory issues
+
+# Stored procedures configuration
+procedures:
+  # Insert operations
+  insert_event: insert_event
+  insert_relay: insert_relay
+  insert_relay_metadata: insert_relay_metadata
+  # Cleanup operations
+  delete_orphan_events: delete_orphan_events
+  delete_orphan_nip11: delete_orphan_nip11
+  delete_orphan_nip66: delete_orphan_nip66
+
+# Query timeouts for different operation types
+timeouts:
+  query: 60.0               # Timeout for standard queries (seconds)
+  procedure: 90.0           # Timeout for stored procedure calls (seconds)
+  batch: 120.0              # Timeout for batch operations (seconds)
