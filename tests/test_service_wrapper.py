@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from core.pool import ConnectionPool
 from core.brotr import Brotr
@@ -65,15 +65,8 @@ async def test_service_with_brotr():
     print("Testing Service Wrapper with Brotr")
     print("=" * 70)
 
-    # Create Brotr instance
-    brotr = Brotr(
-        host="localhost",
-        database="brotr",
-        user="admin",
-        min_size=5,
-        max_size=20,
-        default_batch_size=100,
-    )
+    # Create Brotr instance (using default pool)
+    brotr = Brotr(max_batch_size=10000)
 
     # Wrap in Service
     config = ServiceConfig(
@@ -90,11 +83,11 @@ async def test_service_with_brotr():
     print(f"\n2. Access Brotr through service:")
     print(f"   - service.instance → {type(service.instance).__name__}")
     print(f"   - service.instance.pool → {type(service.instance.pool).__name__}")
-    print(f"   - service.instance.config.batch.default_batch_size → {brotr.config.batch.default_batch_size}")
+    print(f"   - service.instance.config.batch.max_batch_size → {brotr.config.batch.max_batch_size}")
 
     print(f"\n3. Service provides unified interface:")
     print(f"   - await service.start() → Starts Brotr and pool")
-    print(f"   - await service.instance.insert_event(...) → Use Brotr methods")
+    print(f"   - await service.instance.insert_events([...]) → Use Brotr methods")
     print(f"   - await service.health_check() → Check if Brotr is healthy")
     print(f"   - service.get_stats() → Get runtime statistics")
 
@@ -111,17 +104,17 @@ async def test_service_stats():
     service = Service(pool, name="test_pool")
 
     # Get initial stats
-    stats = service.get_stats()
+    stats = await service.get_stats()
     print(f"\n1. Initial stats:")
     print(f"   Name: {stats['name']}")
     print(f"   Started at: {stats['started_at']}")
     print(f"   Health checks: {stats['health_checks']}")
 
     # Update custom stats
-    service.update_custom_stats("queries_executed", 42)
-    service.update_custom_stats("errors_count", 0)
+    await service.update_custom_stats("queries_executed", 42)
+    await service.update_custom_stats("errors_count", 0)
 
-    stats = service.get_stats()
+    stats = await service.get_stats()
     print(f"\n2. After adding custom stats:")
     print(f"   Custom stats: {stats['custom']}")
 
@@ -137,7 +130,7 @@ async def test_multiple_services():
     # Create multiple services
     pool1 = ConnectionPool(host="localhost", port=5432, database="db1", user="admin")
     pool2 = ConnectionPool(host="localhost", port=5432, database="db2", user="admin")
-    brotr = Brotr(host="localhost", database="brotr", user="admin")
+    brotr = Brotr(max_batch_size=10000)
 
     # Wrap each in Service
     services = [
@@ -153,7 +146,7 @@ async def test_multiple_services():
     print(f"\n2. All services can be managed uniformly:")
     print(f"   - await asyncio.gather(*[s.start() for s in services])")
     print(f"   - health_checks = await asyncio.gather(*[s.health_check() for s in services])")
-    print(f"   - stats = [s.get_stats() for s in services]")
+    print(f"   - stats = await asyncio.gather(*[s.get_stats() for s in services])")
     print(f"   - await asyncio.gather(*[s.stop() for s in services])")
 
     print(f"\n3. Context manager for all services:")

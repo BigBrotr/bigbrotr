@@ -35,7 +35,6 @@ pool:
 
 # Batch operation settings
 batch:
-  default_batch_size: 100   # Default size for batch operations
   max_batch_size: 1000      # Maximum batch size to prevent memory issues
 
 # Stored procedures configuration

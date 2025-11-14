@@ -7,8 +7,9 @@ PGBouncer compatibility, and configuration validation via Pydantic.
 
 import asyncio
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncContextManager, Dict, Optional
+from typing import Any, AsyncContextManager, AsyncIterator, Dict, Optional
 
 import asyncpg
 import yaml
@@ -293,6 +294,7 @@ class ConnectionPool:
         self._config = ConnectionPoolConfig(**config_dict)
         self._pool: Optional[asyncpg.Pool] = None
         self._is_connected: bool = False
+        self._connection_lock = asyncio.Lock()  # Protect connection state changes
 
     @classmethod
     def from_yaml(cls, yaml_path: str) -> "ConnectionPool":
@@ -385,60 +387,70 @@ class ConnectionPool:
         Raises:
             ConnectionError: If all retry attempts fail
         """
-        if self._is_connected:
-            return
-
-        attempt = 0
-        delay = self._config.retry.initial_delay
-
-        while attempt < self._config.retry.max_attempts:
-            try:
-                # Create asyncpg pool with configuration
-                # Note: 'timeout' here is for pool.acquire() only
-                # Operation timeouts are controlled by the caller via asyncpg method parameters
-                self._pool = await asyncpg.create_pool(
-                    # Connection parameters
-                    host=self._config.database.host,
-                    port=self._config.database.port,
-                    database=self._config.database.database,
-                    user=self._config.database.user,
-                    password=self._config.database.password,
-                    # Pool resource limits
-                    min_size=self._config.limits.min_size,
-                    max_size=self._config.limits.max_size,
-                    max_queries=self._config.limits.max_queries,
-                    max_inactive_connection_lifetime=self._config.limits.max_inactive_connection_lifetime,
-                    # Pool acquisition timeout
-                    timeout=self._config.timeouts.acquisition,
-                    # Server settings
-                    server_settings={
-                        "application_name": self._config.server_settings.application_name,
-                        "timezone": self._config.server_settings.timezone,
-                    },
-                )
-                self._is_connected = True
+        async with self._connection_lock:
+            if self._is_connected:
                 return
 
-            except (asyncpg.PostgresError, OSError, ConnectionError) as e:
-                attempt += 1
-                if attempt >= self._config.retry.max_attempts:
-                    raise ConnectionError(
-                        f"Failed to connect to database after {self._config.retry.max_attempts} attempts: {e}"
-                    ) from e
+            attempt = 0
+            delay = self._config.retry.initial_delay
 
-                await asyncio.sleep(delay)
+            while attempt < self._config.retry.max_attempts:
+                try:
+                    # Create asyncpg pool with configuration
+                    # Note: 'timeout' here is for pool.acquire() only
+                    # Operation timeouts are controlled by the caller via asyncpg method parameters
+                    self._pool = await asyncpg.create_pool(
+                        # Connection parameters
+                        host=self._config.database.host,
+                        port=self._config.database.port,
+                        database=self._config.database.database,
+                        user=self._config.database.user,
+                        password=self._config.database.password,
+                        # Pool resource limits
+                        min_size=self._config.limits.min_size,
+                        max_size=self._config.limits.max_size,
+                        max_queries=self._config.limits.max_queries,
+                        max_inactive_connection_lifetime=self._config.limits.max_inactive_connection_lifetime,
+                        # Pool acquisition timeout
+                        timeout=self._config.timeouts.acquisition,
+                        # Server settings
+                        server_settings={
+                            "application_name": self._config.server_settings.application_name,
+                            "timezone": self._config.server_settings.timezone,
+                        },
+                    )
+                    self._is_connected = True
+                    return
 
-                if self._config.retry.exponential_backoff:
-                    delay = min(delay * 2, self._config.retry.max_delay)
-                else:
-                    delay = min(delay + self._config.retry.initial_delay, self._config.retry.max_delay)
+                except (asyncpg.PostgresError, OSError, ConnectionError) as e:
+                    attempt += 1
+                    if attempt >= self._config.retry.max_attempts:
+                        raise ConnectionError(
+                            f"Failed to connect to database after {self._config.retry.max_attempts} attempts: {e}"
+                        ) from e
+
+                    await asyncio.sleep(delay)
+
+                    if self._config.retry.exponential_backoff:
+                        delay = min(delay * 2, self._config.retry.max_delay)
+                    else:
+                        delay = min(delay + self._config.retry.initial_delay, self._config.retry.max_delay)
 
     async def close(self) -> None:
-        """Close connection pool and release all resources."""
-        if self._pool is not None:
-            await self._pool.close()
-            self._pool = None
-            self._is_connected = False
+        """
+        Close connection pool and release all resources.
+
+        Note: Even if pool.close() raises an exception, we still mark
+        the pool as disconnected to prevent further operations.
+        """
+        async with self._connection_lock:
+            if self._pool is not None:
+                try:
+                    await self._pool.close()
+                finally:
+                    # Always cleanup state, even if close() fails
+                    self._pool = None
+                    self._is_connected = False
 
     def acquire(self) -> AsyncContextManager[asyncpg.Connection]:
         """
@@ -457,6 +469,37 @@ class ConnectionPool:
         if not self._is_connected or self._pool is None:
             raise RuntimeError("Connection pool is not connected. Call connect() first.")
         return self._pool.acquire()
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[asyncpg.Connection]:
+        """
+        Acquire connection with automatic transaction management.
+
+        Provides a connection within a transaction context. The transaction
+        automatically commits on success or rolls back on exception.
+
+        Yields:
+            Connection within transaction context
+
+        Raises:
+            RuntimeError: If pool is not connected
+            asyncpg.PostgresError: If database operation fails
+
+        Example:
+            async with pool.transaction() as conn:
+                await conn.execute("INSERT INTO events ...")
+                await conn.execute("UPDATE relays ...")
+                # Commits automatically on success
+                # Rolls back automatically on exception
+
+        Note:
+            This is a convenience method that combines acquire() and transaction().
+            For operations that don't need atomicity, use acquire() or the
+            high-level methods (fetch, execute, etc.) directly.
+        """
+        async with self.acquire() as conn:
+            async with conn.transaction():
+                yield conn
 
     async def fetch(self, query: str, *args, timeout: Optional[float] = None) -> list:
         """
@@ -548,7 +591,15 @@ class ConnectionPool:
 
     @property
     def is_connected(self) -> bool:
-        """Check if pool is connected."""
+        """
+        Check if pool is connected.
+
+        Note: This property reads _is_connected without acquiring the lock
+        to maintain synchronous API. While connect() and close() operations
+        are thread-safe, there's a small window where this property might
+        return a stale value during concurrent connect/close operations.
+        For critical checks, call connect() first (idempotent).
+        """
         return self._is_connected
 
     @property
