@@ -1,0 +1,278 @@
+# ============================================================================
+# BigBrotr Docker Compose Configuration
+# ============================================================================
+# Description: Complete containerized deployment for BigBrotr
+# Components: PostgreSQL, PGBouncer (optional), Tor (optional)
+# Usage: docker-compose up -d
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL Database
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: bigbrotr-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: brotr
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      PGDATA: /var/lib/postgresql/data/pgdata
+
+    volumes:
+      # Persistent data storage
+      - postgres_data:/var/lib/postgresql/data
+
+      # SQL initialization scripts (applied in alphabetical order)
+      - ./postgres/init/00_extensions.sql:/docker-entrypoint-initdb.d/00_extensions.sql:ro
+      - ./postgres/init/01_utility_functions.sql:/docker-entrypoint-initdb.d/01_utility_functions.sql:ro
+      - ./postgres/init/02_tables.sql:/docker-entrypoint-initdb.d/02_tables.sql:ro
+      - ./postgres/init/03_indexes.sql:/docker-entrypoint-initdb.d/03_indexes.sql:ro
+      - ./postgres/init/04_integrity_functions.sql:/docker-entrypoint-initdb.d/04_integrity_functions.sql:ro
+      - ./postgres/init/05_procedures.sql:/docker-entrypoint-initdb.d/05_procedures.sql:ro
+      - ./postgres/init/06_views.sql:/docker-entrypoint-initdb.d/06_views.sql:ro
+      - ./postgres/init/99_verify.sql:/docker-entrypoint-initdb.d/99_verify.sql:ro
+
+      # Custom PostgreSQL configuration (optional)
+      # - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+
+    ports:
+      - "5432:5432"
+
+    networks:
+      - bigbrotr-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d brotr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+    # Performance tuning
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=1GB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=2621kB"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "max_worker_processes=4"
+      - "-c"
+      - "max_parallel_workers_per_gather=2"
+      - "-c"
+      - "max_parallel_workers=4"
+      - "-c"
+      - "max_parallel_maintenance_workers=2"
+
+  # --------------------------------------------------------------------------
+  # PGBouncer (Connection Pooler) - OPTIONAL
+  # --------------------------------------------------------------------------
+  # Uncomment if you need connection pooling between application and PostgreSQL
+  # Useful for high-concurrency scenarios
+
+  # pgbouncer:
+  #   image: pgbouncer/pgbouncer:latest
+  #   container_name: bigbrotr-pgbouncer
+  #   restart: unless-stopped
+  #
+  #   environment:
+  #     DATABASES_HOST: postgres
+  #     DATABASES_PORT: 5432
+  #     DATABASES_USER: admin
+  #     DATABASES_PASSWORD: ${DB_PASSWORD}
+  #     DATABASES_DBNAME: brotr
+  #     PGBOUNCER_POOL_MODE: transaction
+  #     PGBOUNCER_MAX_CLIENT_CONN: 1000
+  #     PGBOUNCER_DEFAULT_POOL_SIZE: 25
+  #
+  #   ports:
+  #     - "6432:6432"
+  #
+  #   networks:
+  #     - bigbrotr-network
+  #
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "psql -h localhost -p 6432 -U admin -d brotr -c 'SELECT 1'"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 3
+
+  # --------------------------------------------------------------------------
+  # Tor Proxy (SOCKS5) - OPTIONAL
+  # --------------------------------------------------------------------------
+  # Uncomment if you need Tor support for .onion relays
+
+  # tor:
+  #   image: goldy/tor-hidden-service:latest
+  #   container_name: bigbrotr-tor
+  #   restart: unless-stopped
+  #
+  #   ports:
+  #     - "9050:9050"  # SOCKS5 proxy port
+  #     - "9051:9051"  # Control port
+  #
+  #   networks:
+  #     - bigbrotr-network
+  #
+  #   volumes:
+  #     - tor_data:/var/lib/tor
+  #
+  #   environment:
+  #     # Tor configuration
+  #     TOR_SOCKS_PORT: 9050
+  #     TOR_CONTROL_PORT: 9051
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -x socks5h://localhost:9050 https://check.torproject.org/api/ip || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 15s
+
+  # --------------------------------------------------------------------------
+  # BigBrotr Application (PENDING - Service Layer Not Implemented)
+  # --------------------------------------------------------------------------
+  # Uncomment when service layer is implemented
+
+  # bigbrotr:
+  #   build:
+  #     context: ../../
+  #     dockerfile: implementations/bigbrotr/Dockerfile
+  #   container_name: bigbrotr-app
+  #   restart: unless-stopped
+  #
+  #   environment:
+  #     # Database connection
+  #     DB_HOST: postgres
+  #     DB_PORT: 5432
+  #     DB_NAME: brotr
+  #     DB_USER: admin
+  #     DB_PASSWORD: ${DB_PASSWORD}
+  #
+  #     # Optional: Tor proxy
+  #     # SOCKS5_PROXY_URL: socks5://tor:9050
+  #
+  #     # Application config
+  #     ENVIRONMENT: production
+  #     LOG_LEVEL: INFO
+  #
+  #   volumes:
+  #     # Mount configuration files
+  #     - ./yaml:/app/yaml:ro
+  #
+  #     # Mount logs directory
+  #     - ./logs:/app/logs
+  #
+  #   networks:
+  #     - bigbrotr-network
+  #
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #
+  #   # Resource limits
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '2.0'
+  #         memory: 2G
+  #       reservations:
+  #         cpus: '0.5'
+  #         memory: 512M
+
+# ----------------------------------------------------------------------------
+# Networks
+# ----------------------------------------------------------------------------
+networks:
+  bigbrotr-network:
+    driver: bridge
+    name: bigbrotr-network
+
+# ----------------------------------------------------------------------------
+# Volumes
+# ----------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+    name: bigbrotr-postgres-data
+
+  # tor_data:
+  #   driver: local
+  #   name: bigbrotr-tor-data
+
+# ============================================================================
+# USAGE INSTRUCTIONS
+# ============================================================================
+#
+# 1. Setup environment:
+#    cp .env.example .env
+#    nano .env  # Set DB_PASSWORD
+#
+# 2. Start services:
+#    docker-compose up -d
+#
+# 3. Verify database initialization:
+#    docker-compose exec postgres psql -U admin -d brotr -c "\dt"
+#
+# 4. Check logs:
+#    docker-compose logs -f postgres
+#
+# 5. Stop services:
+#    docker-compose down
+#
+# 6. Remove all data (WARNING: destructive):
+#    docker-compose down -v
+#
+# ============================================================================
+# PRODUCTION DEPLOYMENT NOTES
+# ============================================================================
+#
+# - Set strong DB_PASSWORD (12+ characters)
+# - Adjust resource limits based on expected load
+# - Enable PGBouncer for high-concurrency scenarios
+# - Use external PostgreSQL for better resilience
+# - Enable Tor only if needed for .onion relays
+# - Configure backup strategy for postgres_data volume
+# - Use Docker secrets for sensitive data in production
+# - Set up monitoring (Prometheus + Grafana)
+# - Configure log rotation for container logs
+#
+# ============================================================================
