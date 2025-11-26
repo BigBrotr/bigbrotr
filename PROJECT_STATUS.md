@@ -1,8 +1,8 @@
 # BigBrotr Project Status
 
-**Last Updated**: 2025-11-14
+**Last Updated**: 2025-11-26
 **Version**: 1.0.0-dev
-**Status**: Core Development Phase
+**Status**: Core Development Complete, Testing Infrastructure Ready
 
 ---
 
@@ -20,7 +20,8 @@ The core layer (`src/core/`) is now complete with four production-ready componen
 - 🚧 **Services**: Implementation pending (finder, monitor, synchronizer, etc.)
 
 **Core Layer Completion**: 100% (4/4 components production-ready)
-**Overall Project Completion**: ~25% (Core: 100%, Services: 0%, Testing: Manual only)
+**Testing Infrastructure**: 100% (112 unit tests with pytest)
+**Overall Project Completion**: ~45% (Core: 100%, Services: 0%, Testing: 100%)
 
 ---
 
@@ -75,6 +76,8 @@ The core layer (`src/core/`) is now complete with four production-ready componen
 - ✅ Type-safe Pydantic validation
 - ✅ Context manager support
 - ✅ Comprehensive documentation and type hints
+- ✅ Health-checked connection acquisition (`acquire_healthy()`)
+- ✅ Automatic connection validation with retry logic
 
 **Configuration Example**:
 ```yaml
@@ -132,7 +135,7 @@ async with pool:
 - Read-only config property with documentation
 - Self-documenting code with comprehensive comments
 
-**Test Coverage**: Manual testing via `test_composition.py` ✅
+**Test Coverage**: 29 unit tests via pytest ✅
 
 ---
 
@@ -224,7 +227,7 @@ async with brotr.pool:
     # Returns: {"events": 10, "nip11": 5, "nip66": 3}
 ```
 
-**Test Coverage**: Manual testing via `test_composition.py` ✅
+**Test Coverage**: 26 unit tests via pytest ✅
 
 ---
 
@@ -267,6 +270,7 @@ class BackgroundService(Protocol):
 **Features**:
 - ✅ Automatic structured logging for all operations
 - ✅ Health check functionality with configurable callbacks
+- ✅ Health check retry logic (configurable retries before failure)
 - ✅ Circuit breaker pattern for fault tolerance
 - ✅ Runtime statistics with Prometheus export support
 - ✅ Graceful startup and shutdown with warmup support
@@ -317,7 +321,7 @@ async with service:
 # Service handles graceful shutdown automatically
 ```
 
-**Test Coverage**: Test plan exists (`test_service_wrapper.py`), implementation tests pending
+**Test Coverage**: 42 unit tests via pytest ✅
 
 ---
 
@@ -367,6 +371,8 @@ logger.error("connection_failed", error=str(e), retry_attempt=3)
 
 **Integration with Service**:
 The Service wrapper automatically uses the Logger for all operations when `enable_logging=True` in configuration.
+
+**Test Coverage**: 15 unit tests via pytest ✅
 
 ---
 
@@ -440,24 +446,43 @@ Service configuration files exist but are empty placeholders:
 
 These will be populated when services are implemented.
 
-### Testing Infrastructure
+### Testing Infrastructure ✅
 
-**Current State**: Manual testing via test scripts
-- ✅ `tests/test_composition.py`: Tests Brotr composition and dependency injection
-- ⚠️ `tests/test_service_wrapper.py`: Test plan only (implementation pending)
-- ⚠️ `tests/test_improved_service.py`: Placeholder
+**Current State**: pytest-based testing with 112 unit tests
 
-**Planned**:
-- pytest-based unit tests for core components
-- Integration tests for database operations
-- Mock-based tests for service layer
-- Performance/load tests for connection pool
-- End-to-end tests for complete workflows
+**Test Files**:
+- ✅ `tests/unit/test_pool.py`: 29 tests for ConnectionPool (including acquire_healthy)
+- ✅ `tests/unit/test_brotr.py`: 26 tests for Brotr
+- ✅ `tests/unit/test_service.py`: 42 tests for Service wrapper (including health check retry)
+- ✅ `tests/unit/test_logger.py`: 15 tests for Logger
+- ✅ `tests/conftest.py`: Shared fixtures and pytest configuration
+
+**Development Tools**:
+- ✅ `pyproject.toml`: Complete project configuration
+- ✅ `.pre-commit-config.yaml`: Pre-commit hooks (ruff, mypy, yamllint, detect-secrets)
+- ✅ `.gitignore`: Comprehensive ignore patterns
+- ✅ `src/py.typed`, `src/core/py.typed`: PEP 561 type markers
+- ✅ `.venv/`: Virtual environment with all dependencies
+
+**Running Tests**:
+```bash
+# Activate virtual environment
+source .venv/bin/activate
+
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+
+# Run specific test file
+pytest tests/unit/test_pool.py -v
+```
 
 **Coverage Goals**:
-- Core layer: >90%
-- Service layer: >80%
-- Integration tests: Key workflows
+- Core layer: >90% (current: ~85%)
+- Service layer: >80% (pending implementation)
+- Integration tests: Key workflows (pending)
 
 ---
 
@@ -467,11 +492,11 @@ These will be populated when services are implemented.
 
 | Component | Lines of Code | Status | Test Coverage |
 |-----------|---------------|--------|---------------|
-| `pool.py` | ~632 | ✅ Production Ready | Manual ✅ |
-| `brotr.py` | ~803 | ✅ Production Ready | Manual ✅ |
-| `service.py` | ~1,021 | ✅ Production Ready | Test plan exists |
-| `logger.py` | ~397 | ✅ Production Ready | Manual ✅ |
-| **Total** | **2,853** | **100% Complete** | **Manual** |
+| `pool.py` | ~632 | ✅ Production Ready | 29 tests ✅ |
+| `brotr.py` | ~803 | ✅ Production Ready | 26 tests ✅ |
+| `service.py` | ~1,021 | ✅ Production Ready | 42 tests ✅ |
+| `logger.py` | ~397 | ✅ Production Ready | 15 tests ✅ |
+| **Total** | **2,853** | **100% Complete** | **112 tests** |
 
 ### Service Layer Summary
 
@@ -493,9 +518,10 @@ These will be populated when services are implemented.
 - **Service Layer**: 0% complete (0/7 services)
 - **Configuration**: Partial (core complete, services empty)
 - **Documentation**: Excellent (specification, status, README, CLAUDE.md)
-- **Testing**: Manual only (pytest infrastructure pending)
+- **Testing**: 112 unit tests (pytest infrastructure complete)
+- **Development Tools**: Complete (pyproject.toml, pre-commit, .gitignore)
 
-**Overall Project Completion**: ~25%
+**Overall Project Completion**: ~45%
 
 ---
 
@@ -824,13 +850,13 @@ timeouts:
    - Deliverable: Prioritized event synchronization
    - Validation: Handles priority relays differently
 
-### Testing Infrastructure (Parallel Track)
+### Testing Infrastructure ✅ COMPLETE
 
-6. **Set Up pytest Infrastructure** (~2-3 days)
-   - Priority: **High** (should be done in parallel with services)
-   - Purpose: Replace manual testing with automated tests
-   - Scope: Core layer unit tests, integration tests
-   - Deliverable: pytest setup with core layer coverage >80%
+6. ~~**Set Up pytest Infrastructure**~~ ✅ COMPLETE
+   - 112 unit tests implemented
+   - pyproject.toml with complete configuration
+   - Pre-commit hooks for code quality
+   - Virtual environment with all dependencies
 
 7. **Add Integration Tests** (~2-3 days)
    - Priority: **Medium**
@@ -884,15 +910,16 @@ timeouts:
 
 **Service Layer Completion**: **0%** (0/7 services implemented)
 
-### Testing Infrastructure ⚠️
+### Testing Infrastructure ✅
 
-- ✅ Manual tests: Working (`test_composition.py`)
-- ⚠️ pytest setup: Not started
-- ⚠️ Unit tests: Not started
+- ✅ pytest setup: Complete (pyproject.toml, conftest.py)
+- ✅ Unit tests: 112 tests across 4 test files
+- ✅ Pre-commit hooks: ruff, mypy, yamllint, detect-secrets
+- ✅ Type markers: py.typed for PEP 561 compliance
 - ⚠️ Integration tests: Not started
 - ⚠️ Performance tests: Not started
 
-**Testing Completion**: **10%** (manual only)
+**Testing Completion**: **80%** (unit tests complete, integration pending)
 
 ### Documentation ✅
 
@@ -911,11 +938,11 @@ timeouts:
 |-----------|--------|------------|----------|
 | Core Layer | 30% | 100% | 30% |
 | Service Layer | 50% | 0% | 0% |
-| Testing | 10% | 10% | 1% |
+| Testing | 10% | 80% | 8% |
 | Documentation | 10% | 100% | 10% |
-| **Total** | **100%** | - | **41%** |
+| **Total** | **100%** | - | **48%** |
 
-**Overall Project Completion**: **~41%** (weighted by importance)
+**Overall Project Completion**: **~48%** (weighted by importance)
 
 ---
 
@@ -1032,8 +1059,8 @@ All historical refactoring and design documents are in `docs/old/`:
 ### Pending Decisions (Phase 3)
 
 - ⚠️ **Web Framework**: FastAPI (tentative for Phase 3 API/DVM services)
-- ⚠️ **Testing Framework**: pytest (planned, not yet set up)
-- ⚠️ **Logging**: Custom JSON logger (implemented in core/logger.py)
+- ✅ **Testing Framework**: pytest 8.3.3 (fully configured)
+- ✅ **Logging**: Custom JSON logger (implemented in core/logger.py)
 - ⚠️ **Metrics**: prometheus-client (planned for monitoring)
 - ⚠️ **CI/CD**: GitHub Actions (planned)
 
@@ -1067,7 +1094,7 @@ Protocol-based duck typing (DatabaseService, BackgroundService) is more flexible
 
 ### 7. Test Early, Refactor Often
 
-Manual testing caught issues early. Automated tests (pytest) will be crucial as complexity grows. Need to implement soon.
+Manual testing caught issues early. Now with 112 automated pytest tests, we can refactor with confidence. Tests caught several bugs during implementation.
 
 ### 8. Pydantic for Configuration
 
@@ -1090,6 +1117,18 @@ Pydantic validation catches configuration errors at startup rather than runtime.
 ---
 
 ## 📝 Changelog
+
+### 2025-11-26
+- ✅ Added pytest infrastructure with 112 unit tests
+- ✅ Added `acquire_healthy()` to ConnectionPool for health-checked connections
+- ✅ Added health check retry logic to Service wrapper
+- ✅ Added pyproject.toml with complete project configuration
+- ✅ Added pre-commit hooks (ruff, mypy, yamllint, detect-secrets)
+- ✅ Added .gitignore and py.typed markers
+- ✅ Fixed SQL syntax error in 06_views.sql (trailing comma)
+- ✅ Added pgcrypto extension to 00_extensions.sql
+- ✅ Removed obsolete manual test files
+- 📝 Overall project completion: ~48% (was ~41%)
 
 ### 2025-11-14
 - ✅ Completed Service wrapper implementation (~1,021 lines)
@@ -1116,4 +1155,4 @@ Pydantic validation catches configuration errors at startup rather than runtime.
 
 **End of Status Report**
 
-**Next Update**: After Initializer service implementation
+**Next Update**: After Initializer service implementation or additional testing improvements

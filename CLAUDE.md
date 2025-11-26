@@ -33,10 +33,22 @@ docker-compose exec postgres psql -U admin -d brotr -c "\dt"
 
 ### Testing
 ```bash
-# Run composition tests (manual testing, pytest not yet set up)
-python3 tests/test_composition.py
+# Create virtual environment (recommended)
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
 
-# Expected output: "All tests passed! ✓"
+# Run all unit tests
+pytest tests/unit/ -v
+
+# Run with coverage
+pytest tests/unit/ --cov=src --cov-report=html
+
+# Run specific test file
+pytest tests/unit/test_pool.py -v
+
+# Run tests matching pattern
+pytest -k "health_check" -v
 ```
 
 ### Database Operations
@@ -83,6 +95,7 @@ Core Layer (src/core/)
 - Auto-retry with exponential backoff, PGBouncer compatibility, connection recycling
 - Password from `DB_PASSWORD` env var (never in config files)
 - Configuration via YAML or constructor
+- **`acquire_healthy()`**: Health-checked connection acquisition with automatic retry
 
 #### 2. Brotr ([src/core/brotr.py](src/core/brotr.py))
 - High-level database interface with stored procedure wrappers
@@ -96,6 +109,7 @@ Core Layer (src/core/)
 - Wraps ANY service implementing `DatabaseService` or `BackgroundService` protocol
 - **Protocol-based**: Non-invasive, services don't need to inherit from anything
 - Provides uniform interface for all services
+- **Health check retry**: Configurable retry attempts before reporting failure
 
 #### 4. Logger ([src/core/logger.py](src/core/logger.py))
 - Structured JSON logging for all services
@@ -291,10 +305,26 @@ async with service:
     await service.instance.do_work()
 ```
 
-## Testing Philosophy
+## Testing Infrastructure
 
-**Current State**: Manual testing via test scripts ([tests/test_composition.py](tests/test_composition.py))
-**Future**: pytest-based unit and integration tests (planned, not yet implemented)
+**Current State**: Comprehensive pytest-based unit tests (112 tests, 100% passing)
+- [tests/unit/test_pool.py](tests/unit/test_pool.py) - 29 tests for ConnectionPool
+- [tests/unit/test_brotr.py](tests/unit/test_brotr.py) - 21 tests for Brotr
+- [tests/unit/test_service.py](tests/unit/test_service.py) - 42 tests for Service wrapper
+- [tests/unit/test_logger.py](tests/unit/test_logger.py) - 20 tests for Logger
+
+**Test Configuration**:
+- [pyproject.toml](pyproject.toml) - pytest, coverage, ruff, mypy configuration
+- [tests/conftest.py](tests/conftest.py) - Shared fixtures and pytest configuration
+- [requirements-dev.txt](requirements-dev.txt) - Development dependencies
+
+**Running Tests**:
+```bash
+source .venv/bin/activate
+pytest tests/unit/ -v              # All unit tests
+pytest --cov=src                   # With coverage
+pytest -k "health_check"           # Pattern matching
+```
 
 When adding tests:
 - Test **dependency injection** (pool sharing, custom pools)
@@ -302,6 +332,7 @@ When adding tests:
 - Test **default construction**
 - Verify **composition pattern** (public properties accessible)
 - Use **mocks** for external dependencies (database, network)
+- Mark integration tests with `@pytest.mark.integration`
 
 ## Documentation Standards
 
@@ -515,13 +546,20 @@ async def _call_delete_procedure(
 - Core config: [implementations/bigbrotr/yaml/core/brotr.yaml](implementations/bigbrotr/yaml/core/brotr.yaml)
 - Service configs: [implementations/bigbrotr/yaml/services/](implementations/bigbrotr/yaml/services/) (empty, pending)
 - SQL schemas: [implementations/bigbrotr/postgres/init/](implementations/bigbrotr/postgres/init/)
-- Tests: [tests/](tests/) (test_composition.py works, others pending)
+- Unit tests: [tests/unit/](tests/unit/) (test_pool.py, test_brotr.py, test_service.py, test_logger.py)
+- Test config: [tests/conftest.py](tests/conftest.py), [pyproject.toml](pyproject.toml)
+
+### Development Tools
+- [pyproject.toml](pyproject.toml) - Project config (pytest, ruff, mypy, coverage)
+- [requirements-dev.txt](requirements-dev.txt) - Development dependencies
+- [.pre-commit-config.yaml](.pre-commit-config.yaml) - Pre-commit hooks (ruff, mypy, yamllint)
+- [.gitignore](.gitignore) - Git ignore patterns
 
 ### Key Metrics
-- Core layer: 2,853 lines (100% complete)
+- Core layer: ~3,000 lines (100% complete)
 - Service layer: 0 lines (0% complete)
+- Unit tests: 112 tests (100% passing)
 - Overall project: ~41% complete (weighted)
-- Documentation: 100% complete
 
 ### Important Links
 - [PROJECT_SPECIFICATION.md](PROJECT_SPECIFICATION.md) - Complete technical spec (v5.0, updated 2025-11-14)

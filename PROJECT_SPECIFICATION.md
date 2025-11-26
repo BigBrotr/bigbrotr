@@ -1,7 +1,7 @@
-# BigBrotr Project Specification v5.0
+# BigBrotr Project Specification v5.1
 
-**Last Updated**: 2025-11-14
-**Status**: Core Development Complete, Service Implementation Phase
+**Last Updated**: 2025-11-26
+**Status**: Core Development Complete, Testing Infrastructure Ready
 **Version**: 1.0.0-dev
 
 ---
@@ -159,6 +159,8 @@ The core layer (`src/core/`) is **100% complete** with four production-ready com
 - ✅ Type-safe Pydantic validation
 - ✅ Context manager support for automatic cleanup
 - ✅ Comprehensive documentation and type hints
+- ✅ Health-checked connection acquisition (`acquire_healthy()`)
+- ✅ 29 unit tests with pytest
 
 #### Configuration
 
@@ -423,6 +425,7 @@ Any service implementing one of these protocols can be wrapped by the Service wr
 
 - ✅ Automatic structured logging for all operations
 - ✅ Health check functionality with configurable callbacks
+- ✅ Health check retry logic (configurable retries before failure)
 - ✅ Circuit breaker pattern for fault tolerance
 - ✅ Runtime statistics collection (uptime, health checks, etc.)
 - ✅ Prometheus metrics export support
@@ -430,6 +433,7 @@ Any service implementing one of these protocols can be wrapped by the Service wr
 - ✅ Thread-safe statistics collection
 - ✅ Context manager support
 - ✅ Generic service wrapping (works with ANY protocol-implementing service)
+- ✅ 42 unit tests with pytest
 
 #### Configuration
 
@@ -536,6 +540,7 @@ The wrapper uses protocols (DatabaseService, BackgroundService) instead of abstr
 - ✅ ISO 8601 or Unix timestamp formats
 - ✅ Custom field support for domain-specific data
 - ✅ Thread-safe logging
+- ✅ 15 unit tests with pytest
 
 #### Configuration
 
@@ -1549,7 +1554,7 @@ pool = ConnectionPool(host="localhost", database="brotr")
 | Technology | Purpose | Status |
 |------------|---------|--------|
 | FastAPI | REST API framework | Planned |
-| pytest | Testing framework | Planned |
+| pytest | Testing framework | ✅ Implemented (112 tests) |
 | prometheus-client | Metrics export | Planned |
 | GitHub Actions | CI/CD pipeline | Planned |
 | Grafana | Monitoring dashboards | Planned |
@@ -1558,6 +1563,6 @@ pool = ConnectionPool(host="localhost", database="brotr")
 
 **End of Project Specification**
 
-**Version**: 5.0
-**Last Updated**: 2025-11-14
+**Version**: 5.1
+**Last Updated**: 2025-11-26
 **Next Update**: After service implementation begins

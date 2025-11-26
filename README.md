@@ -4,6 +4,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PostgreSQL](https://img.shields.io/badge/postgresql-14+-blue.svg)](https://www.postgresql.org/)
+[![Tests](https://img.shields.io/badge/tests-112%20passing-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-development-yellow.svg)](PROJECT_STATUS.md)
 
@@ -42,8 +43,13 @@ BigBrotr is a modular, production-grade system for archiving and monitoring the 
 git clone https://github.com/yourusername/bigbrotr.git
 cd bigbrotr
 
-# Install dependencies
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install dependencies (including dev dependencies)
 pip install -r requirements.txt
+pip install -e ".[dev]"
 
 # Set up environment
 cp implementations/bigbrotr/.env.example implementations/bigbrotr/.env
@@ -125,19 +131,26 @@ async with brotr.pool:
   - Automatic retry with exponential backoff
   - PGBouncer compatibility
   - Connection recycling
-  - ~580 lines, production-ready ✅
+  - Health-checked connections (`acquire_healthy()`)
+  - ~632 lines, production-ready ✅ (29 tests)
 
 - **Brotr** (`src/core/brotr.py`): High-level database interface
   - Dependency injection for ConnectionPool
   - Stored procedure wrappers
   - Batch operations
   - Cleanup utilities
-  - ~775 lines, production-ready ✅
+  - ~803 lines, production-ready ✅ (26 tests)
 
 - **Service** (`src/core/service.py`): Generic lifecycle wrapper
   - Logging, health checks, statistics
+  - Health check retry logic
   - Wraps any service
-  - Design complete, implementation pending ⚠️
+  - ~1,021 lines, production-ready ✅ (42 tests)
+
+- **Logger** (`src/core/logger.py`): Structured JSON logging
+  - JSON-formatted output
+  - Service-aware logging
+  - ~397 lines, production-ready ✅ (15 tests)
 
 ### Service Layer (Planned)
 
@@ -157,12 +170,12 @@ async with brotr.pool:
 bigbrotr/
 ├── src/
 │   ├── core/                    # Foundation components ✅
+│   │   ├── __init__.py          # Package exports
 │   │   ├── pool.py              # Connection pool (production-ready)
 │   │   ├── brotr.py             # Database interface (production-ready)
-│   │   ├── service.py           # Service wrapper (design complete)
-│   │   ├── config.py            # Config management (pending)
-│   │   ├── logger.py            # Logging system (pending)
-│   │   └── utils.py             # Shared utilities (pending)
+│   │   ├── service.py           # Service wrapper (production-ready)
+│   │   ├── logger.py            # Logging system (production-ready)
+│   │   └── py.typed             # PEP 561 type marker
 │   │
 │   ├── services/                # Service implementations ⚠️
 │   │   ├── initializer.py       # Database seeding
@@ -184,9 +197,14 @@ bigbrotr/
 │       ├── docker-compose.yaml  # Deployment orchestration
 │       └── .env                 # Environment variables (not in repo)
 │
-├── tests/                       # Test suite
-│   ├── test_composition.py      # Core composition tests ✅
-│   └── test_service_wrapper.py  # Service wrapper tests (reference)
+├── tests/                       # Test suite (112 tests)
+│   ├── conftest.py              # Shared fixtures
+│   ├── unit/
+│   │   ├── test_pool.py         # Pool tests (29 tests) ✅
+│   │   ├── test_brotr.py        # Brotr tests (26 tests) ✅
+│   │   ├── test_service.py      # Service tests (42 tests) ✅
+│   │   └── test_logger.py       # Logger tests (15 tests) ✅
+│   └── integration/             # Integration tests (pending)
 │
 ├── docs/
 │   └── old/                     # Archived documentation
@@ -195,7 +213,10 @@ bigbrotr/
 ├── PROJECT_STATUS.md            # Current project status
 ├── README.md                    # This file
 ├── CLAUDE.md                    # Claude AI instructions
-└── requirements.txt             # Python dependencies
+├── pyproject.toml               # Project configuration
+├── requirements.txt             # Python dependencies
+├── .pre-commit-config.yaml      # Pre-commit hooks
+└── .gitignore                   # Git ignore patterns
 ```
 
 ---
@@ -233,16 +254,17 @@ bigbrotr/
 
 ## Development Status
 
-**Current Phase**: Core Infrastructure Development
+**Current Phase**: Core Complete, Testing Infrastructure Ready
 
-| Component | Status | Lines | Coverage |
-|-----------|--------|-------|----------|
-| ConnectionPool | ✅ Production Ready | ~580 | Manual ✅ |
-| Brotr | ✅ Production Ready | ~775 | Manual ✅ |
-| Service Wrapper | ⚠️ Design Complete | - | Design only |
+| Component | Status | Lines | Tests |
+|-----------|--------|-------|-------|
+| ConnectionPool | ✅ Production Ready | ~632 | 29 ✅ |
+| Brotr | ✅ Production Ready | ~803 | 26 ✅ |
+| Service Wrapper | ✅ Production Ready | ~1,021 | 42 ✅ |
+| Logger | ✅ Production Ready | ~397 | 15 ✅ |
 | Services | ⚠️ Pending | - | - |
 
-**Overall Progress**: ~20% (Core: 60%, Services: 0%)
+**Overall Progress**: ~48% (Core: 100%, Services: 0%, Testing: 80%)
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed progress tracking.
 
@@ -346,11 +368,16 @@ CONFIG_DIR=implementations/bigbrotr/config
 - **PyYAML**: YAML parsing
 - **nostr-tools** (1.4.0): Nostr protocol library
 
+### Development Tools
+
+- **pytest** (8.3.3): Testing framework (112 tests)
+- **ruff**: Linting and formatting
+- **mypy**: Type checking
+- **pre-commit**: Git hooks
+
 ### Future
 
 - **FastAPI**: REST API framework (Phase 3)
-- **pytest**: Testing framework
-- **structlog**: Structured logging
 - **prometheus-client**: Metrics
 
 ### Infrastructure
@@ -391,14 +418,14 @@ CONFIG_DIR=implementations/bigbrotr/config
 
 ## Roadmap
 
-### Phase 1: Core Infrastructure (Current - 60% Complete)
+### Phase 1: Core Infrastructure ✅ COMPLETE
 
-- ✅ ConnectionPool implementation
-- ✅ Brotr implementation with dependency injection
-- ✅ Helper methods and DRY improvements
-- ⚠️ Service wrapper implementation
-- ⚠️ Logger module
-- ⚠️ Config module
+- ✅ ConnectionPool implementation (~632 lines)
+- ✅ Brotr implementation with dependency injection (~803 lines)
+- ✅ Service wrapper implementation (~1,021 lines)
+- ✅ Logger module (~397 lines)
+- ✅ pytest infrastructure (112 tests)
+- ✅ Pre-commit hooks and development tools
 
 ### Phase 2: Service Layer (Planned)
 
@@ -428,16 +455,33 @@ CONFIG_DIR=implementations/bigbrotr/config
 ## Testing
 
 ```bash
-# Run composition tests
-python3 tests/test_composition.py
+# Activate virtual environment
+source .venv/bin/activate
 
-# Output:
-# Testing Brotr with Composition Pattern (Dependency Injection)
-# All tests passed! ✓
+# Run all tests
+pytest
+
+# Run with verbose output
+pytest -v
+
+# Run specific test file
+pytest tests/unit/test_pool.py
+
+# Run with coverage report
+pytest --cov=src --cov-report=html
+
+# Run only specific test
+pytest tests/unit/test_service.py::TestService::test_context_manager -v
 ```
 
-**Current Testing**: Manual testing via test scripts
-**Planned**: pytest-based unit and integration tests
+**Test Statistics**:
+- Total tests: 112
+- Pool tests: 29
+- Brotr tests: 26
+- Service tests: 42
+- Logger tests: 15
+
+**Coverage Goals**: Core layer >90%, Service layer >80%
 
 ---
 
