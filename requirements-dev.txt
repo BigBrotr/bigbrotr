@@ -1,0 +1,20 @@
+# Development dependencies for BigBrotr
+# Install: pip install -r requirements-dev.txt
+
+# Testing
+pytest==8.3.3
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+pytest-mock==3.14.0
+pytest-timeout==2.3.1
+
+# Linting and formatting
+ruff==0.8.0
+mypy==1.13.0
+
+# Pre-commit hooks
+pre-commit==4.0.1
+
+# Type stubs
+types-PyYAML==6.0.12.20240917
+asyncpg-stubs==0.30.0

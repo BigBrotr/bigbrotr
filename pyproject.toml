@@ -1,0 +1,199 @@
+# ============================================================================
+# BigBrotr Project Configuration
+# ============================================================================
+
+[project]
+name = "bigbrotr"
+version = "0.1.0"
+description = "A modular Nostr data archiving and monitoring system"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "BigBrotr Contributors"}
+]
+keywords = ["nostr", "archiving", "monitoring", "postgresql", "async"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Internet",
+    "Framework :: AsyncIO",
+]
+
+dependencies = [
+    "aiofiles>=25.1.0",
+    "aiohttp>=3.13.2",
+    "aiohttp-socks>=0.10.1",
+    "asyncpg>=0.30.0",
+    "nostr-tools>=1.4.0",
+    "pydantic>=2.10.4",
+    "python-dotenv>=1.0.1",
+    "PyYAML>=6.0.2",
+    "typing-extensions>=4.12.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "pytest-mock>=3.14.0",
+    "pytest-timeout>=2.3.1",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "pre-commit>=4.0.1",
+    "types-PyYAML>=6.0.12",
+    "asyncpg-stubs>=0.30.0",
+]
+
+[project.urls]
+Repository = "https://github.com/Bigbrotr/bigbrotr"
+
+# ============================================================================
+# Build System
+# ============================================================================
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+
+# ============================================================================
+# Pytest Configuration
+# ============================================================================
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+    "--tb=short",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests requiring database",
+    "unit: marks tests as unit tests (no external dependencies)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+# ============================================================================
+# Coverage Configuration
+# ============================================================================
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "@abstractmethod",
+]
+show_missing = true
+precision = 2
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+# ============================================================================
+# Ruff Configuration (Linter + Formatter)
+# ============================================================================
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "ARG",    # flake8-unused-arguments
+    "SIM",    # flake8-simplify
+    "TCH",    # flake8-type-checking
+    "PTH",    # flake8-use-pathlib
+    "ERA",    # eradicate (commented-out code)
+    "PL",     # Pylint
+    "RUF",    # Ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "PLR0913", # too many arguments
+    "PLR2004", # magic value comparison
+    "ARG001", # unused function argument (common in protocols)
+    "ARG002", # unused method argument
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "ARG001", "ARG002"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "services"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# ============================================================================
+# MyPy Configuration
+# ============================================================================
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+strict_equality = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = [
+    "asyncpg.*",
+    "nostr_tools.*",
+    "aiohttp_socks.*",
+]
+ignore_missing_imports = true
