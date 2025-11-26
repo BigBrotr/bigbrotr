@@ -98,6 +98,11 @@ class PoolTimeoutsConfig(BaseModel):
         ge=0.1,
         description="Timeout for acquiring a connection from the pool (seconds)"
     )
+    health_check: float = Field(
+        default=5.0,
+        ge=0.1,
+        description="Timeout for connection health check (seconds)"
+    )
 
 
 class RetryConfig(BaseModel):
@@ -469,6 +474,80 @@ class ConnectionPool:
         if not self._is_connected or self._pool is None:
             raise RuntimeError("Connection pool is not connected. Call connect() first.")
         return self._pool.acquire()
+
+    @asynccontextmanager
+    async def acquire_healthy(
+        self,
+        max_retries: int = 3,
+        health_check_timeout: Optional[float] = None,
+    ) -> AsyncIterator[asyncpg.Connection]:
+        """
+        Acquire a health-checked connection from the pool.
+
+        Unlike acquire(), this method validates connection health before returning.
+        If the connection fails the health check, it's released and a new one is acquired.
+
+        Args:
+            max_retries: Maximum attempts to acquire a healthy connection (default: 3)
+            health_check_timeout: Timeout for health check query (uses config default if None)
+
+        Yields:
+            Healthy database connection
+
+        Raises:
+            RuntimeError: If pool is not connected
+            ConnectionError: If no healthy connection could be acquired after max_retries
+
+        Example:
+            async with pool.acquire_healthy() as conn:
+                # Connection is guaranteed to be healthy
+                result = await conn.fetch("SELECT * FROM events")
+        """
+        if not self._is_connected or self._pool is None:
+            raise RuntimeError("Connection pool is not connected. Call connect() first.")
+
+        timeout = health_check_timeout or self._config.timeouts.health_check
+        last_error: Optional[Exception] = None
+
+        for attempt in range(max_retries):
+            conn: Optional[asyncpg.Connection] = None
+            try:
+                # Acquire connection from pool
+                conn = await self._pool.acquire()
+
+                # Perform health check before yielding
+                try:
+                    await conn.fetchval("SELECT 1", timeout=timeout)
+                except (asyncpg.PostgresError, asyncio.TimeoutError) as e:
+                    last_error = e
+                    # Connection unhealthy, release and retry
+                    await self._pool.release(conn)
+                    conn = None
+                    continue
+
+                # Connection is healthy, yield it
+                try:
+                    yield conn
+                    return  # Success - exit the retry loop
+                finally:
+                    # Always release connection back to pool
+                    if conn is not None:
+                        await self._pool.release(conn)
+
+            except (asyncpg.PostgresError, OSError) as e:
+                last_error = e
+                # Release connection if acquired
+                if conn is not None:
+                    try:
+                        await self._pool.release(conn)
+                    except Exception:
+                        pass  # Ignore release errors during retry
+                continue
+
+        raise ConnectionError(
+            f"Failed to acquire healthy connection after {max_retries} attempts. "
+            f"Last error: {last_error}"
+        )
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[asyncpg.Connection]:
