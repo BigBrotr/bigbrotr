@@ -18,7 +18,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Dict, Generic, Optional, Protocol, TypeVar, Union
+from typing import Any, Awaitable, Callable, Dict, Generic, Optional, Protocol, Tuple, TypeVar, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -124,6 +124,17 @@ class HealthCheckConfig(BaseModel):
         default=5.0,
         ge=0.1,
         description="Timeout for health check operations (seconds)"
+    )
+    health_check_retries: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Number of retry attempts for health check before reporting failure"
+    )
+    health_check_retry_delay: float = Field(
+        default=1.0,
+        ge=0.1,
+        description="Delay between health check retry attempts (seconds)"
     )
 
 
@@ -248,6 +259,30 @@ class CircuitBreakerState:
                 return False
             elapsed = (datetime.now() - self.opened_at).total_seconds()
             return elapsed >= timeout
+
+    async def check_and_should_reset(self, timeout: float) -> Tuple[bool, bool]:
+        """
+        Atomically check if circuit is open and if reset should be attempted.
+
+        This method performs both checks in a single lock acquisition to avoid
+        race conditions in the health check loop.
+
+        Args:
+            timeout: Cooldown period in seconds
+
+        Returns:
+            Tuple of (is_open, should_attempt_reset)
+        """
+        async with self._lock:
+            if not self.is_open:
+                return (False, False)
+
+            if not self.opened_at:
+                return (True, False)
+
+            elapsed = (datetime.now() - self.opened_at).total_seconds()
+            should_reset = elapsed >= timeout
+            return (True, should_reset)
 
     async def to_dict(self) -> Dict[str, Any]:
         """
@@ -724,9 +759,13 @@ class Service(Generic[T]):
             )
             raise
 
-    async def health_check(self, timeout: Optional[float] = None) -> bool:
+    async def health_check(
+        self,
+        timeout: Optional[float] = None,
+        retries: Optional[int] = None,
+    ) -> bool:
         """
-        Perform a health check on the service.
+        Perform a health check on the service with retry support.
 
         Health check priority:
         1. Custom health_check_callback (if provided)
@@ -737,12 +776,43 @@ class Service(Generic[T]):
 
         Args:
             timeout: Timeout for health check (uses config default if None)
+            retries: Number of retry attempts (uses config default if None)
 
         Returns:
             True if service is healthy, False otherwise
         """
         timeout = timeout or self._config.health_check.health_check_timeout
+        max_retries = retries if retries is not None else self._config.health_check.health_check_retries
+        retry_delay = self._config.health_check.health_check_retry_delay
 
+        for attempt in range(max_retries):
+            result = await self._perform_single_health_check(timeout)
+            if result:
+                return True
+
+            # If not last attempt, wait before retry
+            if attempt < max_retries - 1:
+                self._log(
+                    "debug",
+                    "health_check_retry",
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    retry_delay=retry_delay,
+                )
+                await asyncio.sleep(retry_delay)
+
+        return False
+
+    async def _perform_single_health_check(self, timeout: float) -> bool:
+        """
+        Perform a single health check attempt.
+
+        Args:
+            timeout: Timeout for this health check attempt
+
+        Returns:
+            True if service is healthy, False otherwise
+        """
         try:
             # Check if service is connected/running first
             is_connected = False
@@ -784,7 +854,7 @@ class Service(Generic[T]):
             return True
 
         except Exception as e:
-            self._log("debug", f"Health check failed: {e}")
+            self._log("debug", f"Health check attempt failed: {e}")
             return False
 
     async def _health_check_loop(self):
@@ -805,14 +875,19 @@ class Service(Generic[T]):
                     break
 
                 # Check if circuit breaker should attempt reset
-                if self._config.circuit_breaker.enable_circuit_breaker and self._circuit_breaker.is_open:
-                    if await self._circuit_breaker.should_attempt_reset(
+                # Uses atomic check to avoid race conditions
+                if self._config.circuit_breaker.enable_circuit_breaker:
+                    is_open, should_reset = await self._circuit_breaker.check_and_should_reset(
                         self._config.circuit_breaker.circuit_breaker_timeout
-                    ):
-                        self._log("info", "circuit_breaker_attempting_reset")
-                    else:
+                    )
+
+                    if is_open and not should_reset:
+                        # Circuit open, timeout not reached - skip health check
                         self._log("debug", "circuit_breaker_open_skipping_check")
                         continue
+                    elif should_reset:
+                        # Circuit open, timeout reached - attempt reset
+                        self._log("info", "circuit_breaker_attempting_reset")
 
                 # Perform health check
                 is_healthy = await self.health_check()
