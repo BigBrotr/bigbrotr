@@ -12,6 +12,12 @@
 -- Note: Powers the idx_events_tagvalues index for fast tag-based event filtering
 CREATE EXTENSION IF NOT EXISTS "btree_gin";
 
+-- Extension: pgcrypto
+-- Purpose: Provides cryptographic functions including digest() for SHA-256 hashing
+-- Usage: Required for compute_nip11_hash() and compute_nip66_hash() functions
+-- Note: Used for content-based deduplication of NIP-11 and NIP-66 records
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
 -- ============================================================================
 -- EXTENSIONS LOADED
 -- ============================================================================

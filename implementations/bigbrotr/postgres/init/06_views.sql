@@ -148,7 +148,7 @@ WITH relay_event_stats AS (
         COUNT(DISTINCT er.event_id) AS event_count,
         COUNT(DISTINCT e.pubkey) AS unique_pubkeys,
         MIN(e.created_at) AS first_event_timestamp,
-        MAX(e.created_at) AS last_event_timestamp,
+        MAX(e.created_at) AS last_event_timestamp
     FROM events_relays er
     LEFT JOIN events e ON er.event_id = e.id
     GROUP BY er.relay_url

@@ -12,13 +12,13 @@
 -- Returns: VOID
 -- Notes: Uses ON CONFLICT DO NOTHING for idempotency
 CREATE OR REPLACE FUNCTION insert_event(
-    p_event_id              CHAR(64),
-    p_pubkey                CHAR(64),
+    p_event_id              BYTEA,
+    p_pubkey                BYTEA,
     p_created_at            BIGINT,
     p_kind                  INTEGER,
     p_tags                  JSONB,
     p_content               TEXT,
-    p_sig                   CHAR(128),
+    p_sig                   BYTEA,
     p_relay_url             TEXT,
     p_relay_network         TEXT,
     p_relay_inserted_at     BIGINT,
@@ -133,8 +133,8 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    v_nip11_id CHAR(64);
-    v_nip66_id CHAR(64);
+    v_nip11_id BYTEA;
+    v_nip66_id BYTEA;
 BEGIN
     -- Insert relay (idempotent)
     INSERT INTO relays (url, network, inserted_at)
