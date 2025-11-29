@@ -6,65 +6,43 @@
 # Priority: CRITICAL (needed for all other services)
 # ============================================================================
 
-# Database operations
-database:
-  verify_tables: true           # Verify database tables exist
-  verify_procedures: true       # Verify stored procedures exist
-  verify_extensions: true       # Verify PostgreSQL extensions
+# Verification options for database schema checks
+verification:
+  tables: true           # Verify database tables exist
+  procedures: true       # Verify stored procedures exist
+  extensions: true       # Verify PostgreSQL extensions
 
-# Schema files to verify (relative to implementations/bigbrotr/)
-schema_files:
-  extensions: postgres/init/00_extensions.sql
-  utility_functions: postgres/init/01_utility_functions.sql
-  tables: postgres/init/02_tables.sql
-  indexes: postgres/init/03_indexes.sql
-  integrity_functions: postgres/init/04_integrity_functions.sql
-  procedures: postgres/init/05_procedures.sql
-  views: postgres/init/06_views.sql
-  verify: postgres/init/99_verify.sql
+# Expected database schema elements (for verification)
+expected_schema:
+  procedures:
+    - insert_event
+    - insert_relay
+    - insert_relay_metadata
+    - delete_orphan_events
+    - delete_orphan_nip11
+    - delete_orphan_nip66
+  tables:
+    - relays
+    - events
+    - events_relays
+    - nip11
+    - nip66
+    - relay_metadata
+    - service_state
+  extensions:
+    - pgcrypto   # For hashing functions (digest)
+    - btree_gin  # For GIN indexes on tagvalues array
 
-# Expected stored procedures (for verification)
-expected_procedures:
-  - insert_event
-  - insert_relay
-  - insert_relay_metadata
-  - delete_orphan_events
-  - delete_orphan_nip11
-  - delete_orphan_nip66
-
-# Expected tables (for verification)
-expected_tables:
-  - relays
-  - events
-  - events_relays
-  - nip11
-  - nip66
-  - relay_metadata
-  - service_state
-
-# Expected extensions (for verification)
-expected_extensions:
-  - pgcrypto   # For hashing functions (digest)
-  - btree_gin  # For GIN indexes on tagvalues array
-
-# Seed data configuration
+# Seed relays configuration
 # Note: Network type (clearnet/tor) is auto-detected from URL using nostr_tools.Relay
 # Note: Duplicate URLs are ignored by the database (ON CONFLICT DO NOTHING)
-seed_data:
-  enabled: true                           # Enable seed data loading
-  relay_file: data/seed_relays.txt        # Path to relay file (relative to implementations/bigbrotr/)
+# Note: File paths are relative to the working directory:
+#       - Docker: /app (so data/seed_relays.txt = /app/data/seed_relays.txt)
+#       - Local: run from implementations/bigbrotr/
+seed_relays:
+  enabled: true                           # Enable relay seeding
+  path: data/seed_relays.txt              # Path to seed file (relative to working directory)
   batch_size: 100                         # Insert relays in batches of 100
-
-# Logging configuration
-logging:
-  log_verification_details: true   # Log each verification step
-  log_seed_progress: true          # Log seed data loading progress
-  log_level: INFO
-
-# Timeouts
-timeouts:
-  schema_verification: 30.0     # Timeout for schema checks (seconds)
-  seed_data_load: 300.0         # Timeout for seed data loading (seconds)
 
 # Retry configuration for database operations
 retry:
