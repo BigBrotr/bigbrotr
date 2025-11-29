@@ -39,3 +39,7 @@ timeouts:
 
 # Relay insertion
 insert_batch_size: 100            # Batch size for relay inserts
+
+# Discovery loop configuration
+# The finder runs continuously, executing discovery cycles at this interval
+discovery_interval: 3600.0        # Seconds between discovery cycles (default: 1 hour)
