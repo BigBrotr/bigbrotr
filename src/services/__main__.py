@@ -44,14 +44,14 @@ def get_service_config_path(service_name: str) -> str:
     return f"{YAML_BASE}/services/{service_name}.yaml"
 
 
-async def run_initializer(pool: Pool, config_path: str) -> int:
+async def run_initializer(brotr: Brotr, config_path: str) -> int:
     """Run initializer service (one-shot)."""
     path = Path(config_path)
     if path.exists():
-        initializer = Initializer.from_yaml(str(path), pool=pool)
+        initializer = Initializer.from_yaml(str(path), brotr=brotr)
     else:
         logger.warning("config_not_found", path=str(path))
-        initializer = Initializer(pool=pool)
+        initializer = Initializer(brotr=brotr)
 
     result = await initializer.run()
 
@@ -66,16 +66,14 @@ async def run_initializer(pool: Pool, config_path: str) -> int:
         return 1
 
 
-async def run_finder(pool: Pool, config_path: str) -> int:
+async def run_finder(brotr: Brotr, config_path: str) -> int:
     """Run finder service (continuous)."""
-    brotr = Brotr(pool=pool)
-
     path = Path(config_path)
     if path.exists():
-        finder = Finder.from_yaml(str(path), pool=pool, brotr=brotr)
+        finder = Finder.from_yaml(str(path), brotr=brotr)
     else:
         logger.warning("config_not_found", path=str(path))
-        finder = Finder(pool=pool, brotr=brotr)
+        finder = Finder(brotr=brotr)
 
     # Setup graceful shutdown
     shutdown_event = asyncio.Event()
@@ -161,7 +159,7 @@ async def main() -> int:
     pool_config_path = args.pool_config or get_pool_config_path()
     service_config_path = args.config or get_service_config_path(args.service)
 
-    # Load pool
+    # Load pool and create brotr
     pool_path = Path(pool_config_path)
     if pool_path.exists():
         pool = Pool.from_yaml(str(pool_path))
@@ -169,11 +167,13 @@ async def main() -> int:
         logger.warning("pool_config_not_found", path=str(pool_path))
         pool = Pool()
 
+    brotr = Brotr(pool=pool)
+
     # Run service
     try:
         async with pool:
             runner = SERVICE_RUNNERS[args.service]
-            return await runner(pool, service_config_path)
+            return await runner(brotr, service_config_path)
 
     except ConnectionError as e:
         logger.error("connection_error", error=str(e))

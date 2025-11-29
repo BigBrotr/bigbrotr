@@ -39,7 +39,7 @@ expected_schema:
 # Note: File paths are relative to the working directory:
 #       - Docker: /app (so data/seed_relays.txt = /app/data/seed_relays.txt)
 #       - Local: run from implementations/bigbrotr/
-seed_relays:
+seed:
   enabled: true                           # Enable relay seeding
   path: data/seed_relays.txt              # Path to seed file (relative to working directory)
   batch_size: 100                         # Insert relays in batches of 100

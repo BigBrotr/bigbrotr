@@ -18,7 +18,7 @@ Example:
         result = await brotr.insert_relays([...])
 """
 
-from .base_service import BaseService
+from .base_service import BaseService, Outcome, Step
 from .brotr import Brotr, BrotrConfig
 from .logger import (
     Logger,
@@ -35,6 +35,8 @@ __all__ = [
     "Brotr",
     "BrotrConfig",
     "BaseService",
+    "Outcome",
+    "Step",
     # Logger
     "Logger",
     "configure_logging",

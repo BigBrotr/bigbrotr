@@ -14,23 +14,24 @@ All services inherit from BaseService for consistent:
 - Context manager support
 
 Example:
-    from core import Pool
+    from core import Pool, Brotr
     from services import Initializer, Finder
 
     pool = Pool.from_yaml("config.yaml")
+    brotr = Brotr(pool=pool)
 
     async with pool:
         # Run initializer
-        initializer = Initializer(pool=pool)
+        initializer = Initializer(brotr=brotr)
         result = await initializer.run()
 
         # Run finder with context manager
-        finder = Finder(pool=pool)
+        finder = Finder(brotr=brotr)
         async with finder:
             await finder.run_forever(interval=3600)
 """
 
-from core.base_service import Outcome, Step
+from core import Outcome, Step
 
 from .finder import (
     SERVICE_NAME as FINDER_SERVICE_NAME,
