@@ -1,20 +1,21 @@
 """
-Connection Pool Manager for PostgreSQL using asyncpg
-This module provides a ConnectionPool class that manages PostgreSQL
+Pool Manager for PostgreSQL using asyncpg.
+
+This module provides a Pool class that manages PostgreSQL
 connections using asyncpg with advanced features like automatic retries,
 PGBouncer compatibility, and configuration validation via Pydantic.
 """
 
 import asyncio
 import os
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncContextManager, AsyncIterator, Dict, Optional
+from typing import Any, Optional
 
 import asyncpg
 import yaml
 from pydantic import BaseModel, Field, field_validator
-
 
 # ============================================================================
 # Pydantic Models for Configuration Validation
@@ -24,11 +25,13 @@ from pydantic import BaseModel, Field, field_validator
 class DatabaseConfig(BaseModel):
     """Database connection configuration."""
 
-    host: str = Field(default="localhost", min_length=1)
-    port: int = Field(default=5432, ge=1, le=65535)
-    database: str = Field(default="database", min_length=1)
-    user: str = Field(default="admin", min_length=1)
-    password: Optional[str] = Field(default=None)
+    host: str = Field(default="localhost", min_length=1, description="Database server hostname")
+    port: int = Field(default=5432, ge=1, le=65535, description="Database server port")
+    database: str = Field(default="database", min_length=1, description="Database name")
+    user: str = Field(default="admin", min_length=1, description="Database user")
+    password: Optional[str] = Field(
+        default=None, description="Database password (loaded from DB_PASSWORD env if not provided)"
+    )
 
     @field_validator("password", mode="before")
     @classmethod
@@ -45,33 +48,23 @@ class DatabaseConfig(BaseModel):
 
 class PoolLimitsConfig(BaseModel):
     """
-    Connection pool size and resource limits configuration.
+    Pool size and resource limits configuration.
 
     Controls how many connections are maintained and when they are recycled.
     Does NOT include timeout configuration - see PoolTimeoutsConfig for that.
     """
 
     min_size: int = Field(
-        default=5,
-        ge=1,
-        le=100,
-        description="Minimum number of connections in the pool"
+        default=5, ge=1, le=100, description="Minimum number of connections in the pool"
     )
     max_size: int = Field(
-        default=20,
-        ge=1,
-        le=200,
-        description="Maximum number of connections in the pool"
+        default=20, ge=1, le=200, description="Maximum number of connections in the pool"
     )
     max_queries: int = Field(
-        default=50000,
-        ge=100,
-        description="Max queries per connection before recycling"
+        default=50000, ge=100, description="Max queries per connection before recycling"
     )
     max_inactive_connection_lifetime: float = Field(
-        default=300.0,
-        ge=0.0,
-        description="Seconds before idle connection is closed"
+        default=300.0, ge=0.0, description="Time before idle connection is closed (seconds)"
     )
 
     @field_validator("max_size")
@@ -96,22 +89,28 @@ class PoolTimeoutsConfig(BaseModel):
     acquisition: float = Field(
         default=10.0,
         ge=0.1,
-        description="Timeout for acquiring a connection from the pool (seconds)"
+        description="Timeout for acquiring a connection from the pool (seconds)",
     )
     health_check: float = Field(
-        default=5.0,
-        ge=0.1,
-        description="Timeout for connection health check (seconds)"
+        default=5.0, ge=0.1, description="Timeout for connection health check (seconds)"
     )
 
 
 class RetryConfig(BaseModel):
     """Retry configuration for connection failures."""
 
-    max_attempts: int = Field(default=3, ge=1, le=10)
-    initial_delay: float = Field(default=1.0, ge=0.1)
-    max_delay: float = Field(default=10.0, ge=0.1)
-    exponential_backoff: bool = Field(default=True)
+    max_attempts: int = Field(
+        default=3, ge=1, le=10, description="Maximum retry attempts for connection failures"
+    )
+    initial_delay: float = Field(
+        default=1.0, ge=0.1, description="Initial delay between retries (seconds)"
+    )
+    max_delay: float = Field(
+        default=10.0, ge=0.1, description="Maximum delay between retries (seconds)"
+    )
+    exponential_backoff: bool = Field(
+        default=True, description="Use exponential backoff for retries"
+    )
 
     @field_validator("max_delay")
     @classmethod
@@ -126,13 +125,15 @@ class RetryConfig(BaseModel):
 class ServerSettingsConfig(BaseModel):
     """Optional server settings for PostgreSQL connection."""
 
-    application_name: str = Field(default="pool")
-    timezone: str = Field(default="UTC")
+    application_name: str = Field(
+        default="pool", description="Application name for PostgreSQL connection"
+    )
+    timezone: str = Field(default="UTC", description="Timezone for PostgreSQL connection")
 
 
-class ConnectionPoolConfig(BaseModel):
+class PoolConfig(BaseModel):
     """
-    Complete connection pool configuration.
+    Complete pool configuration.
 
     Structured configuration with clear separation of concerns:
     - database: Connection parameters (host, port, user, etc.)
@@ -142,175 +143,99 @@ class ConnectionPoolConfig(BaseModel):
     - server_settings: PostgreSQL server settings
     """
 
-    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-    limits: PoolLimitsConfig = Field(default_factory=PoolLimitsConfig)
-    timeouts: PoolTimeoutsConfig = Field(default_factory=PoolTimeoutsConfig)
-    retry: RetryConfig = Field(default_factory=RetryConfig)
-    server_settings: ServerSettingsConfig = Field(default_factory=ServerSettingsConfig)
+    database: DatabaseConfig = Field(
+        default_factory=DatabaseConfig, description="Database connection parameters"
+    )
+    limits: PoolLimitsConfig = Field(
+        default_factory=PoolLimitsConfig, description="Pool size and resource limits"
+    )
+    timeouts: PoolTimeoutsConfig = Field(
+        default_factory=PoolTimeoutsConfig, description="Pool-level timeouts"
+    )
+    retry: RetryConfig = Field(
+        default_factory=RetryConfig, description="Connection retry configuration"
+    )
+    server_settings: ServerSettingsConfig = Field(
+        default_factory=ServerSettingsConfig, description="PostgreSQL server settings"
+    )
 
 
 # ============================================================================
-# ConnectionPool Class
+# Pool Class
 # ============================================================================
 
 
-class ConnectionPool:
+class Pool:
     """
-    Manages PostgreSQL connection pooling with asyncpg.
+    Manages PostgreSQL pooling with asyncpg.
 
     Features:
-    - Async connection pooling with configurable pool sizes
+    - Async pooling with configurable pool sizes
     - Automatic connection retry with exponential backoff
     - PGBouncer compatibility
-    - Configuration via YAML or direct instantiation
+    - Configuration via YAML, dict, or config object
     - Comprehensive validation using Pydantic
     - Context manager support for clean resource management
 
     Example usage:
-        # Via YAML configuration
-        pool = ConnectionPool.from_yaml("path/to/pool.yaml")
-        await pool.connect()
-        async with pool.acquire() as conn:
-            result = await conn.fetch("SELECT * FROM events LIMIT 10")
-        await pool.close()
+        # Option 1: Default configuration
+        pool = Pool()
 
-        # Via direct instantiation
-        pool = ConnectionPool(
-            host="localhost",
-            port=5432,
-            database="database",
-            user="admin",
-            password="secret",
-            min_size=5,
-            max_size=20
+        # Option 2: With config object
+        config = PoolConfig(
+            database=DatabaseConfig(host="localhost", database="brotr"),
+            limits=PoolLimitsConfig(min_size=10, max_size=50),
         )
+        pool = Pool(config=config)
+
+        # Option 3: From YAML
+        pool = Pool.from_yaml("path/to/pool.yaml")
+
+        # Option 4: From dict
+        pool = Pool.from_dict({"database": {"host": "localhost"}})
+
+        # Usage
         async with pool:
             async with pool.acquire() as conn:
                 result = await conn.fetch("SELECT * FROM events LIMIT 10")
     """
 
-    def __init__(
-        self,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        database: Optional[str] = None,
-        user: Optional[str] = None,
-        password: Optional[str] = None,
-        min_size: Optional[int] = None,
-        max_size: Optional[int] = None,
-        max_queries: Optional[int] = None,
-        max_inactive_connection_lifetime: Optional[float] = None,
-        acquisition_timeout: Optional[float] = None,
-        max_attempts: Optional[int] = None,
-        initial_delay: Optional[float] = None,
-        max_delay: Optional[float] = None,
-        exponential_backoff: Optional[bool] = None,
-        application_name: Optional[str] = None,
-        timezone: Optional[str] = None,
-    ):
+    def __init__(self, config: Optional[PoolConfig] = None):
         """
-        Initialize ConnectionPool with validated configuration.
-
-        All parameters are optional - defaults are defined in Pydantic models.
+        Initialize Pool with validated configuration.
 
         Args:
-            host: Database host (default: "localhost")
-            port: Database port (default: 5432)
-            database: Database name (default: "database")
-            user: Database user (default: "admin")
-            password: Database password (if None, loads from DB_PASSWORD env var)
-            min_size: Minimum pool size (default: 5)
-            max_size: Maximum pool size (default: 20)
-            max_queries: Max queries per connection before recycling (default: 50000)
-            max_inactive_connection_lifetime: Seconds before idle connection is closed (default: 300.0)
-            acquisition_timeout: Timeout for acquiring connection from pool in seconds (default: 10.0)
-            max_attempts: Maximum connection retry attempts (default: 3)
-            initial_delay: Initial delay between retries in seconds (default: 1.0)
-            max_delay: Maximum delay between retries in seconds (default: 10.0)
-            exponential_backoff: Use exponential backoff for retries (default: True)
-            application_name: Application name for PostgreSQL (default: "pool")
-            timezone: Timezone for connection (default: "UTC")
+            config: Pool configuration (uses defaults if not provided)
 
         Raises:
             ValidationError: If configuration is invalid
+
+        Examples:
+            # Default configuration
+            pool = Pool()
+
+            # Custom configuration
+            config = PoolConfig(
+                database=DatabaseConfig(host="db.example.com", database="mydb"),
+                limits=PoolLimitsConfig(min_size=10, max_size=100),
+            )
+            pool = Pool(config=config)
         """
-        # Build config dict only with non-None values
-        # Pydantic will apply defaults for missing values
-        config_dict = {}
-
-        # Database connection parameters
-        database_dict = {}
-        if host is not None:
-            database_dict["host"] = host
-        if port is not None:
-            database_dict["port"] = port
-        if database is not None:
-            database_dict["database"] = database
-        if user is not None:
-            database_dict["user"] = user
-        if password is not None:
-            database_dict["password"] = password
-        if database_dict:
-            config_dict["database"] = database_dict
-
-        # Pool resource limits (size, lifecycle)
-        limits_dict = {}
-        if min_size is not None:
-            limits_dict["min_size"] = min_size
-        if max_size is not None:
-            limits_dict["max_size"] = max_size
-        if max_queries is not None:
-            limits_dict["max_queries"] = max_queries
-        if max_inactive_connection_lifetime is not None:
-            limits_dict["max_inactive_connection_lifetime"] = max_inactive_connection_lifetime
-        if limits_dict:
-            config_dict["limits"] = limits_dict
-
-        # Pool-level timeouts (acquisition only - operation timeouts controlled by caller)
-        timeouts_dict = {}
-        if acquisition_timeout is not None:
-            timeouts_dict["acquisition"] = acquisition_timeout
-        if timeouts_dict:
-            config_dict["timeouts"] = timeouts_dict
-
-        # Retry config
-        retry_dict = {}
-        if max_attempts is not None:
-            retry_dict["max_attempts"] = max_attempts
-        if initial_delay is not None:
-            retry_dict["initial_delay"] = initial_delay
-        if max_delay is not None:
-            retry_dict["max_delay"] = max_delay
-        if exponential_backoff is not None:
-            retry_dict["exponential_backoff"] = exponential_backoff
-        if retry_dict:
-            config_dict["retry"] = retry_dict
-
-        # Server settings config
-        server_settings_dict = {}
-        if application_name is not None:
-            server_settings_dict["application_name"] = application_name
-        if timezone is not None:
-            server_settings_dict["timezone"] = timezone
-        if server_settings_dict:
-            config_dict["server_settings"] = server_settings_dict
-
-        # Pydantic will apply defaults for any missing sections/fields
-        self._config = ConnectionPoolConfig(**config_dict)
+        self._config = config or PoolConfig()
         self._pool: Optional[asyncpg.Pool] = None
         self._is_connected: bool = False
         self._connection_lock = asyncio.Lock()  # Protect connection state changes
 
     @classmethod
-    def from_yaml(cls, yaml_path: str) -> "ConnectionPool":
+    def from_yaml(cls, yaml_path: str) -> "Pool":
         """
-        Create ConnectionPool from YAML configuration file.
+        Create Pool from YAML configuration file.
 
         Args:
             yaml_path: Path to YAML configuration file
 
         Returns:
-            ConnectionPool instance
+            Pool instance
 
         Raises:
             FileNotFoundError: If YAML file doesn't exist
@@ -321,73 +246,31 @@ class ConnectionPool:
         if not path.exists():
             raise FileNotFoundError(f"Configuration file not found: {yaml_path}")
 
-        with open(path, "r") as f:
+        with path.open() as f:
             config_data = yaml.safe_load(f)
 
-        if config_data is None:
-            config_data = {}
-
-        # Validate with Pydantic
-        config = ConnectionPoolConfig(**config_data)
-
-        # Create instance from validated config
-        return cls(
-            host=config.database.host,
-            port=config.database.port,
-            database=config.database.database,
-            user=config.database.user,
-            password=config.database.password,
-            min_size=config.limits.min_size,
-            max_size=config.limits.max_size,
-            max_queries=config.limits.max_queries,
-            max_inactive_connection_lifetime=config.limits.max_inactive_connection_lifetime,
-            acquisition_timeout=config.timeouts.acquisition,
-            max_attempts=config.retry.max_attempts,
-            initial_delay=config.retry.initial_delay,
-            max_delay=config.retry.max_delay,
-            exponential_backoff=config.retry.exponential_backoff,
-            application_name=config.server_settings.application_name,
-            timezone=config.server_settings.timezone,
-        )
+        return cls.from_dict(config_data or {})
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "ConnectionPool":
+    def from_dict(cls, config_dict: dict[str, Any]) -> "Pool":
         """
-        Create ConnectionPool from dictionary configuration.
+        Create Pool from dictionary configuration.
 
         Args:
             config_dict: Configuration dictionary matching YAML structure
 
         Returns:
-            ConnectionPool instance
+            Pool instance
 
         Raises:
             ValidationError: If configuration is invalid
         """
-        config = ConnectionPoolConfig(**config_dict)
-
-        return cls(
-            host=config.database.host,
-            port=config.database.port,
-            database=config.database.database,
-            user=config.database.user,
-            password=config.database.password,
-            min_size=config.limits.min_size,
-            max_size=config.limits.max_size,
-            max_queries=config.limits.max_queries,
-            max_inactive_connection_lifetime=config.limits.max_inactive_connection_lifetime,
-            acquisition_timeout=config.timeouts.acquisition,
-            max_attempts=config.retry.max_attempts,
-            initial_delay=config.retry.initial_delay,
-            max_delay=config.retry.max_delay,
-            exponential_backoff=config.retry.exponential_backoff,
-            application_name=config.server_settings.application_name,
-            timezone=config.server_settings.timezone,
-        )
+        config = PoolConfig(**config_dict)
+        return cls(config=config)
 
     async def connect(self) -> None:
         """
-        Establish connection pool with retry logic.
+        Establish pool with retry logic.
 
         Raises:
             ConnectionError: If all retry attempts fail
@@ -439,11 +322,13 @@ class ConnectionPool:
                     if self._config.retry.exponential_backoff:
                         delay = min(delay * 2, self._config.retry.max_delay)
                     else:
-                        delay = min(delay + self._config.retry.initial_delay, self._config.retry.max_delay)
+                        delay = min(
+                            delay + self._config.retry.initial_delay, self._config.retry.max_delay
+                        )
 
     async def close(self) -> None:
         """
-        Close connection pool and release all resources.
+        Close pool and release all resources.
 
         Note: Even if pool.close() raises an exception, we still mark
         the pool as disconnected to prevent further operations.
@@ -457,7 +342,7 @@ class ConnectionPool:
                     self._pool = None
                     self._is_connected = False
 
-    def acquire(self) -> AsyncContextManager[asyncpg.Connection]:
+    def acquire(self) -> AbstractAsyncContextManager[asyncpg.Connection]:
         """
         Acquire a connection from the pool.
 
@@ -472,7 +357,7 @@ class ConnectionPool:
                 result = await conn.fetch("SELECT * FROM events")
         """
         if not self._is_connected or self._pool is None:
-            raise RuntimeError("Connection pool is not connected. Call connect() first.")
+            raise RuntimeError("Pool is not connected. Call connect() first.")
         return self._pool.acquire()
 
     @asynccontextmanager
@@ -504,12 +389,12 @@ class ConnectionPool:
                 result = await conn.fetch("SELECT * FROM events")
         """
         if not self._is_connected or self._pool is None:
-            raise RuntimeError("Connection pool is not connected. Call connect() first.")
+            raise RuntimeError("Pool is not connected. Call connect() first.")
 
         timeout = health_check_timeout or self._config.timeouts.health_check
         last_error: Optional[Exception] = None
 
-        for attempt in range(max_retries):
+        for _attempt in range(max_retries):
             conn: Optional[asyncpg.Connection] = None
             try:
                 # Acquire connection from pool
@@ -518,7 +403,7 @@ class ConnectionPool:
                 # Perform health check before yielding
                 try:
                     await conn.fetchval("SELECT 1", timeout=timeout)
-                except (asyncpg.PostgresError, asyncio.TimeoutError) as e:
+                except (asyncpg.PostgresError, TimeoutError) as e:
                     last_error = e
                     # Connection unhealthy, release and retry
                     await self._pool.release(conn)
@@ -531,12 +416,11 @@ class ConnectionPool:
                     return  # Success - exit the retry loop
                 finally:
                     # Always release connection back to pool
-                    if conn is not None:
-                        await self._pool.release(conn)
+                    await self._pool.release(conn)
 
             except (asyncpg.PostgresError, OSError) as e:
                 last_error = e
-                # Release connection if acquired
+                # Release connection if acquired (and not already released)
                 if conn is not None:
                     try:
                         await self._pool.release(conn)
@@ -576,11 +460,12 @@ class ConnectionPool:
             For operations that don't need atomicity, use acquire() or the
             high-level methods (fetch, execute, etc.) directly.
         """
-        async with self.acquire() as conn:
-            async with conn.transaction():
-                yield conn
+        async with self.acquire() as conn, conn.transaction():
+            yield conn
 
-    async def fetch(self, query: str, *args, timeout: Optional[float] = None) -> list:
+    async def fetch(
+        self, query: str, *args: Any, timeout: Optional[float] = None
+    ) -> list[asyncpg.Record]:
         """
         Execute query and fetch all results.
 
@@ -598,7 +483,9 @@ class ConnectionPool:
         async with self.acquire() as conn:
             return await conn.fetch(query, *args, timeout=timeout)
 
-    async def fetchrow(self, query: str, *args, timeout: Optional[float] = None):
+    async def fetchrow(
+        self, query: str, *args: Any, timeout: Optional[float] = None
+    ) -> Optional[asyncpg.Record]:
         """
         Execute query and fetch single row.
 
@@ -616,7 +503,9 @@ class ConnectionPool:
         async with self.acquire() as conn:
             return await conn.fetchrow(query, *args, timeout=timeout)
 
-    async def fetchval(self, query: str, *args, column: int = 0, timeout: Optional[float] = None):
+    async def fetchval(
+        self, query: str, *args: Any, column: int = 0, timeout: Optional[float] = None
+    ) -> Any:
         """
         Execute query and fetch single value.
 
@@ -635,7 +524,7 @@ class ConnectionPool:
         async with self.acquire() as conn:
             return await conn.fetchval(query, *args, column=column, timeout=timeout)
 
-    async def execute(self, query: str, *args, timeout: Optional[float] = None) -> str:
+    async def execute(self, query: str, *args: Any, timeout: Optional[float] = None) -> str:
         """
         Execute query without returning results.
 
@@ -653,7 +542,9 @@ class ConnectionPool:
         async with self.acquire() as conn:
             return await conn.execute(query, *args, timeout=timeout)
 
-    async def executemany(self, query: str, args_list: list, timeout: Optional[float] = None) -> None:
+    async def executemany(
+        self, query: str, args_list: list[tuple[Any, ...]], timeout: Optional[float] = None
+    ) -> None:
         """
         Execute query multiple times with different parameters.
 
@@ -682,7 +573,7 @@ class ConnectionPool:
         return self._is_connected
 
     @property
-    def config(self) -> ConnectionPoolConfig:
+    def config(self) -> PoolConfig:
         """
         Get validated configuration.
 
@@ -691,7 +582,7 @@ class ConnectionPool:
         """
         return self._config
 
-    async def __aenter__(self) -> "ConnectionPool":
+    async def __aenter__(self) -> "Pool":
         """Async context manager entry."""
         await self.connect()
         return self
@@ -703,7 +594,7 @@ class ConnectionPool:
     def __repr__(self) -> str:
         """String representation."""
         return (
-            f"ConnectionPool("
+            f"Pool("
             f"host={self._config.database.host}, "
             f"port={self._config.database.port}, "
             f"database={self._config.database.database}, "

@@ -14,17 +14,28 @@ Features:
 """
 
 import asyncio
+import contextlib
 import logging
 import time
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Dict, Generic, Optional, Protocol, Tuple, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Generic,
+    Optional,
+    Protocol,
+    TypeVar,
+    Union,
+)
 
 from pydantic import BaseModel, Field, field_validator
 
 # Try to import structured logger, fallback to standard logging
 try:
-    from .logger import ServiceLogger, get_service_logger
+    from .logger import get_service_logger
+
     STRUCTURED_LOGGING_AVAILABLE = True
 except ImportError:
     STRUCTURED_LOGGING_AVAILABLE = False
@@ -40,7 +51,7 @@ class DatabaseService(Protocol):
     Protocol for database-style services.
 
     Services implementing this protocol use connect/close nomenclature.
-    Examples: ConnectionPool, Brotr
+    Examples: Pool, Brotr
     """
 
     async def connect(self) -> None:
@@ -114,27 +125,23 @@ class LoggingConfig(BaseModel):
 class HealthCheckConfig(BaseModel):
     """Health check configuration."""
 
-    enable_health_checks: bool = Field(default=True, description="Enable health check functionality")
+    enable_health_checks: bool = Field(
+        default=True, description="Enable health check functionality"
+    )
     health_check_interval: float = Field(
-        default=60.0,
-        ge=0.1,
-        description="Interval between health checks (seconds)"
+        default=60.0, ge=0.1, description="Interval between health checks (seconds)"
     )
     health_check_timeout: float = Field(
-        default=5.0,
-        ge=0.1,
-        description="Timeout for health check operations (seconds)"
+        default=5.0, ge=0.1, description="Timeout for health check operations (seconds)"
     )
     health_check_retries: int = Field(
         default=3,
         ge=1,
         le=10,
-        description="Number of retry attempts for health check before reporting failure"
+        description="Number of retry attempts for health check before reporting failure",
     )
     health_check_retry_delay: float = Field(
-        default=1.0,
-        ge=0.1,
-        description="Delay between health check retry attempts (seconds)"
+        default=1.0, ge=0.1, description="Delay between health check retry attempts (seconds)"
     )
 
 
@@ -143,30 +150,24 @@ class WarmupConfig(BaseModel):
 
     enable_warmup: bool = Field(default=False, description="Enable warmup on service start")
     warmup_timeout: float = Field(
-        default=10.0,
-        ge=0.1,
-        description="Timeout for warmup operation (seconds)"
+        default=10.0, ge=0.1, description="Timeout for warmup operation (seconds)"
     )
     warmup_required: bool = Field(
-        default=False,
-        description="If True, service startup fails if warmup fails"
+        default=False, description="If True, service startup fails if warmup fails"
     )
 
 
 class CircuitBreakerConfig(BaseModel):
     """Circuit breaker configuration."""
 
-    enable_circuit_breaker: bool = Field(default=False, description="Enable circuit breaker pattern")
+    enable_circuit_breaker: bool = Field(
+        default=False, description="Enable circuit breaker pattern"
+    )
     circuit_breaker_threshold: int = Field(
-        default=5,
-        ge=1,
-        le=100,
-        description="Failed health checks before opening circuit"
+        default=5, ge=1, le=100, description="Failed health checks before opening circuit"
     )
     circuit_breaker_timeout: float = Field(
-        default=300.0,
-        ge=0.1,
-        description="Cooldown period before attempting reset (seconds)"
+        default=300.0, ge=0.1, description="Cooldown period before attempting reset (seconds)"
     )
 
 
@@ -175,8 +176,7 @@ class MetricsConfig(BaseModel):
 
     enable_stats: bool = Field(default=True, description="Enable statistics collection")
     enable_prometheus_metrics: bool = Field(
-        default=False,
-        description="Enable Prometheus metrics export"
+        default=False, description="Enable Prometheus metrics export"
     )
 
 
@@ -192,11 +192,21 @@ class ServiceConfig(BaseModel):
     - metrics: Statistics and metrics export
     """
 
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    health_check: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
-    warmup: WarmupConfig = Field(default_factory=WarmupConfig)
-    circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
-    metrics: MetricsConfig = Field(default_factory=MetricsConfig)
+    logging: LoggingConfig = Field(
+        default_factory=LoggingConfig, description="Logging behavior configuration"
+    )
+    health_check: HealthCheckConfig = Field(
+        default_factory=HealthCheckConfig, description="Health check configuration"
+    )
+    warmup: WarmupConfig = Field(
+        default_factory=WarmupConfig, description="Warmup behavior configuration"
+    )
+    circuit_breaker: CircuitBreakerConfig = Field(
+        default_factory=CircuitBreakerConfig, description="Circuit breaker configuration"
+    )
+    metrics: MetricsConfig = Field(
+        default_factory=MetricsConfig, description="Statistics and metrics configuration"
+    )
 
 
 # ============================================================================
@@ -260,7 +270,7 @@ class CircuitBreakerState:
             elapsed = (datetime.now() - self.opened_at).total_seconds()
             return elapsed >= timeout
 
-    async def check_and_should_reset(self, timeout: float) -> Tuple[bool, bool]:
+    async def check_and_should_reset(self, timeout: float) -> tuple[bool, bool]:
         """
         Atomically check if circuit is open and if reset should be attempted.
 
@@ -284,7 +294,7 @@ class CircuitBreakerState:
             should_reset = elapsed >= timeout
             return (True, should_reset)
 
-    async def to_dict(self) -> Dict[str, Any]:
+    async def to_dict(self) -> dict[str, Any]:
         """
         Convert circuit breaker state to dictionary (thread-safe).
 
@@ -322,7 +332,7 @@ class ServiceStats:
     health_checks_failed: int = 0
     last_health_check: Optional[datetime] = None
     last_health_status: bool = False
-    custom_stats: Dict[str, Any] = field(default_factory=dict)
+    custom_stats: dict[str, Any] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def record_health_check(self, is_healthy: bool) -> None:
@@ -350,7 +360,7 @@ class ServiceStats:
         async with self._lock:
             self.custom_stats[key] = value
 
-    async def to_dict(self) -> Dict[str, Any]:
+    async def to_dict(self) -> dict[str, Any]:
         """
         Convert stats to dictionary (thread-safe).
 
@@ -373,7 +383,9 @@ class ServiceStats:
                         if self.health_checks_performed > 0
                         else 0.0
                     ),
-                    "last_check": self.last_health_check.isoformat() if self.last_health_check else None,
+                    "last_check": self.last_health_check.isoformat()
+                    if self.last_health_check
+                    else None,
                     "last_status": "healthy" if self.last_health_status else "unhealthy",
                 },
                 "custom": self.custom_stats.copy(),  # Return a copy to prevent external mutation
@@ -391,18 +403,22 @@ class ServiceStats:
             service_label = f'service="{self.name}"'
 
             # Uptime
-            metrics.append(f"# HELP service_uptime_seconds Service uptime in seconds")
-            metrics.append(f"# TYPE service_uptime_seconds gauge")
+            metrics.append("# HELP service_uptime_seconds Service uptime in seconds")
+            metrics.append("# TYPE service_uptime_seconds gauge")
             metrics.append(f"service_uptime_seconds{{{service_label}}} {self.uptime_seconds}")
 
             # Health checks
-            metrics.append(f"# HELP service_health_checks_total Total health checks performed")
-            metrics.append(f"# TYPE service_health_checks_total counter")
-            metrics.append(f"service_health_checks_total{{{service_label}}} {self.health_checks_performed}")
+            metrics.append("# HELP service_health_checks_total Total health checks performed")
+            metrics.append("# TYPE service_health_checks_total counter")
+            metrics.append(
+                f"service_health_checks_total{{{service_label}}} {self.health_checks_performed}"
+            )
 
-            metrics.append(f"# HELP service_health_checks_failed_total Failed health checks")
-            metrics.append(f"# TYPE service_health_checks_failed_total counter")
-            metrics.append(f"service_health_checks_failed_total{{{service_label}}} {self.health_checks_failed}")
+            metrics.append("# HELP service_health_checks_failed_total Failed health checks")
+            metrics.append("# TYPE service_health_checks_failed_total counter")
+            metrics.append(
+                f"service_health_checks_failed_total{{{service_label}}} {self.health_checks_failed}"
+            )
 
             # Success rate
             success_rate = (
@@ -411,14 +427,16 @@ class ServiceStats:
                 if self.health_checks_performed > 0
                 else 1.0
             )
-            metrics.append(f"# HELP service_health_check_success_rate Health check success rate (0-1)")
-            metrics.append(f"# TYPE service_health_check_success_rate gauge")
+            metrics.append(
+                "# HELP service_health_check_success_rate Health check success rate (0-1)"
+            )
+            metrics.append("# TYPE service_health_check_success_rate gauge")
             metrics.append(f"service_health_check_success_rate{{{service_label}}} {success_rate}")
 
             # Status
             status_value = 1 if self.last_health_status else 0
-            metrics.append(f"# HELP service_status Current service status (1=healthy, 0=unhealthy)")
-            metrics.append(f"# TYPE service_status gauge")
+            metrics.append("# HELP service_status Current service status (1=healthy, 0=unhealthy)")
+            metrics.append("# TYPE service_status gauge")
             metrics.append(f"service_status{{{service_label}}} {status_value}")
 
             # Custom stats (iterate over a copy to avoid holding lock during string operations)
@@ -461,14 +479,14 @@ class Service(Generic[T]):
 
     Example usage:
         # Basic usage
-        pool = ConnectionPool(host="localhost", database="mydb")
+        pool = Pool(host="localhost", database="mydb")
         service = Service(pool, name="database_pool")
 
         async with service:
             result = await service.instance.fetch("SELECT 1")
 
         # Advanced usage with custom health check
-        async def check_pool(pool: ConnectionPool) -> bool:
+        async def check_pool(pool: Pool) -> bool:
             return await pool.fetchval("SELECT 1") == 1
 
         config = ServiceConfig(
@@ -652,9 +670,7 @@ class Service(Generic[T]):
             elif hasattr(self._instance, "start"):
                 await self._instance.start()
             else:
-                raise AttributeError(
-                    f"Service instance must have 'connect()' or 'start()' method"
-                )
+                raise AttributeError("Service instance must have 'connect()' or 'start()' method")
 
             # Warmup if enabled
             if self._config.warmup.enable_warmup:
@@ -717,10 +733,8 @@ class Service(Generic[T]):
             # Stop health check task
             if self._health_check_task:
                 self._health_check_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await self._health_check_task
-                except asyncio.CancelledError:
-                    pass
                 self._health_check_task = None
 
             # Call close() or stop() on wrapped instance
@@ -729,9 +743,7 @@ class Service(Generic[T]):
             elif hasattr(self._instance, "stop"):
                 await self._instance.stop()
             else:
-                raise AttributeError(
-                    f"Service instance must have 'close()' or 'stop()' method"
-                )
+                raise AttributeError("Service instance must have 'close()' or 'stop()' method")
 
             # Update stats
             self._stats.stopped_at = datetime.now()
@@ -782,7 +794,9 @@ class Service(Generic[T]):
             True if service is healthy, False otherwise
         """
         timeout = timeout or self._config.health_check.health_check_timeout
-        max_retries = retries if retries is not None else self._config.health_check.health_check_retries
+        max_retries = (
+            retries if retries is not None else self._config.health_check.health_check_retries
+        )
         retry_delay = self._config.health_check.health_check_retry_delay
 
         for attempt in range(max_retries):
@@ -827,17 +841,13 @@ class Service(Generic[T]):
             # Use custom callback if provided
             if self._health_check_callback:
                 result = await asyncio.wait_for(
-                    self._health_check_callback(self._instance),
-                    timeout=timeout
+                    self._health_check_callback(self._instance), timeout=timeout
                 )
                 return bool(result)
 
             # Try service's own health_check method
             if hasattr(self._instance, "health_check"):
-                result = await asyncio.wait_for(
-                    self._instance.health_check(),
-                    timeout=timeout
-                )
+                result = await asyncio.wait_for(self._instance.health_check(), timeout=timeout)
                 return bool(result)
 
             # For database pools - use fetchval
@@ -854,10 +864,82 @@ class Service(Generic[T]):
             return True
 
         except Exception as e:
-            self._log("debug", f"Health check attempt failed: {e}")
+            self._log("debug", "health_check_attempt_failed", error=str(e))
             return False
 
-    async def _health_check_loop(self):
+    async def _should_skip_health_check(self) -> bool:
+        """
+        Check if health check should be skipped due to open circuit breaker.
+
+        Returns:
+            True if health check should be skipped, False otherwise
+        """
+        if not self._config.circuit_breaker.enable_circuit_breaker:
+            return False
+
+        is_open, should_reset = await self._circuit_breaker.check_and_should_reset(
+            self._config.circuit_breaker.circuit_breaker_timeout
+        )
+
+        if is_open and not should_reset:
+            self._log("debug", "circuit_breaker_open_skipping_check")
+            return True
+
+        if should_reset:
+            self._log("info", "circuit_breaker_attempting_reset")
+
+        return False
+
+    async def _handle_health_check_result(self, is_healthy: bool) -> None:
+        """
+        Handle health check result, updating circuit breaker and logging.
+
+        Args:
+            is_healthy: Result of the health check
+        """
+        if not self._config.circuit_breaker.enable_circuit_breaker:
+            self._log(
+                "debug" if is_healthy else "warning",
+                "health_check_passed" if is_healthy else "health_check_failed",
+            )
+            return
+
+        if is_healthy:
+            await self._handle_healthy_result()
+        else:
+            await self._handle_unhealthy_result()
+
+    async def _handle_healthy_result(self) -> None:
+        """Handle successful health check with circuit breaker."""
+        was_open = self._circuit_breaker.is_open
+        await self._circuit_breaker.record_success()
+        if was_open:
+            self._log("info", "circuit_breaker_closed_service_recovered")
+        else:
+            self._log("debug", "health_check_passed")
+
+    async def _handle_unhealthy_result(self) -> None:
+        """Handle failed health check with circuit breaker."""
+        await self._circuit_breaker.record_failure()
+        threshold = self._config.circuit_breaker.circuit_breaker_threshold
+
+        if self._circuit_breaker.consecutive_failures >= threshold:
+            await self._circuit_breaker.open_circuit()
+            self._log(
+                "error",
+                "circuit_breaker_opened",
+                consecutive_failures=self._circuit_breaker.consecutive_failures,
+                threshold=threshold,
+            )
+        else:
+            self._log(
+                "warning",
+                "health_check_failed",
+                consecutive_failures=self._circuit_breaker.consecutive_failures,
+                threshold=threshold,
+            )
+
+    async def _health_check_loop(self) -> None:
         """
         Background task for periodic health checks.
 
@@ -870,71 +952,20 @@ class Service(Generic[T]):
             try:
                 await asyncio.sleep(self._config.health_check.health_check_interval)
 
-                # Double-check still running after sleep
                 if not self._is_running:
                     break
 
-                # Check if circuit breaker should attempt reset
-                # Uses atomic check to avoid race conditions
-                if self._config.circuit_breaker.enable_circuit_breaker:
-                    is_open, should_reset = await self._circuit_breaker.check_and_should_reset(
-                        self._config.circuit_breaker.circuit_breaker_timeout
-                    )
+                if await self._should_skip_health_check():
+                    continue
 
-                    if is_open and not should_reset:
-                        # Circuit open, timeout not reached - skip health check
-                        self._log("debug", "circuit_breaker_open_skipping_check")
-                        continue
-                    elif should_reset:
-                        # Circuit open, timeout reached - attempt reset
-                        self._log("info", "circuit_breaker_attempting_reset")
-
-                # Perform health check
                 is_healthy = await self.health_check()
-
-                # Update stats (thread-safe)
                 await self._stats.record_health_check(is_healthy)
-
-                # Update circuit breaker
-                if self._config.circuit_breaker.enable_circuit_breaker:
-                    if is_healthy:
-                        was_open = self._circuit_breaker.is_open
-                        await self._circuit_breaker.record_success()
-                        if was_open:
-                            self._log("info", "circuit_breaker_closed_service_recovered")
-                        else:
-                            self._log("debug", "health_check_passed")
-                    else:
-                        await self._circuit_breaker.record_failure()
-
-                        # Check if threshold reached
-                        if (self._circuit_breaker.consecutive_failures >=
-                            self._config.circuit_breaker.circuit_breaker_threshold):
-                            await self._circuit_breaker.open_circuit()
-                            self._log(
-                                "error",
-                                "circuit_breaker_opened",
-                                consecutive_failures=self._circuit_breaker.consecutive_failures,
-                                threshold=self._config.circuit_breaker.circuit_breaker_threshold,
-                            )
-                        else:
-                            self._log(
-                                "warning",
-                                "health_check_failed",
-                                consecutive_failures=self._circuit_breaker.consecutive_failures,
-                                threshold=self._config.circuit_breaker.circuit_breaker_threshold,
-                            )
-                else:
-                    # No circuit breaker, just log
-                    if not is_healthy:
-                        self._log("warning", "health_check_failed")
-                    else:
-                        self._log("debug", "health_check_passed")
+                await self._handle_health_check_result(is_healthy)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                self._log("error", f"Error in health check loop: {e}", exc_info=True)
+                self._log("error", "health_check_loop_error", error=str(e), exc_info=True)
 
     async def _warmup(self):
         """
@@ -947,17 +978,18 @@ class Service(Generic[T]):
         if hasattr(self._instance, "warmup"):
             try:
                 await asyncio.wait_for(
-                    self._instance.warmup(),
-                    timeout=self._config.warmup.warmup_timeout
+                    self._instance.warmup(), timeout=self._config.warmup.warmup_timeout
                 )
                 self._log("info", "warmup_completed")
-            except asyncio.TimeoutError as e:
+            except TimeoutError as e:
                 error_msg = f"Warmup timed out after {self._config.warmup.warmup_timeout}s"
                 if self._config.warmup.warmup_required:
                     self._log("error", "warmup_timeout", timeout=self._config.warmup.warmup_timeout)
                     raise TimeoutError(error_msg) from e
                 else:
-                    self._log("warning", "warmup_timeout", timeout=self._config.warmup.warmup_timeout)
+                    self._log(
+                        "warning", "warmup_timeout", timeout=self._config.warmup.warmup_timeout
+                    )
             except Exception as e:
                 if self._config.warmup.warmup_required:
                     self._log("error", "warmup_failed", error=str(e), exc_info=True)
@@ -965,7 +997,7 @@ class Service(Generic[T]):
                 else:
                     self._log("warning", "warmup_failed", error=str(e))
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """
         Get runtime statistics for the service (thread-safe).
 
@@ -1038,21 +1070,29 @@ class Service(Generic[T]):
                 consecutive_failures = cb.consecutive_failures
                 total_opens = cb.total_opens
 
-            metrics.append(f"\n# HELP service_circuit_breaker_open Circuit breaker state (1=open, 0=closed)")
-            metrics.append(f"# TYPE service_circuit_breaker_open gauge")
+            metrics.append(
+                "\n# HELP service_circuit_breaker_open Circuit breaker state (1=open, 0=closed)"
+            )
+            metrics.append("# TYPE service_circuit_breaker_open gauge")
             metrics.append(f"service_circuit_breaker_open{{{service_label}}} {1 if is_open else 0}")
 
-            metrics.append(f"# HELP service_circuit_breaker_consecutive_failures Consecutive health check failures")
-            metrics.append(f"# TYPE service_circuit_breaker_consecutive_failures gauge")
-            metrics.append(f"service_circuit_breaker_consecutive_failures{{{service_label}}} {consecutive_failures}")
+            metrics.append(
+                "# HELP service_circuit_breaker_consecutive_failures Consecutive health check failures"
+            )
+            metrics.append("# TYPE service_circuit_breaker_consecutive_failures gauge")
+            metrics.append(
+                f"service_circuit_breaker_consecutive_failures{{{service_label}}} {consecutive_failures}"
+            )
 
-            metrics.append(f"# HELP service_circuit_breaker_total_opens Total times circuit breaker opened")
-            metrics.append(f"# TYPE service_circuit_breaker_total_opens counter")
+            metrics.append(
+                "# HELP service_circuit_breaker_total_opens Total times circuit breaker opened"
+            )
+            metrics.append("# TYPE service_circuit_breaker_total_opens counter")
             metrics.append(f"service_circuit_breaker_total_opens{{{service_label}}} {total_opens}")
 
         return "\n".join(metrics)
 
-    async def get_circuit_breaker_state(self) -> Dict[str, Any]:
+    async def get_circuit_breaker_state(self) -> dict[str, Any]:
         """
         Get current circuit breaker state (thread-safe).
 

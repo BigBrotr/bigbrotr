@@ -20,7 +20,7 @@ Example usage:
     configure_logging(level="INFO", output_file="logs/app.log")
 
     # Get logger for a service
-    logger = get_service_logger("database_pool", "ConnectionPool")
+    logger = get_service_logger("database_pool", "Pool")
 
     # Log with structured fields
     logger.info("service_started", elapsed_seconds=1.23, config={"max_size": 20})
@@ -29,12 +29,35 @@ Example usage:
     logger.error("connection_failed", error=str(e), retry_attempt=3)
 """
 
+import contextvars
 import json
 import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
+
+# Valid log levels for validation
+VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+
+def validate_log_level(level: str) -> str:
+    """
+    Validate and normalize a log level string.
+
+    Args:
+        level: Log level string (case-insensitive)
+
+    Returns:
+        Uppercase log level string
+
+    Raises:
+        ValueError: If log level is not valid
+    """
+    level_upper = level.upper()
+    if level_upper not in VALID_LOG_LEVELS:
+        raise ValueError(f"log_level must be one of {VALID_LOG_LEVELS}, got: {level}")
+    return level_upper
 
 
 # ============================================================================
@@ -87,7 +110,7 @@ class StructuredFormatter(logging.Formatter):
         Returns:
             JSON-formatted log string
         """
-        log_data: Dict[str, Any] = {}
+        log_data: dict[str, Any] = {}
 
         # Timestamp
         if self.include_timestamp:
@@ -111,11 +134,28 @@ class StructuredFormatter(logging.Formatter):
         # These come from logger.info("msg", extra={...})
         for key, value in record.__dict__.items():
             if key not in {
-                "name", "msg", "args", "created", "filename", "funcName",
-                "levelname", "levelno", "lineno", "module", "msecs",
-                "message", "pathname", "process", "processName",
-                "relativeCreated", "thread", "threadName", "exc_info",
-                "exc_text", "stack_info", "taskName"
+                "name",
+                "msg",
+                "args",
+                "created",
+                "filename",
+                "funcName",
+                "levelname",
+                "levelno",
+                "lineno",
+                "module",
+                "msecs",
+                "message",
+                "pathname",
+                "process",
+                "processName",
+                "relativeCreated",
+                "thread",
+                "threadName",
+                "exc_info",
+                "exc_text",
+                "stack_info",
+                "taskName",
             }:
                 log_data[key] = value
 
@@ -140,10 +180,10 @@ class ServiceLogger:
     - service_type: Type/class of the service
 
     Example:
-        logger = ServiceLogger("database_pool", "ConnectionPool")
+        logger = ServiceLogger("database_pool", "Pool")
         logger.info("connected", host="localhost", port=5432)
         # Output: {"timestamp": "...", "level": "INFO", "message": "connected",
-        #          "service_name": "database_pool", "service_type": "ConnectionPool",
+        #          "service_name": "database_pool", "service_type": "Pool",
         #          "host": "localhost", "port": 5432}
     """
 
@@ -152,7 +192,7 @@ class ServiceLogger:
         service_name: str,
         service_type: str,
         logger: Optional[logging.Logger] = None,
-        extra_context: Optional[Dict[str, Any]] = None,
+        extra_context: Optional[dict[str, Any]] = None,
     ):
         """
         Initialize service logger.
@@ -168,7 +208,7 @@ class ServiceLogger:
         self._logger = logger or logging.getLogger(f"service.{service_name}")
         self._extra_context = extra_context or {}
 
-    def _build_extra(self, **kwargs) -> Dict[str, Any]:
+    def _build_extra(self, **kwargs) -> dict[str, Any]:
         """
         Build extra fields for log record.
 
@@ -217,7 +257,7 @@ class ServiceLogger:
             New ServiceLogger instance with updated context
 
         Example:
-            logger = ServiceLogger("pool", "ConnectionPool")
+            logger = ServiceLogger("pool", "Pool")
             request_logger = logger.bind(request_id="abc123")
             request_logger.info("query_executed")  # Includes request_id
         """
@@ -277,9 +317,7 @@ def configure_logging(
     if structured:
         formatter = StructuredFormatter(datetime_format=datetime_format)
     else:
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     # Console handler
     if console_output:
@@ -301,7 +339,7 @@ def configure_logging(
 def get_service_logger(
     service_name: str,
     service_type: str,
-    extra_context: Optional[Dict[str, Any]] = None,
+    extra_context: Optional[dict[str, Any]] = None,
 ) -> ServiceLogger:
     """
     Get a structured logger for a service.
@@ -315,7 +353,7 @@ def get_service_logger(
         ServiceLogger instance
 
     Example:
-        logger = get_service_logger("database_pool", "ConnectionPool")
+        logger = get_service_logger("database_pool", "Pool")
         logger.info("connected", host="localhost", port=5432)
     """
     return ServiceLogger(service_name, service_type, extra_context=extra_context)
@@ -340,58 +378,43 @@ def get_logger(name: str) -> logging.Logger:
 # Context Variables (for request/trace IDs)
 # ============================================================================
 
-try:
-    import contextvars
+# Context variables for distributed tracing
+request_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "request_id", default=None
+)
+trace_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "trace_id", default=None
+)
 
-    # Context variables for distributed tracing
-    request_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
-        "request_id", default=None
-    )
-    trace_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
-        "trace_id", default=None
-    )
 
-    def set_request_id(request_id: str):
-        """Set request ID for current context."""
-        request_id_var.set(request_id)
+def set_request_id(request_id: str) -> None:
+    """Set request ID for current context."""
+    request_id_var.set(request_id)
 
-    def get_request_id() -> Optional[str]:
-        """Get request ID from current context."""
-        return request_id_var.get()
 
-    def set_trace_id(trace_id: str):
-        """Set trace ID for current context."""
-        trace_id_var.set(trace_id)
+def get_request_id() -> Optional[str]:
+    """Get request ID from current context."""
+    return request_id_var.get()
 
-    def get_trace_id() -> Optional[str]:
-        """Get trace ID from current context."""
-        return trace_id_var.get()
 
-    def get_trace_context() -> Dict[str, Optional[str]]:
-        """
-        Get current trace context.
+def set_trace_id(trace_id: str) -> None:
+    """Set trace ID for current context."""
+    trace_id_var.set(trace_id)
 
-        Returns:
-            Dictionary with request_id and trace_id
-        """
-        return {
-            "request_id": get_request_id(),
-            "trace_id": get_trace_id(),
-        }
 
-except ImportError:
-    # contextvars not available (Python < 3.7)
-    def set_request_id(request_id: str):
-        pass
+def get_trace_id() -> Optional[str]:
+    """Get trace ID from current context."""
+    return trace_id_var.get()
 
-    def get_request_id() -> Optional[str]:
-        return None
 
-    def set_trace_id(trace_id: str):
-        pass
+def get_trace_context() -> dict[str, Optional[str]]:
+    """
+    Get current trace context.
 
-    def get_trace_id() -> Optional[str]:
-        return None
-
-    def get_trace_context() -> Dict[str, Optional[str]]:
-        return {"request_id": None, "trace_id": None}
+    Returns:
+        Dictionary with request_id and trace_id
+    """
+    return {
+        "request_id": get_request_id(),
+        "trace_id": get_trace_id(),
+    }

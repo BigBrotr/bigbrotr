@@ -1,7 +1,7 @@
 """
 Database Interface
 High-level database interface for Brotr using composition pattern.
-Uses a ConnectionPool instance internally for better separation of concerns.
+Uses a Pool instance internally for better separation of concerns.
 
 Features:
 - Stored procedure wrappers for event/relay operations
@@ -12,15 +12,18 @@ Features:
 - Dependency injection support for testing
 """
 
+import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import asyncpg
 import yaml
 from pydantic import BaseModel, Field
 
-from .pool import ConnectionPool
+from .pool import Pool
 
+# Module-level logger for Brotr operations
+_logger = logging.getLogger(__name__)
 
 # ============================================================================
 # Pydantic Models for Configuration Validation
@@ -34,7 +37,7 @@ class BatchConfig(BaseModel):
         default=10000,
         ge=1,
         le=100000,
-        description="Maximum number of items allowed in a single batch operation"
+        description="Maximum number of items allowed in a single batch operation",
     )
 
 
@@ -42,13 +45,33 @@ class StoredProceduresConfig(BaseModel):
     """Stored procedures name configuration."""
 
     # Insert operations
-    insert_event: str = Field(default="insert_event", min_length=1)
-    insert_relay: str = Field(default="insert_relay", min_length=1)
-    insert_relay_metadata: str = Field(default="insert_relay_metadata", min_length=1)
+    insert_event: str = Field(
+        default="insert_event", min_length=1, description="Name of event insertion procedure"
+    )
+    insert_relay: str = Field(
+        default="insert_relay", min_length=1, description="Name of relay insertion procedure"
+    )
+    insert_relay_metadata: str = Field(
+        default="insert_relay_metadata",
+        min_length=1,
+        description="Name of relay metadata insertion procedure",
+    )
     # Cleanup operations
-    delete_orphan_events: str = Field(default="delete_orphan_events", min_length=1)
-    delete_orphan_nip11: str = Field(default="delete_orphan_nip11", min_length=1)
-    delete_orphan_nip66: str = Field(default="delete_orphan_nip66", min_length=1)
+    delete_orphan_events: str = Field(
+        default="delete_orphan_events",
+        min_length=1,
+        description="Name of orphan events deletion procedure",
+    )
+    delete_orphan_nip11: str = Field(
+        default="delete_orphan_nip11",
+        min_length=1,
+        description="Name of orphan NIP-11 data deletion procedure",
+    )
+    delete_orphan_nip66: str = Field(
+        default="delete_orphan_nip66",
+        min_length=1,
+        description="Name of orphan NIP-66 data deletion procedure",
+    )
 
 
 class OperationTimeoutsConfig(BaseModel):
@@ -59,29 +82,27 @@ class OperationTimeoutsConfig(BaseModel):
     They are passed to asyncpg methods via the timeout parameter.
     """
 
-    query: float = Field(
-        default=60.0,
-        ge=0.1,
-        description="Timeout for standard queries (seconds)"
-    )
+    query: float = Field(default=60.0, ge=0.1, description="Timeout for standard queries (seconds)")
     procedure: float = Field(
-        default=90.0,
-        ge=0.1,
-        description="Timeout for stored procedure calls (seconds)"
+        default=90.0, ge=0.1, description="Timeout for stored procedure calls (seconds)"
     )
     batch: float = Field(
-        default=120.0,
-        ge=0.1,
-        description="Timeout for batch operations (seconds)"
+        default=120.0, ge=0.1, description="Timeout for batch operations (seconds)"
     )
 
 
 class BrotrConfig(BaseModel):
     """Complete Brotr configuration."""
 
-    batch: BatchConfig = Field(default_factory=BatchConfig)
-    procedures: StoredProceduresConfig = Field(default_factory=StoredProceduresConfig)
-    timeouts: OperationTimeoutsConfig = Field(default_factory=OperationTimeoutsConfig)
+    batch: BatchConfig = Field(
+        default_factory=BatchConfig, description="Batch operation configuration"
+    )
+    procedures: StoredProceduresConfig = Field(
+        default_factory=StoredProceduresConfig, description="Stored procedure names configuration"
+    )
+    timeouts: OperationTimeoutsConfig = Field(
+        default_factory=OperationTimeoutsConfig, description="Operation timeout configuration"
+    )
 
 
 # ============================================================================
@@ -93,7 +114,7 @@ class Brotr:
     """
     High-level database interface for Brotr with composition.
 
-    Uses a ConnectionPool instance accessible via public `pool` property.
+    Uses a Pool instance accessible via public `pool` property.
     This provides clear separation: brotr.pool.* for pool operations, brotr.* for stored procedures.
 
     Features:
@@ -102,28 +123,29 @@ class Brotr:
     - Batch operation support with configurable size limits
     - Hex to bytea conversion for efficient storage
     - Type-safe parameter handling via Pydantic
-    - Public pool property for all ConnectionPool operations
+    - Public pool property for all Pool operations
     - Dependency injection support for testing
 
     Example usage:
-        # Method 1: Default pool with custom max batch size
-        brotr = Brotr(max_batch_size=20000)
+        # Option 1: Default pool and config
+        brotr = Brotr()
 
-        # Method 2: Inject custom pool
-        pool = ConnectionPool(host="localhost", database="brotr", min_size=10)
-        brotr = Brotr(pool=pool, max_batch_size=20000)
+        # Option 2: Inject custom pool
+        pool = Pool()
+        brotr = Brotr(pool=pool)
 
-        # Method 3: From dictionary (unified config, pool created internally)
-        config = {
-            "pool": {
-                "database": {"host": "localhost", "database": "brotr"}
-            },
-            "batch": {"max_batch_size": 20000}
-        }
-        brotr = Brotr.from_dict(config)
+        # Option 3: With custom config
+        config = BrotrConfig(
+            batch=BatchConfig(max_batch_size=20000),
+            timeouts=OperationTimeoutsConfig(query=30.0),
+        )
+        brotr = Brotr(pool=pool, config=config)
 
-        # Method 4: From YAML (unified config with pool key)
+        # Option 4: From YAML (unified config with pool key)
         brotr = Brotr.from_yaml("implementations/brotr/yaml/brotr.yaml")
+
+        # Option 5: From dict
+        brotr = Brotr.from_dict({"pool": {...}, "batch": {...}})
 
         # Use it
         async with brotr.pool:
@@ -140,101 +162,41 @@ class Brotr:
 
     def __init__(
         self,
-        # Dependency Injection: provide pool or None for default
-        pool: Optional[ConnectionPool] = None,
-        # Brotr-specific parameters
-        max_batch_size: Optional[int] = None,
-        insert_event_proc: Optional[str] = None,
-        insert_relay_proc: Optional[str] = None,
-        insert_relay_metadata_proc: Optional[str] = None,
-        delete_orphan_events_proc: Optional[str] = None,
-        delete_orphan_nip11_proc: Optional[str] = None,
-        delete_orphan_nip66_proc: Optional[str] = None,
-        query_timeout: Optional[float] = None,
-        procedure_timeout: Optional[float] = None,
-        batch_timeout: Optional[float] = None,
+        pool: Optional[Pool] = None,
+        config: Optional[BrotrConfig] = None,
     ):
         """
-        Initialize Brotr with optional ConnectionPool injection.
-
-        All parameters are optional - defaults are defined in Pydantic models.
+        Initialize Brotr with optional Pool injection.
 
         Args:
-            pool: Optional ConnectionPool instance (creates default if None)
-            max_batch_size: Maximum allowed batch size (default: 10000)
-            insert_event_proc: Name of insert_event stored procedure (default: "insert_event")
-            insert_relay_proc: Name of insert_relay stored procedure (default: "insert_relay")
-            insert_relay_metadata_proc: Name of insert_relay_metadata stored procedure (default: "insert_relay_metadata")
-            delete_orphan_events_proc: Name of delete_orphan_events stored procedure (default: "delete_orphan_events")
-            delete_orphan_nip11_proc: Name of delete_orphan_nip11 stored procedure (default: "delete_orphan_nip11")
-            delete_orphan_nip66_proc: Name of delete_orphan_nip66 stored procedure (default: "delete_orphan_nip66")
-            query_timeout: Timeout for standard queries in seconds (default: 60.0)
-            procedure_timeout: Timeout for stored procedure calls in seconds (default: 90.0)
-            batch_timeout: Timeout for batch operations in seconds (default: 120.0)
+            pool: Optional Pool instance (creates default if None)
+            config: Brotr configuration (uses defaults if not provided)
 
         Raises:
             ValidationError: If configuration is invalid
 
         Examples:
-            # Option 1: Use default pool
-            brotr = Brotr(max_batch_size=5000)
+            # Option 1: Use defaults
+            brotr = Brotr()
 
             # Option 2: Inject custom pool
-            pool = ConnectionPool(host="localhost", database="brotr", min_size=10)
-            brotr = Brotr(pool=pool, max_batch_size=20000)
+            pool = Pool()
+            brotr = Brotr(pool=pool)
 
-            # Option 3: From YAML (pool created internally)
+            # Option 3: With config
+            config = BrotrConfig(batch=BatchConfig(max_batch_size=5000))
+            brotr = Brotr(pool=pool, config=config)
+
+            # Option 4: From YAML (pool created internally)
             brotr = Brotr.from_yaml("config/brotr.yaml")
 
             async with brotr.pool:
-                await brotr.insert_event(...)
+                await brotr.insert_events([...])
         """
-        # Use provided pool or create default
-        self.pool = pool or ConnectionPool()
+        self.pool = pool or Pool()
+        self._config = config or BrotrConfig()
 
-        # Build Brotr config dict only with non-None values
-        # Pydantic will apply defaults for missing values
-        config_dict = {}
-
-        # Batch operation configuration
-        batch_dict = {}
-        if max_batch_size is not None:
-            batch_dict["max_batch_size"] = max_batch_size
-        if batch_dict:
-            config_dict["batch"] = batch_dict
-
-        # Stored procedures names configuration
-        procedures_dict = {}
-        if insert_event_proc is not None:
-            procedures_dict["insert_event"] = insert_event_proc
-        if insert_relay_proc is not None:
-            procedures_dict["insert_relay"] = insert_relay_proc
-        if insert_relay_metadata_proc is not None:
-            procedures_dict["insert_relay_metadata"] = insert_relay_metadata_proc
-        if delete_orphan_events_proc is not None:
-            procedures_dict["delete_orphan_events"] = delete_orphan_events_proc
-        if delete_orphan_nip11_proc is not None:
-            procedures_dict["delete_orphan_nip11"] = delete_orphan_nip11_proc
-        if delete_orphan_nip66_proc is not None:
-            procedures_dict["delete_orphan_nip66"] = delete_orphan_nip66_proc
-        if procedures_dict:
-            config_dict["procedures"] = procedures_dict
-
-        # Operation-specific timeouts (passed to asyncpg methods)
-        timeouts_dict = {}
-        if query_timeout is not None:
-            timeouts_dict["query"] = query_timeout
-        if procedure_timeout is not None:
-            timeouts_dict["procedure"] = procedure_timeout
-        if batch_timeout is not None:
-            timeouts_dict["batch"] = batch_timeout
-        if timeouts_dict:
-            config_dict["timeouts"] = timeouts_dict
-
-        # Pydantic will apply defaults for any missing sections/fields
-        self._config = BrotrConfig(**config_dict)
-
-    def _validate_batch_size(self, batch: List[Any], operation: str) -> None:
+    def _validate_batch_size(self, batch: list[Any], operation: str) -> None:
         """
         Validate batch size against maximum allowed.
 
@@ -259,7 +221,7 @@ class Brotr:
         *args,
         conn: Optional[asyncpg.Connection] = None,
         fetch_result: bool = False,
-        timeout: Optional[float] = None
+        timeout: Optional[float] = None,
     ):
         """
         Generic helper to call any stored procedure.
@@ -294,11 +256,11 @@ class Brotr:
 
         # Execute query with provided or acquired connection
         if conn is None:
-            async with self.pool.acquire() as conn:
+            async with self.pool.acquire() as acquired_conn:
                 if fetch_result:
-                    result = await conn.fetchval(query, *args, timeout=timeout_value)
+                    result = await acquired_conn.fetchval(query, *args, timeout=timeout_value)
                     return result or 0
-                await conn.execute(query, *args, timeout=timeout_value)
+                await acquired_conn.execute(query, *args, timeout=timeout_value)
                 return None
 
         # Use provided connection (already in transaction)
@@ -307,7 +269,6 @@ class Brotr:
             return result or 0
         await conn.execute(query, *args, timeout=timeout_value)
         return None
-
 
     @classmethod
     def from_yaml(cls, yaml_path: str) -> "Brotr":
@@ -323,17 +284,12 @@ class Brotr:
           limits:
             min_size: 5
             max_size: 20
-          timeouts:
-            acquisition: 10.0
-          # ... rest of pool config ...
 
         batch:
-          default_batch_size: 100
-          max_batch_size: 1000
+          max_batch_size: 10000
 
         procedures:
           insert_event: insert_event
-          # ... other procedures ...
 
         timeouts:
           query: 60.0
@@ -351,36 +307,25 @@ class Brotr:
             FileNotFoundError: If YAML file doesn't exist
             ValidationError: If configuration is invalid
             yaml.YAMLError: If YAML parsing fails
-
-        Example:
-            brotr = Brotr.from_yaml("implementations/brotr/yaml/core/brotr.yaml")
         """
-        # Load configuration
         config_path = Path(yaml_path)
         if not config_path.exists():
             raise FileNotFoundError(f"Configuration not found: {yaml_path}")
 
-        with open(config_path, "r") as f:
+        with config_path.open() as f:
             config_data = yaml.safe_load(f) or {}
 
-        # Use from_dict to parse the unified structure
         return cls.from_dict(config_data)
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "Brotr":
+    def from_dict(cls, config_dict: dict[str, Any]) -> "Brotr":
         """
         Create Brotr from dictionary configuration.
 
         Expects unified structure with pool configuration under "pool" root key:
         {
-            "pool": {
-                "database": {"host": "localhost", "database": "brotr"},
-                "limits": {"min_size": 5, "max_size": 20},
-                "timeouts": {"acquisition": 10.0},
-                "retry": {...},
-                "server_settings": {...}
-            },
-            "batch": {"default_batch_size": 200},
+            "pool": {...},
+            "batch": {"max_batch_size": 10000},
             "procedures": {...},
             "timeouts": {...}
         }
@@ -393,47 +338,19 @@ class Brotr:
 
         Raises:
             ValidationError: If configuration is invalid
-
-        Example:
-            config = {
-                "pool": {
-                    "database": {"host": "localhost", "database": "brotr"}
-                },
-                "batch": {"max_batch_size": 20000}
-            }
-            brotr = Brotr.from_dict(config)
         """
-        # Create pool from config if provided, otherwise use None (default pool)
+        # Create pool from config if provided
         pool = None
         if "pool" in config_dict:
-            pool = ConnectionPool.from_dict(config_dict["pool"])
+            pool = Pool.from_dict(config_dict["pool"])
 
-        # Extract Brotr config sections
-        batch_config = config_dict.get("batch", {})
-        procedures_config = config_dict.get("procedures", {})
-        timeouts_config = config_dict.get("timeouts", {})
+        # Build BrotrConfig from remaining keys (exclude "pool")
+        brotr_config_dict = {k: v for k, v in config_dict.items() if k != "pool"}
+        config = BrotrConfig(**brotr_config_dict) if brotr_config_dict else None
 
-        # Create Brotr with injected pool
-        return cls(
-            pool=pool,
-            # Batch config
-            max_batch_size=batch_config.get("max_batch_size"),
-            # Procedures config
-            insert_event_proc=procedures_config.get("insert_event"),
-            insert_relay_proc=procedures_config.get("insert_relay"),
-            insert_relay_metadata_proc=procedures_config.get("insert_relay_metadata"),
-            delete_orphan_events_proc=procedures_config.get("delete_orphan_events"),
-            delete_orphan_nip11_proc=procedures_config.get("delete_orphan_nip11"),
-            delete_orphan_nip66_proc=procedures_config.get("delete_orphan_nip66"),
-            # Timeouts config
-            query_timeout=timeouts_config.get("query"),
-            procedure_timeout=timeouts_config.get("procedure"),
-            batch_timeout=timeouts_config.get("batch"),
-        )
+        return cls(pool=pool, config=config)
 
-    async def insert_events(
-        self, events: List[Dict[str, Any]]
-    ) -> bool:
+    async def insert_events(self, events: list[dict[str, Any]]) -> bool:
         """
         Insert one or more events atomically using bulk insert.
 
@@ -512,13 +429,11 @@ class Brotr:
                 )
 
             return True
-        except (asyncpg.PostgresError, ValueError):
-            # Log error in production: logger.error(f"Failed to insert events: {e}")
+        except (asyncpg.PostgresError, ValueError) as e:
+            _logger.error("Failed to insert events: %s", e)
             return False
 
-    async def insert_relays(
-        self, relays: List[Dict[str, Any]]
-    ) -> bool:
+    async def insert_relays(self, relays: list[dict[str, Any]]) -> bool:
         """
         Insert one or more relays atomically using bulk insert.
 
@@ -581,13 +496,11 @@ class Brotr:
                 )
 
             return True
-        except (asyncpg.PostgresError, ValueError):
-            # Log error in production: logger.error(f"Failed to insert relays: {e}")
+        except (asyncpg.PostgresError, ValueError) as e:
+            _logger.error("Failed to insert relays: %s", e)
             return False
 
-    async def insert_relay_metadata(
-        self, metadata_list: List[Dict[str, Any]]
-    ) -> bool:
+    async def insert_relay_metadata(self, metadata_list: list[dict[str, Any]]) -> bool:
         """
         Insert one or more relay metadata records atomically using bulk insert.
 
@@ -713,8 +626,8 @@ class Brotr:
                     timeout=self._config.timeouts.batch,
                 )
             return True
-        except (asyncpg.PostgresError, ValueError):
-            # Log error in production: logger.error(f"Failed to insert relay metadata: {e}")
+        except (asyncpg.PostgresError, ValueError) as e:
+            _logger.error("Failed to insert relay metadata: %s", e)
             return False
 
     async def delete_orphan_events(self) -> int:
@@ -728,8 +641,7 @@ class Brotr:
             asyncpg.PostgresError: If database operation fails
         """
         return await self._call_procedure(
-            self._config.procedures.delete_orphan_events,
-            fetch_result=True
+            self._config.procedures.delete_orphan_events, fetch_result=True
         )
 
     async def delete_orphan_nip11(self) -> int:
@@ -743,8 +655,7 @@ class Brotr:
             asyncpg.PostgresError: If database operation fails
         """
         return await self._call_procedure(
-            self._config.procedures.delete_orphan_nip11,
-            fetch_result=True
+            self._config.procedures.delete_orphan_nip11, fetch_result=True
         )
 
     async def delete_orphan_nip66(self) -> int:
@@ -758,11 +669,10 @@ class Brotr:
             asyncpg.PostgresError: If database operation fails
         """
         return await self._call_procedure(
-            self._config.procedures.delete_orphan_nip66,
-            fetch_result=True
+            self._config.procedures.delete_orphan_nip66, fetch_result=True
         )
 
-    async def cleanup_orphans(self) -> Dict[str, int]:
+    async def cleanup_orphans(self) -> dict[str, int]:
         """
         Delete all orphaned records (events, NIP-11, NIP-66).
 
