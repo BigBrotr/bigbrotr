@@ -11,7 +11,7 @@ from core.brotr import (
     BatchConfig,
     Brotr,
     BrotrConfig,
-    OperationTimeoutsConfig,
+    TimeoutsConfig,
     StoredProceduresConfig,
 )
 from core.pool import Pool
@@ -66,12 +66,12 @@ class TestStoredProceduresConfig:
         assert config.delete_orphan_events == "custom_delete"
 
 
-class TestOperationTimeoutsConfig:
-    """Tests for OperationTimeoutsConfig Pydantic model."""
+class TestTimeoutsConfig:
+    """Tests for TimeoutsConfig Pydantic model."""
 
     def test_default_values(self) -> None:
         """Test default timeout values."""
-        config = OperationTimeoutsConfig()
+        config = TimeoutsConfig()
 
         assert config.query == 60.0
         assert config.procedure == 90.0
@@ -79,7 +79,7 @@ class TestOperationTimeoutsConfig:
 
     def test_custom_values(self) -> None:
         """Test custom timeout values."""
-        config = OperationTimeoutsConfig(
+        config = TimeoutsConfig(
             query=30.0,
             procedure=45.0,
             batch=60.0,
@@ -117,7 +117,7 @@ class TestBrotr:
         os.environ["DB_PASSWORD"] = "test_pass"
         config = BrotrConfig(
             batch=BatchConfig(max_batch_size=2000),
-            timeouts=OperationTimeoutsConfig(
+            timeouts=TimeoutsConfig(
                 query=45.0,
                 procedure=60.0,
                 batch=90.0,
