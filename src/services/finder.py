@@ -7,12 +7,12 @@ Discovers Nostr relay URLs from multiple sources:
 
 Usage:
     # Single discovery cycle
-    finder = Finder(pool=pool, brotr=brotr)
-    async with pool:
+    finder = Finder(brotr=brotr)
+    async with brotr.pool:
         result = await finder.run()
 
     # Continuous discovery
-    async with pool:
+    async with brotr.pool:
         async with finder:
             await finder.run_forever(interval=3600)
 """
@@ -21,18 +21,15 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Optional
 
 import aiohttp
-import yaml
 from nostr_tools import find_ws_urls
 from pydantic import BaseModel, Field, field_validator
 
 from core.base_service import BaseService, Outcome
 from core.brotr import Brotr
 from core.logger import validate_log_level
-from core.pool import Pool
 from core.utils import build_relay_records, load_service_state
 
 from .initializer import InitializerState
@@ -151,24 +148,22 @@ class Finder(BaseService[FinderState]):
     """
 
     SERVICE_NAME = SERVICE_NAME
+    CONFIG_CLASS = FinderConfig
 
     def __init__(
         self,
-        pool: Pool,
-        brotr: Optional[Brotr] = None,
+        brotr: Brotr,
         config: Optional[FinderConfig] = None,
     ) -> None:
         """
         Initialize service.
 
         Args:
-            pool: Database pool
-            brotr: Brotr instance for relay insertion (creates default if None)
+            brotr: Brotr instance for database operations
             config: Service configuration
         """
-        super().__init__(pool=pool, config=config)
+        super().__init__(brotr=brotr, config=config)
         self._config: FinderConfig = config or FinderConfig()
-        self._brotr = brotr or Brotr(pool=pool)
         self._found_urls: set[str] = set()
 
     # -------------------------------------------------------------------------
@@ -273,23 +268,6 @@ class Finder(BaseService[FinderState]):
                 errors=[error_msg],
                 metrics={},
             )
-
-    # -------------------------------------------------------------------------
-    # Factory Methods
-    # -------------------------------------------------------------------------
-
-    @classmethod
-    def from_yaml(cls, config_path: str, pool: Pool, brotr: Optional[Brotr] = None) -> "Finder":
-        """Create from YAML file."""
-        with Path(config_path).open(encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        return cls.from_dict(data, pool=pool, brotr=brotr)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any], pool: Pool, brotr: Optional[Brotr] = None) -> "Finder":
-        """Create from dictionary."""
-        config = FinderConfig(**data)
-        return cls(pool=pool, brotr=brotr, config=config)
 
     # -------------------------------------------------------------------------
     # Initializer Check

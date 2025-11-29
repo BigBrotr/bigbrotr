@@ -33,6 +33,7 @@ from typing import Any, Generic, Optional, TypeVar
 import yaml
 from pydantic import BaseModel
 
+from .brotr import Brotr
 from .logger import Logger, get_logger
 
 # Type variable for service-specific state
@@ -168,19 +169,23 @@ class BaseService(ABC, Generic[StateT]):
     # Subclasses MUST override this
     SERVICE_NAME: str = "base"
 
+    # Subclasses SHOULD override this for automatic from_dict() support
+    CONFIG_CLASS: Optional[type[BaseModel]] = None
+
     def __init__(
         self,
-        pool: Any,  # Pool instance - using Any to avoid circular import
+        brotr: Brotr,
         config: Optional[BaseModel] = None,
     ) -> None:
         """
         Initialize service.
 
         Args:
-            pool: Database pool for queries and state persistence
+            brotr: Brotr instance for database operations
             config: Service-specific Pydantic config (optional)
         """
-        self._pool = pool
+        self._brotr = brotr
+        self._pool = brotr.pool  # Convenience reference
         self._config = config
         self._is_running = False
         self._state: StateT = self._create_default_state()
@@ -372,13 +377,14 @@ class BaseService(ABC, Generic[StateT]):
     # -------------------------------------------------------------------------
 
     @classmethod
-    def from_yaml(cls, config_path: str, pool: Any) -> "BaseService":
+    def from_yaml(cls, config_path: str, brotr: Brotr, **kwargs: Any) -> "BaseService":
         """
         Create service from YAML configuration file.
 
         Args:
             config_path: Path to YAML config file
-            pool: Database pool instance
+            brotr: Brotr instance for database operations
+            **kwargs: Additional arguments passed to from_dict()
 
         Returns:
             Service instance
@@ -390,22 +396,28 @@ class BaseService(ABC, Generic[StateT]):
         with path.open(encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
 
-        return cls.from_dict(data, pool=pool)
+        return cls.from_dict(data, brotr=brotr, **kwargs)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], pool: Any) -> "BaseService":
+    def from_dict(cls, data: dict[str, Any], brotr: Brotr, **kwargs: Any) -> "BaseService":
         """
         Create service from dictionary configuration.
 
+        If the subclass defines CONFIG_CLASS, the config is parsed automatically.
+        Otherwise, subclasses should override this method.
+
         Args:
             data: Configuration dictionary
-            pool: Database pool instance
+            brotr: Brotr instance for database operations
+            **kwargs: Additional arguments passed to __init__
 
         Returns:
             Service instance
         """
-        # Subclasses should override this to parse their specific config
-        return cls(pool=pool)
+        config = None
+        if cls.CONFIG_CLASS is not None:
+            config = cls.CONFIG_CLASS(**data)
+        return cls(brotr=brotr, config=config, **kwargs)
 
     # -------------------------------------------------------------------------
     # Properties

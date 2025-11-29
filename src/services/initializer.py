@@ -8,27 +8,26 @@ Handles database initialization:
 
 Usage:
     # Standalone
-    initializer = Initializer(pool=pool)
-    async with pool:
+    initializer = Initializer(brotr=brotr)
+    async with brotr.pool:
         result = await initializer.run()
 
     # With context manager (auto start/stop)
-    async with pool:
+    async with brotr.pool:
         async with initializer:
             result = await initializer.run()
 """
 
 import asyncio
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-import yaml
 from pydantic import BaseModel, Field
 
 from core.base_service import BaseService, Outcome, Step
-from core.pool import Pool
+from core.brotr import Brotr
 from core.utils import build_relay_records
 
 
@@ -139,20 +138,21 @@ class Initializer(BaseService[InitializerState]):
     """
 
     SERVICE_NAME = SERVICE_NAME
+    CONFIG_CLASS = InitializerConfig
 
     def __init__(
         self,
-        pool: Pool,
+        brotr: Brotr,
         config: Optional[InitializerConfig] = None,
     ) -> None:
         """
         Initialize service.
 
         Args:
-            pool: Database pool
+            brotr: Brotr instance for database operations
             config: Service configuration
         """
-        super().__init__(pool=pool, config=config)
+        super().__init__(brotr=brotr, config=config)
         self._config: InitializerConfig = config or InitializerConfig()
 
     # -------------------------------------------------------------------------
@@ -260,23 +260,6 @@ class Initializer(BaseService[InitializerState]):
                 errors=[error_msg],
                 metrics={},
             )
-
-    # -------------------------------------------------------------------------
-    # Factory Methods
-    # -------------------------------------------------------------------------
-
-    @classmethod
-    def from_yaml(cls, config_path: str, pool: Pool) -> "Initializer":
-        """Create from YAML file."""
-        with Path(config_path).open(encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        return cls.from_dict(data, pool=pool)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any], pool: Pool) -> "Initializer":
-        """Create from dictionary."""
-        config = InitializerConfig(**data)
-        return cls(pool=pool, config=config)
 
     # -------------------------------------------------------------------------
     # Verification Methods
