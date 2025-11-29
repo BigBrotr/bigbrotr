@@ -6,11 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 BigBrotr is a modular, production-grade Nostr data archiving and monitoring system built on Python and PostgreSQL. It uses a three-layer architecture (Core, Service, Implementation) with dependency injection, making the codebase highly testable and maintainable.
 
-**Current Status**: Core layer complete (100%), service layer in progress (2/7 services)
-- **Core layer** (src/core/): 4/4 components production-ready (~3,000 LOC)
-- **Service layer** (src/services/): 2/7 services implemented (Initializer, Finder)
-- **Unit tests**: 225 tests passing
-- **Overall progress**: ~55% complete (weighted)
+**Current Status**: Core layer complete, service layer in progress
+- **Core layer** (`src/core/`): 5 components production-ready (~1,715 LOC)
+- **Service layer** (`src/services/`): 2/7 services implemented (Initializer, Finder)
+- **Unit tests**: 108 tests passing
 - **Primary branch**: `develop` (create PRs to `main`)
 
 ## Common Commands
@@ -52,6 +51,14 @@ pytest tests/unit/test_pool.py -v
 pytest -k "health_check" -v
 ```
 
+### Running Services
+```bash
+# Run services via CLI
+cd implementations/bigbrotr
+python -m services initializer
+python -m services finder --log-level DEBUG
+```
+
 ### Database Operations
 ```bash
 # Initialize database with SQL schemas (apply in numerical order)
@@ -74,252 +81,213 @@ psql -U admin -d brotr -f 99_verify.sql
 Implementation Layer (implementations/bigbrotr/)
           ↑ Uses (YAML configs, SQL schemas)
 Service Layer (src/services/)
-          ↑ Leverages (Initializer ✅, Finder ✅, Monitor, Synchronizer - PENDING)
+          ↑ Leverages (Initializer, Finder - others PENDING)
 Core Layer (src/core/)
-          ✅ PRODUCTION READY (Pool, Brotr, Service, Logger)
+          PRODUCTION READY (Pool, Brotr, BaseService, Logger, Utils)
 ```
 
 **Key Principle**: Core layer is implementation-agnostic and reusable. Services compose core components via dependency injection. Implementations customize behavior via YAML configuration.
 
-### Core Components (✅ Production Ready)
+### Core Components (Production Ready)
 
-| Component | LOC | Purpose | Status |
-|-----------|-----|---------|--------|
-| **Pool** | ~632 | PostgreSQL connection management | ✅ Complete |
-| **Brotr** | ~803 | Database interface + stored procedures | ✅ Complete |
-| **Service** | ~1,021 | Generic lifecycle wrapper | ✅ Complete |
-| **Logger** | ~397 | Structured JSON logging | ✅ Complete |
-| **Total** | **2,853** | Production-ready foundation | **100%** |
+| Component | LOC | Purpose |
+|-----------|-----|---------|
+| **Pool** | ~410 | PostgreSQL connection management |
+| **Brotr** | ~413 | Database interface + stored procedures |
+| **BaseService** | ~455 | Abstract base class for all services |
+| **Logger** | ~331 | Structured JSON logging |
+| **Utils** | ~106 | Shared utilities (relay parsing, etc.) |
 
-#### 1. Pool ([src/core/pool.py](src/core/pool.py))
-- Enterprise-grade PostgreSQL connection management with asyncpg
-- Auto-retry with exponential backoff, PGBouncer compatibility, connection recycling
-- Password from `DB_PASSWORD` env var (never in config files)
-- Configuration via YAML or constructor
-- **`acquire_healthy()`**: Health-checked connection acquisition with automatic retry
+### Service Layer (2/7 Complete)
 
-#### 2. Brotr ([src/core/brotr.py](src/core/brotr.py))
-- High-level database interface with stored procedure wrappers
-- **Composition pattern**: HAS-A pool (public property), not IS-A pool
-- Access: `brotr.pool.fetch()` for pool operations, `brotr.insert_event()` for business logic
-- **Dependency Injection**: Reduced `__init__` parameters from 28 to 12 (57% reduction)
-- Receives Pool via injection or creates default
-
-#### 3. Service ([src/core/service.py](src/core/service.py))
-- Generic wrapper for lifecycle management, logging, health checks
-- Wraps ANY service implementing `DatabaseService` or `BackgroundService` protocol
-- **Protocol-based**: Non-invasive, services don't need to inherit from anything
-- Provides uniform interface for all services
-- **Health check retry**: Configurable retry attempts before reporting failure
-
-#### 4. Logger ([src/core/logger.py](src/core/logger.py))
-- Structured JSON logging for all services
-- Contextual fields: service_name, service_type, timestamp, level
-- Integration with Service wrapper (automatic when `enable_logging=True`)
+| Service | LOC | Status |
+|---------|-----|--------|
+| **Initializer** | ~493 | Production Ready |
+| **Finder** | ~492 | Production Ready |
+| Monitor | 14 | Pending |
+| Synchronizer | 14 | Pending |
+| Priority Synchronizer | 14 | Pending |
+| API | 14 | Pending (Phase 3) |
+| DVM | 14 | Pending (Phase 3) |
 
 ### Design Patterns in Use
 
 | Pattern | Application | Purpose |
 |---------|-------------|---------|
-| **Dependency Injection** | `Brotr(pool=Pool())` | Flexibility, testability, pool sharing |
-| **Composition over Inheritance** | Brotr HAS-A pool (public), not IS-A | Clear API, explicit separation |
-| **Wrapper/Decorator** | Service wraps any service | Cross-cutting concerns (DRY) |
+| **Dependency Injection** | Services receive `Brotr` | Flexibility, testability |
+| **Composition over Inheritance** | Brotr HAS-A pool | Clear API, explicit separation |
+| **Template Method** | `BaseService.run()` | DRY for service lifecycle |
 | **Factory Method** | `from_yaml()`, `from_dict()` | Config-driven construction |
-| **Template Method** | `_call_delete_procedure()` | DRY for similar operations |
-| **Protocol/Duck Typing** | DatabaseService, BackgroundService | Non-invasive, flexible |
-| **Single Responsibility** | Each component has one job | Clear boundaries, easier testing |
+| **Abstract Base Class** | `BaseService[StateT]` | Consistent service interface |
 
-### Why Composition with Public Pool?
+### BaseService Architecture
 
-The `Brotr` class exposes its pool as a **public property** (`brotr.pool`) rather than inheriting from Pool:
+All services inherit from `BaseService[StateT]` which provides:
 
-**Benefits**:
-- **Clear API**: `brotr.pool.fetch()` vs `brotr.insert_event()` - obvious which is which
-- **Separation of concerns**: Pool handles connections, Brotr handles business logic
-- **Easy pool sharing**: Multiple services can inject the same pool instance
-- **Better testability**: Mock the pool independently
-- **Self-documenting**: Code is explicit about what it does
+```python
+class BaseService(ABC, Generic[StateT]):
+    SERVICE_NAME: str               # Unique service identifier
+    CONFIG_CLASS: type[BaseModel]   # For automatic config parsing
 
-**Impact**: This design reduced `Brotr.__init__` parameters from 28 to 12 (57% reduction).
+    # Abstract methods (subclasses MUST implement)
+    async def run(self) -> Outcome          # Main service logic
+    async def health_check(self) -> bool    # Health status
+    def _create_default_state(self) -> StateT
+    def _state_from_dict(self, data) -> StateT
+
+    # Provided methods
+    async def start() / stop()              # Lifecycle
+    async def run_forever(interval)         # Continuous operation
+    async def _load_state() / _save_state() # Persistence
+```
+
+**Key Types**:
+- `Step`: Individual operation step with name, success, message, details
+- `Outcome`: Service run result with success, message, steps, duration, errors, metrics
 
 ## Configuration System
 
 ### YAML-Based Configuration
-All components support configuration via YAML files in [implementations/bigbrotr/yaml/](implementations/bigbrotr/yaml/):
-- **Core**: [yaml/core/brotr.yaml](implementations/bigbrotr/yaml/core/brotr.yaml) (includes pool config under `pool:` key)
-- **Services**: [yaml/services/initializer.yaml](implementations/bigbrotr/yaml/services/initializer.yaml), [yaml/services/finder.yaml](implementations/bigbrotr/yaml/services/finder.yaml) (implemented), monitor.yaml, etc. (pending)
+All components support configuration via YAML files in `implementations/bigbrotr/yaml/`:
+- **Core**: `yaml/core/brotr.yaml` (includes pool config under `pool:` key)
+- **Services**: `yaml/services/initializer.yaml`, `yaml/services/finder.yaml`
 
-### Configuration Loading Pattern
+### Service Configuration Pattern
+
+Services use `CONFIG_CLASS` for automatic YAML parsing:
+
 ```python
-# Option 1: From YAML (recommended)
-brotr = Brotr.from_yaml("implementations/bigbrotr/yaml/core/brotr.yaml")
+class Finder(BaseService[FinderState]):
+    SERVICE_NAME = "finder"
+    CONFIG_CLASS = FinderConfig  # Pydantic model
 
-# Option 2: From dict (useful for testing)
-config = {"pool": {"database": {"host": "localhost"}}, "batch": {"max_batch_size": 10000}}
-brotr = Brotr.from_dict(config)
-
-# Option 3: Dependency injection with custom pool (for pool sharing)
-pool = Pool(host="localhost", database="brotr", min_size=10)
-brotr = Brotr(pool=pool, max_batch_size=10000)
-
-# Option 4: All defaults (creates default pool internally)
-brotr = Brotr()
-
-# Option 5: Pool sharing (multiple services, one pool)
-shared_pool = Pool(host="localhost", database="brotr")
-brotr1 = Brotr(pool=shared_pool)
-brotr2 = Brotr(pool=shared_pool)  # Same pool instance!
+    def __init__(self, brotr: Brotr, config: Optional[FinderConfig] = None):
+        super().__init__(brotr=brotr, config=config)
+        self._config = config or FinderConfig()
 ```
 
-### Pydantic Validation
-All configuration uses Pydantic BaseModel for type safety and validation:
-- Automatic field validation (min/max values, string length, etc.)
-- Self-documenting via `Field(description=...)`
-- IDE autocomplete support
-- Clear defaults and error messages
+Factory methods automatically use `CONFIG_CLASS`:
+```python
+# from_yaml calls from_dict which uses CONFIG_CLASS
+finder = Finder.from_yaml("yaml/services/finder.yaml", brotr=brotr)
+finder = Finder.from_dict(data, brotr=brotr)
+```
+
+### Configuration Examples
+
+**Initializer** (`yaml/services/initializer.yaml`):
+```yaml
+verification:
+  tables: true
+  procedures: true
+  extensions: true
+
+seed:
+  enabled: true
+  path: data/seed_relays.txt
+  batch_size: 100
+```
+
+**Finder** (`yaml/services/finder.yaml`):
+```yaml
+event_scan:
+  enabled: true
+  batch_size: 1000
+
+api:
+  enabled: true
+  sources:
+    - url: https://api.nostr.watch/v1/online
+      enabled: true
+```
 
 ### Environment Variables
 - `DB_PASSWORD`: Database password (**required**, loaded automatically by Pool)
 - `SOCKS5_PROXY_URL`: Tor proxy URL (optional)
-- **Config files should NEVER contain passwords**
 
 ## Working with the Codebase
 
-### Adding New Core Components
+### Adding New Services
 
-Core components should:
-1. Be **implementation-agnostic** (no business logic)
-2. Support **dependency injection** (receive dependencies via constructor)
-3. Provide **factory methods**: `from_yaml()` and `from_dict()`
-4. Use **Pydantic** for configuration validation
-5. Include **comprehensive docstrings** and **type hints**
+1. Create service file in `src/services/`
+2. Inherit from `BaseService[YourStateT]`
+3. Set `SERVICE_NAME` and `CONFIG_CLASS` class attributes
+4. Implement abstract methods: `run()`, `health_check()`, `_create_default_state()`, `_state_from_dict()`
+5. Create YAML config in `implementations/bigbrotr/yaml/services/`
+6. Add to `SERVICE_RUNNERS` in `src/services/__main__.py`
+7. Export from `src/services/__init__.py`
 
-Example pattern:
+Example:
 ```python
-from pydantic import BaseModel, Field
-from typing import Optional
-
-class NewComponentConfig(BaseModel):
-    """Configuration for NewComponent."""
-    setting: str = Field(default="value", description="What this setting does")
-
-class NewComponent:
-    """Purpose of this component."""
-
-    def __init__(self, pool: Optional[Pool] = None, setting: str = "default"):
-        self.pool = pool or Pool()
-        self.config = NewComponentConfig(setting=setting)
-
-    @classmethod
-    def from_yaml(cls, path: str) -> "NewComponent":
-        """Load configuration from YAML file and construct instance."""
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        return cls.from_dict(data)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "NewComponent":
-        """Construct from dictionary."""
-        config = NewComponentConfig(**data.get("config", {}))
-        return cls(setting=config.setting)
-```
-
-### Adding New Services (When Ready)
-
-Services (when implemented) should:
-1. Implement either **`DatabaseService`** or **`BackgroundService`** protocol
-2. Receive dependencies via **constructor injection** (Brotr, Pool, etc.)
-3. Use the core components (Pool, Brotr)
-4. Be **wrappable by Service** for monitoring/logging/health checks
-5. Load configuration from [implementations/bigbrotr/yaml/services/](implementations/bigbrotr/yaml/services/)
-
-Example pattern:
-```python
+from core.base_service import BaseService, Outcome, Step
 from core.brotr import Brotr
-from core.service import Service, ServiceConfig
 
-class MyService:
-    """Business logic service."""
+SERVICE_NAME = "monitor"
 
-    def __init__(self, brotr: Brotr, config: MyServiceConfig):
-        self.brotr = brotr
-        self.config = config
-        self._running = False
+class MonitorConfig(BaseModel):
+    check_interval: float = 300.0
 
-    async def start(self) -> None:
-        """Start the service."""
-        self._running = True
-        # Service logic here
+@dataclass
+class MonitorState:
+    last_check_at: int = 0
 
-    async def stop(self) -> None:
-        """Stop the service."""
-        self._running = False
-        # Cleanup here
+    def to_dict(self) -> dict:
+        return {"last_check_at": self.last_check_at}
 
-    @property
-    def is_running(self) -> bool:
-        return self._running
+    @classmethod
+    def from_dict(cls, data: dict) -> "MonitorState":
+        return cls(last_check_at=data.get("last_check_at", 0))
 
-# Wrap with Service for lifecycle management
-service = Service(
-    MyService(brotr, config),
-    name="my_service",
-    config=ServiceConfig(enable_logging=True, enable_health_checks=True)
-)
+class Monitor(BaseService[MonitorState]):
+    SERVICE_NAME = SERVICE_NAME
+    CONFIG_CLASS = MonitorConfig
 
-async with service:
-    # Automatic logging, health checks, statistics
-    pass
+    def __init__(self, brotr: Brotr, config: Optional[MonitorConfig] = None):
+        super().__init__(brotr=brotr, config=config)
+        self._config = config or MonitorConfig()
+
+    def _create_default_state(self) -> MonitorState:
+        return MonitorState()
+
+    def _state_from_dict(self, data: dict) -> MonitorState:
+        return MonitorState.from_dict(data)
+
+    async def health_check(self) -> bool:
+        return self._pool.is_connected
+
+    async def run(self) -> Outcome:
+        # Implementation here
+        pass
 ```
 
 ### Database Schema
 
-SQL files in [implementations/bigbrotr/postgres/init/](implementations/bigbrotr/postgres/init/) must be applied in numerical order:
+SQL files in `implementations/bigbrotr/postgres/init/` must be applied in numerical order:
 
-1. [00_extensions.sql](implementations/bigbrotr/postgres/init/00_extensions.sql) - PostgreSQL extensions
-2. [01_utility_functions.sql](implementations/bigbrotr/postgres/init/01_utility_functions.sql) - Helper functions
-3. [02_tables.sql](implementations/bigbrotr/postgres/init/02_tables.sql) - Table definitions
-4. [03_indexes.sql](implementations/bigbrotr/postgres/init/03_indexes.sql) - Performance indexes
-5. [04_integrity_functions.sql](implementations/bigbrotr/postgres/init/04_integrity_functions.sql) - Data integrity checks
-6. [05_procedures.sql](implementations/bigbrotr/postgres/init/05_procedures.sql) - Stored procedures (called by Brotr)
-7. [06_views.sql](implementations/bigbrotr/postgres/init/06_views.sql) - Database views
-8. [99_verify.sql](implementations/bigbrotr/postgres/init/99_verify.sql) - Schema validation
+1. `00_extensions.sql` - PostgreSQL extensions (pgcrypto, btree_gin)
+2. `01_utility_functions.sql` - Helper functions
+3. `02_tables.sql` - Table definitions
+4. `03_indexes.sql` - Performance indexes
+5. `04_integrity_functions.sql` - Data integrity checks
+6. `05_procedures.sql` - Stored procedures (called by Brotr)
+7. `06_views.sql` - Database views
+8. `99_verify.sql` - Schema validation
 
-### Helper Methods and DRY Principle
+### Key Tables
 
-This codebase emphasizes eliminating duplication:
-- If you see **repeated validation logic**, extract to a helper method (e.g., `_validate_batch_size()` in [brotr.py:line](src/core/brotr.py))
-- If you see **repeated procedure call patterns**, use template method pattern (e.g., `_call_delete_procedure()` in [brotr.py:line](src/core/brotr.py))
-- Document the **"why"** in helper method docstrings, not the "what"
-- ~50 lines of duplication eliminated in Brotr via helper methods
-
-### Async Context Managers
-
-Core components use async context managers for resource management:
-```python
-async with pool:
-    # Pool automatically connects on enter, closes on exit
-    result = await pool.fetch("SELECT * FROM events")
-
-async with service:
-    # Service automatically starts, adds logging, runs health checks, stops
-    await service.instance.do_work()
-```
+- `relays`: Known Nostr relays with network type
+- `events`: Nostr events (bytea IDs for efficiency)
+- `events_relays`: Event-relay associations with seen_at timestamp
+- `nip11`, `nip66`: Relay metadata
+- `service_state`: Service state persistence (JSON)
 
 ## Testing Infrastructure
 
-**Current State**: Comprehensive pytest-based unit tests (225 tests, 100% passing)
-- [tests/unit/test_pool.py](tests/unit/test_pool.py) - 29 tests for Pool
-- [tests/unit/test_brotr.py](tests/unit/test_brotr.py) - 21 tests for Brotr
-- [tests/unit/test_service.py](tests/unit/test_service.py) - 42 tests for Service wrapper
-- [tests/unit/test_logger.py](tests/unit/test_logger.py) - 20 tests for Logger
-- [tests/unit/test_initializer.py](tests/unit/test_initializer.py) - 57 tests for Initializer service
-- [tests/unit/test_finder.py](tests/unit/test_finder.py) - 56 tests for Finder service
-
-**Test Configuration**:
-- [pyproject.toml](pyproject.toml) - pytest, coverage, ruff, mypy configuration
-- [tests/conftest.py](tests/conftest.py) - Shared fixtures and pytest configuration
-- [requirements-dev.txt](requirements-dev.txt) - Development dependencies
+**Test Files**:
+- `tests/unit/test_pool.py` - Pool tests
+- `tests/unit/test_brotr.py` - Brotr tests
+- `tests/unit/test_initializer.py` - Initializer service tests
+- `tests/unit/test_finder.py` - Finder service tests
 
 **Running Tests**:
 ```bash
@@ -330,121 +298,103 @@ pytest -k "health_check"           # Pattern matching
 ```
 
 When adding tests:
-- Test **dependency injection** (pool sharing, custom pools)
-- Test **factory methods** (`from_yaml`, `from_dict`)
-- Test **default construction**
-- Verify **composition pattern** (public properties accessible)
-- Use **mocks** for external dependencies (database, network)
-- Mark integration tests with `@pytest.mark.integration`
-
-## Documentation Standards
-
-### Code Documentation
-- **Docstrings**: Required for all classes and public methods
-- **Type Hints**: Required for all function signatures
-- **Field Descriptions**: Use Pydantic `Field(description=...)` for config fields
-- **Inline Comments**: Explain "why", not "what" (code should be self-documenting)
-
-### Project Documentation
-- [PROJECT_SPECIFICATION.md](PROJECT_SPECIFICATION.md): Complete technical specification (architecture, APIs, schema)
-- [PROJECT_STATUS.md](PROJECT_STATUS.md): Current development status, metrics, next steps
-- [README.md](README.md): User-facing documentation, quick start, examples
-- [docs/old/](docs/old/): Archived refactoring documents (historical reference)
+- Test `from_yaml()` and `from_dict()` factory methods
+- Test state persistence (`_load_state`, `_save_state`)
+- Test `run()` outcomes (success/failure cases)
+- Use mocks for database and external APIs
 
 ## Important Implementation Details
 
-### Timeout Separation
-- **Pool**: Handles `acquisition` timeout (getting connection from pool)
-- **Brotr**: Handles operation timeouts (`query`, `procedure`, `batch` execution)
+### Services Receive Brotr (Not Pool)
 
-This separation maintains clear responsibilities and allows independent configuration.
+Services receive `Brotr` via constructor injection. Access pool via `self._pool` (convenience reference):
 
-**Example**:
-```yaml
-pool:
-  timeouts:
-    acquisition: 10.0  # Getting connection from pool
-
-timeouts:
-  query: 60.0          # Standard queries
-  procedure: 90.0      # Stored procedures
-  batch: 120.0         # Batch operations
-```
-
-### Hex to Bytea Conversion
-Brotr converts hex strings to bytea for efficient PostgreSQL storage:
 ```python
-# Event IDs and pubkeys are hex strings in Nostr (64 chars)
-# Brotr automatically converts to bytea (32 bytes) for storage
-await brotr.insert_event(
-    event_id="abc123...",  # 64-char hex → 32-byte bytea
-    pubkey="def456...",    # 64-char hex → 32-byte bytea
-    ...
-)
+class Finder(BaseService[FinderState]):
+    def __init__(self, brotr: Brotr, config: Optional[FinderConfig] = None):
+        super().__init__(brotr=brotr, config=config)  # Sets self._brotr and self._pool
 ```
 
-### Batch Operations
-Batch methods use `executemany()` for performance (up to 1000x improvement over single inserts):
-- Default batch size: 100
-- Max batch size: 10,000 (configurable, validated)
-- Automatic batch size validation in all batch methods
+### State Persistence
 
-### Connection Recycling
-Connections are recycled after:
-- `max_queries` per connection (default: 50,000 queries)
-- `max_inactive_connection_lifetime` seconds idle (default: 300 seconds)
+Services persist state to `service_state` table:
 
-This prevents connection staleness in long-running applications.
-
-## Common Patterns
-
-### Dependency Injection Pattern
 ```python
-# Create shared pool
-pool = Pool.from_yaml("implementations/bigbrotr/yaml/core/brotr.yaml")
+# State is saved automatically on stop()
+await self._save_state()
 
-# Inject into multiple services (pool sharing)
-brotr = Brotr(pool=pool)
-finder = Finder(pool=pool)  # When implemented
-monitor = Monitor(pool=pool)  # When implemented
+# State is loaded automatically on start()
+await self._load_state()
 
-# All services use same pool
+# Access current state
+self._state.last_seen_at
 ```
 
-### Factory Method Pattern
+### Atomic Batch Processing
+
+Finder demonstrates atomic commits for crash consistency:
+
 ```python
-# Every core component supports these patterns
-component = Component.from_yaml("config.yaml")
-component = Component.from_dict({"setting": "value"})
-component = Component(direct_params)
+async with self._pool.transaction() as conn:
+    # Insert relays
+    for r in records:
+        await conn.execute("SELECT insert_relay($1, $2, $3)", ...)
+
+    # Update state atomically
+    await conn.execute("INSERT INTO service_state ...")
+
+# Update in-memory state AFTER successful commit
+self._state.last_seen_at = new_watermark
 ```
 
-### Template Method Pattern
+### Context Manager Usage
+
+Services and Pool support async context managers:
+
 ```python
-# Generic delete procedure caller (internal helper in Brotr)
-async def _call_delete_procedure(
-    self,
-    procedure_name: str,
-    timeout: float
-) -> int:
-    """Template for all delete operations."""
-    # Common logic here - eliminates duplication
+async with brotr.pool:
+    async with finder:
+        result = await finder.run()
 ```
 
-## Project Structure Notes
+## Project Structure
 
-- [src/core/](src/core/): Production-ready foundation components (pool, brotr, service, logger) ✅
-- [src/services/](src/services/): Service implementations (initializer.py ✅, finder.py ✅, others pending)
-- [implementations/bigbrotr/](implementations/bigbrotr/): Primary implementation with configs, schemas, Docker Compose
-- [tests/](tests/): Comprehensive pytest test suite (225 tests)
-- [docs/old/](docs/old/): Archived design documents (refactoring history, decisions)
+```
+src/
+├── core/                    # Foundation components
+│   ├── __init__.py          # Exports: Pool, Brotr, BaseService, Logger, Step, Outcome
+│   ├── pool.py              # PostgreSQL connection management
+│   ├── brotr.py             # Database interface + stored procedures
+│   ├── base_service.py      # Abstract base class for services
+│   ├── logger.py            # Structured JSON logging
+│   └── utils.py             # Shared utilities
+│
+├── services/                # Service implementations
+│   ├── __init__.py          # Exports service classes and constants
+│   ├── __main__.py          # CLI entry point
+│   ├── initializer.py       # Database bootstrap
+│   ├── finder.py            # Relay discovery
+│   └── ...                  # Other services (pending)
+│
+implementations/
+└── bigbrotr/
+    ├── yaml/
+    │   ├── core/brotr.yaml     # Pool + Brotr config
+    │   └── services/           # Service configs
+    ├── postgres/init/          # SQL schemas
+    ├── docker-compose.yaml     # Deployment
+    └── .env                    # Environment variables
+
+tests/
+└── unit/                    # Unit tests (108 tests)
+```
 
 ## Git Workflow
 
-- **Main branch**: `main` (stable releases, none yet)
-- **Development branch**: `develop` (active development, current branch)
+- **Main branch**: `main` (stable releases)
+- **Development branch**: `develop` (active development)
 - **PR target**: Create PRs from feature branches to `main`
-- **Commit style**: Conventional commits (e.g., `feat:`, `fix:`, `refactor:`, `docs:`, `test:`)
+- **Commit style**: Conventional commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`)
 
 ## Technology Stack
 
@@ -454,121 +404,57 @@ async def _call_delete_procedure(
 - **asyncpg 0.30.0**: Async PostgreSQL driver
 - **Pydantic 2.10.4**: Configuration validation
 - **PyYAML 6.0.2**: YAML parsing
-- **aiohttp 3.13.2**: Async HTTP client (with SOCKS5 support)
+- **aiohttp 3.13.2**: Async HTTP client
 - **nostr-tools 1.4.0**: Nostr protocol library
-- **python-dotenv 1.0.1**: Environment variable loading
 
 ### Infrastructure
 - **Docker + Docker Compose**: Container orchestration
-- **PGBouncer**: Connection pooling (between app and PostgreSQL)
+- **PGBouncer**: Connection pooling
 - **Tor (optional)**: Network privacy via SOCKS5 proxy
-
-## Recent Major Refactorings
-
-### 1. Dependency Injection Refactoring (2025-11-13)
-- Reduced Brotr parameters from 28 to 12 (57% reduction)
-- Pool injection instead of parameter explosion
-- See: [docs/old/BROTR_DEPENDENCY_INJECTION_REFACTORING.md](docs/old/BROTR_DEPENDENCY_INJECTION_REFACTORING.md)
-
-### 2. Helper Methods Addition (2025-11-13)
-- `_validate_batch_size()` eliminates duplication
-- `_call_delete_procedure()` template method pattern
-- See: [docs/old/BROTR_IMPROVEMENTS_SUMMARY.md](docs/old/BROTR_IMPROVEMENTS_SUMMARY.md)
-
-### 3. Timeout Separation (2025-11-13)
-- Pool: acquisition timeout (infrastructure concern)
-- Brotr: operation timeouts (business logic concern)
-- See: [docs/old/TIMEOUT_REFACTORING_SUMMARY.md](docs/old/TIMEOUT_REFACTORING_SUMMARY.md)
-
-### 4. Service Wrapper Implementation (2025-11-14)
-- Full implementation of generic service lifecycle wrapper (~1,021 lines)
-- Protocol-based design (DatabaseService, BackgroundService)
-- Health checks, circuit breaker, statistics collection
-
-### 5. Logger Module Addition (2025-11-14)
-- Structured JSON logging system (~397 lines)
-- Service-aware logging with contextual fields
-- Integration with Service wrapper
 
 ## Development Principles
 
-1. **Core Before Services**: Build strong foundation before service layer
-2. **No Backward Compatibility Requirement** (yet): Architecture evolves freely during development
-3. **Design Patterns Over Quick Hacks**: Take time to design properly
-4. **DRY Principle**: Eliminate all code duplication via helper methods
-5. **Type Safety Everywhere**: Full type hints + Pydantic validation
-6. **Clear Separation**: Each component has one responsibility
-7. **Explicit Over Implicit**: `brotr.pool.fetch()` is clearer than `brotr.fetch()`
-8. **Protocol-Based Design**: Non-invasive, flexible service wrapping
-
-## Next Steps (Priority Order)
-
-### Completed ✅
-1. **Initializer Service** - DONE
-   - Bootstrap database, validate schemas, seed initial data
-   - State persistence via `service_state` table
-
-2. **Finder Service** - DONE
-   - Discover Nostr relays from various sources
-   - Atomic batch processing for crash consistency
-   - Watermark-based event tracking
-
-3. **pytest Infrastructure** - DONE
-   - 225 tests passing (core + services)
-   - Coverage reporting configured
-
-### Immediate Priority
-1. **Implement Monitor Service** - HIGH
-   - Monitor relay health (NIP-11, NIP-66 checks)
-   - Validates Service wrapper with real usage
-
-2. **Implement Synchronizer Service** - HIGH
-   - Synchronize events from Nostr relays
-   - Main functionality of BigBrotr
-
-### Medium Priority
-3. **Implement Priority Synchronizer**
-   - Priority-based event synchronization
-   - Handles important relays differently
-
-## Notes for AI Assistants
-
-- **Read [PROJECT_SPECIFICATION.md](PROJECT_SPECIFICATION.md) first** for detailed API documentation
-- **Check [PROJECT_STATUS.md](PROJECT_STATUS.md)** for current development phase and completion status (~55%)
-- **Core layer is stable** (100% complete): Avoid breaking changes to Pool, Brotr, Service, Logger
-- **Service layer in progress** (2/7 complete): Initializer and Finder implemented, others pending
-- **Configuration is YAML-driven**: Prefer config changes over code changes
-- **Dependency injection is required**: Never create dependencies internally when they can be injected
-- **Documentation is essential**: Update docstrings and project docs when changing code
-- **Use helper methods**: Extract repeated logic into private helper methods with descriptive names
-- **Protocol-based design**: Services don't need to inherit from anything, just implement protocol methods
-- **State persistence**: Services use `service_state` table with service name constants (e.g., `FINDER_SERVICE_NAME`)
+1. **Services receive Brotr**: All services receive `Brotr` via constructor, not `Pool`
+2. **CONFIG_CLASS for auto-parsing**: Set `CONFIG_CLASS` on services for automatic YAML parsing
+3. **State persistence**: Services save/load state via `service_state` table
+4. **Atomic commits**: Batch operations commit data + state in single transaction
+5. **Factory methods**: All components support `from_yaml()` and `from_dict()`
+6. **Type safety**: Full type hints + Pydantic validation
 
 ## Quick Reference
 
 ### File Locations
-- Core components: [src/core/](src/core/) (pool.py, brotr.py, service.py, logger.py)
-- Services: [src/services/](src/services/) (initializer.py, finder.py implemented; others pending)
-- Core config: [implementations/bigbrotr/yaml/core/brotr.yaml](implementations/bigbrotr/yaml/core/brotr.yaml)
-- Service configs: [implementations/bigbrotr/yaml/services/](implementations/bigbrotr/yaml/services/) (initializer.yaml, finder.yaml)
-- SQL schemas: [implementations/bigbrotr/postgres/init/](implementations/bigbrotr/postgres/init/)
-- Unit tests: [tests/unit/](tests/unit/) (test_pool.py, test_brotr.py, test_service.py, test_logger.py, test_initializer.py, test_finder.py)
-- Test config: [tests/conftest.py](tests/conftest.py), [pyproject.toml](pyproject.toml)
+- Core components: `src/core/` (pool.py, brotr.py, base_service.py, logger.py, utils.py)
+- Services: `src/services/` (initializer.py, finder.py implemented; others pending)
+- Core config: `implementations/bigbrotr/yaml/core/brotr.yaml`
+- Service configs: `implementations/bigbrotr/yaml/services/`
+- SQL schemas: `implementations/bigbrotr/postgres/init/`
+- Unit tests: `tests/unit/`
 
-### Development Tools
-- [pyproject.toml](pyproject.toml) - Project config (pytest, ruff, mypy, coverage)
-- [requirements-dev.txt](requirements-dev.txt) - Development dependencies
-- [.pre-commit-config.yaml](.pre-commit-config.yaml) - Pre-commit hooks (ruff, mypy, yamllint)
-- [.gitignore](.gitignore) - Git ignore patterns
+### Key Exports
 
-### Key Metrics
-- Core layer: ~3,000 lines (100% complete)
-- Service layer: ~2,000 lines (2/7 services: Initializer, Finder)
-- Unit tests: 225 tests (100% passing)
-- Overall project: ~55% complete (weighted)
+**From `core`**:
+```python
+from core import Pool, Brotr, BaseService, Step, Outcome, get_logger
+```
 
-### Important Links
-- [PROJECT_SPECIFICATION.md](PROJECT_SPECIFICATION.md) - Complete technical spec (v5.0, updated 2025-11-14)
-- [PROJECT_STATUS.md](PROJECT_STATUS.md) - Current status and metrics (updated 2025-11-14)
-- [README.md](README.md) - User-facing documentation
-- [docs/old/](docs/old/) - Archived refactoring documents
+**From `services`**:
+```python
+from services import Initializer, Finder, InitializerConfig, FinderConfig
+```
+
+### Service Name Constants
+```python
+from services.initializer import SERVICE_NAME as INITIALIZER_SERVICE_NAME  # "initializer"
+from services.finder import SERVICE_NAME as FINDER_SERVICE_NAME            # "finder"
+```
+
+## Notes for AI Assistants
+
+- **Services receive `Brotr`**, not `Pool` directly
+- **`CONFIG_CLASS` enables automatic config parsing** via `from_dict()`
+- **`Step` and `Outcome` are in `base_service.py`**, exported from `core`
+- **State classes use dataclasses** with `to_dict()` and `from_dict()` methods
+- **YAML keys must match Pydantic field names** (e.g., `seed:` not `seed_relays:`)
+- **108 unit tests** validate current implementation
+- **Service layer is 2/7 complete**: Monitor service is next priority

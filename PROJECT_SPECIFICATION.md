@@ -1,7 +1,7 @@
-# BigBrotr Project Specification v5.2
+# BigBrotr Project Specification v6.0
 
 **Last Updated**: 2025-11-29
-**Status**: Core Complete, Two Services Implemented (Initializer, Finder)
+**Status**: Core Complete, Service Layer in Progress (2/7)
 **Version**: 1.0.0-dev
 
 ---
@@ -24,33 +24,29 @@
 
 ### What is BigBrotr?
 
-**BigBrotr** is a modular, production-grade Nostr data archiving and monitoring system built on Python and PostgreSQL. It provides comprehensive network monitoring, event synchronization, and statistical analysis of the Nostr protocol ecosystem.
+**BigBrotr** is a modular, production-grade Nostr data archiving and monitoring system built on Python and PostgreSQL. It provides comprehensive network monitoring, event synchronization, and relay discovery for the Nostr protocol ecosystem.
 
 ### Mission
 
-Archive and monitor the entire Nostr protocol network, providing reliable data access for analysis, research, and applications.
+Archive and monitor the Nostr protocol network, providing reliable data access for analysis, research, and applications.
 
 ### Key Features
 
-- ✅ **Scalable Architecture**: Three-layer design (Core, Service, Implementation)
-- ✅ **Production-Ready Core**: Enterprise-grade pooling, retry logic, lifecycle management
-- ✅ **Dependency Injection**: Clean, testable component composition
-- ✅ **Structured Logging**: JSON-formatted logs for all operations
-- ✅ **Protocol-Based Design**: Flexible, non-invasive service wrapping
-- ✅ **Comprehensive Monitoring**: Relay health checks (NIP-11, NIP-66)
-- ✅ **Flexible Deployment**: Docker Compose orchestration
-- ✅ **Network Support**: Clearnet and Tor (SOCKS5 proxy)
-- ✅ **Type Safety**: Full type hints and Pydantic validation
+- **Scalable Architecture**: Three-layer design (Core, Service, Implementation)
+- **Production-Ready Core**: Enterprise-grade pooling, retry logic, lifecycle management
+- **Dependency Injection**: Clean, testable component composition
+- **Structured Logging**: JSON-formatted logs for all operations
+- **Flexible Deployment**: Docker Compose orchestration
+- **Network Support**: Clearnet and Tor (SOCKS5 proxy)
+- **Type Safety**: Full type hints and Pydantic validation
 
 ### Design Philosophy
 
-1. **Separation of Concerns**: Core (reusable) → Services (modular) → Implementation (config-driven)
-2. **Dependency Injection**: Explicit dependencies, easy testing, flexible composition
+1. **Separation of Concerns**: Core (reusable) -> Services (modular) -> Implementation (config-driven)
+2. **Dependency Injection**: Services receive `Brotr` via constructor
 3. **Configuration-Driven**: YAML configs, environment variables, zero hardcoded values
-4. **Design Patterns First**: DI, Composition, Factory, Template Method, Wrapper/Decorator, Protocol
+4. **Abstract Base Class**: All services inherit from `BaseService[StateT]`
 5. **Type Safety Everywhere**: Full type hints, Pydantic validation for all configs
-6. **DRY Principle**: No code duplication via helper methods and wrappers
-7. **Explicit Over Implicit**: `brotr.pool.fetch()` is clearer than `brotr.fetch()`
 
 ---
 
@@ -59,69 +55,51 @@ Archive and monitor the entire Nostr protocol network, providing reliable data a
 ### Three-Layer Design
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                 Implementation Layer                 │
-│                                                      │
-│  • YAML Configurations (core, services)            │
-│  • PostgreSQL Schemas (tables, views, procedures)  │
-│  • Deployment Specs (Docker Compose, env vars)     │
-│  • Seed Data (relay lists, priority lists)         │
-│                                                      │
-│  Purpose: Define HOW this instance behaves         │
-│  Location: implementations/bigbrotr/               │
-└──────────────────────────────────────────────────────┘
-                        ▲
-                        │ Uses
-                        │
-┌──────────────────────────────────────────────────────┐
-│                    Service Layer                     │
-│                                                      │
-│  • Initializer: Database bootstrap ✅               │
-│  • Finder: Relay discovery ✅                       │
-│  • Monitor: Health checks (NIP-11, NIP-66)         │
-│  • Synchronizer: Event collection                  │
-│  • Priority Synchronizer: Priority relays          │
-│  • API: REST endpoints (Phase 3)                   │
-│  • DVM: Data Vending Machine (Phase 3)             │
-│                                                      │
-│  Purpose: Business logic, coordination             │
-│  Location: src/services/ (2/7 COMPLETE)           │
-└──────────────────────────────────────────────────────┘
-                        ▲
-                        │ Leverages
-                        │
-┌──────────────────────────────────────────────────────┐
-│                     Core Layer ✅                    │
-│                                                      │
-│  • Pool: PostgreSQL connection mgmt      │
-│  • Brotr: Database interface + stored procedures   │
-│  • Service: Generic lifecycle wrapper              │
-│  • Logger: Structured JSON logging                 │
-│                                                      │
-│  Purpose: Reusable foundation, zero business logic │
-│  Location: src/core/ (PRODUCTION READY)           │
-└──────────────────────────────────────────────────────┘
+Implementation Layer (implementations/bigbrotr/)
+
+  - YAML Configurations (core, services)
+  - PostgreSQL Schemas (tables, views, procedures)
+  - Deployment Specs (Docker Compose, env vars)
+  - Seed Data (relay lists)
+
+  Purpose: Define HOW this instance behaves
+          ↑
+          │ Uses
+          │
+Service Layer (src/services/)
+
+  - Initializer: Database bootstrap (DONE)
+  - Finder: Relay discovery (DONE)
+  - Monitor: Health checks (NIP-11, NIP-66) - PENDING
+  - Synchronizer: Event collection - PENDING
+  - Priority Synchronizer: Priority relays - PENDING
+  - API: REST endpoints (Phase 3) - PENDING
+  - DVM: Data Vending Machine (Phase 3) - PENDING
+
+  Purpose: Business logic, coordination
+  Status: 2/7 COMPLETE
+          ↑
+          │ Leverages
+          │
+Core Layer (src/core/)
+
+  - Pool: PostgreSQL connection management
+  - Brotr: Database interface + stored procedures
+  - BaseService: Abstract base class for all services
+  - Logger: Structured JSON logging
+  - Utils: Shared utilities
+
+  Purpose: Reusable foundation, zero business logic
+  Status: PRODUCTION READY (~1,715 LOC)
 ```
 
 ### Layer Responsibilities
 
-| Layer | Responsibility | Examples | Status |
-|-------|---------------|----------|--------|
-| **Implementation** | Configuration, deployment, data | YAML files, SQL schemas, Docker Compose, seed data | ✅ Partial |
-| **Service** | Business logic, orchestration | Initializer ✅, Finder ✅, Monitor, Synchronizer, API, DVM | 🚧 In Progress (2/7) |
-| **Core** | Infrastructure, utilities | Pool, Brotr, Service, Logger | ✅ Complete |
-
-### Design Principles
-
-| Principle | Application | Benefit |
-|-----------|-------------|---------|
-| **Single Responsibility** | Pool = connections, Brotr = DB ops, Services = business logic | Clear boundaries, easier testing |
-| **Dependency Injection** | Services receive dependencies vs creating them | Flexibility, testability, composition |
-| **Composition over Inheritance** | Brotr HAS-A pool (public property), not IS-A pool | Clear API, no method conflicts |
-| **Open/Closed** | Core closed for modification, open for extension via DI | Stability with flexibility |
-| **DRY** | Helper methods, Service wrapper, factory methods | Less duplication, easier maintenance |
-| **Explicit > Implicit** | `brotr.pool.fetch()` vs `brotr.fetch()` | Self-documenting code |
-| **Protocol-Based** | DatabaseService, BackgroundService protocols | Non-invasive, flexible |
+| Layer | Responsibility | Status |
+|-------|---------------|--------|
+| **Implementation** | Configuration, deployment, data | Partial |
+| **Service** | Business logic, orchestration | 2/7 Complete |
+| **Core** | Infrastructure, utilities | Complete |
 
 ---
 
@@ -129,14 +107,15 @@ Archive and monitor the entire Nostr protocol network, providing reliable data a
 
 ### Overview
 
-The core layer (`src/core/`) is **100% complete** with four production-ready components totaling ~2,853 lines of code.
+The core layer (`src/core/`) is production-ready with five components totaling ~1,715 lines of code.
 
-| Component | LOC | Status | Purpose |
-|-----------|-----|--------|---------|
-| Pool | ~632 | ✅ Production Ready | PostgreSQL connection management |
-| Brotr | ~803 | ✅ Production Ready | Database interface with stored procedures |
-| Service | ~1,021 | ✅ Production Ready | Generic lifecycle wrapper |
-| Logger | ~397 | ✅ Production Ready | Structured JSON logging |
+| Component | LOC | Purpose |
+|-----------|-----|---------|
+| Pool | ~410 | PostgreSQL connection management |
+| Brotr | ~413 | Database interface with stored procedures |
+| BaseService | ~455 | Abstract base class for all services |
+| Logger | ~331 | Structured JSON logging |
+| Utils | ~106 | Shared utilities |
 
 ---
 
@@ -144,1124 +123,25 @@ The core layer (`src/core/`) is **100% complete** with four production-ready com
 
 **Purpose**: Enterprise-grade PostgreSQL connection management using asyncpg.
 
-**Lines of Code**: ~632
+**Features**:
+- Async pooling with asyncpg
+- Automatic retry logic with exponential backoff
+- PGBouncer compatibility (transaction mode)
+- Connection lifecycle management
+- Configurable pool sizes and timeouts
+- Connection recycling
+- Environment variable password loading (`DB_PASSWORD`)
+- YAML/dict configuration support via factory methods
+- Context manager support
 
-#### Features
-
-- ✅ Async pooling with asyncpg
-- ✅ Automatic retry logic with exponential backoff
-- ✅ PGBouncer compatibility (transaction mode)
-- ✅ Connection lifecycle management (acquire, release, close)
-- ✅ Configurable pool sizes and timeouts
-- ✅ Connection recycling (max queries per connection, max idle time)
-- ✅ Environment variable password loading (DB_PASSWORD)
-- ✅ YAML/dict configuration support via factory methods
-- ✅ Type-safe Pydantic validation
-- ✅ Context manager support for automatic cleanup
-- ✅ Comprehensive documentation and type hints
-- ✅ Health-checked connection acquisition (`acquire_healthy()`)
-- ✅ 29 unit tests with pytest
-
-#### Configuration
-
+**Configuration**:
 ```yaml
-# Loaded as part of Brotr configuration
-# implementations/bigbrotr/yaml/core/brotr.yaml (pool section)
 pool:
   database:
     host: localhost
     port: 5432
     database: brotr
     user: admin
-    # password: loaded from DB_PASSWORD env var
-
-  limits:
-    min_size: 5                           # Minimum pool size
-    max_size: 20                          # Maximum pool size
-    max_queries: 50000                    # Queries before recycling
-    max_inactive_connection_lifetime: 300.0  # Idle timeout (seconds)
-
-  timeouts:
-    acquisition: 10.0                     # Timeout for pool.acquire() (seconds)
-
-  retry:
-    max_attempts: 3                       # Connection retry attempts
-    initial_delay: 1.0                    # Initial retry delay (seconds)
-    max_delay: 10.0                       # Maximum retry delay (seconds)
-    exponential_backoff: true             # Use exponential backoff
-
-  server_settings:
-    application_name: bigbrotr            # PostgreSQL application name
-    timezone: UTC                         # Connection timezone
-```
-
-#### API
-
-```python
-from core.pool import Pool
-
-# Direct instantiation
-pool = Pool(
-    host="localhost",
-    port=5432,
-    database="brotr",
-    user="admin",
-    min_size=5,
-    max_size=20
-)
-
-# Context manager usage
-async with pool:
-    # Simple query
-    events = await pool.fetch("SELECT * FROM events LIMIT 10")
-
-    # Parameterized query
-    await pool.execute(
-        "INSERT INTO events (event_id, pubkey) VALUES ($1, $2)",
-        event_id_bytes,
-        pubkey_bytes
-    )
-
-    # Manual connection management
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.execute("INSERT ...")
-            await conn.execute("UPDATE ...")
-
-# Check status
-print(pool.is_connected)  # True/False
-print(pool.config.limits.max_size)  # 20
-```
-
-#### Key Design Decisions
-
-1. **Password Security**: Loaded from `DB_PASSWORD` environment variable, never in config files
-2. **Exponential Backoff**: Prevents overwhelming database during connection issues
-3. **Connection Recycling**: Prevents stale connections, respects PGBouncer limits
-4. **Pydantic Validation**: Type-safe config with automatic validation and clear defaults
-5. **Acquisition Timeout**: Separate from query timeouts (different concerns)
-
----
-
-### 2. Brotr (`src/core/brotr.py`)
-
-**Purpose**: High-level database interface with stored procedure wrappers and dependency injection.
-
-**Lines of Code**: ~803
-
-#### Features
-
-- ✅ Dependency injection for Pool (or creates default)
-- ✅ Stored procedure wrappers (insert_event, insert_relay, insert_relay_metadata)
-- ✅ Batch operations with configurable sizes (up to 1000x performance boost)
-- ✅ Cleanup operations (delete orphaned events, NIP-11, NIP-66 records)
-- ✅ Hex to bytea conversion for efficient PostgreSQL storage
-- ✅ Type-safe parameter handling with Pydantic
-- ✅ YAML/dict configuration support via factory methods
-- ✅ Helper methods eliminate code duplication
-- ✅ Template Method pattern for delete operations
-- ✅ Public pool property for clear separation of concerns
-- ✅ Comprehensive documentation and type hints
-
-#### Key Design Decisions
-
-**Composition over Inheritance**: Brotr HAS-A pool (public property), not IS-A pool
-- Clear separation: `brotr.pool.fetch()` vs `brotr.insert_event()`
-- No method name conflicts
-- Easy pool sharing across services
-- Self-documenting API
-
-**Dependency Injection**: Reduced `__init__` parameters from 28 to 12 (57% reduction)
-- Pool injection instead of 16 Pool parameters
-- Pool can be shared across multiple services
-- Easy to mock for testing
-- Cleaner API
-
-**Helper Methods**: DRY principle applied
-- `_validate_batch_size()`: Eliminates validation duplication
-- `_call_delete_procedure()`: Template method for all delete operations
-- ~50 lines of duplication eliminated
-
-#### Configuration
-
-```yaml
-# implementations/bigbrotr/yaml/core/brotr.yaml
-pool:
-  # Pool configuration (see above)
-  database: { host: localhost, database: brotr }
-  limits: { min_size: 5, max_size: 20 }
-
-batch:
-  max_batch_size: 10000                  # Maximum batch size validation
-
-procedures:
-  # Stored procedure names (customizable per implementation)
-  insert_event: insert_event
-  insert_relay: insert_relay
-  insert_relay_metadata: insert_relay_metadata
-  delete_orphan_events: delete_orphan_events
-  delete_orphan_nip11: delete_orphan_nip11
-  delete_orphan_nip66: delete_orphan_nip66
-
-timeouts:
-  query: 60.0                            # Standard query timeout (seconds)
-  procedure: 90.0                        # Stored procedure timeout (seconds)
-  batch: 120.0                           # Batch operation timeout (seconds)
-```
-
-#### API
-
-```python
-from core.brotr import Brotr
-from core.pool import Pool
-
-# Option 1: From YAML (recommended)
-brotr = Brotr.from_yaml("implementations/bigbrotr/yaml/core/brotr.yaml")
-
-# Option 2: Inject custom pool (for pool sharing)
-pool = Pool(host="localhost", database="brotr")
-brotr = Brotr(pool=pool, max_batch_size=10000)
-
-# Option 3: From dict (useful for testing)
-config = {
-    "pool": {"database": {"host": "localhost", "database": "brotr"}},
-    "batch": {"max_batch_size": 10000}
-}
-brotr = Brotr.from_dict(config)
-
-# Option 4: All defaults (creates default pool internally)
-brotr = Brotr()
-
-# Option 5: Pool sharing (multiple services, one pool)
-shared_pool = Pool(host="localhost", database="brotr")
-brotr1 = Brotr(pool=shared_pool)
-brotr2 = Brotr(pool=shared_pool)  # Shares same pool!
-
-# Usage
-async with brotr.pool:
-    # Insert single event
-    await brotr.insert_event(
-        event_id="abc123...",      # Hex string (auto-converted to bytea)
-        pubkey="def456...",        # Hex string (auto-converted to bytea)
-        created_at=1699876543,
-        kind=1,
-        tags=[["e", "..."], ["p", "..."]],
-        content="Hello Nostr!",
-        sig="789ghi...",
-        relay_url="wss://relay.example.com",
-        relay_network="clearnet",
-        relay_inserted_at=1699876000,
-        seen_at=1699876543
-    )
-
-    # Batch operations (executemany for 1000x performance)
-    events = [
-        {"event_id": "abc...", "pubkey": "def...", ...},
-        {"event_id": "123...", "pubkey": "456...", ...},
-        # ... more events
-    ]
-    await brotr.insert_events_batch(events, batch_size=100)
-
-    # Cleanup orphaned records
-    deleted = await brotr.cleanup_orphans()
-    # Returns: {"events": 10, "nip11": 5, "nip66": 3}
-
-    # Direct pool access when needed
-    custom_result = await brotr.pool.fetch("SELECT * FROM custom_table")
-```
-
-#### Timeout Separation
-
-**Pool Timeout** (acquisition): Getting a connection from the pool
-**Brotr Timeouts** (operations): Query/procedure/batch execution
-
-This separation allows independent tuning:
-- Pool timeout: Infrastructure concern (10s default)
-- Brotr timeouts: Business logic concern (60s/90s/120s defaults)
-
----
-
-### 3. Service Wrapper (`src/core/service.py`)
-
-**Purpose**: Generic wrapper for adding lifecycle management, logging, monitoring, and fault tolerance to ANY service.
-
-**Lines of Code**: ~1,021
-
-#### Why Service Wrapper?
-
-Instead of adding logging, health checks, and statistics to each service individually, we created a **reusable generic wrapper** that works with ANY service implementing the protocol.
-
-**Benefits**:
-- ✅ **DRY**: Write lifecycle logic once, use everywhere
-- ✅ **Separation of Concerns**: Services focus on business logic, wrapper handles cross-cutting concerns
-- ✅ **Uniform Interface**: All services get `start()`, `stop()`, `health_check()`, `get_stats()`
-- ✅ **Testability**: Service and wrapper testable independently
-- ✅ **Extensibility**: Add features (circuit breaker, rate limiting) without touching services
-- ✅ **Non-Invasive**: Services don't need to know about the wrapper (protocol-based)
-
-#### Protocols
-
-```python
-from typing import Protocol
-
-class DatabaseService(Protocol):
-    """For database-style services (Pool, Brotr)."""
-    async def connect(self) -> None: ...
-    async def close(self) -> None: ...
-    @property
-    def is_connected(self) -> bool: ...
-
-class BackgroundService(Protocol):
-    """For background services (Finder, Monitor, Synchronizer)."""
-    async def start(self) -> None: ...
-    async def stop(self) -> None: ...
-    @property
-    def is_running(self) -> bool: ...
-```
-
-Any service implementing one of these protocols can be wrapped by the Service wrapper.
-
-#### Features
-
-- ✅ Automatic structured logging for all operations
-- ✅ Health check functionality with configurable callbacks
-- ✅ Health check retry logic (configurable retries before failure)
-- ✅ Circuit breaker pattern for fault tolerance
-- ✅ Runtime statistics collection (uptime, health checks, etc.)
-- ✅ Prometheus metrics export support
-- ✅ Graceful startup and shutdown with warmup support
-- ✅ Thread-safe statistics collection
-- ✅ Context manager support
-- ✅ Generic service wrapping (works with ANY protocol-implementing service)
-- ✅ 42 unit tests with pytest
-
-#### Configuration
-
-```python
-from pydantic import BaseModel, Field
-
-class ServiceConfig(BaseModel):
-    """Service wrapper configuration."""
-
-    # Logging
-    enable_logging: bool = Field(default=True)
-    log_level: str = Field(default="INFO")
-
-    # Health checks
-    enable_health_checks: bool = Field(default=True)
-    health_check_interval: float = Field(default=60.0)  # seconds
-    health_check_timeout: float = Field(default=10.0)
-
-    # Circuit breaker
-    enable_circuit_breaker: bool = Field(default=False)
-    failure_threshold: int = Field(default=5)
-    recovery_timeout: float = Field(default=60.0)
-
-    # Statistics
-    enable_statistics: bool = Field(default=True)
-    statistics_interval: float = Field(default=300.0)  # 5 minutes
-```
-
-#### API
-
-```python
-from core.service import Service, ServiceConfig
-from core.pool import Pool
-
-# Wrap Pool
-pool = Pool(host="localhost", database="brotr")
-config = ServiceConfig(
-    enable_logging=True,
-    enable_health_checks=True,
-    health_check_interval=60.0
-)
-service = Service(pool, name="database_pool", config=config)
-
-# Use with context manager
-async with service:
-    # Service automatically:
-    # - Logs: "[database_pool] Starting service..."
-    # - Calls: await pool.connect()
-    # - Starts: Background health checks every 60s
-    # - Collects: Runtime statistics
-
-    # Access wrapped service
-    result = await service.instance.fetch("SELECT * FROM events")
-
-    # Manual health check
-    is_healthy = await service.health_check()
-    print(f"Healthy: {is_healthy}")
-
-    # Get runtime statistics
-    stats = service.get_stats()
-    print(stats)
-    # {
-    #   "name": "database_pool",
-    #   "uptime_seconds": 123.45,
-    #   "health_checks": {
-    #     "total": 5,
-    #     "failed": 0,
-    #     "success_rate": 100.0
-    #   },
-    #   "circuit_breaker": {
-    #     "state": "closed",
-    #     "failure_count": 0
-    #   }
-    # }
-
-# Service automatically handles:
-# - Logging: "[database_pool] Stopping service..."
-# - Cleanup: await pool.close()
-# - Statistics: Final stats logged
-```
-
-#### Design Pattern
-
-**Decorator/Wrapper Pattern** with **Protocol-Based Duck Typing**
-
-The wrapper uses protocols (DatabaseService, BackgroundService) instead of abstract base classes, making it non-invasive. Services don't need to inherit from anything or be aware of the wrapper.
-
----
-
-### 4. Logger (`src/core/logger.py`)
-
-**Purpose**: Structured JSON logging system for all BigBrotr services.
-
-**Lines of Code**: ~397
-
-#### Features
-
-- ✅ JSON-formatted structured logging
-- ✅ Contextual fields (service_name, service_type, timestamp, level)
-- ✅ Request ID and trace ID support for distributed tracing
-- ✅ Configurable log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-- ✅ Console and file output support
-- ✅ Integration with Service wrapper (automatic)
-- ✅ ISO 8601 or Unix timestamp formats
-- ✅ Custom field support for domain-specific data
-- ✅ Thread-safe logging
-- ✅ 15 unit tests with pytest
-
-#### Configuration
-
-```python
-from core.logger import configure_logging
-
-# Configure once at application startup
-configure_logging(
-    level="INFO",                    # Log level
-    output_file="logs/bigbrotr.log", # File output (optional)
-    format_type="json",              # "json" or "text"
-    include_timestamp=True,
-    datetime_format="iso"            # "iso" or "unix"
-)
-```
-
-#### API
-
-```python
-from core.logger import get_service_logger
-
-# Get logger for a service
-logger = get_service_logger("database_pool", "Pool")
-
-# Log with structured fields
-logger.info("service_started", elapsed_seconds=1.23, config={"max_size": 20})
-
-# Log with additional context
-logger.error("connection_failed",
-    error=str(e),
-    retry_attempt=3,
-    host="localhost",
-    database="brotr"
-)
-
-# Log with request ID (for distributed tracing)
-logger.info("processing_event",
-    event_id="abc123...",
-    request_id="req-456def",
-    trace_id="trace-789ghi"
-)
-```
-
-#### Output Format
-
-```json
-{
-  "timestamp": "2025-11-14T15:30:00.123456",
-  "level": "INFO",
-  "message": "service_started",
-  "service_name": "database_pool",
-  "service_type": "Pool",
-  "elapsed_seconds": 1.23,
-  "config": {"max_size": 20}
-}
-```
-
-#### Integration with Service Wrapper
-
-The Service wrapper automatically uses the Logger when `enable_logging=True`:
-
-```python
-service = Service(
-    pool,
-    name="database_pool",
-    config=ServiceConfig(enable_logging=True)
-)
-
-# Logs automatically generated:
-# - service_starting
-# - service_started
-# - health_check_passed / health_check_failed
-# - service_stopping
-# - service_stopped
-```
-
----
-
-## Service Layer
-
-### Overview
-
-The service layer (`src/services/`) contains all business logic for BigBrotr.
-
-**Status**: 29% complete (2/7 services implemented)
-- ✅ **Initializer**: Database bootstrap, schema verification, seed data loading (~774 lines, 57 tests)
-- ✅ **Finder**: Relay discovery from NIP-66 events with atomic batch processing (~1,100 lines, 56 tests)
-- ⚠️ **Monitor**, **Synchronizer**, **Priority Synchronizer**, **API**, **DVM**: Pending
-
-Services leverage the production-ready core layer via dependency injection.
-
----
-
-### Service Implementation Pattern
-
-All services will follow this pattern:
-
-```python
-from core.brotr import Brotr
-from core.service import Service, ServiceConfig
-from core.pool import Pool
-from typing import Protocol
-
-class MyService:
-    """Business logic service."""
-
-    def __init__(self, brotr: Brotr, config: MyServiceConfig):
-        self.brotr = brotr
-        self.config = config
-        self._running = False
-
-    async def start(self) -> None:
-        """Start the service."""
-        self._running = True
-        # Service logic here
-
-    async def stop(self) -> None:
-        """Stop the service."""
-        self._running = False
-        # Cleanup here
-
-    @property
-    def is_running(self) -> bool:
-        return self._running
-
-# Wrap with Service for lifecycle management
-service = Service(
-    MyService(brotr, config),
-    name="my_service",
-    config=ServiceConfig(enable_logging=True)
-)
-
-async with service:
-    # Automatic logging, health checks, statistics
-    pass
-```
-
----
-
-### 1. Initializer Service ✅
-
-**File**: `src/services/initializer.py`
-**Status**: ✅ Production Ready
-**Lines of Code**: ~774
-**Test Coverage**: 57 unit tests
-
-#### Purpose
-
-Bootstrap the BigBrotr database:
-- Verify PostgreSQL extensions (pgcrypto, btree_gin)
-- Verify database tables exist (relays, events, etc.)
-- Verify stored procedures exist
-- Seed initial relay data from text files
-- State persistence via `service_state` table
-
-#### Dependencies
-
-- Pool (for schema operations and state persistence)
-- PostgreSQL 14+
-
-#### Configuration
-
-```yaml
-# implementations/bigbrotr/yaml/services/initializer.yaml
-database:
-  verify_tables: true           # Verify database tables exist
-  verify_procedures: true       # Verify stored procedures exist
-  verify_extensions: true       # Verify PostgreSQL extensions
-
-expected_tables:
-  - relays
-  - events
-  - events_relays
-  - nip11
-  - nip66
-  - relay_metadata
-  - service_state
-
-seed_data:
-  enabled: true
-  relay_file: data/seed_relays.txt
-  batch_size: 100
-```
-
-#### API
-
-```python
-from services.initializer import Initializer
-from core.pool import Pool
-
-# Option 1: From YAML
-pool = Pool(host="localhost", database="brotr")
-initializer = Initializer.from_yaml("yaml/services/initializer.yaml", pool=pool)
-
-# Option 2: Direct instantiation
-initializer = Initializer(pool=pool)
-
-# Run initialization
-async with pool:
-    await initializer.start()
-    result = await initializer.initialize()
-    if result.success:
-        print(f"Seeded {result.relays_seeded} relays")
-    await initializer.stop()
-```
-
----
-
-### 2. Finder Service ✅
-
-**File**: `src/services/finder.py`
-**Status**: ✅ Production Ready
-**Lines of Code**: ~1,100
-**Test Coverage**: 56 unit tests
-
-#### Purpose
-
-Discover Nostr relays from NIP-66 events in the database:
-- Watermark-based event tracking (`last_seen_at` timestamp)
-- Atomic batch processing for crash consistency
-- State persistence via `service_state` table
-- Comprehensive relay URL validation
-
-#### Dependencies
-
-- Pool (for database operations and state persistence)
-- nostr_tools.Relay (for URL validation)
-- `service_state` table (for state persistence)
-
-#### Configuration
-
-```yaml
-# implementations/bigbrotr/yaml/services/finder.yaml
-discovery:
-  batch_size: 1000              # Events to process per batch
-  max_relays_per_run: 5000      # Maximum relays to discover per run
-
-processing:
-  relay_validation: true        # Validate relay URLs
-
-timeouts:
-  db_query: 30.0                # Database query timeout (seconds)
-
-logging:
-  log_level: INFO
-  log_batch_progress: true
-```
-
-#### API
-
-```python
-from services.finder import Finder, FINDER_SERVICE_NAME
-from core.pool import Pool
-
-# Option 1: From YAML
-pool = Pool(host="localhost", database="brotr")
-finder = Finder.from_yaml("yaml/services/finder.yaml", pool=pool)
-
-# Option 2: Direct instantiation
-finder = Finder(pool=pool)
-
-# Run discovery
-async with pool:
-    await finder.start()
-    result = await finder.run_discovery_cycle()
-    print(f"Found {result.relays_found} new relays")
-    print(f"Processed {result.events_processed} events")
-    await finder.stop()
-
-# State persistence
-# State is automatically saved to service_state table with key FINDER_SERVICE_NAME
-# Includes: last_seen_at, total_events_processed, total_relays_found
-```
-
-#### Key Features
-
-- **Atomic Batch Processing**: Relays + watermark saved in single transaction
-- **Crash Consistency**: In-memory state updated only after DB commit
-- **Watermark Tracking**: Resumes from last processed event on restart
-- **State Persistence**: Uses `FINDER_SERVICE_NAME = "finder"` constant
-
----
-
-### 3. Monitor Service
-
-**File**: `src/services/monitor.py`
-**Status**: ⚠️ Pending
-**Priority**: High (core functionality)
-**Estimated Effort**: 5-7 days
-
-#### Purpose
-
-Monitor relay health and collect metadata:
-- NIP-11 relay information documents
-- NIP-66 relay monitoring data
-- Connection health checks
-- Uptime tracking
-
-#### Dependencies
-
-- Brotr (for storing health data)
-- Service wrapper (for lifecycle management)
-- aiohttp (for HTTP requests)
-- Periodic task scheduling
-
-#### Configuration
-
-```yaml
-# implementations/bigbrotr/yaml/services/monitor.yaml
-checks:
-  nip11:
-    enabled: true
-    interval: 3600  # 1 hour
-    timeout: 30.0
-
-  nip66:
-    enabled: true
-    interval: 7200  # 2 hours
-    timeout: 60.0
-
-  connection:
-    enabled: true
-    interval: 300   # 5 minutes
-    timeout: 10.0
-
-monitoring:
-  concurrent_checks: 20
-  retry_attempts: 2
-  failure_threshold: 3  # Mark as down after 3 failures
-
-storage:
-  batch_size: 50
-  keep_history: true
-  history_days: 30
-```
-
-#### API
-
-```python
-from services.monitor import Monitor
-
-monitor = Monitor.from_yaml("yaml/services/monitor.yaml")
-
-async with monitor:
-    # Monitor all relays
-    await monitor.check_all_relays()
-
-    # Monitor specific relay
-    health = await monitor.check_relay("wss://relay.example.com")
-
-    # Get relay statistics
-    stats = await monitor.get_relay_stats("wss://relay.example.com")
-    print(f"Uptime: {stats['uptime_percentage']}%")
-```
-
----
-
-### 4. Synchronizer Service
-
-**File**: `src/services/synchronizer.py`
-**Status**: ⚠️ Pending
-**Priority**: Medium (main functionality)
-**Estimated Effort**: 7-10 days
-
-#### Purpose
-
-Synchronize events from Nostr relays:
-- Connect to relays via WebSocket
-- Subscribe to event filters
-- Store events in database
-- Handle reconnections and errors
-
-#### Dependencies
-
-- Brotr (for storing events)
-- Service wrapper (for lifecycle management)
-- nostr-tools Client (for Nostr protocol)
-- WebSocket management
-
-#### Configuration
-
-```yaml
-# implementations/bigbrotr/yaml/services/synchronizer.yaml
-relays:
-  max_concurrent: 50
-  reconnect_delay: 5.0
-  max_reconnect_attempts: 10
-
-filters:
-  - kinds: [0, 1, 3, 5, 6, 7]  # Basic event kinds
-    limit: 1000
-  - kinds: [10002]              # Relay lists
-    limit: 100
-
-synchronization:
-  batch_size: 100
-  checkpoint_interval: 60  # seconds
-  deduplicate: true
-
-storage:
-  use_batch_insert: true
-  batch_size: 200
-```
-
-#### API
-
-```python
-from services.synchronizer import Synchronizer
-
-sync = Synchronizer.from_yaml("yaml/services/synchronizer.yaml")
-
-async with sync:
-    # Sync from all relays
-    await sync.sync_all()
-
-    # Sync from specific relay
-    events = await sync.sync_relay("wss://relay.example.com")
-
-    # Get sync statistics
-    stats = sync.get_stats()
-    print(f"Events synced: {stats['events_synced']}")
-```
-
----
-
-### 5. Priority Synchronizer Service
-
-**File**: `src/services/priority_synchronizer.py`
-**Status**: ⚠️ Pending
-**Priority**: Medium
-**Estimated Effort**: 5-7 days
-
-#### Purpose
-
-Priority-based event synchronization from important relays:
-- Maintains priority queue of relays
-- Allocates more resources to priority relays
-- Ensures critical relays are always synced
-
-#### Dependencies
-
-- Synchronizer (base implementation)
-- Priority queue logic
-- Brotr (for data storage)
-
-#### Configuration
-
-```yaml
-# implementations/bigbrotr/yaml/services/priority_synchronizer.yaml
-priorities:
-  high:
-    - wss://relay.damus.io
-    - wss://relay.nostr.band
-    concurrent_connections: 10
-    sync_interval: 60  # seconds
-
-  medium:
-    concurrent_connections: 20
-    sync_interval: 300
-
-  low:
-    concurrent_connections: 50
-    sync_interval: 3600
-
-priority_file: data/priority_relays.txt
-```
-
----
-
-### 6. API Service (Phase 3)
-
-**File**: `src/services/api.py`
-**Status**: ⚠️ Pending (Phase 3)
-**Priority**: Low
-**Estimated Effort**: 10-14 days
-
-#### Purpose
-
-REST API for querying archived Nostr data:
-- Query events by various filters
-- Relay statistics and health
-- Event counts and analytics
-- Authentication and rate limiting
-
-#### Dependencies
-
-- Brotr (for data access)
-- FastAPI (web framework)
-- Authentication system
-- Rate limiting
-
----
-
-### 7. DVM Service (Phase 3)
-
-**File**: `src/services/dvm.py`
-**Status**: ⚠️ Pending (Phase 3)
-**Priority**: Low
-**Estimated Effort**: 7-10 days
-
-#### Purpose
-
-Data Vending Machine (Nostr-native API):
-- Respond to Nostr data requests
-- Provide archived data via Nostr events
-- NIP-89/NIP-90 implementation
-
-#### Dependencies
-
-- Brotr (for data access)
-- nostr-tools (for Nostr protocol)
-- Service wrapper
-
----
-
-## Database Schema
-
-### Overview
-
-PostgreSQL schemas are located in `implementations/bigbrotr/postgres/init/` and must be applied in numerical order.
-
-**Schema Version**: 1.0.0
-**PostgreSQL Version**: 14+
-**Total Files**: 7 schema files + 1 verification file
-
-### Schema Files (Apply in Order)
-
-1. `00_extensions.sql` - PostgreSQL extensions (pgcrypto, etc.)
-2. `01_utility_functions.sql` - Helper functions for conversions
-3. `02_tables.sql` - Table definitions (events, relays, metadata)
-4. `03_indexes.sql` - Performance indexes
-5. `04_integrity_functions.sql` - Data integrity checks and triggers
-6. `05_procedures.sql` - Stored procedures (called by Brotr)
-7. `06_views.sql` - Database views for common queries
-8. `99_verify.sql` - Schema validation queries
-
-### Core Tables
-
-#### `events`
-Stores Nostr events (kinds 0-40000+).
-
-```sql
-CREATE TABLE events (
-    event_id BYTEA PRIMARY KEY,           -- 32-byte event ID
-    pubkey BYTEA NOT NULL,                -- 32-byte public key
-    created_at BIGINT NOT NULL,           -- Unix timestamp
-    kind INTEGER NOT NULL,                -- Event kind (NIP-01)
-    tags JSONB NOT NULL DEFAULT '[]',     -- Event tags
-    content TEXT NOT NULL DEFAULT '',     -- Event content
-    sig BYTEA NOT NULL,                   -- 64-byte signature
-    relay_url TEXT NOT NULL,              -- Source relay
-    relay_network TEXT NOT NULL,          -- 'clearnet' or 'tor'
-    relay_inserted_at BIGINT NOT NULL,    -- Relay timestamp
-    seen_at BIGINT NOT NULL,              -- Our timestamp
-    created_at_ts TIMESTAMPTZ,            -- Derived timestamp
-    seen_at_ts TIMESTAMPTZ                -- Derived timestamp
-);
-
-CREATE INDEX idx_events_pubkey ON events(pubkey);
-CREATE INDEX idx_events_kind ON events(kind);
-CREATE INDEX idx_events_created_at ON events(created_at DESC);
-```
-
-#### `relays`
-Stores known Nostr relays.
-
-```sql
-CREATE TABLE relays (
-    relay_url TEXT PRIMARY KEY,           -- WebSocket URL
-    network TEXT NOT NULL,                -- 'clearnet' or 'tor'
-    first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    status TEXT NOT NULL DEFAULT 'unknown', -- 'online', 'offline', 'unknown'
-    failure_count INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE INDEX idx_relays_network ON relays(network);
-CREATE INDEX idx_relays_status ON relays(status);
-```
-
-#### `relay_metadata_nip11`
-Stores NIP-11 relay information documents.
-
-```sql
-CREATE TABLE relay_metadata_nip11 (
-    relay_url TEXT NOT NULL REFERENCES relays(relay_url) ON DELETE CASCADE,
-    fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    name TEXT,
-    description TEXT,
-    pubkey BYTEA,
-    contact TEXT,
-    supported_nips INTEGER[],
-    software TEXT,
-    version TEXT,
-    limitation JSONB,
-    retention JSONB,
-    relay_countries TEXT[],
-    language_tags TEXT[],
-    tags TEXT[],
-    posting_policy TEXT,
-    payments_url TEXT,
-    fees JSONB,
-    icon TEXT,
-    PRIMARY KEY (relay_url, fetched_at)
-);
-```
-
-#### `relay_metadata_nip66`
-Stores NIP-66 relay monitoring data.
-
-```sql
-CREATE TABLE relay_metadata_nip66 (
-    relay_url TEXT NOT NULL REFERENCES relays(relay_url) ON DELETE CASCADE,
-    fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    network TEXT,
-    last_check TIMESTAMPTZ,
-    uptime_percentage NUMERIC(5,2),
-    response_time_ms INTEGER,
-    geo_country_code TEXT,
-    geo_city TEXT,
-    PRIMARY KEY (relay_url, fetched_at)
-);
-```
-
-### Stored Procedures
-
-Called by Brotr for data operations:
-
-#### `insert_event`
-```sql
-CREATE OR REPLACE FUNCTION insert_event(
-    p_event_id BYTEA,
-    p_pubkey BYTEA,
-    p_created_at BIGINT,
-    p_kind INTEGER,
-    p_tags JSONB,
-    p_content TEXT,
-    p_sig BYTEA,
-    p_relay_url TEXT,
-    p_relay_network TEXT,
-    p_relay_inserted_at BIGINT,
-    p_seen_at BIGINT
-) RETURNS VOID AS $$
-BEGIN
-    INSERT INTO events (...)
-    VALUES (...)
-    ON CONFLICT (event_id) DO NOTHING;
-END;
-$$ LANGUAGE plpgsql;
-```
-
-#### `insert_relay`
-```sql
-CREATE OR REPLACE FUNCTION insert_relay(
-    p_relay_url TEXT,
-    p_network TEXT
-) RETURNS VOID AS $$
-BEGIN
-    INSERT INTO relays (relay_url, network)
-    VALUES (p_relay_url, p_network)
-    ON CONFLICT (relay_url) DO UPDATE
-    SET last_seen = NOW();
-END;
-$$ LANGUAGE plpgsql;
-```
-
-#### `delete_orphan_events`, `delete_orphan_nip11`, `delete_orphan_nip66`
-Cleanup procedures for orphaned records.
-
----
-
-## Configuration
-
-### Configuration Philosophy
-
-1. **YAML-Driven**: All configuration in YAML files, no hardcoded values
-2. **Environment Variables**: Sensitive data (passwords) from environment
-3. **Layered**: Core configs → Service configs → Implementation configs
-4. **Validated**: Pydantic validation catches errors at startup
-5. **Self-Documenting**: Field descriptions in Pydantic models
-
-### Configuration Structure
-
-```
-implementations/bigbrotr/
-├── yaml/
-│   ├── core/
-│   │   └── brotr.yaml          # Core configuration (Pool + Brotr)
-│   └── services/
-│       ├── initializer.yaml    # Initializer service config
-│       ├── finder.yaml         # Finder service config
-│       ├── monitor.yaml        # Monitor service config
-│       ├── synchronizer.yaml   # Synchronizer service config
-│       ├── priority_synchronizer.yaml
-│       ├── api.yaml           # API service config (Phase 3)
-│       └── dvm.yaml           # DVM service config (Phase 3)
-├── .env                       # Environment variables (not in git)
-└── .env.example               # Example environment variables
-```
-
-### Environment Variables
-
-```bash
-# .env (not in git)
-DB_PASSWORD=your_secure_password_here
-SOCKS5_PROXY_URL=socks5://127.0.0.1:9050  # Optional: Tor proxy
-```
-
-### Core Configuration Example
-
-Complete example: `implementations/bigbrotr/yaml/core/brotr.yaml`
-
-```yaml
-# Pool + Brotr unified configuration
-pool:
-  database:
-    host: localhost
-    port: 5432
-    database: brotr
-    user: admin
-    # password: loaded from DB_PASSWORD env var
 
   limits:
     min_size: 5
@@ -1277,6 +157,47 @@ pool:
     initial_delay: 1.0
     max_delay: 10.0
     exponential_backoff: true
+```
+
+**API**:
+```python
+from core.pool import Pool
+
+# From YAML
+pool = Pool.from_yaml("yaml/core/brotr.yaml")
+
+# Direct instantiation
+pool = Pool(host="localhost", database="brotr", min_size=5, max_size=20)
+
+# Context manager usage
+async with pool:
+    result = await pool.fetch("SELECT * FROM events LIMIT 10")
+    await pool.execute("INSERT INTO events ...")
+```
+
+---
+
+### 2. Brotr (`src/core/brotr.py`)
+
+**Purpose**: High-level database interface with stored procedure wrappers.
+
+**Features**:
+- Composition pattern: HAS-A pool (public property)
+- Stored procedure wrappers (insert_event, insert_relay, etc.)
+- Batch operations with configurable sizes
+- Cleanup operations (delete orphaned records)
+- Hex to bytea conversion for efficient storage
+- YAML/dict configuration support
+
+**Key Design Decision**: Brotr HAS-A pool, not IS-A pool
+- Clear separation: `brotr.pool.fetch()` vs `brotr.insert_event()`
+- No method name conflicts
+- Easy pool sharing across services
+
+**Configuration**:
+```yaml
+pool:
+  # Pool configuration...
 
 batch:
   max_batch_size: 10000
@@ -1284,10 +205,7 @@ batch:
 procedures:
   insert_event: insert_event
   insert_relay: insert_relay
-  insert_relay_metadata: insert_relay_metadata
   delete_orphan_events: delete_orphan_events
-  delete_orphan_nip11: delete_orphan_nip11
-  delete_orphan_nip66: delete_orphan_nip66
 
 timeouts:
   query: 60.0
@@ -1295,11 +213,441 @@ timeouts:
   batch: 120.0
 ```
 
+**API**:
+```python
+from core.brotr import Brotr
+from core.pool import Pool
+
+# Option 1: From YAML
+brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
+
+# Option 2: Inject custom pool
+pool = Pool(host="localhost", database="brotr")
+brotr = Brotr(pool=pool)
+
+# Usage
+async with brotr.pool:
+    await brotr.insert_event(event_id="...", pubkey="...", ...)
+    await brotr.insert_relays(records)
+    deleted = await brotr.cleanup_orphans()
+```
+
+---
+
+### 3. BaseService (`src/core/base_service.py`)
+
+**Purpose**: Abstract base class that all services inherit from. Provides consistent lifecycle, logging, and state persistence.
+
+**Features**:
+- Generic type parameter for state: `BaseService[StateT]`
+- `CONFIG_CLASS` attribute for automatic config parsing
+- Structured logging via `self._logger`
+- State persistence via `_load_state()` / `_save_state()`
+- Lifecycle management via `start()` / `stop()`
+- Factory methods `from_yaml()` / `from_dict()`
+- Context manager support
+- Continuous operation via `run_forever(interval)`
+
+**Abstract Methods (subclasses MUST implement)**:
+```python
+async def run(self) -> Outcome           # Main service logic
+async def health_check(self) -> bool     # Health status
+def _create_default_state(self) -> StateT
+def _state_from_dict(self, data: dict) -> StateT
+```
+
+**Key Types**:
+
+```python
+@dataclass
+class Step:
+    """Individual operation step."""
+    name: str
+    success: bool
+    message: str
+    details: dict[str, Any] = field(default_factory=dict)
+    duration_ms: float = 0.0
+
+@dataclass
+class Outcome:
+    """Service run result."""
+    success: bool
+    message: str
+    steps: list[Step] = field(default_factory=list)
+    duration_s: float = 0.0
+    errors: list[str] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+```
+
+**Service Implementation Pattern**:
+```python
+from core.base_service import BaseService, Outcome
+from core.brotr import Brotr
+
+SERVICE_NAME = "my_service"
+
+class MyServiceConfig(BaseModel):
+    setting: str = "default"
+
+@dataclass
+class MyServiceState:
+    last_run_at: int = 0
+
+    def to_dict(self) -> dict:
+        return {"last_run_at": self.last_run_at}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "MyServiceState":
+        return cls(last_run_at=data.get("last_run_at", 0))
+
+class MyService(BaseService[MyServiceState]):
+    SERVICE_NAME = SERVICE_NAME
+    CONFIG_CLASS = MyServiceConfig
+
+    def __init__(self, brotr: Brotr, config: Optional[MyServiceConfig] = None):
+        super().__init__(brotr=brotr, config=config)
+        self._config = config or MyServiceConfig()
+
+    def _create_default_state(self) -> MyServiceState:
+        return MyServiceState()
+
+    def _state_from_dict(self, data: dict) -> MyServiceState:
+        return MyServiceState.from_dict(data)
+
+    async def health_check(self) -> bool:
+        return self._pool.is_connected
+
+    async def run(self) -> Outcome:
+        # Implementation
+        return Outcome(success=True, message="Done")
+```
+
+---
+
+### 4. Logger (`src/core/logger.py`)
+
+**Purpose**: Structured JSON logging system for all BigBrotr services.
+
+**Features**:
+- JSON-formatted structured logging
+- Contextual fields (service_name, component, timestamp, level)
+- Configurable log levels
+- Console and file output support
+- Thread-safe logging
+
+**API**:
+```python
+from core.logger import get_logger, configure_logging
+
+# Configure once at startup
+configure_logging(level="INFO")
+
+# Get logger for a service
+logger = get_logger("finder", component="Finder")
+
+# Log with structured fields
+logger.info("run_completed", relays_found=100, duration_s=5.2)
+logger.error("connection_failed", error=str(e))
+```
+
+---
+
+### 5. Utils (`src/core/utils.py`)
+
+**Purpose**: Shared utility functions used by services.
+
+**Functions**:
+- `build_relay_records(urls, timestamp)`: Build relay records from URLs
+- `load_service_state(pool, service_name, timeout)`: Load state from database
+
+---
+
+## Service Layer
+
+### Overview
+
+The service layer (`src/services/`) contains all business logic for BigBrotr.
+
+**Status**: 29% complete (2/7 services implemented)
+
+| Service | LOC | Status |
+|---------|-----|--------|
+| **Initializer** | ~493 | Production Ready |
+| **Finder** | ~492 | Production Ready |
+| Monitor | 14 | Pending |
+| Synchronizer | 14 | Pending |
+| Priority Synchronizer | 14 | Pending |
+| API | 14 | Pending (Phase 3) |
+| DVM | 14 | Pending (Phase 3) |
+
+---
+
+### 1. Initializer Service (`src/services/initializer.py`)
+
+**Purpose**: Database bootstrap and schema verification.
+
+**Features**:
+- PostgreSQL extension verification (pgcrypto, btree_gin)
+- Table existence verification
+- Stored procedure verification
+- Seed data loading from text files
+- Batch insertion with configurable batch size
+- Retry logic with exponential backoff
+- State persistence
+
+**Configuration** (`yaml/services/initializer.yaml`):
+```yaml
+verification:
+  tables: true
+  procedures: true
+  extensions: true
+
+expected_schema:
+  extensions:
+    - pgcrypto
+    - btree_gin
+  tables:
+    - relays
+    - events
+    - events_relays
+    - nip11
+    - nip66
+    - relay_metadata
+    - service_state
+  procedures:
+    - insert_event
+    - insert_relay
+    - delete_orphan_events
+
+seed:
+  enabled: true
+  path: data/seed_relays.txt
+  batch_size: 100
+
+retry:
+  max_attempts: 3
+  initial_delay: 1.0
+  max_delay: 10.0
+  exponential_backoff: true
+```
+
+**API**:
+```python
+from services.initializer import Initializer
+from core.brotr import Brotr
+
+brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
+
+async with brotr.pool:
+    initializer = Initializer.from_yaml("yaml/services/initializer.yaml", brotr=brotr)
+    result = await initializer.run()
+
+    if result.success:
+        print(f"Seeded {result.metrics['relays_seeded']} relays")
+```
+
+---
+
+### 2. Finder Service (`src/services/finder.py`)
+
+**Purpose**: Discover Nostr relay URLs from multiple sources.
+
+**Features**:
+- Database event scanning for relay URLs
+- External API fetching (nostr.watch)
+- Watermark-based batch processing
+- Atomic commits for crash consistency
+- State persistence via `service_state` table
+- Configurable batch sizes and intervals
+
+**Configuration** (`yaml/services/finder.yaml`):
+```yaml
+event_scan:
+  enabled: true
+  batch_size: 1000
+  max_events_per_cycle: 100000
+
+api:
+  enabled: true
+  sources:
+    - url: https://api.nostr.watch/v1/online
+      enabled: true
+      timeout: 30.0
+    - url: https://api.nostr.watch/v1/offline
+      enabled: true
+      timeout: 30.0
+  request_delay: 1.0
+
+logging:
+  log_progress: true
+  log_level: INFO
+  progress_interval: 5000
+
+timeouts:
+  db_query: 30.0
+
+insert_batch_size: 100
+discovery_interval: 3600.0
+```
+
+**API**:
+```python
+from services.finder import Finder
+from core.brotr import Brotr
+
+brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
+
+async with brotr.pool:
+    finder = Finder.from_yaml("yaml/services/finder.yaml", brotr=brotr)
+
+    # Single run
+    result = await finder.run()
+    print(f"Found {result.metrics['relays_found']} relays")
+
+    # Continuous operation
+    async with finder:
+        await finder.run_forever(interval=3600)
+```
+
+**Atomic Batch Processing**:
+```python
+async with self._pool.transaction() as conn:
+    # Insert relays
+    for r in records:
+        await conn.execute("SELECT insert_relay($1, $2, $3)", ...)
+
+    # Update state atomically
+    await conn.execute("INSERT INTO service_state ...")
+
+# Update in-memory state AFTER successful commit
+self._state.last_seen_at = new_watermark
+```
+
+---
+
+### 3. Monitor Service (Pending)
+
+**Purpose**: Monitor relay health and collect metadata.
+
+**Planned Features**:
+- NIP-11 relay information documents
+- NIP-66 relay monitoring data
+- Connection health checks
+- Uptime tracking
+
+---
+
+### 4. Synchronizer Service (Pending)
+
+**Purpose**: Synchronize events from Nostr relays.
+
+**Planned Features**:
+- Connect to relays via WebSocket
+- Subscribe to event filters
+- Store events in database
+- Handle reconnections and errors
+
+---
+
+## Database Schema
+
+### Overview
+
+PostgreSQL schemas are located in `implementations/bigbrotr/postgres/init/` and must be applied in numerical order.
+
+**Schema Files** (apply in order):
+1. `00_extensions.sql` - PostgreSQL extensions
+2. `01_utility_functions.sql` - Helper functions
+3. `02_tables.sql` - Table definitions
+4. `03_indexes.sql` - Performance indexes
+5. `04_integrity_functions.sql` - Data integrity checks
+6. `05_procedures.sql` - Stored procedures
+7. `06_views.sql` - Database views
+8. `99_verify.sql` - Schema validation
+
+### Core Tables
+
+**relays**
+```sql
+CREATE TABLE relays (
+    relay_url TEXT PRIMARY KEY,
+    network TEXT NOT NULL,  -- 'clearnet' or 'tor'
+    first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status TEXT NOT NULL DEFAULT 'unknown'
+);
+```
+
+**events**
+```sql
+CREATE TABLE events (
+    id SERIAL PRIMARY KEY,
+    event_id BYTEA NOT NULL UNIQUE,  -- 32-byte event ID
+    pubkey BYTEA NOT NULL,           -- 32-byte public key
+    created_at BIGINT NOT NULL,
+    kind INTEGER NOT NULL,
+    tags JSONB NOT NULL DEFAULT '[]',
+    content TEXT NOT NULL DEFAULT '',
+    sig BYTEA NOT NULL
+);
+```
+
+**service_state**
+```sql
+CREATE TABLE service_state (
+    service_name TEXT PRIMARY KEY,
+    state JSONB NOT NULL DEFAULT '{}',
+    updated_at BIGINT NOT NULL
+);
+```
+
+### Stored Procedures
+
+- `insert_relay(url, network, inserted_at)`: Insert or update relay
+- `insert_event(...)`: Insert event with deduplication
+- `delete_orphan_events()`: Clean up orphaned events
+- `delete_orphan_nip11()`: Clean up orphaned NIP-11 data
+- `delete_orphan_nip66()`: Clean up orphaned NIP-66 data
+
+---
+
+## Configuration
+
+### Configuration Philosophy
+
+1. **YAML-Driven**: All configuration in YAML files
+2. **Environment Variables**: Sensitive data (passwords) from environment
+3. **Pydantic Validation**: All configs validated at startup
+4. **CONFIG_CLASS**: Services use `CONFIG_CLASS` for automatic parsing
+
+### Configuration Structure
+
+```
+implementations/bigbrotr/
+├── yaml/
+│   ├── core/
+│   │   └── brotr.yaml          # Core configuration (Pool + Brotr)
+│   └── services/
+│       ├── initializer.yaml    # Initializer service config
+│       ├── finder.yaml         # Finder service config
+│       └── ...                 # Other service configs
+├── .env                        # Environment variables (not in git)
+└── .env.example                # Example environment variables
+```
+
+### Environment Variables
+
+```bash
+# .env (not in git)
+DB_PASSWORD=your_secure_password
+SOCKS5_PROXY_URL=socks5://127.0.0.1:9050  # Optional: Tor proxy
+```
+
 ---
 
 ## Deployment
 
-### Docker Compose Deployment
+### Docker Compose
 
 **File**: `implementations/bigbrotr/docker-compose.yaml`
 
@@ -1316,10 +664,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d
-      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf
     ports:
       - "5432:5432"
-    command: postgres -c config_file=/etc/postgresql/postgresql.conf
 
   pgbouncer:
     image: pgbouncer/pgbouncer:latest
@@ -1330,17 +676,10 @@ services:
       DATABASES_PASSWORD: ${DB_PASSWORD}
       DATABASES_DBNAME: brotr
       PGBOUNCER_POOL_MODE: transaction
-      PGBOUNCER_MAX_CLIENT_CONN: 1000
-      PGBOUNCER_DEFAULT_POOL_SIZE: 20
     ports:
       - "6432:6432"
     depends_on:
       - postgres
-
-  tor:
-    image: osminogin/tor-simple:latest
-    ports:
-      - "9050:9050"
 
 volumes:
   postgres_data:
@@ -1349,124 +688,56 @@ volumes:
 ### Deployment Steps
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/yourusername/bigbrotr.git
-cd bigbrotr
-
-# 2. Set up environment
+# 1. Set up environment
 cp implementations/bigbrotr/.env.example implementations/bigbrotr/.env
 nano implementations/bigbrotr/.env  # Set DB_PASSWORD
 
-# 3. Start services
+# 2. Start services
 cd implementations/bigbrotr
 docker-compose up -d
 
-# 4. Verify database
-docker-compose exec postgres psql -U admin -d brotr -c "\dt"
+# 3. Run initialization
+python -m services initializer
 
-# 5. Run initialization (when Initializer service is implemented)
-python3 -m services.initializer
-```
-
-### Manual Deployment
-
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. Set up PostgreSQL
-createdb brotr
-psql -d brotr -f implementations/bigbrotr/postgres/init/00_extensions.sql
-psql -d brotr -f implementations/bigbrotr/postgres/init/01_utility_functions.sql
-# ... continue with other schema files
-
-# 3. Set environment variables
-export DB_PASSWORD="your_password"
-export SOCKS5_PROXY_URL="socks5://127.0.0.1:9050"  # Optional
-
-# 4. Run services (when implemented)
-python3 -m services.initializer
-python3 -m services.finder
-python3 -m services.monitor
-python3 -m services.synchronizer
+# 4. Run finder
+python -m services finder
 ```
 
 ---
 
 ## Development Roadmap
 
-### Phase 1: Core Infrastructure ✅ COMPLETE
+### Phase 1: Core Infrastructure - COMPLETE
 
-**Timeline**: Completed 2025-11-14
-**Completion**: 100%
+- Pool implementation (~410 lines)
+- Brotr implementation (~413 lines)
+- BaseService abstract class (~455 lines)
+- Logger module (~331 lines)
+- Utils module (~106 lines)
 
-- ✅ Pool implementation (~632 lines)
-- ✅ Brotr implementation with dependency injection (~803 lines)
-- ✅ Service wrapper implementation (~1,021 lines)
-- ✅ Logger module implementation (~397 lines)
-- ✅ Helper methods and DRY improvements
-- ✅ Comprehensive documentation
+**Total Core Layer**: ~1,715 lines of production-ready code
 
-**Total Core Layer**: 2,853 lines of production-ready code
-
-### Phase 2: Service Layer (In Progress)
-
-**Timeline**: 2025-11-14 to 2026-Q1
-**Completion**: 29% (2/7 services)
+### Phase 2: Service Layer - IN PROGRESS
 
 **Completed**:
-1. ✅ Core layer complete
-2. ✅ Implement Initializer service (~774 lines, 57 tests)
-3. ✅ Implement Finder service (~1,100 lines, 56 tests)
-4. ✅ Set up pytest infrastructure (225 tests passing)
+1. Initializer service (~493 lines)
+2. Finder service (~492 lines)
+3. pytest infrastructure (108 tests)
 
-**Immediate Priority** (December 2025):
-5. ⚠️ Implement Monitor service (5-7 days)
-6. ⚠️ Implement Synchronizer service (7-10 days)
+**Immediate Priority**:
+- Monitor service
+- Synchronizer service
 
-**Medium Priority** (January-February 2026):
-7. ⚠️ Implement Priority Synchronizer (5-7 days)
-8. ⚠️ Add integration tests (2-3 days)
-9. ⚠️ Performance optimization
+**Medium Priority**:
+- Priority Synchronizer
+- Integration tests
 
-**Phase 2 Completion Criteria**:
-- All core services implemented and tested
-- pytest coverage >80% for core, >70% for services
-- Services running in production environment
-- Basic monitoring and observability
+### Phase 3: Public Access - PLANNED
 
-### Phase 3: Public Access (Future)
-
-**Timeline**: 2026-Q2 onwards
-**Completion**: 0%
-
-- ⚠️ REST API service (10-14 days)
-- ⚠️ Data Vending Machine (DVM) (7-10 days)
-- ⚠️ Authentication and authorization
-- ⚠️ Rate limiting and quotas
-- ⚠️ API documentation (Swagger/OpenAPI)
-- ⚠️ Client libraries (Python, JavaScript)
-
-**Phase 3 Completion Criteria**:
-- Public API available and documented
-- DVM service operational
-- Authentication system secure and tested
-- Rate limiting prevents abuse
-- API documentation complete
-
-### Phase 4: Production Hardening (Future)
-
-**Timeline**: Ongoing
-**Completion**: 0%
-
-- ⚠️ Comprehensive test suite (>90% coverage)
-- ⚠️ Performance optimization and profiling
-- ⚠️ Monitoring and observability (Prometheus, Grafana)
-- ⚠️ Security audit and hardening
-- ⚠️ Deployment automation (CI/CD)
-- ⚠️ Load balancing and horizontal scaling
-- ⚠️ Disaster recovery and backups
-- ⚠️ Documentation for operators
+- REST API service
+- Data Vending Machine (DVM)
+- Authentication and authorization
+- Rate limiting
 
 ---
 
@@ -1474,70 +745,51 @@ python3 -m services.synchronizer
 
 ### Patterns Applied
 
-| Pattern | Component | Purpose | Benefits |
-|---------|-----------|---------|----------|
-| **Dependency Injection** | Brotr ← Pool | Inject dependencies vs create | Testability, flexibility, pool sharing |
-| **Composition over Inheritance** | Brotr HAS-A pool | Public pool property | Clear API, explicit separation |
-| **Decorator/Wrapper** | Service wraps any service | Add cross-cutting concerns | DRY, uniform interface |
-| **Factory Method** | `from_yaml()`, `from_dict()` | Config-driven construction | Environment flexibility |
-| **Template Method** | `_call_delete_procedure()` | DRY for similar operations | Less duplication |
-| **Context Manager** | Pool, Service | Resource management | Automatic cleanup |
-| **Protocol/Duck Typing** | DatabaseService, BackgroundService | Flexible polymorphism | Non-invasive, extensible |
-| **Single Responsibility** | Each component has one job | Separation of concerns | Easier to test and modify |
+| Pattern | Component | Purpose |
+|---------|-----------|---------|
+| **Dependency Injection** | Services receive Brotr | Testability, flexibility |
+| **Composition over Inheritance** | Brotr HAS-A pool | Clear separation |
+| **Abstract Base Class** | BaseService[StateT] | Consistent service interface |
+| **Factory Method** | from_yaml(), from_dict() | Config-driven construction |
+| **Template Method** | BaseService.run() | DRY for service lifecycle |
+| **Context Manager** | Pool, Services | Resource management |
 
 ### Pattern Examples
 
-#### Dependency Injection
+**Dependency Injection**:
 ```python
-# Bad: Creating dependencies internally
-class Brotr:
-    def __init__(self, host, port, database, ...):  # 28 parameters!
-        self.pool = Pool(host, port, ...)
-
-# Good: Injecting dependencies
-class Brotr:
-    def __init__(self, pool: Optional[Pool] = None):  # 1 parameter
-        self.pool = pool or Pool()
+# Services receive Brotr, not Pool
+class Finder(BaseService[FinderState]):
+    def __init__(self, brotr: Brotr, config: Optional[FinderConfig] = None):
+        super().__init__(brotr=brotr, config=config)
+        # Access pool via self._pool (convenience reference)
 ```
 
-#### Composition over Inheritance
+**CONFIG_CLASS for Automatic Parsing**:
 ```python
-# Bad: Inheritance creates unclear API
-class Brotr(Pool):
-    def fetch(...):  # Is this pool.fetch or brotr.fetch?
-        pass
+class Finder(BaseService[FinderState]):
+    SERVICE_NAME = "finder"
+    CONFIG_CLASS = FinderConfig  # Pydantic model
 
-# Good: Composition creates clear API
-class Brotr:
-    def __init__(self, pool):
-        self.pool = pool  # Public property
-
-    # Clear: brotr.pool.fetch() vs brotr.insert_event()
+# Factory methods use CONFIG_CLASS automatically
+finder = Finder.from_yaml("config.yaml", brotr=brotr)
+finder = Finder.from_dict(data, brotr=brotr)
 ```
 
-#### Decorator/Wrapper
+**Atomic Commits**:
 ```python
-# Wrap any service with lifecycle management
-service = Service(
-    Pool(...),  # Or Brotr, or Finder, or any service
-    name="my_service",
-    config=ServiceConfig(enable_logging=True)
-)
+async with self._pool.transaction() as conn:
+    # All operations in same transaction
+    await conn.execute("INSERT INTO relays ...")
+    await conn.execute("UPDATE service_state ...")
 
-# Automatic logging, health checks, statistics for ANY service
-```
-
-#### Factory Method
-```python
-# Multiple ways to construct, all type-safe
-pool = Pool.from_yaml("config.yaml")
-pool = Pool.from_dict({"database": {...}})
-pool = Pool(host="localhost", database="brotr")
+# Update in-memory state AFTER commit
+self._state.last_seen_at = new_watermark
 ```
 
 ---
 
-## Appendix: Technology Stack
+## Technology Stack
 
 ### Core Technologies
 
@@ -1549,11 +801,7 @@ pool = Pool(host="localhost", database="brotr")
 | Pydantic | 2.10.4 | Configuration validation |
 | PyYAML | 6.0.2 | YAML parsing |
 | aiohttp | 3.13.2 | Async HTTP client |
-| aiohttp-socks | 0.10.1 | SOCKS5 proxy support (Tor) |
 | nostr-tools | 1.4.0 | Nostr protocol library |
-| python-dotenv | 1.0.1 | Environment variable loading |
-| aiofiles | 25.1.0 | Async file operations |
-| typing-extensions | 4.12.2 | Type hints backports |
 
 ### Infrastructure
 
@@ -1561,23 +809,13 @@ pool = Pool(host="localhost", database="brotr")
 |------------|---------|
 | Docker | Containerization |
 | Docker Compose | Service orchestration |
-| PGBouncer | Connection pooling (between app and PostgreSQL) |
-| Tor | Network privacy (optional SOCKS5 proxy) |
-
-### Future Technologies (Phase 3)
-
-| Technology | Purpose | Status |
-|------------|---------|--------|
-| FastAPI | REST API framework | Planned |
-| pytest | Testing framework | ✅ Implemented (225 tests) |
-| prometheus-client | Metrics export | Planned |
-| GitHub Actions | CI/CD pipeline | Planned |
-| Grafana | Monitoring dashboards | Planned |
+| PGBouncer | Connection pooling |
+| Tor | Network privacy (optional) |
 
 ---
 
 **End of Project Specification**
 
-**Version**: 5.2
+**Version**: 6.0
 **Last Updated**: 2025-11-29
 **Next Update**: After Monitor service implementation
