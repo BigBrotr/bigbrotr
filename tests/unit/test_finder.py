@@ -45,7 +45,7 @@ def mock_pool() -> MagicMock:
 
 @pytest.fixture
 def mock_brotr(mock_pool: MagicMock) -> MagicMock:
-    """Create a mock Brotr."""
+    """Create a mock Brotr with pool."""
     brotr = MagicMock(spec=Brotr)
     brotr.pool = mock_pool
     brotr.insert_relays = AsyncMock(return_value=True)
@@ -136,81 +136,76 @@ class TestFinderState:
 class TestFinder:
     """Tests for Finder service."""
 
-    def test_init_with_defaults(self, mock_pool: MagicMock) -> None:
+    def test_init_with_defaults(self, mock_brotr: MagicMock) -> None:
         """Test initialization with defaults."""
-        finder = Finder(pool=mock_pool)
+        finder = Finder(brotr=mock_brotr)
 
-        assert finder._pool is mock_pool
+        assert finder._brotr is mock_brotr
+        assert finder._pool is mock_brotr.pool
         assert finder.SERVICE_NAME == "finder"
         assert finder.config.event_scan.enabled is True
 
-    def test_init_with_custom_config(
-        self, mock_pool: MagicMock, mock_brotr: MagicMock
-    ) -> None:
+    def test_init_with_custom_config(self, mock_brotr: MagicMock) -> None:
         """Test initialization with custom config."""
         config = FinderConfig(
             event_scan=EventScanConfig(enabled=False),
             api=ApiConfig(enabled=False),
         )
-        finder = Finder(pool=mock_pool, brotr=mock_brotr, config=config)
+        finder = Finder(brotr=mock_brotr, config=config)
 
         assert finder.config.event_scan.enabled is False
         assert finder.config.api.enabled is False
 
     @pytest.mark.asyncio
-    async def test_health_check_connected(self, mock_pool: MagicMock) -> None:
+    async def test_health_check_connected(self, mock_brotr: MagicMock) -> None:
         """Test health check when connected."""
-        mock_pool.fetchval = AsyncMock(return_value=1)
+        mock_brotr.pool.fetchval = AsyncMock(return_value=1)
 
-        finder = Finder(pool=mock_pool)
+        finder = Finder(brotr=mock_brotr)
         result = await finder.health_check()
 
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_health_check_disconnected(self, mock_pool: MagicMock) -> None:
+    async def test_health_check_disconnected(self, mock_brotr: MagicMock) -> None:
         """Test health check when disconnected."""
-        mock_pool.fetchval = AsyncMock(side_effect=Exception("Connection error"))
+        mock_brotr.pool.fetchval = AsyncMock(side_effect=Exception("Connection error"))
 
-        finder = Finder(pool=mock_pool)
+        finder = Finder(brotr=mock_brotr)
         result = await finder.health_check()
 
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_run_without_initializer(
-        self, mock_pool: MagicMock, mock_brotr: MagicMock
-    ) -> None:
+    async def test_run_without_initializer(self, mock_brotr: MagicMock) -> None:
         """Test run fails if initializer not completed."""
         # Mock no initializer state found
-        mock_pool.fetchrow = AsyncMock(return_value=None)
+        mock_brotr.pool.fetchrow = AsyncMock(return_value=None)
 
         config = FinderConfig(
             event_scan=EventScanConfig(enabled=False),
             api=ApiConfig(enabled=False),
         )
-        finder = Finder(pool=mock_pool, brotr=mock_brotr, config=config)
+        finder = Finder(brotr=mock_brotr, config=config)
         result = await finder.run()
 
         assert result.success is False
         assert "Initializer" in result.message
 
     @pytest.mark.asyncio
-    async def test_run_with_api_disabled(
-        self, mock_pool: MagicMock, mock_brotr: MagicMock
-    ) -> None:
+    async def test_run_with_api_disabled(self, mock_brotr: MagicMock) -> None:
         """Test run with only event scanning disabled and API disabled."""
         # Mock initializer state
-        mock_pool.fetchrow = AsyncMock(
+        mock_brotr.pool.fetchrow = AsyncMock(
             return_value={"state": {"initialized": True}}
         )
-        mock_pool.fetch = AsyncMock(return_value=[])
+        mock_brotr.pool.fetch = AsyncMock(return_value=[])
 
         config = FinderConfig(
             event_scan=EventScanConfig(enabled=False),
             api=ApiConfig(enabled=False),
         )
-        finder = Finder(pool=mock_pool, brotr=mock_brotr, config=config)
+        finder = Finder(brotr=mock_brotr, config=config)
         result = await finder.run()
 
         assert result.success is True
@@ -219,7 +214,7 @@ class TestFinder:
 
     @pytest.mark.asyncio
     async def test_fetch_from_apis_all_sources_disabled(
-        self, mock_pool: MagicMock, mock_brotr: MagicMock
+        self, mock_brotr: MagicMock
     ) -> None:
         """Test fetch when all sources are disabled."""
         config = FinderConfig(
@@ -230,7 +225,7 @@ class TestFinder:
                 ],
             )
         )
-        finder = Finder(pool=mock_pool, brotr=mock_brotr, config=config)
+        finder = Finder(brotr=mock_brotr, config=config)
 
         # No sources should be checked when all disabled
         result = await finder._fetch_from_apis()
@@ -240,7 +235,7 @@ class TestFinder:
 class TestFinderFactoryMethods:
     """Tests for Finder factory methods."""
 
-    def test_from_dict(self, mock_pool: MagicMock, mock_brotr: MagicMock) -> None:
+    def test_from_dict(self, mock_brotr: MagicMock) -> None:
         """Test creation from dictionary."""
         data = {
             "event_scan": {"enabled": False},
@@ -248,7 +243,7 @@ class TestFinderFactoryMethods:
             "discovery_interval": 7200.0,
         }
 
-        finder = Finder.from_dict(data, pool=mock_pool, brotr=mock_brotr)
+        finder = Finder.from_dict(data, brotr=mock_brotr)
 
         assert finder.config.event_scan.enabled is False
         assert finder.config.api.enabled is False

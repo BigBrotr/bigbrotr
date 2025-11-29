@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.brotr import Brotr
 from core.pool import Pool
 from core.base_service import Outcome, Step
 from services.initializer import (
@@ -40,6 +41,15 @@ def mock_pool() -> MagicMock:
     pool.transaction = MagicMock(return_value=mock_transaction)
 
     return pool
+
+
+@pytest.fixture
+def mock_brotr(mock_pool: MagicMock) -> MagicMock:
+    """Create a mock Brotr."""
+    brotr = MagicMock(spec=Brotr)
+    brotr.pool = mock_pool
+    brotr.insert_relays = AsyncMock(return_value=True)
+    return brotr
 
 
 class TestInitializerConfig:
@@ -121,91 +131,92 @@ class TestInitializerState:
 class TestInitializer:
     """Tests for Initializer service."""
 
-    def test_init_with_defaults(self, mock_pool: MagicMock) -> None:
+    def test_init_with_defaults(self, mock_brotr: MagicMock) -> None:
         """Test initialization with defaults."""
-        initializer = Initializer(pool=mock_pool)
+        initializer = Initializer(brotr=mock_brotr)
 
-        assert initializer._pool is mock_pool
+        assert initializer._brotr is mock_brotr
+        assert initializer._pool is mock_brotr.pool
         assert initializer.SERVICE_NAME == "initializer"
         assert initializer.config.verification.tables is True
 
-    def test_init_with_custom_config(self, mock_pool: MagicMock) -> None:
+    def test_init_with_custom_config(self, mock_brotr: MagicMock) -> None:
         """Test initialization with custom config."""
         config = InitializerConfig(
             verification=VerificationConfig(tables=False),
             seed=SeedConfig(enabled=False),
         )
-        initializer = Initializer(pool=mock_pool, config=config)
+        initializer = Initializer(brotr=mock_brotr, config=config)
 
         assert initializer.config.verification.tables is False
         assert initializer.config.seed.enabled is False
 
     @pytest.mark.asyncio
-    async def test_verify_extensions_success(self, mock_pool: MagicMock) -> None:
+    async def test_verify_extensions_success(self, mock_brotr: MagicMock) -> None:
         """Test successful extension verification."""
-        mock_pool.fetch = AsyncMock(
+        mock_brotr.pool.fetch = AsyncMock(
             return_value=[
                 {"extname": "pgcrypto"},
                 {"extname": "btree_gin"},
             ]
         )
 
-        initializer = Initializer(pool=mock_pool)
+        initializer = Initializer(brotr=mock_brotr)
         step = await initializer._verify_extensions()
 
         assert step.success is True
         assert "extensions" in step.name
 
     @pytest.mark.asyncio
-    async def test_verify_extensions_missing(self, mock_pool: MagicMock) -> None:
+    async def test_verify_extensions_missing(self, mock_brotr: MagicMock) -> None:
         """Test extension verification with missing extension."""
-        mock_pool.fetch = AsyncMock(
+        mock_brotr.pool.fetch = AsyncMock(
             return_value=[{"extname": "pgcrypto"}]  # Missing btree_gin
         )
 
-        initializer = Initializer(pool=mock_pool)
+        initializer = Initializer(brotr=mock_brotr)
         step = await initializer._verify_extensions()
 
         assert step.success is False
         assert "Missing" in step.message
 
     @pytest.mark.asyncio
-    async def test_verify_tables_success(self, mock_pool: MagicMock) -> None:
+    async def test_verify_tables_success(self, mock_brotr: MagicMock) -> None:
         """Test successful table verification."""
         expected_tables = [
             "relays", "events", "events_relays", "nip11", "nip66",
             "relay_metadata", "service_state",
         ]
-        mock_pool.fetch = AsyncMock(
+        mock_brotr.pool.fetch = AsyncMock(
             return_value=[{"table_name": t} for t in expected_tables]
         )
 
-        initializer = Initializer(pool=mock_pool)
+        initializer = Initializer(brotr=mock_brotr)
         step = await initializer._verify_tables()
 
         assert step.success is True
 
     @pytest.mark.asyncio
-    async def test_verify_procedures_success(self, mock_pool: MagicMock) -> None:
+    async def test_verify_procedures_success(self, mock_brotr: MagicMock) -> None:
         """Test successful procedure verification."""
         expected_procs = [
             "insert_event", "insert_relay", "insert_relay_metadata",
             "delete_orphan_events", "delete_orphan_nip11", "delete_orphan_nip66",
         ]
-        mock_pool.fetch = AsyncMock(
+        mock_brotr.pool.fetch = AsyncMock(
             return_value=[{"routine_name": p} for p in expected_procs]
         )
 
-        initializer = Initializer(pool=mock_pool)
+        initializer = Initializer(brotr=mock_brotr)
         step = await initializer._verify_procedures()
 
         assert step.success is True
 
     @pytest.mark.asyncio
-    async def test_run_verification_only(self, mock_pool: MagicMock) -> None:
+    async def test_run_verification_only(self, mock_brotr: MagicMock) -> None:
         """Test run with verification only (no seed)."""
         # Mock successful verification
-        mock_pool.fetch = AsyncMock(
+        mock_brotr.pool.fetch = AsyncMock(
             side_effect=[
                 [{"extname": "pgcrypto"}, {"extname": "btree_gin"}],  # Extensions
                 [{"table_name": t} for t in [
@@ -220,43 +231,43 @@ class TestInitializer:
         )
 
         config = InitializerConfig(seed=SeedConfig(enabled=False))
-        initializer = Initializer(pool=mock_pool, config=config)
+        initializer = Initializer(brotr=mock_brotr, config=config)
         result = await initializer.run()
 
         assert result.success is True
         assert len(result.steps) == 3  # Extensions, tables, procedures
 
     @pytest.mark.asyncio
-    async def test_run_with_failed_verification(self, mock_pool: MagicMock) -> None:
+    async def test_run_with_failed_verification(self, mock_brotr: MagicMock) -> None:
         """Test run with failed verification."""
         # Mock failed extension check
-        mock_pool.fetch = AsyncMock(return_value=[])
+        mock_brotr.pool.fetch = AsyncMock(return_value=[])
 
         config = InitializerConfig(
             seed=SeedConfig(enabled=False),
             verification=VerificationConfig(tables=False, procedures=False),
         )
-        initializer = Initializer(pool=mock_pool, config=config)
+        initializer = Initializer(brotr=mock_brotr, config=config)
         result = await initializer.run()
 
         assert result.success is False
         assert len(result.errors) > 0
 
-    def test_load_seed_file_not_found(self, mock_pool: MagicMock) -> None:
+    def test_load_seed_file_not_found(self, mock_brotr: MagicMock) -> None:
         """Test loading non-existent seed file."""
         config = InitializerConfig(
             seed=SeedConfig(path="nonexistent/file.txt")
         )
-        initializer = Initializer(pool=mock_pool, config=config)
+        initializer = Initializer(brotr=mock_brotr, config=config)
 
         urls = initializer._load_seed_file()
 
         assert urls == []
 
     @pytest.mark.asyncio
-    async def test_health_check(self, mock_pool: MagicMock) -> None:
+    async def test_health_check(self, mock_brotr: MagicMock) -> None:
         """Test health check returns state."""
-        initializer = Initializer(pool=mock_pool)
+        initializer = Initializer(brotr=mock_brotr)
 
         # Not initialized yet
         assert await initializer.health_check() is False
@@ -269,14 +280,14 @@ class TestInitializer:
 class TestInitializerFactoryMethods:
     """Tests for Initializer factory methods."""
 
-    def test_from_dict(self, mock_pool: MagicMock) -> None:
+    def test_from_dict(self, mock_brotr: MagicMock) -> None:
         """Test creation from dictionary."""
         data = {
             "verification": {"tables": False},
             "seed": {"enabled": False},
         }
 
-        initializer = Initializer.from_dict(data, pool=mock_pool)
+        initializer = Initializer.from_dict(data, brotr=mock_brotr)
 
         assert initializer.config.verification.tables is False
         assert initializer.config.seed.enabled is False
