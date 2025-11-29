@@ -1,32 +1,26 @@
 """
-Structured Logging Module
+Structured Logging Module for BigBrotr.
 
-This module provides structured logging capabilities for BigBrotr services.
-Uses Python's standard logging with JSON formatting for production-ready
-structured logs.
+Provides consistent JSON-formatted logging across all components.
 
 Features:
 - JSON-formatted structured logging
-- Contextual fields (service_name, service_type, etc.)
-- Request ID and trace ID support
-- Configurable log levels
-- Console and file output support
-- Integration with Service wrapper
+- Contextual fields (component, service_name)
+- Request/trace ID support for distributed tracing
+- Configurable log levels and output
 
-Example usage:
-    from core.logger import get_service_logger, configure_logging
+Usage:
+    from core.logger import get_logger, configure_logging
 
-    # Configure logging once at application startup
-    configure_logging(level="INFO", output_file="logs/app.log")
+    # Configure once at startup
+    configure_logging(level="INFO")
 
-    # Get logger for a service
-    logger = get_service_logger("database_pool", "Pool")
+    # Get logger for any component
+    logger = get_logger("pool", component="Pool")
+    logger.info("connected", host="localhost", port=5432)
 
-    # Log with structured fields
-    logger.info("service_started", elapsed_seconds=1.23, config={"max_size": 20})
-
-    # Log with additional context
-    logger.error("connection_failed", error=str(e), retry_attempt=3)
+    # Output: {"timestamp": "...", "level": "INFO", "message": "connected",
+    #          "component": "Pool", "name": "pool", "host": "localhost", "port": 5432}
 """
 
 import contextvars
@@ -37,8 +31,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-# Valid log levels for validation
-VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+# Valid log levels
+VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+
+# Context variables for distributed tracing
+request_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "request_id", default=None
+)
+trace_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "trace_id", default=None
+)
 
 
 def validate_log_level(level: str) -> str:
@@ -56,110 +58,54 @@ def validate_log_level(level: str) -> str:
     """
     level_upper = level.upper()
     if level_upper not in VALID_LOG_LEVELS:
-        raise ValueError(f"log_level must be one of {VALID_LOG_LEVELS}, got: {level}")
+        raise ValueError(f"Invalid log level: {level}. Must be one of {VALID_LOG_LEVELS}")
     return level_upper
 
 
 # ============================================================================
-# Structured Formatter
+# JSON Formatter
 # ============================================================================
 
 
-class StructuredFormatter(logging.Formatter):
+class JsonFormatter(logging.Formatter):
     """
     JSON formatter for structured logging.
 
-    Converts log records to JSON format with structured fields:
-    - timestamp: ISO 8601 timestamp
-    - level: Log level (INFO, WARNING, ERROR, etc.)
+    Converts log records to JSON format with:
+    - timestamp: ISO 8601 format
+    - level: Log level name
     - message: Log message
-    - service_name: Name of the service (if provided)
-    - service_type: Type of service (if provided)
-    - **extra: Any additional fields passed to logger
+    - name: Logger name
+    - All extra fields passed via logger methods
     """
 
-    def __init__(
-        self,
-        include_timestamp: bool = True,
-        include_level: bool = True,
-        include_logger_name: bool = False,
-        datetime_format: str = "iso",
-    ):
-        """
-        Initialize structured formatter.
-
-        Args:
-            include_timestamp: Include timestamp in output
-            include_level: Include log level in output
-            include_logger_name: Include Python logger name
-            datetime_format: 'iso' for ISO 8601, 'unix' for Unix timestamp
-        """
-        super().__init__()
-        self.include_timestamp = include_timestamp
-        self.include_level = include_level
-        self.include_logger_name = include_logger_name
-        self.datetime_format = datetime_format
-
     def format(self, record: logging.LogRecord) -> str:
-        """
-        Format log record as JSON.
+        """Format log record as JSON."""
+        log_data: dict[str, Any] = {
+            "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "name": record.name,
+        }
 
-        Args:
-            record: Log record to format
+        # Add trace context if available
+        if request_id := request_id_var.get():
+            log_data["request_id"] = request_id
+        if trace_id := trace_id_var.get():
+            log_data["trace_id"] = trace_id
 
-        Returns:
-            JSON-formatted log string
-        """
-        log_data: dict[str, Any] = {}
-
-        # Timestamp
-        if self.include_timestamp:
-            if self.datetime_format == "iso":
-                log_data["timestamp"] = datetime.fromtimestamp(record.created).isoformat()
-            else:  # unix
-                log_data["timestamp"] = record.created
-
-        # Level
-        if self.include_level:
-            log_data["level"] = record.levelname
-
-        # Logger name (optional)
-        if self.include_logger_name:
-            log_data["logger"] = record.name
-
-        # Message
-        log_data["message"] = record.getMessage()
-
-        # Add all extra fields from record
-        # These come from logger.info("msg", extra={...})
+        # Add extra fields (skip standard LogRecord attributes)
+        skip_fields = {
+            "name", "msg", "args", "created", "filename", "funcName",
+            "levelname", "levelno", "lineno", "module", "msecs", "message",
+            "pathname", "process", "processName", "relativeCreated",
+            "thread", "threadName", "exc_info", "exc_text", "stack_info", "taskName",
+        }
         for key, value in record.__dict__.items():
-            if key not in {
-                "name",
-                "msg",
-                "args",
-                "created",
-                "filename",
-                "funcName",
-                "levelname",
-                "levelno",
-                "lineno",
-                "module",
-                "msecs",
-                "message",
-                "pathname",
-                "process",
-                "processName",
-                "relativeCreated",
-                "thread",
-                "threadName",
-                "exc_info",
-                "exc_text",
-                "stack_info",
-                "taskName",
-            }:
+            if key not in skip_fields:
                 log_data[key] = value
 
-        # Exception info
+        # Add exception info if present
         if record.exc_info:
             log_data["exception"] = self.formatException(record.exc_info)
 
@@ -167,107 +113,94 @@ class StructuredFormatter(logging.Formatter):
 
 
 # ============================================================================
-# Service Logger
+# Logger Class
 # ============================================================================
 
 
-class ServiceLogger:
+class Logger:
     """
-    Structured logger for services with contextual fields.
+    Structured logger with contextual fields.
 
-    This wrapper adds service-specific context to all log messages:
-    - service_name: Name of the service instance
-    - service_type: Type/class of the service
+    Wraps Python's logging.Logger to add structured context to all messages.
 
     Example:
-        logger = ServiceLogger("database_pool", "Pool")
-        logger.info("connected", host="localhost", port=5432)
-        # Output: {"timestamp": "...", "level": "INFO", "message": "connected",
-        #          "service_name": "database_pool", "service_type": "Pool",
-        #          "host": "localhost", "port": 5432}
+        logger = Logger("pool", component="Pool")
+        logger.info("connected", host="localhost")
+        # Logs: {"name": "pool", "component": "Pool", "message": "connected", "host": "localhost"}
     """
 
     def __init__(
         self,
-        service_name: str,
-        service_type: str,
-        logger: Optional[logging.Logger] = None,
+        name: str,
+        component: Optional[str] = None,
         extra_context: Optional[dict[str, Any]] = None,
     ):
         """
-        Initialize service logger.
+        Initialize logger.
 
         Args:
-            service_name: Name of the service instance
-            service_type: Type/class of the service
-            logger: Python logger instance (creates one if None)
-            extra_context: Additional context fields to include in all logs
+            name: Logger name (typically service/module name)
+            component: Component type (e.g., "Pool", "Brotr", "Finder")
+            extra_context: Additional context fields for all log messages
         """
-        self._service_name = service_name
-        self._service_type = service_type
-        self._logger = logger or logging.getLogger(f"service.{service_name}")
+        self._name = name
+        self._component = component
+        self._logger = logging.getLogger(name)
         self._extra_context = extra_context or {}
 
     def _build_extra(self, **kwargs) -> dict[str, Any]:
-        """
-        Build extra fields for log record.
-
-        Combines service context with additional kwargs.
-        """
-        extra = {
-            "service_name": self._service_name,
-            "service_type": self._service_type,
-        }
+        """Build extra fields for log record."""
+        extra = {}
+        if self._component:
+            extra["component"] = self._component
         extra.update(self._extra_context)
         extra.update(kwargs)
         return extra
 
-    def debug(self, message: str, **kwargs):
-        """Log debug message with structured fields."""
+    def debug(self, message: str, **kwargs) -> None:
+        """Log debug message."""
         self._logger.debug(message, extra=self._build_extra(**kwargs))
 
-    def info(self, message: str, **kwargs):
-        """Log info message with structured fields."""
+    def info(self, message: str, **kwargs) -> None:
+        """Log info message."""
         self._logger.info(message, extra=self._build_extra(**kwargs))
 
-    def warning(self, message: str, **kwargs):
-        """Log warning message with structured fields."""
+    def warning(self, message: str, **kwargs) -> None:
+        """Log warning message."""
         self._logger.warning(message, extra=self._build_extra(**kwargs))
 
-    def error(self, message: str, **kwargs):
-        """Log error message with structured fields."""
+    def error(self, message: str, **kwargs) -> None:
+        """Log error message."""
         self._logger.error(message, extra=self._build_extra(**kwargs))
 
-    def critical(self, message: str, **kwargs):
-        """Log critical message with structured fields."""
+    def critical(self, message: str, **kwargs) -> None:
+        """Log critical message."""
         self._logger.critical(message, extra=self._build_extra(**kwargs))
 
-    def exception(self, message: str, **kwargs):
-        """Log exception with traceback and structured fields."""
+    def exception(self, message: str, **kwargs) -> None:
+        """Log exception with traceback."""
         self._logger.exception(message, extra=self._build_extra(**kwargs))
 
-    def bind(self, **kwargs) -> "ServiceLogger":
+    def bind(self, **kwargs) -> "Logger":
         """
-        Create a new logger with additional context fields.
+        Create a new logger with additional context.
 
         Args:
             **kwargs: Additional context to bind
 
         Returns:
-            New ServiceLogger instance with updated context
-
-        Example:
-            logger = ServiceLogger("pool", "Pool")
-            request_logger = logger.bind(request_id="abc123")
-            request_logger.info("query_executed")  # Includes request_id
+            New Logger instance with updated context
         """
         new_context = {**self._extra_context, **kwargs}
-        return ServiceLogger(
-            service_name=self._service_name,
-            service_type=self._service_type,
-            logger=self._logger,
+        return Logger(
+            name=self._name,
+            component=self._component,
             extra_context=new_context,
         )
+
+    def set_level(self, level: str) -> None:
+        """Set log level for this logger."""
+        self._logger.setLevel(getattr(logging, validate_log_level(level)))
 
 
 # ============================================================================
@@ -279,45 +212,30 @@ def configure_logging(
     level: str = "INFO",
     output_file: Optional[str] = None,
     console_output: bool = True,
-    structured: bool = True,
-    datetime_format: str = "iso",
-):
+    json_format: bool = True,
+) -> None:
     """
     Configure logging for the application.
 
-    Should be called once at application startup.
+    Call once at application startup.
 
     Args:
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        output_file: Path to log file (None for no file output)
-        console_output: Enable console output
-        structured: Use structured JSON format (True) or plain text (False)
-        datetime_format: 'iso' for ISO 8601, 'unix' for Unix timestamp
-
-    Example:
-        # Development: plain text to console
-        configure_logging(level="DEBUG", structured=False)
-
-        # Production: JSON to file and console
-        configure_logging(
-            level="INFO",
-            output_file="logs/app.log",
-            console_output=True,
-            structured=True
-        )
+        output_file: Optional path to log file
+        console_output: Enable console output (default: True)
+        json_format: Use JSON format (default: True)
     """
-    # Get root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, level.upper()))
-
-    # Remove existing handlers
+    root_logger.setLevel(getattr(logging, validate_log_level(level)))
     root_logger.handlers.clear()
 
     # Create formatter
-    if structured:
-        formatter = StructuredFormatter(datetime_format=datetime_format)
+    if json_format:
+        formatter = JsonFormatter()
     else:
-        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
 
     # Console handler
     if console_output:
@@ -327,64 +245,39 @@ def configure_logging(
 
     # File handler
     if output_file:
-        # Create directory if needed
         log_path = Path(output_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
-
         file_handler = logging.FileHandler(output_file)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
 
 
-def get_service_logger(
-    service_name: str,
-    service_type: str,
-    extra_context: Optional[dict[str, Any]] = None,
-) -> ServiceLogger:
+def get_logger(
+    name: str,
+    component: Optional[str] = None,
+    **extra_context,
+) -> Logger:
     """
-    Get a structured logger for a service.
+    Get a structured logger.
 
     Args:
-        service_name: Name of the service instance
-        service_type: Type/class of the service
-        extra_context: Additional context fields
+        name: Logger name (typically service/module name)
+        component: Component type (e.g., "Pool", "Brotr")
+        **extra_context: Additional context fields
 
     Returns:
-        ServiceLogger instance
+        Logger instance
 
     Example:
-        logger = get_service_logger("database_pool", "Pool")
-        logger.info("connected", host="localhost", port=5432)
+        logger = get_logger("finder", component="Finder")
+        logger.info("discovery_started", cycle=1)
     """
-    return ServiceLogger(service_name, service_type, extra_context=extra_context)
-
-
-def get_logger(name: str) -> logging.Logger:
-    """
-    Get a standard Python logger.
-
-    Use this for non-service logging (utilities, scripts, etc.).
-
-    Args:
-        name: Logger name
-
-    Returns:
-        Python Logger instance
-    """
-    return logging.getLogger(name)
+    return Logger(name=name, component=component, extra_context=extra_context or None)
 
 
 # ============================================================================
-# Context Variables (for request/trace IDs)
+# Trace Context Functions
 # ============================================================================
-
-# Context variables for distributed tracing
-request_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
-    "request_id", default=None
-)
-trace_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
-    "trace_id", default=None
-)
 
 
 def set_request_id(request_id: str) -> None:
@@ -407,14 +300,33 @@ def get_trace_id() -> Optional[str]:
     return trace_id_var.get()
 
 
-def get_trace_context() -> dict[str, Optional[str]]:
-    """
-    Get current trace context.
+def clear_trace_context() -> None:
+    """Clear all trace context variables."""
+    request_id_var.set(None)
+    trace_id_var.set(None)
 
-    Returns:
-        Dictionary with request_id and trace_id
+
+# ============================================================================
+# Backwards Compatibility (deprecated, will be removed)
+# ============================================================================
+
+
+def get_service_logger(
+    service_name: str,
+    service_type: str,
+    extra_context: Optional[dict[str, Any]] = None,
+) -> Logger:
     """
-    return {
-        "request_id": get_request_id(),
-        "trace_id": get_trace_id(),
-    }
+    DEPRECATED: Use get_logger() instead.
+
+    This function is kept for backwards compatibility during migration.
+    """
+    return Logger(
+        name=service_name,
+        component=service_type,
+        extra_context=extra_context,
+    )
+
+
+# Alias for backwards compatibility
+ServiceLogger = Logger
