@@ -1,21 +1,22 @@
 # ============================================================================
-# Brotr - Unified Configuration
+# Brotr Configuration
 # ============================================================================
-# Description: Complete configuration for Brotr database interface
+# Description: Configuration for Brotr database interface via PGBouncer
 # Used by: src/core/brotr.py (Brotr class)
 # ============================================================================
 
 # Connection pool configuration
 pool:
-  # Database connection parameters
+  # Database connection parameters - connects to PGBouncer
   database:
-    host: localhost
-    port: 5432
-    database: brotr
+    host: pgbouncer
+    port: 6432
+    database: bigbrotr
     user: admin
     # password: loaded from environment variable DB_PASSWORD
 
   # Connection pool size and resource limits
+  # Note: These are connections to PGBouncer, which then pools to PostgreSQL
   limits:
     min_size: 5              # Minimum number of connections in the pool
     max_size: 20             # Maximum number of connections in the pool
@@ -25,6 +26,7 @@ pool:
   # Pool-level timeouts
   timeouts:
     acquisition: 10.0        # Timeout for acquiring connection from pool (seconds)
+    health_check: 5.0        # Timeout for connection health check (seconds)
 
   # Retry logic for connection failures
   retry:
@@ -32,6 +34,11 @@ pool:
     initial_delay: 1.0       # Initial delay between retries (seconds)
     max_delay: 10.0          # Maximum delay between retries (seconds)
     exponential_backoff: true # Use exponential backoff for retries
+
+  # PostgreSQL server settings
+  server_settings:
+    application_name: bigbrotr  # Application name for PostgreSQL connection
+    timezone: UTC               # Timezone for PostgreSQL connection
 
 # Batch operation settings
 batch:

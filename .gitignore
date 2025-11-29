@@ -76,6 +76,9 @@ docker-compose.override.yml
 *.sql.gz
 *.dump
 
+# PostgreSQL data directory (Docker bind mount)
+implementations/bigbrotr/data/postgres/
+
 # Temporary files
 tmp/
 temp/

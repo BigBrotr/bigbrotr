@@ -2,7 +2,7 @@
 # BigBrotr Docker Compose Configuration
 # ============================================================================
 # Description: Complete containerized deployment for BigBrotr
-# Components: PostgreSQL, PGBouncer (optional), Tor (optional)
+# Components: PostgreSQL, PGBouncer, Tor (optional)
 # Usage: docker-compose up -d
 # ============================================================================
 
@@ -18,23 +18,16 @@ services:
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: brotr
+      POSTGRES_DB: bigbrotr
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
       PGDATA: /var/lib/postgresql/data/pgdata
 
     volumes:
-      # Persistent data storage
-      - postgres_data:/var/lib/postgresql/data
+      # Persistent data storage (local bind mount for development visibility)
+      - ./data/postgres:/var/lib/postgresql/data
 
-      # SQL initialization scripts (applied in alphabetical order)
-      - ./postgres/init/00_extensions.sql:/docker-entrypoint-initdb.d/00_extensions.sql:ro
-      - ./postgres/init/01_utility_functions.sql:/docker-entrypoint-initdb.d/01_utility_functions.sql:ro
-      - ./postgres/init/02_tables.sql:/docker-entrypoint-initdb.d/02_tables.sql:ro
-      - ./postgres/init/03_indexes.sql:/docker-entrypoint-initdb.d/03_indexes.sql:ro
-      - ./postgres/init/04_integrity_functions.sql:/docker-entrypoint-initdb.d/04_integrity_functions.sql:ro
-      - ./postgres/init/05_procedures.sql:/docker-entrypoint-initdb.d/05_procedures.sql:ro
-      - ./postgres/init/06_views.sql:/docker-entrypoint-initdb.d/06_views.sql:ro
-      - ./postgres/init/99_verify.sql:/docker-entrypoint-initdb.d/99_verify.sql:ro
+      # SQL initialization scripts (applied in alphabetical order by filename)
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
 
       # PostgreSQL configuration file
       - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
@@ -65,36 +58,35 @@ services:
     command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
 
   # --------------------------------------------------------------------------
-  # PGBouncer (Connection Pooler) - OPTIONAL
+  # PGBouncer (Connection Pooler)
   # --------------------------------------------------------------------------
-  # Enable for high-concurrency scenarios (API with many users, heavy writes)
   # Services connect to pgbouncer:6432 instead of postgres:5432
   # Requires: yaml/core/brotr.pgbouncer.yaml configuration
 
-  # pgbouncer:
-  #   image: edoburu/pgbouncer:1.21.0
-  #   container_name: bigbrotr-pgbouncer
-  #   restart: unless-stopped
-  #
-  #   volumes:
-  #     - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
-  #     - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
-  #
-  #   ports:
-  #     - "6432:6432"
-  #
-  #   networks:
-  #     - bigbrotr-network
-  #
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 -U admin"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 3
+  pgbouncer:
+    image: edoburu/pgbouncer:1.21.0
+    container_name: bigbrotr-pgbouncer
+    restart: unless-stopped
+
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+
+    ports:
+      - "6432:6432"
+
+    networks:
+      - bigbrotr-network
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 -U admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   # --------------------------------------------------------------------------
   # Tor Proxy (SOCKS5) - OPTIONAL
@@ -136,16 +128,16 @@ services:
 
     volumes:
       - ./yaml:/app/yaml:ro
-      - ./data:/app/data:ro
+      - ./data/seed_relays.txt:/app/data/seed_relays.txt:ro
 
     networks:
       - bigbrotr-network
 
     depends_on:
-      postgres:
+      pgbouncer:
         condition: service_healthy
 
-    command: ["python", "-m", "services", "initializer", "--docker"]
+    command: ["python", "-m", "services", "initializer"]
 
   # --------------------------------------------------------------------------
   # BigBrotr Finder Service
@@ -169,12 +161,12 @@ services:
       - bigbrotr-network
 
     depends_on:
-      postgres:
+      pgbouncer:
         condition: service_healthy
       initializer:
         condition: service_completed_successfully
 
-    command: ["python", "-m", "services", "finder", "--docker"]
+    command: ["python", "-m", "services", "finder"]
 
     deploy:
       resources:
@@ -206,12 +198,12 @@ services:
   #     - bigbrotr-network
   #
   #   depends_on:
-  #     postgres:
+  #     pgbouncer:
   #       condition: service_healthy
   #     initializer:
   #       condition: service_completed_successfully
   #
-  #   command: ["python", "-m", "services", "monitor", "--docker"]
+  #   command: ["python", "-m", "services", "monitor"]
 
   # --------------------------------------------------------------------------
   # BigBrotr Synchronizer Service (PENDING)
@@ -234,12 +226,12 @@ services:
   #     - bigbrotr-network
   #
   #   depends_on:
-  #     postgres:
+  #     pgbouncer:
   #       condition: service_healthy
   #     initializer:
   #       condition: service_completed_successfully
   #
-  #   command: ["python", "-m", "services", "synchronizer", "--docker"]
+  #   command: ["python", "-m", "services", "synchronizer"]
   #
   #   deploy:
   #     resources:
@@ -258,40 +250,28 @@ networks:
     driver: bridge
     name: bigbrotr-network
 
-# ----------------------------------------------------------------------------
-# Volumes
-# ----------------------------------------------------------------------------
-volumes:
-  postgres_data:
-    driver: local
-    name: bigbrotr-postgres-data
-
 # ============================================================================
 # USAGE
 # ============================================================================
 #
 # 1. Setup:
 #    cp .env.example .env && nano .env  # Set DB_PASSWORD
+#    cp pgbouncer/userlist.txt.template pgbouncer/userlist.txt
+#    # Edit userlist.txt with MD5 hash: echo -n "md5$(echo -n 'YOUR_PASSWORDadmin' | md5sum | cut -d' ' -f1)"
 #
 # 2. Start:
 #    docker-compose up -d
 #
-# 3. With PGBouncer (high concurrency):
-#    - Uncomment pgbouncer service above
-#    - Copy pgbouncer/userlist.txt.template to pgbouncer/userlist.txt
-#    - Generate MD5 hash: echo -n "md5$(echo -n 'YOUR_PASSWORDadmin' | md5sum | cut -d' ' -f1)"
-#    - Use yaml/core/brotr.pgbouncer.yaml (connects to pgbouncer:6432)
-#
-# 4. Verify:
+# 3. Verify:
 #    docker-compose exec postgres psql -U admin -d brotr -c "\dt"
 #
-# 5. Logs:
+# 4. Logs:
 #    docker-compose logs -f
 #
-# 6. Stop:
+# 5. Stop:
 #    docker-compose down
 #
-# 7. Reset (WARNING: deletes data):
-#    docker-compose down -v
+# 6. Reset (WARNING: deletes data):
+#    docker-compose down && rm -rf data/postgres
 #
 # ============================================================================

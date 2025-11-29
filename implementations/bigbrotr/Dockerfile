@@ -14,6 +14,8 @@ WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
+    pkg-config \
+    libsecp256k1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install dependencies
@@ -34,18 +36,28 @@ RUN groupadd --gid 1000 bigbrotr && \
 
 WORKDIR /app
 
-# Install runtime dependencies only
+# Install runtime and build dependencies for secp256k1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
+    libsecp256k1-dev \
+    pkg-config \
+    gcc \
+    make \
+    automake \
+    libtool \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy wheels from builder and install
 COPY --from=builder /build/wheels /wheels
 RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
 
-# Copy application source
-COPY src/ /app/src/
-COPY implementations/bigbrotr/yaml/ /app/yaml/
+# Remove build dependencies to reduce image size (keep libsecp256k1 runtime)
+RUN apt-get purge -y --auto-remove gcc pkg-config make automake libtool && \
+    apt-get clean
+
+# Copy application source and set ownership
+COPY --chown=bigbrotr:bigbrotr src/ /app/src/
+COPY --chown=bigbrotr:bigbrotr implementations/bigbrotr/yaml/ /app/yaml/
 
 # Set Python path
 ENV PYTHONPATH=/app/src
