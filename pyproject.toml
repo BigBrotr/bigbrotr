@@ -28,7 +28,6 @@ classifiers = [
 ]
 
 dependencies = [
-    "aiofiles>=25.1.0",
     "aiohttp>=3.13.2",
     "aiohttp-socks>=0.10.1",
     "asyncpg>=0.30.0",
@@ -154,10 +153,12 @@ select = [
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
+    "PLR0911", # too many return statements (acceptable for complex logic)
     "PLR0913", # too many arguments
     "PLR2004", # magic value comparison
     "ARG001", # unused function argument (common in protocols)
     "ARG002", # unused method argument
+    "SIM105", # contextlib.suppress doesn't work with async/await
 ]
 
 [tool.ruff.lint.per-file-ignores]

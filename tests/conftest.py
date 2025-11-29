@@ -12,11 +12,10 @@ import pytest
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from core.pool import ConnectionPool
 from core.brotr import Brotr
-from core.service import Service, ServiceConfig
 from core.logger import configure_logging
-
+from core.pool import Pool
+from core.service import ServiceConfig
 
 # ============================================================================
 # Logging Configuration
@@ -64,17 +63,22 @@ def mock_asyncpg_pool() -> MagicMock:
 
 
 @pytest.fixture
-def mock_connection_pool(mock_asyncpg_pool: MagicMock) -> ConnectionPool:
-    """Create a ConnectionPool with mocked internals."""
+def mock_connection_pool(mock_asyncpg_pool: MagicMock) -> Pool:
+    """Create a Pool with mocked internals."""
+    from core.pool import DatabaseConfig, PoolConfig
+
     # Set environment variable for password
     os.environ.setdefault("DB_PASSWORD", "test_password")
 
-    pool = ConnectionPool(
-        host="localhost",
-        port=5432,
-        database="test_db",
-        user="test_user",
+    config = PoolConfig(
+        database=DatabaseConfig(
+            host="localhost",
+            port=5432,
+            database="test_db",
+            user="test_user",
+        )
     )
+    pool = Pool(config=config)
     # Inject mock pool
     pool._pool = mock_asyncpg_pool
     pool._is_connected = True
@@ -82,7 +86,7 @@ def mock_connection_pool(mock_asyncpg_pool: MagicMock) -> ConnectionPool:
 
 
 @pytest.fixture
-def mock_brotr(mock_connection_pool: ConnectionPool) -> Brotr:
+def mock_brotr(mock_connection_pool: Pool) -> Brotr:
     """Create a Brotr instance with mocked pool."""
     return Brotr(pool=mock_connection_pool)
 

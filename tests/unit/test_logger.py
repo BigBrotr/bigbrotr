@@ -4,21 +4,18 @@ Unit tests for Logger module.
 
 import json
 import logging
-from io import StringIO
-
-import pytest
 
 from core.logger import (
-    StructuredFormatter,
     ServiceLogger,
+    StructuredFormatter,
     configure_logging,
-    get_service_logger,
     get_logger,
-    set_request_id,
     get_request_id,
-    set_trace_id,
-    get_trace_id,
+    get_service_logger,
     get_trace_context,
+    get_trace_id,
+    set_request_id,
+    set_trace_id,
 )
 
 

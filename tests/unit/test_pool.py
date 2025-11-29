@@ -1,5 +1,5 @@
 """
-Unit tests for ConnectionPool.
+Unit tests for Pool.
 """
 
 import os
@@ -9,11 +9,10 @@ import pytest
 from pydantic import ValidationError
 
 from core.pool import (
-    ConnectionPool,
-    ConnectionPoolConfig,
     DatabaseConfig,
+    Pool,
+    PoolConfig,
     PoolLimitsConfig,
-    PoolTimeoutsConfig,
     RetryConfig,
 )
 
@@ -125,29 +124,31 @@ class TestRetryConfig:
             RetryConfig(initial_delay=5.0, max_delay=2.0)
 
 
-class TestConnectionPool:
-    """Tests for ConnectionPool class."""
+class TestPool:
+    """Tests for Pool class."""
 
     def test_init_with_defaults(self) -> None:
         """Test initialization with default values."""
         os.environ["DB_PASSWORD"] = "test_pass"
-        pool = ConnectionPool()
+        pool = Pool()
 
         assert pool.config.database.host == "localhost"
         assert pool.config.database.port == 5432
         assert pool.is_connected is False
 
-    def test_init_with_custom_params(self) -> None:
-        """Test initialization with custom parameters."""
-        pool = ConnectionPool(
-            host="custom.host",
-            port=5433,
-            database="custom_db",
-            user="custom_user",
-            password="custom_pass",
-            min_size=10,
-            max_size=50,
+    def test_init_with_custom_config(self) -> None:
+        """Test initialization with custom config."""
+        config = PoolConfig(
+            database=DatabaseConfig(
+                host="custom.host",
+                port=5433,
+                database="custom_db",
+                user="custom_user",
+                password="custom_pass",
+            ),
+            limits=PoolLimitsConfig(min_size=10, max_size=50),
         )
+        pool = Pool(config=config)
 
         assert pool.config.database.host == "custom.host"
         assert pool.config.database.port == 5433
@@ -157,7 +158,7 @@ class TestConnectionPool:
     def test_from_dict(self, pool_config: dict) -> None:
         """Test creation from dictionary."""
         pool_config["database"]["password"] = "dict_pass"
-        pool = ConnectionPool.from_dict(pool_config)
+        pool = Pool.from_dict(pool_config)
 
         assert pool.config.database.host == "localhost"
         assert pool.config.limits.min_size == 2
@@ -166,60 +167,60 @@ class TestConnectionPool:
     def test_acquire_not_connected_raises(self) -> None:
         """Test acquire raises when not connected."""
         os.environ["DB_PASSWORD"] = "test_pass"
-        pool = ConnectionPool()
+        pool = Pool()
 
         with pytest.raises(RuntimeError) as exc_info:
             pool.acquire()
         assert "not connected" in str(exc_info.value)
 
-    def test_acquire_connected(self, mock_connection_pool: ConnectionPool) -> None:
+    def test_acquire_connected(self, mock_connection_pool: Pool) -> None:
         """Test acquire returns context manager when connected."""
         ctx = mock_connection_pool.acquire()
         assert ctx is not None
 
     @pytest.mark.asyncio
-    async def test_fetch(self, mock_connection_pool: ConnectionPool) -> None:
+    async def test_fetch(self, mock_connection_pool: Pool) -> None:
         """Test fetch method."""
         result = await mock_connection_pool.fetch("SELECT 1")
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_fetchval(self, mock_connection_pool: ConnectionPool) -> None:
+    async def test_fetchval(self, mock_connection_pool: Pool) -> None:
         """Test fetchval method."""
         result = await mock_connection_pool.fetchval("SELECT 1")
         assert result == 1
 
     @pytest.mark.asyncio
-    async def test_execute(self, mock_connection_pool: ConnectionPool) -> None:
+    async def test_execute(self, mock_connection_pool: Pool) -> None:
         """Test execute method."""
         result = await mock_connection_pool.execute("INSERT INTO test VALUES (1)")
         assert result == "OK"
 
     @pytest.mark.asyncio
-    async def test_close(self, mock_connection_pool: ConnectionPool) -> None:
+    async def test_close(self, mock_connection_pool: Pool) -> None:
         """Test close method."""
         await mock_connection_pool.close()
 
         assert mock_connection_pool.is_connected is False
         assert mock_connection_pool._pool is None
 
-    def test_repr(self, mock_connection_pool: ConnectionPool) -> None:
+    def test_repr(self, mock_connection_pool: Pool) -> None:
         """Test string representation."""
         repr_str = repr(mock_connection_pool)
 
-        assert "ConnectionPool" in repr_str
+        assert "Pool" in repr_str
         assert "localhost" in repr_str
         assert "connected=True" in repr_str
 
 
-class TestConnectionPoolConnect:
-    """Tests for ConnectionPool.connect() method."""
+class TestPoolConnect:
+    """Tests for Pool.connect() method."""
 
     @pytest.mark.asyncio
     async def test_connect_success(self) -> None:
         """Test successful connection."""
         os.environ["DB_PASSWORD"] = "test_pass"
-        pool = ConnectionPool()
+        pool = Pool()
 
         with patch("asyncpg.create_pool", new_callable=AsyncMock) as mock_create:
             mock_pool = MagicMock()
@@ -232,7 +233,7 @@ class TestConnectionPoolConnect:
 
     @pytest.mark.asyncio
     async def test_connect_already_connected(
-        self, mock_connection_pool: ConnectionPool
+        self, mock_connection_pool: Pool
     ) -> None:
         """Test connect when already connected is idempotent."""
         # Already connected, should not reconnect
@@ -244,11 +245,10 @@ class TestConnectionPoolConnect:
     async def test_connect_retry_on_failure(self) -> None:
         """Test connection retry logic."""
         os.environ["DB_PASSWORD"] = "test_pass"
-        pool = ConnectionPool(
-            max_attempts=3,
-            initial_delay=0.1,
-            max_delay=0.5,
+        config = PoolConfig(
+            retry=RetryConfig(max_attempts=3, initial_delay=0.1, max_delay=0.5),
         )
+        pool = Pool(config=config)
 
         call_count = 0
 
@@ -269,11 +269,10 @@ class TestConnectionPoolConnect:
     async def test_connect_max_retries_exceeded(self) -> None:
         """Test connection failure after max retries."""
         os.environ["DB_PASSWORD"] = "test_pass"
-        pool = ConnectionPool(
-            max_attempts=2,
-            initial_delay=0.1,
-            max_delay=0.2,
+        config = PoolConfig(
+            retry=RetryConfig(max_attempts=2, initial_delay=0.1, max_delay=0.2),
         )
+        pool = Pool(config=config)
 
         with patch(
             "asyncpg.create_pool",
@@ -287,14 +286,14 @@ class TestConnectionPoolConnect:
             assert pool.is_connected is False
 
 
-class TestConnectionPoolContextManager:
-    """Tests for ConnectionPool async context manager."""
+class TestPoolContextManager:
+    """Tests for Pool async context manager."""
 
     @pytest.mark.asyncio
     async def test_context_manager(self) -> None:
         """Test async context manager."""
         os.environ["DB_PASSWORD"] = "test_pass"
-        pool = ConnectionPool()
+        pool = Pool()
 
         mock_pool = MagicMock()
         mock_pool.close = AsyncMock()
@@ -308,13 +307,13 @@ class TestConnectionPoolContextManager:
 
 
 class TestAcquireHealthy:
-    """Tests for ConnectionPool.acquire_healthy() method."""
+    """Tests for Pool.acquire_healthy() method."""
 
     @pytest.mark.asyncio
     async def test_acquire_healthy_not_connected(self) -> None:
         """Test acquire_healthy raises when not connected."""
         os.environ["DB_PASSWORD"] = "test_pass"
-        pool = ConnectionPool()
+        pool = Pool()
 
         with pytest.raises(RuntimeError) as exc_info:
             async with pool.acquire_healthy():
@@ -325,7 +324,7 @@ class TestAcquireHealthy:
     async def test_acquire_healthy_success(self) -> None:
         """Test acquire_healthy returns healthy connection."""
         os.environ["DB_PASSWORD"] = "test_pass"
-        pool = ConnectionPool()
+        pool = Pool()
 
         # Create mock pool and connection
         mock_conn = MagicMock()
@@ -350,7 +349,7 @@ class TestAcquireHealthy:
         import asyncpg
 
         os.environ["DB_PASSWORD"] = "test_pass"
-        pool = ConnectionPool()
+        pool = Pool()
 
         # Create unhealthy then healthy connections
         unhealthy_conn = MagicMock()
@@ -380,7 +379,7 @@ class TestAcquireHealthy:
         import asyncpg
 
         os.environ["DB_PASSWORD"] = "test_pass"
-        pool = ConnectionPool()
+        pool = Pool()
 
         # All connections fail health check
         mock_conn = MagicMock()

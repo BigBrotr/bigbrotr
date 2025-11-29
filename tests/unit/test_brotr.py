@@ -3,19 +3,18 @@ Unit tests for Brotr database interface.
 """
 
 import os
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import ValidationError
 
 from core.brotr import (
+    BatchConfig,
     Brotr,
     BrotrConfig,
-    BatchConfig,
-    StoredProceduresConfig,
     OperationTimeoutsConfig,
+    StoredProceduresConfig,
 )
-from core.pool import ConnectionPool
+from core.pool import Pool
 
 
 class TestBatchConfig:
@@ -104,23 +103,27 @@ class TestBrotr:
         assert brotr.pool.is_connected is False
 
     def test_init_with_injected_pool(
-        self, mock_connection_pool: ConnectionPool
+        self, mock_connection_pool: Pool
     ) -> None:
         """Test initialization with injected pool."""
-        brotr = Brotr(pool=mock_connection_pool, max_batch_size=5000)
+        config = BrotrConfig(batch=BatchConfig(max_batch_size=5000))
+        brotr = Brotr(pool=mock_connection_pool, config=config)
 
         assert brotr.pool is mock_connection_pool
         assert brotr.config.batch.max_batch_size == 5000
 
-    def test_init_with_custom_params(self) -> None:
-        """Test initialization with custom parameters."""
+    def test_init_with_custom_config(self) -> None:
+        """Test initialization with custom configuration."""
         os.environ["DB_PASSWORD"] = "test_pass"
-        brotr = Brotr(
-            max_batch_size=2000,
-            query_timeout=45.0,
-            procedure_timeout=60.0,
-            batch_timeout=90.0,
+        config = BrotrConfig(
+            batch=BatchConfig(max_batch_size=2000),
+            timeouts=OperationTimeoutsConfig(
+                query=45.0,
+                procedure=60.0,
+                batch=90.0,
+            ),
         )
+        brotr = Brotr(config=config)
 
         assert brotr.config.batch.max_batch_size == 2000
         assert brotr.config.timeouts.query == 45.0
@@ -197,7 +200,8 @@ class TestBrotrInsertEvents:
     ) -> None:
         """Test insert fails when batch size exceeded."""
         os.environ["DB_PASSWORD"] = "test_pass"
-        brotr = Brotr(max_batch_size=5)
+        config = BrotrConfig(batch=BatchConfig(max_batch_size=5))
+        brotr = Brotr(config=config)
 
         events = [sample_event.copy() for _ in range(10)]
 

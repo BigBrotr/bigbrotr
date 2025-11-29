@@ -2,20 +2,19 @@
 Unit tests for Service wrapper.
 """
 
-import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from core.service import (
+    CircuitBreakerConfig,
+    CircuitBreakerState,
+    HealthCheckConfig,
+    LoggingConfig,
     Service,
     ServiceConfig,
     ServiceStats,
-    CircuitBreakerState,
-    LoggingConfig,
-    HealthCheckConfig,
-    CircuitBreakerConfig,
 )
 
 
