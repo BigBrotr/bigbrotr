@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from core.brotr import Brotr
 from core.logger import configure_logging
 from core.pool import Pool
-from core.service import ServiceConfig
+
 
 # ============================================================================
 # Logging Configuration
@@ -25,7 +25,7 @@ from core.service import ServiceConfig
 @pytest.fixture(scope="session", autouse=True)
 def setup_logging() -> None:
     """Configure logging for tests."""
-    configure_logging(level="DEBUG", console_output=True, structured=False)
+    configure_logging(level="DEBUG", console_output=True, json_format=False)
 
 
 # ============================================================================
@@ -149,22 +149,6 @@ def brotr_config() -> dict:
             "batch": 90.0,
         },
     }
-
-
-@pytest.fixture
-def service_config() -> ServiceConfig:
-    """Sample service configuration."""
-    return ServiceConfig(
-        logging={"enable_logging": True, "log_level": "DEBUG"},
-        health_check={
-            "enable_health_checks": True,
-            "health_check_interval": 1.0,
-            "health_check_timeout": 1.0,
-        },
-        warmup={"enable_warmup": False},
-        circuit_breaker={"enable_circuit_breaker": False},
-        metrics={"enable_stats": True, "enable_prometheus_metrics": False},
-    )
 
 
 # ============================================================================
