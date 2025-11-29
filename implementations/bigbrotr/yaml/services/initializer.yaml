@@ -8,9 +8,8 @@
 
 # Database operations
 database:
-  verify_schema: true           # Verify database schema on startup
+  verify_tables: true           # Verify database tables exist
   verify_procedures: true       # Verify stored procedures exist
-  verify_indexes: true          # Verify indexes exist
   verify_extensions: true       # Verify PostgreSQL extensions
 
 # Schema files to verify (relative to implementations/bigbrotr/)
@@ -41,6 +40,7 @@ expected_tables:
   - nip11
   - nip66
   - relay_metadata
+  - service_state
 
 # Expected extensions (for verification)
 expected_extensions:
@@ -48,23 +48,12 @@ expected_extensions:
   - btree_gin  # For GIN indexes on tagvalues array
 
 # Seed data configuration
+# Note: Network type (clearnet/tor) is auto-detected from URL using nostr_tools.Relay
+# Note: Duplicate URLs are ignored by the database (ON CONFLICT DO NOTHING)
 seed_data:
-  enabled: true                 # Enable seed data loading
-  skip_if_exists: true          # Skip if relays already exist in DB
-
-  # Seed relay files (relative to implementations/bigbrotr/)
-  relay_sources:
-    - path: data/seed_relays.txt
-      description: "Main relay list from nostr.watch and nostr.info"
-      network: clearnet
-
-    # Uncomment to add Tor relays
-    # - path: data/seed_relays_tor.txt
-    #   description: "Tor onion relays"
-    #   network: tor
-
-  # Batch settings for seed data insertion
-  batch_size: 100               # Insert relays in batches of 100
+  enabled: true                           # Enable seed data loading
+  relay_file: data/seed_relays.txt        # Path to relay file (relative to implementations/bigbrotr/)
+  batch_size: 100                         # Insert relays in batches of 100
 
 # Logging configuration
 logging:

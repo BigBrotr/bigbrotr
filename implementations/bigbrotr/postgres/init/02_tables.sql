@@ -158,6 +158,21 @@ COMMENT ON COLUMN relay_metadata.generated_at IS 'Unix timestamp when metadata s
 COMMENT ON COLUMN relay_metadata.nip11_id IS 'Reference to nip11.id (NULL if NIP-11 unavailable)';
 COMMENT ON COLUMN relay_metadata.nip66_id IS 'Reference to nip66.id (NULL if NIP-66 test not performed)';
 
+-- Table: service_state
+-- Description: Persistent state storage for services (watermarks, checkpoints, metadata)
+-- Notes: Primary table - no dependencies. Used by services like Finder to track progress.
+-- Purpose: Enables services to resume from last processed position after restart
+CREATE TABLE IF NOT EXISTS service_state (
+    service_name    TEXT        PRIMARY KEY,
+    state           JSONB       NOT NULL DEFAULT '{}',
+    updated_at      BIGINT      NOT NULL
+);
+
+COMMENT ON TABLE service_state IS 'Persistent state storage for service watermarks and checkpoints';
+COMMENT ON COLUMN service_state.service_name IS 'Unique identifier for the service (e.g., finder, monitor)';
+COMMENT ON COLUMN service_state.state IS 'Service-specific state as JSONB (watermarks, cursors, metadata)';
+COMMENT ON COLUMN service_state.updated_at IS 'Unix timestamp when state was last updated';
+
 -- ============================================================================
 -- TABLES CREATED
 -- ============================================================================

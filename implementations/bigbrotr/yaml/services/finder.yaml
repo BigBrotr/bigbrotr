@@ -1,0 +1,41 @@
+# ============================================================================
+# Finder Service Configuration
+# ============================================================================
+# Description: Discover Nostr relay URLs from database events and external APIs
+# Used by: src/services/finder.py
+# Dependencies: Brotr (database), service_state table
+# ============================================================================
+
+# Event scanning configuration
+# Scans database events for relay URLs using nostr-tools find_ws_urls()
+# Uses atomic batch processing for crash consistency
+event_scan:
+  enabled: true                   # Enable event scanning
+  batch_size: 1000                # Events per database fetch (each batch is atomic)
+  max_events_per_cycle: 100000    # Maximum events per discovery cycle
+
+# External API configuration
+# Fetches relay lists from external services (expects JSON array of strings)
+api:
+  enabled: true                   # Enable API fetching
+  sources:
+    - url: https://api.nostr.watch/v1/online
+      enabled: true
+      timeout: 30.0
+    - url: https://api.nostr.watch/v1/offline
+      enabled: true
+      timeout: 30.0
+  request_delay: 1.0              # Delay between API requests (seconds)
+
+# Logging configuration
+logging:
+  log_progress: true              # Log discovery progress
+  log_level: INFO                 # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  progress_interval: 5000         # Log progress every N events
+
+# Timeouts
+timeouts:
+  db_query: 30.0                  # Database query timeout (seconds)
+
+# Relay insertion
+insert_batch_size: 100            # Batch size for relay inserts

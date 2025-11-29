@@ -36,8 +36,8 @@ services:
       - ./postgres/init/06_views.sql:/docker-entrypoint-initdb.d/06_views.sql:ro
       - ./postgres/init/99_verify.sql:/docker-entrypoint-initdb.d/99_verify.sql:ro
 
-      # Custom PostgreSQL configuration (optional)
-      # - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      # PostgreSQL configuration file
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
 
     ports:
       - "5432:5432"
@@ -52,7 +52,6 @@ services:
       retries: 5
       start_period: 10s
 
-    # Resource limits (adjust based on your needs)
     deploy:
       resources:
         limits:
@@ -62,62 +61,24 @@ services:
           cpus: '1.0'
           memory: 1G
 
-    # Performance tuning
-    command:
-      - "postgres"
-      - "-c"
-      - "max_connections=200"
-      - "-c"
-      - "shared_buffers=256MB"
-      - "-c"
-      - "effective_cache_size=1GB"
-      - "-c"
-      - "maintenance_work_mem=64MB"
-      - "-c"
-      - "checkpoint_completion_target=0.9"
-      - "-c"
-      - "wal_buffers=16MB"
-      - "-c"
-      - "default_statistics_target=100"
-      - "-c"
-      - "random_page_cost=1.1"
-      - "-c"
-      - "effective_io_concurrency=200"
-      - "-c"
-      - "work_mem=2621kB"
-      - "-c"
-      - "min_wal_size=1GB"
-      - "-c"
-      - "max_wal_size=4GB"
-      - "-c"
-      - "max_worker_processes=4"
-      - "-c"
-      - "max_parallel_workers_per_gather=2"
-      - "-c"
-      - "max_parallel_workers=4"
-      - "-c"
-      - "max_parallel_maintenance_workers=2"
+    # Load configuration from file
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
 
   # --------------------------------------------------------------------------
   # PGBouncer (Connection Pooler) - OPTIONAL
   # --------------------------------------------------------------------------
-  # Uncomment if you need connection pooling between application and PostgreSQL
-  # Useful for high-concurrency scenarios
+  # Enable for high-concurrency scenarios (API with many users, heavy writes)
+  # Services connect to pgbouncer:6432 instead of postgres:5432
+  # Requires: yaml/core/brotr.pgbouncer.yaml configuration
 
   # pgbouncer:
-  #   image: pgbouncer/pgbouncer:latest
+  #   image: edoburu/pgbouncer:1.21.0
   #   container_name: bigbrotr-pgbouncer
   #   restart: unless-stopped
   #
-  #   environment:
-  #     DATABASES_HOST: postgres
-  #     DATABASES_PORT: 5432
-  #     DATABASES_USER: admin
-  #     DATABASES_PASSWORD: ${DB_PASSWORD}
-  #     DATABASES_DBNAME: brotr
-  #     PGBOUNCER_POOL_MODE: transaction
-  #     PGBOUNCER_MAX_CLIENT_CONN: 1000
-  #     PGBOUNCER_DEFAULT_POOL_SIZE: 25
+  #   volumes:
+  #     - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+  #     - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
   #
   #   ports:
   #     - "6432:6432"
@@ -130,7 +91,7 @@ services:
   #       condition: service_healthy
   #
   #   healthcheck:
-  #     test: ["CMD-SHELL", "psql -h localhost -p 6432 -U admin -d brotr -c 'SELECT 1'"]
+  #     test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 -U admin"]
   #     interval: 10s
   #     timeout: 5s
   #     retries: 3
@@ -138,68 +99,108 @@ services:
   # --------------------------------------------------------------------------
   # Tor Proxy (SOCKS5) - OPTIONAL
   # --------------------------------------------------------------------------
-  # Uncomment if you need Tor support for .onion relays
+  # Enable for .onion relay support
 
   # tor:
-  #   image: goldy/tor-hidden-service:latest
+  #   image: dperson/torproxy:latest
   #   container_name: bigbrotr-tor
   #   restart: unless-stopped
   #
   #   ports:
-  #     - "9050:9050"  # SOCKS5 proxy port
-  #     - "9051:9051"  # Control port
+  #     - "9050:9050"
   #
   #   networks:
   #     - bigbrotr-network
   #
-  #   volumes:
-  #     - tor_data:/var/lib/tor
-  #
-  #   environment:
-  #     # Tor configuration
-  #     TOR_SOCKS_PORT: 9050
-  #     TOR_CONTROL_PORT: 9051
-  #
   #   healthcheck:
-  #     test: ["CMD-SHELL", "curl -x socks5h://localhost:9050 https://check.torproject.org/api/ip || exit 1"]
-  #     interval: 30s
-  #     timeout: 10s
+  #     test: ["CMD-SHELL", "curl --socks5 localhost:9050 --socks5-hostname localhost:9050 -s https://check.torproject.org/api/ip | grep -q origin"]
+  #     interval: 60s
+  #     timeout: 15s
   #     retries: 3
-  #     start_period: 15s
+  #     start_period: 30s
 
   # --------------------------------------------------------------------------
-  # BigBrotr Application (PENDING - Service Layer Not Implemented)
+  # BigBrotr Initializer Service
   # --------------------------------------------------------------------------
-  # Uncomment when service layer is implemented
+  # Runs once to verify database schema and seed initial data
 
-  # bigbrotr:
+  initializer:
+    build:
+      context: ../../
+      dockerfile: implementations/bigbrotr/Dockerfile
+    container_name: bigbrotr-initializer
+    restart: "no"
+
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+
+    volumes:
+      - ./yaml:/app/yaml:ro
+      - ./data:/app/data:ro
+
+    networks:
+      - bigbrotr-network
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    command: ["python", "-m", "services", "initializer", "--docker"]
+
+  # --------------------------------------------------------------------------
+  # BigBrotr Finder Service
+  # --------------------------------------------------------------------------
+  # Discovers relay URLs from database events and external APIs
+
+  finder:
+    build:
+      context: ../../
+      dockerfile: implementations/bigbrotr/Dockerfile
+    container_name: bigbrotr-finder
+    restart: unless-stopped
+
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+
+    volumes:
+      - ./yaml:/app/yaml:ro
+
+    networks:
+      - bigbrotr-network
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      initializer:
+        condition: service_completed_successfully
+
+    command: ["python", "-m", "services", "finder", "--docker"]
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # --------------------------------------------------------------------------
+  # BigBrotr Monitor Service (PENDING)
+  # --------------------------------------------------------------------------
+
+  # monitor:
   #   build:
   #     context: ../../
   #     dockerfile: implementations/bigbrotr/Dockerfile
-  #   container_name: bigbrotr-app
+  #   container_name: bigbrotr-monitor
   #   restart: unless-stopped
   #
   #   environment:
-  #     # Database connection
-  #     DB_HOST: postgres
-  #     DB_PORT: 5432
-  #     DB_NAME: brotr
-  #     DB_USER: admin
   #     DB_PASSWORD: ${DB_PASSWORD}
   #
-  #     # Optional: Tor proxy
-  #     # SOCKS5_PROXY_URL: socks5://tor:9050
-  #
-  #     # Application config
-  #     ENVIRONMENT: production
-  #     LOG_LEVEL: INFO
-  #
   #   volumes:
-  #     # Mount configuration files
   #     - ./yaml:/app/yaml:ro
-  #
-  #     # Mount logs directory
-  #     - ./logs:/app/logs
   #
   #   networks:
   #     - bigbrotr-network
@@ -207,8 +208,39 @@ services:
   #   depends_on:
   #     postgres:
   #       condition: service_healthy
+  #     initializer:
+  #       condition: service_completed_successfully
   #
-  #   # Resource limits
+  #   command: ["python", "-m", "services", "monitor", "--docker"]
+
+  # --------------------------------------------------------------------------
+  # BigBrotr Synchronizer Service (PENDING)
+  # --------------------------------------------------------------------------
+
+  # synchronizer:
+  #   build:
+  #     context: ../../
+  #     dockerfile: implementations/bigbrotr/Dockerfile
+  #   container_name: bigbrotr-synchronizer
+  #   restart: unless-stopped
+  #
+  #   environment:
+  #     DB_PASSWORD: ${DB_PASSWORD}
+  #
+  #   volumes:
+  #     - ./yaml:/app/yaml:ro
+  #
+  #   networks:
+  #     - bigbrotr-network
+  #
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     initializer:
+  #       condition: service_completed_successfully
+  #
+  #   command: ["python", "-m", "services", "synchronizer", "--docker"]
+  #
   #   deploy:
   #     resources:
   #       limits:
@@ -234,45 +266,32 @@ volumes:
     driver: local
     name: bigbrotr-postgres-data
 
-  # tor_data:
-  #   driver: local
-  #   name: bigbrotr-tor-data
-
 # ============================================================================
-# USAGE INSTRUCTIONS
+# USAGE
 # ============================================================================
 #
-# 1. Setup environment:
-#    cp .env.example .env
-#    nano .env  # Set DB_PASSWORD
+# 1. Setup:
+#    cp .env.example .env && nano .env  # Set DB_PASSWORD
 #
-# 2. Start services:
+# 2. Start:
 #    docker-compose up -d
 #
-# 3. Verify database initialization:
+# 3. With PGBouncer (high concurrency):
+#    - Uncomment pgbouncer service above
+#    - Copy pgbouncer/userlist.txt.template to pgbouncer/userlist.txt
+#    - Generate MD5 hash: echo -n "md5$(echo -n 'YOUR_PASSWORDadmin' | md5sum | cut -d' ' -f1)"
+#    - Use yaml/core/brotr.pgbouncer.yaml (connects to pgbouncer:6432)
+#
+# 4. Verify:
 #    docker-compose exec postgres psql -U admin -d brotr -c "\dt"
 #
-# 4. Check logs:
-#    docker-compose logs -f postgres
+# 5. Logs:
+#    docker-compose logs -f
 #
-# 5. Stop services:
+# 6. Stop:
 #    docker-compose down
 #
-# 6. Remove all data (WARNING: destructive):
+# 7. Reset (WARNING: deletes data):
 #    docker-compose down -v
-#
-# ============================================================================
-# PRODUCTION DEPLOYMENT NOTES
-# ============================================================================
-#
-# - Set strong DB_PASSWORD (12+ characters)
-# - Adjust resource limits based on expected load
-# - Enable PGBouncer for high-concurrency scenarios
-# - Use external PostgreSQL for better resilience
-# - Enable Tor only if needed for .onion relays
-# - Configure backup strategy for postgres_data volume
-# - Use Docker secrets for sensitive data in production
-# - Set up monitoring (Prometheus + Grafana)
-# - Configure log rotation for container logs
 #
 # ============================================================================
