@@ -1,101 +1,121 @@
 """
-BigBrotr Services CLI Entry Point.
-
-Allows running services via: python -m services <service_name>
+CLI Entry Point for BigBrotr Services.
 
 Usage:
-    python -m services initializer              # Local development (localhost:5432)
-    python -m services finder                   # Local development (localhost:5432)
-    python -m services initializer --docker     # Docker direct (postgres:5432)
-    python -m services finder --docker          # Docker direct (postgres:5432)
-    python -m services finder --pgbouncer       # Docker via PGBouncer (pgbouncer:6432)
+    python -m services <service_name> [options]
 
-Configuration Philosophy:
-    - ALL parameters come from YAML files (host, port, database, timeouts, etc.)
-    - ONLY DB_PASSWORD comes from environment variable (sensitive data)
-    - --docker flag: brotr.docker.yaml (host=postgres, port=5432)
-    - --pgbouncer flag: brotr.pgbouncer.yaml (host=pgbouncer, port=6432)
+Examples:
+    python -m services initializer
+    python -m services finder --config yaml/services/finder.yaml
+    python -m services finder --log-level DEBUG
+
+Configuration:
+    - Service configs: yaml/services/<service>.yaml
+    - Pool config: yaml/core/brotr.yaml
+    - Password: DB_PASSWORD environment variable
 """
 
 import argparse
 import asyncio
-import logging
+import signal
 import sys
+from pathlib import Path
 
+from core import Pool, configure_logging, get_logger
 from core.brotr import Brotr
-from core.logger import configure_logging
 
-_logger = logging.getLogger(__name__)
+from .finder import Finder
+from .initializer import Initializer
 
-# Base path for YAML configs (set by Dockerfile: /app/yaml)
+
+logger = get_logger("cli", component="ServiceRunner")
+
+# Default config paths
 YAML_BASE = "yaml"
 
 
-def get_brotr_config_path(docker: bool, pgbouncer: bool) -> str:
-    """Get Brotr configuration file path based on environment."""
-    if pgbouncer:
-        return f"{YAML_BASE}/core/brotr.pgbouncer.yaml"
-    if docker:
-        return f"{YAML_BASE}/core/brotr.docker.yaml"
+def get_pool_config_path() -> str:
+    """Get pool configuration file path."""
     return f"{YAML_BASE}/core/brotr.yaml"
 
 
 def get_service_config_path(service_name: str) -> str:
-    """Get configuration file path for a service."""
+    """Get service configuration file path."""
     return f"{YAML_BASE}/services/{service_name}.yaml"
 
 
-async def run_initializer(docker: bool, pgbouncer: bool) -> int:
-    """Run the Initializer service."""
-    from services.initializer import Initializer
+async def run_initializer(pool: Pool, config_path: str) -> int:
+    """Run initializer service (one-shot)."""
+    path = Path(config_path)
+    if path.exists():
+        initializer = Initializer.from_yaml(str(path), pool=pool)
+    else:
+        logger.warning("config_not_found", path=str(path))
+        initializer = Initializer(pool=pool)
 
-    brotr_config = get_brotr_config_path(docker, pgbouncer)
-    service_config = get_service_config_path("initializer")
+    result = await initializer.run()
 
-    # Create Brotr from YAML (password from DB_PASSWORD env)
-    brotr = Brotr.from_yaml(brotr_config)
-
-    async with brotr.pool:
-        # base_path is "." since YAML is mounted at /app/yaml
-        initializer = Initializer.from_yaml(service_config, brotr=brotr, base_path=".")
-        result = await initializer.initialize()
-
-        if result.success:
-            _logger.info("Initialization completed: %d relays seeded", result.relays_seeded)
-            return 0
-        else:
-            _logger.error("Initialization failed: %s", result.errors)
-            return 1
+    if result.success:
+        logger.info(
+            "initializer_completed",
+            relays_seeded=result.metrics.get("relays_seeded", 0),
+        )
+        return 0
+    else:
+        logger.error("initializer_failed", errors=result.errors)
+        return 1
 
 
-async def run_finder(docker: bool, pgbouncer: bool) -> int:
-    """Run the Finder service."""
-    from services.finder import Finder
+async def run_finder(pool: Pool, config_path: str) -> int:
+    """Run finder service (continuous)."""
+    brotr = Brotr(pool=pool)
 
-    brotr_config = get_brotr_config_path(docker, pgbouncer)
-    service_config = get_service_config_path("finder")
+    path = Path(config_path)
+    if path.exists():
+        finder = Finder.from_yaml(str(path), pool=pool, brotr=brotr)
+    else:
+        logger.warning("config_not_found", path=str(path))
+        finder = Finder(pool=pool, brotr=brotr)
 
-    # Create Brotr from YAML (password from DB_PASSWORD env)
-    brotr = Brotr.from_yaml(brotr_config)
+    # Setup graceful shutdown
+    shutdown_event = asyncio.Event()
 
-    async with brotr.pool:
-        finder = Finder.from_yaml(service_config, brotr=brotr)
+    def signal_handler(sig, frame):
+        logger.info("shutdown_requested", signal=sig)
+        shutdown_event.set()
 
-        # Start the finder
-        await finder.start()
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
-        # Run discovery
-        result = await finder.discover()
+    try:
+        async with finder:
+            interval = finder.config.discovery_interval
 
-        # Stop the finder
-        await finder.stop()
+            while not shutdown_event.is_set():
+                result = await finder.run()
+                logger.info(
+                    "discovery_cycle",
+                    success=result.success,
+                    relays_found=result.metrics.get("relays_found", 0),
+                    duration_s=round(result.duration_s, 2),
+                )
 
-        if result.success:
-            _logger.info("Discovery completed: %d new relays found", result.new_relays)
-            return 0
-        else:
-            _logger.error("Discovery failed: %s", result.errors)
-            return 1
+                # Wait for next cycle or shutdown
+                try:
+                    await asyncio.wait_for(
+                        shutdown_event.wait(),
+                        timeout=interval,
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    continue
+
+    except Exception as e:
+        logger.error("finder_error", error=str(e))
+        return 1
+
+    logger.info("finder_stopped")
+    return 0
 
 
 SERVICE_RUNNERS = {
@@ -104,7 +124,7 @@ SERVICE_RUNNERS = {
 }
 
 
-def main() -> int:
+async def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
         description="BigBrotr Service Runner",
@@ -115,36 +135,53 @@ def main() -> int:
         choices=list(SERVICE_RUNNERS.keys()),
         help="Service to run",
     )
-
-    # Connection mode (mutually exclusive)
-    conn_group = parser.add_mutually_exclusive_group()
-    conn_group.add_argument(
-        "--docker",
-        action="store_true",
-        help="Docker direct connection (postgres:5432)",
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to service config YAML (default: yaml/services/<service>.yaml)",
     )
-    conn_group.add_argument(
-        "--pgbouncer",
-        action="store_true",
-        help="Docker via PGBouncer (pgbouncer:6432)",
+    parser.add_argument(
+        "--pool-config",
+        type=str,
+        help="Path to pool config YAML (default: yaml/core/brotr.yaml)",
     )
-
     parser.add_argument(
         "--log-level",
         default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Log level (default: INFO)",
     )
 
     args = parser.parse_args()
 
     # Configure logging
-    configure_logging(level=args.log_level, structured=True, console_output=True)
+    configure_logging(level=args.log_level)
 
-    # Run the service with connection flags
-    runner = SERVICE_RUNNERS[args.service]
-    return asyncio.run(runner(docker=args.docker, pgbouncer=args.pgbouncer))
+    # Resolve config paths
+    pool_config_path = args.pool_config or get_pool_config_path()
+    service_config_path = args.config or get_service_config_path(args.service)
+
+    # Load pool
+    pool_path = Path(pool_config_path)
+    if pool_path.exists():
+        pool = Pool.from_yaml(str(pool_path))
+    else:
+        logger.warning("pool_config_not_found", path=str(pool_path))
+        pool = Pool()
+
+    # Run service
+    try:
+        async with pool:
+            runner = SERVICE_RUNNERS[args.service]
+            return await runner(pool, service_config_path)
+
+    except ConnectionError as e:
+        logger.error("connection_error", error=str(e))
+        return 1
+    except Exception as e:
+        logger.exception("fatal_error", error=str(e))
+        return 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(asyncio.run(main()))

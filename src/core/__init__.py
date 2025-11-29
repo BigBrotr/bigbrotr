@@ -1,58 +1,43 @@
 """
-BigBrotr Core Layer
+BigBrotr Core Layer.
 
-Production-ready foundation components for the BigBrotr system.
-
-Components:
-- Pool: PostgreSQL pooling with asyncpg
-- Brotr: High-level database interface with stored procedure wrappers
-- Service: Generic service lifecycle wrapper with health checks
-- ServiceLogger: Structured JSON logging
+Production-ready foundation components:
+- Pool: PostgreSQL connection pooling with asyncpg
+- Brotr: High-level database interface with stored procedures
+- BaseService: Lightweight base class for all services
+- Logger: Structured JSON logging
 
 Example:
-    from core import Pool, Brotr, Service
+    from core import Pool, Brotr, get_logger
 
-    pool = Pool.from_yaml("config/pool.yaml")
+    pool = Pool.from_yaml("config.yaml")
     brotr = Brotr(pool=pool)
+    logger = get_logger("my_service", component="MyService")
 
-    async with Service(pool, name="database"):
-        await brotr.insert_events([...])
+    async with pool:
+        result = await brotr.insert_relays([...])
 """
 
+from .base_service import BaseService
 from .brotr import Brotr, BrotrConfig
 from .logger import (
-    ServiceLogger,
+    Logger,
     configure_logging,
     get_logger,
-    get_service_logger,
+    validate_log_level,
 )
 from .pool import Pool, PoolConfig
-from .service import (
-    BackgroundService,
-    CircuitBreakerConfig,
-    DatabaseService,
-    HealthCheckConfig,
-    Service,
-    ServiceConfig,
-)
 
 __all__ = [
-    "BackgroundService",
-    # Brotr
-    "Brotr",
-    "BrotrConfig",
-    "CircuitBreakerConfig",
-    "DatabaseService",
-    "HealthCheckConfig",
-    # Pool
+    # Core components
     "Pool",
     "PoolConfig",
-    # Service
-    "Service",
-    "ServiceConfig",
+    "Brotr",
+    "BrotrConfig",
+    "BaseService",
     # Logger
-    "ServiceLogger",
+    "Logger",
     "configure_logging",
     "get_logger",
-    "get_service_logger",
+    "validate_log_level",
 ]

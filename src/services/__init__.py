@@ -1,48 +1,62 @@
 """
 BigBrotr Services Package.
 
-This package contains service implementations that build on the core layer:
-
+Service implementations that build on the core layer:
 - Initializer: Database bootstrap and schema verification
-- Finder: Relay discovery from database events and external APIs
+- Finder: Relay discovery from events and APIs
 - Monitor: Relay health monitoring (pending)
 - Synchronizer: Event synchronization (pending)
-- PrioritySynchronizer: Priority-based sync (pending)
-- API: REST API service (pending)
-- DVM: Data Vending Machine (pending)
 
-All services implement either DatabaseService or BackgroundService protocol
-for compatibility with the Service wrapper (core.service.Service).
+All services inherit from BaseService for consistent:
+- Logging
+- State persistence
+- Lifecycle management (start/stop)
+- Context manager support
+
+Example:
+    from core import Pool
+    from services import Initializer, Finder
+
+    pool = Pool.from_yaml("config.yaml")
+
+    async with pool:
+        # Run initializer
+        initializer = Initializer(pool=pool)
+        result = await initializer.run()
+
+        # Run finder with context manager
+        finder = Finder(pool=pool)
+        async with finder:
+            await finder.run_forever(interval=3600)
 """
 
+from core.base_service import Outcome, Step
+
 from .finder import (
-    FINDER_SERVICE_NAME,
-    DiscoveryResult,
+    SERVICE_NAME as FINDER_SERVICE_NAME,
     Finder,
     FinderConfig,
     FinderState,
 )
 from .initializer import (
-    INITIALIZER_SERVICE_NAME,
-    InitializationResult,
+    SERVICE_NAME as INITIALIZER_SERVICE_NAME,
     Initializer,
     InitializerConfig,
     InitializerState,
-    VerificationResult,
 )
 
 __all__ = [
-    "FINDER_SERVICE_NAME",
-    "INITIALIZER_SERVICE_NAME",
-    # Finder
-    "DiscoveryResult",
-    "Finder",
-    "FinderConfig",
-    "FinderState",
+    # Types (from core)
+    "Outcome",
+    "Step",
     # Initializer
-    "InitializationResult",
+    "INITIALIZER_SERVICE_NAME",
     "Initializer",
     "InitializerConfig",
     "InitializerState",
-    "VerificationResult",
+    # Finder
+    "FINDER_SERVICE_NAME",
+    "Finder",
+    "FinderConfig",
+    "FinderState",
 ]
