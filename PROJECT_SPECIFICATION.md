@@ -1,7 +1,7 @@
-# BigBrotr Project Specification v5.1
+# BigBrotr Project Specification v5.2
 
-**Last Updated**: 2025-11-26
-**Status**: Core Development Complete, Testing Infrastructure Ready
+**Last Updated**: 2025-11-29
+**Status**: Core Complete, Two Services Implemented (Initializer, Finder)
 **Version**: 1.0.0-dev
 
 ---
@@ -33,7 +33,7 @@ Archive and monitor the entire Nostr protocol network, providing reliable data a
 ### Key Features
 
 - ✅ **Scalable Architecture**: Three-layer design (Core, Service, Implementation)
-- ✅ **Production-Ready Core**: Enterprise-grade connection pooling, retry logic, lifecycle management
+- ✅ **Production-Ready Core**: Enterprise-grade pooling, retry logic, lifecycle management
 - ✅ **Dependency Injection**: Clean, testable component composition
 - ✅ **Structured Logging**: JSON-formatted logs for all operations
 - ✅ **Protocol-Based Design**: Flexible, non-invasive service wrapping
@@ -76,8 +76,8 @@ Archive and monitor the entire Nostr protocol network, providing reliable data a
 ┌──────────────────────────────────────────────────────┐
 │                    Service Layer                     │
 │                                                      │
-│  • Initializer: Database bootstrap                 │
-│  • Finder: Relay discovery                         │
+│  • Initializer: Database bootstrap ✅               │
+│  • Finder: Relay discovery ✅                       │
 │  • Monitor: Health checks (NIP-11, NIP-66)         │
 │  • Synchronizer: Event collection                  │
 │  • Priority Synchronizer: Priority relays          │
@@ -85,7 +85,7 @@ Archive and monitor the entire Nostr protocol network, providing reliable data a
 │  • DVM: Data Vending Machine (Phase 3)             │
 │                                                      │
 │  Purpose: Business logic, coordination             │
-│  Location: src/services/ (PENDING)                │
+│  Location: src/services/ (2/7 COMPLETE)           │
 └──────────────────────────────────────────────────────┘
                         ▲
                         │ Leverages
@@ -93,7 +93,7 @@ Archive and monitor the entire Nostr protocol network, providing reliable data a
 ┌──────────────────────────────────────────────────────┐
 │                     Core Layer ✅                    │
 │                                                      │
-│  • ConnectionPool: PostgreSQL connection mgmt      │
+│  • Pool: PostgreSQL connection mgmt      │
 │  • Brotr: Database interface + stored procedures   │
 │  • Service: Generic lifecycle wrapper              │
 │  • Logger: Structured JSON logging                 │
@@ -108,8 +108,8 @@ Archive and monitor the entire Nostr protocol network, providing reliable data a
 | Layer | Responsibility | Examples | Status |
 |-------|---------------|----------|--------|
 | **Implementation** | Configuration, deployment, data | YAML files, SQL schemas, Docker Compose, seed data | ✅ Partial |
-| **Service** | Business logic, orchestration | Finder, Monitor, Synchronizer, API, DVM | ⚠️ Pending |
-| **Core** | Infrastructure, utilities | ConnectionPool, Brotr, Service, Logger | ✅ Complete |
+| **Service** | Business logic, orchestration | Initializer ✅, Finder ✅, Monitor, Synchronizer, API, DVM | 🚧 In Progress (2/7) |
+| **Core** | Infrastructure, utilities | Pool, Brotr, Service, Logger | ✅ Complete |
 
 ### Design Principles
 
@@ -133,14 +133,14 @@ The core layer (`src/core/`) is **100% complete** with four production-ready com
 
 | Component | LOC | Status | Purpose |
 |-----------|-----|--------|---------|
-| ConnectionPool | ~632 | ✅ Production Ready | PostgreSQL connection management |
+| Pool | ~632 | ✅ Production Ready | PostgreSQL connection management |
 | Brotr | ~803 | ✅ Production Ready | Database interface with stored procedures |
 | Service | ~1,021 | ✅ Production Ready | Generic lifecycle wrapper |
 | Logger | ~397 | ✅ Production Ready | Structured JSON logging |
 
 ---
 
-### 1. ConnectionPool (`src/core/pool.py`)
+### 1. Pool (`src/core/pool.py`)
 
 **Purpose**: Enterprise-grade PostgreSQL connection management using asyncpg.
 
@@ -148,7 +148,7 @@ The core layer (`src/core/`) is **100% complete** with four production-ready com
 
 #### Features
 
-- ✅ Async connection pooling with asyncpg
+- ✅ Async pooling with asyncpg
 - ✅ Automatic retry logic with exponential backoff
 - ✅ PGBouncer compatibility (transaction mode)
 - ✅ Connection lifecycle management (acquire, release, close)
@@ -198,10 +198,10 @@ pool:
 #### API
 
 ```python
-from core.pool import ConnectionPool
+from core.pool import Pool
 
 # Direct instantiation
-pool = ConnectionPool(
+pool = Pool(
     host="localhost",
     port=5432,
     database="brotr",
@@ -251,7 +251,7 @@ print(pool.config.limits.max_size)  # 20
 
 #### Features
 
-- ✅ Dependency injection for ConnectionPool (or creates default)
+- ✅ Dependency injection for Pool (or creates default)
 - ✅ Stored procedure wrappers (insert_event, insert_relay, insert_relay_metadata)
 - ✅ Batch operations with configurable sizes (up to 1000x performance boost)
 - ✅ Cleanup operations (delete orphaned events, NIP-11, NIP-66 records)
@@ -272,7 +272,7 @@ print(pool.config.limits.max_size)  # 20
 - Self-documenting API
 
 **Dependency Injection**: Reduced `__init__` parameters from 28 to 12 (57% reduction)
-- Pool injection instead of 16 ConnectionPool parameters
+- Pool injection instead of 16 Pool parameters
 - Pool can be shared across multiple services
 - Easy to mock for testing
 - Cleaner API
@@ -287,7 +287,7 @@ print(pool.config.limits.max_size)  # 20
 ```yaml
 # implementations/bigbrotr/yaml/core/brotr.yaml
 pool:
-  # ConnectionPool configuration (see above)
+  # Pool configuration (see above)
   database: { host: localhost, database: brotr }
   limits: { min_size: 5, max_size: 20 }
 
@@ -313,13 +313,13 @@ timeouts:
 
 ```python
 from core.brotr import Brotr
-from core.pool import ConnectionPool
+from core.pool import Pool
 
 # Option 1: From YAML (recommended)
 brotr = Brotr.from_yaml("implementations/bigbrotr/yaml/core/brotr.yaml")
 
 # Option 2: Inject custom pool (for pool sharing)
-pool = ConnectionPool(host="localhost", database="brotr")
+pool = Pool(host="localhost", database="brotr")
 brotr = Brotr(pool=pool, max_batch_size=10000)
 
 # Option 3: From dict (useful for testing)
@@ -333,7 +333,7 @@ brotr = Brotr.from_dict(config)
 brotr = Brotr()
 
 # Option 5: Pool sharing (multiple services, one pool)
-shared_pool = ConnectionPool(host="localhost", database="brotr")
+shared_pool = Pool(host="localhost", database="brotr")
 brotr1 = Brotr(pool=shared_pool)
 brotr2 = Brotr(pool=shared_pool)  # Shares same pool!
 
@@ -405,7 +405,7 @@ Instead of adding logging, health checks, and statistics to each service individ
 from typing import Protocol
 
 class DatabaseService(Protocol):
-    """For database-style services (ConnectionPool, Brotr)."""
+    """For database-style services (Pool, Brotr)."""
     async def connect(self) -> None: ...
     async def close(self) -> None: ...
     @property
@@ -466,10 +466,10 @@ class ServiceConfig(BaseModel):
 
 ```python
 from core.service import Service, ServiceConfig
-from core.pool import ConnectionPool
+from core.pool import Pool
 
-# Wrap ConnectionPool
-pool = ConnectionPool(host="localhost", database="brotr")
+# Wrap Pool
+pool = Pool(host="localhost", database="brotr")
 config = ServiceConfig(
     enable_logging=True,
     enable_health_checks=True,
@@ -563,7 +563,7 @@ configure_logging(
 from core.logger import get_service_logger
 
 # Get logger for a service
-logger = get_service_logger("database_pool", "ConnectionPool")
+logger = get_service_logger("database_pool", "Pool")
 
 # Log with structured fields
 logger.info("service_started", elapsed_seconds=1.23, config={"max_size": 20})
@@ -592,7 +592,7 @@ logger.info("processing_event",
   "level": "INFO",
   "message": "service_started",
   "service_name": "database_pool",
-  "service_type": "ConnectionPool",
+  "service_type": "Pool",
   "elapsed_seconds": 1.23,
   "config": {"max_size": 20}
 }
@@ -623,11 +623,14 @@ service = Service(
 
 ### Overview
 
-The service layer (`src/services/`) contains all business logic for BigBrotr. All services are currently **pending implementation** (empty placeholder files).
+The service layer (`src/services/`) contains all business logic for BigBrotr.
 
-**Status**: 0% complete (0/7 services implemented)
+**Status**: 29% complete (2/7 services implemented)
+- ✅ **Initializer**: Database bootstrap, schema verification, seed data loading (~774 lines, 57 tests)
+- ✅ **Finder**: Relay discovery from NIP-66 events with atomic batch processing (~1,100 lines, 56 tests)
+- ⚠️ **Monitor**, **Synchronizer**, **Priority Synchronizer**, **API**, **DVM**: Pending
 
-Services will leverage the production-ready core layer via dependency injection.
+Services leverage the production-ready core layer via dependency injection.
 
 ---
 
@@ -638,7 +641,7 @@ All services will follow this pattern:
 ```python
 from core.brotr import Brotr
 from core.service import Service, ServiceConfig
-from core.pool import ConnectionPool
+from core.pool import Pool
 from typing import Protocol
 
 class MyService:
@@ -677,25 +680,25 @@ async with service:
 
 ---
 
-### 1. Initializer Service
+### 1. Initializer Service ✅
 
 **File**: `src/services/initializer.py`
-**Status**: ⚠️ Pending
-**Priority**: Critical (needed for testing all other services)
-**Estimated Effort**: 3-4 days
+**Status**: ✅ Production Ready
+**Lines of Code**: ~774
+**Test Coverage**: 57 unit tests
 
 #### Purpose
 
 Bootstrap the BigBrotr database:
-- Validate PostgreSQL schemas
-- Seed initial data (relay lists, priority lists)
-- Run database migrations
+- Verify PostgreSQL extensions (pgcrypto, btree_gin)
+- Verify database tables exist (relays, events, etc.)
 - Verify stored procedures exist
+- Seed initial relay data from text files
+- State persistence via `service_state` table
 
 #### Dependencies
 
-- ConnectionPool (for schema operations)
-- Brotr (for data seeding)
+- Pool (for schema operations and state persistence)
 - PostgreSQL 14+
 
 #### Configuration
@@ -703,111 +706,121 @@ Bootstrap the BigBrotr database:
 ```yaml
 # implementations/bigbrotr/yaml/services/initializer.yaml
 database:
-  verify_schema: true           # Verify schemas on startup
-  run_migrations: true          # Run pending migrations
-  seed_data: true               # Seed initial data
+  verify_tables: true           # Verify database tables exist
+  verify_procedures: true       # Verify stored procedures exist
+  verify_extensions: true       # Verify PostgreSQL extensions
 
-schema:
-  extensions_file: postgres/init/00_extensions.sql
-  tables_file: postgres/init/02_tables.sql
-  procedures_file: postgres/init/05_procedures.sql
-  # ... other schema files
+expected_tables:
+  - relays
+  - events
+  - events_relays
+  - nip11
+  - nip66
+  - relay_metadata
+  - service_state
 
 seed_data:
-  relays_file: data/seed_relays.txt
-  priority_relays_file: data/priority_relays.txt
+  enabled: true
+  relay_file: data/seed_relays.txt
+  batch_size: 100
 ```
 
 #### API
 
 ```python
 from services.initializer import Initializer
+from core.pool import Pool
 
-initializer = Initializer.from_yaml("yaml/services/initializer.yaml")
+# Option 1: From YAML
+pool = Pool(host="localhost", database="brotr")
+initializer = Initializer.from_yaml("yaml/services/initializer.yaml", pool=pool)
 
-async with initializer:
-    # Verify schemas
-    schema_valid = await initializer.verify_schema()
+# Option 2: Direct instantiation
+initializer = Initializer(pool=pool)
 
-    # Run migrations
-    migrations_run = await initializer.run_migrations()
-
-    # Seed data
-    relays_seeded = await initializer.seed_relays()
-
-    print(f"Database initialized: {schema_valid and migrations_run}")
+# Run initialization
+async with pool:
+    await initializer.start()
+    result = await initializer.initialize()
+    if result.success:
+        print(f"Seeded {result.relays_seeded} relays")
+    await initializer.stop()
 ```
 
 ---
 
-### 2. Finder Service
+### 2. Finder Service ✅
 
 **File**: `src/services/finder.py`
-**Status**: ⚠️ Pending
-**Priority**: High (first production service)
-**Estimated Effort**: 4-5 days
+**Status**: ✅ Production Ready
+**Lines of Code**: ~1,100
+**Test Coverage**: 56 unit tests
 
 #### Purpose
 
-Discover Nostr relays from various sources:
-- NIP-05 verification endpoints
-- Well-known relay lists
-- Relay discovery protocols
-- Manual relay lists
+Discover Nostr relays from NIP-66 events in the database:
+- Watermark-based event tracking (`last_seen_at` timestamp)
+- Atomic batch processing for crash consistency
+- State persistence via `service_state` table
+- Comprehensive relay URL validation
 
 #### Dependencies
 
-- Brotr (for storing discovered relays)
-- Service wrapper (for lifecycle management)
-- aiohttp (for HTTP requests)
-- aiohttp-socks (for Tor support)
+- Pool (for database operations and state persistence)
+- nostr_tools.Relay (for URL validation)
+- `service_state` table (for state persistence)
 
 #### Configuration
 
 ```yaml
 # implementations/bigbrotr/yaml/services/finder.yaml
-sources:
-  - type: nip05
-    enabled: true
-    interval: 3600  # seconds
-
-  - type: relay_list
-    enabled: true
-    url: https://api.nostr.watch/v1/public
-    interval: 7200
-
-  - type: manual
-    enabled: true
-    file: data/seed_relays.txt
-
 discovery:
-  concurrent_requests: 10
-  request_timeout: 30.0
-  retry_attempts: 3
+  batch_size: 1000              # Events to process per batch
+  max_relays_per_run: 5000      # Maximum relays to discover per run
 
-storage:
-  batch_size: 100
-  deduplicate: true
+processing:
+  relay_validation: true        # Validate relay URLs
+
+timeouts:
+  db_query: 30.0                # Database query timeout (seconds)
+
+logging:
+  log_level: INFO
+  log_batch_progress: true
 ```
 
 #### API
 
 ```python
-from services.finder import Finder
+from services.finder import Finder, FINDER_SERVICE_NAME
+from core.pool import Pool
 
-finder = Finder.from_yaml("yaml/services/finder.yaml")
+# Option 1: From YAML
+pool = Pool(host="localhost", database="brotr")
+finder = Finder.from_yaml("yaml/services/finder.yaml", pool=pool)
 
-async with finder:
-    # Discover relays from all sources
-    relays_found = await finder.discover_all()
+# Option 2: Direct instantiation
+finder = Finder(pool=pool)
 
-    # Discover from specific source
-    relays = await finder.discover_from_source("nip05")
+# Run discovery
+async with pool:
+    await finder.start()
+    result = await finder.run_discovery_cycle()
+    print(f"Found {result.relays_found} new relays")
+    print(f"Processed {result.events_processed} events")
+    await finder.stop()
 
-    # Get statistics
-    stats = finder.get_stats()
-    print(f"Relays discovered: {stats['total_found']}")
+# State persistence
+# State is automatically saved to service_state table with key FINDER_SERVICE_NAME
+# Includes: last_seen_at, total_events_processed, total_relays_found
 ```
+
+#### Key Features
+
+- **Atomic Batch Processing**: Relays + watermark saved in single transaction
+- **Crash Consistency**: In-memory state updated only after DB commit
+- **Watermark Tracking**: Resumes from last processed event on restart
+- **State Persistence**: Uses `FINDER_SERVICE_NAME = "finder"` constant
 
 ---
 
@@ -1241,7 +1254,7 @@ SOCKS5_PROXY_URL=socks5://127.0.0.1:9050  # Optional: Tor proxy
 Complete example: `implementations/bigbrotr/yaml/core/brotr.yaml`
 
 ```yaml
-# ConnectionPool + Brotr unified configuration
+# Pool + Brotr unified configuration
 pool:
   database:
     host: localhost
@@ -1387,7 +1400,7 @@ python3 -m services.synchronizer
 **Timeline**: Completed 2025-11-14
 **Completion**: 100%
 
-- ✅ ConnectionPool implementation (~632 lines)
+- ✅ Pool implementation (~632 lines)
 - ✅ Brotr implementation with dependency injection (~803 lines)
 - ✅ Service wrapper implementation (~1,021 lines)
 - ✅ Logger module implementation (~397 lines)
@@ -1399,17 +1412,19 @@ python3 -m services.synchronizer
 ### Phase 2: Service Layer (In Progress)
 
 **Timeline**: 2025-11-14 to 2026-Q1
-**Completion**: 0%
+**Completion**: 29% (2/7 services)
 
-**Immediate Priority** (November-December 2025):
+**Completed**:
 1. ✅ Core layer complete
-2. ⚠️ Implement Initializer service (3-4 days) - CRITICAL
-3. ⚠️ Implement Finder service (4-5 days)
-4. ⚠️ Implement Monitor service (5-7 days)
-5. ⚠️ Set up pytest infrastructure (2-3 days) - Parallel track
+2. ✅ Implement Initializer service (~774 lines, 57 tests)
+3. ✅ Implement Finder service (~1,100 lines, 56 tests)
+4. ✅ Set up pytest infrastructure (225 tests passing)
+
+**Immediate Priority** (December 2025):
+5. ⚠️ Implement Monitor service (5-7 days)
+6. ⚠️ Implement Synchronizer service (7-10 days)
 
 **Medium Priority** (January-February 2026):
-6. ⚠️ Implement Synchronizer service (7-10 days)
 7. ⚠️ Implement Priority Synchronizer (5-7 days)
 8. ⚠️ Add integration tests (2-3 days)
 9. ⚠️ Performance optimization
@@ -1461,7 +1476,7 @@ python3 -m services.synchronizer
 
 | Pattern | Component | Purpose | Benefits |
 |---------|-----------|---------|----------|
-| **Dependency Injection** | Brotr ← ConnectionPool | Inject dependencies vs create | Testability, flexibility, pool sharing |
+| **Dependency Injection** | Brotr ← Pool | Inject dependencies vs create | Testability, flexibility, pool sharing |
 | **Composition over Inheritance** | Brotr HAS-A pool | Public pool property | Clear API, explicit separation |
 | **Decorator/Wrapper** | Service wraps any service | Add cross-cutting concerns | DRY, uniform interface |
 | **Factory Method** | `from_yaml()`, `from_dict()` | Config-driven construction | Environment flexibility |
@@ -1477,18 +1492,18 @@ python3 -m services.synchronizer
 # Bad: Creating dependencies internally
 class Brotr:
     def __init__(self, host, port, database, ...):  # 28 parameters!
-        self.pool = ConnectionPool(host, port, ...)
+        self.pool = Pool(host, port, ...)
 
 # Good: Injecting dependencies
 class Brotr:
-    def __init__(self, pool: Optional[ConnectionPool] = None):  # 1 parameter
-        self.pool = pool or ConnectionPool()
+    def __init__(self, pool: Optional[Pool] = None):  # 1 parameter
+        self.pool = pool or Pool()
 ```
 
 #### Composition over Inheritance
 ```python
 # Bad: Inheritance creates unclear API
-class Brotr(ConnectionPool):
+class Brotr(Pool):
     def fetch(...):  # Is this pool.fetch or brotr.fetch?
         pass
 
@@ -1504,7 +1519,7 @@ class Brotr:
 ```python
 # Wrap any service with lifecycle management
 service = Service(
-    ConnectionPool(...),  # Or Brotr, or Finder, or any service
+    Pool(...),  # Or Brotr, or Finder, or any service
     name="my_service",
     config=ServiceConfig(enable_logging=True)
 )
@@ -1515,9 +1530,9 @@ service = Service(
 #### Factory Method
 ```python
 # Multiple ways to construct, all type-safe
-pool = ConnectionPool.from_yaml("config.yaml")
-pool = ConnectionPool.from_dict({"database": {...}})
-pool = ConnectionPool(host="localhost", database="brotr")
+pool = Pool.from_yaml("config.yaml")
+pool = Pool.from_dict({"database": {...}})
+pool = Pool(host="localhost", database="brotr")
 ```
 
 ---
@@ -1554,7 +1569,7 @@ pool = ConnectionPool(host="localhost", database="brotr")
 | Technology | Purpose | Status |
 |------------|---------|--------|
 | FastAPI | REST API framework | Planned |
-| pytest | Testing framework | ✅ Implemented (112 tests) |
+| pytest | Testing framework | ✅ Implemented (225 tests) |
 | prometheus-client | Metrics export | Planned |
 | GitHub Actions | CI/CD pipeline | Planned |
 | Grafana | Monitoring dashboards | Planned |
@@ -1563,6 +1578,6 @@ pool = ConnectionPool(host="localhost", database="brotr")
 
 **End of Project Specification**
 
-**Version**: 5.1
-**Last Updated**: 2025-11-26
-**Next Update**: After service implementation begins
+**Version**: 5.2
+**Last Updated**: 2025-11-29
+**Next Update**: After Monitor service implementation

@@ -18,7 +18,7 @@ BigBrotr is a modular, production-grade system for archiving and monitoring the 
 
 - 🏗️ **Three-Layer Architecture**: Clean separation between Core, Service, and Implementation layers
 - 💉 **Dependency Injection**: Testable, flexible component composition
-- ⚡ **Production-Ready Core**: Enterprise-grade connection pooling, retry logic, configuration management
+- ⚡ **Production-Ready Core**: Enterprise-grade pooling, retry logic, configuration management
 - 🔌 **Modular Services**: Enable/disable services per implementation
 - 📊 **Comprehensive Monitoring**: Relay health checks (NIP-11, NIP-66)
 - 🐳 **Docker Compose**: Easy deployment and orchestration
@@ -66,11 +66,11 @@ docker-compose up -d
 ### Manual Setup
 
 ```python
-from core.pool import ConnectionPool
+from core.pool import Pool
 from core.brotr import Brotr
 
-# Create connection pool
-pool = ConnectionPool.from_yaml("implementations/bigbrotr/config/core/pool.yaml")
+# Create pool
+pool = Pool.from_yaml("implementations/bigbrotr/config/core/pool.yaml")
 
 # Create Brotr interface
 brotr = Brotr.from_yaml("implementations/bigbrotr/config/core/brotr.yaml")
@@ -126,7 +126,7 @@ async with brotr.pool:
 
 ### Core Components
 
-- **ConnectionPool** (`src/core/pool.py`): Enterprise-grade PostgreSQL connection management
+- **Pool** (`src/core/pool.py`): Enterprise-grade PostgreSQL connection management
   - Async pooling with asyncpg
   - Automatic retry with exponential backoff
   - PGBouncer compatibility
@@ -135,7 +135,7 @@ async with brotr.pool:
   - ~632 lines, production-ready ✅ (29 tests)
 
 - **Brotr** (`src/core/brotr.py`): High-level database interface
-  - Dependency injection for ConnectionPool
+  - Dependency injection for Pool
   - Stored procedure wrappers
   - Batch operations
   - Cleanup utilities
@@ -171,7 +171,7 @@ bigbrotr/
 ├── src/
 │   ├── core/                    # Foundation components ✅
 │   │   ├── __init__.py          # Package exports
-│   │   ├── pool.py              # Connection pool (production-ready)
+│   │   ├── pool.py              # Pool (production-ready)
 │   │   ├── brotr.py             # Database interface (production-ready)
 │   │   ├── service.py           # Service wrapper (production-ready)
 │   │   ├── logger.py            # Logging system (production-ready)
@@ -258,7 +258,7 @@ bigbrotr/
 
 | Component | Status | Lines | Tests |
 |-----------|--------|-------|-------|
-| ConnectionPool | ✅ Production Ready | ~632 | 29 ✅ |
+| Pool | ✅ Production Ready | ~632 | 29 ✅ |
 | Brotr | ✅ Production Ready | ~803 | 26 ✅ |
 | Service Wrapper | ✅ Production Ready | ~1,021 | 42 ✅ |
 | Logger | ✅ Production Ready | ~397 | 15 ✅ |
@@ -281,7 +281,7 @@ Reduced Brotr.__init__ parameters from 28 to 12 (57% reduction):
 brotr = Brotr(host="...", port=5432, database="...", user="...", ...)
 
 # After: 12 parameters (1 pool + 11 brotr) - Dependency Injection
-pool = ConnectionPool(host="...", database="...")
+pool = Pool(host="...", database="...")
 brotr = Brotr(pool=pool, default_batch_size=200)
 ```
 
@@ -420,7 +420,7 @@ CONFIG_DIR=implementations/bigbrotr/config
 
 ### Phase 1: Core Infrastructure ✅ COMPLETE
 
-- ✅ ConnectionPool implementation (~632 lines)
+- ✅ Pool implementation (~632 lines)
 - ✅ Brotr implementation with dependency injection (~803 lines)
 - ✅ Service wrapper implementation (~1,021 lines)
 - ✅ Logger module (~397 lines)
