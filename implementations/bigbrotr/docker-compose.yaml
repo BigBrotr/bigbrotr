@@ -54,6 +54,12 @@ services:
           cpus: '1.0'
           memory: 1G
 
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
     # Load configuration from file
     command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
 
@@ -64,7 +70,7 @@ services:
   # Requires: yaml/core/brotr.pgbouncer.yaml configuration
 
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: edoburu/pgbouncer:1.22.1-p2
     container_name: bigbrotr-pgbouncer
     restart: unless-stopped
 
@@ -90,6 +96,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
 
   # --------------------------------------------------------------------------
   # Tor Proxy (SOCKS5) - OPTIONAL
@@ -142,6 +154,12 @@ services:
 
     command: ["python", "-m", "services", "initializer"]
 
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+
   # --------------------------------------------------------------------------
   # BigBrotr Finder Service
   # --------------------------------------------------------------------------
@@ -171,6 +189,19 @@ services:
 
     command: ["python", "-m", "services", "finder"]
 
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python.*services.*finder' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
     deploy:
       resources:
         limits:
@@ -181,69 +212,109 @@ services:
           memory: 128M
 
   # --------------------------------------------------------------------------
-  # BigBrotr Monitor Service (PENDING)
+  # BigBrotr Monitor Service
   # --------------------------------------------------------------------------
+  # Checks relay health and capabilities (NIP-11, NIP-66)
 
-  # monitor:
-  #   build:
-  #     context: ../../
-  #     dockerfile: implementations/bigbrotr/Dockerfile
-  #   container_name: bigbrotr-monitor
-  #   restart: unless-stopped
-  #
-  #   environment:
-  #     DB_PASSWORD: ${DB_PASSWORD}
-  #
-  #   volumes:
-  #     - ./yaml:/app/yaml:ro
-  #
-  #   networks:
-  #     - bigbrotr-network
-  #
-  #   depends_on:
-  #     pgbouncer:
-  #       condition: service_healthy
-  #     initializer:
-  #       condition: service_completed_successfully
-  #
-  #   command: ["python", "-m", "services", "monitor"]
+  monitor:
+    build:
+      context: ../../
+      dockerfile: implementations/bigbrotr/Dockerfile
+    container_name: bigbrotr-monitor
+    restart: unless-stopped
+
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+      # MONITOR_PRIVATE_KEY: ${MONITOR_PRIVATE_KEY}  # Optional: for NIP-66 write tests
+
+    volumes:
+      - ./yaml:/app/yaml:ro
+
+    networks:
+      - bigbrotr-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      initializer:
+        condition: service_completed_successfully
+
+    command: ["python", "-m", "services", "monitor"]
+
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python.*services.*monitor' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   # --------------------------------------------------------------------------
-  # BigBrotr Synchronizer Service (PENDING)
+  # BigBrotr Synchronizer Service
   # --------------------------------------------------------------------------
+  # Synchronizes Nostr events from relays with multicore support
 
-  # synchronizer:
-  #   build:
-  #     context: ../../
-  #     dockerfile: implementations/bigbrotr/Dockerfile
-  #   container_name: bigbrotr-synchronizer
-  #   restart: unless-stopped
-  #
-  #   environment:
-  #     DB_PASSWORD: ${DB_PASSWORD}
-  #
-  #   volumes:
-  #     - ./yaml:/app/yaml:ro
-  #
-  #   networks:
-  #     - bigbrotr-network
-  #
-  #   depends_on:
-  #     pgbouncer:
-  #       condition: service_healthy
-  #     initializer:
-  #       condition: service_completed_successfully
-  #
-  #   command: ["python", "-m", "services", "synchronizer"]
-  #
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: '2.0'
-  #         memory: 2G
-  #       reservations:
-  #         cpus: '0.5'
-  #         memory: 512M
+  synchronizer:
+    build:
+      context: ../../
+      dockerfile: implementations/bigbrotr/Dockerfile
+    container_name: bigbrotr-synchronizer
+    restart: unless-stopped
+
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+
+    volumes:
+      - ./yaml:/app/yaml:ro
+
+    networks:
+      - bigbrotr-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      initializer:
+        condition: service_completed_successfully
+      monitor:
+        condition: service_healthy
+
+    command: ["python", "-m", "services", "synchronizer"]
+
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python.*services.*synchronizer' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
 # ----------------------------------------------------------------------------
 # Networks
