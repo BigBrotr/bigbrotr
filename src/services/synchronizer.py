@@ -23,7 +23,6 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import logging
 import random
 import time
 from typing import Any, Iterator, Optional
@@ -38,8 +37,18 @@ from core.brotr import Brotr
 
 SERVICE_NAME = "synchronizer"
 
-# Module-level logger for worker processes (separate from class Logger)
-_worker_logger = logging.getLogger(f"{SERVICE_NAME}.worker")
+
+def _worker_log(level: str, message: str, **kwargs: Any) -> None:
+    """
+    Log from worker process using print() for multiprocess compatibility.
+
+    aiomultiprocess captures stdout from child processes, so print() works
+    while logging module doesn't propagate across process boundaries.
+    """
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    kv = " ".join(f"{k}={v}" for k, v in kwargs.items())
+    print(f"{timestamp} {level} {SERVICE_NAME}.worker: {message} {kv}".strip(), flush=True)
 
 
 # =============================================================================
@@ -344,17 +353,19 @@ async def sync_relay_task(
                         brotr=brotr
                     )
 
+            if events_synced > 0:
+                _worker_log("INFO", "sync_ok", relay=relay_url, events=events_synced)
             return relay_url, events_synced, end_time
 
         except asyncio.TimeoutError:
-            _worker_logger.debug("sync_timeout relay=%s", relay_url)
+            _worker_log("WARNING", "sync_timeout", relay=relay_url)
             return relay_url, events_synced, start_time
         except Exception as e:
-            _worker_logger.warning("sync_error relay=%s error=%s", relay_url, e)
+            _worker_log("WARNING", "sync_error", relay=relay_url, error=str(e))
             return relay_url, events_synced, start_time
 
     except Exception as e:
-        _worker_logger.error("worker_init_error relay=%s error=%s", relay_url, e)
+        _worker_log("ERROR", "worker_init_error", relay=relay_url, error=str(e))
         return relay_url, 0, start_time
 
 
@@ -388,7 +399,7 @@ async def _fetch_batch(client: Client, filter_obj: Filter) -> RawEventBatch:
                     break
         await client.unsubscribe(sub_id)
     except Exception as e:
-        _worker_logger.debug("fetch_batch_error error=%s", e)
+        _worker_log("DEBUG", "fetch_batch_error", error=str(e))
     return batch
 
 
@@ -421,7 +432,7 @@ async def _insert_batch(
                 "seen_at": now
             })
         except Exception as e:
-            _worker_logger.debug("event_parse_error relay=%s error=%s", relay_url, e)
+            _worker_log("DEBUG", "event_parse_error", relay=relay_url, error=str(e))
 
     if events:
         batch_size = brotr.config.batch.max_batch_size

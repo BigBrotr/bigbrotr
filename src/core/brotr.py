@@ -240,7 +240,7 @@ class Brotr:
                     bytes.fromhex(e["pubkey"]),
                     e["created_at"],
                     e["kind"],
-                    e["tags"],
+                    json.dumps(e["tags"]),
                     e["content"],
                     bytes.fromhex(e["sig"]),
                     e["relay_url"],

@@ -43,7 +43,7 @@ timeouts:
 # Concurrency settings
 concurrency:
   max_parallel: 10           # Max parallel relay connections per process (Range: 1 - 100)
-  max_processes: 1           # Number of worker processes (Range: 1 - 32)
+  max_processes: 10           # Number of worker processes (Range: 1 - 32)
   stagger_delay: [0, 60]     # Random delay range [min, max] to prevent thundering herd
 
 # Relay source - which relays to sync from
