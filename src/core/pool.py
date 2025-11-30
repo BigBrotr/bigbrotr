@@ -20,7 +20,7 @@ import asyncpg
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-from .logger import Logger, get_logger
+from .logger import Logger
 
 
 # ============================================================================
@@ -155,7 +155,7 @@ class Pool:
         self._pool: Optional[asyncpg.Pool] = None
         self._is_connected: bool = False
         self._connection_lock = asyncio.Lock()
-        self._logger: Logger = get_logger("pool", component="Pool")
+        self._logger = Logger("pool")
 
     @classmethod
     def from_yaml(cls, config_path: str) -> "Pool":

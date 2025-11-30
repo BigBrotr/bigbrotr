@@ -18,7 +18,7 @@ import asyncpg
 import yaml
 from pydantic import BaseModel, Field
 
-from .logger import Logger, get_logger
+from .logger import Logger
 from .pool import Pool
 
 
@@ -106,7 +106,7 @@ class Brotr:
         """
         self.pool = pool or Pool()
         self._config = config or BrotrConfig()
-        self._logger: Logger = get_logger("brotr", component="Brotr")
+        self._logger = Logger("brotr")
 
     @classmethod
     def from_yaml(cls, config_path: str) -> "Brotr":
