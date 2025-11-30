@@ -31,12 +31,17 @@ time_range:
 
 # Timeouts (seconds)
 timeouts:
-  request: 30.0              # WebSocket request timeout
-  relay: 1800.0              # Max time per relay sync (30 min)
+  clearnet:
+    request: 30.0            # WebSocket request timeout
+    relay: 1800.0            # Max time per relay sync (30 min)
+  tor:
+    request: 60.0            # WebSocket request timeout (higher for Tor)
+    relay: 3600.0            # Max time per relay sync (60 min)
 
 # Concurrency settings
 concurrency:
-  max_parallel: 10           # Max parallel relay connections
+  max_parallel: 10           # Max parallel relay connections per process
+  max_processes: 1           # Number of worker processes (multicore)
   stagger_delay: [0, 60]     # Random delay range [min, max] to prevent thundering herd
 
 # Relay source - which relays to sync from
@@ -44,3 +49,16 @@ source:
   from_database: true        # Fetch relays from database
   max_metadata_age: 43200    # Only sync relays checked within N seconds (12 hours)
   require_readable: true     # Only sync relays marked as readable
+
+# Exception relays with custom configuration
+overrides:
+  # Damus Relay (Very large, high traffic - needs extended timeouts)
+  - url: "wss://relay.damus.io"
+    timeouts:
+      request: 60.0
+      relay: 7200.0
+  
+  # Example: Another high priority relay
+  # - url: "wss://nos.lol"
+  #   timeouts:
+  #     relay: 7200.0
