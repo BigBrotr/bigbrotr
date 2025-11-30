@@ -1,0 +1,44 @@
+# ============================================================================
+# Synchronizer Service Configuration (Lilbrotr)
+# ============================================================================
+# Description: Synchronize Nostr events from relays to the database
+# Used by: src/services/synchronizer.py
+# Dependencies: Monitor must have checked relays first
+# Note: Lighter configuration for lilbrotr (fewer concurrent connections)
+# ============================================================================
+
+# Tor proxy for .onion relays
+tor_proxy:
+  enabled: false
+  host: "127.0.0.1"
+  port: 9050
+
+# Event filter settings
+# Set to null to accept all values for that field
+filter:
+  ids: null  # null = all ids
+  kinds: null  # null = all kinds
+  authors: null  # null = all authors
+  tags: null  # null = all tags (format: {e: ["..."], p: ["..."]})
+  limit: 500  # Events per request
+
+# Time range for sync
+time_range:
+  default_start: 0  # Unix timestamp (0 = epoch)
+  use_relay_state: true  # Use per-relay state for incremental sync
+
+# Concurrency settings (reduced for lilbrotr)
+concurrency:
+  max_concurrent_relays: 5  # Fewer parallel connections
+  request_timeout: 30.0  # WebSocket request timeout (seconds)
+  relay_timeout: 1800.0  # Max time per relay sync (30 min)
+  stagger_delay: [0, 30]  # Smaller stagger window
+
+# Relay source configuration
+relay_source:
+  from_database: true  # Fetch relays from database
+  min_metadata_age: 43200  # Only sync relays checked within 12 hours
+  require_readable: true  # Only sync relays marked as readable
+
+# Interval between sync cycles (seconds)
+sync_interval: 900.0  # 15 minutes

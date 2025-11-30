@@ -1,0 +1,36 @@
+# ============================================================================
+# Monitor Service Configuration (Lilbrotr)
+# ============================================================================
+# Description: Monitor relay health and capabilities (NIP-11, NIP-66)
+# Used by: src/services/monitor.py
+# Dependencies: Finder must have discovered relays first
+# Note: Lighter configuration for lilbrotr (fewer concurrent checks)
+# ============================================================================
+
+# Tor proxy for .onion relays
+tor_proxy:
+  enabled: false
+  host: "127.0.0.1"
+  port: 9050
+
+# Nostr keys for NIP-66 write tests (optional)
+# Public key is configured here, private key from MONITOR_PRIVATE_KEY env var
+keys:
+  public_key: null  # Public key (hex) for write tests
+
+# Timeout settings for relay checks
+timeouts:
+  clearnet: 30.0  # Timeout for clearnet relay checks (seconds)
+  tor: 60.0  # Timeout for Tor relay checks (seconds)
+
+# Concurrency settings (reduced for lilbrotr)
+concurrency:
+  max_concurrent: 10  # Maximum concurrent relay checks
+  batch_size: 25  # Relays to process before pushing to database
+
+# Relay selection configuration
+relay_selection:
+  min_check_age: 3600  # Minimum seconds since last check (1 hour)
+
+# Interval between monitor cycles (seconds)
+monitor_interval: 3600.0  # 1 hour
