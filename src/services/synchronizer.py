@@ -325,25 +325,27 @@ async def sync_relay_task(
             socks5_proxy = f"socks5://{config.tor.host}:{config.tor.port}"
 
         events_synced = 0
-        try:
-            async with asyncio.timeout(relay_timeout):
-                client = Client(
-                    relay=Relay(relay_url),
-                    timeout=int(request_timeout),
-                    socks5_proxy_url=socks5_proxy,
+
+        async def _sync_with_client() -> int:
+            """Inner coroutine for wait_for timeout."""
+            client = Client(
+                relay=Relay(relay_url),
+                timeout=int(request_timeout),
+                socks5_proxy_url=socks5_proxy,
+            )
+            async with client:
+                return await _sync_relay_events(
+                    client=client,
+                    relay_url=relay_url,
+                    relay_network=relay_network,
+                    start_time=start_time,
+                    end_time=end_time,
+                    filter_config=config.filter,
+                    brotr=brotr,
                 )
 
-                async with client:
-                    # Use shared sync algorithm
-                    events_synced = await _sync_relay_events(
-                        client=client,
-                        relay_url=relay_url,
-                        relay_network=relay_network,
-                        start_time=start_time,
-                        end_time=end_time,
-                        filter_config=config.filter,
-                        brotr=brotr,
-                    )
+        try:
+            events_synced = await asyncio.wait_for(_sync_with_client(), timeout=relay_timeout)
 
             if events_synced > 0:
                 _worker_log("INFO", "sync_ok", relay=relay_url, events=events_synced)
@@ -378,6 +380,10 @@ def _create_filter(since: int, until: int, config: FilterConfig) -> Filter:
 
 async def _fetch_batch(client: Client, filter_obj: Filter) -> RawEventBatch:
     """Fetch a batch of events from a relay."""
+    # These should always be set by _create_filter, assert for type safety
+    assert filter_obj.since is not None
+    assert filter_obj.until is not None
+    assert filter_obj.limit is not None
     batch = RawEventBatch(filter_obj.since, filter_obj.until, filter_obj.limit)
     try:
         sub_id = await client.subscribe(filter_obj)
@@ -498,6 +504,7 @@ async def _sync_relay_events(
                 until_stack.insert(0, mid)
             else:
                 # Check for more events before min_created_at
+                assert b.min_created_at is not None  # Set by batch.append()
                 f.until = b.min_created_at - 1
                 f.limit = 1
                 b3 = await _fetch_batch(client, f)
@@ -625,22 +632,25 @@ class Synchronizer(BaseService):
                 if relay.network == "tor" and self._config.tor.enabled:
                     socks = f"socks5://{self._config.tor.host}:{self._config.tor.port}"
 
-                try:
+                async def _sync_with_client() -> int:
+                    """Inner coroutine for wait_for timeout."""
                     client = Client(relay, timeout=int(request_timeout), socks5_proxy_url=socks)
+                    network = relay.network or "clearnet"  # Default if not set
+                    async with client:
+                        return await _sync_relay_events(
+                            client=client,
+                            relay_url=relay.url,
+                            relay_network=network,
+                            start_time=start,
+                            end_time=end_time,
+                            filter_config=self._config.filter,
+                            brotr=self._brotr,
+                        )
 
-                    async with asyncio.timeout(relay_timeout):
-                        async with client:
-                            # Use shared sync algorithm
-                            events_synced = await _sync_relay_events(
-                                client=client,
-                                relay_url=relay.url,
-                                relay_network=relay.network,
-                                start_time=start,
-                                end_time=end_time,
-                                filter_config=self._config.filter,
-                                brotr=self._brotr,
-                            )
-
+                try:
+                    events_synced = await asyncio.wait_for(
+                        _sync_with_client(), timeout=relay_timeout
+                    )
                     self._state.setdefault("relay_timestamps", {})[relay.url] = end_time
                     self._synced_events += events_synced
                     self._synced_relays += 1

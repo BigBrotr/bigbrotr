@@ -346,10 +346,18 @@ class Monitor(BaseService):
                 # Use library action to fetch all metadata
                 # This handles NIP-11 (HTTP) and NIP-66 (WebSocket) internally
                 try:
+                    # Keys are optional - use empty strings if not configured
+                    # The library handles missing keys gracefully (skips write test)
+                    sec = (
+                        self._config.keys.private_key.get_secret_value()
+                        if self._config.keys.private_key
+                        else ""
+                    )
+                    pub = self._config.keys.public_key or ""
                     metadata = await fetch_relay_metadata(
                         client=client,
-                        sec=self._config.keys.private_key.get_secret_value(),
-                        pub=self._config.keys.public_key,
+                        sec=sec,
+                        pub=pub,
                         event_creation_timeout=int(timeout),
                     )
                 except Exception:

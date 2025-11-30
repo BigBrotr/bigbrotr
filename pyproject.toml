@@ -208,7 +208,9 @@ module = [
 ]
 ignore_missing_imports = true
 
-# Disable specific error checks for modules with complex async/typing issues
+# asyncpg stubs don't match runtime behavior:
+# - Pool.acquire() returns PoolConnectionProxy, stubs expect Connection
+# - PoolAcquireContext vs AbstractAsyncContextManager mismatch
 [[tool.mypy.overrides]]
-module = ["core.pool", "services.synchronizer", "services.monitor", "services.__main__"]
-disable_error_code = ["arg-type", "return-value", "union-attr", "misc", "operator", "attr-defined", "assignment"]
+module = "core.pool"
+disable_error_code = ["arg-type", "return-value", "union-attr", "misc", "assignment"]
