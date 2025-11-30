@@ -26,7 +26,10 @@ import os
 import time
 from typing import Any, Optional
 
-from nostr_tools import Client, Relay, RelayValidationError, fetch_relay_metadata, validate_keypair
+from nostr_tools import Client, Relay, RelayMetadata
+from nostr_tools.exceptions import RelayValidationError
+from nostr_tools.actions import fetch_relay_metadata
+from nostr_tools.utils import validate_keypair
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 from core.base_service import BaseService
@@ -144,6 +147,49 @@ class MonitorConfig(BaseModel):
 
 
 # =============================================================================
+# Helpers
+# =============================================================================
+
+
+def metadata_to_db_record(metadata: RelayMetadata) -> dict[str, Any]:
+    """
+    Transform a RelayMetadata object into a dictionary for Brotr.insert_relay_metadata().
+
+    The nostr_tools RelayMetadata.to_dict() returns:
+        {
+            "relay": {"url": str, "network": str},
+            "generated_at": int,
+            "nip11": {...} | None,
+            "nip66": {...} | None
+        }
+
+    Brotr.insert_relay_metadata() expects:
+        {
+            "relay_url": str,
+            "relay_network": str,
+            "relay_inserted_at": int,
+            "generated_at": int,
+            "nip11": {...} | None,
+            "nip66": {...} | None
+        }
+
+    Args:
+        metadata: RelayMetadata object from nostr_tools
+
+    Returns:
+        Dictionary formatted for Brotr.insert_relay_metadata()
+    """
+    return {
+        "relay_url": metadata.relay.url,
+        "relay_network": metadata.relay.network,
+        "relay_inserted_at": int(time.time()),
+        "generated_at": metadata.generated_at,
+        "nip11": metadata.nip11.to_dict() if metadata.nip11 else None,
+        "nip66": metadata.nip66.to_dict() if metadata.nip66 else None,
+    }
+
+
+# =============================================================================
 # Service
 # =============================================================================
 
@@ -176,6 +222,8 @@ class Monitor(BaseService):
         """
         super().__init__(brotr=brotr, config=config or MonitorConfig())
         self._config: MonitorConfig
+        
+        # Metrics
         self._checked_relays: int = 0
         self._successful_checks: int = 0
         self._failed_checks: int = 0
@@ -187,7 +235,7 @@ class Monitor(BaseService):
     async def run(self) -> None:
         """
         Run single monitoring cycle.
-
+        
         Fetches relays needing checks and monitors each one concurrently,
         limited by max_concurrent. Results are batched for database insertion.
         Call via run_forever() for continuous operation.
@@ -197,7 +245,7 @@ class Monitor(BaseService):
         self._successful_checks = 0
         self._failed_checks = 0
 
-        # Fetch relays that need checking
+        # 1. Fetch relays to check
         relays = await self._fetch_relays_to_check()
         if not relays:
             self._logger.info("no_relays_to_check")
@@ -205,35 +253,32 @@ class Monitor(BaseService):
 
         self._logger.info("monitor_started", relay_count=len(relays))
 
-        # Current timestamp for this batch
-        generated_at = int(time.time())
-
-        # Semaphore to limit concurrent checks
+        # 2. Prepare for parallel execution
         semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel)
-        metadata_buffer: list[dict[str, Any]] = []
+        metadata_batch: list[dict[str, Any]] = []
 
-        async def check_with_limit(relay: Relay) -> Optional[dict[str, Any]]:
-            async with semaphore:
-                return await self._check_relay(relay, generated_at)
+        # 3. Process relays
+        # We create tasks for all relays but limit concurrency with semaphore
+        tasks = [self._process_relay(relay, semaphore) for relay in relays]
 
-        # Process all relays concurrently (limited by semaphore)
-        tasks = [check_with_limit(relay) for relay in relays]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for future in asyncio.as_completed(tasks):
+            try:
+                result = await future
+                if result:
+                    metadata_batch.append(metadata_to_db_record(result))
+                    
+                    # Insert batch if full
+                    if len(metadata_batch) >= self._config.concurrency.batch_size:
+                        await self._insert_metadata_batch(metadata_batch)
+                        metadata_batch = []
+            except Exception as e:
+                self._logger.error("unexpected_error_in_loop", error=str(e))
 
-        # Collect results and batch insert
-        for result in results:
-            if isinstance(result, dict):
-                metadata_buffer.append(result)
+        # 4. Insert remaining records
+        if metadata_batch:
+            await self._insert_metadata_batch(metadata_batch)
 
-                # Insert batch when threshold reached
-                if len(metadata_buffer) >= self._config.concurrency.batch_size:
-                    await self._insert_metadata_batch(metadata_buffer)
-                    metadata_buffer = []
-
-        # Insert remaining results
-        if metadata_buffer:
-            await self._insert_metadata_batch(metadata_buffer)
-
+        # 5. Log stats
         elapsed = time.time() - cycle_start
         self._logger.info(
             "cycle_completed",
@@ -248,11 +293,11 @@ class Monitor(BaseService):
     # -------------------------------------------------------------------------
 
     async def _fetch_relays_to_check(self) -> list[Relay]:
-        """Fetch relays that need health checking."""
+        """Fetch relays that need health checking from database."""
         relays: list[Relay] = []
         threshold = int(time.time()) - self._config.selection.min_age_since_check
 
-        # Query relays with stale or missing metadata using the view
+        # Use the view to find relays with stale or missing metadata
         query = """
             SELECT relay_url
             FROM relay_metadata_latest
@@ -267,7 +312,7 @@ class Monitor(BaseService):
             relay_url = row["relay_url"]
             try:
                 relay = Relay(relay_url)
-                # Skip .onion relays if Tor proxy is disabled
+                # Filter Tor relays if proxy disabled
                 if relay.network == "tor" and not self._config.tor.enabled:
                     skipped_tor += 1
                     continue
@@ -282,110 +327,73 @@ class Monitor(BaseService):
         return relays
 
     # -------------------------------------------------------------------------
-    # Relay Checking
+    # Relay Processing
     # -------------------------------------------------------------------------
 
-    async def _check_relay(
-        self, relay: Relay, generated_at: int
-    ) -> Optional[dict[str, Any]]:
+    async def _process_relay(
+        self, 
+        relay: Relay, 
+        semaphore: asyncio.Semaphore
+    ) -> Optional[RelayMetadata]:
         """
-        Check a single relay's health.
-
-        Returns metadata dict or None on failure.
+        Check a single relay with concurrency limit.
+        
+        Returns formatted dictionary for DB insertion or None on failure/no data.
         """
-        self._checked_relays += 1
-
-        # Select timeout based on network type
-        is_tor = relay.network == "tor"
-        timeout = self._config.timeouts.tor if is_tor else self._config.timeouts.clearnet
-
-        try:
-            # Create client with optional SOCKS5 proxy for Tor
+        async with semaphore:
+            self._checked_relays += 1
+            
+            # Determine configuration for this check
+            is_tor = relay.network == "tor"
+            timeout = self._config.timeouts.tor if is_tor else self._config.timeouts.clearnet
+            
             socks5_proxy = None
             if is_tor and self._config.tor.enabled:
                 socks5_proxy = f"socks5://{self._config.tor.host}:{self._config.tor.port}"
 
-            client = Client(
-                relay=relay,
-                timeout=int(timeout),
-                socks5_proxy_url=socks5_proxy,
-            )
+            try:
+                client = Client(
+                    relay=relay,
+                    timeout=int(timeout),
+                    socks5_proxy_url=socks5_proxy,
+                )
 
-            # Fetch metadata using nostr_tools
-            # Extract secret value from SecretStr if private_key is set
-            sec = self._config.keys.private_key.get_secret_value() if self._config.keys.private_key else None
-            relay_metadata = await fetch_relay_metadata(
-                client=client,
-                sec=sec,
-                pub=self._config.keys.public_key,
-            )
+                # Use library action to fetch all metadata
+                # This handles NIP-11 (HTTP) and NIP-66 (WebSocket) internally
+                try:
+                    metadata = await fetch_relay_metadata(
+                        client=client,
+                        sec=self._config.keys.private_key.get_secret_value(),
+                        pub=self._config.keys.public_key,
+                        event_creation_timeout=int(timeout)
+                    )
+                except Exception as e:
+                    self._failed_checks += 1
+                    self._logger.info("check_failed", relay=relay.url)
+                    return None
 
-            # Only return if we got useful data
-            if relay_metadata and (relay_metadata.nip66 or relay_metadata.nip11):
-                self._successful_checks += 1
-                return self._metadata_to_dict(relay, relay_metadata, generated_at)
+                # Check if we got any meaningful data
+                if metadata and (metadata.nip66 or metadata.nip11):
+                    self._successful_checks += 1
+                    self._logger.info("check_ok", relay=relay.url)
+                    return metadata
 
-            self._failed_checks += 1
-            return None
+                self._failed_checks += 1
+                self._logger.info("check_failed", relay=relay.url)
+                return None
 
-        except asyncio.TimeoutError:
-            self._failed_checks += 1
-            self._logger.debug("relay_timeout", relay=relay.url)
-            return None
-        except Exception as e:
-            self._failed_checks += 1
-            self._logger.debug("relay_check_failed", relay=relay.url, error=str(e))
-            return None
+            except Exception as e:
+                self._failed_checks += 1
+                self._logger.debug("relay_check_failed", relay=relay.url, error=str(e))
+                return None
 
-    def _metadata_to_dict(
-        self, relay: Relay, metadata: Any, generated_at: int
-    ) -> dict[str, Any]:
-        """Convert relay metadata to dict for database insertion."""
-        result: dict[str, Any] = {
-            "relay_url": relay.url,
-            "relay_network": relay.network,
-            "relay_inserted_at": int(time.time()),
-            "generated_at": generated_at,
-            "nip66": None,
-            "nip11": None,
-        }
-
-        if metadata.nip66:
-            result["nip66"] = {
-                "openable": metadata.nip66.openable,
-                "readable": metadata.nip66.readable,
-                "writable": metadata.nip66.writable,
-                "rtt_open": metadata.nip66.rtt_open,
-                "rtt_read": metadata.nip66.rtt_read,
-                "rtt_write": metadata.nip66.rtt_write,
-            }
-
-        if metadata.nip11:
-            result["nip11"] = {
-                "name": metadata.nip11.name,
-                "description": metadata.nip11.description,
-                "banner": metadata.nip11.banner,
-                "icon": metadata.nip11.icon,
-                "pubkey": metadata.nip11.pubkey,
-                "contact": metadata.nip11.contact,
-                "supported_nips": metadata.nip11.supported_nips,
-                "software": metadata.nip11.software,
-                "version": metadata.nip11.version,
-                "privacy_policy": getattr(metadata.nip11, "privacy_policy", None),
-                "terms_of_service": getattr(metadata.nip11, "terms_of_service", None),
-                "limitation": getattr(metadata.nip11, "limitation", None),
-                "extra_fields": getattr(metadata.nip11, "extra_fields", None),
-            }
-
-        return result
-
-    async def _insert_metadata_batch(self, metadata_list: list[dict[str, Any]]) -> None:
-        """Insert batch of relay metadata into database."""
-        if not metadata_list:
+    async def _insert_metadata_batch(self, batch: list[dict[str, Any]]) -> None:
+        """Insert a batch of metadata records into database."""
+        if not batch:
             return
 
         try:
-            count = await self._brotr.insert_relay_metadata(metadata_list)
+            count = await self._brotr.insert_relay_metadata(batch)
             self._logger.debug("metadata_batch_inserted", count=count)
         except Exception as e:
-            self._logger.warning("metadata_batch_failed", count=len(metadata_list), error=str(e))
+            self._logger.warning("metadata_batch_failed", count=len(batch), error=str(e))
