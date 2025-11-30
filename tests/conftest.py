@@ -2,6 +2,7 @@
 Pytest configuration and shared fixtures for BigBrotr tests.
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -13,7 +14,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from core.brotr import Brotr
-from core.logger import configure_logging
 from core.pool import Pool
 
 
@@ -25,7 +25,7 @@ from core.pool import Pool
 @pytest.fixture(scope="session", autouse=True)
 def setup_logging() -> None:
     """Configure logging for tests."""
-    configure_logging(level="DEBUG", console_output=True, json_format=False)
+    logging.basicConfig(level=logging.DEBUG)
 
 
 # ============================================================================

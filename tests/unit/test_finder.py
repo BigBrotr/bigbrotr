@@ -3,17 +3,15 @@ Unit tests for Finder service.
 """
 
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.base_service import Outcome
 from core.brotr import Brotr
 from core.pool import Pool
 from services.finder import (
     Finder,
     FinderConfig,
-    FinderState,
     EventScanConfig,
     ApiConfig,
     ApiSourceConfig,
@@ -60,19 +58,16 @@ class TestFinderConfig:
         config = FinderConfig()
 
         assert config.event_scan.enabled is True
-        assert config.event_scan.batch_size == 1000
         assert config.api.enabled is True
         assert len(config.api.sources) == 2
-        assert config.discovery_interval == 3600.0
 
     def test_custom_event_scan(self) -> None:
         """Test custom event scan settings."""
         config = FinderConfig(
-            event_scan=EventScanConfig(enabled=False, batch_size=500)
+            event_scan=EventScanConfig(enabled=False)
         )
 
         assert config.event_scan.enabled is False
-        assert config.event_scan.batch_size == 500
 
     def test_custom_api(self) -> None:
         """Test custom API settings."""
@@ -88,51 +83,6 @@ class TestFinderConfig:
         assert config.api.sources[0].url == "https://custom.api/relays"
 
 
-class TestFinderState:
-    """Tests for FinderState."""
-
-    def test_default_state(self) -> None:
-        """Test default state values."""
-        state = FinderState()
-
-        assert state.last_seen_at == 0
-        assert state.total_events_processed == 0
-        assert state.total_relays_found == 0
-        assert state.last_run_at == 0
-
-    def test_to_dict(self) -> None:
-        """Test state serialization."""
-        state = FinderState(
-            last_seen_at=1700000000,
-            total_events_processed=1000,
-            total_relays_found=50,
-            last_run_at=1700000100,
-        )
-
-        data = state.to_dict()
-
-        assert data["last_seen_at"] == 1700000000
-        assert data["total_events_processed"] == 1000
-        assert data["total_relays_found"] == 50
-        assert data["last_run_at"] == 1700000100
-
-    def test_from_dict(self) -> None:
-        """Test state deserialization."""
-        data = {
-            "last_seen_at": 1700000000,
-            "total_events_processed": 500,
-            "total_relays_found": 25,
-            "last_run_at": 1700000050,
-        }
-
-        state = FinderState.from_dict(data)
-
-        assert state.last_seen_at == 1700000000
-        assert state.total_events_processed == 500
-        assert state.total_relays_found == 25
-        assert state.last_run_at == 1700000050
-
-
 class TestFinder:
     """Tests for Finder service."""
 
@@ -141,19 +91,17 @@ class TestFinder:
         finder = Finder(brotr=mock_brotr)
 
         assert finder._brotr is mock_brotr
-        assert finder._pool is mock_brotr.pool
+        assert finder._brotr.pool is mock_brotr.pool
         assert finder.SERVICE_NAME == "finder"
-        assert finder.config.event_scan.enabled is True
+        assert finder.config.api.enabled is True
 
     def test_init_with_custom_config(self, mock_brotr: MagicMock) -> None:
         """Test initialization with custom config."""
         config = FinderConfig(
-            event_scan=EventScanConfig(enabled=False),
             api=ApiConfig(enabled=False),
         )
         finder = Finder(brotr=mock_brotr, config=config)
 
-        assert finder.config.event_scan.enabled is False
         assert finder.config.api.enabled is False
 
     @pytest.mark.asyncio
@@ -177,46 +125,26 @@ class TestFinder:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_run_without_initializer(self, mock_brotr: MagicMock) -> None:
-        """Test run fails if initializer not completed."""
-        # Mock no initializer state found
-        mock_brotr.pool.fetchrow = AsyncMock(return_value=None)
-
+    async def test_run_loop_stops_on_shutdown(self, mock_brotr: MagicMock) -> None:
+        """Test run loop stops when shutdown is requested."""
         config = FinderConfig(
             event_scan=EventScanConfig(enabled=False),
             api=ApiConfig(enabled=False),
         )
         finder = Finder(brotr=mock_brotr, config=config)
-        result = await finder.run()
+        finder._is_running = True
 
-        assert result.success is False
-        assert "Initializer" in result.message
+        # Request shutdown immediately
+        finder.request_shutdown()
 
-    @pytest.mark.asyncio
-    async def test_run_with_api_disabled(self, mock_brotr: MagicMock) -> None:
-        """Test run with only event scanning disabled and API disabled."""
-        # Mock initializer state
-        mock_brotr.pool.fetchrow = AsyncMock(
-            return_value={"state": {"initialized": True}}
-        )
-        mock_brotr.pool.fetch = AsyncMock(return_value=[])
-
-        config = FinderConfig(
-            event_scan=EventScanConfig(enabled=False),
-            api=ApiConfig(enabled=False),
-        )
-        finder = Finder(brotr=mock_brotr, config=config)
-        result = await finder.run()
-
-        assert result.success is True
-        assert result.metrics["events_scanned"] == 0
-        assert result.metrics["api_sources_checked"] == 0
+        # Should complete without hanging
+        await finder.run()
 
     @pytest.mark.asyncio
-    async def test_fetch_from_apis_all_sources_disabled(
+    async def test_find_from_api_all_sources_disabled(
         self, mock_brotr: MagicMock
     ) -> None:
-        """Test fetch when all sources are disabled."""
+        """Test API fetch when all sources are disabled."""
         config = FinderConfig(
             api=ApiConfig(
                 enabled=True,
@@ -228,8 +156,9 @@ class TestFinder:
         finder = Finder(brotr=mock_brotr, config=config)
 
         # No sources should be checked when all disabled
-        result = await finder._fetch_from_apis()
-        assert result["sources_checked"] == 0
+        await finder._find_from_api()
+        # Should complete without error, no relays inserted
+        assert finder._found_relays == 0
 
 
 class TestFinderFactoryMethods:
@@ -238,16 +167,12 @@ class TestFinderFactoryMethods:
     def test_from_dict(self, mock_brotr: MagicMock) -> None:
         """Test creation from dictionary."""
         data = {
-            "event_scan": {"enabled": False},
             "api": {"enabled": False},
-            "discovery_interval": 7200.0,
         }
 
         finder = Finder.from_dict(data, brotr=mock_brotr)
 
-        assert finder.config.event_scan.enabled is False
         assert finder.config.api.enabled is False
-        assert finder.config.discovery_interval == 7200.0
 
 
 class TestApiSourceConfig:

@@ -3,17 +3,16 @@ Unit tests for Initializer service.
 """
 
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from core.brotr import Brotr
 from core.pool import Pool
-from core.base_service import Outcome, Step
 from services.initializer import (
     Initializer,
     InitializerConfig,
-    InitializerState,
+    InitializerError,
     ExpectedSchemaConfig,
     SeedConfig,
     VerificationConfig,
@@ -63,7 +62,6 @@ class TestInitializerConfig:
         assert config.verification.procedures is True
         assert config.verification.extensions is True
         assert config.seed.enabled is True
-        assert config.retry.max_attempts == 3
 
     def test_custom_verification(self) -> None:
         """Test custom verification settings."""
@@ -85,49 +83,6 @@ class TestInitializerConfig:
         assert config.seed.path == "custom/path.txt"
 
 
-class TestInitializerState:
-    """Tests for InitializerState."""
-
-    def test_default_state(self) -> None:
-        """Test default state values."""
-        state = InitializerState()
-
-        assert state.initialized is False
-        assert state.initialized_at == 0
-        assert state.relays_seeded == 0
-        assert state.last_error == ""
-
-    def test_to_dict(self) -> None:
-        """Test state serialization."""
-        state = InitializerState(
-            initialized=True,
-            initialized_at=1700000000,
-            relays_seeded=10,
-        )
-
-        data = state.to_dict()
-
-        assert data["initialized"] is True
-        assert data["initialized_at"] == 1700000000
-        assert data["relays_seeded"] == 10
-
-    def test_from_dict(self) -> None:
-        """Test state deserialization."""
-        data = {
-            "initialized": True,
-            "initialized_at": 1700000000,
-            "relays_seeded": 5,
-            "last_error": "test error",
-        }
-
-        state = InitializerState.from_dict(data)
-
-        assert state.initialized is True
-        assert state.initialized_at == 1700000000
-        assert state.relays_seeded == 5
-        assert state.last_error == "test error"
-
-
 class TestInitializer:
     """Tests for Initializer service."""
 
@@ -136,7 +91,7 @@ class TestInitializer:
         initializer = Initializer(brotr=mock_brotr)
 
         assert initializer._brotr is mock_brotr
-        assert initializer._pool is mock_brotr.pool
+        assert initializer._brotr.pool is mock_brotr.pool
         assert initializer.SERVICE_NAME == "initializer"
         assert initializer.config.verification.tables is True
 
@@ -162,10 +117,8 @@ class TestInitializer:
         )
 
         initializer = Initializer(brotr=mock_brotr)
-        step = await initializer._verify_extensions()
-
-        assert step.success is True
-        assert "extensions" in step.name
+        # Should not raise
+        await initializer._verify_extensions()
 
     @pytest.mark.asyncio
     async def test_verify_extensions_missing(self, mock_brotr: MagicMock) -> None:
@@ -175,10 +128,8 @@ class TestInitializer:
         )
 
         initializer = Initializer(brotr=mock_brotr)
-        step = await initializer._verify_extensions()
-
-        assert step.success is False
-        assert "Missing" in step.message
+        with pytest.raises(InitializerError, match="Missing extensions"):
+            await initializer._verify_extensions()
 
     @pytest.mark.asyncio
     async def test_verify_tables_success(self, mock_brotr: MagicMock) -> None:
@@ -192,9 +143,19 @@ class TestInitializer:
         )
 
         initializer = Initializer(brotr=mock_brotr)
-        step = await initializer._verify_tables()
+        # Should not raise
+        await initializer._verify_tables()
 
-        assert step.success is True
+    @pytest.mark.asyncio
+    async def test_verify_tables_missing(self, mock_brotr: MagicMock) -> None:
+        """Test table verification with missing tables."""
+        mock_brotr.pool.fetch = AsyncMock(
+            return_value=[{"table_name": "relays"}]  # Missing other tables
+        )
+
+        initializer = Initializer(brotr=mock_brotr)
+        with pytest.raises(InitializerError, match="Missing tables"):
+            await initializer._verify_tables()
 
     @pytest.mark.asyncio
     async def test_verify_procedures_success(self, mock_brotr: MagicMock) -> None:
@@ -208,9 +169,19 @@ class TestInitializer:
         )
 
         initializer = Initializer(brotr=mock_brotr)
-        step = await initializer._verify_procedures()
+        # Should not raise
+        await initializer._verify_procedures()
 
-        assert step.success is True
+    @pytest.mark.asyncio
+    async def test_verify_procedures_missing(self, mock_brotr: MagicMock) -> None:
+        """Test procedure verification with missing procedures."""
+        mock_brotr.pool.fetch = AsyncMock(
+            return_value=[{"routine_name": "insert_event"}]  # Missing other procs
+        )
+
+        initializer = Initializer(brotr=mock_brotr)
+        with pytest.raises(InitializerError, match="Missing procedures"):
+            await initializer._verify_procedures()
 
     @pytest.mark.asyncio
     async def test_run_verification_only(self, mock_brotr: MagicMock) -> None:
@@ -232,10 +203,8 @@ class TestInitializer:
 
         config = InitializerConfig(seed=SeedConfig(enabled=False))
         initializer = Initializer(brotr=mock_brotr, config=config)
-        result = await initializer.run()
-
-        assert result.success is True
-        assert len(result.steps) == 3  # Extensions, tables, procedures
+        # Should not raise
+        await initializer.run()
 
     @pytest.mark.asyncio
     async def test_run_with_failed_verification(self, mock_brotr: MagicMock) -> None:
@@ -248,33 +217,43 @@ class TestInitializer:
             verification=VerificationConfig(tables=False, procedures=False),
         )
         initializer = Initializer(brotr=mock_brotr, config=config)
-        result = await initializer.run()
 
-        assert result.success is False
-        assert len(result.errors) > 0
+        with pytest.raises(InitializerError, match="Missing extensions"):
+            await initializer.run()
 
-    def test_load_seed_file_not_found(self, mock_brotr: MagicMock) -> None:
-        """Test loading non-existent seed file."""
+    @pytest.mark.asyncio
+    async def test_seed_relays_file_not_found(self, mock_brotr: MagicMock) -> None:
+        """Test seeding with non-existent seed file."""
         config = InitializerConfig(
             seed=SeedConfig(path="nonexistent/file.txt")
         )
         initializer = Initializer(brotr=mock_brotr, config=config)
 
-        urls = initializer._load_seed_file()
+        # Should not raise, just return early
+        await initializer._seed_relays()
 
-        assert urls == []
+        # insert_relays should not be called
+        mock_brotr.insert_relays.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_health_check(self, mock_brotr: MagicMock) -> None:
-        """Test health check returns state."""
+    async def test_health_check_connected(self, mock_brotr: MagicMock) -> None:
+        """Test health check when connected and table exists."""
+        mock_brotr.pool.fetchval = AsyncMock(return_value=True)
+
         initializer = Initializer(brotr=mock_brotr)
+        result = await initializer.health_check()
 
-        # Not initialized yet
-        assert await initializer.health_check() is False
+        assert result is True
 
-        # Set as initialized
-        initializer._state = InitializerState(initialized=True)
-        assert await initializer.health_check() is True
+    @pytest.mark.asyncio
+    async def test_health_check_disconnected(self, mock_brotr: MagicMock) -> None:
+        """Test health check when disconnected."""
+        mock_brotr.pool.fetchval = AsyncMock(side_effect=Exception("Connection error"))
+
+        initializer = Initializer(brotr=mock_brotr)
+        result = await initializer.health_check()
+
+        assert result is False
 
 
 class TestInitializerFactoryMethods:
