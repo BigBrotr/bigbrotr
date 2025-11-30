@@ -23,12 +23,10 @@ from .logger import Logger
 from .pool import Pool, PoolConfig
 
 __all__ = [
-    # Core components
     "Pool",
     "PoolConfig",
     "Brotr",
     "BrotrConfig",
     "BaseService",
-    # Logger
     "Logger",
 ]
