@@ -1,8 +1,8 @@
-# BigBrotr Project Specification v7.0
+# BigBrotr Project Specification v7.1
 
 **Last Updated**: 2025-11-30
-**Status**: Core Complete, Service Layer in Progress (2/7)
-**Version**: 1.0.0-dev
+**Status**: Core Complete, Service Layer in Progress (4/6)
+**Version**: 1.0.1-dev
 
 ---
 
@@ -34,6 +34,7 @@ Archive and monitor the Nostr protocol network, providing reliable data access f
 - **Scalable Architecture**: Three-layer design (Core, Service, Implementation)
 - **Production-Ready Core**: Enterprise-grade pooling, retry logic, lifecycle management
 - **State Persistence**: Services automatically save/load state to database
+- **Multicore Processing**: Synchronizer uses `aiomultiprocess` for high-throughput syncing
 - **Dependency Injection**: Clean, testable component composition
 - **Flexible Deployment**: Docker Compose orchestration
 - **Network Support**: Clearnet and Tor (SOCKS5 proxy)
@@ -69,14 +70,13 @@ Service Layer (src/services/)
 
   - Initializer: Database bootstrap (DONE)
   - Finder: Relay discovery (DONE)
-  - Monitor: Health checks (NIP-11, NIP-66) - PENDING
-  - Synchronizer: Event collection - PENDING
-  - Priority Synchronizer: Priority relays - PENDING
+  - Monitor: Health checks (NIP-11, NIP-66) (DONE)
+  - Synchronizer: Event collection & Multicore Sync (DONE)
   - API: REST endpoints (Phase 3) - PENDING
   - DVM: Data Vending Machine (Phase 3) - PENDING
 
   Purpose: Business logic, coordination
-  Status: 2/7 COMPLETE
+  Status: 4/6 COMPLETE
           ↑
           │ Leverages
           │
@@ -96,7 +96,7 @@ Core Layer (src/core/)
 | Layer | Responsibility | Status |
 |-------|---------------|--------|
 | **Implementation** | Configuration, deployment, data | Complete |
-| **Service** | Business logic, orchestration | 2/7 Complete |
+| **Service** | Business logic, orchestration | 4/6 Complete |
 | **Core** | Infrastructure, utilities | Complete |
 
 ---
@@ -221,30 +221,6 @@ class BaseService(ABC):
     async def _save_state()              # Save to service_state table
 ```
 
-**Service Implementation Pattern**:
-```python
-from pydantic import BaseModel
-from core.base_service import BaseService
-from core.brotr import Brotr
-
-SERVICE_NAME = "my_service"
-
-class MyServiceConfig(BaseModel):
-    setting: str = "default"
-
-class MyService(BaseService):
-    SERVICE_NAME = SERVICE_NAME
-    CONFIG_CLASS = MyServiceConfig
-
-    def __init__(self, brotr: Brotr, config: Optional[MyServiceConfig] = None):
-        super().__init__(brotr=brotr, config=config or MyServiceConfig())
-        self._config: MyServiceConfig
-
-    async def run(self) -> None:
-        # Single cycle logic
-        self._state["last_run"] = int(time.time())
-```
-
 ---
 
 ### 4. Logger (`src/core/logger.py`)
@@ -268,15 +244,14 @@ logger.error("connection_failed", error=str(e))
 
 The service layer (`src/services/`) contains all business logic for BigBrotr.
 
-**Status**: 29% complete (2/7 services implemented)
+**Status**: 66% complete (4/6 services implemented)
 
 | Service | Status | Description |
 |---------|--------|-------------|
 | **Initializer** | Complete | Database bootstrap, schema verification |
 | **Finder** | Complete | Relay discovery from APIs |
-| Monitor | Pending | Relay health monitoring |
-| Synchronizer | Pending | Event collection |
-| Priority Synchronizer | Pending | Priority-based sync |
+| **Monitor** | Complete | Relay health monitoring (NIP-11/66) |
+| **Synchronizer** | Complete | Event collection (Multicore support) |
 | API | Pending (Phase 3) | REST endpoints |
 | DVM | Pending (Phase 3) | Data Vending Machine |
 
@@ -292,31 +267,6 @@ The service layer (`src/services/`) contains all business logic for BigBrotr.
 - Stored procedure verification
 - Seed data loading from text files
 
-**Configuration** (`yaml/services/initializer.yaml`):
-```yaml
-verification:
-  tables: true
-  procedures: true
-  extensions: true
-
-seed:
-  enabled: true
-  path: data/seed_relays.txt
-  batch_size: 100
-```
-
-**API**:
-```python
-from services import Initializer
-from core import Brotr
-
-brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
-
-async with brotr.pool:
-    initializer = Initializer.from_yaml("yaml/services/initializer.yaml", brotr=brotr)
-    await initializer.run()
-```
-
 ---
 
 ### 2. Finder Service (`src/services/finder.py`)
@@ -329,39 +279,46 @@ async with brotr.pool:
 - Configurable discovery interval
 - State persistence
 
-**Configuration** (`yaml/services/finder.yaml`):
+---
+
+### 3. Monitor Service (`src/services/monitor.py`)
+
+**Purpose**: Monitor relay health and metadata.
+
+**Features**:
+- NIP-11 Information Document fetching
+- NIP-66 Capabilities verification (read/write tests)
+- Tor/Clearnet support with different timeouts
+- Parallel execution
+
+---
+
+### 4. Synchronizer Service (`src/services/synchronizer.py`)
+
+**Purpose**: High-performance event synchronization.
+
+**Features**:
+- **Multicore Support**: Uses `aiomultiprocess` for parallel relay syncing
+- **Dynamic Work Distribution**: Queue-based load balancing across CPU cores
+- **Priority Overrides**: Custom timeouts for specific relays (e.g., Damus)
+- **Network Awareness**: Different timeouts for Tor vs Clearnet
+- **Database/Manual Mode**: Can sync all discovered relays or only a specific list
+
+**Configuration** (`yaml/services/synchronizer.yaml`):
 ```yaml
-event_scan:
-  enabled: true
-  batch_size: 1000
+timeouts:
+  clearnet:
+    request: 30.0
+    relay: 1800.0
+  tor:
+    request: 60.0
+    relay: 3600.0
 
-api:
-  enabled: true
-  sources:
-    - url: https://api.nostr.watch/v1/online
-      enabled: true
-      timeout: 30.0
-    - url: https://api.nostr.watch/v1/offline
-      enabled: true
-      timeout: 30.0
-  request_delay: 1.0
-
-discovery_interval: 3600.0
-```
-
-**API**:
-```python
-from services import Finder
-from core import Brotr
-
-brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
-
-async with brotr.pool:
-    finder = Finder.from_yaml("yaml/services/finder.yaml", brotr=brotr)
-
-    # Continuous operation
-    async with finder:
-        await finder.run_forever(interval=3600)
+overrides:
+  - url: "wss://relay.damus.io"
+    timeouts:
+      request: 60.0
+      relay: 7200.0
 ```
 
 ---
@@ -394,15 +351,6 @@ PostgreSQL schemas are located in `implementations/bigbrotr/postgres/init/` and 
 | `relay_metadata` | Time-series metadata snapshots |
 | `service_state` | Service state persistence (JSONB) |
 
-### Stored Procedures
-
-- `insert_relay(url, network, inserted_at)`: Insert relay with conflict handling
-- `insert_event(...)`: Insert event with deduplication
-- `insert_relay_metadata(...)`: Insert metadata with NIP-11/NIP-66 deduplication
-- `delete_orphan_events()`: Clean up orphaned events
-- `delete_orphan_nip11()`: Clean up orphaned NIP-11 data
-- `delete_orphan_nip66()`: Clean up orphaned NIP-66 data
-
 ---
 
 ## Configuration
@@ -424,15 +372,10 @@ implementations/bigbrotr/
 │   └── services/
 │       ├── initializer.yaml
 │       ├── finder.yaml
-│       └── ...
+│       ├── monitor.yaml
+│       └── synchronizer.yaml
 ├── .env                        # DB_PASSWORD (not in git)
 └── .env.example
-```
-
-### Environment Variables
-
-```bash
-DB_PASSWORD=your_secure_password
 ```
 
 ---
@@ -462,8 +405,10 @@ docker-compose up -d
 # 3. Run initialization
 python -m services initializer
 
-# 4. Run finder
+# 4. Run services
 python -m services finder
+python -m services monitor
+python -m services synchronizer
 ```
 
 ---
@@ -482,11 +427,13 @@ python -m services finder
 **Completed**:
 1. Initializer service
 2. Finder service
-3. pytest infrastructure (90 tests)
+3. Monitor service
+4. Synchronizer service (Multicore)
+5. pytest infrastructure (90 tests)
 
-**Immediate Priority**:
-- Monitor service
-- Synchronizer service
+**Pending**:
+- API service
+- DVM service
 
 ### Phase 3: Public Access - PLANNED
 
@@ -506,6 +453,7 @@ python -m services finder
 | PyYAML | 6.0.2 | YAML parsing |
 | aiohttp | 3.13.2 | Async HTTP client |
 | nostr-tools | 1.4.0 | Nostr protocol library |
+| aiomultiprocess | 0.9.1 | Multicore processing |
 | Docker | - | Containerization |
 | PGBouncer | - | Connection pooling |
 
@@ -513,5 +461,5 @@ python -m services finder
 
 **End of Project Specification**
 
-**Version**: 7.0
+**Version**: 7.1
 **Last Updated**: 2025-11-30
