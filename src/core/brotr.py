@@ -176,7 +176,7 @@ class Brotr:
             fetch_result: Return result if True
             timeout: Optional timeout override
         """
-        params = ", ".join(f"${i+1}" for i in range(len(args))) if args else ""
+        params = ", ".join(f"${i + 1}" for i in range(len(args))) if args else ""
         query = f"SELECT {procedure_name}({params})"
         timeout_value = timeout or self._config.timeouts.procedure
 
