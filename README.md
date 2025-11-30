@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PostgreSQL](https://img.shields.io/badge/postgresql-14+-blue.svg)](https://www.postgresql.org/)
-[![Tests](https://img.shields.io/badge/tests-108%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-90%20passing-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-development-yellow.svg)](PROJECT_STATUS.md)
 
@@ -19,7 +19,7 @@ BigBrotr is a modular, production-grade system for archiving and monitoring the 
 - **Three-Layer Architecture**: Clean separation between Core, Service, and Implementation layers
 - **Dependency Injection**: Testable, flexible component composition
 - **Production-Ready Core**: Enterprise-grade pooling, retry logic, configuration management
-- **Modular Services**: Enable/disable services per implementation
+- **State Persistence**: Services automatically save/load state to database
 - **Docker Compose**: Easy deployment and orchestration
 - **Network Support**: Clearnet and Tor (SOCKS5 proxy)
 - **Type-Safe**: Full type hints and Pydantic validation
@@ -68,23 +68,22 @@ python -m services finder
 ### Manual Setup
 
 ```python
-from core import Pool, Brotr
+from core import Brotr
 from services import Initializer, Finder
 
-# Create pool and brotr
-pool = Pool.from_yaml("implementations/bigbrotr/yaml/core/brotr.yaml")
-brotr = Brotr(pool=pool)
+# Create brotr (includes pool)
+brotr = Brotr.from_yaml("implementations/bigbrotr/yaml/core/brotr.yaml")
 
 # Run services
-async with pool:
+async with brotr.pool:
     # Initialize database
     initializer = Initializer(brotr=brotr)
-    result = await initializer.run()
+    await initializer.run()
 
-    # Discover relays
+    # Discover relays (continuous)
     finder = Finder(brotr=brotr)
     async with finder:
-        result = await finder.run()
+        await finder.run_forever(interval=3600)
 ```
 
 ---
@@ -108,15 +107,15 @@ Core Layer (src/core/)
 |-----------|---------|--------|
 | **Pool** | PostgreSQL connection management | Production Ready |
 | **Brotr** | Database interface + stored procedures | Production Ready |
-| **BaseService** | Abstract base class for services | Production Ready |
-| **Logger** | Structured JSON logging | Production Ready |
+| **BaseService** | Abstract base class with state persistence | Production Ready |
+| **Logger** | Structured logging | Production Ready |
 
 ### Service Layer
 
 | Service | Purpose | Status |
 |---------|---------|--------|
 | **Initializer** | Database bootstrap, schema verification | Production Ready |
-| **Finder** | Relay discovery from events and APIs | Production Ready |
+| **Finder** | Relay discovery from APIs | Production Ready |
 | Monitor | Relay health checks (NIP-11, NIP-66) | Pending |
 | Synchronizer | Event collection from relays | Pending |
 | API | REST endpoints | Pending (Phase 3) |
@@ -133,8 +132,7 @@ bigbrotr/
 │   │   ├── pool.py              # PostgreSQL connection management
 │   │   ├── brotr.py             # Database interface
 │   │   ├── base_service.py      # Abstract base for services
-│   │   ├── logger.py            # Structured JSON logging
-│   │   └── utils.py             # Shared utilities
+│   │   └── logger.py            # Structured logging
 │   │
 │   └── services/                # Service implementations
 │       ├── __main__.py          # CLI entry point
@@ -151,7 +149,7 @@ bigbrotr/
 │       ├── docker-compose.yaml  # Deployment
 │       └── .env                 # Environment variables
 │
-├── tests/                       # Test suite (108 tests)
+├── tests/                       # Test suite (90 tests)
 │   └── unit/                    # Unit tests
 │
 ├── PROJECT_SPECIFICATION.md     # Complete technical spec
@@ -172,25 +170,19 @@ pool:
   database:
     host: localhost
     port: 5432
-    database: brotr
+    database: bigbrotr
     user: admin
 
   limits:
     min_size: 5
     max_size: 20
-
-  timeouts:
-    acquisition: 10.0
 ```
 
 ### Environment Variables
 
 ```bash
-# Database credentials
+# Database credentials (required)
 DB_PASSWORD=your_secure_password
-
-# Tor proxy (optional)
-SOCKS5_PROXY_URL=socks5://127.0.0.1:9050
 ```
 
 ---
@@ -206,6 +198,7 @@ cd implementations/bigbrotr
 python -m services initializer
 
 # Run finder (continuous)
+python -m services finder
 python -m services finder --log-level DEBUG
 ```
 
@@ -213,25 +206,21 @@ python -m services finder --log-level DEBUG
 
 ```python
 import asyncio
-from core import Pool, Brotr
+from core import Brotr
 from services import Initializer, Finder
 
 async def main():
-    # Create components
-    pool = Pool.from_yaml("yaml/core/brotr.yaml")
-    brotr = Brotr(pool=pool)
+    brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
 
-    async with pool:
+    async with brotr.pool:
         # Initialize database
         initializer = Initializer(brotr=brotr)
-        result = await initializer.run()
-        print(f"Initialized: {result.success}")
+        await initializer.run()
 
-        # Run finder
+        # Run finder continuously
         finder = Finder.from_yaml("yaml/services/finder.yaml", brotr=brotr)
         async with finder:
-            result = await finder.run()
-            print(f"Found {result.metrics['relays_found']} relays")
+            await finder.run_forever(interval=3600)
 
 asyncio.run(main())
 ```
@@ -258,11 +247,8 @@ pytest tests/unit/test_finder.py -v
 
 ### Test Statistics
 
-- Total tests: 108
-- Pool tests: ~20
-- Brotr tests: ~15
-- Initializer tests: ~35
-- Finder tests: ~38
+- Total tests: 90
+- All passing
 
 ---
 
@@ -287,7 +273,6 @@ pytest tests/unit/test_finder.py -v
 | Docker | Containerization |
 | Docker Compose | Service orchestration |
 | PGBouncer | Connection pooling |
-| Tor | Network privacy (optional) |
 
 ---
 
@@ -299,7 +284,7 @@ pytest tests/unit/test_finder.py -v
 |-----------|--------|------------|
 | Core Layer | Production Ready | 100% |
 | Service Layer | In Progress | 29% (2/7) |
-| Testing | Active | 108 tests |
+| Testing | Active | 90 tests |
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed progress tracking.
 
@@ -313,7 +298,6 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed progress tracking.
 - Brotr implementation
 - BaseService abstract class
 - Logger module
-- Utility functions
 
 ### Phase 2: Service Layer - IN PROGRESS
 
@@ -321,13 +305,11 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed progress tracking.
 - Finder service - DONE
 - Monitor service - Next
 - Synchronizer service
-- Priority Synchronizer service
 
 ### Phase 3: Public Access - PLANNED
 
 - REST API service
 - Data Vending Machine (DVM)
-- Authentication and authorization
 
 ---
 
@@ -343,12 +325,6 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed progress tracking.
 
 **Status**: Private development, not accepting contributions yet.
 
-**Internal Guidelines**:
-- Type hints required for all public APIs
-- Docstrings for all classes and methods
-- Tests for new features
-- Follow existing patterns (BaseService, factory methods)
-
 ---
 
 ## License
@@ -362,7 +338,6 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed progress tracking.
 - **Documentation**: [PROJECT_SPECIFICATION.md](PROJECT_SPECIFICATION.md)
 - **Status**: [PROJECT_STATUS.md](PROJECT_STATUS.md)
 - **Nostr Protocol**: [nostr.com](https://nostr.com)
-- **nostr-tools**: [PyPI](https://pypi.org/project/nostr-tools/)
 
 ---
 

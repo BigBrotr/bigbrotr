@@ -1,6 +1,6 @@
 # BigBrotr Project Status
 
-**Last Updated**: 2025-11-29
+**Last Updated**: 2025-11-30
 **Version**: 1.0.0-dev
 **Status**: Core Complete, Service Layer in Progress (2/7)
 
@@ -14,10 +14,9 @@ BigBrotr is a modular Nostr data archiving and monitoring system built on Python
 
 | Metric | Value |
 |--------|-------|
-| Core Layer | 100% Complete (~1,715 LOC) |
+| Core Layer | 100% Complete |
 | Service Layer | 29% Complete (2/7 services) |
-| Unit Tests | 108 passing |
-| Overall Progress | ~45% |
+| Unit Tests | 90 passing |
 
 ---
 
@@ -27,36 +26,33 @@ BigBrotr is a modular Nostr data archiving and monitoring system built on Python
 
 The core layer is production-ready and provides the foundation for all services.
 
-| Component | LOC | Status | Description |
-|-----------|-----|--------|-------------|
-| Pool | ~410 | Done | PostgreSQL connection management |
-| Brotr | ~413 | Done | Database interface + stored procedures |
-| BaseService | ~455 | Done | Abstract base class for services |
-| Logger | ~331 | Done | Structured JSON logging |
-| Utils | ~106 | Done | Shared utilities |
-| **Total** | **~1,715** | **100%** | |
+| Component | Status | Description |
+|-----------|--------|-------------|
+| Pool | Done | PostgreSQL connection management |
+| Brotr | Done | Database interface + stored procedures |
+| BaseService | Done | Abstract base class with state persistence |
+| Logger | Done | Structured logging wrapper |
 
 ### Service Layer - IN PROGRESS
 
-| Service | LOC | Status | Priority |
-|---------|-----|--------|----------|
-| Initializer | ~493 | Done | Critical |
-| Finder | ~492 | Done | High |
-| Monitor | 14 | Pending | High |
-| Synchronizer | 14 | Pending | High |
-| Priority Synchronizer | 14 | Pending | Medium |
-| API | 14 | Pending | Low (Phase 3) |
-| DVM | 14 | Pending | Low (Phase 3) |
-| **Total** | **~1,055** | **29%** | |
+| Service | Status | Description |
+|---------|--------|-------------|
+| Initializer | Done | Database bootstrap, schema verification |
+| Finder | Done | Relay discovery from APIs |
+| Monitor | Pending | Relay health monitoring |
+| Synchronizer | Pending | Event collection |
+| Priority Synchronizer | Pending | Priority-based sync |
+| API | Pending (Phase 3) | REST endpoints |
+| DVM | Pending (Phase 3) | Data Vending Machine |
 
-### Implementation Layer - PARTIAL
+### Implementation Layer - COMPLETE
 
-| Component | Status | Description |
-|-----------|--------|-------------|
-| YAML Configs | Done | Core and service configurations |
-| SQL Schemas | Done | PostgreSQL tables, procedures, views |
-| Docker Compose | Done | Container orchestration |
-| Seed Data | Done | Initial relay lists |
+| Component | Status |
+|-----------|--------|
+| YAML Configs | Done |
+| SQL Schemas | Done |
+| Docker Compose | Done |
+| Seed Data | Done |
 
 ---
 
@@ -64,46 +60,48 @@ The core layer is production-ready and provides the foundation for all services.
 
 ### Unit Tests
 
-| Test File | Tests | Status |
-|-----------|-------|--------|
-| test_pool.py | ~20 | Passing |
-| test_brotr.py | ~15 | Passing |
-| test_initializer.py | ~35 | Passing |
-| test_finder.py | ~38 | Passing |
-| **Total** | **108** | **All Passing** |
+| Test File | Status |
+|-----------|--------|
+| test_pool.py | Passing |
+| test_brotr.py | Passing |
+| test_initializer.py | Passing |
+| test_finder.py | Passing |
+| test_logger.py | Passing |
+| **Total** | **90 tests passing** |
 
 ### Test Command
 
 ```bash
 source .venv/bin/activate
 pytest tests/unit/ -v
-# 108 passed in 0.67s
+# 90 passed in 0.69s
 ```
 
 ---
 
 ## Recent Changes
 
+### 2025-11-30: Architecture Improvements
+
+- Added `run_forever(interval)` to BaseService for continuous operation
+- Added `_load_state()` / `_save_state()` for automatic state persistence
+- Refactored Finder to use single-cycle `run()` pattern
+- Rewrote `__main__.py` CLI from scratch
+- Added `discovery_interval` to FinderConfig
+- Updated all markdown documentation
+
 ### 2025-11-29: Documentation Rewrite
 
 - Rewrote CLAUDE.md with current architecture
 - Rewrote README.md with accurate status
 - Rewrote PROJECT_SPECIFICATION.md v6.0
-- Rewrote PROJECT_STATUS.md (this file)
-
-### 2025-11-29: API Consistency Fixes
-
-- Fixed `__main__.py` to pass `brotr` instead of `pool` to services
-- Fixed `initializer.yaml` key from `seed_relays:` to `seed:`
-- Added `Step` and `Outcome` exports to `core/__init__.py`
-- Updated `services/__init__.py` docstring and imports
+- Rewrote PROJECT_STATUS.md
 
 ### 2025-11-28: Service Refactoring
 
 - Services now receive `Brotr` instead of `Pool`
 - Added `CONFIG_CLASS` attribute for automatic config parsing
-- Moved `Step` and `Outcome` dataclasses to `base_service.py`
-- All 108 tests passing
+- All tests passing
 
 ---
 
@@ -114,20 +112,21 @@ pytest tests/unit/ -v
 | Pattern | Application |
 |---------|-------------|
 | Dependency Injection | Services receive `Brotr` |
-| Composition | Brotr HAS-A pool |
-| Abstract Base Class | `BaseService[StateT]` |
+| Composition | Brotr HAS-A Pool |
+| Abstract Base Class | `BaseService` |
 | Factory Methods | `from_yaml()`, `from_dict()` |
 | CONFIG_CLASS | Automatic config parsing |
+| State Persistence | Auto load/save via context manager |
 
 ### Key Design Decisions
 
-1. **Services receive Brotr, not Pool**: Provides access to both pool operations (`self._pool`) and business logic (`self._brotr`)
+1. **Services receive Brotr, not Pool**: Provides access to both pool operations (`self._brotr.pool`) and business logic (`self._brotr.insert_*`)
 
 2. **CONFIG_CLASS for automatic parsing**: Services define `CONFIG_CLASS` attribute, and `from_dict()` automatically parses YAML into Pydantic model
 
-3. **State persistence via service_state table**: Services save/load state using `SERVICE_NAME` constant
+3. **State persistence via service_state table**: Services save/load state using `SERVICE_NAME` constant, automatically via context manager
 
-4. **Atomic batch commits**: Finder demonstrates pattern of committing data + state in single transaction
+4. **run() is single-cycle**: `run()` executes one cycle, `run_forever(interval)` handles the loop
 
 ---
 
@@ -136,34 +135,33 @@ pytest tests/unit/ -v
 ```
 bigbrotr/
 ├── src/
-│   ├── core/                    # ~1,715 LOC
-│   │   ├── __init__.py          # Exports
-│   │   ├── pool.py              # ~410 LOC
-│   │   ├── brotr.py             # ~413 LOC
-│   │   ├── base_service.py      # ~455 LOC
-│   │   ├── logger.py            # ~331 LOC
-│   │   └── utils.py             # ~106 LOC
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── pool.py
+│   │   ├── brotr.py
+│   │   ├── base_service.py
+│   │   └── logger.py
 │   │
-│   └── services/                # ~1,055 LOC (2/7 done)
+│   └── services/
 │       ├── __init__.py
-│       ├── __main__.py          # CLI entry point
-│       ├── initializer.py       # ~493 LOC (Done)
-│       ├── finder.py            # ~492 LOC (Done)
-│       ├── monitor.py           # ~14 LOC (Pending)
-│       ├── synchronizer.py      # ~14 LOC (Pending)
+│       ├── __main__.py
+│       ├── initializer.py      (Done)
+│       ├── finder.py           (Done)
+│       ├── monitor.py          (Pending)
+│       ├── synchronizer.py     (Pending)
 │       └── ...
 │
 ├── implementations/bigbrotr/
-│   ├── yaml/                    # YAML configurations
-│   ├── postgres/init/           # SQL schemas
+│   ├── yaml/
+│   ├── postgres/init/
 │   └── docker-compose.yaml
 │
-├── tests/unit/                  # 108 tests
+├── tests/unit/                  # 90 tests
 │
-├── CLAUDE.md                    # AI guidance
-├── README.md                    # User documentation
-├── PROJECT_SPECIFICATION.md     # Technical spec
-└── PROJECT_STATUS.md            # This file
+├── CLAUDE.md
+├── README.md
+├── PROJECT_SPECIFICATION.md
+└── PROJECT_STATUS.md
 ```
 
 ---
@@ -182,34 +180,10 @@ bigbrotr/
    - Event subscription
    - Batch storage
 
-### Medium Priority
-
-3. **Priority Synchronizer**: Handle priority relays differently
-4. **Integration Tests**: Test services with real database
-
 ### Phase 3 (Future)
 
-5. **API Service**: REST endpoints for data access
-6. **DVM Service**: Data Vending Machine protocol
-
----
-
-## Metrics
-
-### Code Statistics
-
-| Category | Lines |
-|----------|-------|
-| Core Layer | ~1,715 |
-| Service Layer | ~1,055 |
-| Total Source | ~2,770 |
-| Unit Tests | 108 tests |
-
-### Test Results
-
-```
-============================= 108 passed in 0.67s ==============================
-```
+3. **API Service**: REST endpoints for data access
+4. **DVM Service**: Data Vending Machine protocol
 
 ---
 
@@ -218,7 +192,6 @@ bigbrotr/
 ### Setup
 
 ```bash
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
@@ -238,6 +211,7 @@ pytest --cov=src                   # With coverage
 ```bash
 cd implementations/bigbrotr
 python -m services initializer
+python -m services finder
 python -m services finder --log-level DEBUG
 ```
 
@@ -262,7 +236,6 @@ docker-compose logs -f
 | pyyaml | 6.0.2 | YAML parsing |
 | aiohttp | 3.13.2 | HTTP client |
 | nostr-tools | 1.4.0 | Nostr protocol |
-| python-dotenv | 1.0.1 | Environment |
 
 ### Development
 
@@ -271,14 +244,13 @@ docker-compose logs -f
 | pytest | Testing |
 | pytest-asyncio | Async tests |
 | pytest-cov | Coverage |
-| ruff | Linting |
-| mypy | Type checking |
+| pytest-mock | Mocking |
 
 ---
 
 ## Known Issues
 
-None at this time. All 108 tests passing.
+None at this time. All 90 tests passing.
 
 ---
 
