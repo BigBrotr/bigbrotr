@@ -4,8 +4,9 @@ BigBrotr Services Package.
 Service implementations that build on the core layer:
 - Initializer: Database bootstrap and schema verification
 - Finder: Relay discovery from events and APIs
-- Monitor: Relay health monitoring (pending)
-- Synchronizer: Event synchronization (pending)
+- Monitor: Relay health monitoring
+- Synchronizer: Event synchronization
+- PrioritySynchronizer: Priority-based event synchronization
 
 All services inherit from BaseService for consistent:
 - Logging
@@ -14,7 +15,7 @@ All services inherit from BaseService for consistent:
 
 Example:
     from core import Pool, Brotr
-    from services import Initializer, Finder
+    from services import Initializer, Finder, Monitor, Synchronizer
 
     pool = Pool.from_yaml("config.yaml")
     brotr = Brotr(pool=pool)
@@ -41,6 +42,21 @@ from .initializer import (
     InitializerConfig,
     InitializerError,
 )
+from .monitor import (
+    SERVICE_NAME as MONITOR_SERVICE_NAME,
+    Monitor,
+    MonitorConfig,
+)
+from .synchronizer import (
+    SERVICE_NAME as SYNCHRONIZER_SERVICE_NAME,
+    Synchronizer,
+    SynchronizerConfig,
+)
+from .priority_synchronizer import (
+    SERVICE_NAME as PRIORITY_SYNCHRONIZER_SERVICE_NAME,
+    PrioritySynchronizer,
+    PrioritySynchronizerConfig,
+)
 
 __all__ = [
     # Initializer
@@ -52,4 +68,16 @@ __all__ = [
     "FINDER_SERVICE_NAME",
     "Finder",
     "FinderConfig",
+    # Monitor
+    "MONITOR_SERVICE_NAME",
+    "Monitor",
+    "MonitorConfig",
+    # Synchronizer
+    "SYNCHRONIZER_SERVICE_NAME",
+    "Synchronizer",
+    "SynchronizerConfig",
+    # Priority Synchronizer
+    "PRIORITY_SYNCHRONIZER_SERVICE_NAME",
+    "PrioritySynchronizer",
+    "PrioritySynchronizerConfig",
 ]
