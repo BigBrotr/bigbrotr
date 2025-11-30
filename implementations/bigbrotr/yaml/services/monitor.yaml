@@ -17,10 +17,9 @@ tor:
   port: 9050                 # Tor proxy port (Range: 1 - 65535)
 
 # Nostr keys for NIP-66 write tests (optional)
-# Private key loaded from MONITOR_PRIVATE_KEY environment variable
+# Private key is loaded from MONITOR_PRIVATE_KEY environment variable
 keys:
   public_key: null           # Public key (hex) for write tests
-  private_key: null          # Private key (hex), loaded from env if null
 
 # Timeouts for relay checks (seconds)
 timeouts:
