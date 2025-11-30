@@ -100,7 +100,7 @@ class RawEventBatch:
 # =============================================================================
 
 
-class TorProxyConfig(BaseModel):
+class TorConfig(BaseModel):
     """Tor proxy configuration."""
 
     enabled: bool = Field(default=True, description="Enable Tor proxy for .onion relays")
@@ -132,31 +132,36 @@ class TimeRangeConfig(BaseModel):
     )
 
 
+class TimeoutsConfig(BaseModel):
+    """Timeout configuration for sync operations."""
+
+    request: float = Field(
+        default=30.0, ge=5.0, le=120.0, description="WebSocket request timeout"
+    )
+    relay: float = Field(
+        default=1800.0, ge=60.0, le=7200.0, description="Max time per relay sync"
+    )
+
+
 class ConcurrencyConfig(BaseModel):
     """Concurrency configuration."""
 
-    max_concurrent_relays: int = Field(
+    max_parallel: int = Field(
         default=10, ge=1, le=100, description="Max concurrent relay connections"
-    )
-    request_timeout: float = Field(
-        default=30.0, ge=5.0, le=120.0, description="WebSocket request timeout"
-    )
-    relay_timeout: float = Field(
-        default=1800.0, ge=60.0, le=7200.0, description="Max time per relay sync"
     )
     stagger_delay: tuple[int, int] = Field(
         default=(0, 60), description="Random delay range (min, max) seconds"
     )
 
 
-class RelaySourceConfig(BaseModel):
+class SourceConfig(BaseModel):
     """Configuration for relay source selection."""
 
     from_database: bool = Field(default=True, description="Fetch relays from database")
-    min_metadata_age: int = Field(
+    max_metadata_age: int = Field(
         default=43200,  # 12 hours
         ge=0,
-        description="Minimum age of metadata in seconds"
+        description="Only sync relays checked within N seconds"
     )
     require_readable: bool = Field(default=True, description="Only sync readable relays")
 
@@ -164,14 +169,15 @@ class RelaySourceConfig(BaseModel):
 class SynchronizerConfig(BaseModel):
     """Synchronizer configuration."""
 
-    tor_proxy: TorProxyConfig = Field(default_factory=TorProxyConfig)
-    filter: FilterConfig = Field(default_factory=FilterConfig)
-    time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
-    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
-    relay_source: RelaySourceConfig = Field(default_factory=RelaySourceConfig)
-    sync_interval: float = Field(
+    interval: float = Field(
         default=900.0, ge=60.0, description="Seconds between sync cycles"
     )
+    tor: TorConfig = Field(default_factory=TorConfig)
+    filter: FilterConfig = Field(default_factory=FilterConfig)
+    time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
+    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
+    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
+    source: SourceConfig = Field(default_factory=SourceConfig)
 
 
 # =============================================================================
@@ -237,7 +243,7 @@ class Synchronizer(BaseService):
         random.shuffle(relays)
 
         # Process relays with concurrency limit
-        semaphore = asyncio.Semaphore(self._config.concurrency.max_concurrent_relays)
+        semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel)
 
         async def sync_with_limit(relay: Relay) -> None:
             async with semaphore:
@@ -263,10 +269,10 @@ class Synchronizer(BaseService):
         """Fetch relays to sync from database."""
         relays: list[Relay] = []
 
-        if not self._config.relay_source.from_database:
+        if not self._config.source.from_database:
             return relays
 
-        threshold = int(time.time()) - self._config.relay_source.min_metadata_age
+        threshold = int(time.time()) - self._config.source.max_metadata_age
 
         # Query for relays with recent metadata that are readable
         query = """
@@ -280,7 +286,7 @@ class Synchronizer(BaseService):
             AND rm.generated_at > $1
         """
 
-        if self._config.relay_source.require_readable:
+        if self._config.source.require_readable:
             query += " AND rm.readable = TRUE"
 
         rows = await self._brotr.pool.fetch(query, threshold)
@@ -321,11 +327,11 @@ class Synchronizer(BaseService):
 
         # Create client with optional SOCKS5 proxy for Tor
         socks5_proxy = None
-        if relay.network == "tor" and self._config.tor_proxy.enabled:
-            socks5_proxy = f"socks5://{self._config.tor_proxy.host}:{self._config.tor_proxy.port}"
+        if relay.network == "tor" and self._config.tor.enabled:
+            socks5_proxy = f"socks5://{self._config.tor.host}:{self._config.tor.port}"
 
         try:
-            async with asyncio.timeout(self._config.concurrency.relay_timeout):
+            async with asyncio.timeout(self._config.timeouts.relay):
                 events_synced = await self._process_relay_interval(
                     relay, start_time, end_time, socks5_proxy
                 )
@@ -415,7 +421,7 @@ class Synchronizer(BaseService):
         # Create client using nostr_tools API
         client = Client(
             relay=relay,
-            timeout=int(self._config.concurrency.request_timeout),
+            timeout=int(self._config.timeouts.request),
             socks5_proxy_url=socks5_proxy,
         )
 

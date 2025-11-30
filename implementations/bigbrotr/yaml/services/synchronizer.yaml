@@ -6,8 +6,11 @@
 # Dependencies: Monitor must have checked relays first
 # ============================================================================
 
+# Cycle interval (seconds between sync runs)
+interval: 900.0
+
 # Tor proxy for .onion relays
-tor_proxy:
+tor:
   enabled: true
   host: "tor"
   port: 9050
@@ -15,29 +18,29 @@ tor_proxy:
 # Event filter settings
 # Set to null to accept all values for that field
 filter:
-  ids: null  # null = all ids
-  kinds: null  # null = all kinds
-  authors: null  # null = all authors
-  tags: null  # null = all tags (format: {e: ["..."], p: ["..."]})
-  limit: 500  # Events per request
+  ids: null        # null = all ids
+  kinds: null      # null = all kinds
+  authors: null    # null = all authors
+  tags: null       # null = all tags (format: {e: ["..."], p: ["..."]})
+  limit: 500       # Events per request
 
 # Time range for sync
 time_range:
-  default_start: 0  # Unix timestamp (0 = epoch)
-  use_relay_state: true  # Use per-relay state for incremental sync
+  default_start: 0           # Unix timestamp (0 = epoch)
+  use_relay_state: true      # Use per-relay state for incremental sync
+
+# Timeouts (seconds)
+timeouts:
+  request: 30.0              # WebSocket request timeout
+  relay: 1800.0              # Max time per relay sync (30 min)
 
 # Concurrency settings
 concurrency:
-  max_concurrent_relays: 10  # Max parallel relay connections
-  request_timeout: 30.0  # WebSocket request timeout (seconds)
-  relay_timeout: 1800.0  # Max time per relay sync (30 min)
-  stagger_delay: [0, 60]  # Random delay range to prevent thundering herd
+  max_parallel: 10           # Max parallel relay connections
+  stagger_delay: [0, 60]     # Random delay range [min, max] to prevent thundering herd
 
-# Relay source configuration
-relay_source:
-  from_database: true  # Fetch relays from database
-  min_metadata_age: 43200  # Only sync relays checked within 12 hours
-  require_readable: true  # Only sync relays marked as readable
-
-# Interval between sync cycles (seconds)
-sync_interval: 900.0  # 15 minutes
+# Relay source - which relays to sync from
+source:
+  from_database: true        # Fetch relays from database
+  max_metadata_age: 43200    # Only sync relays checked within N seconds (12 hours)
+  require_readable: true     # Only sync relays marked as readable
