@@ -16,9 +16,11 @@ from services.synchronizer import (
     FilterConfig,
     TimeRangeConfig,
     TimeoutsConfig,
+    NetworkTimeoutsConfig,
     ConcurrencyConfig,
     SourceConfig,
     RawEventBatch,
+    _create_filter,
 )
 
 
@@ -79,8 +81,11 @@ class TestSynchronizerConfig:
         assert config.filter.limit == 500
         assert config.time_range.default_start == 0
         assert config.time_range.use_relay_state is True
-        assert config.timeouts.request == 30.0
-        assert config.timeouts.relay == 1800.0
+        assert config.time_range.lookback_seconds == 86400
+        assert config.timeouts.clearnet.request == 30.0
+        assert config.timeouts.clearnet.relay == 1800.0
+        assert config.timeouts.tor.request == 60.0
+        assert config.timeouts.tor.relay == 3600.0
         assert config.concurrency.max_parallel == 10
         assert config.concurrency.stagger_delay == (0, 60)
         assert config.source.from_database is True
@@ -129,13 +134,15 @@ class TestSynchronizerConfig:
         """Test custom timeouts settings."""
         config = SynchronizerConfig(
             timeouts=TimeoutsConfig(
-                request=60.0,
-                relay=3600.0,
+                clearnet=NetworkTimeoutsConfig(request=60.0, relay=3600.0),
+                tor=NetworkTimeoutsConfig(request=120.0, relay=7200.0),
             )
         )
 
-        assert config.timeouts.request == 60.0
-        assert config.timeouts.relay == 3600.0
+        assert config.timeouts.clearnet.request == 60.0
+        assert config.timeouts.clearnet.relay == 3600.0
+        assert config.timeouts.tor.request == 120.0
+        assert config.timeouts.tor.relay == 7200.0
 
     def test_custom_concurrency(self) -> None:
         """Test custom concurrency settings."""
@@ -232,28 +239,29 @@ class TestFilterConfig:
 
 
 class TestTimeoutsConfig:
-    """Tests for TimeoutsConfig."""
+    """Tests for TimeoutsConfig (network-specific)."""
 
     def test_default_values(self) -> None:
         """Test default timeouts config."""
         config = TimeoutsConfig()
 
-        assert config.request == 30.0
-        assert config.relay == 1800.0
+        # Clearnet defaults
+        assert config.clearnet.request == 30.0
+        assert config.clearnet.relay == 1800.0
+        # Tor defaults (higher)
+        assert config.tor.request == 60.0
+        assert config.tor.relay == 3600.0
 
     def test_validation(self) -> None:
-        """Test validation constraints."""
-        config = TimeoutsConfig(
-            request=5.0,
-            relay=60.0,
-        )
+        """Test validation constraints on NetworkTimeoutsConfig."""
+        config = NetworkTimeoutsConfig(request=5.0, relay=60.0)
         assert config.request == 5.0
 
         with pytest.raises(ValueError):
-            TimeoutsConfig(request=4.0)
+            NetworkTimeoutsConfig(request=4.0)  # Below minimum
 
         with pytest.raises(ValueError):
-            TimeoutsConfig(relay=59.0)
+            NetworkTimeoutsConfig(relay=59.0)  # Below minimum
 
 
 class TestConcurrencyConfig:
@@ -469,8 +477,8 @@ class TestSynchronizer:
 
     def test_create_filter_basic(self, mock_brotr: MagicMock) -> None:
         """Test creating basic filter."""
-        sync = Synchronizer(brotr=mock_brotr)
-        filter_obj = sync._create_filter(since=100, until=200)
+        filter_config = FilterConfig()
+        filter_obj = _create_filter(since=100, until=200, config=filter_config)
 
         assert filter_obj.since == 100
         assert filter_obj.until == 200
@@ -478,16 +486,13 @@ class TestSynchronizer:
 
     def test_create_filter_with_config(self, mock_brotr: MagicMock) -> None:
         """Test creating filter with config values."""
-        config = SynchronizerConfig(
-            filter=FilterConfig(
-                ids=["id1"],
-                kinds=[1, 3],
-                authors=["author1"],
-                limit=100,
-            )
+        filter_config = FilterConfig(
+            ids=["id1"],
+            kinds=[1, 3],
+            authors=["author1"],
+            limit=100,
         )
-        sync = Synchronizer(brotr=mock_brotr, config=config)
-        filter_obj = sync._create_filter(since=100, until=200)
+        filter_obj = _create_filter(since=100, until=200, config=filter_config)
 
         assert filter_obj.ids == ["id1"]
         assert filter_obj.kinds == [1, 3]
