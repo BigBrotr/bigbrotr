@@ -39,8 +39,8 @@ SERVICE_NAME = "finder"
 # =============================================================================
 
 
-class EventScanConfig(BaseModel):
-    """Event scanning configuration (TODO: implement logic)."""
+class EventsConfig(BaseModel):
+    """Event scanning configuration - discovers relay URLs from stored events."""
 
     enabled: bool = Field(default=True, description="Enable event scanning")
 
@@ -54,7 +54,7 @@ class ApiSourceConfig(BaseModel):
 
 
 class ApiConfig(BaseModel):
-    """API fetching configuration."""
+    """API fetching configuration - discovers relay URLs from public APIs."""
 
     enabled: bool = Field(default=True, description="Enable API fetching")
     sources: list[ApiSourceConfig] = Field(
@@ -63,7 +63,7 @@ class ApiConfig(BaseModel):
             ApiSourceConfig(url="https://api.nostr.watch/v1/offline"),
         ]
     )
-    request_delay: float = Field(
+    delay_between_requests: float = Field(
         default=1.0, ge=0.0, le=10.0, description="Delay between API requests"
     )
 
@@ -71,11 +71,11 @@ class ApiConfig(BaseModel):
 class FinderConfig(BaseModel):
     """Finder configuration."""
 
-    event_scan: EventScanConfig = Field(default_factory=EventScanConfig)
-    api: ApiConfig = Field(default_factory=ApiConfig)
-    discovery_interval: float = Field(
+    interval: float = Field(
         default=3600.0, ge=60.0, description="Seconds between discovery cycles"
     )
+    events: EventsConfig = Field(default_factory=EventsConfig)
+    api: ApiConfig = Field(default_factory=ApiConfig)
 
 
 # =============================================================================
@@ -126,7 +126,7 @@ class Finder(BaseService):
         self._found_relays = 0
 
         # Discover relay URLs from event scanning
-        if self._config.event_scan.enabled:
+        if self._config.events.enabled:
             await self._find_from_events()
 
         # Discover relay URLs from APIs
@@ -157,8 +157,8 @@ class Finder(BaseService):
 
                 self._logger.debug("api_fetched", url=source.url, count=len(source_relays))
 
-                if self._config.api.request_delay > 0:
-                    await asyncio.sleep(self._config.api.request_delay)
+                if self._config.api.delay_between_requests > 0:
+                    await asyncio.sleep(self._config.api.delay_between_requests)
 
             except Exception as e:
                 self._logger.warning("api_error", url=source.url, error=str(e))

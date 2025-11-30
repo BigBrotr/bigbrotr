@@ -6,11 +6,15 @@
 # Dependencies: Initializer must complete first
 # ============================================================================
 
-# Event scanning configuration (TODO: implement logic)
-event_scan:
+# Cycle interval (seconds between discovery runs)
+interval: 3600.0
+
+# Event scanning - discovers relay URLs from stored events
+# TODO: implement logic
+events:
   enabled: true
 
-# External API configuration
+# External API - discovers relay URLs from public APIs
 api:
   enabled: true
   sources:
@@ -20,7 +24,4 @@ api:
     - url: https://api.nostr.watch/v1/offline
       enabled: true
       timeout: 30.0
-  request_delay: 1.0
-
-# Discovery cycle interval (seconds)
-discovery_interval: 3600.0
+  delay_between_requests: 1.0
