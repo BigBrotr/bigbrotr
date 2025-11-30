@@ -120,11 +120,11 @@ services:
       - bigbrotr-network
 
     healthcheck:
-      test: ["CMD-SHELL", "curl --socks5 localhost:9050 --socks5-hostname localhost:9050 -s https://check.torproject.org/api/ip | grep -q origin"]
-      interval: 60s
-      timeout: 15s
+      test: ["CMD-SHELL", "nc -z 0.0.0.0 9050 || exit 1"]
+      interval: 30s
+      timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 60s
 
     logging:
       driver: "json-file"
