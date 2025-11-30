@@ -28,6 +28,7 @@ filter:
 time_range:
   default_start: 0           # Unix timestamp (0 = epoch)
   use_relay_state: true      # Use per-relay state for incremental sync
+  lookback_seconds: 86400    # Lookback window in seconds (default: 24h, range: 1h-7d)
 
 # Timeouts (seconds)
 timeouts:
