@@ -61,6 +61,7 @@ class TestInitializerConfig:
         assert config.verification.tables is True
         assert config.verification.procedures is True
         assert config.verification.extensions is True
+        assert config.verification.views is True
         assert config.seed.enabled is True
 
     def test_custom_verification(self) -> None:
@@ -184,6 +185,29 @@ class TestInitializer:
             await initializer._verify_procedures()
 
     @pytest.mark.asyncio
+    async def test_verify_views_success(self, mock_brotr: MagicMock) -> None:
+        """Test successful view verification."""
+        expected_views = ["relay_metadata_latest"]
+        mock_brotr.pool.fetch = AsyncMock(
+            return_value=[{"table_name": v} for v in expected_views]
+        )
+
+        initializer = Initializer(brotr=mock_brotr)
+        # Should not raise
+        await initializer._verify_views()
+
+    @pytest.mark.asyncio
+    async def test_verify_views_missing(self, mock_brotr: MagicMock) -> None:
+        """Test view verification with missing views."""
+        mock_brotr.pool.fetch = AsyncMock(
+            return_value=[]  # Missing relay_metadata_latest
+        )
+
+        initializer = Initializer(brotr=mock_brotr)
+        with pytest.raises(InitializerError, match="Missing views"):
+            await initializer._verify_views()
+
+    @pytest.mark.asyncio
     async def test_run_verification_only(self, mock_brotr: MagicMock) -> None:
         """Test run with verification only (no seed)."""
         # Mock successful verification
@@ -198,6 +222,7 @@ class TestInitializer:
                     "insert_event", "insert_relay", "insert_relay_metadata",
                     "delete_orphan_events", "delete_orphan_nip11", "delete_orphan_nip66",
                 ]],  # Procedures
+                [{"table_name": "relay_metadata_latest"}],  # Views
             ]
         )
 
@@ -214,7 +239,7 @@ class TestInitializer:
 
         config = InitializerConfig(
             seed=SeedConfig(enabled=False),
-            verification=VerificationConfig(tables=False, procedures=False),
+            verification=VerificationConfig(tables=False, procedures=False, views=False),
         )
         initializer = Initializer(brotr=mock_brotr, config=config)
 

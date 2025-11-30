@@ -46,6 +46,7 @@ class VerificationConfig(BaseModel):
     extensions: bool = Field(default=True, description="Verify extensions exist")
     tables: bool = Field(default=True, description="Verify tables exist")
     procedures: bool = Field(default=True, description="Verify procedures exist")
+    views: bool = Field(default=True, description="Verify views exist")
 
 
 class SeedConfig(BaseModel):
@@ -82,6 +83,11 @@ class ExpectedSchemaConfig(BaseModel):
             "delete_orphan_nip66",
         ],
     )
+    views: list[str] = Field(
+        default_factory=lambda: [
+            "relay_metadata_latest",
+        ],
+    )
 
 
 class InitializerConfig(BaseModel):
@@ -108,7 +114,8 @@ class Initializer(BaseService):
     1. PostgreSQL extensions (pgcrypto, btree_gin)
     2. Required tables exist
     3. Stored procedures exist
-    4. Optionally seeds relay URLs from a file
+    4. Required views exist
+    5. Optionally seeds relay URLs from a file
 
     Raises InitializerError if verification fails.
     """
@@ -156,6 +163,10 @@ class Initializer(BaseService):
         # Verify procedures
         if self._config.verification.procedures:
             await self._verify_procedures()
+
+        # Verify views
+        if self._config.verification.views:
+            await self._verify_views()
 
         # Seed relays
         if self._config.seed.enabled:
@@ -222,6 +233,25 @@ class Initializer(BaseService):
             raise InitializerError(f"Missing procedures: {', '.join(sorted(missing))}")
 
         self._logger.info("procedures_verified", count=len(expected))
+
+    async def _verify_views(self) -> None:
+        """Verify required views exist."""
+        expected = set(self._config.expected_schema.views)
+
+        rows = await self._brotr.pool.fetch(
+            """
+            SELECT table_name FROM information_schema.views
+            WHERE table_schema = 'public'
+            """,
+            timeout=self._brotr.config.timeouts.query,
+        )
+        existing = {row["table_name"] for row in rows}
+        missing = expected - existing
+
+        if missing:
+            raise InitializerError(f"Missing views: {', '.join(sorted(missing))}")
+
+        self._logger.info("views_verified", count=len(expected))
 
     # -------------------------------------------------------------------------
     # Seed Data
