@@ -39,7 +39,7 @@ services:
       - bigbrotr-network
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d brotr"]
+      test: ["CMD-SHELL", "pg_isready -U admin -d bigbrotr"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -64,16 +64,19 @@ services:
   # Requires: yaml/core/brotr.pgbouncer.yaml configuration
 
   pgbouncer:
-    image: edoburu/pgbouncer:1.21.0
+    image: edoburu/pgbouncer:latest
     container_name: bigbrotr-pgbouncer
     restart: unless-stopped
 
-    volumes:
-      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
-      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    environment:
+      DATABASE_URL: postgres://admin:${DB_PASSWORD}@postgres:5432/bigbrotr
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 20
+      AUTH_TYPE: scram-sha-256
 
     ports:
-      - "6432:6432"
+      - "6432:5432"
 
     networks:
       - bigbrotr-network
@@ -83,7 +86,7 @@ services:
         condition: service_healthy
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 -U admin"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -263,7 +266,7 @@ networks:
 #    docker-compose up -d
 #
 # 3. Verify:
-#    docker-compose exec postgres psql -U admin -d brotr -c "\dt"
+#    docker-compose exec postgres psql -U admin -d bigbrotr -c "\dt"
 #
 # 4. Logs:
 #    docker-compose logs -f
