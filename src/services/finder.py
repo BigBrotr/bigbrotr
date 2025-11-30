@@ -1,58 +1,52 @@
 """
 Finder Service for BigBrotr.
 
-Discovers Nostr relay URLs from multiple sources:
-- Database events: Scans event content for relay URLs
-- External APIs: Fetches relay lists from nostr.watch etc.
+Discovers Nostr relay URLs from external APIs (nostr.watch and similar).
 
 Usage:
-    # Single discovery cycle
-    finder = Finder(brotr=brotr)
-    async with brotr.pool:
-        result = await finder.run()
+    from core import Brotr
+    from services import Finder
 
-    # Continuous discovery
+    brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
+    finder = Finder.from_yaml("yaml/services/finder.yaml", brotr=brotr)
+
     async with brotr.pool:
         async with finder:
             await finder.run_forever(interval=3600)
+
+TODO: Add event scanning to discover relay URLs from database events.
 """
 
+from __future__ import annotations
+
 import asyncio
-import json
 import time
-from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 import aiohttp
-from nostr_tools import find_ws_urls
-from pydantic import BaseModel, Field, field_validator
+from nostr_tools import Relay, RelayValidationError
+from pydantic import BaseModel, Field
 
-from core.base_service import BaseService, Outcome
+from core.base_service import BaseService
 from core.brotr import Brotr
-from core.logger import validate_log_level
-from core.utils import build_relay_records, load_service_state
-
-from .initializer import InitializerState
 
 
 SERVICE_NAME = "finder"
 
 
-# ============================================================================
+# =============================================================================
 # Configuration
-# ============================================================================
+# =============================================================================
 
 
 class EventScanConfig(BaseModel):
-    """Event scanning configuration."""
+    """Event scanning configuration (TODO: implement logic)."""
 
     enabled: bool = Field(default=True, description="Enable event scanning")
-    batch_size: int = Field(default=1000, ge=100, le=10000, description="Events per batch")
-    max_events_per_cycle: int = Field(default=100000, ge=1000, le=1000000, description="Max per cycle")
 
 
 class ApiSourceConfig(BaseModel):
-    """Single API source."""
+    """Single API source configuration."""
 
     url: str = Field(description="API endpoint URL")
     enabled: bool = Field(default=True, description="Enable this source")
@@ -69,82 +63,33 @@ class ApiConfig(BaseModel):
             ApiSourceConfig(url="https://api.nostr.watch/v1/offline"),
         ]
     )
-    request_delay: float = Field(default=1.0, ge=0.0, le=10.0, description="Delay between requests")
-
-
-class LoggingConfig(BaseModel):
-    """Logging configuration."""
-
-    log_progress: bool = Field(default=True, description="Log progress")
-    log_level: str = Field(default="INFO", description="Log level")
-    progress_interval: int = Field(default=5000, ge=100, le=50000, description="Progress interval")
-
-    @field_validator("log_level")
-    @classmethod
-    def validate_level(cls, v: str) -> str:
-        return validate_log_level(v)
-
-
-class TimeoutsConfig(BaseModel):
-    """Timeout configuration."""
-
-    db_query: float = Field(default=30.0, ge=5.0, le=120.0, description="DB query timeout")
+    request_delay: float = Field(
+        default=1.0, ge=0.0, le=10.0, description="Delay between API requests"
+    )
 
 
 class FinderConfig(BaseModel):
-    """Complete configuration."""
+    """Finder configuration."""
 
     event_scan: EventScanConfig = Field(default_factory=EventScanConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
-    insert_batch_size: int = Field(default=100, ge=10, le=1000, description="Insert batch size")
-    discovery_interval: float = Field(default=3600.0, ge=60.0, le=86400.0, description="Cycle interval")
+    discovery_interval: float = Field(
+        default=3600.0, ge=60.0, description="Seconds between discovery cycles"
+    )
 
 
-# ============================================================================
-# State
-# ============================================================================
-
-
-@dataclass
-class FinderState:
-    """Persistent state."""
-
-    last_seen_at: int = 0  # Watermark for event scanning
-    total_events_processed: int = 0
-    total_relays_found: int = 0
-    last_run_at: int = 0
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "last_seen_at": self.last_seen_at,
-            "total_events_processed": self.total_events_processed,
-            "total_relays_found": self.total_relays_found,
-            "last_run_at": self.last_run_at,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "FinderState":
-        return cls(
-            last_seen_at=data.get("last_seen_at", 0),
-            total_events_processed=data.get("total_events_processed", 0),
-            total_relays_found=data.get("total_relays_found", 0),
-            last_run_at=data.get("last_run_at", 0),
-        )
-
-
-# ============================================================================
+# =============================================================================
 # Service
-# ============================================================================
+# =============================================================================
 
 
-class Finder(BaseService[FinderState]):
+class Finder(BaseService):
     """
     Relay discovery service.
 
-    Discovers Nostr relay URLs from database events and external APIs.
-    Uses watermark-based batch processing for crash consistency.
+    Discovers Nostr relay URLs from external APIs (nostr.watch, etc.).
+
+    TODO: Add event scanning to discover relay URLs from database events.
     """
 
     SERVICE_NAME = SERVICE_NAME
@@ -156,338 +101,107 @@ class Finder(BaseService[FinderState]):
         config: Optional[FinderConfig] = None,
     ) -> None:
         """
-        Initialize service.
+        Initialize the service.
 
         Args:
             brotr: Brotr instance for database operations
-            config: Service configuration
+            config: Service configuration (uses defaults if not provided)
         """
-        super().__init__(brotr=brotr, config=config)
-        self._config: FinderConfig = config or FinderConfig()
-        self._found_urls: set[str] = set()
+        super().__init__(brotr=brotr, config=config or FinderConfig())
+        self._config: FinderConfig
+        self._found_relays: int = 0
 
     # -------------------------------------------------------------------------
     # BaseService Implementation
     # -------------------------------------------------------------------------
 
-    def _create_default_state(self) -> FinderState:
-        return FinderState()
-
-    def _state_from_dict(self, data: dict[str, Any]) -> FinderState:
-        return FinderState.from_dict(data)
-
-    async def health_check(self) -> bool:
-        """Service is healthy if database is connected."""
-        try:
-            result = await self._pool.fetchval(
-                "SELECT 1", timeout=self._config.timeouts.db_query
-            )
-            return result == 1
-        except Exception:
-            return False
-
-    async def run(self) -> Outcome:
+    async def run(self) -> None:
         """
         Run single discovery cycle.
 
-        Returns:
-            Outcome with statistics
+        Discovers relay URLs from configured sources (APIs, event scanning).
+        Call via run_forever() for continuous operation.
         """
-        start_time = time.time()
-        errors: list[str] = []
-        self._found_urls.clear()
+        cycle_start = time.time()
+        self._found_relays = 0
 
-        self._logger.info("run_started")
+        # Discover relay URLs from event scanning
+        if self._config.event_scan.enabled:
+            await self._find_from_events()
 
-        try:
-            # Check initializer completed
-            if not await self._check_initializer():
-                return Outcome(
-                    success=False,
-                    message="Initializer not completed",
-                    duration_s=time.time() - start_time,
-                    errors=["Initializer must complete first"],
-                    metrics={},
-                )
+        # Discover relay URLs from APIs
+        if self._config.api.enabled:
+            await self._find_from_api()
 
-            # Fetch from APIs
-            api_count = 0
-            if self._config.api.enabled:
-                result = await self._fetch_from_apis()
-                api_count = result["sources_checked"]
-                errors.extend(result.get("errors", []))
+        elapsed = time.time() - cycle_start
+        self._logger.info("cycle_completed", found=self._found_relays, duration=round(elapsed, 2))
 
-            # Scan database events
-            events_scanned = 0
-            event_relays_inserted = 0
-            if self._config.event_scan.enabled:
-                result = await self._scan_events()
-                events_scanned = result["events_scanned"]
-                event_relays_inserted = result.get("relays_inserted", 0)
-                errors.extend(result.get("errors", []))
+    async def _find_from_events(self) -> None:
+        """Discover relay URLs from database events."""
+        # TODO: Implement event scanning logic
+        pass
 
-            # Insert API-discovered relays
-            api_relays_inserted = 0
-            if api_count > 0 and self._found_urls:
-                api_relays_inserted = await self._insert_api_relays()
-
-            # Update state
-            self._state.last_run_at = int(time.time())
-            await self._save_state()
-
-            duration = time.time() - start_time
-            success = len(errors) == 0
-
-            self._logger.info(
-                "run_completed",
-                success=success,
-                duration_s=round(duration, 2),
-                relays_found=len(self._found_urls),
-            )
-
-            return Outcome(
-                success=success,
-                message="Discovery completed" if success else "Completed with errors",
-                duration_s=duration,
-                errors=errors,
-                metrics={
-                    "relays_found": len(self._found_urls),
-                    "relays_inserted": event_relays_inserted + api_relays_inserted,
-                    "events_scanned": events_scanned,
-                    "api_sources_checked": api_count,
-                },
-            )
-
-        except Exception as e:
-            error_msg = str(e)
-            self._logger.error("run_failed", error=error_msg)
-            return Outcome(
-                success=False,
-                message=f"Discovery failed: {error_msg}",
-                duration_s=time.time() - start_time,
-                errors=[error_msg],
-                metrics={},
-            )
-
-    # -------------------------------------------------------------------------
-    # Initializer Check
-    # -------------------------------------------------------------------------
-
-    async def _check_initializer(self) -> bool:
-        """Check if initializer has completed."""
-        state_data = await load_service_state(
-            self._pool, "initializer", self._config.timeouts.db_query
-        )
-        if state_data:
-            state = InitializerState.from_dict(state_data)
-            if state.initialized:
-                return True
-
-        self._logger.warning("initializer_not_completed")
-        return False
-
-    # -------------------------------------------------------------------------
-    # API Fetching
-    # -------------------------------------------------------------------------
-
-    async def _fetch_from_apis(self) -> dict[str, Any]:
-        """Fetch relay URLs from APIs."""
+    async def _find_from_api(self) -> None:
+        """Discover relay URLs from external APIs."""
+        relays: dict[str, Relay] = {}
         sources_checked = 0
-        errors: list[str] = []
 
         for source in self._config.api.sources:
             if not source.enabled:
                 continue
 
             try:
-                urls = await self._fetch_api_source(source)
-                self._found_urls.update(urls)
+                source_relays = await self._fetch_single_api(source)
+                relays.update(source_relays)
                 sources_checked += 1
 
-                if self._config.logging.log_progress:
-                    self._logger.debug("api_fetched", url=source.url, count=len(urls))
+                self._logger.debug("api_fetched", url=source.url, count=len(source_relays))
 
                 if self._config.api.request_delay > 0:
                     await asyncio.sleep(self._config.api.request_delay)
 
             except Exception as e:
-                errors.append(f"API {source.url}: {e}")
                 self._logger.warning("api_error", url=source.url, error=str(e))
 
-        return {"sources_checked": sources_checked, "errors": errors}
+        # Insert discovered relays into database (respecting Brotr batch size)
+        if relays:
+            current_time = int(time.time())
+            relay_records = [
+                {"url": r.url, "network": r.network, "inserted_at": current_time}
+                for r in relays.values()
+            ]
 
-    async def _fetch_api_source(self, source: ApiSourceConfig) -> set[str]:
-        """Fetch from single API source."""
-        urls: set[str] = set()
+            batch_size = self._brotr.config.batch.max_batch_size
+            for i in range(0, len(relay_records), batch_size):
+                batch = relay_records[i : i + batch_size]
+                await self._brotr.insert_relays(batch)
 
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(source.url, timeout=aiohttp.ClientTimeout(total=source.timeout)) as resp,
-        ):
-            resp.raise_for_status()
-            data = await resp.json()
+            self._found_relays += len(relays)
 
-            if isinstance(data, list):
-                for item in data:
-                    if isinstance(item, str) and item.startswith("wss://"):
-                        urls.add(item)
+        if sources_checked > 0:
+            self._logger.info("apis_completed", sources=sources_checked, relays=len(relays))
 
-        return urls
+    async def _fetch_single_api(self, source: ApiSourceConfig) -> dict[str, Relay]:
+        """Fetch relay URLs from a single API source."""
+        relays: dict[str, Relay] = {}
 
-    # -------------------------------------------------------------------------
-    # Event Scanning
-    # -------------------------------------------------------------------------
+        timeout = aiohttp.ClientTimeout(total=source.timeout)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(source.url) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
 
-    async def _scan_events(self) -> dict[str, Any]:
-        """Scan events for relay URLs (atomic batch processing)."""
-        events_scanned = 0
-        relays_inserted = 0
-        errors: list[str] = []
+                if isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, str):
+                            try:
+                                relay = Relay(item)
+                                relays[relay.url] = relay
+                            except RelayValidationError:
+                                self._logger.debug("invalid_relay_url", url=item)
+                        else:
+                            self._logger.debug("unexpected_item_type", url=source.url, item=item)
+                else:
+                    self._logger.debug("unexpected_api_response", url=source.url, data=data)
 
-        try:
-            batch_size = self._config.event_scan.batch_size
-            max_events = self._config.event_scan.max_events_per_cycle
-            watermark = self._state.last_seen_at
-
-            while events_scanned < max_events:
-                # Fetch batch
-                query = """
-                    SELECT er.event_id, er.seen_at, e.content
-                    FROM events_relays er
-                    JOIN events e ON e.id = er.event_id
-                    WHERE er.seen_at > $1
-                    ORDER BY er.seen_at ASC
-                    LIMIT $2
-                """
-                rows = await self._pool.fetch(
-                    query, watermark, batch_size,
-                    timeout=self._config.timeouts.db_query
-                )
-
-                if not rows:
-                    break
-
-                # Extract URLs
-                batch_urls: set[str] = set()
-                for row in rows:
-                    content = row.get("content", "")
-                    if content:
-                        try:
-                            urls = find_ws_urls(content)
-                            if urls:
-                                batch_urls.update(urls)
-                        except Exception:
-                            pass
-
-                batch_max_seen_at = max(row["seen_at"] for row in rows)
-
-                # Atomic commit
-                batch_inserted = await self._commit_batch(
-                    batch_urls, batch_max_seen_at, len(rows)
-                )
-                relays_inserted += batch_inserted
-
-                watermark = batch_max_seen_at
-                events_scanned += len(rows)
-                self._found_urls.update(batch_urls)
-
-                # Progress logging
-                if (
-                    self._config.logging.log_progress
-                    and events_scanned % self._config.logging.progress_interval == 0
-                ):
-                    self._logger.debug(
-                        "scan_progress",
-                        events=events_scanned,
-                        relays=len(self._found_urls),
-                    )
-
-        except Exception as e:
-            errors.append(f"Scan error: {e}")
-            self._logger.error("scan_error", error=str(e))
-
-        return {"events_scanned": events_scanned, "relays_inserted": relays_inserted, "errors": errors}
-
-    async def _commit_batch(
-        self, urls: set[str], new_watermark: int, events_count: int
-    ) -> int:
-        """Atomically commit batch: insert relays + update watermark."""
-        inserted = 0
-        current_time = int(time.time())
-        records = build_relay_records(urls, current_time)
-
-        async with self._pool.transaction() as conn:
-            # Insert relays
-            if records:
-                for r in records:
-                    try:
-                        await conn.execute(
-                            "SELECT insert_relay($1, $2, $3)",
-                            r["url"], r["network"], r["inserted_at"],
-                        )
-                        inserted += 1
-                    except Exception:
-                        pass  # Skip duplicates
-
-            # Update state atomically
-            new_total_events = self._state.total_events_processed + events_count
-            new_total_relays = self._state.total_relays_found + inserted
-
-            state_json = json.dumps({
-                "last_seen_at": new_watermark,
-                "total_events_processed": new_total_events,
-                "total_relays_found": new_total_relays,
-                "last_run_at": self._state.last_run_at,
-            })
-
-            await conn.execute(
-                """
-                INSERT INTO service_state (service_name, state, updated_at)
-                VALUES ($1, $2::jsonb, $3)
-                ON CONFLICT (service_name) DO UPDATE SET state = $2::jsonb, updated_at = $3
-                """,
-                SERVICE_NAME, state_json, current_time,
-            )
-
-        # Update in-memory state after commit
-        self._state.last_seen_at = new_watermark
-        self._state.total_events_processed += events_count
-        self._state.total_relays_found += inserted
-
-        return inserted
-
-    # -------------------------------------------------------------------------
-    # API Relay Insertion
-    # -------------------------------------------------------------------------
-
-    async def _insert_api_relays(self) -> int:
-        """Insert API-discovered relays."""
-        if not self._found_urls:
-            return 0
-
-        inserted = 0
-        current_time = int(time.time())
-        batch_size = self._config.insert_batch_size
-        urls_list = list(self._found_urls)
-
-        for i in range(0, len(urls_list), batch_size):
-            batch = urls_list[i : i + batch_size]
-            records = build_relay_records(set(batch), current_time)
-
-            if records:
-                try:
-                    if await self._brotr.insert_relays(records):
-                        inserted += len(records)
-                except Exception as e:
-                    self._logger.warning("api_insert_error", batch=i, error=str(e))
-
-        return inserted
-
-    # -------------------------------------------------------------------------
-    # Properties
-    # -------------------------------------------------------------------------
-
-    @property
-    def config(self) -> FinderConfig:
-        """Get configuration."""
-        return self._config
+        return relays
