@@ -22,7 +22,6 @@ from pydantic import BaseModel, Field
 from .logger import Logger
 from .pool import Pool
 
-
 # ============================================================================
 # Stored Procedure Names (Hardcoded for Security)
 # ============================================================================
@@ -287,10 +286,7 @@ class Brotr:
         self._validate_batch_size(relays, "insert_relays")
 
         async with self.pool.transaction() as conn:
-            params = [
-                (r["url"], r["network"], r["inserted_at"])
-                for r in relays
-            ]
+            params = [(r["url"], r["network"], r["inserted_at"]) for r in relays]
 
             await conn.executemany(
                 f"SELECT {PROC_INSERT_RELAY}($1, $2, $3)",

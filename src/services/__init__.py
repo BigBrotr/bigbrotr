@@ -32,42 +32,50 @@ Example:
 
 from .finder import (
     SERVICE_NAME as FINDER_SERVICE_NAME,
+)
+from .finder import (
     Finder,
     FinderConfig,
 )
 from .initializer import (
     SERVICE_NAME as INITIALIZER_SERVICE_NAME,
+)
+from .initializer import (
     Initializer,
     InitializerConfig,
     InitializerError,
 )
 from .monitor import (
     SERVICE_NAME as MONITOR_SERVICE_NAME,
+)
+from .monitor import (
     Monitor,
     MonitorConfig,
 )
 from .synchronizer import (
     SERVICE_NAME as SYNCHRONIZER_SERVICE_NAME,
+)
+from .synchronizer import (
     Synchronizer,
     SynchronizerConfig,
 )
 
 __all__ = [
+    # Finder
+    "FINDER_SERVICE_NAME",
     # Initializer
     "INITIALIZER_SERVICE_NAME",
+    # Monitor
+    "MONITOR_SERVICE_NAME",
+    # Synchronizer
+    "SYNCHRONIZER_SERVICE_NAME",
+    "Finder",
+    "FinderConfig",
     "Initializer",
     "InitializerConfig",
     "InitializerError",
-    # Finder
-    "FINDER_SERVICE_NAME",
-    "Finder",
-    "FinderConfig",
-    # Monitor
-    "MONITOR_SERVICE_NAME",
     "Monitor",
     "MonitorConfig",
-    # Synchronizer
-    "SYNCHRONIZER_SERVICE_NAME",
     "Synchronizer",
     "SynchronizerConfig",
 ]

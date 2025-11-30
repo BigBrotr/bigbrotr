@@ -154,10 +154,14 @@ select = [
 ignore = [
     "E501",   # line too long (handled by formatter)
     "PLR0911", # too many return statements (acceptable for complex logic)
+    "PLR0912", # too many branches (acceptable for complex logic)
     "PLR0913", # too many arguments
     "PLR2004", # magic value comparison
+    "PLW0603", # global statement (required for multiprocess worker state)
+    "PLW2901", # loop variable overwritten (common pattern for line processing)
     "ARG001", # unused function argument (common in protocols)
     "ARG002", # unused method argument
+    "SIM102", # nested if (sometimes more readable)
     "SIM105", # contextlib.suppress doesn't work with async/await
 ]
 

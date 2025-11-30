@@ -23,14 +23,15 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from nostr_tools import Relay, RelayValidationError
 from pydantic import BaseModel, Field
 
 from core.base_service import BaseService
-from core.brotr import Brotr
 
+if TYPE_CHECKING:
+    from core.brotr import Brotr
 
 SERVICE_NAME = "initializer"
 
@@ -126,7 +127,7 @@ class Initializer(BaseService):
     def __init__(
         self,
         brotr: Brotr,
-        config: Optional[InitializerConfig] = None,
+        config: InitializerConfig | None = None,
     ) -> None:
         """
         Initialize the service.
@@ -276,11 +277,13 @@ class Initializer(BaseService):
                     continue
                 try:
                     relay = Relay(line)
-                    relays.append({
-                        "url": relay.url,
-                        "network": relay.network,
-                        "inserted_at": current_time,
-                    })
+                    relays.append(
+                        {
+                            "url": relay.url,
+                            "network": relay.network,
+                            "inserted_at": current_time,
+                        }
+                    )
                 except RelayValidationError:
                     pass
 

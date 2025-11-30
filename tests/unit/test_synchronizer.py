@@ -6,20 +6,21 @@ import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from nostr_tools import Relay
 
 from core.brotr import Brotr, BrotrConfig
 from core.pool import Pool
 from services.synchronizer import (
+    ConcurrencyConfig,
+    FilterConfig,
+    NetworkTimeoutsConfig,
+    RawEventBatch,
+    SourceConfig,
     Synchronizer,
     SynchronizerConfig,
-    TorConfig,
-    FilterConfig,
-    TimeRangeConfig,
     TimeoutsConfig,
-    NetworkTimeoutsConfig,
-    ConcurrencyConfig,
-    SourceConfig,
-    RawEventBatch,
+    TimeRangeConfig,
+    TorConfig,
     _create_filter,
 )
 
@@ -95,9 +96,7 @@ class TestSynchronizerConfig:
 
     def test_custom_tor(self) -> None:
         """Test custom Tor proxy settings."""
-        config = SynchronizerConfig(
-            tor=TorConfig(enabled=False, host="tor", port=9150)
-        )
+        config = SynchronizerConfig(tor=TorConfig(enabled=False, host="tor", port=9150))
 
         assert config.tor.enabled is False
         assert config.tor.host == "tor"
@@ -366,13 +365,9 @@ class TestSynchronizer:
         assert relays == []
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_from_database_disabled(
-        self, mock_brotr: MagicMock
-    ) -> None:
+    async def test_fetch_relays_from_database_disabled(self, mock_brotr: MagicMock) -> None:
         """Test fetching relays when database source is disabled."""
-        config = SynchronizerConfig(
-            source=SourceConfig(from_database=False)
-        )
+        config = SynchronizerConfig(source=SourceConfig(from_database=False))
         sync = Synchronizer(brotr=mock_brotr, config=config)
         relays = await sync._fetch_relays()
 
@@ -437,7 +432,6 @@ class TestSynchronizer:
         sync = Synchronizer(brotr=mock_brotr, config=config)
 
         # Mock relay
-        from nostr_tools import Relay
         relay = Relay("wss://test.relay.com")
 
         start_time = await sync._get_start_time(relay)
@@ -446,7 +440,6 @@ class TestSynchronizer:
     @pytest.mark.asyncio
     async def test_get_start_time_from_state(self, mock_brotr: MagicMock) -> None:
         """Test get start time from persisted state."""
-        from nostr_tools import Relay
         relay = Relay("wss://test.relay.com")
 
         sync = Synchronizer(brotr=mock_brotr)
@@ -469,7 +462,6 @@ class TestSynchronizer:
         sync = Synchronizer(brotr=mock_brotr)
         sync._state = {}
 
-        from nostr_tools import Relay
         relay = Relay("wss://test.relay.com")
 
         start_time = await sync._get_start_time(relay)

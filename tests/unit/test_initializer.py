@@ -13,7 +13,6 @@ from services.initializer import (
     Initializer,
     InitializerConfig,
     InitializerError,
-    SchemaConfig,
     SeedConfig,
     VerifyConfig,
 )
@@ -66,9 +65,7 @@ class TestInitializerConfig:
 
     def test_custom_verify(self) -> None:
         """Test custom verify settings."""
-        config = InitializerConfig(
-            verify=VerifyConfig(tables=False, procedures=False)
-        )
+        config = InitializerConfig(verify=VerifyConfig(tables=False, procedures=False))
 
         assert config.verify.tables is False
         assert config.verify.procedures is False
@@ -76,9 +73,7 @@ class TestInitializerConfig:
 
     def test_custom_seed(self) -> None:
         """Test custom seed settings."""
-        config = InitializerConfig(
-            seed=SeedConfig(enabled=False, file_path="custom/path.txt")
-        )
+        config = InitializerConfig(seed=SeedConfig(enabled=False, file_path="custom/path.txt"))
 
         assert config.seed.enabled is False
         assert config.seed.file_path == "custom/path.txt"
@@ -136,12 +131,15 @@ class TestInitializer:
     async def test_verify_tables_success(self, mock_brotr: MagicMock) -> None:
         """Test successful table verification."""
         expected_tables = [
-            "relays", "events", "events_relays", "nip11", "nip66",
-            "relay_metadata", "service_state",
+            "relays",
+            "events",
+            "events_relays",
+            "nip11",
+            "nip66",
+            "relay_metadata",
+            "service_state",
         ]
-        mock_brotr.pool.fetch = AsyncMock(
-            return_value=[{"table_name": t} for t in expected_tables]
-        )
+        mock_brotr.pool.fetch = AsyncMock(return_value=[{"table_name": t} for t in expected_tables])
 
         initializer = Initializer(brotr=mock_brotr)
         # Should not raise
@@ -162,8 +160,12 @@ class TestInitializer:
     async def test_verify_procedures_success(self, mock_brotr: MagicMock) -> None:
         """Test successful procedure verification."""
         expected_procs = [
-            "insert_event", "insert_relay", "insert_relay_metadata",
-            "delete_orphan_events", "delete_orphan_nip11", "delete_orphan_nip66",
+            "insert_event",
+            "insert_relay",
+            "insert_relay_metadata",
+            "delete_orphan_events",
+            "delete_orphan_nip11",
+            "delete_orphan_nip66",
         ]
         mock_brotr.pool.fetch = AsyncMock(
             return_value=[{"routine_name": p} for p in expected_procs]
@@ -188,9 +190,7 @@ class TestInitializer:
     async def test_verify_views_success(self, mock_brotr: MagicMock) -> None:
         """Test successful view verification."""
         expected_views = ["relay_metadata_latest"]
-        mock_brotr.pool.fetch = AsyncMock(
-            return_value=[{"table_name": v} for v in expected_views]
-        )
+        mock_brotr.pool.fetch = AsyncMock(return_value=[{"table_name": v} for v in expected_views])
 
         initializer = Initializer(brotr=mock_brotr)
         # Should not raise
@@ -214,14 +214,29 @@ class TestInitializer:
         mock_brotr.pool.fetch = AsyncMock(
             side_effect=[
                 [{"extname": "pgcrypto"}, {"extname": "btree_gin"}],  # Extensions
-                [{"table_name": t} for t in [
-                    "relays", "events", "events_relays", "nip11", "nip66",
-                    "relay_metadata", "service_state",
-                ]],  # Tables
-                [{"routine_name": p} for p in [
-                    "insert_event", "insert_relay", "insert_relay_metadata",
-                    "delete_orphan_events", "delete_orphan_nip11", "delete_orphan_nip66",
-                ]],  # Procedures
+                [
+                    {"table_name": t}
+                    for t in [
+                        "relays",
+                        "events",
+                        "events_relays",
+                        "nip11",
+                        "nip66",
+                        "relay_metadata",
+                        "service_state",
+                    ]
+                ],  # Tables
+                [
+                    {"routine_name": p}
+                    for p in [
+                        "insert_event",
+                        "insert_relay",
+                        "insert_relay_metadata",
+                        "delete_orphan_events",
+                        "delete_orphan_nip11",
+                        "delete_orphan_nip66",
+                    ]
+                ],  # Procedures
                 [{"table_name": "relay_metadata_latest"}],  # Views
             ]
         )
@@ -249,9 +264,7 @@ class TestInitializer:
     @pytest.mark.asyncio
     async def test_seed_relays_file_not_found(self, mock_brotr: MagicMock) -> None:
         """Test seeding with non-existent seed file."""
-        config = InitializerConfig(
-            seed=SeedConfig(file_path="nonexistent/file.txt")
-        )
+        config = InitializerConfig(seed=SeedConfig(file_path="nonexistent/file.txt"))
         initializer = Initializer(brotr=mock_brotr, config=config)
 
         # Should not raise, just return early

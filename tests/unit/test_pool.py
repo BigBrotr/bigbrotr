@@ -232,9 +232,7 @@ class TestPoolConnect:
             mock_create.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_connect_already_connected(
-        self, mock_connection_pool: Pool
-    ) -> None:
+    async def test_connect_already_connected(self, mock_connection_pool: Pool) -> None:
         """Test connect when already connected is idempotent."""
         # Already connected, should not reconnect
         with patch("asyncpg.create_pool", new_callable=AsyncMock) as mock_create:
@@ -383,9 +381,7 @@ class TestAcquireHealthy:
 
         # All connections fail health check
         mock_conn = MagicMock()
-        mock_conn.fetchval = AsyncMock(
-            side_effect=asyncpg.PostgresConnectionError("Always fails")
-        )
+        mock_conn.fetchval = AsyncMock(side_effect=asyncpg.PostgresConnectionError("Always fails"))
 
         mock_asyncpg_pool = MagicMock()
         mock_asyncpg_pool.acquire = AsyncMock(return_value=mock_conn)
