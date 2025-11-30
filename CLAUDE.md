@@ -4,13 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-BigBrotr is a modular, production-grade Nostr data archiving and monitoring system built on Python and PostgreSQL. It uses a three-layer architecture (Core, Service, Implementation) with dependency injection, making the codebase highly testable and maintainable.
+BigBrotr is a modular Nostr data archiving and monitoring system built on Python and PostgreSQL. It uses a three-layer architecture (Core, Service, Implementation) with dependency injection.
 
-**Current Status**: Core layer complete, service layer in progress
-- **Core layer** (`src/core/`): 4 components production-ready
-- **Service layer** (`src/services/`): 2/7 services implemented (Initializer, Finder)
-- **Unit tests**: 90 tests passing
+**Current Status**: In Development
+- **Core layer** (`src/core/`): 4 components functional (~1,090 lines)
+- **Service layer** (`src/services/`): 4/6 services (Initializer, Finder partial, Monitor, Synchronizer)
+- **Unit tests**: 174 passing (~3,500 lines)
 - **Primary branch**: `develop` (create PRs to `main`)
+
+**Known Incomplete Features**:
+- Finder: `_find_from_events()` is empty (TODO)
+- API service: stub file only
+- DVM service: stub file only
+- No database backup strategy
+- No integration tests
 
 ## Common Commands
 
@@ -19,21 +26,18 @@ BigBrotr is a modular, production-grade Nostr data archiving and monitoring syst
 # Install dependencies
 pip install -r requirements.txt
 
-# Set up environment (requires PostgreSQL)
+# Set up environment
 cp implementations/bigbrotr/.env.example implementations/bigbrotr/.env
 nano implementations/bigbrotr/.env  # Set DB_PASSWORD
 
 # Run with Docker Compose
 cd implementations/bigbrotr
 docker-compose up -d
-
-# Verify database
-docker-compose exec postgres psql -U admin -d bigbrotr -c "\dt"
 ```
 
 ### Testing
 ```bash
-# Create virtual environment (recommended)
+# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
@@ -45,7 +49,7 @@ pytest tests/unit/ -v
 pytest tests/unit/ --cov=src --cov-report=html
 
 # Run specific test file
-pytest tests/unit/test_pool.py -v
+pytest tests/unit/test_synchronizer.py -v
 
 # Run tests matching pattern
 pytest -k "health_check" -v
@@ -53,63 +57,53 @@ pytest -k "health_check" -v
 
 ### Running Services
 ```bash
-# Run services via CLI (from implementations/bigbrotr/)
+# From implementations/bigbrotr/
 cd implementations/bigbrotr
 python -m services initializer
 python -m services finder
+python -m services monitor
+python -m services synchronizer
 python -m services finder --log-level DEBUG
 python -m services finder --config yaml/services/finder.yaml
 ```
 
-### Database Operations
-```bash
-# Initialize database with SQL schemas (apply in numerical order)
-cd implementations/bigbrotr/postgres/init
-psql -U admin -d bigbrotr -f 00_extensions.sql
-psql -U admin -d bigbrotr -f 01_utility_functions.sql
-psql -U admin -d bigbrotr -f 02_tables.sql
-psql -U admin -d bigbrotr -f 03_indexes.sql
-psql -U admin -d bigbrotr -f 04_integrity_functions.sql
-psql -U admin -d bigbrotr -f 05_procedures.sql
-psql -U admin -d bigbrotr -f 06_views.sql
-psql -U admin -d bigbrotr -f 99_verify.sql
-```
-
 ## Architecture
 
-### Three-Layer Design Philosophy
+### Three-Layer Design
 
 ```
 Implementation Layer (implementations/bigbrotr/)
-          ↑ Uses (YAML configs, SQL schemas)
+    YAML configs, SQL schemas, Docker, seed data
+          ↑ Uses
 Service Layer (src/services/)
-          ↑ Leverages (Initializer, Finder - others PENDING)
+    Initializer [DONE], Finder [PARTIAL], Monitor [DONE], Synchronizer [DONE]
+    API [NOT IMPL], DVM [NOT IMPL]
+          ↑ Leverages
 Core Layer (src/core/)
-          PRODUCTION READY (Pool, Brotr, BaseService, Logger)
+    Pool, Brotr, BaseService, Logger [ALL DONE]
 ```
 
-**Key Principle**: Core layer is implementation-agnostic and reusable. Services compose core components via dependency injection. Implementations customize behavior via YAML configuration.
+**Key Principle**: Core layer is implementation-agnostic. Services compose core components via dependency injection. Implementations customize behavior via YAML configuration.
 
 ### Core Components
 
-| Component | Purpose |
-|-----------|---------|
-| **Pool** | PostgreSQL connection pooling with asyncpg, retry logic, health checks |
-| **Brotr** | Database interface with stored procedure wrappers, bulk inserts |
-| **BaseService** | Abstract base class with lifecycle, state persistence, run_forever() |
-| **Logger** | Structured logging wrapper |
+| Component | Purpose | Lines |
+|-----------|---------|-------|
+| **Pool** | PostgreSQL connection pooling with asyncpg, retry logic | ~410 |
+| **Brotr** | Database interface with stored procedure wrappers | ~430 |
+| **BaseService** | Abstract base class with lifecycle, state persistence | ~200 |
+| **Logger** | Structured logging wrapper | ~50 |
 
-### Service Layer (2/7 Complete)
+### Service Layer Status
 
 | Service | Status | Description |
 |---------|--------|-------------|
-| **Initializer** | Complete | Database bootstrap, schema verification, seed data |
-| **Finder** | Complete | Relay discovery from APIs |
-| Monitor | Stub | Relay health monitoring |
-| Synchronizer | Stub | Event synchronization |
-| Priority Synchronizer | Stub | Priority-based sync |
-| API | Stub | REST API |
-| DVM | Stub | NIP-90 Data Vending Machine |
+| **Initializer** | Done | Database bootstrap, schema verification, seed data |
+| **Finder** | Partial | API discovery works; `_find_from_events()` is TODO |
+| **Monitor** | Done | NIP-11/NIP-66 health checking with Tor support |
+| **Synchronizer** | Done | Multicore event sync via aiomultiprocess |
+| API | Not implemented | Stub file only |
+| DVM | Not implemented | Stub file only |
 
 ### Design Patterns
 
@@ -119,185 +113,91 @@ Core Layer (src/core/)
 | **Composition** | Brotr HAS-A Pool |
 | **Template Method** | `BaseService.run_forever()` calls `run()` |
 | **Factory Method** | `from_yaml()`, `from_dict()` |
-| **Abstract Base Class** | `BaseService` |
+| **Context Manager** | `async with brotr:`, `async with service:` |
 
-### BaseService Architecture
+## Configuration
 
-```python
-class BaseService(ABC):
-    SERVICE_NAME: str                    # Unique identifier
-    CONFIG_CLASS: type[BaseModel]        # For auto config parsing
-
-    # Core attributes
-    _brotr: Brotr                        # Database interface
-    _config: BaseModel                   # Pydantic config
-    _state: dict[str, Any]               # Persisted state
-    _is_running: bool                    # Lifecycle flag
-    _shutdown_event: asyncio.Event       # For graceful shutdown
-
-    # Abstract (must implement)
-    async def run(self) -> None          # Single cycle logic
-
-    # Provided methods
-    async def run_forever(interval)      # Continuous operation loop
-    async def health_check() -> bool     # Database connectivity check
-    def request_shutdown()               # Sync-safe shutdown trigger
-    async def wait(timeout) -> bool      # Interruptible sleep
-    async def _load_state()              # Load from service_state table
-    async def _save_state()              # Save to service_state table
-
-    # Context manager
-    async with service:                  # Calls _load_state on enter, _save_state on exit
-```
-
-## Configuration System
-
-### YAML-Based Configuration
-- **Core**: `yaml/core/brotr.yaml` (includes pool config under `pool:` key)
+### YAML Configuration
+- **Core**: `yaml/core/brotr.yaml` (pool config under `pool:` key)
 - **Services**: `yaml/services/<service>.yaml`
+
+**Note**: Stored procedure names are hardcoded in `src/core/brotr.py` for security (not configurable).
+
+### Environment Variables
+- `DB_PASSWORD`: Database password (**required**)
+- `MONITOR_PRIVATE_KEY`: Nostr key for NIP-66 write tests (optional)
 
 ### Service Configuration Pattern
 
 ```python
-class Finder(BaseService):
-    SERVICE_NAME = "finder"
-    CONFIG_CLASS = FinderConfig  # Pydantic model
+class MyService(BaseService[MyServiceConfig]):
+    SERVICE_NAME = "myservice"
+    CONFIG_CLASS = MyServiceConfig  # Pydantic model
 
-    def __init__(self, brotr: Brotr, config: Optional[FinderConfig] = None):
-        super().__init__(brotr=brotr, config=config or FinderConfig())
+    def __init__(self, brotr: Brotr, config: MyServiceConfig | None = None):
+        super().__init__(brotr=brotr, config=config or MyServiceConfig())
 ```
 
 Factory methods use `CONFIG_CLASS` automatically:
 ```python
-finder = Finder.from_yaml("yaml/services/finder.yaml", brotr=brotr)
-finder = Finder.from_dict(data, brotr=brotr)
+service = MyService.from_yaml("yaml/services/myservice.yaml", brotr=brotr)
 ```
-
-### Configuration Examples
-
-**Initializer** (`yaml/services/initializer.yaml`):
-```yaml
-verification:
-  extensions: true
-  tables: true
-  procedures: true
-
-seed:
-  enabled: true
-  path: data/seed_relays.txt
-  batch_size: 100
-```
-
-**Finder** (`yaml/services/finder.yaml`):
-```yaml
-event_scan:
-  enabled: true
-  batch_size: 1000
-
-api:
-  enabled: true
-  sources:
-    - url: https://api.nostr.watch/v1/online
-      enabled: true
-      timeout: 30.0
-    - url: https://api.nostr.watch/v1/offline
-      enabled: true
-      timeout: 30.0
-  request_delay: 1.0
-
-discovery_interval: 3600.0
-```
-
-### Environment Variables
-- `DB_PASSWORD`: Database password (**required**, loaded by Pool)
 
 ## Working with the Codebase
 
 ### Adding New Services
 
-1. Create service file in `src/services/`
-2. Inherit from `BaseService`
-3. Set `SERVICE_NAME` and `CONFIG_CLASS` class attributes
-4. Implement `run()` method
-5. Create YAML config in `implementations/bigbrotr/yaml/services/`
-6. Add runner to `SERVICE_RUNNERS` in `src/services/__main__.py`
-7. Export from `src/services/__init__.py`
+1. Create `src/services/myservice.py`:
 
-Example:
 ```python
 from pydantic import BaseModel, Field
 from core.base_service import BaseService
 from core.brotr import Brotr
 
-SERVICE_NAME = "monitor"
+SERVICE_NAME = "myservice"
 
-class MonitorConfig(BaseModel):
-    check_interval: float = Field(default=300.0)
+class MyServiceConfig(BaseModel):
+    interval: float = Field(default=300.0, ge=60.0)
 
-class Monitor(BaseService):
+class MyService(BaseService[MyServiceConfig]):
     SERVICE_NAME = SERVICE_NAME
-    CONFIG_CLASS = MonitorConfig
+    CONFIG_CLASS = MyServiceConfig
 
-    def __init__(self, brotr: Brotr, config: Optional[MonitorConfig] = None):
-        super().__init__(brotr=brotr, config=config or MonitorConfig())
-        self._config: MonitorConfig
+    def __init__(self, brotr: Brotr, config: MyServiceConfig | None = None):
+        super().__init__(brotr=brotr, config=config or MyServiceConfig())
+        self._config: MyServiceConfig
 
     async def run(self) -> None:
-        # Single cycle logic here
+        """Single cycle logic."""
         pass
 ```
 
-### Database Schema
+2. Create YAML config in `implementations/bigbrotr/yaml/services/myservice.yaml`
+3. Register in `src/services/__main__.py` (add to `SERVICE_REGISTRY`)
+4. Export from `src/services/__init__.py`
 
-SQL files in `implementations/bigbrotr/postgres/init/` (apply in order):
-
-1. `00_extensions.sql` - pgcrypto, btree_gin
-2. `01_utility_functions.sql` - tags_to_tagvalues, hash functions
-3. `02_tables.sql` - relays, events, events_relays, nip11, nip66, relay_metadata, service_state
-4. `03_indexes.sql` - Performance indexes
-5. `04_integrity_functions.sql` - delete_orphan_* functions
-6. `05_procedures.sql` - insert_event, insert_relay, insert_relay_metadata
-7. `06_views.sql` - relay_metadata_latest, statistics views
-8. `99_verify.sql` - Schema validation
-
-### Key Tables
-
-| Table | Purpose |
-|-------|---------|
-| `relays` | Known relay URLs with network type |
-| `events` | Nostr events (BYTEA IDs) |
-| `events_relays` | Event-relay junction with seen_at |
-| `nip11` | Deduplicated NIP-11 info documents |
-| `nip66` | Deduplicated NIP-66 test results |
-| `relay_metadata` | Time-series metadata snapshots |
-| `service_state` | Service state persistence (JSONB) |
-
-## Testing
-
-**Test Files**:
-- `tests/unit/test_pool.py` - Pool tests
-- `tests/unit/test_brotr.py` - Brotr tests
-- `tests/unit/test_initializer.py` - Initializer tests
-- `tests/unit/test_finder.py` - Finder tests
-- `tests/unit/test_logger.py` - Logger tests
-
-**Running Tests**:
-```bash
-pytest tests/unit/ -v              # All tests
-pytest tests/unit/ -q              # Quiet mode
-pytest --cov=src                   # With coverage
-pytest -k "health_check"           # Pattern matching
-```
-
-## Important Implementation Details
-
-### Services Receive Brotr
+### BaseService Interface
 
 ```python
-class Finder(BaseService):
-    def __init__(self, brotr: Brotr, config: Optional[FinderConfig] = None):
-        super().__init__(brotr=brotr, config=config or FinderConfig())
-        # Access pool via self._brotr.pool
+class BaseService(ABC, Generic[ConfigT]):
+    SERVICE_NAME: str                    # Unique identifier
+    CONFIG_CLASS: type[ConfigT]          # For auto config parsing
+
+    _brotr: Brotr                        # Database interface
+    _config: ConfigT                     # Pydantic config
+    _state: dict[str, Any]               # Persisted state (JSONB)
+
+    # Abstract (must implement)
+    async def run(self) -> None          # Single cycle logic
+
+    # Provided methods
+    async def run_forever(interval)      # Continuous loop
+    async def health_check() -> bool     # Database connectivity
+    def request_shutdown()               # Sync-safe shutdown trigger
+    async def wait(timeout) -> bool      # Interruptible sleep
+
+    # Context manager
+    async with service:                  # Calls _load_state on enter, _save_state on exit
 ```
 
 ### State Persistence
@@ -305,7 +205,7 @@ class Finder(BaseService):
 State is automatically loaded/saved via context manager:
 
 ```python
-async with brotr.pool:
+async with brotr:
     async with finder:  # _load_state() called here
         await finder.run_forever(interval=3600)
     # _save_state() called here
@@ -314,17 +214,7 @@ async with brotr.pool:
 Access state dict directly:
 ```python
 self._state["last_run_at"] = int(time.time())
-self._state["total_count"] = self._state.get("total_count", 0) + new_count
-```
-
-### Context Manager Usage
-
-```python
-async with brotr.pool:
-    async with service:
-        await service.run()           # One-shot
-        # or
-        await service.run_forever(interval=3600)  # Continuous
+self._state["total_count"] = self._state.get("total_count", 0) + count
 ```
 
 ### Graceful Shutdown
@@ -338,36 +228,64 @@ if await self.wait(60):  # Returns True if shutdown requested
     return
 ```
 
+## Database Schema
+
+SQL files in `implementations/bigbrotr/postgres/init/` (apply in numerical order):
+
+| File | Purpose |
+|------|---------|
+| `00_extensions.sql` | pgcrypto, btree_gin |
+| `01_utility_functions.sql` | tags_to_tagvalues, hash functions |
+| `02_tables.sql` | All tables |
+| `03_indexes.sql` | Performance indexes |
+| `04_integrity_functions.sql` | delete_orphan_* functions |
+| `05_procedures.sql` | insert_event, insert_relay, insert_relay_metadata |
+| `06_views.sql` | Statistics and metadata views |
+| `99_verify.sql` | Schema validation |
+
+### Key Tables
+
+| Table | Purpose |
+|-------|---------|
+| `relays` | Known relay URLs with network type |
+| `events` | Nostr events (BYTEA IDs for 50% space savings) |
+| `events_relays` | Event-relay junction with seen_at |
+| `nip11` | Deduplicated NIP-11 documents |
+| `nip66` | Deduplicated NIP-66 test results |
+| `relay_metadata` | Time-series metadata snapshots |
+| `service_state` | Service state persistence (JSONB) |
+
 ## Project Structure
 
 ```
 src/
 ├── core/
 │   ├── __init__.py          # Exports: Pool, Brotr, BaseService, Logger
-│   ├── pool.py              # PostgreSQL connection pool
-│   ├── brotr.py             # Database interface
-│   ├── base_service.py      # Abstract service base class
-│   └── logger.py            # Logging wrapper
+│   ├── pool.py              # PostgreSQL connection pool (~410 lines)
+│   ├── brotr.py             # Database interface (~430 lines)
+│   ├── base_service.py      # Abstract service base (~200 lines)
+│   └── logger.py            # Logging wrapper (~50 lines)
 │
 ├── services/
-│   ├── __init__.py          # Exports: Initializer, Finder, configs
+│   ├── __init__.py          # Service exports
 │   ├── __main__.py          # CLI entry point
-│   ├── initializer.py       # Schema verification, seeding
-│   ├── finder.py            # Relay discovery
-│   └── ...                  # Stub services
+│   ├── initializer.py       # Schema verification, seeding (~310 lines)
+│   ├── finder.py            # Relay discovery (~220 lines)
+│   ├── monitor.py           # Health monitoring (~400 lines)
+│   ├── synchronizer.py      # Event sync (~740 lines)
+│   ├── api.py               # NOT IMPLEMENTED (stub)
+│   └── dvm.py               # NOT IMPLEMENTED (stub)
 
 implementations/bigbrotr/
 ├── yaml/
 │   ├── core/brotr.yaml      # Pool + Brotr config
 │   └── services/            # Service configs
-├── postgres/
-│   ├── init/                # SQL schemas (00-99)
-│   └── postgresql.conf      # PostgreSQL config
-├── pgbouncer/               # PGBouncer config
+├── postgres/init/           # SQL schemas (00-99)
+├── data/seed_relays.txt     # 8,865 seed relay URLs
 ├── docker-compose.yaml
-└── .env                     # DB_PASSWORD
+└── .env.example
 
-tests/unit/                  # 90 unit tests
+tests/unit/                  # 174 unit tests
 ```
 
 ## Git Workflow
@@ -380,12 +298,13 @@ tests/unit/                  # 90 unit tests
 ## Technology Stack
 
 - **Python 3.9+**
-- **PostgreSQL 14+** with PGBouncer
+- **PostgreSQL 16+** with PGBouncer
 - **asyncpg 0.30.0** - Async PostgreSQL driver
 - **Pydantic 2.10.4** - Configuration validation
 - **aiohttp 3.13.2** - Async HTTP client
-- **nostr-tools 1.4.0** - Nostr protocol library
-- **Docker + Docker Compose**
+- **aiohttp-socks 0.10.1** - SOCKS5 proxy for Tor
+- **aiomultiprocess 0.9.1** - Multicore processing
+- **nostr-tools 1.4.1** - Nostr protocol library
 
 ## Key Exports
 
@@ -396,17 +315,28 @@ from core import Pool, PoolConfig, Brotr, BrotrConfig, BaseService, Logger
 
 **From `services`**:
 ```python
-from services import Initializer, InitializerConfig, Finder, FinderConfig
-from services import INITIALIZER_SERVICE_NAME, FINDER_SERVICE_NAME
+from services import Initializer, InitializerConfig
+from services import Finder, FinderConfig
+from services import Monitor, MonitorConfig
+from services import Synchronizer, SynchronizerConfig
 ```
 
 ## Notes for AI Assistants
 
 - **Services receive `Brotr`**, access pool via `self._brotr.pool`
-- **`CONFIG_CLASS`** enables automatic config parsing in `from_dict()`
-- **State is a simple dict** (`self._state`), persisted to `service_state` table
+- **`CONFIG_CLASS`** enables automatic config parsing in `from_yaml()`
+- **State is a dict** (`self._state`), persisted to `service_state` table automatically
 - **`run()` is single-cycle**, `run_forever()` handles the loop
 - **Context manager** handles `_load_state()` and `_save_state()` automatically
 - **`request_shutdown()`** is sync-safe for signal handlers
-- **90 unit tests** validate current implementation
+- **Stored procedures** are hardcoded in `brotr.py` constants (not YAML configurable)
 - **YAML keys must match Pydantic field names** exactly
+
+### Known TODOs in Code
+
+1. `src/services/finder.py`: `_find_from_events()` is empty
+2. `src/services/api.py`: Stub only
+3. `src/services/dvm.py`: Stub only
+4. No database backup strategy
+5. No integration tests
+6. Views may need optimization for large datasets

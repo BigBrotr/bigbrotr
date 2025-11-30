@@ -6,6 +6,7 @@ Synchronizes Nostr events from relays:
 - Subscribe to event streams (REQ messages)
 - Parse and validate incoming events
 - Store events in database via Brotr
+- Multiprocessing support for high throughput using a dynamic queue
 
 Usage:
     from core import Brotr
@@ -22,10 +23,12 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import time
 from typing import Any, Iterator, Optional
 
+import aiomultiprocess
 from nostr_tools import Client, Event, Filter, Relay, RelayValidationError
 from pydantic import BaseModel, Field
 
@@ -34,6 +37,9 @@ from core.brotr import Brotr
 
 
 SERVICE_NAME = "synchronizer"
+
+# Module-level logger for worker processes (separate from class Logger)
+_worker_logger = logging.getLogger(f"{SERVICE_NAME}.worker")
 
 
 # =============================================================================
@@ -100,7 +106,7 @@ class RawEventBatch:
 # =============================================================================
 
 
-class TorProxyConfig(BaseModel):
+class TorConfig(BaseModel):
     """Tor proxy configuration."""
 
     enabled: bool = Field(default=True, description="Enable Tor proxy for .onion relays")
@@ -130,48 +136,388 @@ class TimeRangeConfig(BaseModel):
         default=True,
         description="Use per-relay state for start timestamp"
     )
+    lookback_seconds: int = Field(
+        default=86400,
+        ge=3600,
+        le=604800,
+        description="Lookback window in seconds (default: 86400 = 24 hours)"
+    )
+
+
+class NetworkTimeoutsConfig(BaseModel):
+    """Timeout settings for a specific network type."""
+
+    request: float = Field(
+        default=30.0, ge=5.0, le=120.0, description="WebSocket request timeout"
+    )
+    relay: float = Field(
+        default=1800.0, ge=60.0, le=14400.0, description="Max time per relay sync"
+    )
+
+
+class TimeoutsConfig(BaseModel):
+    """Timeout configuration for sync operations."""
+
+    clearnet: NetworkTimeoutsConfig = Field(default_factory=NetworkTimeoutsConfig)
+    tor: NetworkTimeoutsConfig = Field(
+        default_factory=lambda: NetworkTimeoutsConfig(request=60.0, relay=3600.0)
+    )
 
 
 class ConcurrencyConfig(BaseModel):
     """Concurrency configuration."""
 
-    max_concurrent_relays: int = Field(
-        default=10, ge=1, le=100, description="Max concurrent relay connections"
+    max_parallel: int = Field(
+        default=10, ge=1, le=100, description="Max concurrent relay connections per process"
     )
-    request_timeout: float = Field(
-        default=30.0, ge=5.0, le=120.0, description="WebSocket request timeout"
-    )
-    relay_timeout: float = Field(
-        default=1800.0, ge=60.0, le=7200.0, description="Max time per relay sync"
+    max_processes: int = Field(
+        default=1, ge=1, le=32, description="Number of worker processes"
     )
     stagger_delay: tuple[int, int] = Field(
         default=(0, 60), description="Random delay range (min, max) seconds"
     )
 
 
-class RelaySourceConfig(BaseModel):
+class SourceConfig(BaseModel):
     """Configuration for relay source selection."""
 
     from_database: bool = Field(default=True, description="Fetch relays from database")
-    min_metadata_age: int = Field(
+    max_metadata_age: int = Field(
         default=43200,  # 12 hours
         ge=0,
-        description="Minimum age of metadata in seconds"
+        description="Only sync relays checked within N seconds"
     )
     require_readable: bool = Field(default=True, description="Only sync readable relays")
+
+
+class RelayOverrideTimeouts(BaseModel):
+    """Override timeouts for a specific relay."""
+    request: Optional[float] = None
+    relay: Optional[float] = None
+
+
+class RelayOverride(BaseModel):
+    """Override settings for specific relays."""
+    url: str
+    timeouts: RelayOverrideTimeouts = Field(default_factory=RelayOverrideTimeouts)
 
 
 class SynchronizerConfig(BaseModel):
     """Synchronizer configuration."""
 
-    tor_proxy: TorProxyConfig = Field(default_factory=TorProxyConfig)
-    filter: FilterConfig = Field(default_factory=FilterConfig)
-    time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
-    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
-    relay_source: RelaySourceConfig = Field(default_factory=RelaySourceConfig)
-    sync_interval: float = Field(
+    interval: float = Field(
         default=900.0, ge=60.0, description="Seconds between sync cycles"
     )
+    tor: TorConfig = Field(default_factory=TorConfig)
+    filter: FilterConfig = Field(default_factory=FilterConfig)
+    time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
+    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
+    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
+    source: SourceConfig = Field(default_factory=SourceConfig)
+    overrides: list[RelayOverride] = Field(default_factory=list)
+
+
+# =============================================================================
+# Worker Logic (Pure Functions for Multiprocessing)
+# =============================================================================
+
+# Global variable for worker process DB connection
+_WORKER_BROTR: Optional[Brotr] = None
+_WORKER_CLEANUP_REGISTERED: bool = False
+
+
+def _cleanup_worker_brotr() -> None:
+    """
+    Cleanup function to close the worker's database connection.
+
+    Called automatically when the worker process terminates via atexit.
+    Uses asyncio.run() to properly close the async pool connection.
+    """
+    global _WORKER_BROTR
+    if _WORKER_BROTR is not None:
+        try:
+            # Create a new event loop for cleanup since the worker's loop may be closed
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(_WORKER_BROTR.pool.close())
+            finally:
+                loop.close()
+        except Exception:
+            # Best effort cleanup - don't raise during process termination
+            pass
+        finally:
+            _WORKER_BROTR = None
+
+
+async def _get_worker_brotr(brotr_config: dict[str, Any]) -> Brotr:
+    """
+    Get or initialize the global Brotr instance for the current worker process.
+
+    This function manages a per-process database connection that is reused
+    across all tasks executed by the worker. The connection is automatically
+    cleaned up when the worker process terminates via atexit handler.
+    """
+    global _WORKER_BROTR, _WORKER_CLEANUP_REGISTERED
+
+    if _WORKER_BROTR is None:
+        _WORKER_BROTR = Brotr.from_dict(brotr_config)
+        await _WORKER_BROTR.pool.connect()
+
+        # Register cleanup handler only once per worker process
+        if not _WORKER_CLEANUP_REGISTERED:
+            import atexit
+            atexit.register(_cleanup_worker_brotr)
+            _WORKER_CLEANUP_REGISTERED = True
+
+    return _WORKER_BROTR
+
+
+async def sync_relay_task(
+    relay_url: str,
+    relay_network: str,
+    start_time: int,
+    config_dict: dict[str, Any],
+    brotr_config: dict[str, Any]
+) -> tuple[str, int, int]:
+    """
+    Standalone task to sync a single relay.
+    Designed to be run in a worker process.
+
+    Returns:
+        tuple(relay_url, events_synced, new_end_time)
+    """
+    try:
+        # Reconstruct config object
+        config = SynchronizerConfig(**config_dict)
+
+        # Determine network config
+        net_config = config.timeouts.clearnet
+        if relay_network == "tor":
+            net_config = config.timeouts.tor
+
+        # Apply override if exists
+        relay_timeout = net_config.relay
+        request_timeout = net_config.request
+
+        for override in config.overrides:
+            if override.url == relay_url:
+                if override.timeouts.relay is not None:
+                    relay_timeout = override.timeouts.relay
+                if override.timeouts.request is not None:
+                    request_timeout = override.timeouts.request
+                break
+
+        # Get DB connection
+        brotr = await _get_worker_brotr(brotr_config)
+
+        # Calculate end time (lookback window from now)
+        end_time = int(time.time()) - config.time_range.lookback_seconds
+
+        if start_time >= end_time:
+            return relay_url, 0, start_time
+
+        # Create client with optional SOCKS5 proxy for Tor
+        socks5_proxy = None
+        if relay_network == "tor" and config.tor.enabled:
+            socks5_proxy = f"socks5://{config.tor.host}:{config.tor.port}"
+
+        events_synced = 0
+        try:
+            async with asyncio.timeout(relay_timeout):
+                client = Client(
+                    relay=Relay(relay_url),
+                    timeout=int(request_timeout),
+                    socks5_proxy_url=socks5_proxy,
+                )
+
+                async with client:
+                    # Use shared sync algorithm
+                    events_synced = await _sync_relay_events(
+                        client=client,
+                        relay_url=relay_url,
+                        relay_network=relay_network,
+                        start_time=start_time,
+                        end_time=end_time,
+                        filter_config=config.filter,
+                        brotr=brotr
+                    )
+
+            return relay_url, events_synced, end_time
+
+        except asyncio.TimeoutError:
+            _worker_logger.debug("sync_timeout relay=%s", relay_url)
+            return relay_url, events_synced, start_time
+        except Exception as e:
+            _worker_logger.warning("sync_error relay=%s error=%s", relay_url, e)
+            return relay_url, events_synced, start_time
+
+    except Exception as e:
+        _worker_logger.error("worker_init_error relay=%s error=%s", relay_url, e)
+        return relay_url, 0, start_time
+
+
+def _create_filter(since: int, until: int, config: FilterConfig) -> Filter:
+    """Create a Nostr filter from config."""
+    filter_obj = Filter(since=since, until=until, limit=config.limit)
+    if config.ids:
+        filter_obj.ids = config.ids
+    if config.kinds:
+        filter_obj.kinds = config.kinds
+    if config.authors:
+        filter_obj.authors = config.authors
+    if config.tags:
+        for k, v in config.tags.items():
+            setattr(filter_obj, f"#{k}", v)
+    return filter_obj
+
+
+async def _fetch_batch(client: Client, filter_obj: Filter) -> RawEventBatch:
+    """Fetch a batch of events from a relay."""
+    batch = RawEventBatch(filter_obj.since, filter_obj.until, filter_obj.limit)
+    try:
+        sub_id = await client.subscribe(filter_obj)
+        async for msg in client.listen_events(sub_id):
+            if batch.is_full():
+                break
+            if len(msg) >= 3 and isinstance(msg[2], dict):
+                try:
+                    batch.append(msg[2])
+                except OverflowError:
+                    break
+        await client.unsubscribe(sub_id)
+    except Exception as e:
+        _worker_logger.debug("fetch_batch_error error=%s", e)
+    return batch
+
+
+async def _insert_batch(
+    batch: RawEventBatch,
+    relay_url: str,
+    relay_network: str,
+    brotr: Brotr
+) -> int:
+    """Insert a batch of events into the database."""
+    if batch.is_empty():
+        return 0
+
+    now = int(time.time())
+    events = []
+    for raw in batch:
+        try:
+            evt = Event.from_dict(raw)
+            events.append({
+                "event_id": evt.id,
+                "pubkey": evt.pubkey,
+                "created_at": evt.created_at,
+                "kind": evt.kind,
+                "tags": evt.tags,
+                "content": evt.content,
+                "sig": evt.sig,
+                "relay_url": relay_url,
+                "relay_network": relay_network,
+                "relay_inserted_at": now,
+                "seen_at": now
+            })
+        except Exception as e:
+            _worker_logger.debug("event_parse_error relay=%s error=%s", relay_url, e)
+
+    if events:
+        batch_size = brotr.config.batch.max_batch_size
+        for i in range(0, len(events), batch_size):
+            await brotr.insert_events(events[i:i + batch_size])
+
+    return len(events)
+
+
+async def _sync_relay_events(
+    client: Client,
+    relay_url: str,
+    relay_network: str,
+    start_time: int,
+    end_time: int,
+    filter_config: FilterConfig,
+    brotr: Brotr
+) -> int:
+    """
+    Core sync algorithm for a single relay.
+
+    This is the shared implementation used by both single-process and
+    multiprocess modes. It uses a time-window stack approach to handle
+    relays with gaps and large event volumes.
+
+    Args:
+        client: Connected nostr_tools Client
+        relay_url: Relay URL for attribution
+        relay_network: Network type (clearnet/tor)
+        start_time: Start timestamp (since)
+        end_time: End timestamp (until)
+        filter_config: Event filter configuration
+        brotr: Database interface
+
+    Returns:
+        Number of events synchronized
+    """
+    events_synced = 0
+    until_stack = [end_time]
+    current_since = start_time
+
+    while until_stack:
+        current_until = until_stack[0]
+        f = _create_filter(current_since, current_until, filter_config)
+        b = await _fetch_batch(client, f)
+
+        if b.is_empty():
+            # No events in this window, move forward
+            until_stack.pop(0)
+            current_since = current_until + 1
+        elif current_since == current_until:
+            # Single timestamp window, insert all
+            n = await _insert_batch(b, relay_url, relay_network, brotr)
+            events_synced += n
+            until_stack.pop(0)
+            current_since = current_until + 1
+        else:
+            # Check if we need to split the window
+            f.until = b.min_created_at
+            b2 = await _fetch_batch(client, f)
+
+            if b2.is_empty():
+                # Inconsistent relay response
+                break
+            if b.min_created_at != b2.max_created_at:
+                # Inconsistent relay response
+                break
+
+            if b2.min_created_at != b.min_created_at:
+                # More events exist earlier, split the window
+                mid = (current_until - current_since) // 2 + current_since
+                until_stack.insert(0, mid)
+            else:
+                # Check for more events before min_created_at
+                f.until = b.min_created_at - 1
+                f.limit = 1
+                b3 = await _fetch_batch(client, f)
+
+                if b3.is_empty():
+                    # Combine and insert events
+                    temp = RawEventBatch(current_since, current_until, 9999)
+                    for e in b:
+                        if e.get("created_at") != b.min_created_at:
+                            temp.append(e)
+                    for e in b2:
+                        temp.append(e)
+                    n = await _insert_batch(temp, relay_url, relay_network, brotr)
+                    events_synced += n
+                    until_stack.pop(0)
+                    current_since = current_until + 1
+                else:
+                    # More events exist, split further
+                    mid = (f.until - current_since) // 2 + current_since
+                    until_stack.insert(0, mid)
+
+    return events_synced
 
 
 # =============================================================================
@@ -182,10 +528,6 @@ class SynchronizerConfig(BaseModel):
 class Synchronizer(BaseService):
     """
     Event synchronization service.
-
-    Connects to Nostr relays and syncs events to the database.
-    Uses an adaptive time-interval algorithm to handle relays
-    with varying amounts of events.
     """
 
     SERVICE_NAME = SERVICE_NAME
@@ -196,55 +538,48 @@ class Synchronizer(BaseService):
         brotr: Brotr,
         config: Optional[SynchronizerConfig] = None,
     ) -> None:
-        """
-        Initialize the service.
-
-        Args:
-            brotr: Brotr instance for database operations
-            config: Service configuration (uses defaults if not provided)
-        """
         super().__init__(brotr=brotr, config=config or SynchronizerConfig())
         self._config: SynchronizerConfig
         self._synced_events: int = 0
         self._synced_relays: int = 0
         self._failed_relays: int = 0
 
-    # -------------------------------------------------------------------------
-    # BaseService Implementation
-    # -------------------------------------------------------------------------
-
     async def run(self) -> None:
-        """
-        Run single synchronization cycle.
-
-        Fetches relays and syncs events from each.
-        Call via run_forever() for continuous operation.
-        """
+        """Run synchronization cycle."""
         cycle_start = time.time()
         self._synced_events = 0
         self._synced_relays = 0
         self._failed_relays = 0
 
-        # Fetch relays to sync
+        # Fetch relays
         relays = await self._fetch_relays()
+        
+        # Always add overrides if they are not in the list?
+        # Or just let _fetch_relays handle it?
+        # Let's merge overrides into the relay list if not present.
+        known_urls = {r.url for r in relays}
+        for override in self._config.overrides:
+            if override.url not in known_urls:
+                try:
+                    # Add override relay, assuming clearnet if not specified or auto-detect
+                    # Relay constructor handles parsing
+                    r = Relay(override.url)
+                    relays.append(r)
+                    known_urls.add(r.url)
+                except Exception as e:
+                    self._logger.warning("invalid_override_relay", url=override.url, error=str(e))
+
         if not relays:
             self._logger.info("no_relays_to_sync")
             return
 
         self._logger.info("sync_started", relay_count=len(relays))
-
-        # Shuffle to avoid always hitting same relays first
         random.shuffle(relays)
 
-        # Process relays with concurrency limit
-        semaphore = asyncio.Semaphore(self._config.concurrency.max_concurrent_relays)
-
-        async def sync_with_limit(relay: Relay) -> None:
-            async with semaphore:
-                await self._sync_relay(relay)
-
-        tasks = [sync_with_limit(relay) for relay in relays]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        if self._config.concurrency.max_processes > 1:
+            await self._run_multiprocess(relays)
+        else:
+            await self._run_single_process(relays)
 
         elapsed = time.time() - cycle_start
         self._logger.info(
@@ -255,97 +590,136 @@ class Synchronizer(BaseService):
             duration=round(elapsed, 2),
         )
 
-    # -------------------------------------------------------------------------
-    # Relay Fetching
-    # -------------------------------------------------------------------------
+    async def _run_single_process(self, relays: list[Relay]) -> None:
+        """Run sync in single process using shared sync algorithm."""
+        semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel)
+
+        async def worker(relay: Relay) -> None:
+            async with semaphore:
+                # Determine network config
+                net_config = self._config.timeouts.clearnet
+                if relay.network == "tor":
+                    net_config = self._config.timeouts.tor
+
+                # Apply override
+                relay_timeout = net_config.relay
+                request_timeout = net_config.request
+
+                for override in self._config.overrides:
+                    if override.url == relay.url:
+                        if override.timeouts.relay is not None:
+                            relay_timeout = override.timeouts.relay
+                        if override.timeouts.request is not None:
+                            request_timeout = override.timeouts.request
+                        break
+
+                start = await self._get_start_time(relay)
+                end_time = int(time.time()) - self._config.time_range.lookback_seconds
+                if start >= end_time:
+                    return
+
+                # Configure SOCKS proxy for Tor
+                socks = None
+                if relay.network == "tor" and self._config.tor.enabled:
+                    socks = f"socks5://{self._config.tor.host}:{self._config.tor.port}"
+
+                try:
+                    client = Client(relay, timeout=int(request_timeout), socks5_proxy_url=socks)
+
+                    async with asyncio.timeout(relay_timeout):
+                        async with client:
+                            # Use shared sync algorithm
+                            events_synced = await _sync_relay_events(
+                                client=client,
+                                relay_url=relay.url,
+                                relay_network=relay.network,
+                                start_time=start,
+                                end_time=end_time,
+                                filter_config=self._config.filter,
+                                brotr=self._brotr
+                            )
+
+                    self._state.setdefault("relay_timestamps", {})[relay.url] = end_time
+                    self._synced_events += events_synced
+                    self._synced_relays += 1
+                except Exception as e:
+                    self._logger.warning("relay_sync_failed", url=relay.url, error=str(e))
+                    self._failed_relays += 1
+
+        tasks = [worker(r) for r in relays]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _run_multiprocess(self, relays: list[Relay]) -> None:
+        """Run sync using aiomultiprocess Pool (Queue-based balancing)."""
+        
+        # Prepare tasks arguments
+        tasks = []
+        brotr_config_dump = {
+            "pool": self._brotr.pool.config.model_dump(),
+            # Add other brotr settings
+            "batch": self._brotr.config.batch.model_dump(),
+            "timeouts": self._brotr.config.timeouts.model_dump()
+        }
+        service_config_dump = self._config.model_dump()
+        
+        for relay in relays:
+            start_time = await self._get_start_time(relay)
+            tasks.append((
+                relay.url,
+                relay.network,
+                start_time,
+                service_config_dump,
+                brotr_config_dump
+            ))
+            
+        async with aiomultiprocess.Pool(
+            processes=self._config.concurrency.max_processes,
+            childconcurrency=self._config.concurrency.max_parallel
+        ) as pool:
+            results = await pool.starmap(sync_relay_task, tasks)
+            
+        # Process results
+        for url, events, new_time in results:
+            if events > 0 or new_time > 0:
+                self._state.setdefault("relay_timestamps", {})[url] = new_time
+                self._synced_events += events
+                if events > 0:
+                    self._synced_relays += 1
+            else:
+                self._failed_relays += 1
 
     async def _fetch_relays(self) -> list[Relay]:
-        """Fetch relays to sync from database."""
+        """Fetch relays to sync from database using the latest metadata view."""
         relays: list[Relay] = []
 
-        if not self._config.relay_source.from_database:
+        if not self._config.source.from_database:
             return relays
 
-        threshold = int(time.time()) - self._config.relay_source.min_metadata_age
+        threshold = int(time.time()) - self._config.source.max_metadata_age
 
-        # Query for relays with recent metadata that are readable
+        # Use the dedicated view for efficient latest metadata retrieval
         query = """
-            SELECT DISTINCT rm.relay_url
-            FROM relay_metadata rm
-            WHERE rm.generated_at = (
-                SELECT MAX(generated_at)
-                FROM relay_metadata
-                WHERE relay_url = rm.relay_url
-            )
-            AND rm.generated_at > $1
+            SELECT relay_url
+            FROM relay_metadata_latest
+            WHERE generated_at > $1
         """
 
-        if self._config.relay_source.require_readable:
-            query += " AND rm.readable = TRUE"
+        if self._config.source.require_readable:
+            query += " AND nip66_readable = TRUE"
 
         rows = await self._brotr.pool.fetch(query, threshold)
 
         for row in rows:
             relay_url = row["relay_url"].strip()
             try:
-                relay = Relay(relay_url)
-                relays.append(relay)
+                relays.append(Relay(relay_url))
             except RelayValidationError:
                 self._logger.debug("invalid_relay_url", url=relay_url)
+            except Exception as e:
+                self._logger.debug("relay_parse_error", url=relay_url, error=str(e))
 
         self._logger.debug("relays_fetched", count=len(relays))
         return relays
-
-    # -------------------------------------------------------------------------
-    # Event Synchronization
-    # -------------------------------------------------------------------------
-
-    async def _sync_relay(self, relay: Relay) -> None:
-        """
-        Sync events from a single relay.
-
-        Uses adaptive time-interval splitting to handle varying event densities.
-        """
-        # Random stagger to avoid thundering herd
-        min_delay, max_delay = self._config.concurrency.stagger_delay
-        if max_delay > min_delay:
-            await asyncio.sleep(random.randint(min_delay, max_delay))
-
-        # Determine time range
-        end_time = int(time.time()) - 86400  # 24 hours ago
-        start_time = await self._get_start_time(relay)
-
-        if start_time >= end_time:
-            self._logger.debug("relay_up_to_date", relay=relay.url)
-            return
-
-        # Create client with optional SOCKS5 proxy for Tor
-        socks5_proxy = None
-        if relay.network == "tor" and self._config.tor_proxy.enabled:
-            socks5_proxy = f"socks5://{self._config.tor_proxy.host}:{self._config.tor_proxy.port}"
-
-        try:
-            async with asyncio.timeout(self._config.concurrency.relay_timeout):
-                events_synced = await self._process_relay_interval(
-                    relay, start_time, end_time, socks5_proxy
-                )
-
-            if events_synced > 0:
-                # Update state with latest sync timestamp
-                relay_state = self._state.get("relay_timestamps", {})
-                relay_state[relay.url] = end_time
-                self._state["relay_timestamps"] = relay_state
-
-            self._synced_relays += 1
-            self._synced_events += events_synced
-            self._logger.info("relay_synced", relay=relay.url, events=events_synced)
-
-        except asyncio.TimeoutError:
-            self._failed_relays += 1
-            self._logger.warning("relay_timeout", relay=relay.url)
-        except Exception as e:
-            self._failed_relays += 1
-            self._logger.warning("relay_sync_failed", relay=relay.url, error=str(e))
 
     async def _get_start_time(self, relay: Relay) -> int:
         """
@@ -388,203 +762,3 @@ class Synchronizer(BaseService):
                 return event_row["created_at"] + 1
 
         return self._config.time_range.default_start
-
-    async def _process_relay_interval(
-        self,
-        relay: Relay,
-        since: int,
-        until: int,
-        socks5_proxy: Optional[str] = None,
-    ) -> int:
-        """
-        Process events from relay within a time interval.
-
-        Uses adaptive splitting when batches are full.
-
-        Args:
-            relay: Relay to sync from
-            since: Start timestamp (inclusive)
-            until: End timestamp (inclusive)
-            socks5_proxy: Optional SOCKS5 proxy URL for Tor relays
-
-        Returns:
-            Number of events synced
-        """
-        total_events = 0
-
-        # Create client using nostr_tools API
-        client = Client(
-            relay=relay,
-            timeout=int(self._config.concurrency.request_timeout),
-            socks5_proxy_url=socks5_proxy,
-        )
-
-        async with client:
-            # Stack-based interval processing
-            until_stack = [until]
-            current_since = since
-
-            while until_stack and self._is_running:
-                current_until = until_stack[0]
-                filter_obj = self._create_filter(current_since, current_until)
-
-                first_batch = await self._fetch_batch(client, filter_obj)
-
-                if first_batch.is_empty():
-                    # No events in interval - move to next
-                    until_stack.pop(0)
-                    current_since = current_until + 1
-
-                elif current_since == current_until:
-                    # Single timestamp interval with events
-                    events_inserted = await self._insert_batch(
-                        first_batch, relay
-                    )
-                    total_events += events_inserted
-                    until_stack.pop(0)
-                    current_since = current_until + 1
-
-                else:
-                    # Multi-timestamp interval - check if we got all events
-                    filter_obj.until = first_batch.min_created_at
-                    second_batch = await self._fetch_batch(client, filter_obj)
-
-                    if second_batch.is_empty():
-                        # Unexpected - relay may have inconsistent results
-                        self._logger.debug(
-                            "unexpected_empty_batch",
-                            relay=relay.url,
-                            since=current_since,
-                            until=first_batch.min_created_at,
-                        )
-                        break
-
-                    if first_batch.min_created_at != second_batch.max_created_at:
-                        # Inconsistent relay behavior
-                        self._logger.debug(
-                            "inconsistent_relay",
-                            relay=relay.url,
-                        )
-                        break
-
-                    if second_batch.min_created_at != first_batch.min_created_at:
-                        # More events exist in earlier time range - split interval
-                        mid = (current_until - current_since) // 2 + current_since
-                        until_stack.insert(0, mid)
-                    else:
-                        # All events at min_created_at fetched - check for more
-                        filter_obj.until = first_batch.min_created_at - 1
-                        filter_obj.limit = 1
-                        third_batch = await self._fetch_batch(client, filter_obj)
-
-                        if third_batch.is_empty():
-                            # All events fetched for this interval
-                            combined_events = [
-                                e for e in first_batch
-                                if e.get("created_at") != first_batch.min_created_at
-                            ]
-                            combined_events.extend(second_batch.raw_events)
-
-                            if combined_events:
-                                # Create a temporary batch for insertion
-                                temp_batch = RawEventBatch(
-                                    current_since, current_until, len(combined_events) + 1
-                                )
-                                for e in combined_events:
-                                    temp_batch.append(e)
-                                events_inserted = await self._insert_batch(
-                                    temp_batch, relay
-                                )
-                                total_events += events_inserted
-
-                            until_stack.pop(0)
-                            current_since = current_until + 1
-                        else:
-                            # More events exist - split interval
-                            mid = (filter_obj.until - current_since) // 2 + current_since
-                            until_stack.insert(0, mid)
-
-        return total_events
-
-    def _create_filter(self, since: int, until: int) -> Filter:
-        """Create filter for event subscription."""
-        filter_obj = Filter(
-            since=since,
-            until=until,
-            limit=self._config.filter.limit,
-        )
-
-        if self._config.filter.ids:
-            filter_obj.ids = self._config.filter.ids
-        if self._config.filter.kinds:
-            filter_obj.kinds = self._config.filter.kinds
-        if self._config.filter.authors:
-            filter_obj.authors = self._config.filter.authors
-        if self._config.filter.tags:
-            for tag_key, tag_values in self._config.filter.tags.items():
-                setattr(filter_obj, f"#{tag_key}", tag_values)
-
-        return filter_obj
-
-    async def _fetch_batch(self, client: Client, filter_obj: Filter) -> RawEventBatch:
-        """Fetch a batch of events from relay."""
-        batch = RawEventBatch(filter_obj.since, filter_obj.until, filter_obj.limit)
-
-        try:
-            subscription_id = await client.subscribe(filter_obj)
-
-            async for message in client.listen_events(subscription_id):
-                if batch.is_full():
-                    break
-                if len(message) >= 3 and isinstance(message[2], dict):
-                    try:
-                        batch.append(message[2])
-                    except OverflowError:
-                        break
-
-            await client.unsubscribe(subscription_id)
-
-        except Exception as e:
-            self._logger.debug("batch_fetch_error", error=str(e))
-
-        return batch
-
-    async def _insert_batch(self, batch: RawEventBatch, relay: Relay) -> int:
-        """
-        Insert batch of events into database.
-
-        Returns number of events successfully inserted.
-        """
-        if batch.is_empty():
-            return 0
-
-        seen_at = int(time.time())
-        relay_inserted_at = int(time.time())
-        events_to_insert: list[dict[str, Any]] = []
-
-        for raw_event in batch:
-            try:
-                event = Event.from_dict(raw_event)
-                events_to_insert.append({
-                    "event_id": event.id,
-                    "pubkey": event.pubkey,
-                    "created_at": event.created_at,
-                    "kind": event.kind,
-                    "tags": event.tags,
-                    "content": event.content,
-                    "sig": event.sig,
-                    "relay_url": relay.url,
-                    "relay_network": relay.network,
-                    "relay_inserted_at": relay_inserted_at,
-                    "seen_at": seen_at,
-                })
-            except Exception as e:
-                self._logger.debug("invalid_event", error=str(e))
-
-        if events_to_insert:
-            # Insert in batches respecting Brotr batch size
-            batch_size = self._brotr.config.batch.max_batch_size
-            for i in range(0, len(events_to_insert), batch_size):
-                await self._brotr.insert_events(events_to_insert[i : i + batch_size])
-
-        return len(events_to_insert)

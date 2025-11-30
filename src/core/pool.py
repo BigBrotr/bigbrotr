@@ -14,11 +14,11 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import asyncpg
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator
 
 from .logger import Logger
 
@@ -28,12 +28,12 @@ from .logger import Logger
 # ============================================================================
 
 
-def _get_password_from_env() -> str:
+def _get_password_from_env() -> SecretStr:
     """Load password from DB_PASSWORD environment variable."""
     password = os.getenv("DB_PASSWORD")
     if not password:
         raise ValueError("DB_PASSWORD environment variable not set")
-    return password
+    return SecretStr(password)
 
 
 class DatabaseConfig(BaseModel):
@@ -43,18 +43,20 @@ class DatabaseConfig(BaseModel):
     port: int = Field(default=5432, ge=1, le=65535, description="Database port")
     database: str = Field(default="database", min_length=1, description="Database name")
     user: str = Field(default="admin", min_length=1, description="Database user")
-    password: str = Field(
+    password: SecretStr = Field(
         default_factory=_get_password_from_env,
         description="Database password (from DB_PASSWORD env)",
     )
 
     @field_validator("password", mode="before")
     @classmethod
-    def load_password_from_env(cls, v: Optional[str]) -> str:
+    def load_password_from_env(cls, v: Optional[Union[str, SecretStr]]) -> SecretStr:
         """Load password from environment if not provided."""
-        if not v:
+        if v is None or v == "":
             return _get_password_from_env()
-        return v
+        if isinstance(v, SecretStr):
+            return v
+        return SecretStr(v)
 
 
 class PoolLimitsConfig(BaseModel):
@@ -208,7 +210,7 @@ class Pool:
                         port=db.port,
                         database=db.database,
                         user=db.user,
-                        password=db.password,
+                        password=db.password.get_secret_value(),
                         min_size=self._config.limits.min_size,
                         max_size=self._config.limits.max_size,
                         max_queries=self._config.limits.max_queries,

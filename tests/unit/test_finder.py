@@ -12,7 +12,7 @@ from core.pool import Pool
 from services.finder import (
     Finder,
     FinderConfig,
-    EventScanConfig,
+    EventsConfig,
     ApiConfig,
     ApiSourceConfig,
 )
@@ -57,17 +57,17 @@ class TestFinderConfig:
         """Test default configuration values."""
         config = FinderConfig()
 
-        assert config.event_scan.enabled is True
+        assert config.events.enabled is True
         assert config.api.enabled is True
         assert len(config.api.sources) == 2
 
-    def test_custom_event_scan(self) -> None:
-        """Test custom event scan settings."""
+    def test_custom_events(self) -> None:
+        """Test custom events settings."""
         config = FinderConfig(
-            event_scan=EventScanConfig(enabled=False)
+            events=EventsConfig(enabled=False)
         )
 
-        assert config.event_scan.enabled is False
+        assert config.events.enabled is False
 
     def test_custom_api(self) -> None:
         """Test custom API settings."""
@@ -128,7 +128,7 @@ class TestFinder:
     async def test_run_loop_stops_on_shutdown(self, mock_brotr: MagicMock) -> None:
         """Test run loop stops when shutdown is requested."""
         config = FinderConfig(
-            event_scan=EventScanConfig(enabled=False),
+            events=EventsConfig(enabled=False),
             api=ApiConfig(enabled=False),
         )
         finder = Finder(brotr=mock_brotr, config=config)

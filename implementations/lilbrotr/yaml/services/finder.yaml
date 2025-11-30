@@ -1,26 +1,9 @@
 # ============================================================================
-# Finder Service Configuration
+# Finder Service Configuration (LilBrotr)
 # ============================================================================
 # Description: Discover Nostr relay URLs from external APIs and database events
-# Used by: src/services/finder.py
-# Dependencies: Initializer must complete first
+# Note: Uses all default values from FinderConfig
+# See: implementations/bigbrotr/yaml/services/finder.yaml for full config
 # ============================================================================
 
-# Event scanning configuration (TODO: implement logic)
-event_scan:
-  enabled: true
-
-# External API configuration
-api:
-  enabled: true
-  sources:
-    - url: https://api.nostr.watch/v1/online
-      enabled: true
-      timeout: 30.0
-    - url: https://api.nostr.watch/v1/offline
-      enabled: true
-      timeout: 30.0
-  request_delay: 1.0
-
-# Discovery cycle interval (seconds)
-discovery_interval: 3600.0
+# No overrides - uses all defaults

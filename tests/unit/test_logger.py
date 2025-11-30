@@ -21,4 +21,5 @@ class TestLogger:
         assert hasattr(logger, "info")
         assert hasattr(logger, "warning")
         assert hasattr(logger, "error")
+        assert hasattr(logger, "critical")
         assert hasattr(logger, "exception")

@@ -1,43 +1,61 @@
 # ============================================================================
-# Synchronizer Service Configuration
+# Synchronizer Service Configuration (BigBrotr)
 # ============================================================================
 # Description: Synchronize Nostr events from relays to the database
 # Used by: src/services/synchronizer.py
 # Dependencies: Monitor must have checked relays first
 # ============================================================================
 
+# Cycle interval (seconds between sync runs)
+# Range: >= 60.0
+interval: 900.0
+
 # Tor proxy for .onion relays
-tor_proxy:
-  enabled: true
-  host: "tor"
-  port: 9050
+tor:
+  enabled: true              # Enable Tor proxy for .onion relays
+  host: "tor"                # Tor proxy host (Docker service name)
+  port: 9050                 # Tor proxy port (Range: 1 - 65535)
 
 # Event filter settings
 # Set to null to accept all values for that field
 filter:
-  ids: null  # null = all ids
-  kinds: null  # null = all kinds
-  authors: null  # null = all authors
-  tags: null  # null = all tags (format: {e: ["..."], p: ["..."]})
-  limit: 500  # Events per request
+  ids: null                  # Event IDs to sync (null = all)
+  kinds: null                # Event kinds to sync (null = all)
+  authors: null              # Authors to sync (null = all)
+  tags: null                 # Tag filters (null = all, format: {e: ["..."], p: ["..."]})
+  limit: 500                 # Events per request (Range: 1 - 5000)
 
 # Time range for sync
 time_range:
-  default_start: 0  # Unix timestamp (0 = epoch)
-  use_relay_state: true  # Use per-relay state for incremental sync
+  default_start: 0           # Default start timestamp (0 = epoch, Range: >= 0)
+  use_relay_state: true      # Use per-relay state for incremental sync
+  lookback_seconds: 86400    # Lookback window in seconds (Range: 3600 - 604800, default: 24h)
+
+# Timeouts (seconds) - separate settings for clearnet and Tor
+timeouts:
+  clearnet:
+    request: 30.0            # WebSocket request timeout (Range: 5.0 - 120.0)
+    relay: 1800.0            # Max time per relay sync (Range: 60.0 - 14400.0, default: 30 min)
+  tor:
+    request: 60.0            # WebSocket request timeout (Range: 5.0 - 120.0)
+    relay: 3600.0            # Max time per relay sync (Range: 60.0 - 14400.0, default: 60 min)
 
 # Concurrency settings
 concurrency:
-  max_concurrent_relays: 10  # Max parallel relay connections
-  request_timeout: 30.0  # WebSocket request timeout (seconds)
-  relay_timeout: 1800.0  # Max time per relay sync (30 min)
-  stagger_delay: [0, 60]  # Random delay range to prevent thundering herd
+  max_parallel: 10           # Max parallel relay connections per process (Range: 1 - 100)
+  max_processes: 1           # Number of worker processes (Range: 1 - 32)
+  stagger_delay: [0, 60]     # Random delay range [min, max] to prevent thundering herd
 
-# Relay source configuration
-relay_source:
-  from_database: true  # Fetch relays from database
-  min_metadata_age: 43200  # Only sync relays checked within 12 hours
-  require_readable: true  # Only sync relays marked as readable
+# Relay source - which relays to sync from
+source:
+  from_database: true        # Fetch relays from database
+  max_metadata_age: 43200    # Only sync relays checked within N seconds (Range: >= 0)
+  require_readable: true     # Only sync relays marked as readable
 
-# Interval between sync cycles (seconds)
-sync_interval: 900.0  # 15 minutes
+# Override settings for specific relays
+overrides:
+  # Damus Relay (Very large, high traffic - needs extended timeouts)
+  - url: "wss://relay.damus.io"
+    timeouts:
+      request: 60.0
+      relay: 7200.0

@@ -6,7 +6,6 @@ Service implementations that build on the core layer:
 - Finder: Relay discovery from events and APIs
 - Monitor: Relay health monitoring
 - Synchronizer: Event synchronization
-- PrioritySynchronizer: Priority-based event synchronization
 
 All services inherit from BaseService for consistent:
 - Logging
@@ -52,11 +51,6 @@ from .synchronizer import (
     Synchronizer,
     SynchronizerConfig,
 )
-from .priority_synchronizer import (
-    SERVICE_NAME as PRIORITY_SYNCHRONIZER_SERVICE_NAME,
-    PrioritySynchronizer,
-    PrioritySynchronizerConfig,
-)
 
 __all__ = [
     # Initializer
@@ -76,8 +70,4 @@ __all__ = [
     "SYNCHRONIZER_SERVICE_NAME",
     "Synchronizer",
     "SynchronizerConfig",
-    # Priority Synchronizer
-    "PRIORITY_SYNCHRONIZER_SERVICE_NAME",
-    "PrioritySynchronizer",
-    "PrioritySynchronizerConfig",
 ]

@@ -12,7 +12,7 @@ import asyncio
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Generic, Optional, TypeVar
 
 import yaml
 from pydantic import BaseModel
@@ -20,8 +20,11 @@ from pydantic import BaseModel
 from .brotr import Brotr
 from .logger import Logger
 
+# Type variable for service configuration
+ConfigT = TypeVar("ConfigT", bound=BaseModel)
 
-class BaseService(ABC):
+
+class BaseService(ABC, Generic[ConfigT]):
     """
     Abstract base class for all BigBrotr services.
 
@@ -40,11 +43,11 @@ class BaseService(ABC):
     """
 
     SERVICE_NAME: str = "base_service"
-    CONFIG_CLASS: Optional[type[BaseModel]] = None
+    CONFIG_CLASS: Optional[type[ConfigT]] = None
 
-    def __init__(self, brotr: Brotr, config: Optional[BaseModel] = None) -> None:
+    def __init__(self, brotr: Brotr, config: Optional[ConfigT] = None) -> None:
         self._brotr = brotr
-        self._config = config
+        self._config: Optional[ConfigT] = config
         self._state: dict[str, Any] = {}
         self._is_running = False
         self._logger = Logger(self.SERVICE_NAME)
@@ -98,6 +101,8 @@ class BaseService(ABC):
                 await self.run()
             except Exception as e:
                 self._logger.error("run_cycle_error", error=str(e))
+
+            self._logger.info("cycle_completed", next_run_in_seconds=interval)
 
             if await self.wait(interval):
                 break
@@ -191,6 +196,6 @@ class BaseService(ABC):
         self._logger.info("stopped")
 
     @property
-    def config(self) -> BaseModel:
-        """Get service configuration."""
+    def config(self) -> Optional[ConfigT]:
+        """Get service configuration (typed to CONFIG_CLASS)."""
         return self._config

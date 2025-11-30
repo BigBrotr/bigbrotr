@@ -13,9 +13,9 @@ from services.initializer import (
     Initializer,
     InitializerConfig,
     InitializerError,
-    ExpectedSchemaConfig,
+    SchemaConfig,
     SeedConfig,
-    VerificationConfig,
+    VerifyConfig,
 )
 
 
@@ -58,30 +58,30 @@ class TestInitializerConfig:
         """Test default configuration values."""
         config = InitializerConfig()
 
-        assert config.verification.tables is True
-        assert config.verification.procedures is True
-        assert config.verification.extensions is True
-        assert config.verification.views is True
+        assert config.verify.tables is True
+        assert config.verify.procedures is True
+        assert config.verify.extensions is True
+        assert config.verify.views is True
         assert config.seed.enabled is True
 
-    def test_custom_verification(self) -> None:
-        """Test custom verification settings."""
+    def test_custom_verify(self) -> None:
+        """Test custom verify settings."""
         config = InitializerConfig(
-            verification=VerificationConfig(tables=False, procedures=False)
+            verify=VerifyConfig(tables=False, procedures=False)
         )
 
-        assert config.verification.tables is False
-        assert config.verification.procedures is False
-        assert config.verification.extensions is True
+        assert config.verify.tables is False
+        assert config.verify.procedures is False
+        assert config.verify.extensions is True
 
     def test_custom_seed(self) -> None:
         """Test custom seed settings."""
         config = InitializerConfig(
-            seed=SeedConfig(enabled=False, path="custom/path.txt")
+            seed=SeedConfig(enabled=False, file_path="custom/path.txt")
         )
 
         assert config.seed.enabled is False
-        assert config.seed.path == "custom/path.txt"
+        assert config.seed.file_path == "custom/path.txt"
 
 
 class TestInitializer:
@@ -94,17 +94,17 @@ class TestInitializer:
         assert initializer._brotr is mock_brotr
         assert initializer._brotr.pool is mock_brotr.pool
         assert initializer.SERVICE_NAME == "initializer"
-        assert initializer.config.verification.tables is True
+        assert initializer.config.verify.tables is True
 
     def test_init_with_custom_config(self, mock_brotr: MagicMock) -> None:
         """Test initialization with custom config."""
         config = InitializerConfig(
-            verification=VerificationConfig(tables=False),
+            verify=VerifyConfig(tables=False),
             seed=SeedConfig(enabled=False),
         )
         initializer = Initializer(brotr=mock_brotr, config=config)
 
-        assert initializer.config.verification.tables is False
+        assert initializer.config.verify.tables is False
         assert initializer.config.seed.enabled is False
 
     @pytest.mark.asyncio
@@ -239,7 +239,7 @@ class TestInitializer:
 
         config = InitializerConfig(
             seed=SeedConfig(enabled=False),
-            verification=VerificationConfig(tables=False, procedures=False, views=False),
+            verify=VerifyConfig(tables=False, procedures=False, views=False),
         )
         initializer = Initializer(brotr=mock_brotr, config=config)
 
@@ -250,7 +250,7 @@ class TestInitializer:
     async def test_seed_relays_file_not_found(self, mock_brotr: MagicMock) -> None:
         """Test seeding with non-existent seed file."""
         config = InitializerConfig(
-            seed=SeedConfig(path="nonexistent/file.txt")
+            seed=SeedConfig(file_path="nonexistent/file.txt")
         )
         initializer = Initializer(brotr=mock_brotr, config=config)
 
@@ -287,11 +287,11 @@ class TestInitializerFactoryMethods:
     def test_from_dict(self, mock_brotr: MagicMock) -> None:
         """Test creation from dictionary."""
         data = {
-            "verification": {"tables": False},
+            "verify": {"tables": False},
             "seed": {"enabled": False},
         }
 
         initializer = Initializer.from_dict(data, brotr=mock_brotr)
 
-        assert initializer.config.verification.tables is False
+        assert initializer.config.verify.tables is False
         assert initializer.config.seed.enabled is False

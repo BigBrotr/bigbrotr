@@ -12,12 +12,15 @@ from core.pool import Pool
 from services.synchronizer import (
     Synchronizer,
     SynchronizerConfig,
-    TorProxyConfig,
+    TorConfig,
     FilterConfig,
     TimeRangeConfig,
+    TimeoutsConfig,
+    NetworkTimeoutsConfig,
     ConcurrencyConfig,
-    RelaySourceConfig,
+    SourceConfig,
     RawEventBatch,
+    _create_filter,
 )
 
 
@@ -68,9 +71,9 @@ class TestSynchronizerConfig:
         """Test default configuration values."""
         config = SynchronizerConfig()
 
-        assert config.tor_proxy.enabled is True
-        assert config.tor_proxy.host == "127.0.0.1"
-        assert config.tor_proxy.port == 9050
+        assert config.tor.enabled is True
+        assert config.tor.host == "127.0.0.1"
+        assert config.tor.port == 9050
         assert config.filter.ids is None
         assert config.filter.kinds is None
         assert config.filter.authors is None
@@ -78,24 +81,27 @@ class TestSynchronizerConfig:
         assert config.filter.limit == 500
         assert config.time_range.default_start == 0
         assert config.time_range.use_relay_state is True
-        assert config.concurrency.max_concurrent_relays == 10
-        assert config.concurrency.request_timeout == 30.0
-        assert config.concurrency.relay_timeout == 1800.0
+        assert config.time_range.lookback_seconds == 86400
+        assert config.timeouts.clearnet.request == 30.0
+        assert config.timeouts.clearnet.relay == 1800.0
+        assert config.timeouts.tor.request == 60.0
+        assert config.timeouts.tor.relay == 3600.0
+        assert config.concurrency.max_parallel == 10
         assert config.concurrency.stagger_delay == (0, 60)
-        assert config.relay_source.from_database is True
-        assert config.relay_source.min_metadata_age == 43200
-        assert config.relay_source.require_readable is True
-        assert config.sync_interval == 900.0
+        assert config.source.from_database is True
+        assert config.source.max_metadata_age == 43200
+        assert config.source.require_readable is True
+        assert config.interval == 900.0
 
-    def test_custom_tor_proxy(self) -> None:
+    def test_custom_tor(self) -> None:
         """Test custom Tor proxy settings."""
         config = SynchronizerConfig(
-            tor_proxy=TorProxyConfig(enabled=False, host="tor", port=9150)
+            tor=TorConfig(enabled=False, host="tor", port=9150)
         )
 
-        assert config.tor_proxy.enabled is False
-        assert config.tor_proxy.host == "tor"
-        assert config.tor_proxy.port == 9150
+        assert config.tor.enabled is False
+        assert config.tor.host == "tor"
+        assert config.tor.port == 9150
 
     def test_custom_filter(self) -> None:
         """Test custom filter settings."""
@@ -124,43 +130,53 @@ class TestSynchronizerConfig:
         assert config.time_range.default_start == 1000000
         assert config.time_range.use_relay_state is False
 
+    def test_custom_timeouts(self) -> None:
+        """Test custom timeouts settings."""
+        config = SynchronizerConfig(
+            timeouts=TimeoutsConfig(
+                clearnet=NetworkTimeoutsConfig(request=60.0, relay=3600.0),
+                tor=NetworkTimeoutsConfig(request=120.0, relay=7200.0),
+            )
+        )
+
+        assert config.timeouts.clearnet.request == 60.0
+        assert config.timeouts.clearnet.relay == 3600.0
+        assert config.timeouts.tor.request == 120.0
+        assert config.timeouts.tor.relay == 7200.0
+
     def test_custom_concurrency(self) -> None:
         """Test custom concurrency settings."""
         config = SynchronizerConfig(
             concurrency=ConcurrencyConfig(
-                max_concurrent_relays=5,
-                request_timeout=60.0,
-                relay_timeout=3600.0,
+                max_parallel=5,
                 stagger_delay=(10, 30),
             )
         )
 
-        assert config.concurrency.max_concurrent_relays == 5
-        assert config.concurrency.request_timeout == 60.0
-        assert config.concurrency.relay_timeout == 3600.0
+        assert config.concurrency.max_parallel == 5
         assert config.concurrency.stagger_delay == (10, 30)
 
-    def test_custom_relay_source(self) -> None:
-        """Test custom relay source settings."""
+    def test_custom_source(self) -> None:
+        """Test custom source settings."""
         config = SynchronizerConfig(
-            relay_source=RelaySourceConfig(
+            source=SourceConfig(
                 from_database=False,
-                min_metadata_age=3600,
+                max_metadata_age=3600,
                 require_readable=False,
             )
         )
 
-        assert config.relay_source.from_database is False
-        assert config.relay_source.min_metadata_age == 3600
-        assert config.relay_source.require_readable is False
+        assert config.source.from_database is False
+        assert config.source.max_metadata_age == 3600
+        assert config.source.require_readable is False
 
 
-class TestTorProxyConfig:
-    """Tests for TorProxyConfig."""
+class TestTorConfig:
+    """Tests for TorConfig."""
 
     def test_default_values(self) -> None:
         """Test default Tor proxy config."""
-        config = TorProxyConfig()
+        config = TorConfig()
 
         assert config.enabled is True
         assert config.host == "127.0.0.1"
@@ -168,14 +184,14 @@ class TestTorProxyConfig:
 
     def test_port_validation(self) -> None:
         """Test port validation."""
-        config = TorProxyConfig(port=9150)
+        config = TorConfig(port=9150)
         assert config.port == 9150
 
         with pytest.raises(ValueError):
-            TorProxyConfig(port=0)
+            TorConfig(port=0)
 
         with pytest.raises(ValueError):
-            TorProxyConfig(port=70000)
+            TorConfig(port=70000)
 
 
 class TestFilterConfig:
@@ -222,6 +238,32 @@ class TestFilterConfig:
             FilterConfig(limit=5001)
 
 
+class TestTimeoutsConfig:
+    """Tests for TimeoutsConfig (network-specific)."""
+
+    def test_default_values(self) -> None:
+        """Test default timeouts config."""
+        config = TimeoutsConfig()
+
+        # Clearnet defaults
+        assert config.clearnet.request == 30.0
+        assert config.clearnet.relay == 1800.0
+        # Tor defaults (higher)
+        assert config.tor.request == 60.0
+        assert config.tor.relay == 3600.0
+
+    def test_validation(self) -> None:
+        """Test validation constraints on NetworkTimeoutsConfig."""
+        config = NetworkTimeoutsConfig(request=5.0, relay=60.0)
+        assert config.request == 5.0
+
+        with pytest.raises(ValueError):
+            NetworkTimeoutsConfig(request=4.0)  # Below minimum
+
+        with pytest.raises(ValueError):
+            NetworkTimeoutsConfig(relay=59.0)  # Below minimum
+
+
 class TestConcurrencyConfig:
     """Tests for ConcurrencyConfig."""
 
@@ -229,54 +271,44 @@ class TestConcurrencyConfig:
         """Test default concurrency config."""
         config = ConcurrencyConfig()
 
-        assert config.max_concurrent_relays == 10
-        assert config.request_timeout == 30.0
-        assert config.relay_timeout == 1800.0
+        assert config.max_parallel == 10
         assert config.stagger_delay == (0, 60)
 
     def test_validation(self) -> None:
         """Test validation constraints."""
         config = ConcurrencyConfig(
-            max_concurrent_relays=1,
-            request_timeout=5.0,
-            relay_timeout=60.0,
+            max_parallel=1,
         )
-        assert config.max_concurrent_relays == 1
+        assert config.max_parallel == 1
 
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_concurrent_relays=0)
+            ConcurrencyConfig(max_parallel=0)
 
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_concurrent_relays=101)
-
-        with pytest.raises(ValueError):
-            ConcurrencyConfig(request_timeout=4.0)
-
-        with pytest.raises(ValueError):
-            ConcurrencyConfig(relay_timeout=59.0)
+            ConcurrencyConfig(max_parallel=101)
 
 
-class TestRelaySourceConfig:
-    """Tests for RelaySourceConfig."""
+class TestSourceConfig:
+    """Tests for SourceConfig."""
 
     def test_default_values(self) -> None:
-        """Test default relay source config."""
-        config = RelaySourceConfig()
+        """Test default source config."""
+        config = SourceConfig()
 
         assert config.from_database is True
-        assert config.min_metadata_age == 43200
+        assert config.max_metadata_age == 43200
         assert config.require_readable is True
 
     def test_custom_values(self) -> None:
-        """Test custom relay source config."""
-        config = RelaySourceConfig(
+        """Test custom source config."""
+        config = SourceConfig(
             from_database=False,
-            min_metadata_age=0,
+            max_metadata_age=0,
             require_readable=False,
         )
 
         assert config.from_database is False
-        assert config.min_metadata_age == 0
+        assert config.max_metadata_age == 0
         assert config.require_readable is False
 
 
@@ -290,18 +322,18 @@ class TestSynchronizer:
         assert sync._brotr is mock_brotr
         assert sync._brotr.pool is mock_brotr.pool
         assert sync.SERVICE_NAME == "synchronizer"
-        assert sync.config.tor_proxy.enabled is True
+        assert sync.config.tor.enabled is True
 
     def test_init_with_custom_config(self, mock_brotr: MagicMock) -> None:
         """Test initialization with custom config."""
         config = SynchronizerConfig(
-            tor_proxy=TorProxyConfig(enabled=False),
-            concurrency=ConcurrencyConfig(max_concurrent_relays=5),
+            tor=TorConfig(enabled=False),
+            concurrency=ConcurrencyConfig(max_parallel=5),
         )
         sync = Synchronizer(brotr=mock_brotr, config=config)
 
-        assert sync.config.tor_proxy.enabled is False
-        assert sync.config.concurrency.max_concurrent_relays == 5
+        assert sync.config.tor.enabled is False
+        assert sync.config.concurrency.max_parallel == 5
 
     @pytest.mark.asyncio
     async def test_health_check_connected(self, mock_brotr: MagicMock) -> None:
@@ -339,7 +371,7 @@ class TestSynchronizer:
     ) -> None:
         """Test fetching relays when database source is disabled."""
         config = SynchronizerConfig(
-            relay_source=RelaySourceConfig(from_database=False)
+            source=SourceConfig(from_database=False)
         )
         sync = Synchronizer(brotr=mock_brotr, config=config)
         relays = await sync._fetch_relays()
@@ -445,8 +477,8 @@ class TestSynchronizer:
 
     def test_create_filter_basic(self, mock_brotr: MagicMock) -> None:
         """Test creating basic filter."""
-        sync = Synchronizer(brotr=mock_brotr)
-        filter_obj = sync._create_filter(since=100, until=200)
+        filter_config = FilterConfig()
+        filter_obj = _create_filter(since=100, until=200, config=filter_config)
 
         assert filter_obj.since == 100
         assert filter_obj.until == 200
@@ -454,16 +486,13 @@ class TestSynchronizer:
 
     def test_create_filter_with_config(self, mock_brotr: MagicMock) -> None:
         """Test creating filter with config values."""
-        config = SynchronizerConfig(
-            filter=FilterConfig(
-                ids=["id1"],
-                kinds=[1, 3],
-                authors=["author1"],
-                limit=100,
-            )
+        filter_config = FilterConfig(
+            ids=["id1"],
+            kinds=[1, 3],
+            authors=["author1"],
+            limit=100,
         )
-        sync = Synchronizer(brotr=mock_brotr, config=config)
-        filter_obj = sync._create_filter(since=100, until=200)
+        filter_obj = _create_filter(since=100, until=200, config=filter_config)
 
         assert filter_obj.ids == ["id1"]
         assert filter_obj.kinds == [1, 3]
@@ -477,14 +506,14 @@ class TestSynchronizerFactoryMethods:
     def test_from_dict(self, mock_brotr: MagicMock) -> None:
         """Test creation from dictionary."""
         data = {
-            "tor_proxy": {"enabled": False},
-            "concurrency": {"max_concurrent_relays": 5},
+            "tor": {"enabled": False},
+            "concurrency": {"max_parallel": 5},
         }
 
         sync = Synchronizer.from_dict(data, brotr=mock_brotr)
 
-        assert sync.config.tor_proxy.enabled is False
-        assert sync.config.concurrency.max_concurrent_relays == 5
+        assert sync.config.tor.enabled is False
+        assert sync.config.concurrency.max_parallel == 5
 
     def test_from_dict_with_filter(self, mock_brotr: MagicMock) -> None:
         """Test creation from dictionary with filter."""
@@ -503,14 +532,14 @@ class TestSynchronizerFactoryMethods:
     def test_from_dict_partial(self, mock_brotr: MagicMock) -> None:
         """Test creation from partial dictionary."""
         data = {
-            "sync_interval": 1800.0,
+            "interval": 1800.0,
         }
 
         sync = Synchronizer.from_dict(data, brotr=mock_brotr)
 
-        assert sync.config.sync_interval == 1800.0
+        assert sync.config.interval == 1800.0
         # Defaults should be preserved
-        assert sync.config.tor_proxy.enabled is True
+        assert sync.config.tor.enabled is True
 
 
 class TestRawEventBatch:

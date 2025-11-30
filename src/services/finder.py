@@ -39,8 +39,8 @@ SERVICE_NAME = "finder"
 # =============================================================================
 
 
-class EventScanConfig(BaseModel):
-    """Event scanning configuration (TODO: implement logic)."""
+class EventsConfig(BaseModel):
+    """Event scanning configuration - discovers relay URLs from stored events."""
 
     enabled: bool = Field(default=True, description="Enable event scanning")
 
@@ -54,7 +54,7 @@ class ApiSourceConfig(BaseModel):
 
 
 class ApiConfig(BaseModel):
-    """API fetching configuration."""
+    """API fetching configuration - discovers relay URLs from public APIs."""
 
     enabled: bool = Field(default=True, description="Enable API fetching")
     sources: list[ApiSourceConfig] = Field(
@@ -63,7 +63,7 @@ class ApiConfig(BaseModel):
             ApiSourceConfig(url="https://api.nostr.watch/v1/offline"),
         ]
     )
-    request_delay: float = Field(
+    delay_between_requests: float = Field(
         default=1.0, ge=0.0, le=10.0, description="Delay between API requests"
     )
 
@@ -71,11 +71,11 @@ class ApiConfig(BaseModel):
 class FinderConfig(BaseModel):
     """Finder configuration."""
 
-    event_scan: EventScanConfig = Field(default_factory=EventScanConfig)
-    api: ApiConfig = Field(default_factory=ApiConfig)
-    discovery_interval: float = Field(
+    interval: float = Field(
         default=3600.0, ge=60.0, description="Seconds between discovery cycles"
     )
+    events: EventsConfig = Field(default_factory=EventsConfig)
+    api: ApiConfig = Field(default_factory=ApiConfig)
 
 
 # =============================================================================
@@ -126,7 +126,7 @@ class Finder(BaseService):
         self._found_relays = 0
 
         # Discover relay URLs from event scanning
-        if self._config.event_scan.enabled:
+        if self._config.events.enabled:
             await self._find_from_events()
 
         # Discover relay URLs from APIs
@@ -146,22 +146,24 @@ class Finder(BaseService):
         relays: dict[str, Relay] = {}
         sources_checked = 0
 
-        for source in self._config.api.sources:
-            if not source.enabled:
-                continue
+        # Reuse a single ClientSession for all API requests (connection pooling)
+        async with aiohttp.ClientSession() as session:
+            for source in self._config.api.sources:
+                if not source.enabled:
+                    continue
 
-            try:
-                source_relays = await self._fetch_single_api(source)
-                relays.update(source_relays)
-                sources_checked += 1
+                try:
+                    source_relays = await self._fetch_single_api(session, source)
+                    relays.update(source_relays)
+                    sources_checked += 1
 
-                self._logger.debug("api_fetched", url=source.url, count=len(source_relays))
+                    self._logger.debug("api_fetched", url=source.url, count=len(source_relays))
 
-                if self._config.api.request_delay > 0:
-                    await asyncio.sleep(self._config.api.request_delay)
+                    if self._config.api.delay_between_requests > 0:
+                        await asyncio.sleep(self._config.api.delay_between_requests)
 
-            except Exception as e:
-                self._logger.warning("api_error", url=source.url, error=str(e))
+                except Exception as e:
+                    self._logger.warning("api_error", url=source.url, error=str(e))
 
         # Insert discovered relays into database (respecting Brotr batch size)
         if relays:
@@ -172,36 +174,48 @@ class Finder(BaseService):
             ]
 
             batch_size = self._brotr.config.batch.max_batch_size
-            for i in range(0, len(relay_records), batch_size):
-                batch = relay_records[i : i + batch_size]
-                await self._brotr.insert_relays(batch)
+            try:
+                for i in range(0, len(relay_records), batch_size):
+                    batch = relay_records[i : i + batch_size]
+                    await self._brotr.insert_relays(batch)
 
-            self._found_relays += len(relays)
+                self._found_relays += len(relays)
+            except Exception as e:
+                self._logger.error("insert_relays_failed", error=str(e), count=len(relays))
 
         if sources_checked > 0:
             self._logger.info("apis_completed", sources=sources_checked, relays=len(relays))
 
-    async def _fetch_single_api(self, source: ApiSourceConfig) -> dict[str, Relay]:
-        """Fetch relay URLs from a single API source."""
+    async def _fetch_single_api(
+        self,
+        session: aiohttp.ClientSession,
+        source: ApiSourceConfig
+    ) -> dict[str, Relay]:
+        """
+        Fetch relay URLs from a single API source.
+
+        Args:
+            session: Reusable aiohttp ClientSession
+            source: API source configuration
+        """
         relays: dict[str, Relay] = {}
 
         timeout = aiohttp.ClientTimeout(total=source.timeout)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(source.url) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
+        async with session.get(source.url, timeout=timeout) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
 
-                if isinstance(data, list):
-                    for item in data:
-                        if isinstance(item, str):
-                            try:
-                                relay = Relay(item)
-                                relays[relay.url] = relay
-                            except RelayValidationError:
-                                self._logger.debug("invalid_relay_url", url=item)
-                        else:
-                            self._logger.debug("unexpected_item_type", url=source.url, item=item)
-                else:
-                    self._logger.debug("unexpected_api_response", url=source.url, data=data)
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, str):
+                        try:
+                            relay = Relay(item)
+                            relays[relay.url] = relay
+                        except RelayValidationError:
+                            self._logger.debug("invalid_relay_url", url=item)
+                    else:
+                        self._logger.debug("unexpected_item_type", url=source.url, item=item)
+            else:
+                self._logger.debug("unexpected_api_response", url=source.url, data=data)
 
         return relays

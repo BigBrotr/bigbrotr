@@ -2,260 +2,196 @@
 
 **Last Updated**: 2025-11-30
 **Version**: 1.0.0-dev
-**Status**: Core Complete, Service Layer in Progress (2/7)
+**Status**: In Development
 
 ---
 
-## Executive Summary
+## Summary
 
-BigBrotr is a modular Nostr data archiving and monitoring system built on Python and PostgreSQL. The project follows a three-layer architecture (Core, Service, Implementation) with dependency injection for testability and flexibility.
-
-**Current Phase**: Service Layer Development
+BigBrotr is a modular Nostr data archiving and monitoring system. The project is under active development with core services functional but several features incomplete or missing.
 
 | Metric | Value |
 |--------|-------|
-| Core Layer | 100% Complete |
-| Service Layer | 29% Complete (2/7 services) |
-| Unit Tests | 90 passing |
+| Source Code | ~3,120 lines |
+| Test Code | ~3,500 lines |
+| Unit Tests | 174 passing |
+| Seed Relays | 8,865 URLs |
 
 ---
 
 ## Layer Status
 
-### Core Layer - COMPLETE
+### Core Layer
 
-The core layer is production-ready and provides the foundation for all services.
+| Component | Status | Lines | Description |
+|-----------|--------|-------|-------------|
+| Pool | Done | ~410 | PostgreSQL connection pooling with retry logic |
+| Brotr | Done | ~430 | Database interface + stored procedures |
+| BaseService | Done | ~200 | Abstract base class with state persistence |
+| Logger | Done | ~50 | Structured logging wrapper |
 
-| Component | Status | Description |
-|-----------|--------|-------------|
-| Pool | Done | PostgreSQL connection management |
-| Brotr | Done | Database interface + stored procedures |
-| BaseService | Done | Abstract base class with state persistence |
-| Logger | Done | Structured logging wrapper |
+### Service Layer
 
-### Service Layer - IN PROGRESS
+| Service | Status | Lines | Description |
+|---------|--------|-------|-------------|
+| Initializer | Done | ~310 | Database bootstrap, schema verification, seeding |
+| Finder | Partial | ~220 | API discovery works; event scanning NOT implemented |
+| Monitor | Done | ~400 | Relay health monitoring (NIP-11/NIP-66) |
+| Synchronizer | Done | ~740 | Event collection with multicore support |
+| API | Not implemented | - | Stub file only |
+| DVM | Not implemented | - | Stub file only |
 
-| Service | Status | Description |
-|---------|--------|-------------|
-| Initializer | Done | Database bootstrap, schema verification |
-| Finder | Done | Relay discovery from APIs |
-| Monitor | Pending | Relay health monitoring |
-| Synchronizer | Pending | Event collection |
-| Priority Synchronizer | Pending | Priority-based sync |
-| API | Pending (Phase 3) | REST endpoints |
-| DVM | Pending (Phase 3) | Data Vending Machine |
-
-### Implementation Layer - COMPLETE
+### Implementation Layer
 
 | Component | Status |
 |-----------|--------|
 | YAML Configs | Done |
-| SQL Schemas | Done |
+| SQL Schemas | Done (8 files) |
 | Docker Compose | Done |
-| Seed Data | Done |
+| Seed Data | Done (8,865 relays) |
 
 ---
 
-## Test Coverage
+## What Works
 
-### Unit Tests
+- **Core layer** is functional and well-tested
+- **Initializer** bootstraps database and seeds relays
+- **Finder** discovers relays from nostr.watch APIs
+- **Monitor** checks relay health with NIP-11/NIP-66
+- **Synchronizer** collects events with multicore support
+- **Docker Compose** deployment is functional
+- **Unit tests** provide good coverage (174 tests)
 
-| Test File | Status |
-|-----------|--------|
-| test_pool.py | Passing |
-| test_brotr.py | Passing |
-| test_initializer.py | Passing |
-| test_finder.py | Passing |
-| test_logger.py | Passing |
-| **Total** | **90 tests passing** |
+---
 
-### Test Command
+## What's Missing or Incomplete
 
-```bash
-source .venv/bin/activate
-pytest tests/unit/ -v
-# 90 passed in 0.69s
-```
+### Code TODOs
+
+1. **Finder** (`src/services/finder.py`):
+   - `_find_from_events()` method is empty (TODO)
+   - Event scanning for relay hints not implemented
+
+2. **API Service** (`src/services/api.py`):
+   - Stub file only, not implemented
+
+3. **DVM Service** (`src/services/dvm.py`):
+   - Stub file only, not implemented
+
+### Infrastructure TODOs
+
+| Item | Status | Priority |
+|------|--------|----------|
+| Database backup strategy | Not implemented | High |
+| Integration tests | Missing | Medium |
+| Query/index optimization | Needs work | Medium |
+| Health check endpoints | Missing | Low |
+| Metrics export (Prometheus) | Not implemented | Low |
+
+### Known Performance Concerns
+
+- `relays_statistics` view uses window functions over last 10 measurements
+- `kind_counts_by_relay` and `pubkey_counts_by_relay` views may be slow on large datasets
+- Some indexes may need tuning based on actual query patterns
 
 ---
 
 ## Recent Changes
 
-### 2025-11-30: Architecture Improvements
+### 2025-11-30
 
-- Added `run_forever(interval)` to BaseService for continuous operation
-- Added `_load_state()` / `_save_state()` for automatic state persistence
-- Refactored Finder to use single-cycle `run()` pattern
-- Rewrote `__main__.py` CLI from scratch
-- Added `discovery_interval` to FinderConfig
-- Updated all markdown documentation
+- Removed unused `procedures` section from `brotr.yaml`
+- Added Implementation Layer documentation to README
+- Fixed status badges and descriptions (removed "production ready" claims)
+- Added Known Limitations section to README
 
-### 2025-11-29: Documentation Rewrite
+### Previous
 
-- Rewrote CLAUDE.md with current architecture
-- Rewrote README.md with accurate status
-- Rewrote PROJECT_SPECIFICATION.md v6.0
-- Rewrote PROJECT_STATUS.md
-
-### 2025-11-28: Service Refactoring
-
-- Services now receive `Brotr` instead of `Pool`
-- Added `CONFIG_CLASS` attribute for automatic config parsing
-- All tests passing
+- Implemented Synchronizer with multicore support via `aiomultiprocess`
+- Implemented Monitor with NIP-11/NIP-66 support
+- Expanded test suite from 90 to 174 tests
+- Added SecretStr for database password security
+- Added Brotr context manager for automatic pool lifecycle
 
 ---
 
-## Architecture Decisions
+## Development Roadmap
 
-### Current Patterns
+### Phase 1: Core Infrastructure - DONE
 
-| Pattern | Application |
-|---------|-------------|
-| Dependency Injection | Services receive `Brotr` |
-| Composition | Brotr HAS-A Pool |
-| Abstract Base Class | `BaseService` |
-| Factory Methods | `from_yaml()`, `from_dict()` |
-| CONFIG_CLASS | Automatic config parsing |
-| State Persistence | Auto load/save via context manager |
+- [x] Pool implementation
+- [x] Brotr implementation
+- [x] BaseService abstract class
+- [x] Logger module
 
-### Key Design Decisions
+### Phase 2: Core Services - IN PROGRESS
 
-1. **Services receive Brotr, not Pool**: Provides access to both pool operations (`self._brotr.pool`) and business logic (`self._brotr.insert_*`)
+- [x] Initializer service
+- [x] Finder service (API discovery)
+- [ ] **Finder service (event scanning)** - TODO in code
+- [x] Monitor service
+- [x] Synchronizer service
+- [x] Unit tests (174 passing)
+- [ ] **Integration tests** - Missing
 
-2. **CONFIG_CLASS for automatic parsing**: Services define `CONFIG_CLASS` attribute, and `from_dict()` automatically parses YAML into Pydantic model
+### Phase 3: Infrastructure - PLANNED
 
-3. **State persistence via service_state table**: Services save/load state using `SERVICE_NAME` constant, automatically via context manager
+- [ ] **Database backup strategy**
+- [ ] Query/index optimization
+- [ ] Health check endpoints
 
-4. **run() is single-cycle**: `run()` executes one cycle, `run_forever(interval)` handles the loop
+### Phase 4: Public Access - PLANNED
+
+- [ ] API service (REST endpoints)
+- [ ] DVM service (NIP-90)
 
 ---
 
-## File Structure
+## File Overview
 
 ```
-bigbrotr/
-├── src/
-│   ├── core/
-│   │   ├── __init__.py
-│   │   ├── pool.py
-│   │   ├── brotr.py
-│   │   ├── base_service.py
-│   │   └── logger.py
-│   │
-│   └── services/
-│       ├── __init__.py
-│       ├── __main__.py
-│       ├── initializer.py      (Done)
-│       ├── finder.py           (Done)
-│       ├── monitor.py          (Pending)
-│       ├── synchronizer.py     (Pending)
-│       └── ...
+src/
+├── core/                       # ~1,090 lines total
+│   ├── pool.py                 # ~410 lines
+│   ├── brotr.py                # ~430 lines
+│   ├── base_service.py         # ~200 lines
+│   └── logger.py               # ~50 lines
 │
-├── implementations/bigbrotr/
-│   ├── yaml/
-│   ├── postgres/init/
-│   └── docker-compose.yaml
-│
-├── tests/unit/                  # 90 tests
-│
-├── CLAUDE.md
-├── README.md
-├── PROJECT_SPECIFICATION.md
-└── PROJECT_STATUS.md
+└── services/                   # ~1,670 lines total (+ stubs)
+    ├── initializer.py          # ~310 lines
+    ├── finder.py               # ~220 lines
+    ├── monitor.py              # ~400 lines
+    ├── synchronizer.py         # ~740 lines
+    ├── api.py                  # stub
+    └── dvm.py                  # stub
+
+tests/unit/                     # ~3,500 lines, 174 tests
+
+implementations/bigbrotr/
+├── yaml/                       # Configuration files
+├── postgres/init/              # 8 SQL schema files
+├── data/seed_relays.txt        # 8,865 relay URLs
+├── docker-compose.yaml
+└── Dockerfile
 ```
 
 ---
 
-## Next Steps
+## How to Contribute
 
-### Immediate Priority
+1. Check the TODOs listed above
+2. Create a feature branch from `develop`
+3. Write tests for new functionality
+4. Ensure all tests pass: `pytest tests/unit/ -v`
+5. Submit a pull request to `main`
 
-1. **Monitor Service**: Implement relay health monitoring (NIP-11, NIP-66)
-   - Connect to relays
-   - Fetch NIP-11 metadata
-   - Store health status
+### Priority Tasks
 
-2. **Synchronizer Service**: Implement event collection from relays
-   - WebSocket connections
-   - Event subscription
-   - Batch storage
-
-### Phase 3 (Future)
-
-3. **API Service**: REST endpoints for data access
-4. **DVM Service**: Data Vending Machine protocol
+1. Implement `_find_from_events()` in Finder service
+2. Add database backup scripts
+3. Create integration tests with real database
+4. Implement API service
 
 ---
 
-## Development Commands
-
-### Setup
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
-```
-
-### Testing
-
-```bash
-pytest tests/unit/ -v              # All tests
-pytest tests/unit/test_finder.py   # Specific file
-pytest -k "health_check"           # Pattern matching
-pytest --cov=src                   # With coverage
-```
-
-### Running Services
-
-```bash
-cd implementations/bigbrotr
-python -m services initializer
-python -m services finder
-python -m services finder --log-level DEBUG
-```
-
-### Docker
-
-```bash
-cd implementations/bigbrotr
-docker-compose up -d
-docker-compose logs -f
-```
-
----
-
-## Dependencies
-
-### Production
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| asyncpg | 0.30.0 | PostgreSQL driver |
-| pydantic | 2.10.4 | Configuration |
-| pyyaml | 6.0.2 | YAML parsing |
-| aiohttp | 3.13.2 | HTTP client |
-| nostr-tools | 1.4.0 | Nostr protocol |
-
-### Development
-
-| Package | Purpose |
-|---------|---------|
-| pytest | Testing |
-| pytest-asyncio | Async tests |
-| pytest-cov | Coverage |
-| pytest-mock | Mocking |
-
----
-
-## Known Issues
-
-None at this time. All 90 tests passing.
-
----
-
-## Contact
-
-**Project**: BigBrotr
-**Status**: Active Development
-**Branch**: `develop`
+**End of Project Status**
