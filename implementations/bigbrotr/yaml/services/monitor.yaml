@@ -19,7 +19,7 @@ tor:
 # Nostr keys for NIP-66 write tests (optional)
 # Private key is loaded from MONITOR_PRIVATE_KEY environment variable
 keys:
-  public_key: null           # Public key (hex) for write tests
+  public_key: "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 
 # Timeouts for relay checks (seconds)
 timeouts:
