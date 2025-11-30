@@ -6,6 +6,7 @@ import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from nostr_tools import generate_keypair
 
 from core.brotr import Brotr
 from core.pool import Pool
@@ -81,7 +82,6 @@ class TestMonitorConfig:
 
     def test_custom_keys(self) -> None:
         """Test custom keys settings with public_key from config."""
-        from nostr_tools import generate_keypair
 
         _, pub = generate_keypair()
 
@@ -91,7 +91,6 @@ class TestMonitorConfig:
 
     def test_private_key_from_env(self) -> None:
         """Test private key is loaded from environment variable."""
-        from nostr_tools import generate_keypair
 
         priv, pub = generate_keypair()
 
@@ -106,7 +105,6 @@ class TestMonitorConfig:
 
     def test_keypair_validation_success(self) -> None:
         """Test valid keypair passes validation."""
-        from nostr_tools import generate_keypair
 
         priv, pub = generate_keypair()
 
@@ -122,7 +120,6 @@ class TestMonitorConfig:
 
     def test_keypair_validation_failure(self) -> None:
         """Test mismatched keypair raises validation error."""
-        from nostr_tools import generate_keypair
 
         priv1, _ = generate_keypair()
         _, pub2 = generate_keypair()
@@ -137,7 +134,6 @@ class TestMonitorConfig:
 
     def test_keypair_validation_skipped_without_both(self) -> None:
         """Test validation is skipped if only one key is provided."""
-        from nostr_tools import generate_keypair
 
         _, pub = generate_keypair()
 

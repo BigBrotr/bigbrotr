@@ -5,6 +5,7 @@ Unit tests for Pool.
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncpg
 import pytest
 from pydantic import ValidationError
 
@@ -344,8 +345,6 @@ class TestAcquireHealthy:
     @pytest.mark.asyncio
     async def test_acquire_healthy_retries_on_unhealthy(self) -> None:
         """Test acquire_healthy retries when health check fails."""
-        import asyncpg
-
         os.environ["DB_PASSWORD"] = "test_pass"
         pool = Pool()
 
@@ -374,8 +373,6 @@ class TestAcquireHealthy:
     @pytest.mark.asyncio
     async def test_acquire_healthy_fails_after_max_retries(self) -> None:
         """Test acquire_healthy raises after exhausting retries."""
-        import asyncpg
-
         os.environ["DB_PASSWORD"] = "test_pass"
         pool = Pool()
 
