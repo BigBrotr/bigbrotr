@@ -165,11 +165,10 @@ ignore = [
     "SIM105", # contextlib.suppress doesn't work with async/await
     "UP007",  # Use X | Y for type annotations (need Optional for Python 3.9 + Pydantic)
     "UP045",  # Use X | None for type annotations (same as UP007, newer ruff versions)
-    "PLC0415", # import should be at top-level (needed for multiprocess worker isolation)
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["PLR2004", "ARG001", "ARG002", "PLC0415"]
+"tests/*" = ["PLR2004", "ARG001", "ARG002", "PLC0415"]  # PLC0415 only for tests (inline imports in fixtures)
 
 [tool.ruff.lint.isort]
 known-first-party = ["core", "services"]

@@ -23,8 +23,10 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import atexit
 import random
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
 import aiomultiprocess
@@ -47,8 +49,6 @@ def _worker_log(level: str, message: str, **kwargs: Any) -> None:
     aiomultiprocess captures stdout from child processes, so print() works
     while logging module doesn't propagate across process boundaries.
     """
-    from datetime import datetime
-
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     kv = " ".join(f"{k}={v}" for k, v in kwargs.items())
     print(f"{timestamp} {level} {SERVICE_NAME}.worker: {message} {kv}".strip(), flush=True)
@@ -240,8 +240,6 @@ def _cleanup_worker_brotr() -> None:
     if _WORKER_BROTR is not None:
         try:
             # Create a new event loop for cleanup since the worker's loop may be closed
-            import asyncio
-
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
@@ -271,8 +269,6 @@ async def _get_worker_brotr(brotr_config: dict[str, Any]) -> Brotr:
 
         # Register cleanup handler only once per worker process
         if not _WORKER_CLEANUP_REGISTERED:
-            import atexit
-
             atexit.register(_cleanup_worker_brotr)
             _WORKER_CLEANUP_REGISTERED = True
 
