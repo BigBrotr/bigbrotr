@@ -11,6 +11,7 @@ Features:
 - Structured logging
 """
 
+import json
 from pathlib import Path
 from typing import Any, Final, Optional
 
@@ -319,6 +320,10 @@ class Brotr:
 
         self._validate_batch_size(metadata_list, "insert_relay_metadata")
 
+        def to_jsonb(value: Any) -> Optional[str]:
+            """Convert Python object to JSON string for JSONB columns."""
+            return json.dumps(value) if value is not None else None
+
         async with self.pool.transaction() as conn:
             params = [
                 (
@@ -327,26 +332,26 @@ class Brotr:
                     m["relay_inserted_at"],
                     m["generated_at"],
                     m.get("nip66") is not None,
-                    m.get("nip66", {}).get("openable"),
-                    m.get("nip66", {}).get("readable"),
-                    m.get("nip66", {}).get("writable"),
-                    m.get("nip66", {}).get("rtt_open"),
-                    m.get("nip66", {}).get("rtt_read"),
-                    m.get("nip66", {}).get("rtt_write"),
+                    m.get("nip66", {}).get("openable") if m.get("nip66") else None,
+                    m.get("nip66", {}).get("readable") if m.get("nip66") else None,
+                    m.get("nip66", {}).get("writable") if m.get("nip66") else None,
+                    m.get("nip66", {}).get("rtt_open") if m.get("nip66") else None,
+                    m.get("nip66", {}).get("rtt_read") if m.get("nip66") else None,
+                    m.get("nip66", {}).get("rtt_write") if m.get("nip66") else None,
                     m.get("nip11") is not None,
-                    m.get("nip11", {}).get("name"),
-                    m.get("nip11", {}).get("description"),
-                    m.get("nip11", {}).get("banner"),
-                    m.get("nip11", {}).get("icon"),
-                    m.get("nip11", {}).get("pubkey"),
-                    m.get("nip11", {}).get("contact"),
-                    m.get("nip11", {}).get("supported_nips"),
-                    m.get("nip11", {}).get("software"),
-                    m.get("nip11", {}).get("version"),
-                    m.get("nip11", {}).get("privacy_policy"),
-                    m.get("nip11", {}).get("terms_of_service"),
-                    m.get("nip11", {}).get("limitation"),
-                    m.get("nip11", {}).get("extra_fields"),
+                    m.get("nip11", {}).get("name") if m.get("nip11") else None,
+                    m.get("nip11", {}).get("description") if m.get("nip11") else None,
+                    m.get("nip11", {}).get("banner") if m.get("nip11") else None,
+                    m.get("nip11", {}).get("icon") if m.get("nip11") else None,
+                    m.get("nip11", {}).get("pubkey") if m.get("nip11") else None,
+                    m.get("nip11", {}).get("contact") if m.get("nip11") else None,
+                    to_jsonb(m.get("nip11", {}).get("supported_nips")) if m.get("nip11") else None,
+                    m.get("nip11", {}).get("software") if m.get("nip11") else None,
+                    m.get("nip11", {}).get("version") if m.get("nip11") else None,
+                    m.get("nip11", {}).get("privacy_policy") if m.get("nip11") else None,
+                    m.get("nip11", {}).get("terms_of_service") if m.get("nip11") else None,
+                    to_jsonb(m.get("nip11", {}).get("limitation")) if m.get("nip11") else None,
+                    to_jsonb(m.get("nip11", {}).get("extra_fields")) if m.get("nip11") else None,
                 )
                 for m in metadata_list
             ]
