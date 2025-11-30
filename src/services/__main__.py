@@ -16,13 +16,15 @@ import logging
 import signal
 import sys
 from pathlib import Path
+from typing import Type
 
 from core import Brotr, Logger
+from core.base_service import BaseService
 
-from .finder import Finder, FinderConfig
+from .finder import Finder
 from .initializer import Initializer
-from .monitor import Monitor, MonitorConfig
-from .synchronizer import Synchronizer, SynchronizerConfig
+from .monitor import Monitor
+from .synchronizer import Synchronizer
 
 
 # =============================================================================
@@ -32,48 +34,60 @@ from .synchronizer import Synchronizer, SynchronizerConfig
 YAML_BASE = Path("yaml")
 CORE_CONFIG = YAML_BASE / "core" / "brotr.yaml"
 
-SERVICE_CONFIGS = {
-    "initializer": YAML_BASE / "services" / "initializer.yaml",
-    "finder": YAML_BASE / "services" / "finder.yaml",
-    "monitor": YAML_BASE / "services" / "monitor.yaml",
-    "synchronizer": YAML_BASE / "services" / "synchronizer.yaml",
+# Service registry: name -> (class, config_path, is_oneshot)
+SERVICE_REGISTRY: dict[str, tuple[Type[BaseService], Path, bool]] = {
+    "initializer": (Initializer, YAML_BASE / "services" / "initializer.yaml", True),
+    "finder": (Finder, YAML_BASE / "services" / "finder.yaml", False),
+    "monitor": (Monitor, YAML_BASE / "services" / "monitor.yaml", False),
+    "synchronizer": (Synchronizer, YAML_BASE / "services" / "synchronizer.yaml", False),
 }
 
 logger = Logger("cli")
 
 
 # =============================================================================
-# Service Runners
+# Service Runner
 # =============================================================================
 
 
-async def run_initializer(brotr: Brotr, config_path: Path) -> int:
-    """Run initializer service (one-shot)."""
+async def run_service(
+    service_name: str,
+    service_class: Type[BaseService],
+    brotr: Brotr,
+    config_path: Path,
+    is_oneshot: bool,
+) -> int:
+    """
+    Generic service runner.
+
+    Args:
+        service_name: Name of the service (for logging)
+        service_class: Service class to instantiate
+        brotr: Brotr instance
+        config_path: Path to service config file
+        is_oneshot: If True, run once; if False, run continuously
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    # Create service instance
     if config_path.exists():
-        service = Initializer.from_yaml(str(config_path), brotr=brotr)
+        service = service_class.from_yaml(str(config_path), brotr=brotr)
     else:
         logger.warning("config_not_found", path=str(config_path))
-        service = Initializer(brotr=brotr)
+        service = service_class(brotr=brotr)
 
-    try:
-        await service.run()
-        logger.info("initializer_completed")
-        return 0
-    except Exception as e:
-        logger.error("initializer_failed", error=str(e))
-        return 1
+    # One-shot services (like initializer) run once and exit
+    if is_oneshot:
+        try:
+            await service.run()
+            logger.info(f"{service_name}_completed")
+            return 0
+        except Exception as e:
+            logger.error(f"{service_name}_failed", error=str(e))
+            return 1
 
-
-async def run_finder(brotr: Brotr, config_path: Path) -> int:
-    """Run finder service (continuous)."""
-    if config_path.exists():
-        service = Finder.from_yaml(str(config_path), brotr=brotr)
-    else:
-        logger.warning("config_not_found", path=str(config_path))
-        service = Finder(brotr=brotr)
-
-    config: FinderConfig = service.config
-
+    # Continuous services need signal handling
     def handle_signal(sig: int, _frame: object) -> None:
         sig_name = signal.Signals(sig).name
         logger.info("shutdown_signal", signal=sig_name)
@@ -84,73 +98,11 @@ async def run_finder(brotr: Brotr, config_path: Path) -> int:
 
     try:
         async with service:
-            await service.run_forever(interval=config.interval)
+            await service.run_forever(interval=service.config.interval)
         return 0
     except Exception as e:
-        logger.error("finder_failed", error=str(e))
+        logger.error(f"{service_name}_failed", error=str(e))
         return 1
-
-
-async def run_monitor(brotr: Brotr, config_path: Path) -> int:
-    """Run monitor service (continuous)."""
-    if config_path.exists():
-        service = Monitor.from_yaml(str(config_path), brotr=brotr)
-    else:
-        logger.warning("config_not_found", path=str(config_path))
-        service = Monitor(brotr=brotr)
-
-    config: MonitorConfig = service.config
-
-    def handle_signal(sig: int, _frame: object) -> None:
-        sig_name = signal.Signals(sig).name
-        logger.info("shutdown_signal", signal=sig_name)
-        service.request_shutdown()
-
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
-
-    try:
-        async with service:
-            await service.run_forever(interval=config.interval)
-        return 0
-    except Exception as e:
-        logger.error("monitor_failed", error=str(e))
-        return 1
-
-
-async def run_synchronizer(brotr: Brotr, config_path: Path) -> int:
-    """Run synchronizer service (continuous)."""
-    if config_path.exists():
-        service = Synchronizer.from_yaml(str(config_path), brotr=brotr)
-    else:
-        logger.warning("config_not_found", path=str(config_path))
-        service = Synchronizer(brotr=brotr)
-
-    config: SynchronizerConfig = service.config
-
-    def handle_signal(sig: int, _frame: object) -> None:
-        sig_name = signal.Signals(sig).name
-        logger.info("shutdown_signal", signal=sig_name)
-        service.request_shutdown()
-
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
-
-    try:
-        async with service:
-            await service.run_forever(interval=config.interval)
-        return 0
-    except Exception as e:
-        logger.error("synchronizer_failed", error=str(e))
-        return 1
-
-
-SERVICE_RUNNERS = {
-    "initializer": run_initializer,
-    "finder": run_finder,
-    "monitor": run_monitor,
-    "synchronizer": run_synchronizer,
-}
 
 
 # =============================================================================
@@ -167,7 +119,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "service",
-        choices=list(SERVICE_RUNNERS.keys()),
+        choices=list(SERVICE_REGISTRY.keys()),
         help="Service to run",
     )
 
@@ -217,18 +169,23 @@ async def main() -> int:
     args = parse_args()
     setup_logging(args.log_level)
 
-    # Resolve service config path
-    config_path = args.config if args.config else SERVICE_CONFIGS[args.service]
+    # Get service info from registry
+    service_class, default_config_path, is_oneshot = SERVICE_REGISTRY[args.service]
+    config_path = args.config if args.config else default_config_path
 
     # Load brotr
     brotr = load_brotr(args.brotr_config)
 
     # Run service
-    runner = SERVICE_RUNNERS[args.service]
-
     try:
         async with brotr.pool:
-            return await runner(brotr, config_path)
+            return await run_service(
+                service_name=args.service,
+                service_class=service_class,
+                brotr=brotr,
+                config_path=config_path,
+                is_oneshot=is_oneshot,
+            )
     except ConnectionError as e:
         logger.error("connection_failed", error=str(e))
         return 1
