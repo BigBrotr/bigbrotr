@@ -480,7 +480,7 @@ docker-compose up -d finder monitor synchronizer
 | aiohttp | 3.13.2 | Async HTTP client |
 | aiohttp-socks | 0.10.1 | SOCKS5 proxy for Tor |
 | aiomultiprocess | 0.9.1 | Multicore processing |
-| nostr-tools | 1.4.0 | Nostr protocol library |
+| nostr-tools | 1.4.1 | Nostr protocol library |
 | Docker | - | Containerization |
 | PGBouncer | - | Connection pooling |
 

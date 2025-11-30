@@ -254,7 +254,7 @@ python -m services synchronizer
 | `aiomultiprocess` | 0.9.1 | Multicore async processing |
 | `pydantic` | 2.10.4 | Configuration validation |
 | `PyYAML` | 6.0.2 | YAML parsing |
-| `nostr-tools` | 1.4.0 | Nostr protocol library |
+| `nostr-tools` | 1.4.1 | Nostr protocol library |
 
 ---
 
