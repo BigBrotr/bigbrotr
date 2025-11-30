@@ -3,24 +3,20 @@
 # ============================================================================
 # Description: Bootstrap database and seed initial data
 # Used by: src/services/initializer.py
-# Priority: CRITICAL (needed for all other services)
+# Priority: CRITICAL (must run before other services)
 # ============================================================================
 
 # Verification options for database schema checks
 verification:
+  extensions: true       # Verify PostgreSQL extensions exist
   tables: true           # Verify database tables exist
   procedures: true       # Verify stored procedures exist
-  extensions: true       # Verify PostgreSQL extensions
 
 # Expected database schema elements (for verification)
 expected_schema:
-  procedures:
-    - insert_event
-    - insert_relay
-    - insert_relay_metadata
-    - delete_orphan_events
-    - delete_orphan_nip11
-    - delete_orphan_nip66
+  extensions:
+    - pgcrypto           # For hashing functions (digest)
+    - btree_gin          # For GIN indexes on tagvalues array
   tables:
     - relays
     - events
@@ -29,24 +25,21 @@ expected_schema:
     - nip66
     - relay_metadata
     - service_state
-  extensions:
-    - pgcrypto   # For hashing functions (digest)
-    - btree_gin  # For GIN indexes on tagvalues array
+  procedures:
+    - insert_event
+    - insert_relay
+    - insert_relay_metadata
+    - delete_orphan_events
+    - delete_orphan_nip11
+    - delete_orphan_nip66
 
 # Seed relays configuration
-# Note: Network type (clearnet/tor) is auto-detected from URL using nostr_tools.Relay
+# Note: Network type (clearnet/tor) is auto-detected from URL
 # Note: Duplicate URLs are ignored by the database (ON CONFLICT DO NOTHING)
 # Note: File paths are relative to the working directory:
 #       - Docker: /app (so data/seed_relays.txt = /app/data/seed_relays.txt)
 #       - Local: run from implementations/bigbrotr/
+# Note: Batch size is controlled by Brotr's max_batch_size in brotr.yaml
 seed:
-  enabled: true                           # Enable relay seeding
-  path: data/seed_relays.txt              # Path to seed file (relative to working directory)
-  batch_size: 100                         # Insert relays in batches of 100
-
-# Retry configuration for database operations
-retry:
-  max_attempts: 3               # Maximum retry attempts for DB operations
-  initial_delay: 1.0            # Initial delay between retries (seconds)
-  max_delay: 10.0               # Maximum delay between retries (seconds)
-  exponential_backoff: true     # Use exponential backoff
+  enabled: true                    # Enable relay seeding
+  path: data/seed_relays.txt       # Path to seed file

@@ -1,23 +1,18 @@
 # ============================================================================
 # Finder Service Configuration
 # ============================================================================
-# Description: Discover Nostr relay URLs from database events and external APIs
+# Description: Discover Nostr relay URLs from external APIs and database events
 # Used by: src/services/finder.py
-# Dependencies: Brotr (database), service_state table
+# Dependencies: Initializer must complete first
 # ============================================================================
 
-# Event scanning configuration
-# Scans database events for relay URLs using nostr-tools find_ws_urls()
-# Uses atomic batch processing for crash consistency
+# Event scanning configuration (TODO: implement logic)
 event_scan:
-  enabled: true                   # Enable event scanning
-  batch_size: 1000                # Events per database fetch (each batch is atomic)
-  max_events_per_cycle: 100000    # Maximum events per discovery cycle
+  enabled: true
 
 # External API configuration
-# Fetches relay lists from external services (expects JSON array of strings)
 api:
-  enabled: true                   # Enable API fetching
+  enabled: true
   sources:
     - url: https://api.nostr.watch/v1/online
       enabled: true
@@ -25,21 +20,7 @@ api:
     - url: https://api.nostr.watch/v1/offline
       enabled: true
       timeout: 30.0
-  request_delay: 1.0              # Delay between API requests (seconds)
+  request_delay: 1.0
 
-# Logging configuration
-logging:
-  log_progress: true              # Log discovery progress
-  log_level: INFO                 # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-  progress_interval: 5000         # Log progress every N events
-
-# Timeouts
-timeouts:
-  db_query: 30.0                  # Database query timeout (seconds)
-
-# Relay insertion
-insert_batch_size: 100            # Batch size for relay inserts
-
-# Discovery loop configuration
-# The finder runs continuously, executing discovery cycles at this interval
-discovery_interval: 3600.0        # Seconds between discovery cycles (default: 1 hour)
+# Discovery cycle interval (seconds)
+discovery_interval: 3600.0

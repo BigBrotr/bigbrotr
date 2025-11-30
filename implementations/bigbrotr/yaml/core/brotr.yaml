@@ -8,9 +8,10 @@
 # Connection pool configuration
 pool:
   # Database connection parameters - connects to PGBouncer
+  # edoburu/pgbouncer listens on port 5432 inside the container
   database:
     host: pgbouncer
-    port: 6432
+    port: 5432
     database: bigbrotr
     user: admin
     # password: loaded from environment variable DB_PASSWORD
