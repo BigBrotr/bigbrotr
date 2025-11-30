@@ -23,7 +23,6 @@ from .finder import Finder, FinderConfig
 from .initializer import Initializer
 from .monitor import Monitor, MonitorConfig
 from .synchronizer import Synchronizer, SynchronizerConfig
-from .priority_synchronizer import PrioritySynchronizer, PrioritySynchronizerConfig
 
 
 # =============================================================================
@@ -38,7 +37,6 @@ SERVICE_CONFIGS = {
     "finder": YAML_BASE / "services" / "finder.yaml",
     "monitor": YAML_BASE / "services" / "monitor.yaml",
     "synchronizer": YAML_BASE / "services" / "synchronizer.yaml",
-    "priority_synchronizer": YAML_BASE / "services" / "priority_synchronizer.yaml",
 }
 
 logger = Logger("cli")
@@ -86,7 +84,7 @@ async def run_finder(brotr: Brotr, config_path: Path) -> int:
 
     try:
         async with service:
-            await service.run_forever(interval=config.discovery_interval)
+            await service.run_forever(interval=config.interval)
         return 0
     except Exception as e:
         logger.error("finder_failed", error=str(e))
@@ -113,7 +111,7 @@ async def run_monitor(brotr: Brotr, config_path: Path) -> int:
 
     try:
         async with service:
-            await service.run_forever(interval=config.monitor_interval)
+            await service.run_forever(interval=config.interval)
         return 0
     except Exception as e:
         logger.error("monitor_failed", error=str(e))
@@ -140,37 +138,10 @@ async def run_synchronizer(brotr: Brotr, config_path: Path) -> int:
 
     try:
         async with service:
-            await service.run_forever(interval=config.sync_interval)
+            await service.run_forever(interval=config.interval)
         return 0
     except Exception as e:
         logger.error("synchronizer_failed", error=str(e))
-        return 1
-
-
-async def run_priority_synchronizer(brotr: Brotr, config_path: Path) -> int:
-    """Run priority synchronizer service (continuous)."""
-    if config_path.exists():
-        service = PrioritySynchronizer.from_yaml(str(config_path), brotr=brotr)
-    else:
-        logger.warning("config_not_found", path=str(config_path))
-        service = PrioritySynchronizer(brotr=brotr)
-
-    config: PrioritySynchronizerConfig = service.config
-
-    def handle_signal(sig: int, _frame: object) -> None:
-        sig_name = signal.Signals(sig).name
-        logger.info("shutdown_signal", signal=sig_name)
-        service.request_shutdown()
-
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
-
-    try:
-        async with service:
-            await service.run_forever(interval=config.sync_interval)
-        return 0
-    except Exception as e:
-        logger.error("priority_synchronizer_failed", error=str(e))
         return 1
 
 
@@ -179,7 +150,6 @@ SERVICE_RUNNERS = {
     "finder": run_finder,
     "monitor": run_monitor,
     "synchronizer": run_synchronizer,
-    "priority_synchronizer": run_priority_synchronizer,
 }
 
 
