@@ -100,7 +100,8 @@ class TestMonitorConfig:
         os.environ["MONITOR_PRIVATE_KEY"] = priv
         config = MonitorConfig(keys=KeysConfig(public_key=pub))
 
-        assert config.keys.private_key == priv
+        assert config.keys.private_key is not None
+        assert config.keys.private_key.get_secret_value() == priv
 
         # Cleanup
         del os.environ["MONITOR_PRIVATE_KEY"]
@@ -114,7 +115,8 @@ class TestMonitorConfig:
         config = MonitorConfig(keys=KeysConfig(public_key=pub))
 
         assert config.keys.public_key == pub
-        assert config.keys.private_key == priv
+        assert config.keys.private_key is not None
+        assert config.keys.private_key.get_secret_value() == priv
 
         # Cleanup
         del os.environ["MONITOR_PRIVATE_KEY"]
@@ -146,7 +148,8 @@ class TestMonitorConfig:
         priv, _ = generate_keypair()
         os.environ["MONITOR_PRIVATE_KEY"] = priv
         config = KeysConfig()
-        assert config.private_key == priv
+        assert config.private_key is not None
+        assert config.private_key.get_secret_value() == priv
 
         # Cleanup
         del os.environ["MONITOR_PRIVATE_KEY"]

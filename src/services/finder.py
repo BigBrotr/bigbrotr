@@ -146,22 +146,24 @@ class Finder(BaseService):
         relays: dict[str, Relay] = {}
         sources_checked = 0
 
-        for source in self._config.api.sources:
-            if not source.enabled:
-                continue
+        # Reuse a single ClientSession for all API requests (connection pooling)
+        async with aiohttp.ClientSession() as session:
+            for source in self._config.api.sources:
+                if not source.enabled:
+                    continue
 
-            try:
-                source_relays = await self._fetch_single_api(source)
-                relays.update(source_relays)
-                sources_checked += 1
+                try:
+                    source_relays = await self._fetch_single_api(session, source)
+                    relays.update(source_relays)
+                    sources_checked += 1
 
-                self._logger.debug("api_fetched", url=source.url, count=len(source_relays))
+                    self._logger.debug("api_fetched", url=source.url, count=len(source_relays))
 
-                if self._config.api.delay_between_requests > 0:
-                    await asyncio.sleep(self._config.api.delay_between_requests)
+                    if self._config.api.delay_between_requests > 0:
+                        await asyncio.sleep(self._config.api.delay_between_requests)
 
-            except Exception as e:
-                self._logger.warning("api_error", url=source.url, error=str(e))
+                except Exception as e:
+                    self._logger.warning("api_error", url=source.url, error=str(e))
 
         # Insert discovered relays into database (respecting Brotr batch size)
         if relays:
@@ -172,36 +174,48 @@ class Finder(BaseService):
             ]
 
             batch_size = self._brotr.config.batch.max_batch_size
-            for i in range(0, len(relay_records), batch_size):
-                batch = relay_records[i : i + batch_size]
-                await self._brotr.insert_relays(batch)
+            try:
+                for i in range(0, len(relay_records), batch_size):
+                    batch = relay_records[i : i + batch_size]
+                    await self._brotr.insert_relays(batch)
 
-            self._found_relays += len(relays)
+                self._found_relays += len(relays)
+            except Exception as e:
+                self._logger.error("insert_relays_failed", error=str(e), count=len(relays))
 
         if sources_checked > 0:
             self._logger.info("apis_completed", sources=sources_checked, relays=len(relays))
 
-    async def _fetch_single_api(self, source: ApiSourceConfig) -> dict[str, Relay]:
-        """Fetch relay URLs from a single API source."""
+    async def _fetch_single_api(
+        self,
+        session: aiohttp.ClientSession,
+        source: ApiSourceConfig
+    ) -> dict[str, Relay]:
+        """
+        Fetch relay URLs from a single API source.
+
+        Args:
+            session: Reusable aiohttp ClientSession
+            source: API source configuration
+        """
         relays: dict[str, Relay] = {}
 
         timeout = aiohttp.ClientTimeout(total=source.timeout)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(source.url) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
+        async with session.get(source.url, timeout=timeout) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
 
-                if isinstance(data, list):
-                    for item in data:
-                        if isinstance(item, str):
-                            try:
-                                relay = Relay(item)
-                                relays[relay.url] = relay
-                            except RelayValidationError:
-                                self._logger.debug("invalid_relay_url", url=item)
-                        else:
-                            self._logger.debug("unexpected_item_type", url=source.url, item=item)
-                else:
-                    self._logger.debug("unexpected_api_response", url=source.url, data=data)
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, str):
+                        try:
+                            relay = Relay(item)
+                            relays[relay.url] = relay
+                        except RelayValidationError:
+                            self._logger.debug("invalid_relay_url", url=item)
+                    else:
+                        self._logger.debug("unexpected_item_type", url=source.url, item=item)
+            else:
+                self._logger.debug("unexpected_api_response", url=source.url, data=data)
 
         return relays

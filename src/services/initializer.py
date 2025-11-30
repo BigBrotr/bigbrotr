@@ -294,9 +294,11 @@ class Initializer(BaseService):
 
         for i in range(0, total, batch_size):
             batch = relays[i : i + batch_size]
-            success = await self._brotr.insert_relays(batch)
-            if success:
-                inserted += len(batch)
+            try:
+                count = await self._brotr.insert_relays(batch)
+                inserted += count
+            except Exception as e:
+                self._logger.error("seed_batch_failed", error=str(e), batch_start=i)
 
         self._logger.info("seed_completed", count=inserted, total=total)
 
