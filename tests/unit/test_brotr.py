@@ -8,16 +8,16 @@ import pytest
 from pydantic import ValidationError
 
 from core.brotr import (
+    PROC_DELETE_ORPHAN_EVENTS,
+    PROC_DELETE_ORPHAN_NIP11,
+    PROC_DELETE_ORPHAN_NIP66,
+    PROC_INSERT_EVENT,
+    PROC_INSERT_RELAY,
+    PROC_INSERT_RELAY_METADATA,
     BatchConfig,
     Brotr,
     BrotrConfig,
     TimeoutsConfig,
-    PROC_INSERT_EVENT,
-    PROC_INSERT_RELAY,
-    PROC_INSERT_RELAY_METADATA,
-    PROC_DELETE_ORPHAN_EVENTS,
-    PROC_DELETE_ORPHAN_NIP11,
-    PROC_DELETE_ORPHAN_NIP66,
 )
 from core.pool import Pool
 
@@ -95,9 +95,7 @@ class TestBrotr:
         assert brotr.config.batch.max_batch_size == 10000
         assert brotr.pool.is_connected is False
 
-    def test_init_with_injected_pool(
-        self, mock_connection_pool: Pool
-    ) -> None:
+    def test_init_with_injected_pool(self, mock_connection_pool: Pool) -> None:
         """Test initialization with injected pool."""
         config = BrotrConfig(batch=BatchConfig(max_batch_size=5000))
         brotr = Brotr(pool=mock_connection_pool, config=config)
@@ -166,17 +164,13 @@ class TestBrotrInsertEvents:
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_insert_events_single(
-        self, mock_brotr: Brotr, sample_event: dict
-    ) -> None:
+    async def test_insert_events_single(self, mock_brotr: Brotr, sample_event: dict) -> None:
         """Test inserting single event returns count."""
         result = await mock_brotr.insert_events([sample_event])
         assert result == 1
 
     @pytest.mark.asyncio
-    async def test_insert_events_multiple(
-        self, mock_brotr: Brotr, sample_event: dict
-    ) -> None:
+    async def test_insert_events_multiple(self, mock_brotr: Brotr, sample_event: dict) -> None:
         """Test inserting multiple events returns count."""
         events = []
         for i in range(10):
@@ -188,9 +182,7 @@ class TestBrotrInsertEvents:
         assert result == 10
 
     @pytest.mark.asyncio
-    async def test_insert_events_batch_size_exceeded(
-        self, sample_event: dict
-    ) -> None:
+    async def test_insert_events_batch_size_exceeded(self, sample_event: dict) -> None:
         """Test insert fails when batch size exceeded."""
         os.environ["DB_PASSWORD"] = "test_pass"
         config = BrotrConfig(batch=BatchConfig(max_batch_size=5))
@@ -214,17 +206,13 @@ class TestBrotrInsertRelays:
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_insert_relays_single(
-        self, mock_brotr: Brotr, sample_relay: dict
-    ) -> None:
+    async def test_insert_relays_single(self, mock_brotr: Brotr, sample_relay: dict) -> None:
         """Test inserting single relay returns count."""
         result = await mock_brotr.insert_relays([sample_relay])
         assert result == 1
 
     @pytest.mark.asyncio
-    async def test_insert_relays_multiple(
-        self, mock_brotr: Brotr, sample_relay: dict
-    ) -> None:
+    async def test_insert_relays_multiple(self, mock_brotr: Brotr, sample_relay: dict) -> None:
         """Test inserting multiple relays returns count."""
         relays = []
         for i in range(10):
@@ -246,9 +234,7 @@ class TestBrotrInsertMetadata:
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_insert_metadata_single(
-        self, mock_brotr: Brotr, sample_metadata: dict
-    ) -> None:
+    async def test_insert_metadata_single(self, mock_brotr: Brotr, sample_metadata: dict) -> None:
         """Test inserting single metadata record returns count."""
         result = await mock_brotr.insert_relay_metadata([sample_metadata])
         assert result == 1
@@ -259,6 +245,7 @@ class TestBrotrInsertMetadata:
     ) -> None:
         """Test inserting metadata without NIP-11 data returns count."""
         import copy
+
         metadata = copy.deepcopy(sample_metadata)
         del metadata["nip11"]  # Remove entirely rather than set to None
 
@@ -271,6 +258,7 @@ class TestBrotrInsertMetadata:
     ) -> None:
         """Test inserting metadata without NIP-66 data returns count."""
         import copy
+
         metadata = copy.deepcopy(sample_metadata)
         del metadata["nip66"]  # Remove entirely rather than set to None
 

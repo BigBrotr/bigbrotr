@@ -3,20 +3,21 @@ Unit tests for Monitor service.
 """
 
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from nostr_tools import generate_keypair
 
 from core.brotr import Brotr
 from core.pool import Pool
 from services.monitor import (
+    ConcurrencyConfig,
+    KeysConfig,
     Monitor,
     MonitorConfig,
-    TorConfig,
-    KeysConfig,
-    TimeoutsConfig,
-    ConcurrencyConfig,
     SelectionConfig,
+    TimeoutsConfig,
+    TorConfig,
 )
 
 
@@ -73,9 +74,7 @@ class TestMonitorConfig:
 
     def test_custom_tor(self) -> None:
         """Test custom Tor proxy settings."""
-        config = MonitorConfig(
-            tor=TorConfig(enabled=False, host="tor", port=9150)
-        )
+        config = MonitorConfig(tor=TorConfig(enabled=False, host="tor", port=9150))
 
         assert config.tor.enabled is False
         assert config.tor.host == "tor"
@@ -83,18 +82,16 @@ class TestMonitorConfig:
 
     def test_custom_keys(self) -> None:
         """Test custom keys settings with public_key from config."""
-        from nostr_tools import generate_keypair
+
         _, pub = generate_keypair()
 
-        config = MonitorConfig(
-            keys=KeysConfig(public_key=pub)
-        )
+        config = MonitorConfig(keys=KeysConfig(public_key=pub))
 
         assert config.keys.public_key == pub
 
     def test_private_key_from_env(self) -> None:
         """Test private key is loaded from environment variable."""
-        from nostr_tools import generate_keypair
+
         priv, pub = generate_keypair()
 
         os.environ["MONITOR_PRIVATE_KEY"] = priv
@@ -108,7 +105,7 @@ class TestMonitorConfig:
 
     def test_keypair_validation_success(self) -> None:
         """Test valid keypair passes validation."""
-        from nostr_tools import generate_keypair
+
         priv, pub = generate_keypair()
 
         os.environ["MONITOR_PRIVATE_KEY"] = priv
@@ -123,7 +120,7 @@ class TestMonitorConfig:
 
     def test_keypair_validation_failure(self) -> None:
         """Test mismatched keypair raises validation error."""
-        from nostr_tools import generate_keypair
+
         priv1, _ = generate_keypair()
         _, pub2 = generate_keypair()
 
@@ -137,7 +134,7 @@ class TestMonitorConfig:
 
     def test_keypair_validation_skipped_without_both(self) -> None:
         """Test validation is skipped if only one key is provided."""
-        from nostr_tools import generate_keypair
+
         _, pub = generate_keypair()
 
         # Only public key - should not raise
@@ -369,9 +366,7 @@ class TestMonitor:
         assert relays == []
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_to_check_with_relays(
-        self, mock_brotr: MagicMock
-    ) -> None:
+    async def test_fetch_relays_to_check_with_relays(self, mock_brotr: MagicMock) -> None:
         """Test fetching relays that need checking."""
         mock_brotr.pool.fetch = AsyncMock(
             return_value=[
@@ -389,9 +384,7 @@ class TestMonitor:
         assert "relay2.example.com" in relays[1].url
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_to_check_invalid_url(
-        self, mock_brotr: MagicMock
-    ) -> None:
+    async def test_fetch_relays_to_check_invalid_url(self, mock_brotr: MagicMock) -> None:
         """Test fetching relays with invalid URL."""
         mock_brotr.pool.fetch = AsyncMock(
             return_value=[
@@ -408,9 +401,7 @@ class TestMonitor:
         assert "valid.relay.com" in relays[0].url
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_skips_tor_when_disabled(
-        self, mock_brotr: MagicMock
-    ) -> None:
+    async def test_fetch_relays_skips_tor_when_disabled(self, mock_brotr: MagicMock) -> None:
         """Test that .onion relays are skipped when Tor proxy is disabled."""
         # Valid v3 onion address (56 characters)
         onion_url = "ws://oxtrdevav64z64yb7x6rjg4ntzqjhedm5b5zjqulugknhzr46ny2qbad.onion"
@@ -432,9 +423,7 @@ class TestMonitor:
         assert "clearnet.relay.com" in relays[0].url
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_includes_tor_when_enabled(
-        self, mock_brotr: MagicMock
-    ) -> None:
+    async def test_fetch_relays_includes_tor_when_enabled(self, mock_brotr: MagicMock) -> None:
         """Test that .onion relays are included when Tor proxy is enabled."""
         # Valid v3 onion address (56 characters)
         onion_url = "ws://oxtrdevav64z64yb7x6rjg4ntzqjhedm5b5zjqulugknhzr46ny2qbad.onion"

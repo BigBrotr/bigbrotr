@@ -3,7 +3,6 @@ Pytest configuration and shared fixtures for BigBrotr tests.
 """
 
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from core.brotr import Brotr
 from core.pool import Pool
-
 
 # ============================================================================
 # Logging Configuration
@@ -64,9 +62,7 @@ def mock_asyncpg_pool() -> MagicMock:
 
 
 @pytest.fixture
-def mock_connection_pool(
-    mock_asyncpg_pool: MagicMock, monkeypatch: pytest.MonkeyPatch
-) -> Pool:
+def mock_connection_pool(mock_asyncpg_pool: MagicMock, monkeypatch: pytest.MonkeyPatch) -> Pool:
     """Create a Pool with mocked internals."""
     from core.pool import DatabaseConfig, PoolConfig
 
@@ -221,17 +217,11 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "integration: marks tests as integration tests requiring database"
     )
-    config.addinivalue_line(
-        "markers", "unit: marks tests as unit tests (no external dependencies)"
-    )
-    config.addinivalue_line(
-        "markers", "slow: marks tests as slow running"
-    )
+    config.addinivalue_line("markers", "unit: marks tests as unit tests (no external dependencies)")
+    config.addinivalue_line("markers", "slow: marks tests as slow running")
 
 
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Auto-mark tests based on location."""
     for item in items:
         # Auto-mark tests in integration directory

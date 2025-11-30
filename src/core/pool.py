@@ -22,7 +22,6 @@ from pydantic import BaseModel, Field, SecretStr, field_validator
 
 from .logger import Logger
 
-
 # ============================================================================
 # Configuration Models
 # ============================================================================
@@ -248,7 +247,9 @@ class Pool:
                     if self._config.retry.exponential_backoff:
                         delay = min(delay * 2, self._config.retry.max_delay)
                     else:
-                        delay = min(delay + self._config.retry.initial_delay, self._config.retry.max_delay)
+                        delay = min(
+                            delay + self._config.retry.initial_delay, self._config.retry.max_delay
+                        )
 
     async def close(self) -> None:
         """Close pool and release resources."""
@@ -297,7 +298,7 @@ class Pool:
         timeout = health_check_timeout or self._config.timeouts.health_check
         last_error: Optional[Exception] = None
 
-        for attempt in range(max_retries):
+        for _attempt in range(max_retries):
             conn: Optional[asyncpg.Connection] = None
             try:
                 conn = await self._pool.acquire()
@@ -366,9 +367,7 @@ class Pool:
         async with self.acquire() as conn:
             return await conn.fetchval(query, *args, column=column, timeout=timeout)
 
-    async def execute(
-        self, query: str, *args: Any, timeout: Optional[float] = None
-    ) -> str:
+    async def execute(self, query: str, *args: Any, timeout: Optional[float] = None) -> str:
         """Execute query without returning results."""
         async with self.acquire() as conn:
             return await conn.execute(query, *args, timeout=timeout)

@@ -9,8 +9,6 @@ Run with: pytest tests/integration/ -v
 
 from pathlib import Path
 
-import pytest
-
 COMPOSE_DIR = Path(__file__).parent.parent.parent / "implementations" / "bigbrotr"
 
 

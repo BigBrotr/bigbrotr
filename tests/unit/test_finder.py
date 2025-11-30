@@ -10,11 +10,11 @@ import pytest
 from core.brotr import Brotr
 from core.pool import Pool
 from services.finder import (
-    Finder,
-    FinderConfig,
-    EventsConfig,
     ApiConfig,
     ApiSourceConfig,
+    EventsConfig,
+    Finder,
+    FinderConfig,
 )
 
 
@@ -63,9 +63,7 @@ class TestFinderConfig:
 
     def test_custom_events(self) -> None:
         """Test custom events settings."""
-        config = FinderConfig(
-            events=EventsConfig(enabled=False)
-        )
+        config = FinderConfig(events=EventsConfig(enabled=False))
 
         assert config.events.enabled is False
 
@@ -141,9 +139,7 @@ class TestFinder:
         await finder.run()
 
     @pytest.mark.asyncio
-    async def test_find_from_api_all_sources_disabled(
-        self, mock_brotr: MagicMock
-    ) -> None:
+    async def test_find_from_api_all_sources_disabled(self, mock_brotr: MagicMock) -> None:
         """Test API fetch when all sources are disabled."""
         config = FinderConfig(
             api=ApiConfig(

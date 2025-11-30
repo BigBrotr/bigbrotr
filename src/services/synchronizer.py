@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
-from typing import Any, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import aiomultiprocess
 from nostr_tools import Client, Event, Filter, Relay, RelayValidationError
@@ -34,6 +34,8 @@ from pydantic import BaseModel, Field
 from core.base_service import BaseService
 from core.brotr import Brotr
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 SERVICE_NAME = "synchronizer"
 
@@ -46,6 +48,7 @@ def _worker_log(level: str, message: str, **kwargs: Any) -> None:
     while logging module doesn't propagate across process boundaries.
     """
     from datetime import datetime
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     kv = " ".join(f"{k}={v}" for k, v in kwargs.items())
     print(f"{timestamp} {level} {SERVICE_NAME}.worker: {message} {kv}".strip(), flush=True)
@@ -129,39 +132,32 @@ class FilterConfig(BaseModel):
     ids: Optional[list[str]] = Field(default=None, description="Event IDs to sync (None = all)")
     kinds: Optional[list[int]] = Field(default=None, description="Event kinds to sync (None = all)")
     authors: Optional[list[str]] = Field(default=None, description="Authors to sync (None = all)")
-    tags: Optional[dict[str, list[str]]] = Field(default=None, description="Tag filters (None = all)")
+    tags: Optional[dict[str, list[str]]] = Field(
+        default=None, description="Tag filters (None = all)"
+    )
     limit: int = Field(default=500, ge=1, le=5000, description="Events per request")
 
 
 class TimeRangeConfig(BaseModel):
     """Time range configuration for sync."""
 
-    default_start: int = Field(
-        default=0,
-        ge=0,
-        description="Default start timestamp (0 = epoch)"
-    )
+    default_start: int = Field(default=0, ge=0, description="Default start timestamp (0 = epoch)")
     use_relay_state: bool = Field(
-        default=True,
-        description="Use per-relay state for start timestamp"
+        default=True, description="Use per-relay state for start timestamp"
     )
     lookback_seconds: int = Field(
         default=86400,
         ge=3600,
         le=604800,
-        description="Lookback window in seconds (default: 86400 = 24 hours)"
+        description="Lookback window in seconds (default: 86400 = 24 hours)",
     )
 
 
 class NetworkTimeoutsConfig(BaseModel):
     """Timeout settings for a specific network type."""
 
-    request: float = Field(
-        default=30.0, ge=5.0, le=120.0, description="WebSocket request timeout"
-    )
-    relay: float = Field(
-        default=1800.0, ge=60.0, le=14400.0, description="Max time per relay sync"
-    )
+    request: float = Field(default=30.0, ge=5.0, le=120.0, description="WebSocket request timeout")
+    relay: float = Field(default=1800.0, ge=60.0, le=14400.0, description="Max time per relay sync")
 
 
 class TimeoutsConfig(BaseModel):
@@ -179,9 +175,7 @@ class ConcurrencyConfig(BaseModel):
     max_parallel: int = Field(
         default=10, ge=1, le=100, description="Max concurrent relay connections per process"
     )
-    max_processes: int = Field(
-        default=1, ge=1, le=32, description="Number of worker processes"
-    )
+    max_processes: int = Field(default=1, ge=1, le=32, description="Number of worker processes")
     stagger_delay: tuple[int, int] = Field(
         default=(0, 60), description="Random delay range (min, max) seconds"
     )
@@ -194,19 +188,21 @@ class SourceConfig(BaseModel):
     max_metadata_age: int = Field(
         default=43200,  # 12 hours
         ge=0,
-        description="Only sync relays checked within N seconds"
+        description="Only sync relays checked within N seconds",
     )
     require_readable: bool = Field(default=True, description="Only sync readable relays")
 
 
 class RelayOverrideTimeouts(BaseModel):
     """Override timeouts for a specific relay."""
+
     request: Optional[float] = None
     relay: Optional[float] = None
 
 
 class RelayOverride(BaseModel):
     """Override settings for specific relays."""
+
     url: str
     timeouts: RelayOverrideTimeouts = Field(default_factory=RelayOverrideTimeouts)
 
@@ -214,9 +210,7 @@ class RelayOverride(BaseModel):
 class SynchronizerConfig(BaseModel):
     """Synchronizer configuration."""
 
-    interval: float = Field(
-        default=900.0, ge=60.0, description="Seconds between sync cycles"
-    )
+    interval: float = Field(default=900.0, ge=60.0, description="Seconds between sync cycles")
     tor: TorConfig = Field(default_factory=TorConfig)
     filter: FilterConfig = Field(default_factory=FilterConfig)
     time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
@@ -247,6 +241,7 @@ def _cleanup_worker_brotr() -> None:
         try:
             # Create a new event loop for cleanup since the worker's loop may be closed
             import asyncio
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
@@ -277,6 +272,7 @@ async def _get_worker_brotr(brotr_config: dict[str, Any]) -> Brotr:
         # Register cleanup handler only once per worker process
         if not _WORKER_CLEANUP_REGISTERED:
             import atexit
+
             atexit.register(_cleanup_worker_brotr)
             _WORKER_CLEANUP_REGISTERED = True
 
@@ -288,7 +284,7 @@ async def sync_relay_task(
     relay_network: str,
     start_time: int,
     config_dict: dict[str, Any],
-    brotr_config: dict[str, Any]
+    brotr_config: dict[str, Any],
 ) -> tuple[str, int, int]:
     """
     Standalone task to sync a single relay.
@@ -350,7 +346,7 @@ async def sync_relay_task(
                         start_time=start_time,
                         end_time=end_time,
                         filter_config=config.filter,
-                        brotr=brotr
+                        brotr=brotr,
                     )
 
             if events_synced > 0:
@@ -404,10 +400,7 @@ async def _fetch_batch(client: Client, filter_obj: Filter) -> RawEventBatch:
 
 
 async def _insert_batch(
-    batch: RawEventBatch,
-    relay_url: str,
-    relay_network: str,
-    brotr: Brotr
+    batch: RawEventBatch, relay_url: str, relay_network: str, brotr: Brotr
 ) -> int:
     """Insert a batch of events into the database."""
     if batch.is_empty():
@@ -418,26 +411,28 @@ async def _insert_batch(
     for raw in batch:
         try:
             evt = Event.from_dict(raw)
-            events.append({
-                "event_id": evt.id,
-                "pubkey": evt.pubkey,
-                "created_at": evt.created_at,
-                "kind": evt.kind,
-                "tags": evt.tags,
-                "content": evt.content,
-                "sig": evt.sig,
-                "relay_url": relay_url,
-                "relay_network": relay_network,
-                "relay_inserted_at": now,
-                "seen_at": now
-            })
+            events.append(
+                {
+                    "event_id": evt.id,
+                    "pubkey": evt.pubkey,
+                    "created_at": evt.created_at,
+                    "kind": evt.kind,
+                    "tags": evt.tags,
+                    "content": evt.content,
+                    "sig": evt.sig,
+                    "relay_url": relay_url,
+                    "relay_network": relay_network,
+                    "relay_inserted_at": now,
+                    "seen_at": now,
+                }
+            )
         except Exception as e:
             _worker_log("DEBUG", "event_parse_error", relay=relay_url, error=str(e))
 
     if events:
         batch_size = brotr.config.batch.max_batch_size
         for i in range(0, len(events), batch_size):
-            await brotr.insert_events(events[i:i + batch_size])
+            await brotr.insert_events(events[i : i + batch_size])
 
     return len(events)
 
@@ -449,7 +444,7 @@ async def _sync_relay_events(
     start_time: int,
     end_time: int,
     filter_config: FilterConfig,
-    brotr: Brotr
+    brotr: Brotr,
 ) -> int:
     """
     Core sync algorithm for a single relay.
@@ -564,7 +559,7 @@ class Synchronizer(BaseService):
 
         # Fetch relays
         relays = await self._fetch_relays()
-        
+
         # Always add overrides if they are not in the list?
         # Or just let _fetch_relays handle it?
         # Let's merge overrides into the relay list if not present.
@@ -647,7 +642,7 @@ class Synchronizer(BaseService):
                                 start_time=start,
                                 end_time=end_time,
                                 filter_config=self._config.filter,
-                                brotr=self._brotr
+                                brotr=self._brotr,
                             )
 
                     self._state.setdefault("relay_timestamps", {})[relay.url] = end_time
@@ -662,33 +657,29 @@ class Synchronizer(BaseService):
 
     async def _run_multiprocess(self, relays: list[Relay]) -> None:
         """Run sync using aiomultiprocess Pool (Queue-based balancing)."""
-        
+
         # Prepare tasks arguments
         tasks = []
         brotr_config_dump = {
             "pool": self._brotr.pool.config.model_dump(),
             # Add other brotr settings
             "batch": self._brotr.config.batch.model_dump(),
-            "timeouts": self._brotr.config.timeouts.model_dump()
+            "timeouts": self._brotr.config.timeouts.model_dump(),
         }
         service_config_dump = self._config.model_dump()
-        
+
         for relay in relays:
             start_time = await self._get_start_time(relay)
-            tasks.append((
-                relay.url,
-                relay.network,
-                start_time,
-                service_config_dump,
-                brotr_config_dump
-            ))
-            
+            tasks.append(
+                (relay.url, relay.network, start_time, service_config_dump, brotr_config_dump)
+            )
+
         async with aiomultiprocess.Pool(
             processes=self._config.concurrency.max_processes,
-            childconcurrency=self._config.concurrency.max_parallel
+            childconcurrency=self._config.concurrency.max_parallel,
         ) as pool:
             results = await pool.starmap(sync_relay_task, tasks)
-            
+
         # Process results
         for url, events, new_time in results:
             if events > 0 or new_time > 0:

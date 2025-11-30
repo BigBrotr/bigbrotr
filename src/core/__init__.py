@@ -24,11 +24,11 @@ from .logger import Logger
 from .pool import Pool, PoolConfig
 
 __all__ = [
-    "Pool",
-    "PoolConfig",
+    "BaseService",
     "Brotr",
     "BrotrConfig",
-    "BaseService",
     "ConfigT",
     "Logger",
+    "Pool",
+    "PoolConfig",
 ]

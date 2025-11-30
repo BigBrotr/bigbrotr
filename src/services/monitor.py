@@ -24,17 +24,18 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from nostr_tools import Client, Relay, RelayMetadata
-from nostr_tools.exceptions import RelayValidationError
 from nostr_tools.actions import fetch_relay_metadata
+from nostr_tools.exceptions import RelayValidationError
 from nostr_tools.utils import validate_keypair
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 from core.base_service import BaseService
-from core.brotr import Brotr
 
+if TYPE_CHECKING:
+    from core.brotr import Brotr
 
 SERVICE_NAME = "monitor"
 
@@ -61,10 +62,7 @@ def _get_private_key_from_env() -> Optional[SecretStr]:
 class KeysConfig(BaseModel):
     """Nostr keys for NIP-66 testing."""
 
-    public_key: Optional[str] = Field(
-        default=None,
-        description="Public key (hex) for write tests"
-    )
+    public_key: Optional[str] = Field(default=None, description="Public key (hex) for write tests")
     private_key: Optional[SecretStr] = Field(
         default_factory=_get_private_key_from_env,
         description="Private key (from MONITOR_PRIVATE_KEY env)",
@@ -81,7 +79,7 @@ class KeysConfig(BaseModel):
         return SecretStr(v)
 
     @model_validator(mode="after")
-    def validate_keypair_match(self) -> "KeysConfig":
+    def validate_keypair_match(self) -> KeysConfig:
         """Validate that public and private keys match if both provided."""
         if self.public_key and self.private_key:
             if not validate_keypair(self.private_key.get_secret_value(), self.public_key):
@@ -93,16 +91,10 @@ class TimeoutsConfig(BaseModel):
     """Timeout configuration for relay checks."""
 
     clearnet: float = Field(
-        default=30.0,
-        ge=5.0,
-        le=120.0,
-        description="Timeout for clearnet relay checks in seconds"
+        default=30.0, ge=5.0, le=120.0, description="Timeout for clearnet relay checks in seconds"
     )
     tor: float = Field(
-        default=60.0,
-        ge=10.0,
-        le=180.0,
-        description="Timeout for Tor relay checks in seconds"
+        default=60.0, ge=10.0, le=180.0, description="Timeout for Tor relay checks in seconds"
     )
 
 
@@ -110,16 +102,13 @@ class ConcurrencyConfig(BaseModel):
     """Concurrency configuration for parallel relay checking."""
 
     max_parallel: int = Field(
-        default=50,
-        ge=1,
-        le=500,
-        description="Maximum concurrent relay checks"
+        default=50, ge=1, le=500, description="Maximum concurrent relay checks"
     )
     batch_size: int = Field(
         default=50,
         ge=1,
         le=500,
-        description="Number of relays to process before pushing to database"
+        description="Number of relays to process before pushing to database",
     )
 
 
@@ -129,16 +118,14 @@ class SelectionConfig(BaseModel):
     min_age_since_check: int = Field(
         default=3600,  # 1 hour
         ge=0,
-        description="Minimum seconds since last check"
+        description="Minimum seconds since last check",
     )
 
 
 class MonitorConfig(BaseModel):
     """Monitor configuration."""
 
-    interval: float = Field(
-        default=3600.0, ge=60.0, description="Seconds between monitor cycles"
-    )
+    interval: float = Field(default=3600.0, ge=60.0, description="Seconds between monitor cycles")
     tor: TorConfig = Field(default_factory=TorConfig)
     keys: KeysConfig = Field(default_factory=KeysConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
@@ -222,7 +209,7 @@ class Monitor(BaseService):
         """
         super().__init__(brotr=brotr, config=config or MonitorConfig())
         self._config: MonitorConfig
-        
+
         # Metrics
         self._checked_relays: int = 0
         self._successful_checks: int = 0
@@ -235,7 +222,7 @@ class Monitor(BaseService):
     async def run(self) -> None:
         """
         Run single monitoring cycle.
-        
+
         Fetches relays needing checks and monitors each one concurrently,
         limited by max_concurrent. Results are batched for database insertion.
         Call via run_forever() for continuous operation.
@@ -266,7 +253,7 @@ class Monitor(BaseService):
                 result = await future
                 if result:
                     metadata_batch.append(metadata_to_db_record(result))
-                    
+
                     # Insert batch if full
                     if len(metadata_batch) >= self._config.concurrency.batch_size:
                         await self._insert_metadata_batch(metadata_batch)
@@ -331,22 +318,20 @@ class Monitor(BaseService):
     # -------------------------------------------------------------------------
 
     async def _process_relay(
-        self, 
-        relay: Relay, 
-        semaphore: asyncio.Semaphore
+        self, relay: Relay, semaphore: asyncio.Semaphore
     ) -> Optional[RelayMetadata]:
         """
         Check a single relay with concurrency limit.
-        
+
         Returns formatted dictionary for DB insertion or None on failure/no data.
         """
         async with semaphore:
             self._checked_relays += 1
-            
+
             # Determine configuration for this check
             is_tor = relay.network == "tor"
             timeout = self._config.timeouts.tor if is_tor else self._config.timeouts.clearnet
-            
+
             socks5_proxy = None
             if is_tor and self._config.tor.enabled:
                 socks5_proxy = f"socks5://{self._config.tor.host}:{self._config.tor.port}"
@@ -365,9 +350,9 @@ class Monitor(BaseService):
                         client=client,
                         sec=self._config.keys.private_key.get_secret_value(),
                         pub=self._config.keys.public_key,
-                        event_creation_timeout=int(timeout)
+                        event_creation_timeout=int(timeout),
                     )
-                except Exception as e:
+                except Exception:
                     self._failed_checks += 1
                     self._logger.info("check_failed", relay=relay.url)
                     return None

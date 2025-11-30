@@ -21,15 +21,16 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import aiohttp
 from nostr_tools import Relay, RelayValidationError
 from pydantic import BaseModel, Field
 
 from core.base_service import BaseService
-from core.brotr import Brotr
 
+if TYPE_CHECKING:
+    from core.brotr import Brotr
 
 SERVICE_NAME = "finder"
 
@@ -71,9 +72,7 @@ class ApiConfig(BaseModel):
 class FinderConfig(BaseModel):
     """Finder configuration."""
 
-    interval: float = Field(
-        default=3600.0, ge=60.0, description="Seconds between discovery cycles"
-    )
+    interval: float = Field(default=3600.0, ge=60.0, description="Seconds between discovery cycles")
     events: EventsConfig = Field(default_factory=EventsConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
 
@@ -187,9 +186,7 @@ class Finder(BaseService):
             self._logger.info("apis_completed", sources=sources_checked, relays=len(relays))
 
     async def _fetch_single_api(
-        self,
-        session: aiohttp.ClientSession,
-        source: ApiSourceConfig
+        self, session: aiohttp.ClientSession, source: ApiSourceConfig
     ) -> dict[str, Relay]:
         """
         Fetch relay URLs from a single API source.

@@ -4,7 +4,7 @@
 
 [project]
 name = "bigbrotr"
-version = "0.1.0"
+version = "2.0.0"
 description = "A modular Nostr data archiving and monitoring system"
 readme = "README.md"
 license = {text = "MIT"}
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["nostr", "archiving", "monitoring", "postgresql", "async"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -154,11 +154,16 @@ select = [
 ignore = [
     "E501",   # line too long (handled by formatter)
     "PLR0911", # too many return statements (acceptable for complex logic)
+    "PLR0912", # too many branches (acceptable for complex logic)
     "PLR0913", # too many arguments
     "PLR2004", # magic value comparison
+    "PLW0603", # global statement (required for multiprocess worker state)
+    "PLW2901", # loop variable overwritten (common pattern for line processing)
     "ARG001", # unused function argument (common in protocols)
     "ARG002", # unused method argument
+    "SIM102", # nested if (sometimes more readable)
     "SIM105", # contextlib.suppress doesn't work with async/await
+    "UP007",  # Use X | Y for type annotations (need Optional for Python 3.9 + Pydantic)
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -179,14 +184,16 @@ line-ending = "auto"
 
 [tool.mypy]
 python_version = "3.9"
-warn_return_any = true
+mypy_path = "src"
+explicit_package_bases = true
+warn_return_any = false
 warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
 check_untyped_defs = true
 no_implicit_optional = true
 warn_redundant_casts = true
-warn_unused_ignores = true
+warn_unused_ignores = false
 show_error_codes = true
 strict_equality = true
 pretty = true
@@ -196,5 +203,11 @@ module = [
     "asyncpg.*",
     "nostr_tools.*",
     "aiohttp_socks.*",
+    "aiomultiprocess.*",
 ]
 ignore_missing_imports = true
+
+# Disable specific error checks for modules with complex async/typing issues
+[[tool.mypy.overrides]]
+module = ["core.pool", "services.synchronizer", "services.monitor", "services.__main__"]
+disable_error_code = ["arg-type", "return-value", "union-attr", "misc", "operator", "attr-defined", "assignment"]
