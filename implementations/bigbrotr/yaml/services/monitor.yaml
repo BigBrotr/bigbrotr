@@ -1,5 +1,5 @@
 # ============================================================================
-# Monitor Service Configuration
+# Monitor Service Configuration (BigBrotr)
 # ============================================================================
 # Description: Monitor relay health and capabilities (NIP-11, NIP-66)
 # Used by: src/services/monitor.py
@@ -7,29 +7,31 @@
 # ============================================================================
 
 # Cycle interval (seconds between monitoring runs)
+# Range: >= 60.0
 interval: 3600.0
 
 # Tor proxy for .onion relays
 tor:
-  enabled: true
-  host: "tor"
-  port: 9050
+  enabled: true              # Enable Tor proxy for .onion relays
+  host: "tor"                # Tor proxy host (Docker service name)
+  port: 9050                 # Tor proxy port (Range: 1 - 65535)
 
 # Nostr keys for NIP-66 write tests (optional)
-# Public key is configured here, private key from MONITOR_PRIVATE_KEY env var
+# Private key loaded from MONITOR_PRIVATE_KEY environment variable
 keys:
-  public_key: null  # Public key (hex) for write tests
+  public_key: null           # Public key (hex) for write tests
+  private_key: null          # Private key (hex), loaded from env if null
 
 # Timeouts for relay checks (seconds)
 timeouts:
-  clearnet: 30.0
-  tor: 60.0
+  clearnet: 30.0             # Timeout for clearnet relays (Range: 5.0 - 120.0)
+  tor: 60.0                  # Timeout for Tor relays (Range: 10.0 - 180.0)
 
 # Concurrency settings
 concurrency:
-  max_parallel: 50      # Maximum concurrent relay checks
-  batch_size: 50        # Relays to process before pushing to database
+  max_parallel: 50           # Maximum concurrent relay checks (Range: 1 - 500)
+  batch_size: 50             # Relays to process before pushing to database (Range: 1 - 500)
 
 # Relay selection - which relays to check
 selection:
-  min_age_since_check: 3600  # Minimum seconds since last check (1 hour)
+  min_age_since_check: 3600  # Minimum seconds since last check (Range: >= 0)

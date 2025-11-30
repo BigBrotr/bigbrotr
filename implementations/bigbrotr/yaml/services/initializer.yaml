@@ -1,5 +1,5 @@
 # ============================================================================
-# Initializer Service Configuration
+# Initializer Service Configuration (BigBrotr)
 # ============================================================================
 # Description: Bootstrap database and seed initial data
 # Used by: src/services/initializer.py
