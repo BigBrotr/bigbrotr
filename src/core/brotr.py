@@ -12,7 +12,7 @@ Features:
 """
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Final, Optional
 
 import asyncpg
 import yaml
@@ -20,6 +20,21 @@ from pydantic import BaseModel, Field
 
 from .logger import Logger
 from .pool import Pool
+
+
+# ============================================================================
+# Stored Procedure Names (Hardcoded for Security)
+# ============================================================================
+# These are intentionally not configurable to prevent SQL injection attacks.
+# If you need to change procedure names, modify these constants and the
+# corresponding SQL files in implementations/bigbrotr/postgres/init/.
+
+PROC_INSERT_EVENT: Final[str] = "insert_event"
+PROC_INSERT_RELAY: Final[str] = "insert_relay"
+PROC_INSERT_RELAY_METADATA: Final[str] = "insert_relay_metadata"
+PROC_DELETE_ORPHAN_EVENTS: Final[str] = "delete_orphan_events"
+PROC_DELETE_ORPHAN_NIP11: Final[str] = "delete_orphan_nip11"
+PROC_DELETE_ORPHAN_NIP66: Final[str] = "delete_orphan_nip66"
 
 
 # ============================================================================
@@ -38,17 +53,6 @@ class BatchConfig(BaseModel):
     )
 
 
-class StoredProceduresConfig(BaseModel):
-    """Stored procedure names."""
-
-    insert_event: str = Field(default="insert_event")
-    insert_relay: str = Field(default="insert_relay")
-    insert_relay_metadata: str = Field(default="insert_relay_metadata")
-    delete_orphan_events: str = Field(default="delete_orphan_events")
-    delete_orphan_nip11: str = Field(default="delete_orphan_nip11")
-    delete_orphan_nip66: str = Field(default="delete_orphan_nip66")
-
-
 class TimeoutsConfig(BaseModel):
     """Operation timeouts."""
 
@@ -61,7 +65,6 @@ class BrotrConfig(BaseModel):
     """Complete Brotr configuration."""
 
     batch: BatchConfig = Field(default_factory=BatchConfig)
-    procedures: StoredProceduresConfig = Field(default_factory=StoredProceduresConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
 
 
@@ -76,20 +79,21 @@ class Brotr:
 
     Provides stored procedure wrappers and bulk insert operations.
     Uses composition: has a Pool (public property) for all connection operations.
+    Implements async context manager for automatic pool lifecycle management.
 
     Usage:
         brotr = Brotr.from_yaml("config.yaml")
 
-        async with brotr.pool:
-            # Pool operations
+        # Option 1: Use Brotr context manager (recommended)
+        async with brotr:
             result = await brotr.pool.fetch("SELECT * FROM events")
-
-            # Bulk inserts (optimized)
             await brotr.insert_events([event1, event2, ...])
             await brotr.insert_relays([relay1, relay2, ...])
-
-            # Cleanup
             deleted = await brotr.cleanup_orphans()
+
+        # Option 2: Manual pool management (legacy)
+        async with brotr.pool:
+            await brotr.insert_events([...])
     """
 
     def __init__(
@@ -157,7 +161,7 @@ class Brotr:
     async def _call_procedure(
         self,
         procedure_name: str,
-        *args,
+        *args: Any,
         conn: Optional[asyncpg.Connection] = None,
         fetch_result: bool = False,
         timeout: Optional[float] = None,
@@ -194,7 +198,7 @@ class Brotr:
     # Insert Operations
     # -------------------------------------------------------------------------
 
-    async def insert_events(self, events: list[dict[str, Any]]) -> bool:
+    async def insert_events(self, events: list[dict[str, Any]]) -> int:
         """
         Insert events atomically using bulk insert.
 
@@ -202,7 +206,11 @@ class Brotr:
             events: List of event dictionaries
 
         Returns:
-            True if successful, False on error
+            Number of events inserted
+
+        Raises:
+            asyncpg.PostgresError: On database errors
+            ValueError: On validation errors (batch size, hex conversion)
 
         Event format:
             {
@@ -220,43 +228,38 @@ class Brotr:
             }
         """
         if not events:
-            return True
+            return 0
 
         self._validate_batch_size(events, "insert_events")
 
-        try:
-            async with self.pool.transaction() as conn:
-                params = [
-                    (
-                        bytes.fromhex(e["event_id"]),
-                        bytes.fromhex(e["pubkey"]),
-                        e["created_at"],
-                        e["kind"],
-                        e["tags"],
-                        e["content"],
-                        bytes.fromhex(e["sig"]),
-                        e["relay_url"],
-                        e["relay_network"],
-                        e["relay_inserted_at"],
-                        e["seen_at"],
-                    )
-                    for e in events
-                ]
-
-                await conn.executemany(
-                    f"SELECT {self._config.procedures.insert_event}($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-                    params,
-                    timeout=self._config.timeouts.batch,
+        async with self.pool.transaction() as conn:
+            params = [
+                (
+                    bytes.fromhex(e["event_id"]),
+                    bytes.fromhex(e["pubkey"]),
+                    e["created_at"],
+                    e["kind"],
+                    e["tags"],
+                    e["content"],
+                    bytes.fromhex(e["sig"]),
+                    e["relay_url"],
+                    e["relay_network"],
+                    e["relay_inserted_at"],
+                    e["seen_at"],
                 )
+                for e in events
+            ]
 
-            self._logger.debug("events_inserted", count=len(events))
-            return True
+            await conn.executemany(
+                f"SELECT {PROC_INSERT_EVENT}($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                params,
+                timeout=self._config.timeouts.batch,
+            )
 
-        except (asyncpg.PostgresError, ValueError) as e:
-            self._logger.error("insert_events_failed", error=str(e))
-            return False
+        self._logger.debug("events_inserted", count=len(events))
+        return len(events)
 
-    async def insert_relays(self, relays: list[dict[str, Any]]) -> bool:
+    async def insert_relays(self, relays: list[dict[str, Any]]) -> int:
         """
         Insert relays atomically using bulk insert.
 
@@ -264,7 +267,11 @@ class Brotr:
             relays: List of relay dictionaries
 
         Returns:
-            True if successful, False on error
+            Number of relays inserted
+
+        Raises:
+            asyncpg.PostgresError: On database errors
+            ValueError: On validation errors (batch size)
 
         Relay format:
             {
@@ -274,31 +281,26 @@ class Brotr:
             }
         """
         if not relays:
-            return True
+            return 0
 
         self._validate_batch_size(relays, "insert_relays")
 
-        try:
-            async with self.pool.transaction() as conn:
-                params = [
-                    (r["url"], r["network"], r["inserted_at"])
-                    for r in relays
-                ]
+        async with self.pool.transaction() as conn:
+            params = [
+                (r["url"], r["network"], r["inserted_at"])
+                for r in relays
+            ]
 
-                await conn.executemany(
-                    f"SELECT {self._config.procedures.insert_relay}($1, $2, $3)",
-                    params,
-                    timeout=self._config.timeouts.batch,
-                )
+            await conn.executemany(
+                f"SELECT {PROC_INSERT_RELAY}($1, $2, $3)",
+                params,
+                timeout=self._config.timeouts.batch,
+            )
 
-            self._logger.debug("relays_inserted", count=len(relays))
-            return True
+        self._logger.debug("relays_inserted", count=len(relays))
+        return len(relays)
 
-        except (asyncpg.PostgresError, ValueError) as e:
-            self._logger.error("insert_relays_failed", error=str(e))
-            return False
-
-    async def insert_relay_metadata(self, metadata_list: list[dict[str, Any]]) -> bool:
+    async def insert_relay_metadata(self, metadata_list: list[dict[str, Any]]) -> int:
         """
         Insert relay metadata atomically using bulk insert.
 
@@ -306,58 +308,57 @@ class Brotr:
             metadata_list: List of metadata dictionaries
 
         Returns:
-            True if successful, False on error
+            Number of metadata records inserted
+
+        Raises:
+            asyncpg.PostgresError: On database errors
+            ValueError: On validation errors (batch size)
         """
         if not metadata_list:
-            return True
+            return 0
 
         self._validate_batch_size(metadata_list, "insert_relay_metadata")
 
-        try:
-            async with self.pool.transaction() as conn:
-                params = [
-                    (
-                        m["relay_url"],
-                        m["relay_network"],
-                        m["relay_inserted_at"],
-                        m["generated_at"],
-                        m.get("nip66") is not None,
-                        m.get("nip66", {}).get("openable"),
-                        m.get("nip66", {}).get("readable"),
-                        m.get("nip66", {}).get("writable"),
-                        m.get("nip66", {}).get("rtt_open"),
-                        m.get("nip66", {}).get("rtt_read"),
-                        m.get("nip66", {}).get("rtt_write"),
-                        m.get("nip11") is not None,
-                        m.get("nip11", {}).get("name"),
-                        m.get("nip11", {}).get("description"),
-                        m.get("nip11", {}).get("banner"),
-                        m.get("nip11", {}).get("icon"),
-                        m.get("nip11", {}).get("pubkey"),
-                        m.get("nip11", {}).get("contact"),
-                        m.get("nip11", {}).get("supported_nips"),
-                        m.get("nip11", {}).get("software"),
-                        m.get("nip11", {}).get("version"),
-                        m.get("nip11", {}).get("privacy_policy"),
-                        m.get("nip11", {}).get("terms_of_service"),
-                        m.get("nip11", {}).get("limitation"),
-                        m.get("nip11", {}).get("extra_fields"),
-                    )
-                    for m in metadata_list
-                ]
-
-                await conn.executemany(
-                    f"SELECT {self._config.procedures.insert_relay_metadata}($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)",
-                    params,
-                    timeout=self._config.timeouts.batch,
+        async with self.pool.transaction() as conn:
+            params = [
+                (
+                    m["relay_url"],
+                    m["relay_network"],
+                    m["relay_inserted_at"],
+                    m["generated_at"],
+                    m.get("nip66") is not None,
+                    m.get("nip66", {}).get("openable"),
+                    m.get("nip66", {}).get("readable"),
+                    m.get("nip66", {}).get("writable"),
+                    m.get("nip66", {}).get("rtt_open"),
+                    m.get("nip66", {}).get("rtt_read"),
+                    m.get("nip66", {}).get("rtt_write"),
+                    m.get("nip11") is not None,
+                    m.get("nip11", {}).get("name"),
+                    m.get("nip11", {}).get("description"),
+                    m.get("nip11", {}).get("banner"),
+                    m.get("nip11", {}).get("icon"),
+                    m.get("nip11", {}).get("pubkey"),
+                    m.get("nip11", {}).get("contact"),
+                    m.get("nip11", {}).get("supported_nips"),
+                    m.get("nip11", {}).get("software"),
+                    m.get("nip11", {}).get("version"),
+                    m.get("nip11", {}).get("privacy_policy"),
+                    m.get("nip11", {}).get("terms_of_service"),
+                    m.get("nip11", {}).get("limitation"),
+                    m.get("nip11", {}).get("extra_fields"),
                 )
+                for m in metadata_list
+            ]
 
-            self._logger.debug("relay_metadata_inserted", count=len(metadata_list))
-            return True
+            await conn.executemany(
+                f"SELECT {PROC_INSERT_RELAY_METADATA}($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)",
+                params,
+                timeout=self._config.timeouts.batch,
+            )
 
-        except (asyncpg.PostgresError, ValueError) as e:
-            self._logger.error("insert_relay_metadata_failed", error=str(e))
-            return False
+        self._logger.debug("relay_metadata_inserted", count=len(metadata_list))
+        return len(metadata_list)
 
     # -------------------------------------------------------------------------
     # Cleanup Operations
@@ -366,21 +367,21 @@ class Brotr:
     async def delete_orphan_events(self) -> int:
         """Delete orphaned events. Returns count."""
         return await self._call_procedure(
-            self._config.procedures.delete_orphan_events,
+            PROC_DELETE_ORPHAN_EVENTS,
             fetch_result=True,
         )
 
     async def delete_orphan_nip11(self) -> int:
         """Delete orphaned NIP-11 records. Returns count."""
         return await self._call_procedure(
-            self._config.procedures.delete_orphan_nip11,
+            PROC_DELETE_ORPHAN_NIP11,
             fetch_result=True,
         )
 
     async def delete_orphan_nip66(self) -> int:
         """Delete orphaned NIP-66 records. Returns count."""
         return await self._call_procedure(
-            self._config.procedures.delete_orphan_nip66,
+            PROC_DELETE_ORPHAN_NIP66,
             fetch_result=True,
         )
 
@@ -407,6 +408,25 @@ class Brotr:
     def config(self) -> BrotrConfig:
         """Get configuration."""
         return self._config
+
+    # -------------------------------------------------------------------------
+    # Context Manager (delegates to Pool)
+    # -------------------------------------------------------------------------
+
+    async def __aenter__(self) -> "Brotr":
+        """
+        Async context manager entry - connects the pool.
+
+        Usage:
+            async with brotr:
+                await brotr.insert_events([...])
+        """
+        await self.pool.connect()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Async context manager exit - closes the pool."""
+        await self.pool.close()
 
     def __repr__(self) -> str:
         """String representation."""

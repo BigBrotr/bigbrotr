@@ -12,7 +12,12 @@ from core.brotr import (
     Brotr,
     BrotrConfig,
     TimeoutsConfig,
-    StoredProceduresConfig,
+    PROC_INSERT_EVENT,
+    PROC_INSERT_RELAY,
+    PROC_INSERT_RELAY_METADATA,
+    PROC_DELETE_ORPHAN_EVENTS,
+    PROC_DELETE_ORPHAN_NIP11,
+    PROC_DELETE_ORPHAN_NIP66,
 )
 from core.pool import Pool
 
@@ -41,29 +46,17 @@ class TestBatchConfig:
             BatchConfig(max_batch_size=200000)
 
 
-class TestStoredProceduresConfig:
-    """Tests for StoredProceduresConfig Pydantic model."""
+class TestStoredProcedureConstants:
+    """Tests for stored procedure constants (hardcoded for security)."""
 
-    def test_default_values(self) -> None:
-        """Test default stored procedure names."""
-        config = StoredProceduresConfig()
-
-        assert config.insert_event == "insert_event"
-        assert config.insert_relay == "insert_relay"
-        assert config.insert_relay_metadata == "insert_relay_metadata"
-        assert config.delete_orphan_events == "delete_orphan_events"
-        assert config.delete_orphan_nip11 == "delete_orphan_nip11"
-        assert config.delete_orphan_nip66 == "delete_orphan_nip66"
-
-    def test_custom_values(self) -> None:
-        """Test custom procedure names."""
-        config = StoredProceduresConfig(
-            insert_event="custom_insert_event",
-            delete_orphan_events="custom_delete",
-        )
-
-        assert config.insert_event == "custom_insert_event"
-        assert config.delete_orphan_events == "custom_delete"
+    def test_procedure_names_are_expected_values(self) -> None:
+        """Test that procedure names match expected SQL function names."""
+        assert PROC_INSERT_EVENT == "insert_event"
+        assert PROC_INSERT_RELAY == "insert_relay"
+        assert PROC_INSERT_RELAY_METADATA == "insert_relay_metadata"
+        assert PROC_DELETE_ORPHAN_EVENTS == "delete_orphan_events"
+        assert PROC_DELETE_ORPHAN_NIP11 == "delete_orphan_nip11"
+        assert PROC_DELETE_ORPHAN_NIP66 == "delete_orphan_nip66"
 
 
 class TestTimeoutsConfig:
@@ -168,23 +161,23 @@ class TestBrotrInsertEvents:
 
     @pytest.mark.asyncio
     async def test_insert_events_empty_list(self, mock_brotr: Brotr) -> None:
-        """Test inserting empty list returns True."""
+        """Test inserting empty list returns 0."""
         result = await mock_brotr.insert_events([])
-        assert result is True
+        assert result == 0
 
     @pytest.mark.asyncio
     async def test_insert_events_single(
         self, mock_brotr: Brotr, sample_event: dict
     ) -> None:
-        """Test inserting single event."""
+        """Test inserting single event returns count."""
         result = await mock_brotr.insert_events([sample_event])
-        assert result is True
+        assert result == 1
 
     @pytest.mark.asyncio
     async def test_insert_events_multiple(
         self, mock_brotr: Brotr, sample_event: dict
     ) -> None:
-        """Test inserting multiple events."""
+        """Test inserting multiple events returns count."""
         events = []
         for i in range(10):
             event = sample_event.copy()
@@ -192,7 +185,7 @@ class TestBrotrInsertEvents:
             events.append(event)
 
         result = await mock_brotr.insert_events(events)
-        assert result is True
+        assert result == 10
 
     @pytest.mark.asyncio
     async def test_insert_events_batch_size_exceeded(
@@ -216,23 +209,23 @@ class TestBrotrInsertRelays:
 
     @pytest.mark.asyncio
     async def test_insert_relays_empty_list(self, mock_brotr: Brotr) -> None:
-        """Test inserting empty list returns True."""
+        """Test inserting empty list returns 0."""
         result = await mock_brotr.insert_relays([])
-        assert result is True
+        assert result == 0
 
     @pytest.mark.asyncio
     async def test_insert_relays_single(
         self, mock_brotr: Brotr, sample_relay: dict
     ) -> None:
-        """Test inserting single relay."""
+        """Test inserting single relay returns count."""
         result = await mock_brotr.insert_relays([sample_relay])
-        assert result is True
+        assert result == 1
 
     @pytest.mark.asyncio
     async def test_insert_relays_multiple(
         self, mock_brotr: Brotr, sample_relay: dict
     ) -> None:
-        """Test inserting multiple relays."""
+        """Test inserting multiple relays returns count."""
         relays = []
         for i in range(10):
             relay = sample_relay.copy()
@@ -240,7 +233,7 @@ class TestBrotrInsertRelays:
             relays.append(relay)
 
         result = await mock_brotr.insert_relays(relays)
-        assert result is True
+        assert result == 10
 
 
 class TestBrotrInsertMetadata:
@@ -248,41 +241,41 @@ class TestBrotrInsertMetadata:
 
     @pytest.mark.asyncio
     async def test_insert_metadata_empty_list(self, mock_brotr: Brotr) -> None:
-        """Test inserting empty list returns True."""
+        """Test inserting empty list returns 0."""
         result = await mock_brotr.insert_relay_metadata([])
-        assert result is True
+        assert result == 0
 
     @pytest.mark.asyncio
     async def test_insert_metadata_single(
         self, mock_brotr: Brotr, sample_metadata: dict
     ) -> None:
-        """Test inserting single metadata record."""
+        """Test inserting single metadata record returns count."""
         result = await mock_brotr.insert_relay_metadata([sample_metadata])
-        assert result is True
+        assert result == 1
 
     @pytest.mark.asyncio
     async def test_insert_metadata_without_nip11(
         self, mock_brotr: Brotr, sample_metadata: dict
     ) -> None:
-        """Test inserting metadata without NIP-11 data."""
+        """Test inserting metadata without NIP-11 data returns count."""
         import copy
         metadata = copy.deepcopy(sample_metadata)
         del metadata["nip11"]  # Remove entirely rather than set to None
 
         result = await mock_brotr.insert_relay_metadata([metadata])
-        assert result is True
+        assert result == 1
 
     @pytest.mark.asyncio
     async def test_insert_metadata_without_nip66(
         self, mock_brotr: Brotr, sample_metadata: dict
     ) -> None:
-        """Test inserting metadata without NIP-66 data."""
+        """Test inserting metadata without NIP-66 data returns count."""
         import copy
         metadata = copy.deepcopy(sample_metadata)
         del metadata["nip66"]  # Remove entirely rather than set to None
 
         result = await mock_brotr.insert_relay_metadata([metadata])
-        assert result is True
+        assert result == 1
 
 
 class TestBrotrCleanup:
