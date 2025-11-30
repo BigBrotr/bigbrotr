@@ -6,8 +6,11 @@
 # Dependencies: Finder must have discovered relays first
 # ============================================================================
 
+# Cycle interval (seconds between monitoring runs)
+interval: 3600.0
+
 # Tor proxy for .onion relays
-tor_proxy:
+tor:
   enabled: true
   host: "tor"
   port: 9050
@@ -17,19 +20,16 @@ tor_proxy:
 keys:
   public_key: null  # Public key (hex) for write tests
 
-# Timeout settings for relay checks
+# Timeouts for relay checks (seconds)
 timeouts:
-  clearnet: 30.0  # Timeout for clearnet relay checks (seconds)
-  tor: 60.0  # Timeout for Tor relay checks (seconds)
+  clearnet: 30.0
+  tor: 60.0
 
 # Concurrency settings
 concurrency:
-  max_concurrent: 50  # Maximum concurrent relay checks
-  batch_size: 50  # Relays to process before pushing to database
+  max_parallel: 50      # Maximum concurrent relay checks
+  batch_size: 50        # Relays to process before pushing to database
 
-# Relay selection configuration
-relay_selection:
-  min_check_age: 3600  # Minimum seconds since last check (1 hour)
-
-# Interval between monitor cycles (seconds)
-monitor_interval: 3600.0  # 1 hour
+# Relay selection - which relays to check
+selection:
+  min_age_since_check: 3600  # Minimum seconds since last check (1 hour)

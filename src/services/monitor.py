@@ -41,7 +41,7 @@ SERVICE_NAME = "monitor"
 # =============================================================================
 
 
-class TorProxyConfig(BaseModel):
+class TorConfig(BaseModel):
     """Tor proxy configuration."""
 
     enabled: bool = Field(default=True, description="Enable Tor proxy for .onion relays")
@@ -103,7 +103,7 @@ class TimeoutsConfig(BaseModel):
 class ConcurrencyConfig(BaseModel):
     """Concurrency configuration for parallel relay checking."""
 
-    max_concurrent: int = Field(
+    max_parallel: int = Field(
         default=50,
         ge=1,
         le=500,
@@ -117,10 +117,10 @@ class ConcurrencyConfig(BaseModel):
     )
 
 
-class RelaySelectionConfig(BaseModel):
+class SelectionConfig(BaseModel):
     """Configuration for relay selection."""
 
-    min_check_age: int = Field(
+    min_age_since_check: int = Field(
         default=3600,  # 1 hour
         ge=0,
         description="Minimum seconds since last check"
@@ -130,14 +130,14 @@ class RelaySelectionConfig(BaseModel):
 class MonitorConfig(BaseModel):
     """Monitor configuration."""
 
-    tor_proxy: TorProxyConfig = Field(default_factory=TorProxyConfig)
+    interval: float = Field(
+        default=3600.0, ge=60.0, description="Seconds between monitor cycles"
+    )
+    tor: TorConfig = Field(default_factory=TorConfig)
     keys: KeysConfig = Field(default_factory=KeysConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
-    relay_selection: RelaySelectionConfig = Field(default_factory=RelaySelectionConfig)
-    monitor_interval: float = Field(
-        default=3600.0, ge=60.0, description="Seconds between monitor cycles"
-    )
+    selection: SelectionConfig = Field(default_factory=SelectionConfig)
 
 
 # =============================================================================
@@ -206,7 +206,7 @@ class Monitor(BaseService):
         generated_at = int(time.time())
 
         # Semaphore to limit concurrent checks
-        semaphore = asyncio.Semaphore(self._config.concurrency.max_concurrent)
+        semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel)
         metadata_buffer: list[dict[str, Any]] = []
 
         async def check_with_limit(relay: Relay) -> Optional[dict[str, Any]]:
@@ -247,7 +247,7 @@ class Monitor(BaseService):
     async def _fetch_relays_to_check(self) -> list[Relay]:
         """Fetch relays that need health checking."""
         relays: list[Relay] = []
-        threshold = int(time.time()) - self._config.relay_selection.min_check_age
+        threshold = int(time.time()) - self._config.selection.min_age_since_check
 
         # Query relays with stale or missing metadata using the view
         query = """
@@ -265,7 +265,7 @@ class Monitor(BaseService):
             try:
                 relay = Relay(relay_url)
                 # Skip .onion relays if Tor proxy is disabled
-                if relay.network == "tor" and not self._config.tor_proxy.enabled:
+                if relay.network == "tor" and not self._config.tor.enabled:
                     skipped_tor += 1
                     continue
                 relays.append(relay)
@@ -299,8 +299,8 @@ class Monitor(BaseService):
         try:
             # Create client with optional SOCKS5 proxy for Tor
             socks5_proxy = None
-            if is_tor and self._config.tor_proxy.enabled:
-                socks5_proxy = f"socks5://{self._config.tor_proxy.host}:{self._config.tor_proxy.port}"
+            if is_tor and self._config.tor.enabled:
+                socks5_proxy = f"socks5://{self._config.tor.host}:{self._config.tor.port}"
 
             client = Client(
                 relay=relay,

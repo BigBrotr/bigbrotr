@@ -7,8 +7,11 @@
 # Note: Lighter configuration for lilbrotr (fewer concurrent checks)
 # ============================================================================
 
+# Cycle interval (seconds between monitoring runs)
+interval: 3600.0
+
 # Tor proxy for .onion relays
-tor_proxy:
+tor:
   enabled: false
   host: "127.0.0.1"
   port: 9050
@@ -18,19 +21,16 @@ tor_proxy:
 keys:
   public_key: null  # Public key (hex) for write tests
 
-# Timeout settings for relay checks
+# Timeouts for relay checks (seconds)
 timeouts:
-  clearnet: 30.0  # Timeout for clearnet relay checks (seconds)
-  tor: 60.0  # Timeout for Tor relay checks (seconds)
+  clearnet: 30.0
+  tor: 60.0
 
 # Concurrency settings (reduced for lilbrotr)
 concurrency:
-  max_concurrent: 10  # Maximum concurrent relay checks
-  batch_size: 25  # Relays to process before pushing to database
+  max_parallel: 10      # Maximum concurrent relay checks
+  batch_size: 25        # Relays to process before pushing to database
 
-# Relay selection configuration
-relay_selection:
-  min_check_age: 3600  # Minimum seconds since last check (1 hour)
-
-# Interval between monitor cycles (seconds)
-monitor_interval: 3600.0  # 1 hour
+# Relay selection - which relays to check
+selection:
+  min_age_since_check: 3600  # Minimum seconds since last check (1 hour)

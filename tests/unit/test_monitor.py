@@ -12,11 +12,11 @@ from core.pool import Pool
 from services.monitor import (
     Monitor,
     MonitorConfig,
-    TorProxyConfig,
+    TorConfig,
     KeysConfig,
     TimeoutsConfig,
     ConcurrencyConfig,
-    RelaySelectionConfig,
+    SelectionConfig,
 )
 
 
@@ -59,27 +59,27 @@ class TestMonitorConfig:
         """Test default configuration values."""
         config = MonitorConfig()
 
-        assert config.tor_proxy.enabled is True
-        assert config.tor_proxy.host == "127.0.0.1"
-        assert config.tor_proxy.port == 9050
+        assert config.tor.enabled is True
+        assert config.tor.host == "127.0.0.1"
+        assert config.tor.port == 9050
         assert config.keys.private_key is None
         assert config.keys.public_key is None
         assert config.timeouts.clearnet == 30.0
         assert config.timeouts.tor == 60.0
-        assert config.concurrency.max_concurrent == 50
+        assert config.concurrency.max_parallel == 50
         assert config.concurrency.batch_size == 50
-        assert config.relay_selection.min_check_age == 3600
-        assert config.monitor_interval == 3600.0
+        assert config.selection.min_age_since_check == 3600
+        assert config.interval == 3600.0
 
-    def test_custom_tor_proxy(self) -> None:
+    def test_custom_tor(self) -> None:
         """Test custom Tor proxy settings."""
         config = MonitorConfig(
-            tor_proxy=TorProxyConfig(enabled=False, host="tor", port=9150)
+            tor=TorConfig(enabled=False, host="tor", port=9150)
         )
 
-        assert config.tor_proxy.enabled is False
-        assert config.tor_proxy.host == "tor"
-        assert config.tor_proxy.port == 9150
+        assert config.tor.enabled is False
+        assert config.tor.host == "tor"
+        assert config.tor.port == 9150
 
     def test_custom_keys(self) -> None:
         """Test custom keys settings with public_key from config."""
@@ -155,12 +155,12 @@ class TestMonitorConfig:
         """Test custom concurrency settings."""
         config = MonitorConfig(
             concurrency=ConcurrencyConfig(
-                max_concurrent=100,
+                max_parallel=100,
                 batch_size=100,
             )
         )
 
-        assert config.concurrency.max_concurrent == 100
+        assert config.concurrency.max_parallel == 100
         assert config.concurrency.batch_size == 100
 
     def test_custom_timeouts(self) -> None:
@@ -175,23 +175,23 @@ class TestMonitorConfig:
         assert config.timeouts.clearnet == 45.0
         assert config.timeouts.tor == 90.0
 
-    def test_custom_relay_selection(self) -> None:
-        """Test custom relay selection settings."""
+    def test_custom_selection(self) -> None:
+        """Test custom selection settings."""
         config = MonitorConfig(
-            relay_selection=RelaySelectionConfig(
-                min_check_age=7200,
+            selection=SelectionConfig(
+                min_age_since_check=7200,
             )
         )
 
-        assert config.relay_selection.min_check_age == 7200
+        assert config.selection.min_age_since_check == 7200
 
 
-class TestTorProxyConfig:
-    """Tests for TorProxyConfig."""
+class TestTorConfig:
+    """Tests for TorConfig."""
 
     def test_default_values(self) -> None:
         """Test default Tor proxy config."""
-        config = TorProxyConfig()
+        config = TorConfig()
 
         assert config.enabled is True
         assert config.host == "127.0.0.1"
@@ -200,15 +200,15 @@ class TestTorProxyConfig:
     def test_port_validation(self) -> None:
         """Test port validation."""
         # Valid port
-        config = TorProxyConfig(port=9150)
+        config = TorConfig(port=9150)
         assert config.port == 9150
 
         # Invalid port should raise
         with pytest.raises(ValueError):
-            TorProxyConfig(port=0)
+            TorConfig(port=0)
 
         with pytest.raises(ValueError):
-            TorProxyConfig(port=70000)
+            TorConfig(port=70000)
 
 
 class TestTimeoutsConfig:
@@ -259,32 +259,32 @@ class TestConcurrencyConfig:
         """Test default concurrency config."""
         config = ConcurrencyConfig()
 
-        assert config.max_concurrent == 50
+        assert config.max_parallel == 50
         assert config.batch_size == 50
 
-    def test_custom_max_concurrent(self) -> None:
-        """Test custom max_concurrent values."""
-        config = ConcurrencyConfig(max_concurrent=100)
-        assert config.max_concurrent == 100
+    def test_custom_max_parallel(self) -> None:
+        """Test custom max_parallel values."""
+        config = ConcurrencyConfig(max_parallel=100)
+        assert config.max_parallel == 100
 
-        config = ConcurrencyConfig(max_concurrent=10)
-        assert config.max_concurrent == 10
+        config = ConcurrencyConfig(max_parallel=10)
+        assert config.max_parallel == 10
 
     def test_validation(self) -> None:
         """Test validation constraints."""
         # Valid values
         config = ConcurrencyConfig(
-            max_concurrent=1,
+            max_parallel=1,
             batch_size=1,
         )
-        assert config.max_concurrent == 1
+        assert config.max_parallel == 1
 
-        # Invalid max_concurrent
+        # Invalid max_parallel
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_concurrent=0)
+            ConcurrencyConfig(max_parallel=0)
 
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_concurrent=501)
+            ConcurrencyConfig(max_parallel=501)
 
         # Invalid batch_size
         with pytest.raises(ValueError):
@@ -294,22 +294,22 @@ class TestConcurrencyConfig:
             ConcurrencyConfig(batch_size=501)
 
 
-class TestRelaySelectionConfig:
-    """Tests for RelaySelectionConfig."""
+class TestSelectionConfig:
+    """Tests for SelectionConfig."""
 
     def test_default_values(self) -> None:
-        """Test default relay selection config."""
-        config = RelaySelectionConfig()
+        """Test default selection config."""
+        config = SelectionConfig()
 
-        assert config.min_check_age == 3600
+        assert config.min_age_since_check == 3600
 
     def test_custom_values(self) -> None:
-        """Test custom relay selection config."""
-        config = RelaySelectionConfig(
-            min_check_age=0,
+        """Test custom selection config."""
+        config = SelectionConfig(
+            min_age_since_check=0,
         )
 
-        assert config.min_check_age == 0
+        assert config.min_age_since_check == 0
 
 
 class TestMonitor:
@@ -322,18 +322,18 @@ class TestMonitor:
         assert monitor._brotr is mock_brotr
         assert monitor._brotr.pool is mock_brotr.pool
         assert monitor.SERVICE_NAME == "monitor"
-        assert monitor.config.tor_proxy.enabled is True
+        assert monitor.config.tor.enabled is True
 
     def test_init_with_custom_config(self, mock_brotr: MagicMock) -> None:
         """Test initialization with custom config."""
         config = MonitorConfig(
-            tor_proxy=TorProxyConfig(enabled=False),
-            relay_selection=RelaySelectionConfig(min_check_age=7200),
+            tor=TorConfig(enabled=False),
+            selection=SelectionConfig(min_age_since_check=7200),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
 
-        assert monitor.config.tor_proxy.enabled is False
-        assert monitor.config.relay_selection.min_check_age == 7200
+        assert monitor.config.tor.enabled is False
+        assert monitor.config.selection.min_age_since_check == 7200
 
     @pytest.mark.asyncio
     async def test_health_check_connected(self, mock_brotr: MagicMock) -> None:
@@ -419,7 +419,7 @@ class TestMonitor:
         )
 
         config = MonitorConfig(
-            tor_proxy=TorProxyConfig(enabled=False),
+            tor=TorConfig(enabled=False),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         relays = await monitor._fetch_relays_to_check()
@@ -443,7 +443,7 @@ class TestMonitor:
         )
 
         config = MonitorConfig(
-            tor_proxy=TorProxyConfig(enabled=True),
+            tor=TorConfig(enabled=True),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         relays = await monitor._fetch_relays_to_check()
@@ -491,23 +491,23 @@ class TestMonitorFactoryMethods:
     def test_from_dict(self, mock_brotr: MagicMock) -> None:
         """Test creation from dictionary."""
         data = {
-            "tor_proxy": {"enabled": False},
-            "relay_selection": {"min_check_age": 7200},
+            "tor": {"enabled": False},
+            "selection": {"min_age_since_check": 7200},
         }
 
         monitor = Monitor.from_dict(data, brotr=mock_brotr)
 
-        assert monitor.config.tor_proxy.enabled is False
-        assert monitor.config.relay_selection.min_check_age == 7200
+        assert monitor.config.tor.enabled is False
+        assert monitor.config.selection.min_age_since_check == 7200
 
     def test_from_dict_partial(self, mock_brotr: MagicMock) -> None:
         """Test creation from partial dictionary."""
         data = {
-            "monitor_interval": 7200.0,
+            "interval": 7200.0,
         }
 
         monitor = Monitor.from_dict(data, brotr=mock_brotr)
 
-        assert monitor.config.monitor_interval == 7200.0
+        assert monitor.config.interval == 7200.0
         # Defaults should be preserved
-        assert monitor.config.tor_proxy.enabled is True
+        assert monitor.config.tor.enabled is True
