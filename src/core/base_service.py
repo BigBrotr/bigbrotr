@@ -102,6 +102,8 @@ class BaseService(ABC, Generic[ConfigT]):
             except Exception as e:
                 self._logger.error("run_cycle_error", error=str(e))
 
+            self._logger.info("cycle_completed", next_run_in_seconds=interval)
+
             if await self.wait(interval):
                 break
 
