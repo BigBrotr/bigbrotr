@@ -10,6 +10,11 @@
 tor:
   enabled: false
 
+# Nostr keys for NIP-66 write tests (optional)
+# Private key is loaded from MONITOR_PRIVATE_KEY environment variable
+keys:
+  public_key: "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
 # Reduced concurrency for lighter resource usage
 concurrency:
   max_parallel: 10

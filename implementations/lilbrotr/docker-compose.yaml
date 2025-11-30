@@ -71,7 +71,7 @@ services:
   # Requires: yaml/core/brotr.pgbouncer.yaml configuration
 
   pgbouncer:
-    image: edoburu/pgbouncer:1.22.1-p2
+    image: edoburu/pgbouncer:latest
     container_name: lilbrotr-pgbouncer
     restart: unless-stopped
 
@@ -232,7 +232,7 @@ services:
 
     environment:
       DB_PASSWORD: ${DB_PASSWORD}
-      # MONITOR_PRIVATE_KEY: ${MONITOR_PRIVATE_KEY}  # Optional: for NIP-66 write tests
+      MONITOR_PRIVATE_KEY: ${MONITOR_PRIVATE_KEY}
 
     volumes:
       - ./yaml:/app/yaml:ro
