@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from nostr_tools import Client, Relay, RelayMetadata
 from nostr_tools.actions import fetch_relay_metadata
@@ -53,7 +53,7 @@ class TorConfig(BaseModel):
     port: int = Field(default=9050, ge=1, le=65535, description="Tor proxy port")
 
 
-def _get_private_key_from_env() -> SecretStr | None:
+def _get_private_key_from_env() -> Optional[SecretStr]:
     """Load private key from MONITOR_PRIVATE_KEY environment variable."""
     key = os.getenv("MONITOR_PRIVATE_KEY")
     return SecretStr(key) if key else None
@@ -62,15 +62,15 @@ def _get_private_key_from_env() -> SecretStr | None:
 class KeysConfig(BaseModel):
     """Nostr keys for NIP-66 testing."""
 
-    public_key: str | None = Field(default=None, description="Public key (hex) for write tests")
-    private_key: SecretStr | None = Field(
+    public_key: Optional[str] = Field(default=None, description="Public key (hex) for write tests")
+    private_key: Optional[SecretStr] = Field(
         default_factory=_get_private_key_from_env,
         description="Private key (from MONITOR_PRIVATE_KEY env)",
     )
 
     @field_validator("private_key", mode="before")
     @classmethod
-    def load_private_key_from_env(cls, v: str | None) -> SecretStr | None:
+    def load_private_key_from_env(cls, v: Optional[str]) -> Optional[SecretStr]:
         """Load private key from environment if not provided."""
         if v is None or v == "":
             return _get_private_key_from_env()
@@ -198,7 +198,7 @@ class Monitor(BaseService):
     def __init__(
         self,
         brotr: Brotr,
-        config: MonitorConfig | None = None,
+        config: Optional[MonitorConfig] = None,
     ) -> None:
         """
         Initialize the service.
@@ -319,7 +319,7 @@ class Monitor(BaseService):
 
     async def _process_relay(
         self, relay: Relay, semaphore: asyncio.Semaphore
-    ) -> RelayMetadata | None:
+    ) -> Optional[RelayMetadata]:
         """
         Check a single relay with concurrency limit.
 

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import aiohttp
 from nostr_tools import Relay, RelayValidationError
@@ -97,7 +97,7 @@ class Finder(BaseService):
     def __init__(
         self,
         brotr: Brotr,
-        config: FinderConfig | None = None,
+        config: Optional[FinderConfig] = None,
     ) -> None:
         """
         Initialize the service.

@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import aiomultiprocess
 from nostr_tools import Client, Event, Filter, Relay, RelayValidationError
@@ -73,8 +73,8 @@ class RawEventBatch:
         self.limit = limit
         self.size = 0
         self.raw_events: list[dict[str, Any]] = []
-        self.min_created_at: int | None = None
-        self.max_created_at: int | None = None
+        self.min_created_at: Optional[int] = None
+        self.max_created_at: Optional[int] = None
 
     def append(self, raw_event: dict[str, Any]) -> None:
         """Add an event to the batch if valid."""
@@ -129,10 +129,12 @@ class TorConfig(BaseModel):
 class FilterConfig(BaseModel):
     """Event filter configuration."""
 
-    ids: list[str] | None = Field(default=None, description="Event IDs to sync (None = all)")
-    kinds: list[int] | None = Field(default=None, description="Event kinds to sync (None = all)")
-    authors: list[str] | None = Field(default=None, description="Authors to sync (None = all)")
-    tags: dict[str, list[str]] | None = Field(default=None, description="Tag filters (None = all)")
+    ids: Optional[list[str]] = Field(default=None, description="Event IDs to sync (None = all)")
+    kinds: Optional[list[int]] = Field(default=None, description="Event kinds to sync (None = all)")
+    authors: Optional[list[str]] = Field(default=None, description="Authors to sync (None = all)")
+    tags: Optional[dict[str, list[str]]] = Field(
+        default=None, description="Tag filters (None = all)"
+    )
     limit: int = Field(default=500, ge=1, le=5000, description="Events per request")
 
 
@@ -194,8 +196,8 @@ class SourceConfig(BaseModel):
 class RelayOverrideTimeouts(BaseModel):
     """Override timeouts for a specific relay."""
 
-    request: float | None = None
-    relay: float | None = None
+    request: Optional[float] = None
+    relay: Optional[float] = None
 
 
 class RelayOverride(BaseModel):
@@ -223,7 +225,7 @@ class SynchronizerConfig(BaseModel):
 # =============================================================================
 
 # Global variable for worker process DB connection
-_WORKER_BROTR: Brotr | None = None
+_WORKER_BROTR: Optional[Brotr] = None
 _WORKER_CLEANUP_REGISTERED: bool = False
 
 
@@ -540,7 +542,7 @@ class Synchronizer(BaseService):
     def __init__(
         self,
         brotr: Brotr,
-        config: SynchronizerConfig | None = None,
+        config: Optional[SynchronizerConfig] = None,
     ) -> None:
         super().__init__(brotr=brotr, config=config or SynchronizerConfig())
         self._config: SynchronizerConfig

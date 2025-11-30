@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from nostr_tools import Relay, RelayValidationError
 from pydantic import BaseModel, Field
@@ -127,7 +127,7 @@ class Initializer(BaseService):
     def __init__(
         self,
         brotr: Brotr,
-        config: InitializerConfig | None = None,
+        config: Optional[InitializerConfig] = None,
     ) -> None:
         """
         Initialize the service.
