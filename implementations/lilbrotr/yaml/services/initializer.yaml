@@ -6,14 +6,15 @@
 # Priority: CRITICAL (must run before other services)
 # ============================================================================
 
-# Verification options for database schema checks
-verification:
+# Schema verification - what to check during initialization
+verify:
   extensions: true       # Verify PostgreSQL extensions exist
   tables: true           # Verify database tables exist
   procedures: true       # Verify stored procedures exist
+  views: true            # Verify database views exist
 
-# Expected database schema elements (for verification)
-expected_schema:
+# Expected database schema elements
+schema:
   extensions:
     - pgcrypto           # For hashing functions (digest)
     - btree_gin          # For GIN indexes on tagvalues array
@@ -32,14 +33,16 @@ expected_schema:
     - delete_orphan_events
     - delete_orphan_nip11
     - delete_orphan_nip66
+  views:
+    - relay_metadata_latest
 
 # Seed relays configuration
 # Note: Network type (clearnet/tor) is auto-detected from URL
 # Note: Duplicate URLs are ignored by the database (ON CONFLICT DO NOTHING)
 # Note: File paths are relative to the working directory:
 #       - Docker: /app (so data/seed_relays.txt = /app/data/seed_relays.txt)
-#       - Local: run from implementations/bigbrotr/
+#       - Local: run from implementations/lilbrotr/
 # Note: Batch size is controlled by Brotr's max_batch_size in brotr.yaml
 seed:
   enabled: true                    # Enable relay seeding
-  path: data/seed_relays.txt       # Path to seed file
+  file_path: data/seed_relays.txt  # Path to seed file

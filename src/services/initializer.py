@@ -40,7 +40,7 @@ SERVICE_NAME = "initializer"
 # =============================================================================
 
 
-class VerificationConfig(BaseModel):
+class VerifyConfig(BaseModel):
     """What to verify during initialization."""
 
     extensions: bool = Field(default=True, description="Verify extensions exist")
@@ -53,10 +53,10 @@ class SeedConfig(BaseModel):
     """Seed data configuration."""
 
     enabled: bool = Field(default=True, description="Enable seeding")
-    path: str = Field(default="data/seed_relays.txt", description="Seed file path")
+    file_path: str = Field(default="data/seed_relays.txt", description="Seed file path")
 
 
-class ExpectedSchemaConfig(BaseModel):
+class SchemaConfig(BaseModel):
     """Expected database schema elements."""
 
     extensions: list[str] = Field(
@@ -93,8 +93,8 @@ class ExpectedSchemaConfig(BaseModel):
 class InitializerConfig(BaseModel):
     """Complete initializer configuration."""
 
-    verification: VerificationConfig = Field(default_factory=VerificationConfig)
-    expected_schema: ExpectedSchemaConfig = Field(default_factory=ExpectedSchemaConfig)
+    verify: VerifyConfig = Field(default_factory=VerifyConfig)
+    schema_: SchemaConfig = Field(default_factory=SchemaConfig, alias="schema")
     seed: SeedConfig = Field(default_factory=SeedConfig)
 
 
@@ -153,19 +153,19 @@ class Initializer(BaseService):
         start_time = time.time()
 
         # Verify extensions
-        if self._config.verification.extensions:
+        if self._config.verify.extensions:
             await self._verify_extensions()
 
         # Verify tables
-        if self._config.verification.tables:
+        if self._config.verify.tables:
             await self._verify_tables()
 
         # Verify procedures
-        if self._config.verification.procedures:
+        if self._config.verify.procedures:
             await self._verify_procedures()
 
         # Verify views
-        if self._config.verification.views:
+        if self._config.verify.views:
             await self._verify_views()
 
         # Seed relays
@@ -181,7 +181,7 @@ class Initializer(BaseService):
 
     async def _verify_extensions(self) -> None:
         """Verify PostgreSQL extensions are installed."""
-        expected = set(self._config.expected_schema.extensions)
+        expected = set(self._config.schema_.extensions)
 
         rows = await self._brotr.pool.fetch(
             "SELECT extname FROM pg_extension",
@@ -197,7 +197,7 @@ class Initializer(BaseService):
 
     async def _verify_tables(self) -> None:
         """Verify required tables exist."""
-        expected = set(self._config.expected_schema.tables)
+        expected = set(self._config.schema_.tables)
 
         rows = await self._brotr.pool.fetch(
             """
@@ -216,7 +216,7 @@ class Initializer(BaseService):
 
     async def _verify_procedures(self) -> None:
         """Verify stored procedures exist."""
-        expected = set(self._config.expected_schema.procedures)
+        expected = set(self._config.schema_.procedures)
 
         rows = await self._brotr.pool.fetch(
             """
@@ -236,7 +236,7 @@ class Initializer(BaseService):
 
     async def _verify_views(self) -> None:
         """Verify required views exist."""
-        expected = set(self._config.expected_schema.views)
+        expected = set(self._config.schema_.views)
 
         rows = await self._brotr.pool.fetch(
             """
@@ -259,7 +259,7 @@ class Initializer(BaseService):
 
     async def _seed_relays(self) -> None:
         """Load and insert seed relay data from file."""
-        path = Path(self._config.seed.path)
+        path = Path(self._config.seed.file_path)
 
         if not path.exists():
             self._logger.warning("seed_file_not_found", path=str(path))
