@@ -78,6 +78,7 @@ docker-compose.override.yml
 
 # PostgreSQL data directory (Docker bind mount)
 implementations/bigbrotr/data/postgres/
+implementations/lilbrotr/data/postgres/
 
 # Temporary files
 tmp/

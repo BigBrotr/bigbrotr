@@ -1,0 +1,281 @@
+# ============================================================================
+# LilBrotr Docker Compose Configuration
+# ============================================================================
+# Description: Complete containerized deployment for LilBrotr
+# Components: PostgreSQL, PGBouncer, Tor (optional)
+# Note: LilBrotr is a lightweight implementation that does not store tags/content
+# Usage: docker-compose up -d
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL Database
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: lilbrotr-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: lilbrotr
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      PGDATA: /var/lib/postgresql/data/pgdata
+
+    volumes:
+      # Persistent data storage (local bind mount for development visibility)
+      - ./data/postgres:/var/lib/postgresql/data
+
+      # SQL initialization scripts (applied in alphabetical order by filename)
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+
+      # PostgreSQL configuration file
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+
+    ports:
+      - "5433:5432"
+
+    networks:
+      - lilbrotr-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d lilbrotr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+    # Load configuration from file
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+
+  # --------------------------------------------------------------------------
+  # PGBouncer (Connection Pooler)
+  # --------------------------------------------------------------------------
+  # Services connect to pgbouncer:6432 instead of postgres:5432
+  # Requires: yaml/core/brotr.pgbouncer.yaml configuration
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: lilbrotr-pgbouncer
+    restart: unless-stopped
+
+    environment:
+      DATABASE_URL: postgres://admin:${DB_PASSWORD}@postgres:5432/lilbrotr
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 20
+      AUTH_TYPE: scram-sha-256
+
+    ports:
+      - "6433:5432"
+
+    networks:
+      - lilbrotr-network
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # --------------------------------------------------------------------------
+  # Tor Proxy (SOCKS5) - OPTIONAL
+  # --------------------------------------------------------------------------
+  # Enable for .onion relay support
+
+  # tor:
+  #   image: dperson/torproxy:latest
+  #   container_name: lilbrotr-tor
+  #   restart: unless-stopped
+  #
+  #   ports:
+  #     - "9051:9050"
+  #
+  #   networks:
+  #     - lilbrotr-network
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl --socks5 localhost:9050 --socks5-hostname localhost:9050 -s https://check.torproject.org/api/ip | grep -q origin"]
+  #     interval: 60s
+  #     timeout: 15s
+  #     retries: 3
+  #     start_period: 30s
+
+  # --------------------------------------------------------------------------
+  # LilBrotr Initializer Service
+  # --------------------------------------------------------------------------
+  # Runs once to verify database schema and seed initial data
+
+  initializer:
+    build:
+      context: ../../
+      dockerfile: implementations/lilbrotr/Dockerfile
+    container_name: lilbrotr-initializer
+    restart: "no"
+
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+
+    volumes:
+      - ./yaml:/app/yaml:ro
+      - ./data/seed_relays.txt:/app/data/seed_relays.txt:ro
+
+    networks:
+      - lilbrotr-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["python", "-m", "services", "initializer"]
+
+  # --------------------------------------------------------------------------
+  # LilBrotr Finder Service
+  # --------------------------------------------------------------------------
+  # Discovers relay URLs from database events and external APIs
+
+  finder:
+    build:
+      context: ../../
+      dockerfile: implementations/lilbrotr/Dockerfile
+    container_name: lilbrotr-finder
+    restart: unless-stopped
+
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+
+    volumes:
+      - ./yaml:/app/yaml:ro
+
+    networks:
+      - lilbrotr-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      initializer:
+        condition: service_completed_successfully
+
+    command: ["python", "-m", "services", "finder"]
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # --------------------------------------------------------------------------
+  # LilBrotr Monitor Service (PENDING)
+  # --------------------------------------------------------------------------
+
+  # monitor:
+  #   build:
+  #     context: ../../
+  #     dockerfile: implementations/lilbrotr/Dockerfile
+  #   container_name: lilbrotr-monitor
+  #   restart: unless-stopped
+  #
+  #   environment:
+  #     DB_PASSWORD: ${DB_PASSWORD}
+  #
+  #   volumes:
+  #     - ./yaml:/app/yaml:ro
+  #
+  #   networks:
+  #     - lilbrotr-network
+  #
+  #   depends_on:
+  #     pgbouncer:
+  #       condition: service_healthy
+  #     initializer:
+  #       condition: service_completed_successfully
+  #
+  #   command: ["python", "-m", "services", "monitor"]
+
+  # --------------------------------------------------------------------------
+  # LilBrotr Synchronizer Service (PENDING)
+  # --------------------------------------------------------------------------
+
+  # synchronizer:
+  #   build:
+  #     context: ../../
+  #     dockerfile: implementations/lilbrotr/Dockerfile
+  #   container_name: lilbrotr-synchronizer
+  #   restart: unless-stopped
+  #
+  #   environment:
+  #     DB_PASSWORD: ${DB_PASSWORD}
+  #
+  #   volumes:
+  #     - ./yaml:/app/yaml:ro
+  #
+  #   networks:
+  #     - lilbrotr-network
+  #
+  #   depends_on:
+  #     pgbouncer:
+  #       condition: service_healthy
+  #     initializer:
+  #       condition: service_completed_successfully
+  #
+  #   command: ["python", "-m", "services", "synchronizer"]
+  #
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '2.0'
+  #         memory: 2G
+  #       reservations:
+  #         cpus: '0.5'
+  #         memory: 512M
+
+# ----------------------------------------------------------------------------
+# Networks
+# ----------------------------------------------------------------------------
+networks:
+  lilbrotr-network:
+    driver: bridge
+    name: lilbrotr-network
+
+# ============================================================================
+# USAGE
+# ============================================================================
+#
+# 1. Setup:
+#    cp .env.example .env && nano .env  # Set DB_PASSWORD
+#    cp pgbouncer/userlist.txt.template pgbouncer/userlist.txt
+#    # Edit userlist.txt with MD5 hash: echo -n "md5$(echo -n 'YOUR_PASSWORDadmin' | md5sum | cut -d' ' -f1)"
+#
+# 2. Start:
+#    docker-compose up -d
+#
+# 3. Verify:
+#    docker-compose exec postgres psql -U admin -d lilbrotr -c "\dt"
+#
+# 4. Logs:
+#    docker-compose logs -f
+#
+# 5. Stop:
+#    docker-compose down
+#
+# 6. Reset (WARNING: deletes data):
+#    docker-compose down && rm -rf data/postgres
+#
+# ============================================================================
