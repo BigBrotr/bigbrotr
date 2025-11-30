@@ -27,7 +27,7 @@ import time
 from typing import Any, Optional
 
 from nostr_tools import Client, Relay, RelayValidationError, fetch_relay_metadata, validate_keypair
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 from core.base_service import BaseService
 from core.brotr import Brotr
@@ -49,9 +49,10 @@ class TorConfig(BaseModel):
     port: int = Field(default=9050, ge=1, le=65535, description="Tor proxy port")
 
 
-def _get_private_key_from_env() -> Optional[str]:
+def _get_private_key_from_env() -> Optional[SecretStr]:
     """Load private key from MONITOR_PRIVATE_KEY environment variable."""
-    return os.getenv("MONITOR_PRIVATE_KEY")
+    key = os.getenv("MONITOR_PRIVATE_KEY")
+    return SecretStr(key) if key else None
 
 
 class KeysConfig(BaseModel):
@@ -61,24 +62,26 @@ class KeysConfig(BaseModel):
         default=None,
         description="Public key (hex) for write tests"
     )
-    private_key: Optional[str] = Field(
+    private_key: Optional[SecretStr] = Field(
         default_factory=_get_private_key_from_env,
         description="Private key (from MONITOR_PRIVATE_KEY env)",
     )
 
     @field_validator("private_key", mode="before")
     @classmethod
-    def load_private_key_from_env(cls, v: Optional[str]) -> Optional[str]:
+    def load_private_key_from_env(cls, v: Optional[str]) -> Optional[SecretStr]:
         """Load private key from environment if not provided."""
-        if not v:
+        if v is None or v == "":
             return _get_private_key_from_env()
-        return v
+        if isinstance(v, SecretStr):
+            return v
+        return SecretStr(v)
 
     @model_validator(mode="after")
     def validate_keypair_match(self) -> "KeysConfig":
         """Validate that public and private keys match if both provided."""
         if self.public_key and self.private_key:
-            if not validate_keypair(self.private_key, self.public_key):
+            if not validate_keypair(self.private_key.get_secret_value(), self.public_key):
                 raise ValueError("MONITOR_PRIVATE_KEY and public_key do not match")
         return self
 
@@ -309,9 +312,11 @@ class Monitor(BaseService):
             )
 
             # Fetch metadata using nostr_tools
+            # Extract secret value from SecretStr if private_key is set
+            sec = self._config.keys.private_key.get_secret_value() if self._config.keys.private_key else None
             relay_metadata = await fetch_relay_metadata(
                 client=client,
-                sec=self._config.keys.private_key,
+                sec=sec,
                 pub=self._config.keys.public_key,
             )
 
@@ -330,6 +335,7 @@ class Monitor(BaseService):
         except Exception as e:
             self._failed_checks += 1
             self._logger.debug("relay_check_failed", relay=relay.url, error=str(e))
+            return None
 
     def _metadata_to_dict(
         self, relay: Relay, metadata: Any, generated_at: int
@@ -378,8 +384,8 @@ class Monitor(BaseService):
         if not metadata_list:
             return
 
-        success = await self._brotr.insert_relay_metadata(metadata_list)
-        if success:
-            self._logger.debug("metadata_batch_inserted", count=len(metadata_list))
-        else:
-            self._logger.warning("metadata_batch_failed", count=len(metadata_list))
+        try:
+            count = await self._brotr.insert_relay_metadata(metadata_list)
+            self._logger.debug("metadata_batch_inserted", count=count)
+        except Exception as e:
+            self._logger.warning("metadata_batch_failed", count=len(metadata_list), error=str(e))
