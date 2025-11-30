@@ -44,5 +44,8 @@ class Logger:
     def error(self, msg: str, **kwargs: Any) -> None:
         self._logger.error(f"{msg}{self._format_kwargs(kwargs)}")
 
+    def critical(self, msg: str, **kwargs: Any) -> None:
+        self._logger.critical(f"{msg}{self._format_kwargs(kwargs)}")
+
     def exception(self, msg: str, **kwargs: Any) -> None:
         self._logger.exception(f"{msg}{self._format_kwargs(kwargs)}")

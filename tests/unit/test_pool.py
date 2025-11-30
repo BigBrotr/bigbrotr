@@ -30,7 +30,7 @@ class TestDatabaseConfig:
         assert config.port == 5432
         assert config.database == "database"
         assert config.user == "admin"
-        assert config.password == "test_pass"
+        assert config.password.get_secret_value() == "test_pass"
 
     def test_custom_values(self) -> None:
         """Test custom configuration values."""
@@ -46,13 +46,13 @@ class TestDatabaseConfig:
         assert config.port == 5433
         assert config.database == "custom_db"
         assert config.user == "custom_user"
-        assert config.password == "custom_pass"
+        assert config.password.get_secret_value() == "custom_pass"
 
     def test_password_from_env(self) -> None:
         """Test password loaded from environment variable."""
         os.environ["DB_PASSWORD"] = "env_password"
         config = DatabaseConfig(password=None)
-        assert config.password == "env_password"
+        assert config.password.get_secret_value() == "env_password"
 
     def test_password_missing_raises(self) -> None:
         """Test error when password not provided and env not set."""

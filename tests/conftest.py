@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -63,12 +64,14 @@ def mock_asyncpg_pool() -> MagicMock:
 
 
 @pytest.fixture
-def mock_connection_pool(mock_asyncpg_pool: MagicMock) -> Pool:
+def mock_connection_pool(
+    mock_asyncpg_pool: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> Pool:
     """Create a Pool with mocked internals."""
     from core.pool import DatabaseConfig, PoolConfig
 
-    # Set environment variable for password
-    os.environ.setdefault("DB_PASSWORD", "test_password")
+    # Use monkeypatch for test isolation (safe for parallel test runs)
+    monkeypatch.setenv("DB_PASSWORD", "test_password")
 
     config = PoolConfig(
         database=DatabaseConfig(
@@ -97,7 +100,7 @@ def mock_brotr(mock_connection_pool: Pool) -> Brotr:
 
 
 @pytest.fixture
-def pool_config() -> dict:
+def pool_config() -> dict[str, Any]:
     """Sample pool configuration dictionary."""
     return {
         "database": {
@@ -125,7 +128,7 @@ def pool_config() -> dict:
 
 
 @pytest.fixture
-def brotr_config() -> dict:
+def brotr_config() -> dict[str, Any]:
     """Sample Brotr configuration dictionary."""
     return {
         "pool": {
@@ -157,7 +160,7 @@ def brotr_config() -> dict:
 
 
 @pytest.fixture
-def sample_event() -> dict:
+def sample_event() -> dict[str, Any]:
     """Sample Nostr event for testing."""
     return {
         "event_id": "a" * 64,
@@ -175,7 +178,7 @@ def sample_event() -> dict:
 
 
 @pytest.fixture
-def sample_relay() -> dict:
+def sample_relay() -> dict[str, Any]:
     """Sample relay for testing."""
     return {
         "url": "wss://relay.example.com",
@@ -185,7 +188,7 @@ def sample_relay() -> dict:
 
 
 @pytest.fixture
-def sample_metadata() -> dict:
+def sample_metadata() -> dict[str, Any]:
     """Sample relay metadata for testing."""
     return {
         "relay_url": "wss://relay.example.com",
