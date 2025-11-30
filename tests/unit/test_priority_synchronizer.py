@@ -14,10 +14,10 @@ from core.pool import Pool
 from services.priority_synchronizer import (
     PrioritySynchronizer,
     PrioritySynchronizerConfig,
-    PriorityRelaySourceConfig,
+    PrioritySourceConfig,
 )
 from services.synchronizer import (
-    TorProxyConfig,
+    TorConfig,
     FilterConfig,
     ConcurrencyConfig,
 )
@@ -84,53 +84,53 @@ class TestPrioritySynchronizerConfig:
         config = PrioritySynchronizerConfig()
 
         # Check priority source defaults
-        assert config.priority_source.filepath == "data/priority_relays.txt"
+        assert config.source.file_path == "data/priority_relays.txt"
 
         # Check inherited defaults from SynchronizerConfig
-        assert config.tor_proxy.enabled is True
+        assert config.tor.enabled is True
         assert config.filter.limit == 500
-        assert config.concurrency.max_concurrent_relays == 10
-        assert config.sync_interval == 900.0
+        assert config.concurrency.max_parallel == 10
+        assert config.interval == 900.0
 
-    def test_custom_priority_source(self) -> None:
-        """Test custom priority source settings."""
+    def test_custom_source(self) -> None:
+        """Test custom source settings."""
         config = PrioritySynchronizerConfig(
-            priority_source=PriorityRelaySourceConfig(
-                filepath="custom/path/relays.txt"
+            source=PrioritySourceConfig(
+                file_path="custom/path/relays.txt"
             )
         )
 
-        assert config.priority_source.filepath == "custom/path/relays.txt"
+        assert config.source.file_path == "custom/path/relays.txt"
 
     def test_inherits_synchronizer_config(self) -> None:
         """Test that config inherits from SynchronizerConfig."""
         config = PrioritySynchronizerConfig(
-            tor_proxy=TorProxyConfig(enabled=False),
+            tor=TorConfig(enabled=False),
             filter=FilterConfig(kinds=[1, 3]),
-            concurrency=ConcurrencyConfig(max_concurrent_relays=3),
-            sync_interval=1800.0,
+            concurrency=ConcurrencyConfig(max_parallel=3),
+            interval=1800.0,
         )
 
-        assert config.tor_proxy.enabled is False
+        assert config.tor.enabled is False
         assert config.filter.kinds == [1, 3]
-        assert config.concurrency.max_concurrent_relays == 3
-        assert config.sync_interval == 1800.0
+        assert config.concurrency.max_parallel == 3
+        assert config.interval == 1800.0
 
 
-class TestPriorityRelaySourceConfig:
-    """Tests for PriorityRelaySourceConfig."""
+class TestPrioritySourceConfig:
+    """Tests for PrioritySourceConfig."""
 
     def test_default_values(self) -> None:
-        """Test default priority relay source config."""
-        config = PriorityRelaySourceConfig()
+        """Test default priority source config."""
+        config = PrioritySourceConfig()
 
-        assert config.filepath == "data/priority_relays.txt"
+        assert config.file_path == "data/priority_relays.txt"
 
-    def test_custom_filepath(self) -> None:
-        """Test custom filepath."""
-        config = PriorityRelaySourceConfig(filepath="/etc/relays/priority.txt")
+    def test_custom_file_path(self) -> None:
+        """Test custom file_path."""
+        config = PrioritySourceConfig(file_path="/etc/relays/priority.txt")
 
-        assert config.filepath == "/etc/relays/priority.txt"
+        assert config.file_path == "/etc/relays/priority.txt"
 
 
 class TestPrioritySynchronizer:
@@ -143,18 +143,18 @@ class TestPrioritySynchronizer:
         assert sync._brotr is mock_brotr
         assert sync._brotr.pool is mock_brotr.pool
         assert sync.SERVICE_NAME == "priority_synchronizer"
-        assert sync.config.priority_source.filepath == "data/priority_relays.txt"
+        assert sync.config.source.file_path == "data/priority_relays.txt"
 
     def test_init_with_custom_config(self, mock_brotr: MagicMock) -> None:
         """Test initialization with custom config."""
         config = PrioritySynchronizerConfig(
-            priority_source=PriorityRelaySourceConfig(filepath="custom.txt"),
-            tor_proxy=TorProxyConfig(enabled=False),
+            source=PrioritySourceConfig(file_path="custom.txt"),
+            tor=TorConfig(enabled=False),
         )
         sync = PrioritySynchronizer(brotr=mock_brotr, config=config)
 
-        assert sync.config.priority_source.filepath == "custom.txt"
-        assert sync.config.tor_proxy.enabled is False
+        assert sync.config.source.file_path == "custom.txt"
+        assert sync.config.tor.enabled is False
 
     def test_inherits_from_synchronizer(self, mock_brotr: MagicMock) -> None:
         """Test that PrioritySynchronizer inherits from Synchronizer."""
@@ -187,8 +187,8 @@ class TestPrioritySynchronizer:
     async def test_fetch_relays_file_not_found(self, mock_brotr: MagicMock) -> None:
         """Test fetching relays when file doesn't exist."""
         config = PrioritySynchronizerConfig(
-            priority_source=PriorityRelaySourceConfig(
-                filepath="nonexistent/file.txt"
+            source=PrioritySourceConfig(
+                file_path="nonexistent/file.txt"
             )
         )
         sync = PrioritySynchronizer(brotr=mock_brotr, config=config)
@@ -202,7 +202,7 @@ class TestPrioritySynchronizer:
     ) -> None:
         """Test fetching relays from priority file."""
         config = PrioritySynchronizerConfig(
-            priority_source=PriorityRelaySourceConfig(filepath=temp_priority_file)
+            source=PrioritySourceConfig(file_path=temp_priority_file)
         )
         sync = PrioritySynchronizer(brotr=mock_brotr, config=config)
         relays = await sync._fetch_relays()
@@ -230,7 +230,7 @@ class TestPrioritySynchronizer:
             temp_file = f.name
 
         config = PrioritySynchronizerConfig(
-            priority_source=PriorityRelaySourceConfig(filepath=temp_file)
+            source=PrioritySourceConfig(file_path=temp_file)
         )
         sync = PrioritySynchronizer(brotr=mock_brotr, config=config)
         relays = await sync._fetch_relays()
@@ -255,7 +255,7 @@ class TestPrioritySynchronizer:
             temp_file = f.name
 
         config = PrioritySynchronizerConfig(
-            priority_source=PriorityRelaySourceConfig(filepath=temp_file)
+            source=PrioritySourceConfig(file_path=temp_file)
         )
         sync = PrioritySynchronizer(brotr=mock_brotr, config=config)
         relays = await sync._fetch_relays()
@@ -278,7 +278,7 @@ class TestPrioritySynchronizer:
             temp_file = f.name
 
         config = PrioritySynchronizerConfig(
-            priority_source=PriorityRelaySourceConfig(filepath=temp_file)
+            source=PrioritySourceConfig(file_path=temp_file)
         )
         sync = PrioritySynchronizer(brotr=mock_brotr, config=config)
         relays = await sync._fetch_relays()
@@ -292,7 +292,7 @@ class TestPrioritySynchronizer:
     async def test_run_no_relays(self, mock_brotr: MagicMock) -> None:
         """Test run cycle with no relays."""
         config = PrioritySynchronizerConfig(
-            priority_source=PriorityRelaySourceConfig(filepath="nonexistent.txt")
+            source=PrioritySourceConfig(file_path="nonexistent.txt")
         )
         sync = PrioritySynchronizer(brotr=mock_brotr, config=config)
         await sync.run()
@@ -308,43 +308,43 @@ class TestPrioritySynchronizerFactoryMethods:
     def test_from_dict(self, mock_brotr: MagicMock) -> None:
         """Test creation from dictionary."""
         data = {
-            "priority_source": {"filepath": "custom/relays.txt"},
-            "tor_proxy": {"enabled": False},
+            "source": {"file_path": "custom/relays.txt"},
+            "tor": {"enabled": False},
         }
 
         sync = PrioritySynchronizer.from_dict(data, brotr=mock_brotr)
 
-        assert sync.config.priority_source.filepath == "custom/relays.txt"
-        assert sync.config.tor_proxy.enabled is False
+        assert sync.config.source.file_path == "custom/relays.txt"
+        assert sync.config.tor.enabled is False
 
     def test_from_dict_with_inherited_config(self, mock_brotr: MagicMock) -> None:
         """Test creation from dictionary with inherited config values."""
         data = {
-            "priority_source": {"filepath": "priority.txt"},
+            "source": {"file_path": "priority.txt"},
             "filter": {"kinds": [1, 3]},
-            "concurrency": {"max_concurrent_relays": 3},
-            "sync_interval": 600.0,
+            "concurrency": {"max_parallel": 3},
+            "interval": 600.0,
         }
 
         sync = PrioritySynchronizer.from_dict(data, brotr=mock_brotr)
 
-        assert sync.config.priority_source.filepath == "priority.txt"
+        assert sync.config.source.file_path == "priority.txt"
         assert sync.config.filter.kinds == [1, 3]
-        assert sync.config.concurrency.max_concurrent_relays == 3
-        assert sync.config.sync_interval == 600.0
+        assert sync.config.concurrency.max_parallel == 3
+        assert sync.config.interval == 600.0
 
     def test_from_dict_partial(self, mock_brotr: MagicMock) -> None:
         """Test creation from partial dictionary."""
         data = {
-            "sync_interval": 1800.0,
+            "interval": 1800.0,
         }
 
         sync = PrioritySynchronizer.from_dict(data, brotr=mock_brotr)
 
-        assert sync.config.sync_interval == 1800.0
+        assert sync.config.interval == 1800.0
         # Defaults should be preserved
-        assert sync.config.priority_source.filepath == "data/priority_relays.txt"
-        assert sync.config.tor_proxy.enabled is True
+        assert sync.config.source.file_path == "data/priority_relays.txt"
+        assert sync.config.tor.enabled is True
 
 
 class TestPrioritySynchronizerIntegration:
@@ -356,7 +356,7 @@ class TestPrioritySynchronizerIntegration:
     ) -> None:
         """Test that PrioritySynchronizer uses Synchronizer methods."""
         config = PrioritySynchronizerConfig(
-            priority_source=PriorityRelaySourceConfig(filepath=temp_priority_file)
+            source=PrioritySourceConfig(file_path=temp_priority_file)
         )
         sync = PrioritySynchronizer(brotr=mock_brotr, config=config)
 

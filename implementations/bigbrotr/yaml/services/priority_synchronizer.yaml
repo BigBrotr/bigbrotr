@@ -1,35 +1,44 @@
+# ============================================================================
 # Priority Synchronizer Service Configuration
-# Syncs events from high-priority relays listed in a file
+# ============================================================================
+# Description: Synchronize events from high-priority relays listed in a file
+# Used by: src/services/priority_synchronizer.py
+# Dependencies: Monitor must have checked relays first
+# ============================================================================
 
-# Priority relay file settings
-priority_source:
-  filepath: data/priority_relays.txt
+# Cycle interval (seconds between sync runs)
+interval: 900.0
+
+# Priority relay source (file-based instead of database)
+source:
+  file_path: data/priority_relays.txt
 
 # Tor proxy for .onion relays
-tor_proxy:
+tor:
   enabled: true
   host: "tor"
   port: 9050
 
 # Event filter settings
+# Set to null to accept all values for that field
 filter:
-  ids: null  # null = all ids
-  kinds: null  # null = all kinds
-  authors: null  # null = all authors
-  tags: null  # null = all tags
-  limit: 500
+  ids: null        # null = all ids
+  kinds: null      # null = all kinds
+  authors: null    # null = all authors
+  tags: null       # null = all tags
+  limit: 500       # Events per request
 
 # Time range for sync
 time_range:
-  default_start: 0
-  use_relay_state: true
+  default_start: 0           # Unix timestamp (0 = epoch)
+  use_relay_state: true      # Use per-relay state for incremental sync
+
+# Timeouts (seconds)
+timeouts:
+  request: 30.0              # WebSocket request timeout
+  relay: 1800.0              # Max time per relay sync (30 min)
 
 # Concurrency settings
 concurrency:
-  max_concurrent_relays: 5
-  request_timeout: 30.0
-  relay_timeout: 1800.0
-  stagger_delay: [0, 30]
-
-# Interval between sync cycles (seconds)
-sync_interval: 900.0
+  max_parallel: 5            # Max parallel relay connections
+  stagger_delay: [0, 30]     # Random delay range [min, max] to prevent thundering herd

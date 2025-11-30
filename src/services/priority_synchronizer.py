@@ -44,10 +44,10 @@ SERVICE_NAME = "priority_synchronizer"
 # =============================================================================
 
 
-class PriorityRelaySourceConfig(BaseModel):
+class PrioritySourceConfig(BaseModel):
     """Configuration for priority relay file."""
 
-    filepath: str = Field(
+    file_path: str = Field(
         default="data/priority_relays.txt",
         description="Path to file containing priority relay URLs (one per line)"
     )
@@ -58,10 +58,11 @@ class PrioritySynchronizerConfig(SynchronizerConfig):
     Priority Synchronizer configuration.
 
     Extends SynchronizerConfig with priority relay file settings.
+    Overrides 'source' from parent with file-based config.
     """
 
-    priority_source: PriorityRelaySourceConfig = Field(
-        default_factory=PriorityRelaySourceConfig
+    source: PrioritySourceConfig = Field(  # type: ignore[assignment]
+        default_factory=PrioritySourceConfig
     )
 
 
@@ -111,7 +112,7 @@ class PrioritySynchronizer(Synchronizer):
         """
         relays: dict[str, Relay] = {}
 
-        filepath = Path(self._config.priority_source.filepath)
+        filepath = Path(self._config.source.file_path)
         if not filepath.exists():
             self._logger.warning("priority_file_not_found", path=str(filepath))
             return []
