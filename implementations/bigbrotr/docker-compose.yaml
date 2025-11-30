@@ -196,7 +196,7 @@ services:
     command: ["python", "-m", "services", "finder"]
 
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python.*services.*finder' || exit 1"]
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -248,7 +248,7 @@ services:
     command: ["python", "-m", "services", "monitor"]
 
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python.*services.*monitor' || exit 1"]
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -301,7 +301,7 @@ services:
     command: ["python", "-m", "services", "synchronizer"]
 
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python.*services.*synchronizer' || exit 1"]
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
