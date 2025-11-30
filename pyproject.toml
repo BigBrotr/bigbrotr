@@ -4,7 +4,7 @@
 
 [project]
 name = "bigbrotr"
-version = "0.1.0"
+version = "2.0.0"
 description = "A modular Nostr data archiving and monitoring system"
 readme = "README.md"
 license = {text = "MIT"}
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["nostr", "archiving", "monitoring", "postgresql", "async"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
