@@ -160,11 +160,11 @@ docker-compose up -d
 
 ### LilBrotr (Lightweight)
 
-A lightweight implementation optimized for minimal disk usage:
+A lightweight implementation that indexes all events but omits storage-heavy fields:
 
 | Feature | Description |
 |---------|-------------|
-| **Minimal Storage** | Does NOT store tags or content (saves ~60% disk space) |
+| **Essential Metadata** | Stores id, pubkey, created_at, kind, sig (omits tags/content, saves ~60% disk space) |
 | **Clearnet Only** | Tor disabled by default |
 | **Lower Concurrency** | 5 parallel connections for reduced resource usage |
 | **Different Ports** | PostgreSQL: 5433, PGBouncer: 6433, Tor: 9051 |
@@ -630,7 +630,7 @@ Quick start:
 3. Write tests for new functionality
 4. Ensure all tests pass: `pytest tests/unit/ -v`
 5. Run code quality checks: `pre-commit run --all-files`
-6. Submit a pull request to `main`
+6. Submit a pull request to `develop` (or `main` for releases)
 
 For security issues, please see [SECURITY.md](SECURITY.md).
 

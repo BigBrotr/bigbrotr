@@ -127,7 +127,7 @@ chore: update dependencies
 ### Submitting
 
 1. Push your branch to your fork
-2. Create a Pull Request to `main`
+2. Create a Pull Request to `develop` (or `main` for releases)
 3. Fill out the PR template completely
 4. Wait for CI checks to pass
 5. Address any review feedback

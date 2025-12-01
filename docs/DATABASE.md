@@ -108,7 +108,7 @@ CREATE TABLE events (
 );
 ```
 
-**LilBrotr Schema (Lightweight - No Tags/Content)**:
+**LilBrotr Schema (Essential Metadata - Indexes All Events)**:
 ```sql
 CREATE TABLE events (
     id BYTEA PRIMARY KEY,
@@ -134,7 +134,7 @@ CREATE TABLE events (
 **Notes**:
 - BYTEA storage saves 50% compared to hex strings
 - `tagvalues` is auto-generated from `tags` for efficient querying (BigBrotr only)
-- LilBrotr saves ~60% disk space by not storing tags and content
+- LilBrotr indexes all events with essential metadata (id, pubkey, created_at, kind, sig) but omits tags and content, saving ~60% disk space
 
 ### events_relays
 

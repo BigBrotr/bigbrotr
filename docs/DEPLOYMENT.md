@@ -73,7 +73,7 @@ Two implementations are available:
 | Implementation | Use Case | Ports |
 |----------------|----------|-------|
 | **bigbrotr** | Full archiving with tags/content | PostgreSQL: 5432, PGBouncer: 6432, Tor: 9050 |
-| **lilbrotr** | Lightweight (no tags/content) | PostgreSQL: 5433, PGBouncer: 6433, Tor: 9051 |
+| **lilbrotr** | Lightweight indexing (omits tags/content, ~60% disk savings) | PostgreSQL: 5433, PGBouncer: 6433, Tor: 9051 |
 
 ### Quick Start (BigBrotr - Full-Featured)
 

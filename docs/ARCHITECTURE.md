@@ -362,7 +362,7 @@ The implementation layer contains deployment-specific resources. Two implementat
 | Implementation | Purpose | Key Differences |
 |----------------|---------|-----------------|
 | **bigbrotr** | Full-featured archiving | Stores tags/content, Tor support, high concurrency |
-| **lilbrotr** | Lightweight monitoring | No tags/content storage, clearnet only, lower resources |
+| **lilbrotr** | Lightweight indexing | Indexes all events but omits tags/content (~60% disk savings), clearnet only |
 
 ### BigBrotr Structure (Full-Featured)
 
@@ -560,8 +560,8 @@ async with brotr:           # Connect on enter, close on exit
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Finder    │────>│   Monitor   │────>│ Synchronizer│
-└─────────────┘     └─────────────┘     └─────────────┘
+│   Finder    │     │   Monitor   │     │ Synchronizer│
+└──────┬──────┘     └──────┬──────┘     └──────┬──────┘
        │                   │                   │
        │ Discover          │ Check health      │ Collect events
        │ relay URLs        │ NIP-11/NIP-66     │ from relays
@@ -572,7 +572,7 @@ async with brotr:           # Connect on enter, close on exit
 │  │ relays  │  │events│  │ relay_metadata  │         │
 │  └─────────┘  └──────┘  └─────────────────┘         │
 │       │           │              │                   │
-│       └───────────┴──────────────┘                  │
+│       └───────────┴──────────────┘                   │
 │                events_relays                         │
 └─────────────────────────────────────────────────────┘
 ```
