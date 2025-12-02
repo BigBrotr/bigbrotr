@@ -33,8 +33,6 @@ from core.base_service import BaseService
 if TYPE_CHECKING:
     from core.brotr import Brotr
 
-SERVICE_NAME = "initializer"
-
 
 # =============================================================================
 # Configuration
@@ -71,7 +69,6 @@ class SchemaConfig(BaseModel):
             "nip11",
             "nip66",
             "relay_metadata",
-            "service_state",
         ],
     )
     procedures: list[str] = Field(
@@ -121,7 +118,7 @@ class Initializer(BaseService):
     Raises InitializerError if verification fails.
     """
 
-    SERVICE_NAME = SERVICE_NAME
+    SERVICE_NAME = "initializer"
     CONFIG_CLASS = InitializerConfig
 
     def __init__(

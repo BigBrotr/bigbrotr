@@ -32,8 +32,6 @@ from core.base_service import BaseService
 if TYPE_CHECKING:
     from core.brotr import Brotr
 
-SERVICE_NAME = "finder"
-
 
 # =============================================================================
 # Configuration
@@ -91,7 +89,7 @@ class Finder(BaseService):
     TODO: Add event scanning to discover relay URLs from database events.
     """
 
-    SERVICE_NAME = SERVICE_NAME
+    SERVICE_NAME = "finder"
     CONFIG_CLASS = FinderConfig
 
     def __init__(

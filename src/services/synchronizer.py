@@ -39,7 +39,8 @@ from core.brotr import Brotr
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-SERVICE_NAME = "synchronizer"
+# Module constant for worker logging (workers can't access class attributes)
+_WORKER_SERVICE_NAME = "synchronizer"
 
 
 def _worker_log(level: str, message: str, **kwargs: Any) -> None:
@@ -51,7 +52,7 @@ def _worker_log(level: str, message: str, **kwargs: Any) -> None:
     """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     kv = " ".join(f"{k}={v}" for k, v in kwargs.items())
-    print(f"{timestamp} {level} {SERVICE_NAME}.worker: {message} {kv}".strip(), flush=True)
+    print(f"{timestamp} {level} {_WORKER_SERVICE_NAME}.worker: {message} {kv}".strip(), flush=True)
 
 
 # =============================================================================
@@ -539,7 +540,7 @@ class Synchronizer(BaseService):
     Event synchronization service.
     """
 
-    SERVICE_NAME = SERVICE_NAME
+    SERVICE_NAME = "synchronizer"
     CONFIG_CLASS = SynchronizerConfig
 
     def __init__(
@@ -651,7 +652,6 @@ class Synchronizer(BaseService):
                     events_synced = await asyncio.wait_for(
                         _sync_with_client(), timeout=relay_timeout
                     )
-                    self._state.setdefault("relay_timestamps", {})[relay.url] = end_time
                     self._synced_events += events_synced
                     self._synced_relays += 1
                 except Exception as e:
@@ -687,12 +687,10 @@ class Synchronizer(BaseService):
             results = await pool.starmap(sync_relay_task, tasks)
 
         # Process results
-        for url, events, new_time in results:
-            if events > 0 or new_time > 0:
-                self._state.setdefault("relay_timestamps", {})[url] = new_time
+        for _url, events, _new_time in results:
+            if events > 0:
                 self._synced_events += events
-                if events > 0:
-                    self._synced_relays += 1
+                self._synced_relays += 1
             else:
                 self._failed_relays += 1
 
@@ -733,40 +731,23 @@ class Synchronizer(BaseService):
         """
         Get start timestamp for relay sync.
 
-        Checks persisted state first, then database, then uses default.
+        Queries database for latest event, then uses default if none found.
         """
         if not self._config.time_range.use_relay_state:
             return self._config.time_range.default_start
 
-        # Check persisted state first
-        relay_timestamps = self._state.get("relay_timestamps", {})
-        if relay.url in relay_timestamps:
-            return relay_timestamps[relay.url] + 1
-
-        # Check database for latest seen_at
+        # Query database for latest event created_at for this relay
         row = await self._brotr.pool.fetchrow(
             """
-            SELECT MAX(er.seen_at) as max_seen
-            FROM events_relays er
+            SELECT MAX(e.created_at) as max_created_at
+            FROM events e
+            JOIN events_relays er ON e.id = er.event_id
             WHERE er.relay_url = $1
             """,
             relay.url,
         )
 
-        if row and row["max_seen"] is not None:
-            # Get created_at of the event at max_seen
-            event_row = await self._brotr.pool.fetchrow(
-                """
-                SELECT e.created_at
-                FROM events e
-                JOIN events_relays er ON e.id = er.event_id
-                WHERE er.relay_url = $1 AND er.seen_at = $2
-                LIMIT 1
-                """,
-                relay.url,
-                row["max_seen"],
-            )
-            if event_row:
-                return event_row["created_at"] + 1
+        if row and row["max_created_at"] is not None:
+            return row["max_created_at"] + 1
 
         return self._config.time_range.default_start

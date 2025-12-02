@@ -37,8 +37,6 @@ from core.base_service import BaseService
 if TYPE_CHECKING:
     from core.brotr import Brotr
 
-SERVICE_NAME = "monitor"
-
 
 # =============================================================================
 # Configuration
@@ -192,7 +190,7 @@ class Monitor(BaseService):
     Results are stored in relay_metadata table.
     """
 
-    SERVICE_NAME = SERVICE_NAME
+    SERVICE_NAME = "monitor"
     CONFIG_CLASS = MonitorConfig
 
     def __init__(
