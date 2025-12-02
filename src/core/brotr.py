@@ -9,8 +9,10 @@ Features:
 - Batch operations with configurable limits
 - Hex to bytea conversion for efficient storage
 - Structured logging
+- Parallel cleanup operations
 """
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any, Final, Optional
@@ -54,7 +56,7 @@ class BatchConfig(BaseModel):
 
 
 class TimeoutsConfig(BaseModel):
-    """Operation timeouts."""
+    """Operation timeouts for Brotr."""
 
     query: float = Field(default=60.0, ge=0.1, description="Query timeout (seconds)")
     procedure: float = Field(default=90.0, ge=0.1, description="Procedure timeout (seconds)")
@@ -175,24 +177,26 @@ class Brotr:
             conn: Optional connection (acquires from pool if None)
             fetch_result: Return result if True
             timeout: Optional timeout override
+
+        Returns:
+            Result value if fetch_result=True, otherwise None
         """
         params = ", ".join(f"${i + 1}" for i in range(len(args))) if args else ""
         query = f"SELECT {procedure_name}({params})"
         timeout_value = timeout or self._config.timeouts.procedure
 
-        if conn is None:
-            async with self.pool.acquire() as acquired_conn:
-                if fetch_result:
-                    result = await acquired_conn.fetchval(query, *args, timeout=timeout_value)
-                    return result or 0
-                await acquired_conn.execute(query, *args, timeout=timeout_value)
-                return None
+        async def execute(c: asyncpg.Connection) -> Any:
+            if fetch_result:
+                result = await c.fetchval(query, *args, timeout=timeout_value)
+                return result or 0
+            await c.execute(query, *args, timeout=timeout_value)
+            return None
 
-        if fetch_result:
-            result = await conn.fetchval(query, *args, timeout=timeout_value)
-            return result or 0
-        await conn.execute(query, *args, timeout=timeout_value)
-        return None
+        if conn is not None:
+            return await execute(conn)
+
+        async with self.pool.acquire() as acquired_conn:
+            return await execute(acquired_conn)
 
     # -------------------------------------------------------------------------
     # Insert Operations
@@ -320,40 +324,53 @@ class Brotr:
             """Convert Python object to JSON string for JSONB columns."""
             return json.dumps(value) if value is not None else None
 
+        def extract_params(m: dict[str, Any]) -> tuple[Any, ...]:
+            """Extract parameters from metadata dict for stored procedure call."""
+            # Cache dict lookups for efficiency and readability
+            nip66 = m.get("nip66") or {}
+            nip11 = m.get("nip11") or {}
+            has_nip66 = bool(m.get("nip66"))
+            has_nip11 = bool(m.get("nip11"))
+
+            return (
+                # Base relay info
+                m["relay_url"],
+                m["relay_network"],
+                m["relay_inserted_at"],
+                m["generated_at"],
+                # NIP-66 fields
+                has_nip66,
+                nip66.get("openable") if has_nip66 else None,
+                nip66.get("readable") if has_nip66 else None,
+                nip66.get("writable") if has_nip66 else None,
+                nip66.get("rtt_open") if has_nip66 else None,
+                nip66.get("rtt_read") if has_nip66 else None,
+                nip66.get("rtt_write") if has_nip66 else None,
+                # NIP-11 fields
+                has_nip11,
+                nip11.get("name") if has_nip11 else None,
+                nip11.get("description") if has_nip11 else None,
+                nip11.get("banner") if has_nip11 else None,
+                nip11.get("icon") if has_nip11 else None,
+                nip11.get("pubkey") if has_nip11 else None,
+                nip11.get("contact") if has_nip11 else None,
+                to_jsonb(nip11.get("supported_nips")) if has_nip11 else None,
+                nip11.get("software") if has_nip11 else None,
+                nip11.get("version") if has_nip11 else None,
+                nip11.get("privacy_policy") if has_nip11 else None,
+                nip11.get("terms_of_service") if has_nip11 else None,
+                to_jsonb(nip11.get("limitation")) if has_nip11 else None,
+                to_jsonb(nip11.get("extra_fields")) if has_nip11 else None,
+            )
+
         async with self.pool.transaction() as conn:
-            params = [
-                (
-                    m["relay_url"],
-                    m["relay_network"],
-                    m["relay_inserted_at"],
-                    m["generated_at"],
-                    m.get("nip66") is not None,
-                    m.get("nip66", {}).get("openable") if m.get("nip66") else None,
-                    m.get("nip66", {}).get("readable") if m.get("nip66") else None,
-                    m.get("nip66", {}).get("writable") if m.get("nip66") else None,
-                    m.get("nip66", {}).get("rtt_open") if m.get("nip66") else None,
-                    m.get("nip66", {}).get("rtt_read") if m.get("nip66") else None,
-                    m.get("nip66", {}).get("rtt_write") if m.get("nip66") else None,
-                    m.get("nip11") is not None,
-                    m.get("nip11", {}).get("name") if m.get("nip11") else None,
-                    m.get("nip11", {}).get("description") if m.get("nip11") else None,
-                    m.get("nip11", {}).get("banner") if m.get("nip11") else None,
-                    m.get("nip11", {}).get("icon") if m.get("nip11") else None,
-                    m.get("nip11", {}).get("pubkey") if m.get("nip11") else None,
-                    m.get("nip11", {}).get("contact") if m.get("nip11") else None,
-                    to_jsonb(m.get("nip11", {}).get("supported_nips")) if m.get("nip11") else None,
-                    m.get("nip11", {}).get("software") if m.get("nip11") else None,
-                    m.get("nip11", {}).get("version") if m.get("nip11") else None,
-                    m.get("nip11", {}).get("privacy_policy") if m.get("nip11") else None,
-                    m.get("nip11", {}).get("terms_of_service") if m.get("nip11") else None,
-                    to_jsonb(m.get("nip11", {}).get("limitation")) if m.get("nip11") else None,
-                    to_jsonb(m.get("nip11", {}).get("extra_fields")) if m.get("nip11") else None,
-                )
-                for m in metadata_list
-            ]
+            params = [extract_params(m) for m in metadata_list]
 
             await conn.executemany(
-                f"SELECT {PROC_INSERT_RELAY_METADATA}($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)",
+                f"SELECT {PROC_INSERT_RELAY_METADATA}("
+                "$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, "
+                "$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, "
+                "$21, $22, $23, $24, $25)",
                 params,
                 timeout=self._config.timeouts.batch,
             )
@@ -388,16 +405,19 @@ class Brotr:
 
     async def cleanup_orphans(self) -> dict[str, int]:
         """
-        Delete all orphaned records.
+        Delete all orphaned records in parallel.
+
+        Runs all three cleanup operations concurrently for better performance.
 
         Returns:
             Dict with counts: {"events": n, "nip11": n, "nip66": n}
         """
-        result = {
-            "events": await self.delete_orphan_events(),
-            "nip11": await self.delete_orphan_nip11(),
-            "nip66": await self.delete_orphan_nip66(),
-        }
+        events, nip11, nip66 = await asyncio.gather(
+            self.delete_orphan_events(),
+            self.delete_orphan_nip11(),
+            self.delete_orphan_nip66(),
+        )
+        result = {"events": events, "nip11": nip11, "nip66": nip66}
         self._logger.info("cleanup_completed", **result)
         return result
 

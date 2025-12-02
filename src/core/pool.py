@@ -29,10 +29,10 @@ from .logger import Logger
 
 def _get_password_from_env() -> SecretStr:
     """Load password from DB_PASSWORD environment variable."""
-    password = os.getenv("DB_PASSWORD")
-    if not password:
+    env_password = os.getenv("DB_PASSWORD")
+    if not env_password:
         raise ValueError("DB_PASSWORD environment variable not set")
-    return SecretStr(password)
+    return SecretStr(env_password)
 
 
 class DatabaseConfig(BaseModel):
@@ -44,13 +44,13 @@ class DatabaseConfig(BaseModel):
     user: str = Field(default="admin", min_length=1, description="Database user")
     password: SecretStr = Field(
         default_factory=_get_password_from_env,
-        description="Database password (from DB_PASSWORD env)",
+        description="Database password (from DB_PASSWORD env if not provided)",
     )
 
     @field_validator("password", mode="before")
     @classmethod
     def load_password_from_env(cls, v: Optional[Union[str, SecretStr]]) -> SecretStr:
-        """Load password from environment if not provided."""
+        """Load password from environment if explicitly set to None or empty string."""
         if v is None or v == "":
             return _get_password_from_env()
         if isinstance(v, SecretStr):
@@ -58,7 +58,7 @@ class DatabaseConfig(BaseModel):
         return SecretStr(v)
 
 
-class PoolLimitsConfig(BaseModel):
+class LimitsConfig(BaseModel):
     """Pool size and resource limits."""
 
     min_size: int = Field(default=5, ge=1, le=100, description="Minimum connections")
@@ -78,7 +78,7 @@ class PoolLimitsConfig(BaseModel):
         return v
 
 
-class PoolTimeoutsConfig(BaseModel):
+class TimeoutsConfig(BaseModel):
     """Pool timeout configuration."""
 
     acquisition: float = Field(default=10.0, ge=0.1, description="Connection acquisition timeout")
@@ -114,8 +114,8 @@ class PoolConfig(BaseModel):
     """Complete pool configuration."""
 
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-    limits: PoolLimitsConfig = Field(default_factory=PoolLimitsConfig)
-    timeouts: PoolTimeoutsConfig = Field(default_factory=PoolTimeoutsConfig)
+    limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     retry: RetryConfig = Field(default_factory=RetryConfig)
     server_settings: ServerSettingsConfig = Field(default_factory=ServerSettingsConfig)
 
@@ -291,6 +291,10 @@ class Pool:
         Args:
             max_retries: Max attempts to acquire healthy connection
             health_check_timeout: Timeout for health check query
+
+        Raises:
+            RuntimeError: If pool is not connected
+            ConnectionError: If all retry attempts fail
         """
         if not self._is_connected or self._pool is None:
             raise RuntimeError("Pool not connected. Call connect() first.")
@@ -298,34 +302,22 @@ class Pool:
         timeout = health_check_timeout or self._config.timeouts.health_check
         last_error: Optional[Exception] = None
 
-        for _attempt in range(max_retries):
-            conn: Optional[asyncpg.Connection] = None
+        for attempt in range(max_retries):
             try:
-                conn = await self._pool.acquire()
-
-                # Health check
-                try:
+                async with self._pool.acquire() as conn:
+                    # Health check - if fails, will raise and retry
                     await conn.fetchval("SELECT 1", timeout=timeout)
-                except (asyncpg.PostgresError, TimeoutError) as e:
-                    last_error = e
-                    await self._pool.release(conn)
-                    conn = None
-                    continue
-
-                # Healthy - yield connection
-                try:
+                    # Connection is healthy, yield it
                     yield conn
                     return
-                finally:
-                    await self._pool.release(conn)
-
-            except (asyncpg.PostgresError, OSError) as e:
+            except (asyncpg.PostgresError, OSError, TimeoutError) as e:
                 last_error = e
-                if conn is not None:
-                    try:
-                        await self._pool.release(conn)
-                    except Exception:
-                        pass
+                self._logger.debug(
+                    "health_check_failed",
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    error=str(e),
+                )
                 continue
 
         raise ConnectionError(
