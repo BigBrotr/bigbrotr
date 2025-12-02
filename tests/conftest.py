@@ -1,11 +1,17 @@
 """
 Pytest configuration and shared fixtures for BigBrotr tests.
+
+Provides:
+- Mock fixtures for Pool, Brotr, and asyncpg
+- Sample data fixtures for events, relays, and metadata
+- Custom pytest markers for test categorization
 """
 
 import logging
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from core.brotr import Brotr
 from core.pool import Pool
+
 
 # ============================================================================
 # Logging Configuration
@@ -33,28 +40,33 @@ def setup_logging() -> None:
 
 
 @pytest.fixture
-def mock_asyncpg_pool() -> MagicMock:
-    """Create a mock asyncpg pool."""
-    pool = MagicMock()
-    pool.close = AsyncMock()
-
-    # Mock connection
-    mock_conn = MagicMock()
-    mock_conn.fetch = AsyncMock(return_value=[])
-    mock_conn.fetchrow = AsyncMock(return_value=None)
-    mock_conn.fetchval = AsyncMock(return_value=1)
-    mock_conn.execute = AsyncMock(return_value="OK")
-    mock_conn.executemany = AsyncMock()
+def mock_connection() -> MagicMock:
+    """Create a mock asyncpg connection."""
+    conn = MagicMock()
+    conn.fetch = AsyncMock(return_value=[])
+    conn.fetchrow = AsyncMock(return_value=None)
+    conn.fetchval = AsyncMock(return_value=1)
+    conn.execute = AsyncMock(return_value="OK")
+    conn.executemany = AsyncMock()
 
     # Mock transaction context manager
     mock_transaction = MagicMock()
     mock_transaction.__aenter__ = AsyncMock(return_value=None)
     mock_transaction.__aexit__ = AsyncMock(return_value=None)
-    mock_conn.transaction = MagicMock(return_value=mock_transaction)
+    conn.transaction = MagicMock(return_value=mock_transaction)
+
+    return conn
+
+
+@pytest.fixture
+def mock_asyncpg_pool(mock_connection: MagicMock) -> MagicMock:
+    """Create a mock asyncpg pool."""
+    pool = MagicMock()
+    pool.close = AsyncMock()
 
     # Mock acquire context manager
     mock_acquire = MagicMock()
-    mock_acquire.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_acquire.__aenter__ = AsyncMock(return_value=mock_connection)
     mock_acquire.__aexit__ = AsyncMock(return_value=None)
     pool.acquire = MagicMock(return_value=mock_acquire)
 
@@ -62,11 +74,10 @@ def mock_asyncpg_pool() -> MagicMock:
 
 
 @pytest.fixture
-def mock_connection_pool(mock_asyncpg_pool: MagicMock, monkeypatch: pytest.MonkeyPatch) -> Pool:
+def mock_pool(mock_asyncpg_pool: MagicMock, mock_connection: MagicMock, monkeypatch: pytest.MonkeyPatch) -> Pool:
     """Create a Pool with mocked internals."""
     from core.pool import DatabaseConfig, PoolConfig
 
-    # Use monkeypatch for test isolation (safe for parallel test runs)
     monkeypatch.setenv("DB_PASSWORD", "test_password")
 
     config = PoolConfig(
@@ -78,16 +89,19 @@ def mock_connection_pool(mock_asyncpg_pool: MagicMock, monkeypatch: pytest.Monke
         )
     )
     pool = Pool(config=config)
-    # Inject mock pool
     pool._pool = mock_asyncpg_pool
     pool._is_connected = True
+
+    # Store mock connection for easy access in tests
+    pool._mock_connection = mock_connection  # type: ignore[attr-defined]
+
     return pool
 
 
 @pytest.fixture
-def mock_brotr(mock_connection_pool: Pool) -> Brotr:
+def mock_brotr(mock_pool: Pool) -> Brotr:
     """Create a Brotr instance with mocked pool."""
-    return Brotr(pool=mock_connection_pool)
+    return Brotr(pool=mock_pool)
 
 
 # ============================================================================
@@ -96,7 +110,7 @@ def mock_brotr(mock_connection_pool: Pool) -> Brotr:
 
 
 @pytest.fixture
-def pool_config() -> dict[str, Any]:
+def pool_config_dict() -> dict[str, Any]:
     """Sample pool configuration dictionary."""
     return {
         "database": {
@@ -113,6 +127,7 @@ def pool_config() -> dict[str, Any]:
         },
         "timeouts": {
             "acquisition": 5.0,
+            "health_check": 3.0,
         },
         "retry": {
             "max_attempts": 2,
@@ -120,11 +135,15 @@ def pool_config() -> dict[str, Any]:
             "max_delay": 2.0,
             "exponential_backoff": True,
         },
+        "server_settings": {
+            "application_name": "test_app",
+            "timezone": "UTC",
+        },
     }
 
 
 @pytest.fixture
-def brotr_config() -> dict[str, Any]:
+def brotr_config_dict() -> dict[str, Any]:
     """Sample Brotr configuration dictionary."""
     return {
         "pool": {
@@ -202,13 +221,60 @@ def sample_metadata() -> dict[str, Any]:
         "nip11": {
             "name": "Test Relay",
             "description": "A test relay for unit tests",
+            "banner": None,
+            "icon": None,
+            "pubkey": None,
+            "contact": None,
             "supported_nips": [1, 2, 9, 11],
+            "software": None,
+            "version": None,
+            "privacy_policy": None,
+            "terms_of_service": None,
+            "limitation": None,
+            "extra_fields": None,
         },
     }
 
 
+@pytest.fixture
+def sample_events_batch(sample_event: dict[str, Any]) -> list[dict[str, Any]]:
+    """Generate a batch of sample events."""
+    events = []
+    for i in range(10):
+        event = sample_event.copy()
+        event["event_id"] = f"{i:064x}"
+        event["created_at"] = 1700000000 + i
+        events.append(event)
+    return events
+
+
+@pytest.fixture
+def sample_relays_batch() -> list[dict[str, Any]]:
+    """Generate a batch of sample relays."""
+    return [
+        {"url": f"wss://relay{i}.example.com", "network": "clearnet", "inserted_at": 1700000000}
+        for i in range(10)
+    ]
+
+
 # ============================================================================
-# Integration Test Markers
+# Helper Functions
+# ============================================================================
+
+
+def create_mock_record(data: dict[str, Any]) -> MagicMock:
+    """Create a mock asyncpg Record from a dictionary."""
+    record = MagicMock()
+    record.__getitem__ = lambda self, key: data[key]
+    record.get = lambda key, default=None: data.get(key, default)
+    record.keys = lambda: data.keys()
+    record.values = lambda: data.values()
+    record.items = lambda: data.items()
+    return record
+
+
+# ============================================================================
+# Pytest Configuration
 # ============================================================================
 
 
@@ -217,16 +283,16 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "integration: marks tests as integration tests requiring database"
     )
-    config.addinivalue_line("markers", "unit: marks tests as unit tests (no external dependencies)")
+    config.addinivalue_line(
+        "markers", "unit: marks tests as unit tests (no external dependencies)"
+    )
     config.addinivalue_line("markers", "slow: marks tests as slow running")
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Auto-mark tests based on location."""
     for item in items:
-        # Auto-mark tests in integration directory
         if "integration" in str(item.fspath):
             item.add_marker(pytest.mark.integration)
-        # Auto-mark tests in unit directory
         elif "unit" in str(item.fspath):
             item.add_marker(pytest.mark.unit)

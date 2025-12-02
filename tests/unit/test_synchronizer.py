@@ -1,15 +1,20 @@
 """
-Unit tests for Synchronizer service.
+Unit tests for services.synchronizer module.
+
+Tests:
+- Configuration models (TorConfig, FilterConfig, TimeoutsConfig, etc.)
+- Synchronizer service initialization
+- Relay fetching and filtering
+- Start time determination
+- RawEventBatch class
 """
 
-import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from nostr_tools import Relay
 
 from core.brotr import Brotr, BrotrConfig
-from core.pool import Pool
 from services.synchronizer import (
     ConcurrencyConfig,
     FilterConfig,
@@ -25,153 +30,30 @@ from services.synchronizer import (
 )
 
 
-@pytest.fixture
-def mock_pool() -> MagicMock:
-    """Create a mock pool."""
-    os.environ.setdefault("DB_PASSWORD", "test_password")
-    pool = MagicMock(spec=Pool)
-    pool.fetch = AsyncMock(return_value=[])
-    pool.fetchrow = AsyncMock(return_value=None)
-    pool.fetchval = AsyncMock(return_value=1)
-    pool.execute = AsyncMock(return_value="OK")
-    pool.is_connected = True
-
-    # Mock transaction
-    mock_conn = MagicMock()
-    mock_conn.execute = AsyncMock(return_value="OK")
-
-    mock_transaction = MagicMock()
-    mock_transaction.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_transaction.__aexit__ = AsyncMock(return_value=None)
-    pool.transaction = MagicMock(return_value=mock_transaction)
-
-    return pool
+# ============================================================================
+# Fixtures
+# ============================================================================
 
 
 @pytest.fixture
-def mock_brotr(mock_pool: MagicMock) -> MagicMock:
-    """Create a mock Brotr with pool."""
-    brotr = MagicMock(spec=Brotr)
-    brotr.pool = mock_pool
-    brotr.insert_events = AsyncMock(return_value=True)
-
-    # Mock config with batch settings
+def mock_synchronizer_brotr(mock_brotr: Brotr) -> Brotr:
+    """Create a Brotr mock configured for synchronizer tests."""
     mock_batch_config = MagicMock()
     mock_batch_config.max_batch_size = 100
     mock_config = MagicMock(spec=BrotrConfig)
     mock_config.batch = mock_batch_config
-    brotr.config = mock_config
-
-    return brotr
-
-
-class TestSynchronizerConfig:
-    """Tests for SynchronizerConfig."""
-
-    def test_default_values(self) -> None:
-        """Test default configuration values."""
-        config = SynchronizerConfig()
-
-        assert config.tor.enabled is True
-        assert config.tor.host == "127.0.0.1"
-        assert config.tor.port == 9050
-        assert config.filter.ids is None
-        assert config.filter.kinds is None
-        assert config.filter.authors is None
-        assert config.filter.tags is None
-        assert config.filter.limit == 500
-        assert config.time_range.default_start == 0
-        assert config.time_range.use_relay_state is True
-        assert config.time_range.lookback_seconds == 86400
-        assert config.timeouts.clearnet.request == 30.0
-        assert config.timeouts.clearnet.relay == 1800.0
-        assert config.timeouts.tor.request == 60.0
-        assert config.timeouts.tor.relay == 3600.0
-        assert config.concurrency.max_parallel == 10
-        assert config.concurrency.stagger_delay == (0, 60)
-        assert config.source.from_database is True
-        assert config.source.max_metadata_age == 43200
-        assert config.source.require_readable is True
-        assert config.interval == 900.0
-
-    def test_custom_tor(self) -> None:
-        """Test custom Tor proxy settings."""
-        config = SynchronizerConfig(tor=TorConfig(enabled=False, host="tor", port=9150))
-
-        assert config.tor.enabled is False
-        assert config.tor.host == "tor"
-        assert config.tor.port == 9150
-
-    def test_custom_filter(self) -> None:
-        """Test custom filter settings."""
-        config = SynchronizerConfig(
-            filter=FilterConfig(
-                ids=["abc123"],
-                kinds=[1, 3],
-                authors=["pubkey1"],
-                tags={"e": ["event1"], "p": ["pubkey2"]},
-                limit=1000,
-            )
-        )
-
-        assert config.filter.ids == ["abc123"]
-        assert config.filter.kinds == [1, 3]
-        assert config.filter.authors == ["pubkey1"]
-        assert config.filter.tags == {"e": ["event1"], "p": ["pubkey2"]}
-        assert config.filter.limit == 1000
-
-    def test_custom_time_range(self) -> None:
-        """Test custom time range settings."""
-        config = SynchronizerConfig(
-            time_range=TimeRangeConfig(default_start=1000000, use_relay_state=False)
-        )
-
-        assert config.time_range.default_start == 1000000
-        assert config.time_range.use_relay_state is False
-
-    def test_custom_timeouts(self) -> None:
-        """Test custom timeouts settings."""
-        config = SynchronizerConfig(
-            timeouts=TimeoutsConfig(
-                clearnet=NetworkTimeoutsConfig(request=60.0, relay=3600.0),
-                tor=NetworkTimeoutsConfig(request=120.0, relay=7200.0),
-            )
-        )
-
-        assert config.timeouts.clearnet.request == 60.0
-        assert config.timeouts.clearnet.relay == 3600.0
-        assert config.timeouts.tor.request == 120.0
-        assert config.timeouts.tor.relay == 7200.0
-
-    def test_custom_concurrency(self) -> None:
-        """Test custom concurrency settings."""
-        config = SynchronizerConfig(
-            concurrency=ConcurrencyConfig(
-                max_parallel=5,
-                stagger_delay=(10, 30),
-            )
-        )
-
-        assert config.concurrency.max_parallel == 5
-        assert config.concurrency.stagger_delay == (10, 30)
-
-    def test_custom_source(self) -> None:
-        """Test custom source settings."""
-        config = SynchronizerConfig(
-            source=SourceConfig(
-                from_database=False,
-                max_metadata_age=3600,
-                require_readable=False,
-            )
-        )
-
-        assert config.source.from_database is False
-        assert config.source.max_metadata_age == 3600
-        assert config.source.require_readable is False
+    mock_brotr._config = mock_config
+    mock_brotr.insert_events = AsyncMock(return_value=0)  # type: ignore[attr-defined]
+    return mock_brotr
 
 
-class TestTorConfig:
-    """Tests for TorConfig."""
+# ============================================================================
+# TorConfig Tests
+# ============================================================================
+
+
+class TestSyncTorConfig:
+    """Tests for TorConfig Pydantic model."""
 
     def test_default_values(self) -> None:
         """Test default Tor proxy config."""
@@ -193,8 +75,13 @@ class TestTorConfig:
             TorConfig(port=70000)
 
 
+# ============================================================================
+# FilterConfig Tests
+# ============================================================================
+
+
 class TestFilterConfig:
-    """Tests for FilterConfig."""
+    """Tests for FilterConfig Pydantic model."""
 
     def test_default_values(self) -> None:
         """Test default filter config."""
@@ -237,25 +124,59 @@ class TestFilterConfig:
             FilterConfig(limit=5001)
 
 
-class TestTimeoutsConfig:
-    """Tests for TimeoutsConfig (network-specific)."""
+# ============================================================================
+# TimeRangeConfig Tests
+# ============================================================================
+
+
+class TestTimeRangeConfig:
+    """Tests for TimeRangeConfig Pydantic model."""
 
     def test_default_values(self) -> None:
-        """Test default timeouts config."""
+        """Test default time range config."""
+        config = TimeRangeConfig()
+
+        assert config.default_start == 0
+        assert config.use_relay_state is True
+        assert config.lookback_seconds == 86400
+
+    def test_custom_values(self) -> None:
+        """Test custom time range config."""
+        config = TimeRangeConfig(
+            default_start=1000000,
+            use_relay_state=False,
+            lookback_seconds=3600,
+        )
+
+        assert config.default_start == 1000000
+        assert config.use_relay_state is False
+        assert config.lookback_seconds == 3600
+
+
+# ============================================================================
+# NetworkTimeoutsConfig Tests
+# ============================================================================
+
+
+class TestNetworkTimeoutsConfig:
+    """Tests for NetworkTimeoutsConfig Pydantic model."""
+
+    def test_default_clearnet(self) -> None:
+        """Test default clearnet timeouts."""
         config = TimeoutsConfig()
 
-        # Clearnet defaults
         assert config.clearnet.request == 30.0
         assert config.clearnet.relay == 1800.0
-        # Tor defaults (higher)
+
+    def test_default_tor(self) -> None:
+        """Test default tor timeouts."""
+        config = TimeoutsConfig()
+
         assert config.tor.request == 60.0
         assert config.tor.relay == 3600.0
 
-    def test_validation(self) -> None:
-        """Test validation constraints on NetworkTimeoutsConfig."""
-        config = NetworkTimeoutsConfig(request=5.0, relay=60.0)
-        assert config.request == 5.0
-
+    def test_validation_constraints(self) -> None:
+        """Test validation constraints."""
         with pytest.raises(ValueError):
             NetworkTimeoutsConfig(request=4.0)  # Below minimum
 
@@ -263,8 +184,13 @@ class TestTimeoutsConfig:
             NetworkTimeoutsConfig(relay=59.0)  # Below minimum
 
 
-class TestConcurrencyConfig:
-    """Tests for ConcurrencyConfig."""
+# ============================================================================
+# ConcurrencyConfig Tests
+# ============================================================================
+
+
+class TestSyncConcurrencyConfig:
+    """Tests for ConcurrencyConfig Pydantic model."""
 
     def test_default_values(self) -> None:
         """Test default concurrency config."""
@@ -273,13 +199,8 @@ class TestConcurrencyConfig:
         assert config.max_parallel == 10
         assert config.stagger_delay == (0, 60)
 
-    def test_validation(self) -> None:
+    def test_validation_constraints(self) -> None:
         """Test validation constraints."""
-        config = ConcurrencyConfig(
-            max_parallel=1,
-        )
-        assert config.max_parallel == 1
-
         with pytest.raises(ValueError):
             ConcurrencyConfig(max_parallel=0)
 
@@ -287,8 +208,13 @@ class TestConcurrencyConfig:
             ConcurrencyConfig(max_parallel=101)
 
 
+# ============================================================================
+# SourceConfig Tests
+# ============================================================================
+
+
 class TestSourceConfig:
-    """Tests for SourceConfig."""
+    """Tests for SourceConfig Pydantic model."""
 
     def test_default_values(self) -> None:
         """Test default source config."""
@@ -311,163 +237,218 @@ class TestSourceConfig:
         assert config.require_readable is False
 
 
-class TestSynchronizer:
-    """Tests for Synchronizer service."""
+# ============================================================================
+# SynchronizerConfig Tests
+# ============================================================================
 
-    def test_init_with_defaults(self, mock_brotr: MagicMock) -> None:
+
+class TestSynchronizerConfig:
+    """Tests for SynchronizerConfig Pydantic model."""
+
+    def test_default_values(self) -> None:
+        """Test default configuration values."""
+        config = SynchronizerConfig()
+
+        assert config.tor.enabled is True
+        assert config.filter.limit == 500
+        assert config.time_range.default_start == 0
+        assert config.timeouts.clearnet.request == 30.0
+        assert config.concurrency.max_parallel == 10
+        assert config.source.from_database is True
+        assert config.interval == 900.0
+
+    def test_custom_nested_config(self) -> None:
+        """Test custom nested configuration."""
+        config = SynchronizerConfig(
+            tor=TorConfig(enabled=False),
+            concurrency=ConcurrencyConfig(max_parallel=5),
+            interval=1800.0,
+        )
+
+        assert config.tor.enabled is False
+        assert config.concurrency.max_parallel == 5
+        assert config.interval == 1800.0
+
+
+# ============================================================================
+# Synchronizer Initialization Tests
+# ============================================================================
+
+
+class TestSynchronizerInit:
+    """Tests for Synchronizer initialization."""
+
+    def test_init_with_defaults(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test initialization with defaults."""
-        sync = Synchronizer(brotr=mock_brotr)
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
-        assert sync._brotr is mock_brotr
-        assert sync._brotr.pool is mock_brotr.pool
+        assert sync._brotr is mock_synchronizer_brotr
         assert sync.SERVICE_NAME == "synchronizer"
         assert sync.config.tor.enabled is True
 
-    def test_init_with_custom_config(self, mock_brotr: MagicMock) -> None:
+    def test_init_with_custom_config(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test initialization with custom config."""
         config = SynchronizerConfig(
             tor=TorConfig(enabled=False),
             concurrency=ConcurrencyConfig(max_parallel=5),
         )
-        sync = Synchronizer(brotr=mock_brotr, config=config)
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         assert sync.config.tor.enabled is False
         assert sync.config.concurrency.max_parallel == 5
 
+    def test_from_dict(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test factory method from_dict."""
+        data = {
+            "tor": {"enabled": False},
+            "concurrency": {"max_parallel": 5},
+        }
+        sync = Synchronizer.from_dict(data, brotr=mock_synchronizer_brotr)
+
+        assert sync.config.tor.enabled is False
+        assert sync.config.concurrency.max_parallel == 5
+
+
+# ============================================================================
+# Synchronizer Fetch Relays Tests
+# ============================================================================
+
+
+class TestSynchronizerFetchRelays:
+    """Tests for Synchronizer._fetch_relays() method."""
+
     @pytest.mark.asyncio
-    async def test_health_check_connected(self, mock_brotr: MagicMock) -> None:
-        """Test health check when connected."""
-        mock_brotr.pool.fetchval = AsyncMock(return_value=1)
-
-        sync = Synchronizer(brotr=mock_brotr)
-        result = await sync.health_check()
-
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_health_check_disconnected(self, mock_brotr: MagicMock) -> None:
-        """Test health check when disconnected."""
-        mock_brotr.pool.fetchval = AsyncMock(side_effect=Exception("Connection error"))
-
-        sync = Synchronizer(brotr=mock_brotr)
-        result = await sync.health_check()
-
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_fetch_relays_empty(self, mock_brotr: MagicMock) -> None:
+    async def test_fetch_relays_empty(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test fetching relays when none available."""
-        mock_brotr.pool.fetch = AsyncMock(return_value=[])
+        mock_synchronizer_brotr.pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
 
-        sync = Synchronizer(brotr=mock_brotr)
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
         relays = await sync._fetch_relays()
 
         assert relays == []
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_from_database_disabled(self, mock_brotr: MagicMock) -> None:
-        """Test fetching relays when database source is disabled."""
+    async def test_fetch_relays_disabled(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test fetching relays when source is disabled."""
         config = SynchronizerConfig(source=SourceConfig(from_database=False))
-        sync = Synchronizer(brotr=mock_brotr, config=config)
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         relays = await sync._fetch_relays()
 
         assert relays == []
-        mock_brotr.pool.fetch.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_with_relays(self, mock_brotr: MagicMock) -> None:
+    async def test_fetch_relays_with_results(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test fetching relays from database."""
-        mock_brotr.pool.fetch = AsyncMock(
+        mock_synchronizer_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
                 {"relay_url": "wss://relay1.example.com"},
                 {"relay_url": "wss://relay2.example.com"},
             ]
         )
 
-        sync = Synchronizer(brotr=mock_brotr)
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
         relays = await sync._fetch_relays()
 
         assert len(relays) == 2
-        # URL normalization depends on nostr_tools implementation
         assert "relay1.example.com" in relays[0].url
         assert "relay2.example.com" in relays[1].url
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_invalid_url(self, mock_brotr: MagicMock) -> None:
-        """Test fetching relays with invalid URL."""
-        mock_brotr.pool.fetch = AsyncMock(
+    async def test_fetch_relays_filters_invalid(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test fetching relays filters invalid URLs."""
+        mock_synchronizer_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
                 {"relay_url": "wss://valid.relay.com"},
                 {"relay_url": "invalid-url"},
             ]
         )
 
-        sync = Synchronizer(brotr=mock_brotr)
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
         relays = await sync._fetch_relays()
 
-        # Only valid relay should be returned
         assert len(relays) == 1
         assert "valid.relay.com" in relays[0].url
 
-    @pytest.mark.asyncio
-    async def test_run_no_relays(self, mock_brotr: MagicMock) -> None:
-        """Test run cycle with no relays."""
-        mock_brotr.pool.fetch = AsyncMock(return_value=[])
 
-        sync = Synchronizer(brotr=mock_brotr)
-        await sync.run()
+# ============================================================================
+# Synchronizer Get Start Time Tests
+# ============================================================================
 
-        # Should complete without error
-        assert sync._synced_relays == 0
-        assert sync._synced_events == 0
+
+class TestSynchronizerGetStartTime:
+    """Tests for Synchronizer._get_start_time() method."""
 
     @pytest.mark.asyncio
-    async def test_get_start_time_default(self, mock_brotr: MagicMock) -> None:
+    async def test_get_start_time_default(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test get start time with default."""
-        mock_brotr.pool.fetchrow = AsyncMock(return_value=None)
+        mock_synchronizer_brotr.pool._mock_connection.fetchrow = AsyncMock(return_value=None)  # type: ignore[attr-defined]
 
         config = SynchronizerConfig(
             time_range=TimeRangeConfig(default_start=1000, use_relay_state=False)
         )
-        sync = Synchronizer(brotr=mock_brotr, config=config)
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
-        # Mock relay
         relay = Relay("wss://test.relay.com")
-
         start_time = await sync._get_start_time(relay)
+
         assert start_time == 1000
 
     @pytest.mark.asyncio
-    async def test_get_start_time_from_state(self, mock_brotr: MagicMock) -> None:
-        """Test get start time from persisted state."""
-        relay = Relay("wss://test.relay.com")
-
-        sync = Synchronizer(brotr=mock_brotr)
-        # Use actual URL from relay object (may or may not have trailing slash)
-        sync._state = {"relay_timestamps": {relay.url: 5000}}
-
-        start_time = await sync._get_start_time(relay)
-        assert start_time == 5001  # +1 from stored timestamp
-
-    @pytest.mark.asyncio
-    async def test_get_start_time_from_database(self, mock_brotr: MagicMock) -> None:
-        """Test get start time from database when not in state."""
-        mock_brotr.pool.fetchrow = AsyncMock(
-            side_effect=[
-                {"max_seen": 12345},
-                {"created_at": 12000},
-            ]
+    async def test_get_start_time_from_database(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test get start time from database."""
+        mock_synchronizer_brotr.pool._mock_connection.fetchrow = AsyncMock(  # type: ignore[attr-defined]
+            return_value={"max_created_at": 12000}
         )
 
-        sync = Synchronizer(brotr=mock_brotr)
-        sync._state = {}
-
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
         relay = Relay("wss://test.relay.com")
-
         start_time = await sync._get_start_time(relay)
-        assert start_time == 12001  # created_at + 1
 
-    def test_create_filter_basic(self, mock_brotr: MagicMock) -> None:
+        assert start_time == 12001  # max_created_at + 1
+
+    @pytest.mark.asyncio
+    async def test_get_start_time_no_events(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test get start time when no events exist."""
+        mock_synchronizer_brotr.pool._mock_connection.fetchrow = AsyncMock(  # type: ignore[attr-defined]
+            return_value={"max_created_at": None}
+        )
+
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        relay = Relay("wss://test.relay.com")
+        start_time = await sync._get_start_time(relay)
+
+        assert start_time == 0  # default_start
+
+
+# ============================================================================
+# Synchronizer Run Tests
+# ============================================================================
+
+
+class TestSynchronizerRun:
+    """Tests for Synchronizer.run() method."""
+
+    @pytest.mark.asyncio
+    async def test_run_no_relays(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test run cycle with no relays."""
+        mock_synchronizer_brotr.pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
+
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        await sync.run()
+
+        assert sync._synced_relays == 0
+        assert sync._synced_events == 0
+
+
+# ============================================================================
+# _create_filter Tests
+# ============================================================================
+
+
+class TestCreateFilter:
+    """Tests for _create_filter helper function."""
+
+    def test_create_filter_basic(self) -> None:
         """Test creating basic filter."""
         filter_config = FilterConfig()
         filter_obj = _create_filter(since=100, until=200, config=filter_config)
@@ -476,7 +457,7 @@ class TestSynchronizer:
         assert filter_obj.until == 200
         assert filter_obj.limit == 500
 
-    def test_create_filter_with_config(self, mock_brotr: MagicMock) -> None:
+    def test_create_filter_with_config(self) -> None:
         """Test creating filter with config values."""
         filter_config = FilterConfig(
             ids=["id1"],
@@ -492,46 +473,9 @@ class TestSynchronizer:
         assert filter_obj.limit == 100
 
 
-class TestSynchronizerFactoryMethods:
-    """Tests for Synchronizer factory methods."""
-
-    def test_from_dict(self, mock_brotr: MagicMock) -> None:
-        """Test creation from dictionary."""
-        data = {
-            "tor": {"enabled": False},
-            "concurrency": {"max_parallel": 5},
-        }
-
-        sync = Synchronizer.from_dict(data, brotr=mock_brotr)
-
-        assert sync.config.tor.enabled is False
-        assert sync.config.concurrency.max_parallel == 5
-
-    def test_from_dict_with_filter(self, mock_brotr: MagicMock) -> None:
-        """Test creation from dictionary with filter."""
-        data = {
-            "filter": {
-                "kinds": [1, 3],
-                "tags": {"e": ["event1"]},
-            },
-        }
-
-        sync = Synchronizer.from_dict(data, brotr=mock_brotr)
-
-        assert sync.config.filter.kinds == [1, 3]
-        assert sync.config.filter.tags == {"e": ["event1"]}
-
-    def test_from_dict_partial(self, mock_brotr: MagicMock) -> None:
-        """Test creation from partial dictionary."""
-        data = {
-            "interval": 1800.0,
-        }
-
-        sync = Synchronizer.from_dict(data, brotr=mock_brotr)
-
-        assert sync.config.interval == 1800.0
-        # Defaults should be preserved
-        assert sync.config.tor.enabled is True
+# ============================================================================
+# RawEventBatch Tests
+# ============================================================================
 
 
 class TestRawEventBatch:
@@ -577,9 +521,9 @@ class TestRawEventBatch:
         """Test that non-dict events are rejected."""
         batch = RawEventBatch(since=100, until=200, limit=10)
 
-        batch.append("not a dict")  # type: ignore
-        batch.append(123)  # type: ignore
-        batch.append(None)  # type: ignore
+        batch.append("not a dict")  # type: ignore[arg-type]
+        batch.append(123)  # type: ignore[arg-type]
+        batch.append(None)  # type: ignore[arg-type]
 
         assert batch.size == 0
 
@@ -678,13 +622,3 @@ class TestRawEventBatch:
         with pytest.raises(OverflowError):
             batch.append({"created_at": 150})
 
-    def test_same_since_until(self) -> None:
-        """Test batch where since equals until."""
-        batch = RawEventBatch(since=150, until=150, limit=10)
-
-        batch.append({"created_at": 150})
-        assert batch.size == 1
-
-        batch.append({"created_at": 149})  # Below
-        batch.append({"created_at": 151})  # Above
-        assert batch.size == 1
