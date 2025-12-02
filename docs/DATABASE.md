@@ -244,24 +244,6 @@ CREATE TABLE relay_metadata (
 | `nip11_id` | BYTEA (FK) | Reference to nip11 table (nullable) |
 | `nip66_id` | BYTEA (FK) | Reference to nip66 table (nullable) |
 
-### service_state
-
-Service state persistence for incremental processing.
-
-```sql
-CREATE TABLE service_state (
-    service_name TEXT PRIMARY KEY,
-    state JSONB NOT NULL DEFAULT '{}',
-    updated_at BIGINT NOT NULL
-);
-```
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `service_name` | TEXT (PK) | Service identifier |
-| `state` | JSONB | Arbitrary state data |
-| `updated_at` | BIGINT | Last update timestamp |
-
 ---
 
 ## Indexes
@@ -276,7 +258,6 @@ PRIMARY KEY (event_id, relay_url) ON events_relays
 PRIMARY KEY (id) ON nip11
 PRIMARY KEY (id) ON nip66
 PRIMARY KEY (relay_url, generated_at) ON relay_metadata
-PRIMARY KEY (service_name) ON service_state
 ```
 
 ### Performance Indexes

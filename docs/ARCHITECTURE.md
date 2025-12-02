@@ -181,30 +181,28 @@ async with brotr:
 **Key Features**:
 - Generic type parameter for configuration class
 - `SERVICE_NAME` and `CONFIG_CLASS` class attributes
-- State persistence via `_load_state()` / `_save_state()`
-- Continuous operation via `run_forever(interval)`
+- Continuous operation via `run_forever(interval)` with failure tracking
 - Factory methods: `from_yaml()`, `from_dict()`
-- Async context manager (auto load/save state)
+- Async context manager for lifecycle management
 - Graceful shutdown via `request_shutdown()`
 - Interruptible wait via `wait(timeout)`
 
 **Interface**:
 ```python
 class BaseService(ABC, Generic[ConfigT]):
-    SERVICE_NAME: str              # Unique identifier for state persistence
+    SERVICE_NAME: str              # Unique identifier for the service
     CONFIG_CLASS: type[ConfigT]    # For automatic config parsing
 
     _brotr: Brotr                  # Database interface
     _config: ConfigT               # Pydantic configuration
-    _state: dict[str, Any]         # Persisted state (JSONB in database)
 
     @abstractmethod
     async def run(self) -> None:
         """Single cycle logic - must be implemented by subclasses."""
         pass
 
-    async def run_forever(self, interval: float) -> None:
-        """Continuous loop with configurable interval."""
+    async def run_forever(self, interval: float, max_consecutive_failures: int = 10) -> None:
+        """Continuous loop with configurable interval and failure tracking."""
         pass
 
     async def health_check(self) -> bool:
@@ -218,14 +216,6 @@ class BaseService(ABC, Generic[ConfigT]):
     async def wait(self, timeout: float) -> bool:
         """Interruptible sleep - returns True if shutdown requested."""
         pass
-```
-
-**State Persistence**:
-```python
-async with brotr:
-    async with service:  # _load_state() called on enter
-        await service.run_forever(interval=3600)
-    # _save_state() called on exit
 ```
 
 ### Logger (`logger.py`)
@@ -348,7 +338,7 @@ Main Process                    Worker Processes
      │                               │
      ├─── Insert to database        │
      │                               │
-     └─── Update state             │
+     └─── Continue cycle           │
 ```
 
 ---
@@ -548,7 +538,7 @@ Resources are automatically managed:
 
 ```python
 async with brotr:           # Connect on enter, close on exit
-    async with service:     # Load state on enter, save on exit
+    async with service:     # Lifecycle management
         await service.run_forever(interval=3600)
 ```
 
@@ -684,7 +674,7 @@ BigBrotr's architecture provides:
 2. **Flexibility** - Configuration-driven behavior without code changes
 3. **Testability** - Dependency injection enables comprehensive unit testing
 4. **Scalability** - Multicore processing and connection pooling for high throughput
-5. **Reliability** - Graceful shutdown, state persistence, and retry logic
+5. **Reliability** - Graceful shutdown, failure tracking, and retry logic
 6. **Maintainability** - Clear patterns and consistent structure throughout
 
 ---

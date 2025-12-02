@@ -25,7 +25,6 @@ schema:
     - nip11
     - nip66
     - relay_metadata
-    - service_state
   procedures:
     - insert_event
     - insert_relay
