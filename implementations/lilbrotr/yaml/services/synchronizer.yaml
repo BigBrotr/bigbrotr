@@ -12,5 +12,6 @@ tor:
 
 # Reduced concurrency for lighter resource usage
 concurrency:
-  max_parallel: 5
-  stagger_delay: [0, 30]
+  max_parallel: 5            # Max parallel relay connections per process
+  max_processes: 2           # Number of worker processes
+  stagger_delay: [0, 30]     # Random delay range [min, max] to prevent thundering herd

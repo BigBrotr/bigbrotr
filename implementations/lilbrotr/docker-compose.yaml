@@ -219,6 +219,62 @@ services:
           memory: 128M
 
   # --------------------------------------------------------------------------
+  # LilBrotr Validator Service
+  # --------------------------------------------------------------------------
+  # Validates candidate relay URLs before adding to relays table
+
+  validator:
+    build:
+      context: ../../
+      dockerfile: implementations/lilbrotr/Dockerfile
+    container_name: lilbrotr-validator
+    restart: unless-stopped
+
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+      PRIVATE_KEY: ${PRIVATE_KEY}
+
+    volumes:
+      - ./yaml:/app/yaml:ro
+
+    networks:
+      - lilbrotr-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      initializer:
+        condition: service_completed_successfully
+      finder:
+        condition: service_healthy
+      tor:
+        condition: service_healthy
+
+    command: ["python", "-m", "services", "validator"]
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  # --------------------------------------------------------------------------
   # LilBrotr Monitor Service
   # --------------------------------------------------------------------------
   # Checks relay health and capabilities (NIP-11, NIP-66)
@@ -232,7 +288,7 @@ services:
 
     environment:
       DB_PASSWORD: ${DB_PASSWORD}
-      MONITOR_PRIVATE_KEY: ${MONITOR_PRIVATE_KEY}
+      PRIVATE_KEY: ${PRIVATE_KEY}
 
     volumes:
       - ./yaml:/app/yaml:ro
@@ -245,6 +301,8 @@ services:
         condition: service_healthy
       initializer:
         condition: service_completed_successfully
+      validator:
+        condition: service_healthy
 
     command: ["python", "-m", "services", "monitor"]
 
@@ -284,6 +342,7 @@ services:
 
     environment:
       DB_PASSWORD: ${DB_PASSWORD}
+      PRIVATE_KEY: ${PRIVATE_KEY}
 
     volumes:
       - ./yaml:/app/yaml:ro
