@@ -24,17 +24,29 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import logging
 import random
+import signal
 import time
-from datetime import datetime
-from typing import TYPE_CHECKING, Any, Optional
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 import aiomultiprocess
-from nostr_tools import Client, Event, Filter, Relay, RelayValidationError
-from pydantic import BaseModel, Field
+from nostr_sdk import (
+    Alphabet,
+    ClientBuilder,
+    ClientOptions,
+    Event,
+    Filter,
+    Kind,
+    SingleLetterTag,
+    Timestamp,
+)
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from core.base_service import BaseService
 from core.brotr import Brotr
+from models import EventRelay, Keys, Relay
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -42,17 +54,106 @@ if TYPE_CHECKING:
 # Module constant for worker logging (workers can't access class attributes)
 _WORKER_SERVICE_NAME = "synchronizer"
 
+# Worker-level logger instance (created once per worker process)
+_WORKER_LOGGER: Optional[logging.Logger] = None
+
+
+def _get_worker_logger() -> logging.Logger:
+    """Get or create logger for worker process with proper configuration."""
+    global _WORKER_LOGGER
+    if _WORKER_LOGGER is None:
+        import logging
+        import sys
+
+        # Create worker-specific logger
+        _WORKER_LOGGER = logging.getLogger(f"{_WORKER_SERVICE_NAME}.worker")
+
+        # Only configure if no handlers exist (avoid duplicate handlers)
+        if not _WORKER_LOGGER.handlers:
+            handler = logging.StreamHandler(sys.stdout)
+            handler.setFormatter(
+                logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S")
+            )
+            _WORKER_LOGGER.addHandler(handler)
+            _WORKER_LOGGER.setLevel(logging.DEBUG)
+            # Prevent propagation to root logger
+            _WORKER_LOGGER.propagate = False
+
+    return _WORKER_LOGGER
+
+
+def _format_kv(kwargs: dict[str, Any]) -> str:
+    """Format kwargs as key=value pairs with proper escaping."""
+    if not kwargs:
+        return ""
+    parts = []
+    for k, v in kwargs.items():
+        s = str(v)
+        # Quote if contains spaces, equals, or quotes
+        if " " in s or "=" in s or '"' in s or "'" in s:
+            escaped = s.replace("\\", "\\\\").replace('"', '\\"')
+            parts.append(f'{k}="{escaped}"')
+        else:
+            parts.append(f"{k}={s}")
+    return " " + " ".join(parts)
+
 
 def _worker_log(level: str, message: str, **kwargs: Any) -> None:
     """
-    Log from worker process using print() for multiprocess compatibility.
+    Log from worker process using Python logging module.
 
-    aiomultiprocess captures stdout from child processes, so print() works
-    while logging module doesn't propagate across process boundaries.
+    Configures logging per-process on first call for multiprocess compatibility.
+    Format is consistent with the main Logger class.
+
+    Args:
+        level: Log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        message: Log message
+        **kwargs: Additional key=value pairs to include
     """
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    kv = " ".join(f"{k}={v}" for k, v in kwargs.items())
-    print(f"{timestamp} {level} {_WORKER_SERVICE_NAME}.worker: {message} {kv}".strip(), flush=True)
+    import logging
+
+    logger = _get_worker_logger()
+    log_level = getattr(logging, level.upper(), logging.INFO)
+
+    if logger.isEnabledFor(log_level):
+        formatted = message + _format_kv(kwargs)
+        logger.log(log_level, formatted)
+
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+
+class TorConfig(BaseModel):
+    """Tor proxy configuration for .onion relay support."""
+
+    enabled: bool = Field(default=True, description="Enable Tor proxy for .onion relays")
+    host: str = Field(default="127.0.0.1", description="Tor proxy host")
+    port: int = Field(default=9050, ge=1, le=65535, description="Tor proxy port")
+
+    @property
+    def proxy_url(self) -> str:
+        """Get the SOCKS5 proxy URL for aiohttp-socks."""
+        return f"socks5://{self.host}:{self.port}"
+
+
+class KeysConfig(BaseModel):
+    """Nostr keys configuration for NIP-42 authentication."""
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    keys: Optional[Keys] = Field(
+        default=None,
+        description="Keys loaded from PRIVATE_KEY env",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def load_keys_from_env(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "keys" not in data:
+            data["keys"] = Keys.from_env()
+        return data
 
 
 # =============================================================================
@@ -60,9 +161,9 @@ def _worker_log(level: str, message: str, **kwargs: Any) -> None:
 # =============================================================================
 
 
-class RawEventBatch:
+class EventBatch:
     """
-    Batch container for raw Nostr events with time bounds.
+    Batch container for Nostr events with time bounds.
 
     Used by Synchronizer to collect events within a time interval
     and track min/max created_at timestamps.
@@ -73,25 +174,21 @@ class RawEventBatch:
         self.until = until
         self.limit = limit
         self.size = 0
-        self.raw_events: list[dict[str, Any]] = []
+        self.events: list[Event] = []
         self.min_created_at: Optional[int] = None
         self.max_created_at: Optional[int] = None
 
-    def append(self, raw_event: dict[str, Any]) -> None:
+    def append(self, event: Event) -> None:
         """Add an event to the batch if valid."""
-        if not isinstance(raw_event, dict):
-            return
+        created_at = event.created_at().as_secs()
 
-        created_at = raw_event.get("created_at")
-        if not isinstance(created_at, int) or created_at < 0:
-            return
         if created_at < self.since or created_at > self.until:
             return
 
         if self.size >= self.limit:
             raise OverflowError("Batch limit reached")
 
-        self.raw_events.append(raw_event)
+        self.events.append(event)
         self.size += 1
 
         if self.min_created_at is None or created_at < self.min_created_at:
@@ -110,21 +207,8 @@ class RawEventBatch:
     def __len__(self) -> int:
         return self.size
 
-    def __iter__(self) -> Iterator[dict[str, Any]]:
-        return iter(self.raw_events)
-
-
-# =============================================================================
-# Configuration
-# =============================================================================
-
-
-class TorConfig(BaseModel):
-    """Tor proxy configuration."""
-
-    enabled: bool = Field(default=True, description="Enable Tor proxy for .onion relays")
-    host: str = Field(default="127.0.0.1", description="Tor proxy host")
-    port: int = Field(default=9050, ge=1, le=65535, description="Tor proxy port")
+    def __iter__(self) -> Iterator[Event]:
+        return iter(self.events)
 
 
 class FilterConfig(BaseModel):
@@ -137,6 +221,32 @@ class FilterConfig(BaseModel):
         default=None, description="Tag filters (None = all)"
     )
     limit: int = Field(default=500, ge=1, le=5000, description="Events per request")
+
+    @field_validator("kinds", mode="after")
+    @classmethod
+    def validate_kinds(cls, v: Optional[list[int]]) -> Optional[list[int]]:
+        """Validate event kinds are within valid range (0-65535)."""
+        if v is None:
+            return v
+        for kind in v:
+            if not 0 <= kind <= 65535:
+                raise ValueError(f"Event kind {kind} out of valid range (0-65535)")
+        return v
+
+    @field_validator("ids", "authors", mode="after")
+    @classmethod
+    def validate_hex_strings(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        """Validate hex strings are valid 64-character hex."""
+        if v is None:
+            return v
+        for hex_str in v:
+            if len(hex_str) != 64:
+                raise ValueError(f"Invalid hex string length: {len(hex_str)} (expected 64)")
+            try:
+                bytes.fromhex(hex_str)
+            except ValueError as e:
+                raise ValueError(f"Invalid hex string: {hex_str}") from e
+        return v
 
 
 class TimeRangeConfig(BaseModel):
@@ -213,6 +323,7 @@ class SynchronizerConfig(BaseModel):
 
     interval: float = Field(default=900.0, ge=60.0, description="Seconds between sync cycles")
     tor: TorConfig = Field(default_factory=TorConfig)
+    keys: KeysConfig = Field(default_factory=KeysConfig)
     filter: FilterConfig = Field(default_factory=FilterConfig)
     time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
@@ -234,7 +345,7 @@ def _cleanup_worker_brotr() -> None:
     """
     Cleanup function to close the worker's database connection.
 
-    Called automatically when the worker process terminates via atexit.
+    Called automatically when the worker process terminates via atexit or signal.
     Uses asyncio.run() to properly close the async pool connection.
     """
     global _WORKER_BROTR
@@ -254,13 +365,21 @@ def _cleanup_worker_brotr() -> None:
             _WORKER_BROTR = None
 
 
+def _signal_handler(signum: int, frame: Any) -> None:
+    """Signal handler that ensures cleanup before exit."""
+    _cleanup_worker_brotr()
+    # Re-raise with default handler for proper exit code
+    signal.signal(signum, signal.SIG_DFL)
+    signal.raise_signal(signum)
+
+
 async def _get_worker_brotr(brotr_config: dict[str, Any]) -> Brotr:
     """
     Get or initialize the global Brotr instance for the current worker process.
 
     This function manages a per-process database connection that is reused
     across all tasks executed by the worker. The connection is automatically
-    cleaned up when the worker process terminates via atexit handler.
+    cleaned up when the worker process terminates via atexit handler or signal.
     """
     global _WORKER_BROTR, _WORKER_CLEANUP_REGISTERED
 
@@ -268,9 +387,16 @@ async def _get_worker_brotr(brotr_config: dict[str, Any]) -> Brotr:
         _WORKER_BROTR = Brotr.from_dict(brotr_config)
         await _WORKER_BROTR.pool.connect()
 
-        # Register cleanup handler only once per worker process
+        # Register cleanup handlers only once per worker process
         if not _WORKER_CLEANUP_REGISTERED:
             atexit.register(_cleanup_worker_brotr)
+            # Also handle signals for more reliable cleanup
+            try:
+                signal.signal(signal.SIGTERM, _signal_handler)
+                signal.signal(signal.SIGINT, _signal_handler)
+            except (ValueError, OSError):
+                # Signal handlers can only be set from main thread
+                pass
             _WORKER_CLEANUP_REGISTERED = True
 
     return _WORKER_BROTR
@@ -282,21 +408,27 @@ async def sync_relay_task(
     start_time: int,
     config_dict: dict[str, Any],
     brotr_config: dict[str, Any],
-) -> tuple[str, int, int]:
+) -> tuple[str, int, int, int, int]:
     """
     Standalone task to sync a single relay.
     Designed to be run in a worker process.
 
     Returns:
-        tuple(relay_url, events_synced, new_end_time)
+        tuple(relay_url, events_synced, invalid_events, skipped_events, new_end_time)
     """
     try:
+        # Reconstruct Relay object (can't pickle Relay across processes)
+        relay = Relay(relay_url)
+
         # Reconstruct config object
         config = SynchronizerConfig(**config_dict)
 
+        # Get keys for NIP-42 auth (already loaded from env by KeysConfig)
+        keys: Optional[Keys] = config.keys.keys
+
         # Determine network config
         net_config = config.timeouts.clearnet
-        if relay_network == "tor":
+        if relay.network == "tor":
             net_config = config.timeouts.tor
 
         # Apply override if exists
@@ -304,7 +436,7 @@ async def sync_relay_task(
         request_timeout = net_config.request
 
         for override in config.overrides:
-            if override.url == relay_url:
+            if override.url == str(relay.url):
                 if override.timeouts.relay is not None:
                     relay_timeout = override.timeouts.relay
                 if override.timeouts.request is not None:
@@ -318,216 +450,248 @@ async def sync_relay_task(
         end_time = int(time.time()) - config.time_range.lookback_seconds
 
         if start_time >= end_time:
-            return relay_url, 0, start_time
-
-        # Create client with optional SOCKS5 proxy for Tor
-        socks5_proxy = None
-        if relay_network == "tor" and config.tor.enabled:
-            socks5_proxy = f"socks5://{config.tor.host}:{config.tor.port}"
+            return relay.url, 0, 0, 0, start_time
 
         events_synced = 0
+        invalid_events = 0
+        skipped_events = 0
 
-        async def _sync_with_client() -> int:
+        async def _sync_with_client() -> tuple[int, int, int]:
             """Inner coroutine for wait_for timeout."""
-            client = Client(
-                relay=Relay(relay_url),
-                timeout=int(request_timeout),
-                socks5_proxy_url=socks5_proxy,
+            return await _sync_relay_events(
+                relay=relay,
+                start_time=start_time,
+                end_time=end_time,
+                filter_config=config.filter,
+                tor_config=config.tor,
+                request_timeout=request_timeout,
+                brotr=brotr,
+                keys=keys,
             )
-            async with client:
-                return await _sync_relay_events(
-                    client=client,
-                    relay_url=relay_url,
-                    relay_network=relay_network,
-                    start_time=start_time,
-                    end_time=end_time,
-                    filter_config=config.filter,
-                    brotr=brotr,
-                )
 
         try:
-            events_synced = await asyncio.wait_for(_sync_with_client(), timeout=relay_timeout)
+            events_synced, invalid_events, skipped_events = await asyncio.wait_for(
+                _sync_with_client(), timeout=relay_timeout
+            )
 
             if events_synced > 0:
-                _worker_log("INFO", "sync_ok", relay=relay_url, events=events_synced)
-            return relay_url, events_synced, end_time
+                _worker_log(
+                    "INFO",
+                    "sync_ok",
+                    relay=relay.url,
+                    events=events_synced,
+                    invalid=invalid_events,
+                    skipped=skipped_events,
+                )
+            return relay.url, events_synced, invalid_events, skipped_events, end_time
 
         except asyncio.TimeoutError:
-            _worker_log("WARNING", "sync_timeout", relay=relay_url)
-            return relay_url, events_synced, start_time
+            _worker_log("WARNING", "sync_timeout", relay=relay.url)
+            return relay.url, events_synced, invalid_events, skipped_events, start_time
         except Exception as e:
-            _worker_log("WARNING", "sync_error", relay=relay_url, error=str(e))
-            return relay_url, events_synced, start_time
+            _worker_log("WARNING", "sync_error", relay=relay.url, error=str(e))
+            return relay.url, events_synced, invalid_events, skipped_events, start_time
 
     except Exception as e:
         _worker_log("ERROR", "worker_init_error", relay=relay_url, error=str(e))
-        return relay_url, 0, start_time
+        return relay_url, 0, 0, 0, start_time
 
 
 def _create_filter(since: int, until: int, config: FilterConfig) -> Filter:
-    """Create a Nostr filter from config."""
-    filter_obj = Filter(since=since, until=until, limit=config.limit)
-    if config.ids:
-        filter_obj.ids = config.ids
+    """
+    Create a Nostr filter from config using nostr-sdk.
+
+    Supports standard filter fields plus tag filters:
+    - ids: Event IDs to filter
+    - kinds: Event kinds to filter
+    - authors: Author public keys to filter
+    - tags: Dict of {tag_letter: [values]} for tag filtering
+            e.g., {"e": ["event_id_hex"], "p": ["pubkey_hex"], "t": ["hashtag"]}
+    """
+    f = Filter().since(Timestamp.from_secs(since)).until(Timestamp.from_secs(until)).limit(config.limit)
+
     if config.kinds:
-        filter_obj.kinds = config.kinds
+        f = f.kinds([Kind(k) for k in config.kinds])
     if config.authors:
-        filter_obj.authors = config.authors
+        f = f.authors(config.authors)
+    if config.ids:
+        f = f.ids(config.ids)
+
+    # Handle tag filters
+    # Tags are specified as {"tag_letter": ["value1", "value2"], ...}
+    # e.g., {"e": ["event_id"], "p": ["pubkey"], "t": ["hashtag"], "d": ["identifier"]}
     if config.tags:
-        for k, v in config.tags.items():
-            setattr(filter_obj, f"#{k}", v)
-    return filter_obj
+        for tag_letter, values in config.tags.items():
+            if not values:
+                continue
 
-
-async def _fetch_batch(client: Client, filter_obj: Filter) -> RawEventBatch:
-    """Fetch a batch of events from a relay."""
-    # These should always be set by _create_filter, assert for type safety
-    assert filter_obj.since is not None
-    assert filter_obj.until is not None
-    assert filter_obj.limit is not None
-    batch = RawEventBatch(filter_obj.since, filter_obj.until, filter_obj.limit)
-    try:
-        sub_id = await client.subscribe(filter_obj)
-        async for msg in client.listen_events(sub_id):
-            if batch.is_full():
-                break
-            if len(msg) >= 3 and isinstance(msg[2], dict):
+            # Convert single letter string to Alphabet enum
+            # Tag letters must be single lowercase a-z characters
+            if len(tag_letter) == 1 and tag_letter.isalpha():
                 try:
-                    batch.append(msg[2])
-                except OverflowError:
-                    break
-        await client.unsubscribe(sub_id)
-    except Exception as e:
-        _worker_log("DEBUG", "fetch_batch_error", error=str(e))
-    return batch
+                    alphabet = getattr(Alphabet, tag_letter.upper())
+                    tag = SingleLetterTag.lowercase(alphabet)
+                    for value in values:
+                        f = f.custom_tag(tag, value)
+                except AttributeError:
+                    # Invalid alphabet letter, skip
+                    _worker_log(
+                        "WARNING",
+                        "invalid_tag_filter",
+                        tag=tag_letter,
+                        reason="not a valid alphabet letter",
+                    )
+
+    return f
 
 
 async def _insert_batch(
-    batch: RawEventBatch, relay_url: str, relay_network: str, brotr: Brotr
-) -> int:
-    """Insert a batch of events into the database."""
+    batch: EventBatch, relay: Relay, brotr: Brotr, since: int, until: int
+) -> tuple[int, int, int]:
+    """
+    Insert a batch of events into the database.
+
+    Validates event signatures and timestamps before insertion.
+
+    Args:
+        batch: EventBatch containing nostr-sdk Events
+        relay: Relay instance for the source relay
+        brotr: Database interface
+        since: Filter since timestamp (events must be >= this)
+        until: Filter until timestamp (events must be <= this)
+
+    Returns:
+        tuple[int, int, int]: (events_inserted, events_invalid, events_skipped)
+    """
     if batch.is_empty():
-        return 0
+        return 0, 0, 0
 
-    now = int(time.time())
-    events = []
-    for raw in batch:
+    event_relays: list[EventRelay] = []
+    invalid_count = 0
+
+    for evt in batch:
         try:
-            evt = Event.from_dict(raw)
-            events.append(
-                {
-                    "event_id": evt.id,
-                    "pubkey": evt.pubkey,
-                    "created_at": evt.created_at,
-                    "kind": evt.kind,
-                    "tags": evt.tags,
-                    "content": evt.content,
-                    "sig": evt.sig,
-                    "relay_url": relay_url,
-                    "relay_network": relay_network,
-                    "relay_inserted_at": now,
-                    "seen_at": now,
-                }
-            )
+            # Validate event signature before processing
+            if not evt.verify():
+                _worker_log(
+                    "WARNING",
+                    "invalid_event_signature",
+                    relay=relay.url,
+                    event_id=evt.id().to_hex(),
+                )
+                invalid_count += 1
+                continue
+
+            # Validate event timestamp is within requested filter range
+            # Relays can be buggy or malicious, so we don't trust them blindly
+            event_timestamp = evt.created_at().as_secs()
+            if event_timestamp < since or event_timestamp > until:
+                _worker_log(
+                    "WARNING",
+                    "event_timestamp_out_of_range",
+                    relay=relay.url,
+                    event_id=evt.id().to_hex(),
+                    event_ts=event_timestamp,
+                    filter_since=since,
+                    filter_until=until,
+                )
+                invalid_count += 1
+                continue
+
+            event_relays.append(EventRelay.from_nostr_event(evt, relay))
         except Exception as e:
-            _worker_log("DEBUG", "event_parse_error", relay=relay_url, error=str(e))
+            _worker_log("DEBUG", "event_parse_error", relay=relay.url, error=str(e))
 
-    if events:
+    total_inserted = 0
+    total_skipped = 0
+
+    if event_relays:
         batch_size = brotr.config.batch.max_batch_size
-        for i in range(0, len(events), batch_size):
-            await brotr.insert_events(events[i : i + batch_size])
+        for i in range(0, len(event_relays), batch_size):
+            inserted, skipped = await brotr.insert_events(event_relays[i : i + batch_size])
+            total_inserted += inserted
+            total_skipped += skipped
 
-    return len(events)
+    return total_inserted, invalid_count, total_skipped
 
 
 async def _sync_relay_events(
-    client: Client,
-    relay_url: str,
-    relay_network: str,
+    relay: Relay,
     start_time: int,
     end_time: int,
     filter_config: FilterConfig,
+    tor_config: TorConfig,
+    request_timeout: float,
     brotr: Brotr,
-) -> int:
+    keys: Optional[Keys] = None,
+) -> tuple[int, int, int]:
     """
-    Core sync algorithm for a single relay.
-
-    This is the shared implementation used by both single-process and
-    multiprocess modes. It uses a time-window stack approach to handle
-    relays with gaps and large event volumes.
+    Core sync algorithm for a single relay using nostr-sdk.
 
     Args:
-        client: Connected nostr_tools Client
-        relay_url: Relay URL for attribution
-        relay_network: Network type (clearnet/tor)
+        relay: Relay instance to sync from
         start_time: Start timestamp (since)
         end_time: End timestamp (until)
         filter_config: Event filter configuration
+        tor_config: Tor proxy configuration
+        request_timeout: Request timeout in seconds
         brotr: Database interface
+        keys: Optional Nostr keys for NIP-42 authentication
 
     Returns:
-        Number of events synchronized
+        tuple[int, int, int]: (events_synchronized, invalid_events, skipped_events)
     """
     events_synced = 0
-    until_stack = [end_time]
-    current_since = start_time
+    invalid_events = 0
+    skipped_events = 0
 
-    while until_stack:
-        current_until = until_stack[0]
-        f = _create_filter(current_since, current_until, filter_config)
-        b = await _fetch_batch(client, f)
+    # Build client options
+    opts = ClientOptions().connection_timeout(timedelta(seconds=request_timeout))
 
-        if b.is_empty():
-            # No events in this window, move forward
-            until_stack.pop(0)
-            current_since = current_until + 1
-        elif current_since == current_until:
-            # Single timestamp window, insert all
-            n = await _insert_batch(b, relay_url, relay_network, brotr)
-            events_synced += n
-            until_stack.pop(0)
-            current_since = current_until + 1
-        else:
-            # Check if we need to split the window
-            f.until = b.min_created_at
-            b2 = await _fetch_batch(client, f)
+    if relay.network == "tor" and tor_config.enabled:
+        opts = opts.proxy(tor_config.proxy_url)
 
-            if b2.is_empty():
-                # Inconsistent relay response
-                break
-            if b.min_created_at != b2.max_created_at:
-                # Inconsistent relay response
-                break
+    # Create client with signer if keys available (enables NIP-42 auth)
+    builder = ClientBuilder().opts(opts)
+    if keys:
+        builder = builder.signer(keys)
 
-            if b2.min_created_at != b.min_created_at:
-                # More events exist earlier, split the window
-                mid = (current_until - current_since) // 2 + current_since
-                until_stack.insert(0, mid)
-            else:
-                # Check for more events before min_created_at
-                assert b.min_created_at is not None  # Set by batch.append()
-                f.until = b.min_created_at - 1
-                f.limit = 1
-                b3 = await _fetch_batch(client, f)
+    client = builder.build()
 
-                if b3.is_empty():
-                    # Combine and insert events
-                    temp = RawEventBatch(current_since, current_until, 9999)
-                    for e in b:
-                        if e.get("created_at") != b.min_created_at:
-                            temp.append(e)
-                    for e in b2:
-                        temp.append(e)
-                    n = await _insert_batch(temp, relay_url, relay_network, brotr)
-                    events_synced += n
-                    until_stack.pop(0)
-                    current_since = current_until + 1
-                else:
-                    # More events exist, split further
-                    mid = (f.until - current_since) // 2 + current_since
-                    until_stack.insert(0, mid)
+    try:
+        await client.add_relay(relay.url)
+        await client.connect()
 
-    return events_synced
+        # Create filter for time range
+        f = _create_filter(start_time, end_time, filter_config)
+
+        # Fetch events
+        events = await client.fetch_events([f], timedelta(seconds=request_timeout))
+        event_list = events.to_vec()
+
+        if event_list:
+            # Convert to batch format
+            batch = EventBatch(start_time, end_time, len(event_list) + 100)
+            for evt in event_list:
+                try:
+                    batch.append(evt)
+                except OverflowError:
+                    break
+
+            events_synced, invalid_events, skipped_events = await _insert_batch(
+                batch, relay, brotr, start_time, end_time
+            )
+
+        await client.disconnect()
+    except Exception as e:
+        _worker_log("WARNING", "sync_relay_error", relay=relay.url, error=str(e))
+    finally:
+        try:
+            await client.shutdown()
+        except Exception:
+            pass
+
+    return events_synced, invalid_events, skipped_events
 
 
 # =============================================================================
@@ -540,19 +704,24 @@ class Synchronizer(BaseService):
     Event synchronization service.
     """
 
-    SERVICE_NAME = "synchronizer"
-    CONFIG_CLASS = SynchronizerConfig
+    SERVICE_NAME: ClassVar[str] = "synchronizer"
+    CONFIG_CLASS: ClassVar[type[SynchronizerConfig]] = SynchronizerConfig
 
     def __init__(
         self,
         brotr: Brotr,
         config: Optional[SynchronizerConfig] = None,
     ) -> None:
-        super().__init__(brotr=brotr, config=config or SynchronizerConfig())
+        super().__init__(brotr=brotr, config=config)
         self._config: SynchronizerConfig
         self._synced_events: int = 0
         self._synced_relays: int = 0
         self._failed_relays: int = 0
+        self._invalid_events: int = 0
+        self._skipped_events: int = 0
+
+        # Nostr keys for NIP-42 authentication
+        self._keys: Optional[Keys] = self._config.keys.keys
 
     async def run(self) -> None:
         """Run synchronization cycle."""
@@ -560,22 +729,20 @@ class Synchronizer(BaseService):
         self._synced_events = 0
         self._synced_relays = 0
         self._failed_relays = 0
+        self._invalid_events = 0
+        self._skipped_events = 0
 
         # Fetch relays
         relays = await self._fetch_relays()
 
-        # Always add overrides if they are not in the list?
-        # Or just let _fetch_relays handle it?
-        # Let's merge overrides into the relay list if not present.
-        known_urls = {r.url for r in relays}
+        # Always add overrides if they are not in the list
+        known_urls = {str(r.url) for r in relays}
         for override in self._config.overrides:
             if override.url not in known_urls:
                 try:
-                    # Add override relay, assuming clearnet if not specified or auto-detect
-                    # Relay constructor handles parsing
-                    r = Relay(override.url)
-                    relays.append(r)
-                    known_urls.add(r.url)
+                    relay = Relay(override.url)
+                    relays.append(relay)
+                    known_urls.add(relay.url)
                 except Exception as e:
                     self._logger.warning("invalid_override_relay", url=override.url, error=str(e))
 
@@ -597,6 +764,8 @@ class Synchronizer(BaseService):
             synced_relays=self._synced_relays,
             failed_relays=self._failed_relays,
             synced_events=self._synced_events,
+            invalid_events=self._invalid_events,
+            skipped_events=self._skipped_events,
             duration=round(elapsed, 2),
         )
 
@@ -616,7 +785,7 @@ class Synchronizer(BaseService):
                 request_timeout = net_config.request
 
                 for override in self._config.overrides:
-                    if override.url == relay.url:
+                    if override.url == str(relay.url):
                         if override.timeouts.relay is not None:
                             relay_timeout = override.timeouts.relay
                         if override.timeouts.request is not None:
@@ -628,37 +797,43 @@ class Synchronizer(BaseService):
                 if start >= end_time:
                     return
 
-                # Configure SOCKS proxy for Tor
-                socks = None
-                if relay.network == "tor" and self._config.tor.enabled:
-                    socks = f"socks5://{self._config.tor.host}:{self._config.tor.port}"
-
-                async def _sync_with_client() -> int:
+                async def _sync_with_timeout() -> tuple[int, int, int]:
                     """Inner coroutine for wait_for timeout."""
-                    client = Client(relay, timeout=int(request_timeout), socks5_proxy_url=socks)
-                    network = relay.network or "clearnet"  # Default if not set
-                    async with client:
-                        return await _sync_relay_events(
-                            client=client,
-                            relay_url=relay.url,
-                            relay_network=network,
-                            start_time=start,
-                            end_time=end_time,
-                            filter_config=self._config.filter,
-                            brotr=self._brotr,
-                        )
+                    return await _sync_relay_events(
+                        relay=relay,
+                        start_time=start,
+                        end_time=end_time,
+                        filter_config=self._config.filter,
+                        tor_config=self._config.tor,
+                        request_timeout=request_timeout,
+                        brotr=self._brotr,
+                        keys=self._keys,
+                    )
 
                 try:
-                    events_synced = await asyncio.wait_for(
-                        _sync_with_client(), timeout=relay_timeout
+                    events_synced, invalid_events, skipped_events = await asyncio.wait_for(
+                        _sync_with_timeout(), timeout=relay_timeout
                     )
                     self._synced_events += events_synced
+                    self._invalid_events += invalid_events
+                    self._skipped_events += skipped_events
                     self._synced_relays += 1
+
+                    # Save cursor to service_data after successful sync
+                    # Save even if 0 events - relay was reachable and time window was processed
+                    await self._brotr.upsert_service_data([
+                        (
+                            "synchronizer",
+                            "cursor",
+                            relay._url_without_scheme,
+                            {"last_synced_at": end_time},
+                        )
+                    ])
                 except Exception as e:
                     self._logger.warning("relay_sync_failed", url=relay.url, error=str(e))
                     self._failed_relays += 1
 
-        tasks = [worker(r) for r in relays]
+        tasks = [worker(relay) for relay in relays]
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _run_multiprocess(self, relays: list[Relay]) -> None:
@@ -668,7 +843,6 @@ class Synchronizer(BaseService):
         tasks = []
         brotr_config_dump = {
             "pool": self._brotr.pool.config.model_dump(),
-            # Add other brotr settings
             "batch": self._brotr.config.batch.model_dump(),
             "timeouts": self._brotr.config.timeouts.model_dump(),
         }
@@ -677,7 +851,7 @@ class Synchronizer(BaseService):
         for relay in relays:
             start_time = await self._get_start_time(relay)
             tasks.append(
-                (relay.url, relay.network, start_time, service_config_dump, brotr_config_dump)
+                (str(relay.url), relay.network, start_time, service_config_dump, brotr_config_dump)
             )
 
         async with aiomultiprocess.Pool(
@@ -686,13 +860,33 @@ class Synchronizer(BaseService):
         ) as pool:
             results = await pool.starmap(sync_relay_task, tasks)
 
-        # Process results
-        for _url, events, _new_time in results:
-            if events > 0:
-                self._synced_events += events
-                self._synced_relays += 1
-            else:
-                self._failed_relays += 1
+        # Process results and collect cursor updates
+        cursor_updates: list[tuple[str, str, str, dict]] = []
+
+        for url, events, invalid, skipped, new_time in results:
+            # A sync is successful if we got a result (relay was reachable)
+            # 0 events is not a failure - relay may simply have no new events
+            self._synced_events += events
+            self._invalid_events += invalid
+            self._skipped_events += skipped
+            self._synced_relays += 1
+
+            # Collect cursor update for batch upsert
+            # Save cursor even if 0 events - time window was successfully processed
+            try:
+                relay = Relay(url)
+                cursor_updates.append((
+                    "synchronizer",
+                    "cursor",
+                    relay._url_without_scheme,
+                    {"last_synced_at": new_time},
+                ))
+            except Exception:
+                pass  # Skip invalid URLs
+
+        # Batch upsert all cursors
+        if cursor_updates:
+            await self._brotr.upsert_service_data(cursor_updates)
 
     async def _fetch_relays(self) -> list[Relay]:
         """Fetch relays to sync from database using the latest metadata view."""
@@ -704,25 +898,25 @@ class Synchronizer(BaseService):
         threshold = int(time.time()) - self._config.source.max_metadata_age
 
         # Use the dedicated view for efficient latest metadata retrieval
+        # All validated relays are syncable - filter by metadata age and readability
         query = """
-            SELECT relay_url
+            SELECT relay_url, network, discovered_at
             FROM relay_metadata_latest
-            WHERE generated_at > $1
+            WHERE nip66_rtt_at > $1
         """
 
         if self._config.source.require_readable:
-            query += " AND nip66_readable = TRUE"
+            query += " AND is_readable = TRUE"
 
         rows = await self._brotr.pool.fetch(query, threshold)
 
         for row in rows:
-            relay_url = row["relay_url"].strip()
+            url_str = row["relay_url"].strip()
             try:
-                relays.append(Relay(relay_url))
-            except RelayValidationError:
-                self._logger.debug("invalid_relay_url", url=relay_url)
+                relay = Relay(url_str, discovered_at=row["discovered_at"])
+                relays.append(relay)
             except Exception as e:
-                self._logger.debug("relay_parse_error", url=relay_url, error=str(e))
+                self._logger.debug("invalid_relay_url", url=url_str, error=str(e))
 
         self._logger.debug("relays_fetched", count=len(relays))
         return relays
@@ -731,23 +925,22 @@ class Synchronizer(BaseService):
         """
         Get start timestamp for relay sync.
 
-        Queries database for latest event, then uses default if none found.
+        Reads cursor from service_data, falls back to default if none found.
         """
         if not self._config.time_range.use_relay_state:
             return self._config.time_range.default_start
 
-        # Query database for latest event created_at for this relay
-        row = await self._brotr.pool.fetchrow(
-            """
-            SELECT MAX(e.created_at) as max_created_at
-            FROM events e
-            JOIN events_relays er ON e.id = er.event_id
-            WHERE er.relay_url = $1
-            """,
-            relay.url,
+        # Read cursor from service_data (O(1) lookup vs O(n) scan on events)
+        cursors = await self._brotr.get_service_data(
+            service_name="synchronizer",
+            data_type="cursor",
+            key=relay._url_without_scheme,
         )
 
-        if row and row["max_created_at"] is not None:
-            return row["max_created_at"] + 1
+        if cursors and len(cursors) > 0:
+            cursor_data = cursors[0].get("value", {})
+            last_synced_at = cursor_data.get("last_synced_at")
+            if last_synced_at is not None:
+                return last_synced_at + 1
 
         return self._config.time_range.default_start

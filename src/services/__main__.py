@@ -24,6 +24,7 @@ from .finder import Finder
 from .initializer import Initializer
 from .monitor import Monitor
 from .synchronizer import Synchronizer
+from .validator import Validator
 
 # =============================================================================
 # Configuration
@@ -36,6 +37,7 @@ CORE_CONFIG = YAML_BASE / "core" / "brotr.yaml"
 SERVICE_REGISTRY: dict[str, tuple[type[BaseService], Path, bool]] = {
     "initializer": (Initializer, YAML_BASE / "services" / "initializer.yaml", True),
     "finder": (Finder, YAML_BASE / "services" / "finder.yaml", False),
+    "validator": (Validator, YAML_BASE / "services" / "validator.yaml", False),
     "monitor": (Monitor, YAML_BASE / "services" / "monitor.yaml", False),
     "synchronizer": (Synchronizer, YAML_BASE / "services" / "synchronizer.yaml", False),
 }
