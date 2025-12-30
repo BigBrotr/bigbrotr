@@ -1,7 +1,9 @@
 """
 Finder Service for BigBrotr.
 
-Discovers Nostr relay URLs from external APIs (nostr.watch and similar).
+Discovers Nostr relay URLs from:
+- External APIs (nostr.watch and similar)
+- Database events (NIP-65 relay lists, contact lists, r-tags)
 
 Usage:
     from core import Brotr
@@ -13,18 +15,17 @@ Usage:
     async with brotr.pool:
         async with finder:
             await finder.run_forever(interval=3600)
-
-TODO: Add event scanning to discover relay URLs from database events.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from typing import TYPE_CHECKING, Optional
 
 import aiohttp
-from nostr_tools import Relay, RelayValidationError
+from nostr_sdk import RelayUrl
 from pydantic import BaseModel, Field
 
 from core.base_service import BaseService
@@ -38,10 +39,33 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
-class EventsConfig(BaseModel):
-    """Event scanning configuration - discovers relay URLs from stored events."""
+class ConcurrencyConfig(BaseModel):
+    """Concurrency configuration for parallel API fetching."""
 
-    enabled: bool = Field(default=True, description="Enable event scanning")
+    max_parallel: int = Field(
+        default=5, ge=1, le=20, description="Maximum concurrent API requests"
+    )
+
+
+class EventsConfig(BaseModel):
+    """
+    Event scanning configuration - discovers relay URLs from stored events.
+
+    NOTE: This feature requires a full schema with tags/tagvalues/content columns.
+    Set enabled=false for LilBrotr or minimal schema implementations.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable event scanning (requires full schema with tags/content columns)",
+    )
+    batch_size: int = Field(
+        default=1000, ge=100, le=10000, description="Events to process per batch"
+    )
+    kinds: list[int] = Field(
+        default_factory=lambda: [2, 3, 10002],
+        description="Event kinds to scan (2=recommend relay, 3=contacts, 10002=relay list)",
+    )
 
 
 class ApiSourceConfig(BaseModel):
@@ -71,6 +95,7 @@ class FinderConfig(BaseModel):
     """Finder configuration."""
 
     interval: float = Field(default=3600.0, ge=60.0, description="Seconds between discovery cycles")
+    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     events: EventsConfig = Field(default_factory=EventsConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
 
@@ -84,9 +109,12 @@ class Finder(BaseService):
     """
     Relay discovery service.
 
-    Discovers Nostr relay URLs from external APIs (nostr.watch, etc.).
-
-    TODO: Add event scanning to discover relay URLs from database events.
+    Discovers Nostr relay URLs from:
+    - External APIs (nostr.watch, etc.)
+    - Database events:
+        - Kind 2 (deprecated): Recommend Relay
+        - Kind 3 (NIP-02): Contact list with relay hints
+        - Kind 10002 (NIP-65): Relay list metadata with r-tags
     """
 
     SERVICE_NAME = "finder"
@@ -97,14 +125,7 @@ class Finder(BaseService):
         brotr: Brotr,
         config: Optional[FinderConfig] = None,
     ) -> None:
-        """
-        Initialize the service.
-
-        Args:
-            brotr: Brotr instance for database operations
-            config: Service configuration (uses defaults if not provided)
-        """
-        super().__init__(brotr=brotr, config=config or FinderConfig())
+        super().__init__(brotr=brotr, config=config)
         self._config: FinderConfig
         self._found_relays: int = 0
 
@@ -134,13 +155,214 @@ class Finder(BaseService):
         self._logger.info("cycle_completed", found=self._found_relays, duration=round(elapsed, 2))
 
     async def _find_from_events(self) -> None:
-        """Discover relay URLs from database events."""
-        # TODO: Implement event scanning logic
-        pass
+        """
+        Discover relay URLs from database events using cursor-based pagination.
+
+        Scans events for relay URLs in:
+        - Kind 2: content field contains relay URL (deprecated)
+        - Kind 3: content field may contain JSON with relay URLs
+        - Kind 10002: r-tags contain relay URLs (NIP-65)
+        - Any event: r-tags may contain relay URLs
+
+        Uses a cursor stored in the services table to track progress.
+        Processes events in chunks ordered by (created_at, id) ASC.
+        """
+        total_events_scanned = 0
+        total_relays_found = 0
+        chunks_processed = 0
+
+        # Load cursor from services table
+        cursor = await self._load_event_cursor()
+        last_timestamp = cursor.get("last_timestamp", 0)
+        last_id = cursor.get("last_id", b"\x00" * 32)  # Minimum bytea value
+
+        # Convert hex string back to bytes if needed
+        if isinstance(last_id, str):
+            last_id = bytes.fromhex(last_id)
+
+        self._logger.debug(
+            "events_cursor_loaded",
+            last_timestamp=last_timestamp,
+            last_id=last_id.hex() if last_id else None,
+        )
+
+        # Process events in chunks until no more events or batch limit reached
+        while True:
+            relays: set[str] = set()
+            chunk_events = 0
+
+            # Query events after cursor position
+            # Order by (created_at, id) ASC to ensure deterministic pagination
+            # Uses composite comparison for correct cursor resumption
+            query = """
+                SELECT id, created_at, kind, tags, content
+                FROM events
+                WHERE (kind = ANY($1) OR tagvalues @> ARRAY['r'])
+                  AND (created_at > $2 OR (created_at = $2 AND id > $3))
+                ORDER BY created_at ASC, id ASC
+                LIMIT $4
+            """
+
+            try:
+                rows = await self._brotr.pool.fetch(
+                    query,
+                    self._config.events.kinds,
+                    last_timestamp,
+                    last_id,
+                    self._config.events.batch_size,
+                )
+            except Exception as e:
+                self._logger.warning("event_query_failed", error=str(e))
+                break
+
+            if not rows:
+                # No more events to process
+                break
+
+            # Track the last event's timestamp and id for cursor
+            chunk_last_timestamp = None
+            chunk_last_id = None
+
+            for row in rows:
+                chunk_events += 1
+                event_id = row["id"]
+                created_at = row["created_at"]
+                kind = row["kind"]
+                tags = row["tags"]
+                content = row["content"]
+
+                # Track last processed event
+                chunk_last_timestamp = created_at
+                chunk_last_id = event_id
+
+                # Extract relay URLs from tags (r-tags)
+                if tags:
+                    for tag in tags:
+                        if isinstance(tag, list) and len(tag) >= 2:
+                            tag_name = tag[0]
+                            if tag_name == "r":
+                                url = tag[1]
+                                validated = self._validate_relay_url(url)
+                                if validated:
+                                    relays.add(validated)
+
+                # Kind 2: content is the relay URL (deprecated NIP)
+                if kind == 2 and content:
+                    validated = self._validate_relay_url(content.strip())
+                    if validated:
+                        relays.add(validated)
+
+                # Kind 3: content may be JSON with relay URLs as keys
+                # Format: {"wss://relay.example.com": {"read": true, "write": true}, ...}
+                if kind == 3 and content:
+                    try:
+                        relay_data = json.loads(content)
+                        if isinstance(relay_data, dict):
+                            for url in relay_data.keys():
+                                validated = self._validate_relay_url(url)
+                                if validated:
+                                    relays.add(validated)
+                    except (json.JSONDecodeError, TypeError):
+                        # Content is not JSON or not a dict, skip
+                        pass
+
+            # Insert discovered relays as candidates
+            if relays:
+                try:
+                    records = [("finder", "candidate", url, {}) for url in relays]
+                    await self._brotr.upsert_service_data(records)
+                    total_relays_found += len(relays)
+                except Exception as e:
+                    self._logger.error(
+                        "insert_candidates_failed", error=str(e), count=len(relays)
+                    )
+
+            total_events_scanned += chunk_events
+            chunks_processed += 1
+
+            # Update cursor for next iteration
+            # Using composite key (created_at, id) ensures we don't miss events
+            # or re-process them, even if multiple events share the same timestamp.
+            # The query uses: created_at > cursor_ts OR (created_at = cursor_ts AND id > cursor_id)
+            # This guarantees deterministic pagination regardless of timestamp collisions.
+            if chunk_last_timestamp is not None and chunk_last_id is not None:
+                last_timestamp = chunk_last_timestamp
+                last_id = chunk_last_id
+                await self._save_event_cursor(last_timestamp, last_id)
+
+            self._logger.debug(
+                "events_chunk_processed",
+                chunk=chunks_processed,
+                events=chunk_events,
+                relays=len(relays),
+            )
+
+            # Stop if chunk wasn't full (no more events)
+            if chunk_events < self._config.events.batch_size:
+                break
+
+        self._found_relays += total_relays_found
+        self._logger.info(
+            "events_completed",
+            scanned=total_events_scanned,
+            relays=total_relays_found,
+            chunks=chunks_processed,
+        )
+
+    async def _load_event_cursor(self) -> dict:
+        """Load the event scanning cursor from services table."""
+        try:
+            results = await self._brotr.get_service_data(
+                service_name="finder",
+                data_type="cursor",
+                key="events",
+            )
+            if results:
+                return results[0].get("value", {})
+        except Exception as e:
+            self._logger.warning("cursor_load_failed", error=str(e))
+        return {}
+
+    async def _save_event_cursor(self, timestamp: int, event_id: bytes) -> None:
+        """Save the event scanning cursor to services table."""
+        try:
+            cursor_data = {
+                "last_timestamp": timestamp,
+                "last_id": event_id.hex(),  # Store as hex string for JSON
+            }
+            await self._brotr.upsert_service_data([
+                ("finder", "cursor", "events", cursor_data)
+            ])
+        except Exception as e:
+            self._logger.warning("cursor_save_failed", error=str(e))
+
+    def _validate_relay_url(self, url: str) -> Optional[str]:
+        """
+        Validate and normalize a relay URL.
+
+        Args:
+            url: Potential relay URL string
+
+        Returns:
+            Normalized URL string if valid, None otherwise
+        """
+        if not url or not isinstance(url, str):
+            return None
+
+        url = url.strip()
+        if not url:
+            return None
+
+        try:
+            relay_url = RelayUrl.parse(url)
+            return str(relay_url)
+        except Exception:
+            return None
 
     async def _find_from_api(self) -> None:
         """Discover relay URLs from external APIs."""
-        relays: dict[str, Relay] = {}
+        # Set of unique relay URLs discovered
+        relays: set[str] = set()
         sources_checked = 0
 
         # Reuse a single ClientSession for all API requests (connection pooling)
@@ -151,7 +373,8 @@ class Finder(BaseService):
 
                 try:
                     source_relays = await self._fetch_single_api(session, source)
-                    relays.update(source_relays)
+                    for relay_url in source_relays:
+                        relays.add(str(relay_url))
                     sources_checked += 1
 
                     self._logger.debug("api_fetched", url=source.url, count=len(source_relays))
@@ -162,38 +385,32 @@ class Finder(BaseService):
                 except Exception as e:
                     self._logger.warning("api_error", url=source.url, error=str(e))
 
-        # Insert discovered relays into database (respecting Brotr batch size)
+        # Insert discovered relays as candidates in services table
         if relays:
-            current_time = int(time.time())
-            relay_records = [
-                {"url": r.url, "network": r.network, "inserted_at": current_time}
-                for r in relays.values()
-            ]
-
-            batch_size = self._brotr.config.batch.max_batch_size
             try:
-                for i in range(0, len(relay_records), batch_size):
-                    batch = relay_records[i : i + batch_size]
-                    await self._brotr.insert_relays(batch)
-
+                records = [("finder", "candidate", url, {}) for url in relays]
+                await self._brotr.upsert_service_data(records)
                 self._found_relays += len(relays)
             except Exception as e:
-                self._logger.error("insert_relays_failed", error=str(e), count=len(relays))
+                self._logger.error("insert_candidates_failed", error=str(e), count=len(relays))
 
         if sources_checked > 0:
             self._logger.info("apis_completed", sources=sources_checked, relays=len(relays))
 
     async def _fetch_single_api(
         self, session: aiohttp.ClientSession, source: ApiSourceConfig
-    ) -> dict[str, Relay]:
+    ) -> list[RelayUrl]:
         """
         Fetch relay URLs from a single API source.
 
         Args:
             session: Reusable aiohttp ClientSession
             source: API source configuration
+
+        Returns:
+            List of validated RelayUrl objects
         """
-        relays: dict[str, Relay] = {}
+        relays: list[RelayUrl] = []
 
         timeout = aiohttp.ClientTimeout(total=source.timeout)
         async with session.get(source.url, timeout=timeout) as resp:
@@ -204,9 +421,9 @@ class Finder(BaseService):
                 for item in data:
                     if isinstance(item, str):
                         try:
-                            relay = Relay(item)
-                            relays[relay.url] = relay
-                        except RelayValidationError:
+                            relay_url = RelayUrl.parse(item)
+                            relays.append(relay_url)
+                        except Exception:
                             self._logger.debug("invalid_relay_url", url=item)
                     else:
                         self._logger.debug("unexpected_item_type", url=source.url, item=item)

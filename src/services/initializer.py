@@ -4,7 +4,7 @@ Initializer Service for BigBrotr.
 Handles database initialization and verification:
 - Verify PostgreSQL extensions are installed
 - Verify database schema (tables, procedures, views)
-- Seed initial relay data from file
+- Seed initial relay data as candidates for validation
 
 This is a one-shot service that runs once at startup.
 
@@ -23,12 +23,13 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
-from nostr_tools import Relay, RelayValidationError
 from pydantic import BaseModel, Field
 
 from core.base_service import BaseService
+from models import Relay
+from services.validator import Validator
 
 if TYPE_CHECKING:
     from core.brotr import Brotr
@@ -53,6 +54,7 @@ class SeedConfig(BaseModel):
 
     enabled: bool = Field(default=True, description="Enable seeding")
     file_path: str = Field(default="data/seed_relays.txt", description="Seed file path")
+    max_retries: int = Field(default=3, ge=1, le=10, description="Max retries on failure")
 
 
 class SchemaConfig(BaseModel):
@@ -66,9 +68,9 @@ class SchemaConfig(BaseModel):
             "relays",
             "events",
             "events_relays",
-            "nip11",
-            "nip66",
+            "metadata",
             "relay_metadata",
+            "service_data",
         ],
     )
     procedures: list[str] = Field(
@@ -76,9 +78,8 @@ class SchemaConfig(BaseModel):
             "insert_event",
             "insert_relay",
             "insert_relay_metadata",
-            "delete_orphan_events",
-            "delete_orphan_nip11",
-            "delete_orphan_nip66",
+            "upsert_service_data",
+            "delete_service_data",
         ],
     )
     views: list[str] = Field(
@@ -126,15 +127,7 @@ class Initializer(BaseService):
         brotr: Brotr,
         config: Optional[InitializerConfig] = None,
     ) -> None:
-        """
-        Initialize the service.
-
-        Args:
-            brotr: Brotr instance for database operations
-            config: Service configuration (uses defaults if not provided)
-        """
-        super().__init__(brotr=brotr, config=config or InitializerConfig())
-        self._config: InitializerConfig
+        super().__init__(brotr=brotr, config=config)
 
     # -------------------------------------------------------------------------
     # BaseService Implementation
@@ -170,7 +163,15 @@ class Initializer(BaseService):
         if self._config.seed.enabled:
             await self._seed_relays()
 
+        # Record successful completion
         duration = time.time() - start_time
+        await self._brotr.upsert_service_data([
+            (self.SERVICE_NAME, "state", "completed", {
+                "completed_at": int(time.time()),
+                "duration_s": round(duration, 2),
+            })
+        ])
+
         self._logger.info("run_completed", duration_s=round(duration, 2))
 
     # -------------------------------------------------------------------------
@@ -255,17 +256,17 @@ class Initializer(BaseService):
     # Seed Data
     # -------------------------------------------------------------------------
 
-    async def _seed_relays(self) -> None:
-        """Load and insert seed relay data from file."""
-        path = Path(self._config.seed.file_path)
+    def _parse_seed_file(self, path: Path) -> list[Relay]:
+        """
+        Parse seed file and validate relay URLs.
 
-        if not path.exists():
-            self._logger.warning("seed_file_not_found", path=str(path))
-            return
+        Args:
+            path: Path to the seed file
 
-        # Parse file and validate each line with Relay
-        current_time = int(time.time())
-        relays: list[dict[str, Any]] = []
+        Returns:
+            List of validated Relay objects
+        """
+        relays: list[Relay] = []
 
         with path.open(encoding="utf-8") as f:
             for line in f:
@@ -273,34 +274,68 @@ class Initializer(BaseService):
                 if not line or line.startswith("#"):
                     continue
                 try:
-                    relay = Relay(line)
-                    relays.append(
-                        {
-                            "url": relay.url,
-                            "network": relay.network,
-                            "inserted_at": current_time,
-                        }
+                    relays.append(Relay(line))
+                except Exception as e:
+                    self._logger.warning(
+                        "seed_invalid_relay",
+                        line=line,
+                        error=str(e),
                     )
-                except RelayValidationError:
-                    pass
 
-        if not relays:
+        return relays
+
+    async def _seed_relays(self) -> None:
+        """
+        Load and insert seed relay data as candidates for validation.
+
+        Inserts all seed relays atomically into the services table as candidates
+        for the Validator service. If insertion fails, retries by re-reading the
+        file up to max_retries times.
+        """
+        path = Path(self._config.seed.file_path)
+
+        if not path.exists():
+            self._logger.warning("seed_file_not_found", path=str(path))
             return
 
-        # Insert in batches (respecting Brotr batch size)
-        batch_size = self._brotr.config.batch.max_batch_size
-        total = len(relays)
-        inserted = 0
+        max_retries = self._config.seed.max_retries
+        last_error: Optional[Exception] = None
 
-        for i in range(0, total, batch_size):
-            batch = relays[i : i + batch_size]
+        for attempt in range(1, max_retries + 1):
+            # Re-read and parse file on each attempt
+            relays = self._parse_seed_file(path)
+
+            if not relays:
+                self._logger.info("seed_no_valid_relays")
+                return
+
             try:
-                count = await self._brotr.insert_relays(batch)
-                inserted += count
-            except Exception as e:
-                self._logger.error("seed_batch_failed", error=str(e), batch_start=i)
+                # Build records and insert in batches respecting max_batch_size
+                records = [
+                    (Validator.SERVICE_NAME, "candidate", relay._url_without_scheme, {"retries": 0})
+                    for relay in relays
+                ]
+                batch_size = self._brotr.config.batch.max_batch_size
+                for i in range(0, len(records), batch_size):
+                    batch = records[i : i + batch_size]
+                    await self._brotr.upsert_service_data(batch)
 
-        self._logger.info("seed_completed", count=inserted, total=total)
+                self._logger.info("seed_completed", count=len(relays))
+                return
+
+            except Exception as e:
+                last_error = e
+                self._logger.warning(
+                    "seed_attempt_failed",
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    error=str(e),
+                )
+
+        # All retries exhausted
+        raise InitializerError(
+            f"Failed to seed relays after {max_retries} attempts: {last_error}"
+        )
 
 
 class InitializerError(Exception):

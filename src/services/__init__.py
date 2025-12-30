@@ -4,6 +4,7 @@ BigBrotr Services Package.
 Service implementations that build on the core layer:
 - Initializer: Database bootstrap and schema verification
 - Finder: Relay discovery from events and APIs
+- Validator: Candidate relay validation
 - Monitor: Relay health monitoring
 - Synchronizer: Event synchronization
 
@@ -14,7 +15,7 @@ All services inherit from BaseService for consistent:
 
 Example:
     from core import Pool, Brotr
-    from services import Initializer, Finder, Monitor, Synchronizer
+    from services import Initializer, Finder, Validator, Monitor, Synchronizer
 
     pool = Pool.from_yaml("config.yaml")
     brotr = Brotr(pool=pool)
@@ -47,6 +48,10 @@ from .synchronizer import (
     Synchronizer,
     SynchronizerConfig,
 )
+from .validator import (
+    Validator,
+    ValidatorConfig,
+)
 
 __all__ = [
     # Finder
@@ -62,4 +67,7 @@ __all__ = [
     # Synchronizer
     "Synchronizer",
     "SynchronizerConfig",
+    # Validator
+    "Validator",
+    "ValidatorConfig",
 ]
