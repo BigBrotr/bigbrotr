@@ -167,10 +167,10 @@ bigbrotr/
 
 ```bash
 # Run all unit tests
-pytest tests/unit/ -v
+pytest tests/ -v
 
 # Run with coverage report
-pytest tests/unit/ --cov=src --cov-report=html
+pytest tests/ --cov=src --cov-report=html
 
 # Open coverage report
 open htmlcov/index.html  # macOS
@@ -181,13 +181,13 @@ xdg-open htmlcov/index.html  # Linux
 
 ```bash
 # Run single test file
-pytest tests/unit/test_pool.py -v
+pytest tests/test_pool.py -v
 
 # Run single test class
-pytest tests/unit/test_pool.py::TestPool -v
+pytest tests/test_pool.py::TestPool -v
 
 # Run single test method
-pytest tests/unit/test_pool.py::TestPool::test_init_with_defaults -v
+pytest tests/test_pool.py::TestPool::test_init_with_defaults -v
 
 # Run tests matching pattern
 pytest -k "health_check" -v
@@ -435,7 +435,7 @@ __all__ = [
 ### 5. Write Tests
 
 ```python
-# tests/unit/test_myservice.py
+# tests/test_myservice.py
 """Unit tests for MyService."""
 
 import pytest
@@ -621,7 +621,7 @@ asyncio.get_event_loop().set_debug(True)
             "type": "python",
             "request": "launch",
             "module": "pytest",
-            "args": ["tests/unit/", "-v", "-s"],
+            "args": ["tests/", "-v", "-s"],
             "env": {
                 "PYTHONPATH": "${workspaceFolder}/src",
                 "DB_PASSWORD": "test_password"
@@ -640,7 +640,7 @@ asyncio.get_event_loop().set_debug(True)
    - Environment: `PYTHONPATH=../../src;DB_PASSWORD=your_password`
 
 2. **Test Configuration**:
-   - Target: `tests/unit/`
+   - Target: `tests/`
    - Additional arguments: `-v -s`
 
 ---
@@ -683,7 +683,7 @@ chore: update dependencies
 
 ### Pull Request Checklist
 
-- [ ] Tests pass: `pytest tests/unit/ -v`
+- [ ] Tests pass: `pytest tests/ -v`
 - [ ] Code quality: `pre-commit run --all-files`
 - [ ] Documentation updated if needed
 - [ ] Commit messages follow conventions
@@ -716,8 +716,8 @@ pip install -r requirements.txt -r requirements-dev.txt
 pre-commit install
 
 # Testing
-pytest tests/unit/ -v
-pytest tests/unit/ --cov=src --cov-report=html
+pytest tests/ -v
+pytest tests/ --cov=src --cov-report=html
 pytest -k "pattern" -v
 
 # Code Quality

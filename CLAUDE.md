@@ -14,10 +14,10 @@ pip install -r requirements.txt -r requirements-dev.txt
 pre-commit install
 
 # Run tests
-pytest tests/unit/ -v                        # All unit tests
-pytest tests/unit/test_synchronizer.py -v    # Single file
+pytest tests/ -v                             # All tests
+pytest tests/services/test_synchronizer.py -v # Single file
 pytest -k "health_check" -v                  # Pattern match
-pytest tests/unit/ --cov=src --cov-report=html  # With coverage
+pytest tests/ --cov=src --cov-report=html    # With coverage
 
 # Code quality
 ruff check src/ tests/                       # Lint
@@ -47,11 +47,15 @@ Implementation Layer (implementations/bigbrotr/, implementations/lilbrotr/)
         │
         ▼
 Service Layer (src/services/)
-  └── initializer.py, finder.py, monitor.py, synchronizer.py
+  └── initializer.py, finder.py, validator.py, monitor.py, synchronizer.py
         │
         ▼
 Core Layer (src/core/)
   └── pool.py, brotr.py, base_service.py, logger.py
+        │
+        ▼
+Models Layer (src/models/)
+  └── Event, Relay, EventRelay, Keys, Metadata, Nip11, Nip66, RelayMetadata
 ```
 
 ### Core Components
@@ -62,8 +66,9 @@ Core Layer (src/core/)
 
 ### Services
 - **Initializer**: One-shot database bootstrap and schema verification
-- **Finder**: Continuous relay URL discovery from APIs
-- **Monitor**: NIP-11/NIP-66 health monitoring with Tor support
+- **Finder**: Continuous relay URL discovery from APIs and events
+- **Validator**: Relay validation and functional testing with Tor support
+- **Monitor**: NIP-11/NIP-66 health monitoring with comprehensive checks
 - **Synchronizer**: Multicore event collection using aiomultiprocess
 
 ### Key Patterns
@@ -89,7 +94,7 @@ Core Layer (src/core/)
 
 4. Export from `src/services/__init__.py`
 
-5. Write tests in `tests/unit/test_myservice.py`
+5. Write tests in `tests/services/test_myservice.py`
 
 ## Creating a New Implementation
 
@@ -121,3 +126,147 @@ cd implementations/myimpl
 - **Development branch**: `develop` (active development)
 - **Feature branches**: `feature/<name>` (from develop)
 - **Commit style**: Conventional commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`)
+
+## Specialized Agents
+
+This project uses two specialized knowledge agents located in `claude/agents/`:
+
+### Nostr Expert Agent
+
+**Location:** `claude/agents/nostr-expert/`
+
+For questions about the Nostr protocol, NIPs, event formats, and protocol implementation.
+
+**Knowledge Base** (in `claude/resources/`):
+- **NIPs**: All 94 Nostr Implementation Possibility specifications
+- **rust-nostr**: Complete Rust library with Python bindings (nostr-sdk)
+- **Khatru**: Go relay framework for relay development
+
+**Capabilities:**
+1. **Protocol expertise**: Explain any NIP, event kind, tag, or message format
+2. **Python client development**: Generate code using nostr-sdk
+3. **Go relay development**: Guide implementation with Khatru framework
+4. **Event validation**: Check events against NIP specifications
+5. **Best practices**: Security, privacy, and implementation patterns
+
+**Quick Reference Files:**
+- `nip-index.md` - NIPs organized by category
+- `kind-index.md` - All 150+ event kinds
+- `tag-index.md` - Common tags and usage
+- `nostr-sdk-python-reference.md` - Python SDK documentation
+- `khatru-reference.md` - Khatru framework documentation
+
+**When to Use:**
+- Understanding Nostr protocol details
+- Implementing NIP specifications
+- Writing Nostr client code (Python)
+- Developing relays (Go/Khatru)
+- Validating event structures
+- Protocol compliance questions
+
+---
+
+### BigBrotr Expert Agent
+
+**Location:** `claude/agents/bigbrotr-expert/`
+
+For developing, troubleshooting, and extending the BigBrotr codebase.
+
+**Expertise Areas:**
+1. **Core layer**: Pool, Brotr, BaseService, Logger
+2. **Service layer**: Initializer, Finder, Validator, Monitor, Synchronizer
+3. **Data models**: Event, Relay, Metadata, Keys, Nip11, Nip66
+4. **Database**: PostgreSQL schema, stored procedures, views, indexes
+5. **Testing**: Unit tests, fixtures, mocking strategies
+
+**Capabilities:**
+1. **Development**: Write new services, modify existing code, add features
+2. **Architecture**: Navigate three-layer design, understand component relationships
+3. **Database**: Work with schema, procedures, queries, migrations
+4. **Testing**: Write comprehensive tests following project patterns
+5. **Troubleshooting**: Debug issues, analyze errors, optimize performance
+
+**Quick Reference Files:**
+- `architecture-index.md` - Component relationships and design patterns
+- `core-reference.md` - Pool, Brotr, BaseService, Logger API reference
+- `services-reference.md` - All services with configs and workflows
+- `models-reference.md` - Data models and database mappings
+- `database-reference.md` - Schema, procedures, views, sample queries
+- `testing-reference.md` - Testing patterns, fixtures, examples
+
+**When to Use:**
+- Adding new services or features
+- Modifying existing BigBrotr code
+- Understanding architecture and patterns
+- Writing or debugging tests
+- Database schema questions
+- Performance optimization
+- Troubleshooting errors
+
+---
+
+## Agent Collaboration
+
+The two agents work together for Nostr-related BigBrotr development:
+
+```
+┌───────────────────────────────────────────────────┐
+│              Development Workflow                  │
+├───────────────────────────────────────────────────┤
+│                                                    │
+│   ┌─────────────────┐      ┌──────────────────┐  │
+│   │  NOSTR EXPERT   │      │ BIGBROTR EXPERT  │  │
+│   │                 │      │                  │  │
+│   │ • Protocol      │◄────►│ • Codebase       │  │
+│   │ • NIPs          │      │ • Architecture   │  │
+│   │ • nostr-sdk     │      │ • Database       │  │
+│   │ • Validation    │      │ • Testing        │  │
+│   └─────────────────┘      └──────────────────┘  │
+│                                                    │
+└───────────────────────────────────────────────────┘
+```
+
+**Example Collaboration:**
+- **Nostr Expert**: Provides NIP-66 specification details and event structure
+- **BigBrotr Expert**: Implements Monitor service following architecture patterns
+- **Result**: Protocol-compliant implementation with proper testing and integration
+
+---
+
+## When to Use Which Agent
+
+### Use Nostr Expert for:
+- "How does NIP-17 gift wrapping work?"
+- "What are the valid event kinds for long-form content?"
+- "How do I create a zap request event?"
+- "Write Python code to subscribe to kind 1 events"
+- "What tags are required for NIP-65 relay lists?"
+
+### Use BigBrotr Expert for:
+- "How do I add a new service to BigBrotr?"
+- "What's the database schema for relay metadata?"
+- "How does cursor-based pagination work in Finder?"
+- "Write tests for the Monitor service"
+- "How do I create a new implementation variant?"
+
+### Use Both for:
+- "Implement NIP-66 monitoring events in BigBrotr"
+- "Add support for NIP-96 file storage service"
+- "Validate events according to NIP-01 in Synchronizer"
+- "Create a service that publishes kind 10002 events"
+
+---
+
+## Agent Access
+
+To work with an agent, read its `AGENT.md` file:
+
+```bash
+# Nostr protocol questions
+cat claude/agents/nostr-expert/AGENT.md
+
+# BigBrotr development
+cat claude/agents/bigbrotr-expert/AGENT.md
+```
+
+Both agents have comprehensive documentation and quick reference files for efficient development.
