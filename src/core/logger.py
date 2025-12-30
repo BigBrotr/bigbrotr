@@ -18,7 +18,7 @@ Usage:
 
 import json
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 
 class Logger:
@@ -39,6 +39,9 @@ class Logger:
         # Output: error message="hello world" path="/my path/file"
     """
 
+    # Class attribute for maximum value length (truncated if exceeded)
+    MAX_VALUE_LENGTH: ClassVar[int] = 1000
+
     def __init__(self, name: str, json_output: bool = False) -> None:
         """
         Initialize logger.
@@ -51,8 +54,13 @@ class Logger:
         self._json_output = json_output
 
     def _format_value(self, value: Any) -> str:
-        """Format a single value, quoting if necessary."""
+        """Format a single value, quoting if necessary and truncating if too long."""
         s = str(value)
+
+        # Truncate long values to prevent log spam
+        if len(s) > self.MAX_VALUE_LENGTH:
+            s = s[: self.MAX_VALUE_LENGTH] + f"...<truncated {len(str(value)) - self.MAX_VALUE_LENGTH} chars>"
+
         # Quote if contains spaces, equals, quotes, or is empty
         if not s or " " in s or "=" in s or '"' in s or "'" in s:
             # Escape internal quotes
@@ -72,19 +80,25 @@ class Logger:
         return f"{msg} {pairs}"
 
     def debug(self, msg: str, **kwargs: Any) -> None:
-        self._logger.debug(self._format_message(msg, kwargs))
+        if self._logger.isEnabledFor(logging.DEBUG):
+            self._logger.debug(self._format_message(msg, kwargs))
 
     def info(self, msg: str, **kwargs: Any) -> None:
-        self._logger.info(self._format_message(msg, kwargs))
+        if self._logger.isEnabledFor(logging.INFO):
+            self._logger.info(self._format_message(msg, kwargs))
 
     def warning(self, msg: str, **kwargs: Any) -> None:
-        self._logger.warning(self._format_message(msg, kwargs))
+        if self._logger.isEnabledFor(logging.WARNING):
+            self._logger.warning(self._format_message(msg, kwargs))
 
     def error(self, msg: str, **kwargs: Any) -> None:
-        self._logger.error(self._format_message(msg, kwargs))
+        if self._logger.isEnabledFor(logging.ERROR):
+            self._logger.error(self._format_message(msg, kwargs))
 
     def critical(self, msg: str, **kwargs: Any) -> None:
-        self._logger.critical(self._format_message(msg, kwargs))
+        if self._logger.isEnabledFor(logging.CRITICAL):
+            self._logger.critical(self._format_message(msg, kwargs))
 
     def exception(self, msg: str, **kwargs: Any) -> None:
-        self._logger.exception(self._format_message(msg, kwargs))
+        if self._logger.isEnabledFor(logging.ERROR):
+            self._logger.exception(self._format_message(msg, kwargs))

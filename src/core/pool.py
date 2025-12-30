@@ -318,6 +318,10 @@ class Pool:
                     max_retries=max_retries,
                     error=str(e),
                 )
+                # Add backoff delay between retries to avoid thundering herd
+                if attempt < max_retries - 1:
+                    delay = 0.1 * (2 ** attempt)  # 0.1s, 0.2s, 0.4s...
+                    await asyncio.sleep(delay)
                 continue
 
         raise ConnectionError(
@@ -384,6 +388,68 @@ class Pool:
     def config(self) -> PoolConfig:
         """Get configuration."""
         return self._config
+
+    @property
+    def metrics(self) -> dict[str, Any]:
+        """
+        Get pool metrics for monitoring.
+
+        Returns:
+            Dictionary with pool statistics:
+            - size: Current number of connections in pool
+            - idle_size: Number of idle (available) connections
+            - min_size: Configured minimum pool size
+            - max_size: Configured maximum pool size
+            - free_size: Number of connections available for acquisition
+            - utilization: Percentage of pool in use (0.0-1.0)
+            - is_connected: Whether pool is connected
+
+        Example:
+            >>> pool.metrics
+            {'size': 10, 'idle_size': 8, 'min_size': 5, 'max_size': 20,
+             'free_size': 8, 'utilization': 0.2, 'is_connected': True}
+        """
+        # Capture local reference to avoid race condition with close()
+        pool = self._pool
+        if not self._is_connected or pool is None:
+            return {
+                "size": 0,
+                "idle_size": 0,
+                "min_size": self._config.limits.min_size,
+                "max_size": self._config.limits.max_size,
+                "free_size": 0,
+                "utilization": 0.0,
+                "is_connected": False,
+            }
+
+        try:
+            size = pool.get_size()
+            idle_size = pool.get_idle_size()
+            min_size = pool.get_min_size()
+            max_size = pool.get_max_size()
+            free_size = max_size - (size - idle_size)
+            utilization = (size - idle_size) / max_size if max_size > 0 else 0.0
+
+            return {
+                "size": size,
+                "idle_size": idle_size,
+                "min_size": min_size,
+                "max_size": max_size,
+                "free_size": free_size,
+                "utilization": round(utilization, 3),
+                "is_connected": True,
+            }
+        except Exception:
+            # Pool was closed between check and access
+            return {
+                "size": 0,
+                "idle_size": 0,
+                "min_size": self._config.limits.min_size,
+                "max_size": self._config.limits.max_size,
+                "free_size": 0,
+                "utilization": 0.0,
+                "is_connected": False,
+            }
 
     # -------------------------------------------------------------------------
     # Context Manager

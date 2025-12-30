@@ -7,19 +7,22 @@ Features:
 - Stored procedure wrappers for event/relay operations
 - Bulk insert optimization via executemany
 - Batch operations with configurable limits
-- Hex to bytea conversion for efficient storage
+- Type-safe dataclass inputs (Relay, EventRelay, RelayMetadata)
 - Structured logging
 - Parallel cleanup operations
 """
 
 import asyncio
 import json
+import time
 from pathlib import Path
 from typing import Any, Final, Optional
 
 import asyncpg
 import yaml
 from pydantic import BaseModel, Field
+
+from models import EventRelay, Relay, RelayMetadata
 
 from .logger import Logger
 from .pool import Pool
@@ -35,8 +38,10 @@ PROC_INSERT_EVENT: Final[str] = "insert_event"
 PROC_INSERT_RELAY: Final[str] = "insert_relay"
 PROC_INSERT_RELAY_METADATA: Final[str] = "insert_relay_metadata"
 PROC_DELETE_ORPHAN_EVENTS: Final[str] = "delete_orphan_events"
-PROC_DELETE_ORPHAN_NIP11: Final[str] = "delete_orphan_nip11"
-PROC_DELETE_ORPHAN_NIP66: Final[str] = "delete_orphan_nip66"
+PROC_DELETE_ORPHAN_METADATA: Final[str] = "delete_orphan_metadata"
+PROC_DELETE_FAILED_CANDIDATES: Final[str] = "delete_failed_candidates"
+PROC_UPSERT_SERVICE_DATA: Final[str] = "upsert_service_data"
+PROC_DELETE_SERVICE_DATA: Final[str] = "delete_service_data"
 
 
 # ============================================================================
@@ -83,19 +88,25 @@ class Brotr:
     Uses composition: has a Pool (public property) for all connection operations.
     Implements async context manager for automatic pool lifecycle management.
 
+    All insert methods accept ONLY dataclass instances (Relay, EventRelay, RelayMetadata).
+
     Usage:
+        from models import Relay, EventRelay, RelayMetadata
+
         brotr = Brotr.from_yaml("config.yaml")
 
-        # Option 1: Use Brotr context manager (recommended)
         async with brotr:
-            result = await brotr.pool.fetch("SELECT * FROM events")
-            await brotr.insert_events([event1, event2, ...])
-            await brotr.insert_relays([relay1, relay2, ...])
-            deleted = await brotr.cleanup_orphans()
+            # Insert relays
+            relay = Relay("wss://relay.example.com")
+            await brotr.insert_relays(records=[relay])
 
-        # Option 2: Manual pool management (legacy)
-        async with brotr.pool:
-            await brotr.insert_events([...])
+            # Insert events
+            event_relay = EventRelay.from_nostr_event(nostr_event, relay)
+            inserted, skipped = await brotr.insert_events(records=[event_relay])
+
+            # Insert metadata
+            metadata = RelayMetadata(relay, nip11=nip11, nip66=nip66)
+            await brotr.insert_relay_metadata(records=[metadata])
     """
 
     def __init__(
@@ -125,7 +136,6 @@ class Brotr:
               limits: {...}
             batch:
               max_batch_size: 10000
-            procedures: {...}
             timeouts: {...}
         """
         path = Path(config_path)
@@ -202,57 +212,49 @@ class Brotr:
     # Insert Operations
     # -------------------------------------------------------------------------
 
-    async def insert_events(self, events: list[dict[str, Any]]) -> int:
+    async def insert_events(self, records: list[EventRelay]) -> tuple[int, int]:
         """
         Insert events atomically using bulk insert.
 
         Args:
-            events: List of event dictionaries
+            records: List of EventRelay dataclass instances
 
         Returns:
-            Number of events inserted
+            Tuple of (inserted, skipped) counts
 
         Raises:
             asyncpg.PostgresError: On database errors
-            ValueError: On validation errors (batch size, hex conversion)
-
-        Event format:
-            {
-                "event_id": "64-char hex",
-                "pubkey": "64-char hex",
-                "created_at": int,
-                "kind": int,
-                "tags": [[...], ...],
-                "content": "text",
-                "sig": "128-char hex",
-                "relay_url": "wss://...",
-                "relay_network": "clearnet" or "tor",
-                "relay_inserted_at": int,
-                "seen_at": int
-            }
+            ValueError: On validation errors (batch size)
         """
-        if not events:
-            return 0
+        if not records:
+            return 0, 0
 
-        self._validate_batch_size(events, "insert_events")
+        self._validate_batch_size(records, "insert_events")
 
         async with self.pool.transaction() as conn:
-            params = [
-                (
-                    bytes.fromhex(e["event_id"]),
-                    bytes.fromhex(e["pubkey"]),
-                    e["created_at"],
-                    e["kind"],
-                    json.dumps(e["tags"]),
-                    e["content"],
-                    bytes.fromhex(e["sig"]),
-                    e["relay_url"],
-                    e["relay_network"],
-                    e["relay_inserted_at"],
-                    e["seen_at"],
-                )
-                for e in events
-            ]
+            params = []
+            skipped = 0
+
+            for event_relay in records:
+                try:
+                    params.append(event_relay.to_db_params())
+                except (ValueError, TypeError) as ex:
+                    skipped += 1
+                    # Fix: Check if event has id() method, not if event_relay has event attribute
+                    try:
+                        event_id = event_relay.event.id().to_hex() if hasattr(event_relay.event, "id") else "unknown"
+                    except Exception:
+                        event_id = "unknown"
+                    self._logger.warning(
+                        "invalid_event_skipped",
+                        error=str(ex),
+                        event_id=event_id,
+                    )
+                    continue
+
+            if not params:
+                self._logger.warning("all_events_invalid", total=len(records), skipped=skipped)
+                return 0, skipped
 
             await conn.executemany(
                 f"SELECT {PROC_INSERT_EVENT}($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
@@ -260,15 +262,19 @@ class Brotr:
                 timeout=self._config.timeouts.batch,
             )
 
-        self._logger.debug("events_inserted", count=len(events))
-        return len(events)
+        inserted = len(params)
+        if skipped > 0:
+            self._logger.info("events_inserted_with_skipped", inserted=inserted, skipped=skipped)
+        else:
+            self._logger.debug("events_inserted", count=inserted)
+        return inserted, skipped
 
-    async def insert_relays(self, relays: list[dict[str, Any]]) -> int:
+    async def insert_relays(self, records: list[Relay]) -> int:
         """
         Insert relays atomically using bulk insert.
 
         Args:
-            relays: List of relay dictionaries
+            records: List of Relay dataclass instances
 
         Returns:
             Number of relays inserted
@@ -276,21 +282,14 @@ class Brotr:
         Raises:
             asyncpg.PostgresError: On database errors
             ValueError: On validation errors (batch size)
-
-        Relay format:
-            {
-                "url": "wss://...",
-                "network": "clearnet" or "tor",
-                "inserted_at": int
-            }
         """
-        if not relays:
+        if not records:
             return 0
 
-        self._validate_batch_size(relays, "insert_relays")
+        self._validate_batch_size(records, "insert_relays")
 
         async with self.pool.transaction() as conn:
-            params = [(r["url"], r["network"], r["inserted_at"]) for r in relays]
+            params = [relay.to_db_params() for relay in records]
 
             await conn.executemany(
                 f"SELECT {PROC_INSERT_RELAY}($1, $2, $3)",
@@ -298,15 +297,22 @@ class Brotr:
                 timeout=self._config.timeouts.batch,
             )
 
-        self._logger.debug("relays_inserted", count=len(relays))
-        return len(relays)
+        self._logger.debug("relays_inserted", count=len(records))
+        return len(records)
 
-    async def insert_relay_metadata(self, metadata_list: list[dict[str, Any]]) -> int:
+    async def insert_relay_metadata(self, records: list[RelayMetadata]) -> int:
         """
         Insert relay metadata atomically using bulk insert.
 
+        Each RelayMetadata represents a single junction record (one row in relay_metadata).
+        The schema uses 6 parameters per record:
+            (relay_url, relay_network, relay_discovered_at, generated_at,
+             metadata_type, metadata_data)
+
+        The metadata hash (content-addressed ID) is computed by PostgreSQL.
+
         Args:
-            metadata_list: List of metadata dictionaries
+            records: List of RelayMetadata dataclass instances
 
         Returns:
             Number of metadata records inserted
@@ -315,68 +321,23 @@ class Brotr:
             asyncpg.PostgresError: On database errors
             ValueError: On validation errors (batch size)
         """
-        if not metadata_list:
+        if not records:
             return 0
 
-        self._validate_batch_size(metadata_list, "insert_relay_metadata")
+        self._validate_batch_size(records, "insert_relay_metadata")
 
-        def to_jsonb(value: Any) -> Optional[str]:
-            """Convert Python object to JSON string for JSONB columns."""
-            return json.dumps(value) if value is not None else None
-
-        def extract_params(m: dict[str, Any]) -> tuple[Any, ...]:
-            """Extract parameters from metadata dict for stored procedure call."""
-            # Cache dict lookups for efficiency and readability
-            nip66 = m.get("nip66") or {}
-            nip11 = m.get("nip11") or {}
-            has_nip66 = bool(m.get("nip66"))
-            has_nip11 = bool(m.get("nip11"))
-
-            return (
-                # Base relay info
-                m["relay_url"],
-                m["relay_network"],
-                m["relay_inserted_at"],
-                m["generated_at"],
-                # NIP-66 fields
-                has_nip66,
-                nip66.get("openable") if has_nip66 else None,
-                nip66.get("readable") if has_nip66 else None,
-                nip66.get("writable") if has_nip66 else None,
-                nip66.get("rtt_open") if has_nip66 else None,
-                nip66.get("rtt_read") if has_nip66 else None,
-                nip66.get("rtt_write") if has_nip66 else None,
-                # NIP-11 fields
-                has_nip11,
-                nip11.get("name") if has_nip11 else None,
-                nip11.get("description") if has_nip11 else None,
-                nip11.get("banner") if has_nip11 else None,
-                nip11.get("icon") if has_nip11 else None,
-                nip11.get("pubkey") if has_nip11 else None,
-                nip11.get("contact") if has_nip11 else None,
-                to_jsonb(nip11.get("supported_nips")) if has_nip11 else None,
-                nip11.get("software") if has_nip11 else None,
-                nip11.get("version") if has_nip11 else None,
-                nip11.get("privacy_policy") if has_nip11 else None,
-                nip11.get("terms_of_service") if has_nip11 else None,
-                to_jsonb(nip11.get("limitation")) if has_nip11 else None,
-                to_jsonb(nip11.get("extra_fields")) if has_nip11 else None,
-            )
+        # Collect params from each RelayMetadata
+        all_params = [metadata.to_db_params() for metadata in records]
 
         async with self.pool.transaction() as conn:
-            params = [extract_params(m) for m in metadata_list]
-
             await conn.executemany(
-                f"SELECT {PROC_INSERT_RELAY_METADATA}("
-                "$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, "
-                "$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, "
-                "$21, $22, $23, $24, $25)",
-                params,
+                f"SELECT {PROC_INSERT_RELAY_METADATA}($1, $2, $3, $4, $5, $6)",
+                all_params,
                 timeout=self._config.timeouts.batch,
             )
 
-        self._logger.debug("relay_metadata_inserted", count=len(metadata_list))
-        return len(metadata_list)
+        self._logger.debug("relay_metadata_inserted", count=len(all_params))
+        return len(all_params)
 
     # -------------------------------------------------------------------------
     # Cleanup Operations
@@ -389,37 +350,152 @@ class Brotr:
             fetch_result=True,
         )
 
-    async def delete_orphan_nip11(self) -> int:
-        """Delete orphaned NIP-11 records. Returns count."""
+    async def delete_orphan_metadata(self) -> int:
+        """Delete orphaned metadata records. Returns count."""
         return await self._call_procedure(
-            PROC_DELETE_ORPHAN_NIP11,
+            PROC_DELETE_ORPHAN_METADATA,
             fetch_result=True,
         )
 
-    async def delete_orphan_nip66(self) -> int:
-        """Delete orphaned NIP-66 records. Returns count."""
+    async def delete_failed_candidates(self, max_attempts: int = 10) -> int:
+        """Delete validator candidates that exceeded max failed attempts. Returns count."""
         return await self._call_procedure(
-            PROC_DELETE_ORPHAN_NIP66,
+            PROC_DELETE_FAILED_CANDIDATES,
+            max_attempts,
             fetch_result=True,
         )
 
-    async def cleanup_orphans(self) -> dict[str, int]:
+    # -------------------------------------------------------------------------
+    # Service Data Operations
+    # -------------------------------------------------------------------------
+
+    async def upsert_service_data(
+        self, records: list[tuple[str, str, str, dict]]
+    ) -> int:
         """
-        Delete all orphaned records in parallel.
+        Upsert service data records atomically using bulk insert.
 
-        Runs all three cleanup operations concurrently for better performance.
+        Args:
+            records: List of tuples (service_name, data_type, key, value)
 
         Returns:
-            Dict with counts: {"events": n, "nip11": n, "nip66": n}
+            Number of records upserted
+
+        Tuple format: (service_name, data_type, key, value)
+            - service_name: "finder", "validator", etc.
+            - data_type: "candidate", "cursor", "state"
+            - key: unique identifier
+            - value: dict to store as JSON
         """
-        events, nip11, nip66 = await asyncio.gather(
-            self.delete_orphan_events(),
-            self.delete_orphan_nip11(),
-            self.delete_orphan_nip66(),
-        )
-        result = {"events": events, "nip11": nip11, "nip66": nip66}
-        self._logger.info("cleanup_completed", **result)
-        return result
+        if not records:
+            return 0
+
+        self._validate_batch_size(records, "upsert_service_data")
+
+        now = int(time.time())
+        async with self.pool.transaction() as conn:
+            params = []
+            for service_name, data_type, key, value in records:
+                try:
+                    value_json = json.dumps(value)
+                except (TypeError, ValueError) as e:
+                    # Handle circular references or non-serializable objects
+                    self._logger.warning(
+                        "service_data_json_error",
+                        service=service_name,
+                        data_type=data_type,
+                        key=key,
+                        error=str(e),
+                    )
+                    # Attempt fallback with default serialization
+                    value_json = json.dumps(value, default=str)
+                params.append((service_name, data_type, key, value_json, now))
+
+            await conn.executemany(
+                f"SELECT {PROC_UPSERT_SERVICE_DATA}($1, $2, $3, $4, $5)",
+                params,
+                timeout=self._config.timeouts.batch,
+            )
+
+        self._logger.debug("service_data_upserted", count=len(records))
+        return len(records)
+
+    async def get_service_data(
+        self,
+        service_name: str,
+        data_type: str,
+        key: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Get service data records.
+
+        Args:
+            service_name: Name of the service
+            data_type: Type of data
+            key: Optional specific key (None = all records)
+
+        Returns:
+            List of records with keys: key, value, updated_at
+        """
+        if key is not None:
+            rows = await self.pool.fetch(
+                """
+                SELECT data_key, data, updated_at
+                FROM service_data
+                WHERE service_name = $1 AND data_type = $2 AND data_key = $3
+                """,
+                service_name,
+                data_type,
+                key,
+                timeout=self._config.timeouts.query,
+            )
+        else:
+            rows = await self.pool.fetch(
+                """
+                SELECT data_key, data, updated_at
+                FROM service_data
+                WHERE service_name = $1 AND data_type = $2
+                ORDER BY updated_at ASC
+                """,
+                service_name,
+                data_type,
+                timeout=self._config.timeouts.query,
+            )
+
+        return [
+            {"key": row["data_key"], "value": row["data"], "updated_at": row["updated_at"]}
+            for row in rows
+        ]
+
+    async def delete_service_data(self, keys: list[tuple[str, str, str]]) -> int:
+        """
+        Delete service data records atomically.
+
+        Args:
+            keys: List of tuples (service_name, data_type, key)
+
+        Returns:
+            Number of records deleted
+
+        Tuple format: (service_name, data_type, key)
+            - service_name: "finder", "validator", etc.
+            - data_type: "candidate", "cursor", "state"
+            - key: unique identifier to delete
+        """
+        if not keys:
+            return 0
+
+        self._validate_batch_size(keys, "delete_service_data")
+
+        async with self.pool.transaction() as conn:
+            await conn.executemany(
+                f"SELECT {PROC_DELETE_SERVICE_DATA}($1, $2, $3)",
+                keys,
+                timeout=self._config.timeouts.batch,
+            )
+
+        self._logger.debug("service_data_deleted", count=len(keys))
+        return len(keys)
 
     # -------------------------------------------------------------------------
     # Properties

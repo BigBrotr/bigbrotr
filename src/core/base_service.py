@@ -45,21 +45,23 @@ class BaseService(ABC, Generic[ConfigT]):
 
     Instance Attributes:
         _brotr: Database interface (access pool via _brotr.pool)
-        _config: Service configuration (Pydantic model)
+        _config: Service configuration (Pydantic model, uses CONFIG_CLASS defaults if not provided)
         _logger: Structured logger
-        _is_running: True while service is active
-        _shutdown_event: Event for graceful shutdown
+        _shutdown_event: Event for graceful shutdown (single source of truth)
+                        Not set = service is running
+                        Set = shutdown requested
     """
 
     SERVICE_NAME: ClassVar[str] = "base_service"
-    CONFIG_CLASS: ClassVar[Optional[type[BaseModel]]] = None
+    CONFIG_CLASS: ClassVar[type[BaseModel]]
     MAX_CONSECUTIVE_FAILURES: ClassVar[int] = 5
 
     def __init__(self, brotr: Brotr, config: Optional[ConfigT] = None) -> None:
         self._brotr = brotr
-        self._config: Optional[ConfigT] = config
-        self._is_running = False
+        self._config: ConfigT = config if config is not None else self.CONFIG_CLASS()  # type: ignore[assignment]
         self._logger = Logger(self.SERVICE_NAME)
+        # Use shutdown event as single source of truth to avoid race conditions
+        # Event not set = service is running, Event set = shutdown requested
         self._shutdown_event = asyncio.Event()
 
     @abstractmethod
@@ -68,9 +70,22 @@ class BaseService(ABC, Generic[ConfigT]):
         ...
 
     def request_shutdown(self) -> None:
-        """Request graceful shutdown (sync-safe for signal handlers)."""
-        self._is_running = False
+        """
+        Request graceful shutdown (sync-safe for signal handlers).
+
+        Thread-safe: Setting an asyncio.Event is atomic and safe to call
+        from signal handlers or other threads.
+        """
         self._shutdown_event.set()
+
+    @property
+    def is_running(self) -> bool:
+        """
+        Check if service is running.
+
+        Returns True if shutdown has NOT been requested.
+        """
+        return not self._shutdown_event.is_set()
 
     async def wait(self, timeout: float) -> bool:
         """
@@ -115,10 +130,15 @@ class BaseService(ABC, Generic[ConfigT]):
 
         consecutive_failures = 0
 
-        while self._is_running:
+        # Use is_running property which checks shutdown_event atomically
+        while self.is_running:
             try:
                 await self.run()
                 consecutive_failures = 0  # Reset on success
+                self._logger.info("cycle_completed", next_run_in_seconds=interval)
+            except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+                # Let these propagate to allow proper shutdown
+                raise
             except Exception as e:
                 consecutive_failures += 1
                 self._logger.error(
@@ -134,8 +154,6 @@ class BaseService(ABC, Generic[ConfigT]):
                         limit=failure_limit,
                     )
                     break
-
-            self._logger.info("cycle_completed", next_run_in_seconds=interval)
 
             if await self.wait(interval):
                 break
@@ -161,9 +179,7 @@ class BaseService(ABC, Generic[ConfigT]):
     @classmethod
     def from_dict(cls, data: dict[str, Any], brotr: Brotr, **kwargs: Any) -> "BaseService":
         """Create service from dictionary configuration."""
-        config = None
-        if cls.CONFIG_CLASS is not None:
-            config = cls.CONFIG_CLASS(**data)
+        config = cls.CONFIG_CLASS(**data)
         return cls(brotr=brotr, config=config, **kwargs)
 
     # -------------------------------------------------------------------------
@@ -172,18 +188,18 @@ class BaseService(ABC, Generic[ConfigT]):
 
     async def __aenter__(self) -> "BaseService":
         """Start service on context entry."""
-        self._is_running = True
+        # Clear shutdown event to mark service as running
         self._shutdown_event.clear()
         self._logger.info("started")
         return self
 
     async def __aexit__(self, _exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
         """Stop service on context exit."""
-        self._is_running = False
+        # Set shutdown event to mark service as stopped
         self._shutdown_event.set()
         self._logger.info("stopped")
 
     @property
-    def config(self) -> Optional[ConfigT]:
+    def config(self) -> ConfigT:
         """Get service configuration (typed to CONFIG_CLASS)."""
         return self._config
