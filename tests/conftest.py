@@ -9,9 +9,8 @@ Provides:
 
 import logging
 import sys
-from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -19,9 +18,9 @@ import pytest
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from models import EventRelay, Nip11, Nip66, Relay, RelayMetadata
 from core.brotr import Brotr
 from core.pool import Pool
-
 
 # ============================================================================
 # Logging Configuration
@@ -51,7 +50,7 @@ def mock_connection() -> MagicMock:
 
     # Mock transaction context manager
     mock_transaction = MagicMock()
-    mock_transaction.__aenter__ = AsyncMock(return_value=None)
+    mock_transaction.__aenter__ = AsyncMock(return_value=conn)
     mock_transaction.__aexit__ = AsyncMock(return_value=None)
     conn.transaction = MagicMock(return_value=mock_transaction)
 
@@ -174,85 +173,134 @@ def brotr_config_dict() -> dict[str, Any]:
 # ============================================================================
 
 
-@pytest.fixture
-def sample_event() -> dict[str, Any]:
-    """Sample Nostr event for testing."""
-    return {
-        "event_id": "a" * 64,
-        "pubkey": "b" * 64,
-        "created_at": 1700000000,
-        "kind": 1,
-        "tags": [["e", "c" * 64], ["p", "d" * 64]],
-        "content": "Test content",
-        "sig": "e" * 128,
-        "relay_url": "wss://relay.example.com",
-        "relay_network": "clearnet",
-        "relay_inserted_at": 1700000000,
-        "seen_at": 1700000001,
-    }
+def _make_mock_event(
+    event_id: str = "a" * 64,
+    pubkey: str = "b" * 64,
+    created_at: int = 1700000000,
+    kind: int = 1,
+    tags: Optional[list[list[str]]] = None,
+    content: str = "Test content",
+    sig: str = "e" * 128,
+) -> MagicMock:
+    """Create a mock nostr_sdk.Event for testing."""
+    if tags is None:
+        tags = [["e", "c" * 64], ["p", "d" * 64]]
+
+    mock_event = MagicMock()
+    mock_event.id.return_value.to_hex.return_value = event_id
+    mock_event.author.return_value.to_hex.return_value = pubkey
+    mock_event.created_at.return_value.as_secs.return_value = created_at
+    mock_event.kind.return_value.as_u16.return_value = kind
+    mock_event.content.return_value = content
+    mock_event.signature.return_value.to_hex.return_value = sig
+
+    # Mock tags
+    mock_tags = []
+    for tag in tags:
+        mock_tag = MagicMock()
+        mock_tag.as_vec.return_value = tag
+        mock_tags.append(mock_tag)
+    mock_event.tags.return_value.to_vec.return_value = mock_tags
+
+    return mock_event
 
 
-@pytest.fixture
-def sample_relay() -> dict[str, Any]:
-    """Sample relay for testing."""
-    return {
-        "url": "wss://relay.example.com",
-        "network": "clearnet",
-        "inserted_at": 1700000000,
-    }
+def _create_nip11(relay: Relay, data: Optional[dict] = None, generated_at: int = 1700000001) -> Nip11:
+    """Create a Nip11 instance using object.__new__ pattern."""
+    from models import Metadata
 
-
-@pytest.fixture
-def sample_metadata() -> dict[str, Any]:
-    """Sample relay metadata for testing."""
-    return {
-        "relay_url": "wss://relay.example.com",
-        "relay_network": "clearnet",
-        "relay_inserted_at": 1700000000,
-        "generated_at": 1700000001,
-        "nip66": {
-            "openable": True,
-            "readable": True,
-            "writable": False,
-            "rtt_open": 120,
-            "rtt_read": 50,
-            "rtt_write": None,
-        },
-        "nip11": {
+    if data is None:
+        data = {
             "name": "Test Relay",
             "description": "A test relay for unit tests",
-            "banner": None,
-            "icon": None,
-            "pubkey": None,
-            "contact": None,
             "supported_nips": [1, 2, 9, 11],
-            "software": None,
-            "version": None,
-            "privacy_policy": None,
-            "terms_of_service": None,
-            "limitation": None,
-            "extra_fields": None,
-        },
-    }
+        }
+    metadata = Metadata(data)
+    instance = object.__new__(Nip11)
+    object.__setattr__(instance, "relay", relay)
+    object.__setattr__(instance, "metadata", metadata)
+    object.__setattr__(instance, "generated_at", generated_at)
+    return instance
+
+
+def _create_nip66(
+    relay: Relay,
+    rtt_data: Optional[dict] = None,
+    geo_data: Optional[dict] = None,
+    generated_at: int = 1700000001,
+) -> Nip66:
+    """Create a Nip66 instance using object.__new__ pattern."""
+    from models import Metadata
+
+    if rtt_data is None:
+        rtt_data = {
+            "rtt_open": 120,
+            "rtt_read": 50,
+            "network": "clearnet",
+        }
+    rtt_metadata = Metadata(rtt_data)
+    geo_metadata = Metadata(geo_data) if geo_data else None
+
+    instance = object.__new__(Nip66)
+    object.__setattr__(instance, "relay", relay)
+    object.__setattr__(instance, "rtt_metadata", rtt_metadata)
+    object.__setattr__(instance, "geo_metadata", geo_metadata)
+    object.__setattr__(instance, "generated_at", generated_at)
+    return instance
 
 
 @pytest.fixture
-def sample_events_batch(sample_event: dict[str, Any]) -> list[dict[str, Any]]:
-    """Generate a batch of sample events."""
-    events = []
-    for i in range(10):
-        event = sample_event.copy()
-        event["event_id"] = f"{i:064x}"
-        event["created_at"] = 1700000000 + i
-        events.append(event)
-    return events
+def sample_event() -> EventRelay:
+    """Sample Nostr EventRelay for testing."""
+    event = _make_mock_event()
+    relay = Relay("wss://relay.example.com", discovered_at=1700000000)
+    return EventRelay(event=event, relay=relay, seen_at=1700000001)
 
 
 @pytest.fixture
-def sample_relays_batch() -> list[dict[str, Any]]:
-    """Generate a batch of sample relays."""
+def sample_relay() -> Relay:
+    """Sample Relay for testing."""
+    return Relay("wss://relay.example.com", discovered_at=1700000000)
+
+
+@pytest.fixture
+def sample_metadata() -> RelayMetadata:
+    """Sample RelayMetadata for testing."""
+    from models import Metadata
+
+    relay = Relay("wss://relay.example.com", discovered_at=1700000000)
+    metadata = Metadata({"name": "Test Relay", "supported_nips": [1, 2, 9, 11]})
+    return RelayMetadata(
+        relay=relay,
+        metadata=metadata,
+        metadata_type="nip11",
+        generated_at=1700000001,
+    )
+
+
+@pytest.fixture
+def sample_events_batch() -> list[EventRelay]:
+    """Generate a batch of sample EventRelay objects."""
+    relay = Relay("wss://relay.example.com", discovered_at=1700000000)
     return [
-        {"url": f"wss://relay{i}.example.com", "network": "clearnet", "inserted_at": 1700000000}
+        EventRelay(
+            event=_make_mock_event(
+                event_id=f"{i:064x}",
+                created_at=1700000000 + i,
+                tags=[["e", "c" * 64]],
+            ),
+            relay=relay,
+            seen_at=1700000001,
+        )
+        for i in range(10)
+    ]
+
+
+@pytest.fixture
+def sample_relays_batch() -> list[Relay]:
+    """Generate a batch of sample Relay objects."""
+    return [
+        Relay(f"wss://relay{i}.example.com", discovered_at=1700000000)
         for i in range(10)
     ]
 
@@ -265,7 +313,7 @@ def sample_relays_batch() -> list[dict[str, Any]]:
 def create_mock_record(data: dict[str, Any]) -> MagicMock:
     """Create a mock asyncpg Record from a dictionary."""
     record = MagicMock()
-    record.__getitem__ = lambda self, key: data[key]
+    record.__getitem__ = lambda _, key: data[key]
     record.get = lambda key, default=None: data.get(key, default)
     record.keys = lambda: data.keys()
     record.values = lambda: data.values()
