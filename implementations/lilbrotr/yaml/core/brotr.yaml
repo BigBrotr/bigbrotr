@@ -46,16 +46,8 @@ pool:
 batch:
   max_batch_size: 1000      # Maximum batch size to prevent memory issues
 
-# Stored procedures configuration
-procedures:
-  # Insert operations
-  insert_event: insert_event
-  insert_relay: insert_relay
-  insert_relay_metadata: insert_relay_metadata
-  # Cleanup operations
-  delete_orphan_events: delete_orphan_events
-  delete_orphan_nip11: delete_orphan_nip11
-  delete_orphan_nip66: delete_orphan_nip66
+# Note: Stored procedures are hardcoded in src/core/brotr.py for security.
+# They cannot be configured via YAML. See PROC_* constants in brotr.py.
 
 # Query timeouts for different operation types
 timeouts:
