@@ -128,11 +128,12 @@ BigBrotr uses a three-layer architecture that separates concerns and enables fle
 | Service | Status | Description |
 |---------|--------|-------------|
 | **Initializer** | Complete | Database bootstrap, schema verification, relay seeding |
-| **Finder** | Complete | Relay discovery from external APIs |
-| **Monitor** | Complete | NIP-11/NIP-66 health monitoring with Tor support |
+| **Finder** | Complete | Relay discovery from external APIs and database events |
+| **Validator** | Complete | Relay validation and functional testing with Tor support |
+| **Monitor** | Complete | NIP-11/NIP-66 health monitoring with comprehensive checks |
 | **Synchronizer** | Complete | Multicore event synchronization with incremental sync |
-| **API** | Planned | REST API endpoints with OpenAPI documentation |
-| **DVM** | Planned | NIP-90 Data Vending Machine protocol support |
+| **API** | Planned (config stub) | REST API endpoints with OpenAPI documentation |
+| **DVM** | Planned (config stub) | NIP-90 Data Vending Machine protocol support |
 
 For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -492,14 +493,14 @@ pre-commit install
 ### Running Tests
 
 ```bash
-# Run all unit tests
-pytest tests/unit/ -v
+# Run all tests
+pytest tests/ -v
 
 # Run with coverage
-pytest tests/unit/ --cov=src --cov-report=html
+pytest tests/ --cov=src --cov-report=html
 
 # Run specific test file
-pytest tests/unit/test_synchronizer.py -v
+pytest tests/services/test_synchronizer.py -v
 
 # Run tests matching pattern
 pytest -k "health_check" -v
@@ -538,10 +539,9 @@ bigbrotr/
 │       ├── __main__.py                # CLI entry point
 │       ├── initializer.py             # Database bootstrap
 │       ├── finder.py                  # Relay discovery
+│       ├── validator.py               # Relay validation
 │       ├── monitor.py                 # Health monitoring
-│       ├── synchronizer.py            # Event sync
-│       ├── api.py                     # REST API (planned)
-│       └── dvm.py                     # DVM service (planned)
+│       └── synchronizer.py            # Event sync
 │
 ├── implementations/
 │   ├── bigbrotr/                      # Full-featured implementation
@@ -559,7 +559,9 @@ bigbrotr/
 │
 ├── tests/
 │   ├── conftest.py                    # Shared fixtures
-│   └── unit/                          # Unit tests
+│   ├── core/                          # Core layer tests
+│   ├── services/                      # Service layer tests
+│   └── models/                        # Models tests
 │
 ├── docs/                              # Documentation
 │   ├── ARCHITECTURE.md
@@ -628,7 +630,7 @@ Quick start:
 1. Fork the repository
 2. Create a feature branch from `develop`
 3. Write tests for new functionality
-4. Ensure all tests pass: `pytest tests/unit/ -v`
+4. Ensure all tests pass: `pytest tests/ -v`
 5. Run code quality checks: `pre-commit run --all-files`
 6. Submit a pull request to `develop` (or `main` for releases)
 

@@ -60,7 +60,7 @@ docker-compose up -d postgres pgbouncer
 cd ../..
 
 # Run tests to verify setup
-pytest tests/unit/ -v
+pytest tests/ -v
 ```
 
 ---
@@ -110,7 +110,7 @@ chore: update dependencies
 1. Run all checks:
    ```bash
    # Run tests
-   pytest tests/unit/ -v
+   pytest tests/ -v
 
    # Run linting and formatting
    pre-commit run --all-files
@@ -183,13 +183,13 @@ pre-commit run --all-files
 
 ```bash
 # All tests
-pytest tests/unit/ -v
+pytest tests/ -v
 
 # Specific file
-pytest tests/unit/test_pool.py -v
+pytest tests/test_pool.py -v
 
 # With coverage
-pytest tests/unit/ --cov=src --cov-report=html
+pytest tests/ --cov=src --cov-report=html
 
 # Matching pattern
 pytest -k "health_check" -v
@@ -197,7 +197,7 @@ pytest -k "health_check" -v
 
 ### Writing Tests
 
-- Place tests in `tests/unit/`
+- Place tests in `tests/`
 - Name test files `test_<module>.py`
 - Use fixtures from `conftest.py`
 - Mock external dependencies

@@ -31,7 +31,7 @@
 
 <!-- Describe how you tested your changes -->
 
-- [ ] Unit tests pass (`pytest tests/unit/ -v`)
+- [ ] Unit tests pass (`pytest tests/ -v`)
 - [ ] New tests added for new functionality
 - [ ] Manual testing performed
 
