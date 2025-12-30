@@ -170,7 +170,7 @@ ignore = [
 "tests/*" = ["PLR2004", "ARG001", "ARG002", "PLC0415"]  # PLC0415 only for tests (inline imports in fixtures)
 
 [tool.ruff.lint.isort]
-known-first-party = ["core", "services"]
+known-first-party = ["models", "core", "services"]
 
 [tool.ruff.format]
 quote-style = "double"
