@@ -175,7 +175,7 @@ class Relay:
             "path": path,
         }
 
-    def __new__(cls, raw: str, discovered_at: Optional[int] = None):
+    def __new__(cls, raw: str, discovered_at: Optional[int] = None) -> "Relay":
         """
         Create a new Relay instance.
 

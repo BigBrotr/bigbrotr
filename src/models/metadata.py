@@ -75,7 +75,7 @@ class Metadata:
     # --- JSON serialization ---
 
     @staticmethod
-    def _sanitize_for_json(obj: Any, _seen: Optional[set] = None) -> Any:
+    def _sanitize_for_json(obj: Any, _seen: Optional[set[int]] = None) -> Any:
         """
         Recursively sanitize object for JSON serialization.
 

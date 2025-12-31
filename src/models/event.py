@@ -106,15 +106,18 @@ class Event:
 
     def content(self) -> str:
         """Get event content."""
-        return self._inner.content()
+        result: str = self._inner.content()
+        return result
 
     def signature(self) -> str:
         """Get event signature."""
-        return self._inner.signature()
+        result: str = self._inner.signature()
+        return result
 
     def verify(self) -> bool:
         """Verify event signature."""
-        return self._inner.verify()
+        result: bool = self._inner.verify()
+        return result
 
     def to_db_params(self) -> tuple[bytes, bytes, int, int, str, str, bytes]:
         """
