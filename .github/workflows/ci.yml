@@ -70,14 +70,14 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run tests
-        run: pytest tests/unit/ -v --tb=short
+        run: pytest tests/ --ignore=tests/integration/ -v --tb=short
         env:
           PYTHONPATH: src
           DB_PASSWORD: test_password
 
       - name: Run tests with coverage
         if: matrix.python-version == '3.11'
-        run: pytest tests/unit/ --cov=src --cov-report=xml
+        run: pytest tests/ --ignore=tests/integration/ --cov=src --cov-report=xml
         env:
           PYTHONPATH: src
           DB_PASSWORD: test_password
