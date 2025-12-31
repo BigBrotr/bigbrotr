@@ -8,41 +8,24 @@ Features:
 - Bulk insert optimization via executemany
 - Batch operations with configurable limits
 - Type-safe dataclass inputs (Relay, EventRelay, RelayMetadata)
+- Cleanup operations for orphaned data
+- Materialized view refresh operations
 - Structured logging
-- Parallel cleanup operations
 """
 
-import asyncio
 import json
 import time
 from pathlib import Path
-from typing import Any, Final, Optional
+from typing import Any, Optional
 
 import asyncpg
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from models import EventRelay, Relay, RelayMetadata
 
 from .logger import Logger
 from .pool import Pool
-
-# ============================================================================
-# Stored Procedure Names (Hardcoded for Security)
-# ============================================================================
-# These are intentionally not configurable to prevent SQL injection attacks.
-# If you need to change procedure names, modify these constants and the
-# corresponding SQL files in implementations/bigbrotr/postgres/init/.
-
-PROC_INSERT_EVENT: Final[str] = "insert_event"
-PROC_INSERT_RELAY: Final[str] = "insert_relay"
-PROC_INSERT_RELAY_METADATA: Final[str] = "insert_relay_metadata"
-PROC_DELETE_ORPHAN_EVENTS: Final[str] = "delete_orphan_events"
-PROC_DELETE_ORPHAN_METADATA: Final[str] = "delete_orphan_metadata"
-PROC_DELETE_FAILED_CANDIDATES: Final[str] = "delete_failed_candidates"
-PROC_UPSERT_SERVICE_DATA: Final[str] = "upsert_service_data"
-PROC_DELETE_SERVICE_DATA: Final[str] = "delete_service_data"
-
 
 # ============================================================================
 # Configuration Models
@@ -61,11 +44,25 @@ class BatchConfig(BaseModel):
 
 
 class TimeoutsConfig(BaseModel):
-    """Operation timeouts for Brotr."""
+    """
+    Operation timeouts for Brotr.
 
-    query: float = Field(default=60.0, ge=0.1, description="Query timeout (seconds)")
-    procedure: float = Field(default=90.0, ge=0.1, description="Procedure timeout (seconds)")
-    batch: float = Field(default=120.0, ge=0.1, description="Batch timeout (seconds)")
+    All timeout values are in seconds. Use None for no timeout (infinite wait).
+    When set, values must be >= 0.1 seconds.
+    """
+
+    query: Optional[float] = Field(default=60.0, description="Query timeout (seconds, None=infinite)")
+    batch: Optional[float] = Field(default=120.0, description="Batch insert timeout (seconds, None=infinite)")
+    cleanup: Optional[float] = Field(default=90.0, description="Cleanup procedure timeout (seconds, None=infinite)")
+    refresh: Optional[float] = Field(default=None, description="Materialized view refresh timeout (seconds, None=infinite)")
+
+    @field_validator("query", "batch", "cleanup", "refresh", mode="after")
+    @classmethod
+    def validate_timeout(cls, v: Optional[float]) -> Optional[float]:
+        """Validate timeout: None (infinite) or >= 0.1 seconds."""
+        if v is not None and v < 0.1:
+            raise ValueError("Timeout must be None (infinite) or >= 0.1 seconds")
+        return v
 
 
 class BrotrConfig(BaseModel):
@@ -136,7 +133,11 @@ class Brotr:
               limits: {...}
             batch:
               max_batch_size: 10000
-            timeouts: {...}
+            timeouts:
+              query: 60.0      # seconds, or null for infinite
+              batch: 120.0     # seconds, or null for infinite
+              cleanup: 90.0    # seconds, or null for infinite
+              refresh: null    # seconds, or null for infinite (default: null)
         """
         path = Path(config_path)
         if not path.exists():
@@ -158,6 +159,11 @@ class Brotr:
         config = BrotrConfig(**brotr_config_dict) if brotr_config_dict else None
 
         return cls(pool=pool, config=config)
+
+    @property
+    def config(self) -> BrotrConfig:
+        """Get configuration."""
+        return self._config
 
     # -------------------------------------------------------------------------
     # Helper Methods
@@ -186,20 +192,19 @@ class Brotr:
             *args: Procedure arguments
             conn: Optional connection (acquires from pool if None)
             fetch_result: Return result if True
-            timeout: Optional timeout override
+            timeout: Timeout in seconds (None = no timeout)
 
         Returns:
             Result value if fetch_result=True, otherwise None
         """
         params = ", ".join(f"${i + 1}" for i in range(len(args))) if args else ""
         query = f"SELECT {procedure_name}({params})"
-        timeout_value = timeout or self._config.timeouts.procedure
 
         async def execute(c: asyncpg.Connection) -> Any:
             if fetch_result:
-                result = await c.fetchval(query, *args, timeout=timeout_value)
+                result = await c.fetchval(query, *args, timeout=timeout)
                 return result or 0
-            await c.execute(query, *args, timeout=timeout_value)
+            await c.execute(query, *args, timeout=timeout)
             return None
 
         if conn is not None:
@@ -240,7 +245,6 @@ class Brotr:
                     params.append(event_relay.to_db_params())
                 except (ValueError, TypeError) as ex:
                     skipped += 1
-                    # Fix: Check if event has id() method, not if event_relay has event attribute
                     try:
                         event_id = event_relay.event.id().to_hex() if hasattr(event_relay.event, "id") else "unknown"
                     except Exception:
@@ -257,7 +261,7 @@ class Brotr:
                 return 0, skipped
 
             await conn.executemany(
-                f"SELECT {PROC_INSERT_EVENT}($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                "SELECT insert_event($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
                 params,
                 timeout=self._config.timeouts.batch,
             )
@@ -292,7 +296,7 @@ class Brotr:
             params = [relay.to_db_params() for relay in records]
 
             await conn.executemany(
-                f"SELECT {PROC_INSERT_RELAY}($1, $2, $3)",
+                "SELECT insert_relay($1, $2, $3)",
                 params,
                 timeout=self._config.timeouts.batch,
             )
@@ -331,7 +335,7 @@ class Brotr:
 
         async with self.pool.transaction() as conn:
             await conn.executemany(
-                f"SELECT {PROC_INSERT_RELAY_METADATA}($1, $2, $3, $4, $5, $6)",
+                "SELECT insert_relay_metadata($1, $2, $3, $4, $5, $6)",
                 all_params,
                 timeout=self._config.timeouts.batch,
             )
@@ -346,23 +350,26 @@ class Brotr:
     async def delete_orphan_events(self) -> int:
         """Delete orphaned events. Returns count."""
         return await self._call_procedure(
-            PROC_DELETE_ORPHAN_EVENTS,
+            "delete_orphan_events",
             fetch_result=True,
+            timeout=self._config.timeouts.cleanup,
         )
 
     async def delete_orphan_metadata(self) -> int:
         """Delete orphaned metadata records. Returns count."""
         return await self._call_procedure(
-            PROC_DELETE_ORPHAN_METADATA,
+            "delete_orphan_metadata",
             fetch_result=True,
+            timeout=self._config.timeouts.cleanup,
         )
 
     async def delete_failed_candidates(self, max_attempts: int = 10) -> int:
         """Delete validator candidates that exceeded max failed attempts. Returns count."""
         return await self._call_procedure(
-            PROC_DELETE_FAILED_CANDIDATES,
+            "delete_failed_candidates",
             max_attempts,
             fetch_result=True,
+            timeout=self._config.timeouts.cleanup,
         )
 
     # -------------------------------------------------------------------------
@@ -412,7 +419,7 @@ class Brotr:
                 params.append((service_name, data_type, key, value_json, now))
 
             await conn.executemany(
-                f"SELECT {PROC_UPSERT_SERVICE_DATA}($1, $2, $3, $4, $5)",
+                "SELECT upsert_service_data($1, $2, $3, $4, $5)",
                 params,
                 timeout=self._config.timeouts.batch,
             )
@@ -437,30 +444,13 @@ class Brotr:
         Returns:
             List of records with keys: key, value, updated_at
         """
-        if key is not None:
-            rows = await self.pool.fetch(
-                """
-                SELECT data_key, data, updated_at
-                FROM service_data
-                WHERE service_name = $1 AND data_type = $2 AND data_key = $3
-                """,
-                service_name,
-                data_type,
-                key,
-                timeout=self._config.timeouts.query,
-            )
-        else:
-            rows = await self.pool.fetch(
-                """
-                SELECT data_key, data, updated_at
-                FROM service_data
-                WHERE service_name = $1 AND data_type = $2
-                ORDER BY updated_at ASC
-                """,
-                service_name,
-                data_type,
-                timeout=self._config.timeouts.query,
-            )
+        rows = await self.pool.fetch(
+            "SELECT * FROM get_service_data($1, $2, $3)",
+            service_name,
+            data_type,
+            key,
+            timeout=self._config.timeouts.query,
+        )
 
         return [
             {"key": row["data_key"], "value": row["data"], "updated_at": row["updated_at"]}
@@ -489,7 +479,7 @@ class Brotr:
 
         async with self.pool.transaction() as conn:
             await conn.executemany(
-                f"SELECT {PROC_DELETE_SERVICE_DATA}($1, $2, $3)",
+                "SELECT delete_service_data($1, $2, $3)",
                 keys,
                 timeout=self._config.timeouts.batch,
             )
@@ -498,16 +488,67 @@ class Brotr:
         return len(keys)
 
     # -------------------------------------------------------------------------
-    # Properties
+    # Refresh Operations
     # -------------------------------------------------------------------------
 
-    @property
-    def config(self) -> BrotrConfig:
-        """Get configuration."""
-        return self._config
+    async def refresh_relay_metadata_latest(self) -> None:
+        """Refresh relay_metadata_latest materialized view (concurrent, non-blocking)."""
+        await self._call_procedure(
+            "refresh_relay_metadata_latest",
+            timeout=self._config.timeouts.refresh,
+        )
+        self._logger.debug("matview_refreshed", view="relay_metadata_latest")
+
+    async def refresh_events_statistics(self) -> None:
+        """Refresh events_statistics materialized view (concurrent, non-blocking)."""
+        await self._call_procedure(
+            "refresh_events_statistics",
+            timeout=self._config.timeouts.refresh,
+        )
+        self._logger.debug("matview_refreshed", view="events_statistics")
+
+    async def refresh_relays_statistics(self) -> None:
+        """Refresh relays_statistics materialized view (concurrent, non-blocking)."""
+        await self._call_procedure(
+            "refresh_relays_statistics",
+            timeout=self._config.timeouts.refresh,
+        )
+        self._logger.debug("matview_refreshed", view="relays_statistics")
+
+    async def refresh_kind_counts_total(self) -> None:
+        """Refresh kind_counts_total materialized view (concurrent, non-blocking)."""
+        await self._call_procedure(
+            "refresh_kind_counts_total",
+            timeout=self._config.timeouts.refresh,
+        )
+        self._logger.debug("matview_refreshed", view="kind_counts_total")
+
+    async def refresh_kind_counts_by_relay(self) -> None:
+        """Refresh kind_counts_by_relay materialized view (concurrent, non-blocking)."""
+        await self._call_procedure(
+            "refresh_kind_counts_by_relay",
+            timeout=self._config.timeouts.refresh,
+        )
+        self._logger.debug("matview_refreshed", view="kind_counts_by_relay")
+
+    async def refresh_pubkey_counts_total(self) -> None:
+        """Refresh pubkey_counts_total materialized view (concurrent, non-blocking)."""
+        await self._call_procedure(
+            "refresh_pubkey_counts_total",
+            timeout=self._config.timeouts.refresh,
+        )
+        self._logger.debug("matview_refreshed", view="pubkey_counts_total")
+
+    async def refresh_pubkey_counts_by_relay(self) -> None:
+        """Refresh pubkey_counts_by_relay materialized view (concurrent, non-blocking)."""
+        await self._call_procedure(
+            "refresh_pubkey_counts_by_relay",
+            timeout=self._config.timeouts.refresh,
+        )
+        self._logger.debug("matview_refreshed", view="pubkey_counts_by_relay")
 
     # -------------------------------------------------------------------------
-    # Context Manager (delegates to Pool)
+    # Context Manager
     # -------------------------------------------------------------------------
 
     async def __aenter__(self) -> "Brotr":
