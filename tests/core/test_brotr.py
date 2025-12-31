@@ -1,25 +1,16 @@
 """Tests for core.brotr module."""
 
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
 
 from core.brotr import (
-    PROC_DELETE_ORPHAN_EVENTS,
-    PROC_DELETE_ORPHAN_METADATA,
-    PROC_DELETE_FAILED_CANDIDATES,
-    PROC_INSERT_EVENT,
-    PROC_INSERT_RELAY,
-    PROC_INSERT_RELAY_METADATA,
-    PROC_REFRESH_METADATA_LATEST,
     BatchConfig,
     Brotr,
     BrotrConfig,
     TimeoutsConfig,
 )
-from core.pool import Pool
 
 
 class TestBatchConfig:
@@ -44,21 +35,9 @@ class TestTimeoutsConfig:
     def test_defaults(self):
         config = TimeoutsConfig()
         assert config.query == 60.0
-        assert config.procedure == 90.0
+        assert config.cleanup == 90.0
         assert config.batch == 120.0
-
-
-class TestStoredProcedureConstants:
-    """Stored procedure constants."""
-
-    def test_expected_values(self):
-        assert PROC_INSERT_EVENT == "insert_event"
-        assert PROC_INSERT_RELAY == "insert_relay"
-        assert PROC_INSERT_RELAY_METADATA == "insert_relay_metadata"
-        assert PROC_DELETE_ORPHAN_EVENTS == "delete_orphan_events"
-        assert PROC_DELETE_ORPHAN_METADATA == "delete_orphan_metadata"
-        assert PROC_DELETE_FAILED_CANDIDATES == "delete_failed_candidates"
-        assert PROC_REFRESH_METADATA_LATEST == "refresh_relay_metadata_latest"
+        assert config.refresh is None
 
 
 class TestBrotrInit:
