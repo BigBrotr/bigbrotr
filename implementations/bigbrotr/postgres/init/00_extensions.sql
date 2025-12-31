@@ -10,13 +10,13 @@
 -- Purpose: Enables GIN (Generalized Inverted Index) support for btree-comparable types
 -- Usage: Required for efficient array containment queries on events.tagvalues column
 -- Note: Powers the idx_events_tagvalues index for fast tag-based event filtering
-CREATE EXTENSION IF NOT EXISTS "btree_gin";
+CREATE EXTENSION IF NOT EXISTS btree_gin;
 
 -- Extension: pgcrypto
 -- Purpose: Provides cryptographic functions including digest() for SHA-256 hashing
 -- Usage: Required for insert_relay_metadata() function to compute content hash
 -- Note: Used for content-based deduplication of metadata records
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ============================================================================
 -- EXTENSIONS LOADED

@@ -10,13 +10,13 @@
 -- Extension: btree_gin
 -- Purpose: Enables GIN (Generalized Inverted Index) support for btree-comparable types
 -- Note: LilBrotr does not use tagvalues index, but btree_gin may be useful for future features
-CREATE EXTENSION IF NOT EXISTS "btree_gin";
+CREATE EXTENSION IF NOT EXISTS btree_gin;
 
 -- Extension: pgcrypto
 -- Purpose: Provides cryptographic functions including digest() for SHA-256 hashing
 -- Usage: Required for insert_relay_metadata() function to compute content hash
 -- Note: Used for content-based deduplication of metadata records
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ============================================================================
 -- EXTENSIONS LOADED

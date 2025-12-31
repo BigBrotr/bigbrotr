@@ -11,9 +11,9 @@
 -- Description: Registry of all validated Nostr relays
 -- Notes: Primary table - contains only relays validated by the Validator service
 CREATE TABLE IF NOT EXISTS relays (
-    url             TEXT        PRIMARY KEY,
-    network         TEXT        NOT NULL,
-    discovered_at   BIGINT      NOT NULL
+    url TEXT PRIMARY KEY,
+    network TEXT NOT NULL,
+    discovered_at BIGINT NOT NULL
 );
 
 COMMENT ON TABLE relays IS 'Registry of validated Nostr relays across clearnet and Tor';
@@ -28,14 +28,14 @@ COMMENT ON COLUMN relays.discovered_at IS 'Unix timestamp when relay was first d
 --   - Omits tags, tagvalues, and content for lightweight storage (~60% total savings)
 --   - Tag-based queries are NOT supported in LilBrotr
 CREATE TABLE IF NOT EXISTS events (
-    id          BYTEA       PRIMARY KEY,
-    pubkey      BYTEA       NOT NULL,
-    created_at  BIGINT      NOT NULL,
-    kind        INTEGER     NOT NULL,
+    id BYTEA PRIMARY KEY,
+    pubkey BYTEA NOT NULL,
+    created_at BIGINT NOT NULL,
+    kind INTEGER NOT NULL,
     -- tags      JSONB       -- NOT STORED in LilBrotr
     -- tagvalues TEXT[]      -- NOT STORED in LilBrotr (no tags to index)
     -- content   TEXT        -- NOT STORED in LilBrotr
-    sig         BYTEA       NOT NULL
+    sig BYTEA NOT NULL
 );
 
 COMMENT ON TABLE events IS 'Nostr events with essential metadata only (no tags/content for lightweight storage)';
@@ -49,12 +49,12 @@ COMMENT ON COLUMN events.sig IS 'Schnorr signature over event fields (stored as 
 -- Description: Junction table tracking which events are hosted on which relays
 -- Notes: Composite PK ensures uniqueness, foreign keys ensure referential integrity
 CREATE TABLE IF NOT EXISTS events_relays (
-    event_id    BYTEA       NOT NULL,
-    relay_url   TEXT        NOT NULL,
-    seen_at     BIGINT      NOT NULL,
+    event_id BYTEA NOT NULL,
+    relay_url TEXT NOT NULL,
+    seen_at BIGINT NOT NULL,
     PRIMARY KEY (event_id, relay_url),
-    FOREIGN KEY (event_id)   REFERENCES events(id)     ON DELETE CASCADE,
-    FOREIGN KEY (relay_url)  REFERENCES relays(url)    ON DELETE CASCADE
+    FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
+    FOREIGN KEY (relay_url) REFERENCES relays (url) ON DELETE CASCADE
 );
 
 COMMENT ON TABLE events_relays IS 'Junction table tracking event-relay relationships with timestamps';
@@ -67,8 +67,8 @@ COMMENT ON COLUMN events_relays.seen_at IS 'Unix timestamp when event was first 
 -- Notes: Content-addressed by SHA-256 hash of data for deduplication
 -- Purpose: One metadata record can be shared by multiple relays (normalized)
 CREATE TABLE IF NOT EXISTS metadata (
-    id      BYTEA       PRIMARY KEY,
-    data    JSONB       NOT NULL
+    id BYTEA PRIMARY KEY,
+    data JSONB NOT NULL
 );
 
 COMMENT ON TABLE metadata IS 'Unified storage for NIP-11/NIP-66 metadata (deduplicated by content hash)';
@@ -80,18 +80,20 @@ COMMENT ON COLUMN metadata.data IS 'Complete JSON document (NIP-11 or NIP-66 dat
 -- Notes: Each relay can have nip11, nip66_rtt, nip66_ssl, and nip66_geo records per timestamp
 -- Purpose: Tracks metadata changes over time with deduplication via metadata table
 CREATE TABLE IF NOT EXISTS relay_metadata (
-    relay_url       TEXT        NOT NULL,
-    snapshot_at     BIGINT      NOT NULL,
-    type            TEXT        NOT NULL,
-    metadata_id     BYTEA       NOT NULL,
+    relay_url TEXT NOT NULL,
+    snapshot_at BIGINT NOT NULL,
+    type TEXT NOT NULL,
+    metadata_id BYTEA NOT NULL,
 
     -- Constraints
     PRIMARY KEY (relay_url, snapshot_at, type),
-    FOREIGN KEY (relay_url)    REFERENCES relays(url)     ON DELETE CASCADE,
-    FOREIGN KEY (metadata_id)  REFERENCES metadata(id)    ON DELETE CASCADE,
+    FOREIGN KEY (relay_url) REFERENCES relays (url) ON DELETE CASCADE,
+    FOREIGN KEY (metadata_id) REFERENCES metadata (id) ON DELETE CASCADE,
 
     -- Validate type
-    CONSTRAINT relay_metadata_type_check CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo'))
+    CONSTRAINT relay_metadata_type_check CHECK (
+        type IN ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo')
+    )
 );
 
 COMMENT ON TABLE relay_metadata IS 'Time-series relay metadata snapshots (references metadata records by type)';
@@ -105,11 +107,11 @@ COMMENT ON COLUMN relay_metadata.metadata_id IS 'Reference to metadata.id';
 -- Notes: Generic key-value store with JSONB for flexible data structures
 -- Purpose: Finder stores candidates, Synchronizer stores cursors, Monitor stores checkpoints
 CREATE TABLE IF NOT EXISTS service_data (
-    service_name    TEXT        NOT NULL,
-    data_type       TEXT        NOT NULL,
-    data_key        TEXT        NOT NULL,
-    data            JSONB       NOT NULL DEFAULT '{}',
-    updated_at      BIGINT      NOT NULL,
+    service_name TEXT NOT NULL,
+    data_type TEXT NOT NULL,
+    data_key TEXT NOT NULL,
+    data JSONB NOT NULL DEFAULT '{}',
+    updated_at BIGINT NOT NULL,
     PRIMARY KEY (service_name, data_type, data_key)
 );
 

@@ -13,7 +13,7 @@
 -- Returns: TEXT[] of tag values where key length = 1
 -- Note: Used by events.tagvalues generated column
 CREATE OR REPLACE FUNCTION tags_to_tagvalues(p_tags JSONB)
-RETURNS TEXT[]
+RETURNS TEXT []
 LANGUAGE plpgsql
 IMMUTABLE
 RETURNS NULL ON NULL INPUT
@@ -27,7 +27,9 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION tags_to_tagvalues(JSONB) IS 'Extracts single-character tag keys and values from JSONB array for efficient GIN indexing';
+COMMENT ON FUNCTION tags_to_tagvalues(
+    JSONB
+) IS 'Extracts single-character tag keys and values from JSONB array for efficient GIN indexing';
 
 -- ============================================================================
 -- UTILITY FUNCTIONS CREATED
