@@ -12,16 +12,16 @@ All services inherit from `BaseService[ConfigT]` and follow these patterns:
 
 ---
 
-## Initializer - Database Bootstrap
+## Seeder - Database Bootstrap
 
-**Location**: `src/services/initializer.py`
+**Location**: `src/services/seeder.py`
 
 One-shot service for seeding the database with initial relay data from a seed file.
 
 ### Configuration
 
 ```yaml
-# yaml/services/initializer.yaml
+# yaml/services/seeder.yaml
 seed:
   enabled: true
   file_path: "data/seed_relays.txt"
@@ -29,7 +29,7 @@ seed:
 
 **Configuration Models**:
 - `SeedConfig`: enabled (bool), file_path (str)
-- `InitializerConfig`: seed (SeedConfig)
+- `SeederConfig`: seed (SeedConfig)
 
 ### Public Methods
 
@@ -47,13 +47,13 @@ Logs warnings for invalid URLs and continues processing.
 
 ```python
 from core import Brotr
-from services import Initializer
+from services import Seeder
 
 brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
-initializer = Initializer.from_yaml("yaml/services/initializer.yaml", brotr=brotr)
+seeder = Seeder.from_yaml("yaml/services/seeder.yaml", brotr=brotr)
 
 async with brotr:
-    await initializer.run()
+    await seeder.run()
 ```
 
 ### Seed File Format
@@ -575,7 +575,7 @@ All services are registered in `SERVICE_REGISTRY`:
 
 ```python
 SERVICE_REGISTRY = {
-    "initializer": (Initializer, InitializerConfig),
+    "seeder": (Seeder, SeederConfig),
     "finder": (Finder, FinderConfig),
     "validator": (Validator, ValidatorConfig),
     "monitor": (Monitor, MonitorConfig),

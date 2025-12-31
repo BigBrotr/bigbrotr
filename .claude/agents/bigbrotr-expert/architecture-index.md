@@ -22,7 +22,7 @@ Quick reference for BigBrotr component relationships and design patterns.
 ┌─────────────────────────────────────────────────────────────┐
 │                    Service Layer                             │
 │  ┌──────────┐ ┌────────┐ ┌─────────┐ ┌────────┐ ┌─────────┐│
-│  │Initialize│ │ Finder │ │Validator│ │Monitor │ │  Sync   ││
+│  │  Seeder  │ │ Finder │ │Validator│ │Monitor │ │  Sync   ││
 │  └──────────┘ └────────┘ └─────────┘ └────────┘ └─────────┘│
 │                     │                                        │
 │                     └──────────────┬─────────────────────────│
@@ -66,7 +66,7 @@ Quick reference for BigBrotr component relationships and design patterns.
 ### Service Dependencies
 
 ```
-Initializer (one-shot)
+Seeder (one-shot)
     └─> Database ready
          └─> Finder (continuous)
               ├─> Discovers relay URLs
@@ -585,7 +585,7 @@ bigbrotr/
 │   └── services/                  # Business logic
 │       ├── __init__.py
 │       ├── __main__.py            # Service registry
-│       ├── initializer.py         # Database bootstrap
+│       ├── seeder.py         # Database bootstrap
 │       ├── finder.py              # Relay discovery
 │       ├── validator.py           # Relay validation
 │       ├── monitor.py             # Health monitoring
@@ -597,7 +597,7 @@ bigbrotr/
 │   │   │   ├── core/
 │   │   │   │   └── brotr.yaml     # Pool + Brotr config
 │   │   │   └── services/
-│   │   │       ├── initializer.yaml
+│   │   │       ├── seeder.yaml
 │   │   │       ├── finder.yaml
 │   │   │       ├── validator.yaml
 │   │   │       ├── monitor.yaml
