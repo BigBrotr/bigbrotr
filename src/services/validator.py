@@ -125,16 +125,16 @@ class Validator(BaseService[ValidatorConfig]):
     """
     Relay validation service.
 
-    Validates candidate relay URLs discovered by the Finder service.
+    Validates candidate relay URLs discovered by the Seeder and Finder services.
     Tests WebSocket connectivity and adds valid relays to the database.
 
     Workflow:
-    1. Read candidates from services table (service_name=finder, data_type=candidate)
+    1. Read candidates from service_data table (service_name=validator, data_type=candidate)
     2. If max_candidates_per_run is set, select candidates probabilistically
        (candidates with more failed attempts have lower probability)
     3. Test WebSocket connection for each candidate
     4. If valid: insert into relays table, remove from candidates
-    5. If invalid: increment retry counter in value.retries
+    5. If invalid: increment retry counter in value.failed_attempts
     """
 
     SERVICE_NAME: ClassVar[str] = "validator"
@@ -159,8 +159,9 @@ class Validator(BaseService[ValidatorConfig]):
         self._validated_count = 0
         self._failed_count = 0
 
-        # Fetch all candidates from services table
-        all_candidates = await self._brotr.get_service_data("finder", "candidate")
+        # Fetch all candidates from service_data table
+        # Candidates are written by Seeder and Finder with service_name='validator'
+        all_candidates = await self._brotr.get_service_data("validator", "candidate")
 
         if not all_candidates:
             self._logger.info("no_candidates_to_validate")
@@ -189,7 +190,7 @@ class Validator(BaseService[ValidatorConfig]):
                 continue
             if result is None:
                 continue
-            url, is_valid, retries = result
+            url, is_valid, failed_attempts = result
             if is_valid:
                 try:
                     relay = Relay(url)
@@ -202,7 +203,7 @@ class Validator(BaseService[ValidatorConfig]):
                     )
                     self._failed_count += 1
             else:
-                retry_records.append((url, retries + 1))
+                retry_records.append((url, failed_attempts + 1))
                 self._failed_count += 1
 
         # Execute batch database operations
@@ -219,7 +220,7 @@ class Validator(BaseService[ValidatorConfig]):
 
         if delete_keys:
             try:
-                delete_records = [("finder", "candidate", key) for key in delete_keys]
+                delete_records = [("validator", "candidate", key) for key in delete_keys]
                 await self._brotr.delete_service_data(delete_records)
             except Exception as e:
                 self._logger.error(
@@ -232,8 +233,8 @@ class Validator(BaseService[ValidatorConfig]):
         if retry_records:
             try:
                 upsert_records = [
-                    ("finder", "candidate", url, {"retries": retries})
-                    for url, retries in retry_records
+                    ("validator", "candidate", url, {"failed_attempts": failed_attempts})
+                    for url, failed_attempts in retry_records
                 ]
                 await self._brotr.upsert_service_data(upsert_records)
             except Exception as e:
@@ -269,25 +270,25 @@ class Validator(BaseService[ValidatorConfig]):
 
         If max_candidates_per_run is None, return all candidates.
         Otherwise, use weighted random selection where candidates with
-        fewer retries have higher probability of being selected.
+        fewer failed_attempts have higher probability of being selected.
         """
         max_per_run = self._config.max_candidates_per_run
 
         if max_per_run is None or len(candidates) <= max_per_run:
             return candidates
 
-        # Calculate weights: weight = 1 / (retries + 1)
-        # More retries = lower weight = less likely to be selected
+        # Calculate weights: weight = 1 / (failed_attempts + 1)
+        # More failed_attempts = lower weight = less likely to be selected
         weights = []
         for c in candidates:
-            retries = c["value"].get("retries", 0)
-            weight = 1.0 / (retries + 1)
+            failed_attempts = c["value"].get("failed_attempts", 0)
+            weight = 1.0 / (failed_attempts + 1)
             weights.append(weight)
 
         # Normalize weights
         total_weight = sum(weights)
         if total_weight == 0:
-            # All candidates have infinite retries somehow, select randomly
+            # All candidates have infinite failed_attempts somehow, select randomly
             return random.sample(candidates, max_per_run)
 
         probabilities = [w / total_weight for w in weights]
@@ -319,12 +320,12 @@ class Validator(BaseService[ValidatorConfig]):
         Validate a single candidate relay URL.
 
         Returns:
-            Tuple of (url, is_valid, retries) for batch processing.
+            Tuple of (url, is_valid, failed_attempts) for batch processing.
         """
         async with semaphore:
             url = candidate["key"]
             value = candidate["value"]
-            retries = value.get("retries", 0)
+            failed_attempts = value.get("failed_attempts", 0)
 
             # Test connection (with signer for NIP-42 auth if available)
             is_valid = await self._test_connection(url, self._keys)
@@ -332,9 +333,9 @@ class Validator(BaseService[ValidatorConfig]):
             if is_valid:
                 self._logger.debug("candidate_validated", url=url)
             else:
-                self._logger.debug("candidate_failed", url=url, retries=retries + 1)
+                self._logger.debug("candidate_failed", url=url, failed_attempts=failed_attempts + 1)
 
-            return (url, is_valid, retries)
+            return (url, is_valid, failed_attempts)
 
     async def _test_connection(self, url: str, keys: Optional[Keys] = None) -> bool:
         """
