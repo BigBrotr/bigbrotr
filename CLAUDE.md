@@ -15,7 +15,7 @@ pre-commit install
 
 # Run tests
 pytest tests/ -v                             # All tests
-pytest tests/services/test_synchronizer.py -v # Single file
+pytest tests/unit/services/test_synchronizer.py -v # Single file
 pytest -k "health_check" -v                  # Pattern match
 pytest tests/ --cov=src --cov-report=html    # With coverage
 
@@ -98,7 +98,7 @@ table links relays to metadata records via the `type` column (`nip11`, `nip66_rt
 
 4. Export from `src/services/__init__.py`
 
-5. Write tests in `tests/services/test_myservice.py`
+5. Write tests in `tests/unit/services/test_myservice.py`
 
 ## Creating a New Implementation
 

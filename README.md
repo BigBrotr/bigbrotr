@@ -534,7 +534,7 @@ pytest tests/ -v
 pytest tests/ --cov=src --cov-report=html
 
 # Run specific test file
-pytest tests/services/test_synchronizer.py -v
+pytest tests/unit/services/test_synchronizer.py -v
 
 # Run tests matching pattern
 pytest -k "health_check" -v
