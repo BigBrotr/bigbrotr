@@ -365,7 +365,7 @@ def build_kind_10166_tags(config: MonitorConfig) -> list[Tag]:
 # =============================================================================
 
 
-class Monitor(BaseService):
+class Monitor(BaseService[MonitorConfig]):
     """
     Relay health monitoring service with full NIP-66 compliance.
 

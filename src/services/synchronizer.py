@@ -707,7 +707,7 @@ async def _sync_relay_events(
 # =============================================================================
 
 
-class Synchronizer(BaseService):
+class Synchronizer(BaseService[SynchronizerConfig]):
     """
     Event synchronization service.
     """
@@ -881,7 +881,7 @@ class Synchronizer(BaseService):
             results = await pool.starmap(sync_relay_task, tasks)
 
         # Process results and collect cursor updates
-        cursor_updates: list[tuple[str, str, str, dict]] = []
+        cursor_updates: list[tuple[str, str, str, dict[str, Any]]] = []
 
         for url, events, invalid, skipped, new_time, success in results:
             # Track events regardless of success (partial sync may have inserted some)
@@ -965,6 +965,7 @@ class Synchronizer(BaseService):
             cursor_data = cursors[0].get("value", {})
             last_synced_at = cursor_data.get("last_synced_at")
             if last_synced_at is not None:
-                return last_synced_at + 1
+                result: int = last_synced_at + 1
+                return result
 
         return self._config.time_range.default_start

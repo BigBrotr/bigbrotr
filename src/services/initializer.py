@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, ClassVar, Optional
 
 from pydantic import BaseModel, Field
 
@@ -53,7 +53,7 @@ class InitializerConfig(BaseModel):
 # =============================================================================
 
 
-class Initializer(BaseService):
+class Initializer(BaseService[InitializerConfig]):
     """
     Database initialization service.
 
@@ -61,8 +61,8 @@ class Initializer(BaseService):
     This is a one-shot service - run once at startup.
     """
 
-    SERVICE_NAME = "initializer"
-    CONFIG_CLASS = InitializerConfig
+    SERVICE_NAME: ClassVar[str] = "initializer"
+    CONFIG_CLASS: ClassVar[type[InitializerConfig]] = InitializerConfig
 
     def __init__(
         self,

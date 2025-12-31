@@ -120,7 +120,7 @@ class ValidatorConfig(BaseModel):
 # =============================================================================
 
 
-class Validator(BaseService):
+class Validator(BaseService[ValidatorConfig]):
     """
     Relay validation service.
 
@@ -188,7 +188,7 @@ class Validator(BaseService):
                 continue
             if result is None:
                 continue
-            url, is_valid, retries = result  # type: ignore[misc]
+            url, is_valid, retries = result
             if is_valid:
                 try:
                     relay = Relay(url)
