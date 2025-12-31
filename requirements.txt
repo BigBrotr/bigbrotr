@@ -7,4 +7,5 @@ geohash2>=1.1
 nostr-sdk>=0.44.0
 pydantic==2.10.4
 PyYAML==6.0.2
+rfc3986>=2.0.0
 typing-extensions==4.12.2

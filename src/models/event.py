@@ -63,6 +63,7 @@ class Event:
     """
 
     __slots__ = ("_inner",)
+    _inner: NostrEvent
 
     def __init__(self, inner: NostrEvent) -> None:
         """
