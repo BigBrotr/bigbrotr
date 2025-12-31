@@ -71,7 +71,7 @@ class RelayMetadata:
                      generated_at, metadata_type, metadata_data)
         """
         return (
-            self.relay._url_without_scheme,
+            self.relay.url_without_scheme,
             self.relay.network,
             self.relay.discovered_at,
             self.generated_at,

@@ -11,7 +11,7 @@ from rfc3986.validators import Validator
 @dataclass(frozen=True)
 class Relay:
     """Immutable representation of a Nostr relay."""
-    _url_without_scheme: str
+    url_without_scheme: str  # Unique identifier (e.g., relay.example.com:8080/path)
     network: str
     discovered_at: int
     scheme: str
@@ -22,7 +22,7 @@ class Relay:
     @property
     def url(self) -> str:
         """Full URL with scheme (e.g., wss://relay.example.com)."""
-        return f"{self.scheme}://{self._url_without_scheme}"
+        return f"{self.scheme}://{self.url_without_scheme}"
     
     # Complete list of private/reserved IP networks per IANA registries
     # https://www.iana.org/assignments/iana-ipv4-special-registry/
@@ -155,7 +155,7 @@ class Relay:
             raise ValueError(f"Invalid host: '{parsed['host']}'")
 
         instance = object.__new__(cls)
-        object.__setattr__(instance, "_url_without_scheme", parsed["url"])
+        object.__setattr__(instance, "url_without_scheme", parsed["url"])
         object.__setattr__(instance, "network", network)
         object.__setattr__(instance, "discovered_at", discovered_at if discovered_at is not None else int(time()))
         object.__setattr__(instance, "scheme", parsed["scheme"])
@@ -174,4 +174,4 @@ class Relay:
         Returns:
             Tuple of (url_without_scheme, network, discovered_at)
         """
-        return (self._url_without_scheme, self.network, self.discovered_at)
+        return (self.url_without_scheme, self.network, self.discovered_at)
