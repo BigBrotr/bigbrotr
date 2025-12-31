@@ -472,7 +472,7 @@ class Monitor(BaseService):
                         await self._insert_metadata_batch(metadata_batch)
                         metadata_batch = []
             except Exception as e:
-                self._logger.error("unexpected_error_in_loop", error=str(e))
+                self._logger.error("monitor_loop_failed", error=str(e), error_type=type(e).__name__)
 
         # Insert remaining records
         if metadata_batch:
@@ -634,7 +634,7 @@ class Monitor(BaseService):
             count = await self._brotr.insert_relay_metadata(batch)
             self._logger.debug("metadata_batch_inserted", count=count)
         except Exception as e:
-            self._logger.warning("metadata_batch_failed", count=len(batch), error=str(e))
+            self._logger.error("metadata_batch_insert_failed", error=str(e), error_type=type(e).__name__, count=len(batch))
 
     async def _publish_relay_discovery(
         self, relay: Relay, nip11: Optional[Nip11], nip66: Optional[Nip66]
@@ -717,4 +717,4 @@ class Monitor(BaseService):
                     await client.shutdown()
 
         except Exception as e:
-            self._logger.warning("publish_10166_failed", error=str(e))
+            self._logger.warning("publish_10166_failed", error=str(e), error_type=type(e).__name__)

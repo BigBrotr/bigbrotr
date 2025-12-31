@@ -196,7 +196,7 @@ class Validator(BaseService):
                     delete_keys.append(url)
                     self._validated_count += 1
                 except Exception as e:
-                    self._logger.warning("parse_failed", url=url, error=str(e))
+                    self._logger.warning("parse_failed", error=str(e), error_type=type(e).__name__, url=url)
                     self._failed_count += 1
             else:
                 retry_records.append((url, retries + 1))
@@ -207,14 +207,14 @@ class Validator(BaseService):
             try:
                 await self._brotr.insert_relays(valid_relays)
             except Exception as e:
-                self._logger.error("insert_relays_failed", error=str(e), count=len(valid_relays))
+                self._logger.error("insert_relays_failed", error=str(e), error_type=type(e).__name__, count=len(valid_relays))
 
         if delete_keys:
             try:
                 delete_records = [("finder", "candidate", key) for key in delete_keys]
                 await self._brotr.delete_service_data(delete_records)
             except Exception as e:
-                self._logger.error("delete_candidates_failed", error=str(e), count=len(delete_keys))
+                self._logger.error("delete_candidates_failed", error=str(e), error_type=type(e).__name__, count=len(delete_keys))
 
         if retry_records:
             try:
@@ -224,7 +224,7 @@ class Validator(BaseService):
                 ]
                 await self._brotr.upsert_service_data(upsert_records)
             except Exception as e:
-                self._logger.error("upsert_retries_failed", error=str(e), count=len(retry_records))
+                self._logger.error("upsert_retries_failed", error=str(e), error_type=type(e).__name__, count=len(retry_records))
 
         # Optional cleanup of candidates that exceeded max attempts
         if self._config.cleanup.enabled:
@@ -235,7 +235,7 @@ class Validator(BaseService):
                 if deleted > 0:
                     self._logger.info("failed_candidates_deleted", count=deleted)
             except Exception as e:
-                self._logger.error("cleanup_failed", error=str(e))
+                self._logger.error("cleanup_failed", error=str(e), error_type=type(e).__name__)
 
         elapsed = time.time() - cycle_start
         self._logger.info(

@@ -111,11 +111,7 @@ class Initializer(BaseService):
                 try:
                     relays.append(Relay(line))
                 except Exception as e:
-                    self._logger.warning(
-                        "seed_invalid_relay",
-                        line=line,
-                        error=str(e),
-                    )
+                    self._logger.warning("seed_parse_relay_failed", error=str(e), error_type=type(e).__name__, line=line)
 
         return relays
 
