@@ -1,30 +1,102 @@
 # ============================================================================
 # YAML Lint Configuration for BigBrotr
 # ============================================================================
+#
+# yamllint checks YAML files for syntax and style issues.
+#
+# Usage:
+#   yamllint -c .yamllint.yaml .
+#
+# Documentation:
+#   https://yamllint.readthedocs.io/
+#
+# ============================================================================
 
 extends: default
 
+yaml-files:
+  - "*.yaml"
+  - "*.yml"
+  - .yamllint.yaml
+
 rules:
+  # Line length - allow longer lines for URLs and complex values
   line-length:
     max: 120
     level: warning
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+
+  # Truthy values - be explicit about booleans
   truthy:
-    allowed-values: ['true', 'false', 'yes', 'no']
+    allowed-values: ["true", "false", "yes", "no", "on", "off"]
+    check-keys: false
+
+  # Comments formatting
   comments:
     require-starting-space: true
     min-spaces-from-content: 1
+
+  # Indentation - consistent 2 spaces
   indentation:
     spaces: 2
     indent-sequences: true
+    check-multi-line-strings: false
+
+  # Document markers
   document-start: disable
   document-end: disable
+
+  # Empty lines
   empty-lines:
     max: 2
     max-start: 0
     max-end: 1
 
-ignore: |
-  .git/
-  node_modules/
-  .venv/
-  venv/
+  # Brackets and braces
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 0
+
+  # Colons and commas
+  colons:
+    max-spaces-before: 0
+    max-spaces-after: 1
+  commas:
+    max-spaces-before: 0
+    min-spaces-after: 1
+    max-spaces-after: 1
+
+  # Key ordering (disabled - not always desirable)
+  key-ordering: disable
+
+  # New lines
+  new-line-at-end-of-file: enable
+  new-lines:
+    type: unix
+
+  # Trailing spaces
+  trailing-spaces: enable
+
+  # Quoted strings - allow both styles
+  quoted-strings: disable
+
+  # Octal values
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: false
+
+# Ignore generated and third-party files
+ignore:
+  - .git/
+  - .venv/
+  - venv/
+  - node_modules/
+  - .ruff_cache/
+  - .mypy_cache/
+  - .pytest_cache/
+  - htmlcov/
+  - .claude/
