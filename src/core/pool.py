@@ -9,6 +9,8 @@ Manages database connections with:
 - Context manager support
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 from collections.abc import AsyncIterator
@@ -18,7 +20,7 @@ from typing import Any, Optional, Union
 
 import asyncpg
 import yaml
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator
 
 from .logger import Logger
 
@@ -70,7 +72,7 @@ class LimitsConfig(BaseModel):
 
     @field_validator("max_size")
     @classmethod
-    def validate_max_size(cls, v: int, info) -> int:
+    def validate_max_size(cls, v: int, info: ValidationInfo) -> int:
         """Ensure max_size >= min_size."""
         min_size = info.data.get("min_size", 5)
         if v < min_size:
@@ -95,7 +97,7 @@ class RetryConfig(BaseModel):
 
     @field_validator("max_delay")
     @classmethod
-    def validate_max_delay(cls, v: float, info) -> float:
+    def validate_max_delay(cls, v: float, info: ValidationInfo) -> float:
         """Ensure max_delay >= initial_delay."""
         initial_delay = info.data.get("initial_delay", 1.0)
         if v < initial_delay:
@@ -153,7 +155,7 @@ class Pool:
             config: Pool configuration (uses defaults if not provided)
         """
         self._config = config or PoolConfig()
-        self._pool: Optional[asyncpg.Pool] = None
+        self._pool: Optional[asyncpg.Pool[asyncpg.Record]] = None
         self._is_connected: bool = False
         self._connection_lock = asyncio.Lock()
         self._logger = Logger("pool")
@@ -266,7 +268,7 @@ class Pool:
     # Connection Acquisition
     # -------------------------------------------------------------------------
 
-    def acquire(self) -> AbstractAsyncContextManager[asyncpg.Connection]:
+    def acquire(self) -> AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]:
         """
         Acquire a connection from the pool.
 
@@ -282,7 +284,7 @@ class Pool:
         self,
         max_retries: int = 3,
         health_check_timeout: Optional[float] = None,
-    ) -> AsyncIterator[asyncpg.Connection]:
+    ) -> AsyncIterator[asyncpg.Connection[asyncpg.Record]]:
         """
         Acquire a health-checked connection.
 
@@ -329,7 +331,7 @@ class Pool:
         )
 
     @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[asyncpg.Connection]:
+    async def transaction(self) -> AsyncIterator[asyncpg.Connection[asyncpg.Record]]:
         """
         Acquire connection with transaction management.
 
@@ -460,7 +462,12 @@ class Pool:
         await self.connect()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any],
+    ) -> None:
         """Async context manager exit."""
         await self.close()
 
