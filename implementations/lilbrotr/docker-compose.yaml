@@ -134,15 +134,15 @@ services:
         max-file: "3"
 
   # --------------------------------------------------------------------------
-  # LilBrotr Initializer Service
+  # LilBrotr Seeder Service
   # --------------------------------------------------------------------------
-  # Runs once to verify database schema and seed initial data
+  # Runs once to seed initial relay data for validation
 
-  initializer:
+  seeder:
     build:
       context: ../../
       dockerfile: implementations/lilbrotr/Dockerfile
-    container_name: lilbrotr-initializer
+    container_name: lilbrotr-seeder
     restart: "no"
 
     environment:
@@ -159,7 +159,7 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["python", "-m", "services", "initializer"]
+    command: ["python", "-m", "services", "seeder"]
 
     logging:
       driver: "json-file"
@@ -191,7 +191,7 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      initializer:
+      seeder:
         condition: service_completed_successfully
 
     command: ["python", "-m", "services", "finder"]
@@ -243,7 +243,7 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      initializer:
+      seeder:
         condition: service_completed_successfully
       finder:
         condition: service_healthy
@@ -299,7 +299,7 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      initializer:
+      seeder:
         condition: service_completed_successfully
       validator:
         condition: service_healthy
@@ -353,7 +353,7 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      initializer:
+      seeder:
         condition: service_completed_successfully
       monitor:
         condition: service_healthy
