@@ -314,7 +314,7 @@ class Finder(BaseService):
             chunks=chunks_processed,
         )
 
-    async def _load_event_cursor(self) -> dict:
+    async def _load_event_cursor(self) -> dict[str, Any]:
         """Load the event scanning cursor from services table."""
         try:
             results = await self._brotr.get_service_data(

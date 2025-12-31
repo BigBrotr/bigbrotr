@@ -262,7 +262,7 @@ class Validator(BaseService):
             duration=round(elapsed, 2),
         )
 
-    def _select_candidates(self, candidates: list[dict]) -> list[dict]:
+    def _select_candidates(self, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Select candidates to validate this run.
 
@@ -293,7 +293,7 @@ class Validator(BaseService):
 
         # Weighted random selection without replacement
         selected_indices: set[int] = set()
-        selected: list[dict[str, Any]] = []
+        selected: list[dict[str, Any]] = []  # Type annotation matches return type
 
         while len(selected) < max_per_run and len(selected_indices) < len(candidates):
             # Adjust probabilities for already selected items
@@ -312,7 +312,7 @@ class Validator(BaseService):
         return selected
 
     async def _validate_candidate(
-        self, candidate: dict, semaphore: asyncio.Semaphore
+        self, candidate: dict[str, Any], semaphore: asyncio.Semaphore
     ) -> tuple[str, bool, int]:
         """
         Validate a single candidate relay URL.

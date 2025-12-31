@@ -410,13 +410,14 @@ async def sync_relay_task(
     start_time: int,
     config_dict: dict[str, Any],
     brotr_config: dict[str, Any],
-) -> tuple[str, int, int, int, int]:
+) -> tuple[str, int, int, int, int, bool]:
     """
     Standalone task to sync a single relay.
     Designed to be run in a worker process.
 
     Returns:
-        tuple(relay_url, events_synced, invalid_events, skipped_events, new_end_time)
+        tuple(relay_url, events_synced, invalid_events, skipped_events, new_end_time, success)
+        success is True if sync completed (even with 0 events), False on error/timeout
     """
     try:
         # Reconstruct Relay object (can't pickle Relay across processes)
@@ -452,7 +453,7 @@ async def sync_relay_task(
         end_time = int(time.time()) - config.time_range.lookback_seconds
 
         if start_time >= end_time:
-            return relay.url, 0, 0, 0, start_time
+            return relay.url, 0, 0, 0, start_time, True  # No work needed, still success
 
         events_synced = 0
         invalid_events = 0
@@ -485,18 +486,18 @@ async def sync_relay_task(
                     invalid=invalid_events,
                     skipped=skipped_events,
                 )
-            return relay.url, events_synced, invalid_events, skipped_events, end_time
+            return relay.url, events_synced, invalid_events, skipped_events, end_time, True
 
         except asyncio.TimeoutError:
             _worker_log("WARNING", "sync_timeout", relay=relay.url)
-            return relay.url, events_synced, invalid_events, skipped_events, start_time
+            return relay.url, events_synced, invalid_events, skipped_events, start_time, False
         except Exception as e:
             _worker_log("WARNING", "sync_error", relay=relay.url, error=str(e))
-            return relay.url, events_synced, invalid_events, skipped_events, start_time
+            return relay.url, events_synced, invalid_events, skipped_events, start_time, False
 
     except Exception as e:
         _worker_log("ERROR", "worker_init_error", relay=relay_url, error=str(e))
-        return relay_url, 0, 0, 0, start_time
+        return relay_url, 0, 0, 0, start_time, False
 
 
 def _create_filter(since: int, until: int, config: FilterConfig) -> Filter:
@@ -882,28 +883,30 @@ class Synchronizer(BaseService):
         # Process results and collect cursor updates
         cursor_updates: list[tuple[str, str, str, dict]] = []
 
-        for url, events, invalid, skipped, new_time in results:
-            # A sync is successful if we got a result (relay was reachable)
-            # 0 events is not a failure - relay may simply have no new events
+        for url, events, invalid, skipped, new_time, success in results:
+            # Track events regardless of success (partial sync may have inserted some)
             self._synced_events += events
             self._invalid_events += invalid
             self._skipped_events += skipped
-            self._synced_relays += 1
 
-            # Collect cursor update for batch upsert
-            # Save cursor even if 0 events - time window was successfully processed
-            try:
-                relay = Relay(url)
-                cursor_updates.append(
-                    (
-                        "synchronizer",
-                        "cursor",
-                        relay.url_without_scheme,
-                        {"last_synced_at": new_time},
+            # Only count as synced relay if sync was successful
+            if success:
+                self._synced_relays += 1
+
+                # Collect cursor update for batch upsert
+                # Save cursor even if 0 events - time window was successfully processed
+                try:
+                    relay = Relay(url)
+                    cursor_updates.append(
+                        (
+                            "synchronizer",
+                            "cursor",
+                            relay.url_without_scheme,
+                            {"last_synced_at": new_time},
+                        )
                     )
-                )
-            except Exception:
-                pass  # Skip invalid URLs
+                except Exception:
+                    pass  # Skip invalid URLs
 
         # Batch upsert all cursors
         if cursor_updates:

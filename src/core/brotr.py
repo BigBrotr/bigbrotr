@@ -397,7 +397,7 @@ class Brotr:
     # Service Data Operations
     # -------------------------------------------------------------------------
 
-    async def upsert_service_data(self, records: list[tuple[str, str, str, dict]]) -> int:
+    async def upsert_service_data(self, records: list[tuple[str, str, str, dict[str, Any]]]) -> int:
         """
         Upsert service data records atomically using bulk insert.
 

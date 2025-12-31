@@ -681,8 +681,8 @@ class Monitor(BaseService):
                     for url in self._config.publishing.relays:
                         try:
                             await client.add_relay(url)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            self._logger.debug("add_relay_failed", url=url, error=str(e))
                     await client.connect()
                     await client.send_event_builder(builder)
                 finally:
@@ -712,8 +712,8 @@ class Monitor(BaseService):
                     for url in self._config.publishing.relays:
                         try:
                             await client.add_relay(url)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            self._logger.debug("add_relay_failed", url=url, error=str(e))
                     await client.connect()
                     await client.send_event_builder(builder)
                     self._logger.info("announcement_published")
