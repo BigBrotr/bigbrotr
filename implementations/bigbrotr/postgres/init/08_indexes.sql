@@ -55,11 +55,9 @@ CREATE INDEX IF NOT EXISTS idx_events_tagvalues
 -- Purpose: Optimize relay-event relationship queries
 -- ============================================================================
 
--- Index: idx_events_relays_event_id
--- Purpose: Fast lookup of all relays hosting a specific event
--- Usage: WHERE event_id = ? (find which relays have an event)
-CREATE INDEX IF NOT EXISTS idx_events_relays_event_id
-    ON events_relays USING btree (event_id);
+-- Note: No separate index on event_id needed - the composite primary key
+-- (event_id, relay_url) already supports efficient lookups on event_id alone
+-- since it's the leftmost column in the B-tree index.
 
 -- Index: idx_events_relays_relay_url
 -- Purpose: Fast lookup of all events from a specific relay

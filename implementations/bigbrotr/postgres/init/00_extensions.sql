@@ -14,8 +14,8 @@ CREATE EXTENSION IF NOT EXISTS "btree_gin";
 
 -- Extension: pgcrypto
 -- Purpose: Provides cryptographic functions including digest() for SHA-256 hashing
--- Usage: Required for compute_nip11_hash() and compute_nip66_hash() functions
--- Note: Used for content-based deduplication of NIP-11 and NIP-66 records
+-- Usage: Required for insert_relay_metadata() function to compute content hash
+-- Note: Used for content-based deduplication of metadata records
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ============================================================================
