@@ -30,8 +30,9 @@ BigBrotr can be deployed using:
 | PostgreSQL 16+ | Primary data store | Yes |
 | PGBouncer | Connection pooling | Recommended |
 | Tor Proxy | .onion relay support | Optional |
-| Initializer | Database bootstrap | Yes (once) |
-| Finder | Relay discovery | Yes |
+| Initializer | Database bootstrap and seeding | Yes (once) |
+| Finder | Relay URL discovery | Yes |
+| Validator | Candidate relay validation | Yes |
 | Monitor | Health monitoring | Yes |
 | Synchronizer | Event collection | Yes |
 
@@ -192,11 +193,14 @@ services:
   finder:
     # ... similar configuration
 
+  validator:
+    # ... similar configuration (depends on finder and tor)
+
   monitor:
-    # ... similar configuration
+    # ... similar configuration (depends on validator)
 
   synchronizer:
-    # ... similar configuration
+    # ... similar configuration (depends on monitor)
 ```
 
 ### Deployment Commands
@@ -336,6 +340,7 @@ python -m services initializer
 
 # Run services (in separate terminals or with process manager)
 python -m services finder &
+python -m services validator &
 python -m services monitor &
 python -m services synchronizer &
 ```
@@ -365,13 +370,13 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-Create similar files for `monitor` and `synchronizer`.
+Create similar files for `validator`, `monitor`, and `synchronizer`.
 
 ```bash
 # Enable and start
 sudo systemctl daemon-reload
-sudo systemctl enable bigbrotr-finder bigbrotr-monitor bigbrotr-synchronizer
-sudo systemctl start bigbrotr-finder bigbrotr-monitor bigbrotr-synchronizer
+sudo systemctl enable bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer
+sudo systemctl start bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer
 
 # Check status
 sudo systemctl status bigbrotr-*
@@ -564,8 +569,8 @@ ANALYZE;
 
 -- Cleanup orphans
 SELECT delete_orphan_events();
-SELECT delete_orphan_nip11();
-SELECT delete_orphan_nip66();
+SELECT delete_orphan_metadata();
+SELECT delete_failed_candidates();
 ```
 
 **Monthly**:
@@ -749,7 +754,8 @@ archive_command = 'cp %p /path/to/archive/%f'
 - [ ] All services show as "healthy"
 - [ ] Initializer completed successfully
 - [ ] Database schema verified
-- [ ] Finder discovering relays
+- [ ] Finder discovering relay candidates
+- [ ] Validator testing and promoting candidates
 - [ ] Monitor checking relay health
 - [ ] Synchronizer collecting events
 

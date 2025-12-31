@@ -47,10 +47,11 @@ BigBrotr employs a **three-layer architecture** that separates infrastructure, b
 │                                                               │
 │  ┌───────────┐  ┌─────────┐  ┌───────────┐  ┌───────────┐  │
 │  │Initializer│  │ Finder  │  │ Validator │  │  Monitor  │  │
+│  │ (seed)    │  │ (disco) │  │ (test)    │  │ (health)  │  │
 │  └───────────┘  └─────────┘  └───────────┘  └───────────┘  │
 │                                                               │
 │  ┌─────────────────────────────────────────────────────┐    │
-│  │              Synchronizer                            │    │
+│  │              Synchronizer (events)                   │    │
 │  └─────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────┘
                               │
@@ -69,7 +70,8 @@ BigBrotr employs a **three-layer architecture** that separates infrastructure, b
 │                     DATA MODELS                               │
 │  Immutable data structures, validation, database mapping     │
 │                                                               │
-│  Event, Relay, EventRelay, Keys, Metadata, Nip11, Nip66     │
+│  Event, Relay, EventRelay, RelayMetadata, Keys, Metadata,   │
+│  Nip11, Nip66                                                │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -536,56 +538,45 @@ Each service inherits from `BaseService` and implements domain-specific logic.
 
 ### Initializer Service
 
-**Purpose**: One-shot database bootstrap and verification
+**Purpose**: One-shot database bootstrap and relay seeding
 
 **Workflow**:
 
 ```python
 async def run(self):
-    """Verify schema and seed database."""
+    """Seed database with relay URLs."""
 
-    # 1. Verify extensions
-    if self.config.verify.extensions:
-        await self._verify_extensions()
+    if not self.config.seed.enabled:
+        logger.info("seeding_disabled")
+        return
 
-    # 2. Verify tables
-    if self.config.verify.tables:
-        await self._verify_tables()
+    # Parse seed file
+    relays = self._parse_seed_file()
 
-    # 3. Verify procedures
-    if self.config.verify.procedures:
-        await self._verify_procedures()
-
-    # 4. Verify views
-    if self.config.verify.views:
-        await self._verify_views()
-
-    # 5. Seed relays
-    if self.config.seed.enabled:
-        await self._seed_relays()
+    # Store as candidates for Validator
+    await self._seed_relays(relays)
 ```
 
-**Verification Pattern**:
+**Seed File Parsing**:
 
 ```python
-async def _verify_tables(self):
-    """Verify all required tables exist."""
-    query = """
-        SELECT tablename
-        FROM pg_tables
-        WHERE schemaname = 'public'
-    """
-
-    rows = await self._brotr.pool.fetch(query)
-    existing = {row["tablename"] for row in rows}
-    expected = set(self.config.schema_.tables)
-
-    missing = expected - existing
-    if missing:
-        raise InitializerError(
-            f"Missing tables: {', '.join(sorted(missing))}"
-        )
+def _parse_seed_file(self) -> list[Relay]:
+    """Parse and validate relay URLs from seed file."""
+    relays = []
+    with open(self.config.seed.file_path) as f:
+        for line in f:
+            url = line.strip()
+            if not url or url.startswith("#"):
+                continue
+            try:
+                relay = Relay(url)
+                relays.append(relay)
+            except ValueError as e:
+                logger.warning("invalid_seed_url", url=url, error=str(e))
+    return relays
 ```
+
+**Note**: The Initializer stores relay URLs as candidates in `service_data`. The Validator service tests and promotes valid candidates to the `relays` table.
 
 ---
 
@@ -822,9 +813,9 @@ async def run(self):
         FROM relays r
         LEFT JOIN relay_metadata rm ON r.url = rm.relay_url
             AND rm.type = 'nip66_rtt'
-        WHERE rm.generated_at IS NULL
-           OR rm.generated_at < $1
-        ORDER BY rm.generated_at ASC NULLS FIRST
+        WHERE rm.snapshot_at IS NULL
+           OR rm.snapshot_at < $1
+        ORDER BY rm.snapshot_at ASC NULLS FIRST
         LIMIT $2
     """
 
@@ -1137,7 +1128,7 @@ class EventRelay:
 
         return (
             *event_params,     # (id, pubkey, created_at, kind, tags, content, sig)
-            *relay_params,     # (url, network, inserted_at)
+            *relay_params,     # (url, network, discovered_at)
             self.seen_at,
         )
 ```
@@ -1151,15 +1142,13 @@ class EventRelay:
 **relays**: Primary relay registry
 ```sql
 CREATE TABLE relays (
-    url TEXT PRIMARY KEY,               -- Normalized without scheme
-    network TEXT NOT NULL,              -- clearnet, tor, i2p, etc.
-    inserted_at BIGINT NOT NULL,        -- Unix timestamp
-
-    CHECK (network IN ('clearnet', 'tor', 'i2p', 'loki', 'unknown'))
+    url TEXT PRIMARY KEY,               -- WebSocket URL (e.g., wss://relay.example.com)
+    network TEXT NOT NULL,              -- clearnet or tor
+    discovered_at BIGINT NOT NULL       -- Unix timestamp
 );
 
 CREATE INDEX idx_relays_network ON relays(network);
-CREATE INDEX idx_relays_inserted_at ON relays(inserted_at DESC);
+CREATE INDEX idx_relays_discovered_at ON relays(discovered_at DESC);
 ```
 
 **events**: Full event storage
@@ -1220,42 +1209,42 @@ CREATE INDEX idx_metadata_data ON metadata USING GIN(data jsonb_path_ops);
 ```sql
 CREATE TABLE relay_metadata (
     relay_url TEXT NOT NULL REFERENCES relays(url) ON DELETE CASCADE,
-    generated_at BIGINT NOT NULL,
+    snapshot_at BIGINT NOT NULL,
     type TEXT NOT NULL,                 -- nip11, nip66_rtt, nip66_ssl, nip66_geo
     metadata_id BYTEA NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
 
-    PRIMARY KEY (relay_url, generated_at, type),
+    PRIMARY KEY (relay_url, snapshot_at, type),
     CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo'))
 );
 
 CREATE INDEX idx_relay_metadata_type ON relay_metadata(type);
-CREATE INDEX idx_relay_metadata_generated_at ON relay_metadata(generated_at DESC);
-CREATE INDEX idx_relay_metadata_relay_type_time ON relay_metadata(relay_url, type, generated_at DESC);
+CREATE INDEX idx_relay_metadata_snapshot_at ON relay_metadata(snapshot_at DESC);
+CREATE INDEX idx_relay_metadata_relay_type_time ON relay_metadata(relay_url, type, snapshot_at DESC);
 ```
 
-**services**: Generic service state
+**service_data**: Per-service operational data
 ```sql
-CREATE TABLE services (
+CREATE TABLE service_data (
     service_name TEXT NOT NULL,
     data_type TEXT NOT NULL,
-    key TEXT NOT NULL,
-    value JSONB NOT NULL,
+    data_key TEXT NOT NULL,
+    data JSONB NOT NULL DEFAULT '{}',
     updated_at BIGINT NOT NULL,
 
-    PRIMARY KEY (service_name, data_type, key)
+    PRIMARY KEY (service_name, data_type, data_key)
 );
 
-CREATE INDEX idx_services_service_name ON services(service_name);
-CREATE INDEX idx_services_updated_at ON services(updated_at DESC);
+CREATE INDEX idx_service_data_service_name ON service_data(service_name);
+CREATE INDEX idx_service_data_service_type ON service_data(service_name, data_type);
 ```
 
 ---
 
-### Stored Procedures
+### Stored Functions
 
 **insert_event**: Atomic event insertion
 ```sql
-CREATE OR REPLACE PROCEDURE insert_event(
+CREATE OR REPLACE FUNCTION insert_event(
     p_event_id BYTEA,
     p_pubkey BYTEA,
     p_created_at BIGINT,
@@ -1265,13 +1254,16 @@ CREATE OR REPLACE PROCEDURE insert_event(
     p_sig BYTEA,
     p_relay_url TEXT,
     p_relay_network TEXT,
-    p_relay_inserted_at BIGINT,
+    p_relay_discovered_at BIGINT,
     p_seen_at BIGINT
-) AS $$
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
 BEGIN
     -- Insert relay (idempotent)
-    INSERT INTO relays (url, network, inserted_at)
-    VALUES (p_relay_url, p_relay_network, p_relay_inserted_at)
+    INSERT INTO relays (url, network, discovered_at)
+    VALUES (p_relay_url, p_relay_network, p_relay_discovered_at)
     ON CONFLICT (url) DO NOTHING;
 
     -- Insert event (idempotent)
@@ -1284,41 +1276,44 @@ BEGIN
     VALUES (p_event_id, p_relay_url, p_seen_at)
     ON CONFLICT (event_id, relay_url) DO NOTHING;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 ```
 
 **insert_relay_metadata**: Content-addressed metadata
 ```sql
-CREATE OR REPLACE PROCEDURE insert_relay_metadata(
+CREATE OR REPLACE FUNCTION insert_relay_metadata(
     p_relay_url TEXT,
     p_relay_network TEXT,
-    p_relay_inserted_at BIGINT,
-    p_generated_at BIGINT,
+    p_relay_discovered_at BIGINT,
+    p_snapshot_at BIGINT,
     p_type TEXT,
-    p_data JSONB
-) AS $$
+    p_metadata_data JSONB
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
 DECLARE
     v_metadata_id BYTEA;
 BEGIN
-    -- Compute content hash
-    v_metadata_id := digest(p_data::TEXT, 'sha256');
+    -- Compute content-addressed hash from JSONB data
+    v_metadata_id := digest(p_metadata_data::TEXT, 'sha256');
 
-    -- Insert relay (idempotent)
-    INSERT INTO relays (url, network, inserted_at)
-    VALUES (p_relay_url, p_relay_network, p_relay_inserted_at)
+    -- Ensure relay exists (idempotent)
+    INSERT INTO relays (url, network, discovered_at)
+    VALUES (p_relay_url, p_relay_network, p_relay_discovered_at)
     ON CONFLICT (url) DO NOTHING;
 
-    -- Insert metadata (idempotent)
+    -- Upsert metadata (deduplicated by content hash)
     INSERT INTO metadata (id, data)
-    VALUES (v_metadata_id, p_data)
+    VALUES (v_metadata_id, p_metadata_data)
     ON CONFLICT (id) DO NOTHING;
 
-    -- Insert junction (idempotent)
-    INSERT INTO relay_metadata (relay_url, generated_at, type, metadata_id)
-    VALUES (p_relay_url, p_generated_at, p_type, v_metadata_id)
-    ON CONFLICT (relay_url, generated_at, type) DO NOTHING;
+    -- Insert relay_metadata junction (idempotent)
+    INSERT INTO relay_metadata (relay_url, snapshot_at, type, metadata_id)
+    VALUES (p_relay_url, p_snapshot_at, p_type, v_metadata_id)
+    ON CONFLICT (relay_url, snapshot_at, type) DO NOTHING;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 ```
 
 ---
@@ -1331,10 +1326,10 @@ CREATE MATERIALIZED VIEW relay_metadata_latest AS
 SELECT DISTINCT ON (relay_url, type)
     relay_url,
     type,
-    generated_at,
+    snapshot_at,
     metadata_id
 FROM relay_metadata
-ORDER BY relay_url, type, generated_at DESC;
+ORDER BY relay_url, type, snapshot_at DESC;
 
 CREATE UNIQUE INDEX idx_relay_metadata_latest_pkey
     ON relay_metadata_latest(relay_url, type);
