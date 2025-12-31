@@ -152,12 +152,8 @@ class TestRelayMetadataIntegration:
         # Same data should produce same content hash
         data = {"name": "Dedup Test", "version": "1.0"}
 
-        metadata1 = RelayMetadata(
-            relay=relay, metadata_type="nip11", metadata=Metadata(data)
-        )
-        metadata2 = RelayMetadata(
-            relay=relay, metadata_type="nip11", metadata=Metadata(data)
-        )
+        metadata1 = RelayMetadata(relay=relay, metadata_type="nip11", metadata=Metadata(data))
+        metadata2 = RelayMetadata(relay=relay, metadata_type="nip11", metadata=Metadata(data))
 
         await integration_brotr.insert_relay_metadata([metadata1])
         await integration_brotr.insert_relay_metadata([metadata2])

@@ -316,9 +316,7 @@ class Nip66:
         asn_db_path: Optional[str] = None,
     ) -> dict[str, Any]:
         """Lookup geolocation asynchronously from IP address."""
-        return await asyncio.to_thread(
-            Nip66._lookup_geo_sync, ip, city_db_path, asn_db_path
-        )
+        return await asyncio.to_thread(Nip66._lookup_geo_sync, ip, city_db_path, asn_db_path)
 
     @staticmethod
     async def _test_connection(
