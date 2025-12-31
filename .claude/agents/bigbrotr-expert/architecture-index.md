@@ -7,40 +7,46 @@ Quick reference for BigBrotr component relationships and design patterns.
 ## Three-Layer Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                  Implementation Layer                        │
-│  ┌──────────────────────┐  ┌─────────────────────────────┐  │
-│  │   bigbrotr/          │  │   lilbrotr/                 │  │
-│  │   - Full schema      │  │   - Lightweight schema      │  │
-│  │   - All columns      │  │   - Essential columns only  │  │
-│  │   - ~100% disk       │  │   - ~40% disk               │  │
-│  └──────────────────────┘  └─────────────────────────────┘  │
-│              │                         │                     │
-│              └─────────────┬───────────┘                     │
-└────────────────────────────┼─────────────────────────────────┘
-                             ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Service Layer                             │
-│  ┌──────────┐ ┌────────┐ ┌─────────┐ ┌────────┐ ┌─────────┐│
-│  │  Seeder  │ │ Finder │ │Validator│ │Monitor │ │  Sync   ││
-│  └──────────┘ └────────┘ └─────────┘ └────────┘ └─────────┘│
-│                     │                                        │
-│                     └──────────────┬─────────────────────────│
-└────────────────────────────────────┼─────────────────────────┘
-                                     ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Core Layer                              │
-│  ┌──────────┐  ┌─────────┐  ┌─────────────┐  ┌──────────┐  │
-│  │  Pool    │─▶│  Brotr  │  │ BaseService │  │  Logger  │  │
-│  └──────────┘  └─────────┘  └─────────────┘  └──────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────┐
-│                       Models                                 │
-│  Event, Relay, EventRelay, RelayMetadata, Keys, Metadata,   │
-│  Nip11, Nip66                                                │
-└─────────────────────────────────────────────────────────────┘
++===============================================================+
+|                    Implementation Layer                       |
++---------------------------------------------------------------+
+|  +--------------------+       +--------------------+          |
+|  |    bigbrotr/       |       |    lilbrotr/       |          |
+|  +--------------------+       +--------------------+          |
+|  | - Full schema      |       | - Lightweight      |          |
+|  | - All columns      |       | - Essential only   |          |
+|  | - ~100% disk       |       | - ~40% disk        |          |
+|  +--------------------+       +--------------------+          |
+|                                                               |
++=============================+=================================+
+                              |
+                              v
++===============================================================+
+|                      Service Layer                            |
++---------------------------------------------------------------+
+|  +--------+ +--------+ +-----------+ +---------+ +----------+ |
+|  | Seeder | | Finder | | Validator | | Monitor | |   Sync   | |
+|  +--------+ +--------+ +-----------+ +---------+ +----------+ |
+|                                                               |
++=============================+=================================+
+                              |
+                              v
++===============================================================+
+|                        Core Layer                             |
++---------------------------------------------------------------+
+|  +--------+     +--------+     +-------------+     +--------+ |
+|  |  Pool  |---->| Brotr  |     | BaseService |     | Logger | |
+|  +--------+     +--------+     +-------------+     +--------+ |
+|                                                               |
++=============================+=================================+
+                              |
+                              v
++===============================================================+
+|                         Models                                |
++---------------------------------------------------------------+
+|  Event   Relay   EventRelay   RelayMetadata   Keys   Metadata |
+|  Nip11   Nip66                                                |
++===============================================================+
 ```
 
 ---
@@ -66,48 +72,58 @@ Quick reference for BigBrotr component relationships and design patterns.
 ### Service Dependencies
 
 ```
-Seeder (one-shot)
-    └─> Database ready
-         └─> Finder (continuous)
-              ├─> Discovers relay URLs
-              └─> Stores candidates
-                   └─> Validator (continuous)
-                        ├─> Validates URLs
-                        └─> Inserts relays
-                             └─> Monitor (continuous)
-                                  ├─> Health checks
-                                  └─> NIP-11/NIP-66
-                                       └─> Synchronizer (continuous)
-                                            └─> Event collection
++----------+
+|  Seeder  |  (one-shot)
++----+-----+
+     |
+     v
++----------+
+|  Finder  |  (continuous) --> Discovers relay URLs
++----+-----+                    Stores candidates
+     |
+     v
++-----------+
+| Validator |  (continuous) --> Validates URLs
++-----+-----+                    Inserts relays
+      |
+      v
++-----------+
+|  Monitor  |  (continuous) --> Health checks
++-----+-----+                    NIP-11/NIP-66
+      |
+      v
++--------------+
+| Synchronizer |  (continuous) --> Event collection
++--------------+
 ```
 
 ### Data Flow
 
 ```
 External Sources
-    │
-    ▼
-┌─────────────┐
-│   Finder    │ Discovers URLs
-└─────────────┘
-    │ stores candidates
-    ▼
-┌─────────────┐
-│  Validator  │ Validates URLs
-└─────────────┘
-    │ inserts relays
-    ▼
-┌─────────────┐
-│   Monitor   │ Health checks
-└─────────────┘
-    │ inserts metadata
-    ▼
-┌─────────────┐
-│Synchronizer │ Collects events
-└─────────────┘
-    │ inserts events
-    ▼
-  Database
+       |
+       v
++-------------+
+|   Finder    |  Discovers URLs
++------+------+
+       | stores candidates
+       v
++-------------+
+|  Validator  |  Validates URLs
++------+------+
+       | inserts relays
+       v
++-------------+
+|   Monitor   |  Health checks
++------+------+
+       | inserts metadata
+       v
++--------------+
+| Synchronizer |  Collects events
++------+-------+
+       | inserts events
+       v
+   Database
 ```
 
 ---
@@ -391,18 +407,18 @@ CREATE TABLE service_data (
 );
 
 # Usage
-# Store finder candidates
+# Store candidates (Seeder and Finder write to validator/candidate)
 await brotr.upsert_service_data([
-    ("finder", "candidate", "wss://relay.com", {"failed_attempts": 0}, timestamp)
+    ("validator", "candidate", "wss://relay.com", {"failed_attempts": 0})
 ])
 
 # Store cursor
 await brotr.upsert_service_data([
-    ("synchronizer", "cursor", "relay.example.com", {"timestamp": 123456}, timestamp)
+    ("synchronizer", "cursor", "relay.example.com", {"timestamp": 123456})
 ])
 
-# Query
-candidates = await brotr.get_service_data("finder", "candidate")
+# Query candidates (Validator reads from validator/candidate)
+candidates = await brotr.get_service_data("validator", "candidate")
 ```
 
 **Benefits:**

@@ -124,7 +124,7 @@ api:
 ```python
 async def run() -> None
 ```
-Run single discovery cycle. Discovers relays and inserts as candidates into `service_data` table.
+Run single discovery cycle. Discovers relays and inserts as candidates into `service_data` table with `service_name='validator'` so the Validator service can pick them up.
 
 ### Internal Methods
 
@@ -163,7 +163,7 @@ async with brotr:
 
 **Location**: `src/services/validator.py`
 
-Validates candidate relay URLs discovered by the Finder service. Tests WebSocket connectivity and adds working relays to the database.
+Validates candidate relay URLs discovered by the Seeder and Finder services. Tests WebSocket connectivity and adds working relays to the database.
 
 ### Configuration
 
@@ -194,9 +194,10 @@ tor:
 ### Validation Process
 
 1. **Fetch Candidates**: Load from `service_data` table where `(service_name='validator', data_type='candidate')`
+   - Candidates are written by both Seeder and Finder with `service_name='validator'`
 2. **Probabilistic Selection** (if max_candidates_per_run set):
-   - Probability = `1 / (1 + retry_count)`
-   - Candidates with fewer retries more likely to be selected
+   - Probability = `1 / (1 + failed_attempts)`
+   - Candidates with fewer failed attempts more likely to be selected
 3. **Test Connectivity**:
    - Build WebSocket client with nostr-sdk
    - Configure Tor proxy for .onion relays
@@ -204,7 +205,7 @@ tor:
    - Attempt connection with `client.add_relay()` and `client.connect()`
 4. **Handle Results**:
    - **Success**: Insert into `relays` table, delete from candidates
-   - **Failure**: Increment `retry_count` in candidate value
+   - **Failure**: Increment `failed_attempts` in candidate value
 
 ### Public Methods
 

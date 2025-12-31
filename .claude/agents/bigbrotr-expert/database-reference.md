@@ -161,7 +161,8 @@ CREATE TABLE service_data (
 - `updated_at`: Unix timestamp of last update
 
 **Examples**:
-- Finder candidates: `("finder", "candidate", "wss://relay.com", {"failed_attempts": 0}, 1700000000)`
+- Validator candidates (written by Seeder/Finder): `("validator", "candidate", "wss://relay.com", {"failed_attempts": 0}, 1700000000)`
+- Finder cursor: `("finder", "cursor", "events", {"last_timestamp": 123456, "last_id": "abc..."}, 1700000001)`
 - Synchronizer cursor: `("synchronizer", "cursor", "relay.example.com", {"timestamp": 123456}, 1700000001)`
 
 ---
