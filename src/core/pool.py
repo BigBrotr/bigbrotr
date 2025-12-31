@@ -161,7 +161,7 @@ class Pool:
         self._logger = Logger("pool")
 
     @classmethod
-    def from_yaml(cls, config_path: str) -> "Pool":
+    def from_yaml(cls, config_path: str) -> Pool:
         """Create pool from YAML configuration file."""
         path = Path(config_path)
         if not path.exists():
@@ -173,7 +173,7 @@ class Pool:
         return cls.from_dict(config_data or {})
 
     @classmethod
-    def from_dict(cls, config_dict: dict[str, Any]) -> "Pool":
+    def from_dict(cls, config_dict: dict[str, Any]) -> Pool:
         """Create pool from dictionary configuration."""
         config = PoolConfig(**config_dict)
         return cls(config=config)
@@ -457,7 +457,7 @@ class Pool:
     # Context Manager
     # -------------------------------------------------------------------------
 
-    async def __aenter__(self) -> "Pool":
+    async def __aenter__(self) -> Pool:
         """Async context manager entry."""
         await self.connect()
         return self
