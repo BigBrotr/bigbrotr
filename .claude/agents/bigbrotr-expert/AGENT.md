@@ -478,8 +478,8 @@ pre-commit install
 
 # Run tests
 pytest tests/ -v                        # All tests
-pytest tests/core/ -v                   # Core tests only
-pytest tests/services/test_finder.py -v # Single file
+pytest tests/unit/core/ -v                   # Core tests only
+pytest tests/unit/services/test_finder.py -v # Single file
 pytest -k "relay" -v                    # Pattern match
 pytest --cov=src --cov-report=html      # With coverage
 
@@ -560,7 +560,7 @@ SERVICE_REGISTRY = {
 from .myservice import MyService, MyServiceConfig
 ```
 
-5. **Write tests** (`tests/services/test_myservice.py`):
+5. **Write tests** (`tests/unit/services/test_myservice.py`):
 ```python
 @pytest.mark.asyncio
 async def test_myservice(mock_brotr):
