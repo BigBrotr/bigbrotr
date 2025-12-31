@@ -1,8 +1,8 @@
 -- ============================================================================
 -- BigBrotr Database Initialization Script
 -- ============================================================================
--- File: 03_views.sql
--- Description: Materialized views and refresh functions
+-- File: 06_materialized_views.sql
+-- Description: Materialized views for pre-computed statistics and lookups
 -- Dependencies: 02_tables.sql
 -- ============================================================================
 
@@ -80,22 +80,6 @@ GROUP BY r.url, r.network, r.discovered_at;
 COMMENT ON MATERIALIZED VIEW relay_metadata_latest IS
 'Latest NIP-11 and NIP-66 data per relay. Refresh daily via refresh_relay_metadata_latest().';
 
--- Function: refresh_relay_metadata_latest
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_relay_metadata_latest();
--- Note: Call from cron job or application scheduler once daily
-CREATE OR REPLACE FUNCTION refresh_relay_metadata_latest()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY relay_metadata_latest;
-END;
-$$;
-
-COMMENT ON FUNCTION refresh_relay_metadata_latest() IS
-'Refreshes relay_metadata_latest materialized view concurrently. Call daily.';
-
 -- ============================================================================
 -- MATERIALIZED VIEW: events_statistics
 -- ============================================================================
@@ -143,20 +127,6 @@ SELECT
 FROM events;
 
 COMMENT ON MATERIALIZED VIEW events_statistics IS 'Global event statistics with NIP-01 event categories. Refresh via refresh_events_statistics().';
-
--- Function: refresh_events_statistics
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_events_statistics();
-CREATE OR REPLACE FUNCTION refresh_events_statistics()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY events_statistics;
-END;
-$$;
-
-COMMENT ON FUNCTION refresh_events_statistics() IS 'Refreshes events_statistics materialized view concurrently.';
 
 -- ============================================================================
 -- MATERIALIZED VIEW: relays_statistics
@@ -216,20 +186,6 @@ ORDER BY r.url;
 
 COMMENT ON MATERIALIZED VIEW relays_statistics IS 'Per-relay statistics including event counts and performance metrics. Refresh via refresh_relays_statistics().';
 
--- Function: refresh_relays_statistics
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_relays_statistics();
-CREATE OR REPLACE FUNCTION refresh_relays_statistics()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY relays_statistics;
-END;
-$$;
-
-COMMENT ON FUNCTION refresh_relays_statistics() IS 'Refreshes relays_statistics materialized view concurrently.';
-
 -- ============================================================================
 -- MATERIALIZED VIEW: kind_counts_total
 -- ============================================================================
@@ -247,20 +203,6 @@ GROUP BY kind
 ORDER BY event_count DESC;
 
 COMMENT ON MATERIALIZED VIEW kind_counts_total IS 'Total event counts by kind across all relays. Refresh via refresh_kind_counts_total().';
-
--- Function: refresh_kind_counts_total
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_kind_counts_total();
-CREATE OR REPLACE FUNCTION refresh_kind_counts_total()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY kind_counts_total;
-END;
-$$;
-
-COMMENT ON FUNCTION refresh_kind_counts_total() IS 'Refreshes kind_counts_total materialized view concurrently.';
 
 -- ============================================================================
 -- MATERIALIZED VIEW: kind_counts_by_relay
@@ -282,20 +224,6 @@ ORDER BY e.kind, event_count DESC;
 
 COMMENT ON MATERIALIZED VIEW kind_counts_by_relay IS 'Event counts by kind for each relay. Refresh via refresh_kind_counts_by_relay().';
 
--- Function: refresh_kind_counts_by_relay
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_kind_counts_by_relay();
-CREATE OR REPLACE FUNCTION refresh_kind_counts_by_relay()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY kind_counts_by_relay;
-END;
-$$;
-
-COMMENT ON FUNCTION refresh_kind_counts_by_relay() IS 'Refreshes kind_counts_by_relay materialized view concurrently.';
-
 -- ============================================================================
 -- MATERIALIZED VIEW: pubkey_counts_total
 -- ============================================================================
@@ -315,20 +243,6 @@ GROUP BY pubkey
 ORDER BY event_count DESC;
 
 COMMENT ON MATERIALIZED VIEW pubkey_counts_total IS 'Total event counts by public key across all relays. Refresh via refresh_pubkey_counts_total().';
-
--- Function: refresh_pubkey_counts_total
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_pubkey_counts_total();
-CREATE OR REPLACE FUNCTION refresh_pubkey_counts_total()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY pubkey_counts_total;
-END;
-$$;
-
-COMMENT ON FUNCTION refresh_pubkey_counts_total() IS 'Refreshes pubkey_counts_total materialized view concurrently.';
 
 -- ============================================================================
 -- MATERIALIZED VIEW: pubkey_counts_by_relay
@@ -353,20 +267,6 @@ ORDER BY e.pubkey, event_count DESC;
 
 COMMENT ON MATERIALIZED VIEW pubkey_counts_by_relay IS 'Event counts by public key for each relay. Refresh via refresh_pubkey_counts_by_relay().';
 
--- Function: refresh_pubkey_counts_by_relay
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_pubkey_counts_by_relay();
-CREATE OR REPLACE FUNCTION refresh_pubkey_counts_by_relay()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY pubkey_counts_by_relay;
-END;
-$$;
-
-COMMENT ON FUNCTION refresh_pubkey_counts_by_relay() IS 'Refreshes pubkey_counts_by_relay materialized view concurrently.';
-
 -- ============================================================================
--- VIEWS CREATED
+-- MATERIALIZED VIEWS CREATED
 -- ============================================================================

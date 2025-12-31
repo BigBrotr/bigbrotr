@@ -3,7 +3,7 @@
 -- ============================================================================
 -- File: 02_tables.sql
 -- Description: All database tables
--- Dependencies: 01_utility_functions.sql
+-- Dependencies: 01_functions_utility.sql
 -- ============================================================================
 
 -- Table: relays

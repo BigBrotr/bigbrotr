@@ -1,21 +1,15 @@
 -- ============================================================================
 -- BigBrotr Database Initialization Script
 -- ============================================================================
--- File: 04_indexes.sql
--- Description: All database indexes
--- Dependencies: 02_tables.sql, 03_views.sql
+-- File: 08_indexes.sql
+-- Description: All database indexes (tables and materialized views)
+-- Dependencies: 02_tables.sql, 06_materialized_views.sql
 -- ============================================================================
 
 -- ============================================================================
--- Events table indexes
+-- TABLE INDEXES: events
 -- Purpose: Optimize common query patterns for event retrieval
 -- ============================================================================
-
--- Index: idx_events_pubkey (REMOVED - Redundant)
--- This index is covered by idx_events_pubkey_created_at
--- Keeping the composite index provides better performance for ORDER BY queries
--- CREATE INDEX IF NOT EXISTS idx_events_pubkey
---     ON events USING btree (pubkey);
 
 -- Index: idx_events_created_at
 -- Purpose: Fast retrieval of recent events (global timeline queries)
@@ -38,6 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_events_kind_created_at
 -- Index: idx_events_pubkey_created_at
 -- Purpose: Efficient user timeline queries with chronological ordering
 -- Usage: WHERE pubkey = ? ORDER BY created_at DESC
+-- Note: Also covers queries on pubkey alone (leftmost prefix)
 CREATE INDEX IF NOT EXISTS idx_events_pubkey_created_at
     ON events USING btree (pubkey, created_at DESC);
 
@@ -56,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_events_tagvalues
     ON events USING gin (tagvalues);
 
 -- ============================================================================
--- Events_relays junction table indexes
+-- TABLE INDEXES: events_relays
 -- Purpose: Optimize relay-event relationship queries
 -- ============================================================================
 
@@ -86,23 +81,9 @@ CREATE INDEX IF NOT EXISTS idx_events_relays_relay_seen
     ON events_relays USING btree (relay_url, seen_at DESC);
 
 -- ============================================================================
--- NIP-66 relay test results indexes (REMOVED)
--- ============================================================================
--- The nip66 table was removed in favor of the unified metadata architecture.
--- NIP-66 data is now stored in the metadata table and linked via relay_metadata.
--- Capability queries should use JSON path operators on metadata.data instead.
--- Example: WHERE metadata.data->>'readable' = 'true'
-
--- ============================================================================
--- Relay metadata indexes
+-- TABLE INDEXES: relay_metadata
 -- Purpose: Optimize metadata history and snapshot queries
 -- ============================================================================
-
--- Index: idx_relay_metadata_relay_url (REMOVED - Redundant)
--- This index is covered by idx_relay_metadata_url_generated
--- The composite index provides better performance for both filtering and ordering
--- CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url
---     ON relay_metadata USING btree (relay_url);
 
 -- Index: idx_relay_metadata_snapshot_at
 -- Purpose: Find most recent metadata snapshots across all relays
@@ -125,7 +106,7 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_type_snapshot
     ON relay_metadata USING btree (relay_url, type, snapshot_at DESC);
 
 -- ============================================================================
--- Service data table indexes
+-- TABLE INDEXES: service_data
 -- Purpose: Optimize service operational data queries
 -- ============================================================================
 
@@ -142,7 +123,7 @@ CREATE INDEX IF NOT EXISTS idx_service_data_service_type
     ON service_data USING btree (service_name, data_type);
 
 -- ============================================================================
--- Materialized view indexes (relay_metadata_latest)
+-- MATERIALIZED VIEW INDEXES: relay_metadata_latest
 -- Purpose: Optimize materialized view queries
 -- ============================================================================
 
@@ -167,7 +148,7 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_latest_openable
     ON relay_metadata_latest USING btree (is_openable) WHERE is_openable = TRUE;
 
 -- ============================================================================
--- Materialized view indexes (events_statistics)
+-- MATERIALIZED VIEW INDEXES: events_statistics
 -- Purpose: Optimize statistics view queries
 -- ============================================================================
 
@@ -179,7 +160,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_events_statistics_id
     ON events_statistics USING btree (id);
 
 -- ============================================================================
--- Materialized view indexes (relays_statistics)
+-- MATERIALIZED VIEW INDEXES: relays_statistics
 -- Purpose: Optimize per-relay statistics queries
 -- ============================================================================
 
@@ -196,7 +177,7 @@ CREATE INDEX IF NOT EXISTS idx_relays_statistics_network
     ON relays_statistics USING btree (network);
 
 -- ============================================================================
--- Materialized view indexes (kind_counts_total)
+-- MATERIALIZED VIEW INDEXES: kind_counts_total
 -- Purpose: Optimize event kind distribution queries
 -- ============================================================================
 
@@ -207,7 +188,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_kind_counts_total_kind
     ON kind_counts_total USING btree (kind);
 
 -- ============================================================================
--- Materialized view indexes (kind_counts_by_relay)
+-- MATERIALIZED VIEW INDEXES: kind_counts_by_relay
 -- Purpose: Optimize per-relay event kind distribution queries
 -- ============================================================================
 
@@ -225,7 +206,7 @@ CREATE INDEX IF NOT EXISTS idx_kind_counts_by_relay_relay
     ON kind_counts_by_relay USING btree (relay_url);
 
 -- ============================================================================
--- Materialized view indexes (pubkey_counts_total)
+-- MATERIALIZED VIEW INDEXES: pubkey_counts_total
 -- Purpose: Optimize author activity queries
 -- ============================================================================
 
@@ -236,7 +217,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_pubkey_counts_total_pubkey
     ON pubkey_counts_total USING btree (pubkey_hex);
 
 -- ============================================================================
--- Materialized view indexes (pubkey_counts_by_relay)
+-- MATERIALIZED VIEW INDEXES: pubkey_counts_by_relay
 -- Purpose: Optimize per-relay author activity queries
 -- ============================================================================
 
