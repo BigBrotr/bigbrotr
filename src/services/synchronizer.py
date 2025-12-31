@@ -825,7 +825,7 @@ class Synchronizer(BaseService):
                         (
                             "synchronizer",
                             "cursor",
-                            relay._url_without_scheme,
+                            relay.url_without_scheme,
                             {"last_synced_at": end_time},
                         )
                     ])
@@ -878,7 +878,7 @@ class Synchronizer(BaseService):
                 cursor_updates.append((
                     "synchronizer",
                     "cursor",
-                    relay._url_without_scheme,
+                    relay.url_without_scheme,
                     {"last_synced_at": new_time},
                 ))
             except Exception:
@@ -934,7 +934,7 @@ class Synchronizer(BaseService):
         cursors = await self._brotr.get_service_data(
             service_name="synchronizer",
             data_type="cursor",
-            key=relay._url_without_scheme,
+            key=relay.url_without_scheme,
         )
 
         if cursors and len(cursors) > 0:

@@ -256,7 +256,7 @@ class Nip11:
             Nip11 instance if successful, None otherwise
         """
         protocol = "https" if relay.scheme == "wss" else "http"
-        http_url = f"{protocol}://{relay._url_without_scheme}"
+        http_url = f"{protocol}://{relay.url_without_scheme}"
 
         headers = {"Accept": "application/nostr+json"}
 
