@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field, model_validator
 from core.base_service import BaseService
 from models import Keys, Relay
 
+
 if TYPE_CHECKING:
     from core.brotr import Brotr
 

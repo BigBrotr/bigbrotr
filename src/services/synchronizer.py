@@ -47,6 +47,7 @@ from core.base_service import BaseService
 from core.brotr import Brotr
 from models import EventRelay, Keys, Relay
 
+
 if TYPE_CHECKING:
     import logging
     from collections.abc import Iterator

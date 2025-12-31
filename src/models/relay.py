@@ -214,7 +214,6 @@ class Relay:
 
     def __init__(self, raw: str, discovered_at: Optional[int] = None):
         """Empty __init__ - all initialization done in __new__ for frozen dataclass."""
-        pass
 
     def to_db_params(self) -> tuple[str, str, int]:
         """

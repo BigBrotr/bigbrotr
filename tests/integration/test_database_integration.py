@@ -23,6 +23,7 @@ from models.metadata import Metadata
 from models.relay import Relay
 from models.relay_metadata import RelayMetadata
 
+
 # Skip all tests in this module if DB_PASSWORD is not set
 pytestmark = pytest.mark.skipif(
     os.getenv("DB_PASSWORD") is None,

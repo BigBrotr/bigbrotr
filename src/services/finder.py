@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from core.base_service import BaseService
 
+
 if TYPE_CHECKING:
     from core.brotr import Brotr
 

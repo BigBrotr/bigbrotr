@@ -13,6 +13,7 @@ from .nip66 import Nip66
 from .relay import Relay
 from .relay_metadata import MetadataType, RelayMetadata
 
+
 __all__ = [
     "Event",
     "EventRelay",
