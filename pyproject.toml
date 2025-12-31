@@ -224,5 +224,5 @@ disable_error_code = ["arg-type", "return-value", "union-attr", "misc", "assignm
 # src/__init__.py is a re-export module that has import issues when running mypy src/
 # The relative imports work at runtime but not with mypy's module resolution
 [[tool.mypy.overrides]]
-module = "__init__"
+module = "__main__.*"
 ignore_errors = true
