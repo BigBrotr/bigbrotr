@@ -2,8 +2,9 @@
 -- LilBrotr Database Initialization Script
 -- ============================================================================
 -- File: 02_tables.sql
--- Description: All database tables
--- Dependencies: 01_utility_functions.sql
+-- Description: All database tables (lightweight schema - no tags/content)
+-- Note: Omits tags, tagvalues, and content columns (~60% disk savings)
+-- Dependencies: 01_functions_utility.sql
 -- ============================================================================
 
 -- Table: relays
@@ -21,17 +22,23 @@ COMMENT ON COLUMN relays.network IS 'Network type: clearnet or tor';
 COMMENT ON COLUMN relays.discovered_at IS 'Unix timestamp when relay was first discovered and validated';
 
 -- Table: events
--- Description: Stores essential Nostr event metadata (LilBrotr lightweight implementation)
--- Notes: Omits tags/content for ~60% disk savings vs BigBrotr; Uses BYTEA for efficient storage
+-- Description: Stores Nostr events with essential metadata only (no tags/content)
+-- Notes:
+--   - Uses BYTEA for efficient storage (50% space savings vs CHAR)
+--   - Omits tags, tagvalues, and content for lightweight storage (~60% total savings)
+--   - Tag-based queries are NOT supported in LilBrotr
 CREATE TABLE IF NOT EXISTS events (
     id          BYTEA       PRIMARY KEY,
     pubkey      BYTEA       NOT NULL,
     created_at  BIGINT      NOT NULL,
     kind        INTEGER     NOT NULL,
+    -- tags      JSONB       -- NOT STORED in LilBrotr
+    -- tagvalues TEXT[]      -- NOT STORED in LilBrotr (no tags to index)
+    -- content   TEXT        -- NOT STORED in LilBrotr
     sig         BYTEA       NOT NULL
 );
 
-COMMENT ON TABLE events IS 'Nostr events (lightweight - essential metadata only, validated via nostr-sdk)';
+COMMENT ON TABLE events IS 'Nostr events with essential metadata only (no tags/content for lightweight storage)';
 COMMENT ON COLUMN events.id IS 'SHA-256 hash of serialized event (stored as bytea from hex string)';
 COMMENT ON COLUMN events.pubkey IS 'Author public key (stored as bytea from hex string)';
 COMMENT ON COLUMN events.created_at IS 'Unix timestamp when event was created';

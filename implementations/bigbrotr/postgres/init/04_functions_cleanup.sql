@@ -58,11 +58,11 @@ COMMENT ON FUNCTION delete_orphan_events() IS 'Deletes events without relay asso
 -- Description: Removes validator candidates that have exceeded max failed attempts
 -- Purpose: Cleanup maintenance for candidates that consistently fail validation
 -- Parameters:
---   p_max_attempts: Maximum number of failed attempts before deletion (default: 10)
+--   p_max_attempts: Maximum number of failed attempts before deletion
 -- Returns: BIGINT (number of deleted rows)
 -- Usage: SELECT delete_failed_candidates(10);
 CREATE OR REPLACE FUNCTION delete_failed_candidates(
-    p_max_attempts INTEGER DEFAULT 10
+    p_max_attempts INTEGER
 )
 RETURNS BIGINT
 LANGUAGE plpgsql
@@ -79,7 +79,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION delete_failed_candidates IS 'Deletes validator candidates with failed_attempts >= threshold. Default threshold: 10.';
+COMMENT ON FUNCTION delete_failed_candidates IS 'Deletes validator candidates with failed_attempts >= threshold.';
 
 -- ============================================================================
 -- CLEANUP FUNCTIONS CREATED
