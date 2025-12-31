@@ -6,9 +6,12 @@ Uses composition instead of inheritance to avoid fragile PyO3 binding inheritanc
 """
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nostr_sdk import Event as NostrEvent
+
+if TYPE_CHECKING:
+    from nostr_sdk import EventId, Kind, PublicKey, Tags, Timestamp
 
 
 def tags_to_list(event: NostrEvent) -> list[list[str]]:
@@ -81,23 +84,23 @@ class Event:
         raise AttributeError("Event is immutable")
 
     # Delegate common methods to inner event
-    def id(self):
+    def id(self) -> "EventId":
         """Get event ID."""
         return self._inner.id()
 
-    def author(self):
+    def author(self) -> "PublicKey":
         """Get event author (pubkey)."""
         return self._inner.author()
 
-    def created_at(self):
+    def created_at(self) -> "Timestamp":
         """Get event creation timestamp."""
         return self._inner.created_at()
 
-    def kind(self):
+    def kind(self) -> "Kind":
         """Get event kind."""
         return self._inner.kind()
 
-    def tags(self):
+    def tags(self) -> "Tags":
         """Get event tags."""
         return self._inner.tags()
 

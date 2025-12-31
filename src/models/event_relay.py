@@ -63,7 +63,7 @@ class EventRelay:
         """
         return cls(event=event, relay=relay, seen_at=seen_at)
 
-    def _event_to_db_params(self) -> tuple:
+    def _event_to_db_params(self) -> tuple[bytes, bytes, int, int, str, str, bytes]:
         """
         Extract database parameters from event.
 
@@ -83,7 +83,9 @@ class EventRelay:
         # Otherwise it's a raw NostrEvent - use the shared function
         return event_to_db_params(evt)
 
-    def to_db_params(self) -> tuple:
+    def to_db_params(
+        self,
+    ) -> tuple[bytes, bytes, int, int, str, str, bytes, str, str, int, int]:
         """
         Convert to database parameters tuple.
 
