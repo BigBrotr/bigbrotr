@@ -75,5 +75,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)"
 
 # Default command - can be overridden
-# Usage: docker run bigbrotr python -m services.initializer
+# Usage: docker run bigbrotr python -m services seeder
 CMD ["python", "-c", "print('BigBrotr ready. Specify service to run.')"]
