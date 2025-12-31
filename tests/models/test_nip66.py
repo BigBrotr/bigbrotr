@@ -234,7 +234,8 @@ class TestCheckSsl:
 class TestLookupGeo:
     """_lookup_geo() static method."""
 
-    def test_success(self):
+    @pytest.mark.asyncio
+    async def test_success(self):
         mock_response = MagicMock()
         mock_response.country.iso_code = "US"
         mock_response.city.name = "Mountain View"
@@ -245,16 +246,17 @@ class TestLookupGeo:
 
         with patch("geoip2.database.Reader") as mock_reader:
             mock_reader.return_value.__enter__.return_value.city.return_value = mock_response
-            result = Nip66._lookup_geo("8.8.8.8", "/path/to/city.mmdb")
+            result = await Nip66._lookup_geo("8.8.8.8", "/path/to/city.mmdb")
 
         assert result["geo_ip"] == "8.8.8.8"
         assert result["geo_country"] == "US"
         assert "geohash" in result
 
-    def test_failure_still_includes_ip(self):
+    @pytest.mark.asyncio
+    async def test_failure_still_includes_ip(self):
         with patch("geoip2.database.Reader") as mock_reader:
             mock_reader.return_value.__enter__.return_value.city.side_effect = Exception()
-            result = Nip66._lookup_geo("8.8.8.8", "/path/to/city.mmdb")
+            result = await Nip66._lookup_geo("8.8.8.8", "/path/to/city.mmdb")
 
         assert result["geo_ip"] == "8.8.8.8"
         assert "geo_country" not in result
