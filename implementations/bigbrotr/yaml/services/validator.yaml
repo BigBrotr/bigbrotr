@@ -3,7 +3,8 @@
 # ============================================================================
 # Description: Validate candidate relay URLs before adding to relays table
 # Used by: src/services/validator.py
-# Dependencies: Finder must discover candidates first
+# Dependencies: Seeder and Finder write candidates to service_data
+# Notes: Uses Tor proxy for .onion relay validation
 # ============================================================================
 
 # Cycle interval (seconds between validation runs)
