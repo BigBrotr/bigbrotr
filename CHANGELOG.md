@@ -57,7 +57,7 @@ Complete architectural rewrite from monolithic prototype to modular, enterprise-
 ### Removed
 - pgAdmin (use external tools instead)
 - pandas dependency
-- secp256k1/bech32 dependencies (using nostr-tools)
+- secp256k1/bech32 dependencies (using nostr-sdk)
 
 ### Fixed
 - Connection pooling (was creating new connections per operation)
