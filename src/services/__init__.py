@@ -2,7 +2,7 @@
 BigBrotr Services Package.
 
 Service implementations that build on the core layer:
-- Initializer: Database bootstrap and schema verification
+- Seeder: Seed initial relay data for validation
 - Finder: Relay discovery from events and APIs
 - Validator: Candidate relay validation
 - Monitor: Relay health monitoring
@@ -15,15 +15,15 @@ All services inherit from BaseService for consistent:
 
 Example:
     from core import Pool, Brotr
-    from services import Initializer, Finder, Validator, Monitor, Synchronizer
+    from services import Seeder, Finder, Validator, Monitor, Synchronizer
 
     pool = Pool.from_yaml("config.yaml")
     brotr = Brotr(pool=pool)
 
     async with pool:
-        # Run initializer
-        initializer = Initializer(brotr=brotr)
-        await initializer.run()
+        # Run seeder
+        seeder = Seeder(brotr=brotr)
+        await seeder.run()
 
         # Run finder with context manager
         finder = Finder(brotr=brotr)
@@ -35,13 +35,13 @@ from .finder import (
     Finder,
     FinderConfig,
 )
-from .initializer import (
-    Initializer,
-    InitializerConfig,
-)
 from .monitor import (
     Monitor,
     MonitorConfig,
+)
+from .seeder import (
+    Seeder,
+    SeederConfig,
 )
 from .synchronizer import (
     Synchronizer,
@@ -57,12 +57,12 @@ __all__ = [
     # Finder
     "Finder",
     "FinderConfig",
-    # Initializer
-    "Initializer",
-    "InitializerConfig",
     # Monitor
     "Monitor",
     "MonitorConfig",
+    # Seeder
+    "Seeder",
+    "SeederConfig",
     # Synchronizer
     "Synchronizer",
     "SynchronizerConfig",

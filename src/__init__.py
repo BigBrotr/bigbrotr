@@ -4,7 +4,7 @@ BigBrotr - A modular Nostr data archiving and monitoring system.
 Three-layer architecture:
     models: First-class types (Relay, Event, EventRelay, Nip11, Nip66, etc.)
     core: Foundation components (Pool, Brotr, BaseService, Logger)
-    services: Service implementations (Initializer, Finder, Validator, Monitor, Synchronizer)
+    services: Service implementations (Seeder, Finder, Validator, Monitor, Synchronizer)
 
 Example:
     from src import Brotr, Pool, Finder
@@ -51,10 +51,10 @@ from .models import (
 from .services import (
     Finder,
     FinderConfig,
-    Initializer,
-    InitializerConfig,
     Monitor,
     MonitorConfig,
+    Seeder,
+    SeederConfig,
     Synchronizer,
     SynchronizerConfig,
     Validator,
@@ -79,8 +79,6 @@ __all__ = [
     # Services
     "Finder",
     "FinderConfig",
-    "Initializer",
-    "InitializerConfig",
     "Keys",
     "Logger",
     "Monitor",
@@ -94,6 +92,8 @@ __all__ = [
     "Relay",
     "RelayMetadata",
     "RetryConfig",
+    "Seeder",
+    "SeederConfig",
     "ServerSettingsConfig",
     "Synchronizer",
     "SynchronizerConfig",
