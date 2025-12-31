@@ -33,13 +33,15 @@ SQL files are located in `implementations/bigbrotr/postgres/init/` and applied i
 
 | File | Purpose |
 |------|---------|
-| `00_extensions.sql` | PostgreSQL extensions |
-| `01_utility_functions.sql` | Hash functions and utilities |
+| `00_extensions.sql` | PostgreSQL extensions (pgcrypto, btree_gin) |
+| `01_functions_utility.sql` | Utility functions (tags_to_tagvalues) |
 | `02_tables.sql` | Table definitions |
-| `03_indexes.sql` | Performance indexes |
-| `04_integrity_functions.sql` | Orphan cleanup functions |
-| `05_procedures.sql` | Insert procedures |
-| `06_views.sql` | Analytics views |
+| `03_functions_crud.sql` | CRUD stored procedures |
+| `04_functions_cleanup.sql` | Orphan cleanup functions |
+| `05_views.sql` | Regular views (placeholder) |
+| `06_materialized_views.sql` | Materialized views for analytics |
+| `07_functions_refresh.sql` | Materialized view refresh functions |
+| `08_indexes.sql` | Performance indexes |
 | `99_verify.sql` | Schema verification |
 
 ---
@@ -229,8 +231,9 @@ CREATE TABLE service_data (
 | `updated_at` | BIGINT | Unix timestamp when record was last updated |
 
 **Usage Examples**:
-- **Finder**: Stores discovered relay candidates with `service_name='finder'`, `data_type='candidate'`
-- **Validator**: Tracks validation attempts with `failed_attempts` counter in `data`
+- **Seeder/Finder**: Store discovered relay candidates with `service_name='validator'`, `data_type='candidate'`
+- **Validator**: Reads candidates from `service_name='validator'`, tracks validation attempts with `failed_attempts` counter in `data`
+- **Finder**: Stores event scanning cursor with `service_name='finder'`, `data_type='cursor'`
 - **Synchronizer**: Stores per-relay sync cursors with `data_type='cursor'`
 
 ---
@@ -530,31 +533,41 @@ FROM events GROUP BY pubkey ORDER BY event_count DESC;
 
 ### tags_to_tagvalues
 
-Extracts searchable values from tags array.
+Extracts tag values from tags array for single-character tag keys.
 
 ```sql
-CREATE OR REPLACE FUNCTION tags_to_tagvalues(tags JSONB)
-RETURNS TEXT[] AS $$
-    SELECT ARRAY(
-        SELECT tag->>0 || ':' || tag->>1
-        FROM jsonb_array_elements(tags) AS tag
-        WHERE jsonb_array_length(tag) >= 2
+CREATE OR REPLACE FUNCTION tags_to_tagvalues(p_tags JSONB)
+RETURNS TEXT[]
+LANGUAGE plpgsql
+IMMUTABLE
+RETURNS NULL ON NULL INPUT
+AS $$
+BEGIN
+    RETURN (
+        SELECT array_agg(tag_element->>1)
+        FROM jsonb_array_elements(p_tags) AS tag_element
+        WHERE length(tag_element->>0) = 1
     );
-$$ LANGUAGE SQL IMMUTABLE;
+END;
+$$;
 ```
 
-**Purpose**: Enables GIN index searches on tag content.
+**Purpose**: Extracts the second element (value) from tags where the first element (key) is a single character. This enables GIN index searches on standard Nostr tag values (e, p, r, d, t, etc.).
 
 **Example**:
 ```sql
--- Find events referencing a specific event
+-- Find events referencing a specific event ID
+-- (where tags contains ["e", "abc123def456..."])
 SELECT * FROM events
-WHERE tagvalues @> ARRAY['e:abc123def456...'];
+WHERE tagvalues @> ARRAY['abc123def456...'];
 
--- Find events mentioning a pubkey
+-- Find events mentioning a specific pubkey
+-- (where tags contains ["p", "fedcba987654..."])
 SELECT * FROM events
-WHERE tagvalues @> ARRAY['p:fedcba987654...'];
+WHERE tagvalues @> ARRAY['fedcba987654...'];
 ```
+
+**Note**: Only single-character tag keys (standard Nostr tags) are indexed. Multi-character keys are ignored to keep the index focused on common query patterns.
 
 ### Cleanup Functions
 
@@ -644,12 +657,14 @@ psql -U admin -d bigbrotr
 
 # Execute files in order
 \i postgres/init/00_extensions.sql
-\i postgres/init/01_utility_functions.sql
+\i postgres/init/01_functions_utility.sql
 \i postgres/init/02_tables.sql
-\i postgres/init/03_indexes.sql
-\i postgres/init/04_integrity_functions.sql
-\i postgres/init/05_procedures.sql
-\i postgres/init/06_views.sql
+\i postgres/init/03_functions_crud.sql
+\i postgres/init/04_functions_cleanup.sql
+\i postgres/init/05_views.sql
+\i postgres/init/06_materialized_views.sql
+\i postgres/init/07_functions_refresh.sql
+\i postgres/init/08_indexes.sql
 \i postgres/init/99_verify.sql
 ```
 

@@ -26,53 +26,58 @@ BigBrotr employs a **three-layer architecture** that separates infrastructure, b
 ### Layered Design
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                   IMPLEMENTATION LAYER                        │
-│  Multiple deployments sharing same service/core codebase     │
-│                                                               │
-│  ┌─────────────────────┐    ┌──────────────────────────┐    │
-│  │   bigbrotr/         │    │   lilbrotr/              │    │
-│  │   - Full schema     │    │   - Lightweight schema   │    │
-│  │   - YAML configs    │    │   - YAML configs         │    │
-│  │   - SQL DDL         │    │   - SQL DDL (minimal)    │    │
-│  │   - Docker compose  │    │   - Docker compose       │    │
-│  │   - 100% storage    │    │   - 40% storage          │    │
-│  └─────────────────────┘    └──────────────────────────┘    │
-└──────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────┐
-│                     SERVICE LAYER                             │
-│  Business logic, protocol implementation, data processing    │
-│                                                               │
-│  ┌───────────┐  ┌─────────┐  ┌───────────┐  ┌───────────┐  │
-│  │Seeder│  │ Finder  │  │ Validator │  │  Monitor  │  │
-│  │ (seed)    │  │ (disco) │  │ (test)    │  │ (health)  │  │
-│  └───────────┘  └─────────┘  └───────────┘  └───────────┘  │
-│                                                               │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │              Synchronizer (events)                   │    │
-│  └─────────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────┐
-│                      CORE LAYER                               │
-│  Infrastructure primitives, shared utilities                 │
-│                                                               │
-│  ┌──────┐  ┌────────┐  ┌─────────────┐  ┌────────┐         │
-│  │ Pool │──│ Brotr  │  │ BaseService │  │ Logger │         │
-│  └──────┘  └────────┘  └─────────────┘  └────────┘         │
-└──────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────┐
-│                     DATA MODELS                               │
-│  Immutable data structures, validation, database mapping     │
-│                                                               │
-│  Event, Relay, EventRelay, RelayMetadata, Keys, Metadata,   │
-│  Nip11, Nip66                                                │
-└──────────────────────────────────────────────────────────────┘
++======================================================================+
+|                      IMPLEMENTATION LAYER                            |
+|         Multiple deployments sharing same service/core codebase      |
++----------------------------------------------------------------------+
+|                                                                      |
+|   +----------------------+         +----------------------+          |
+|   |     bigbrotr/        |         |     lilbrotr/        |          |
+|   +----------------------+         +----------------------+          |
+|   | - Full schema        |         | - Lightweight schema |          |
+|   | - YAML configs       |         | - YAML configs       |          |
+|   | - SQL DDL            |         | - SQL DDL (minimal)  |          |
+|   | - Docker compose     |         | - Docker compose     |          |
+|   | - 100% storage       |         | - 40% storage        |          |
+|   +----------------------+         +----------------------+          |
+|                                                                      |
++================================+=====+===============================+
+                                 |
+                                 v
++======================================================================+
+|                        SERVICE LAYER                                 |
+|       Business logic, protocol implementation, data processing       |
++----------------------------------------------------------------------+
+|                                                                      |
+|   +--------+  +--------+  +-----------+  +---------+  +------------+ |
+|   | Seeder |  | Finder |  | Validator |  | Monitor |  |Synchronizer| |
+|   | (seed) |  |(disco) |  |  (test)   |  |(health) |  |  (events)  | |
+|   +--------+  +--------+  +-----------+  +---------+  +------------+ |
+|                                                                      |
++================================+=====+===============================+
+                                 |
+                                 v
++======================================================================+
+|                         CORE LAYER                                   |
+|              Infrastructure primitives, shared utilities             |
++----------------------------------------------------------------------+
+|                                                                      |
+|   +--------+     +--------+     +-------------+     +--------+       |
+|   |  Pool  |---->| Brotr  |     | BaseService |     | Logger |       |
+|   +--------+     +--------+     +-------------+     +--------+       |
+|                                                                      |
++================================+=====+===============================+
+                                 |
+                                 v
++======================================================================+
+|                        DATA MODELS                                   |
+|        Immutable data structures, validation, database mapping       |
++----------------------------------------------------------------------+
+|                                                                      |
+|   Event   Relay   EventRelay   RelayMetadata   Keys   Metadata       |
+|   Nip11   Nip66                                                      |
+|                                                                      |
++======================================================================+
 ```
 
 ### Layer Responsibilities
@@ -115,27 +120,29 @@ The core layer provides infrastructure primitives used by all services.
 
 #### Architecture
 
-```python
-┌─────────────────────────────────────────────────┐
-│                    Pool                          │
-├─────────────────────────────────────────────────┤
-│  _pool: Optional[asyncpg.Pool]                  │
-│  _is_connected: bool                            │
-│  _connection_lock: asyncio.Lock                 │
-│  config: PoolConfig                             │
-├─────────────────────────────────────────────────┤
-│  + connect() → None                             │
-│  + close() → None                               │
-│  + acquire() → AsyncContextManager[Connection]  │
-│  + acquire_healthy() → AsyncContextManager      │
-│  + transaction() → AsyncContextManager          │
-│  + fetch(query, *args) → List[Record]          │
-│  + fetchrow(query, *args) → Optional[Record]   │
-│  + fetchval(query, *args) → Any                │
-│  + execute(query, *args) → str                 │
-│  + executemany(query, args) → None             │
-│  + metrics → Dict[str, Any]                     │
-└─────────────────────────────────────────────────┘
+```
++---------------------------------------------------+
+|                       Pool                        |
++---------------------------------------------------+
+| Attributes:                                       |
+|   _pool: Optional[asyncpg.Pool]                   |
+|   _is_connected: bool                             |
+|   _connection_lock: asyncio.Lock                  |
+|   config: PoolConfig                              |
++---------------------------------------------------+
+| Methods:                                          |
+|   + connect() -> None                             |
+|   + close() -> None                               |
+|   + acquire() -> AsyncContextManager[Connection]  |
+|   + acquire_healthy() -> AsyncContextManager      |
+|   + transaction() -> AsyncContextManager          |
+|   + fetch(query, *args) -> List[Record]           |
+|   + fetchrow(query, *args) -> Optional[Record]    |
+|   + fetchval(query, *args) -> Any                 |
+|   + execute(query, *args) -> str                  |
+|   + executemany(query, args) -> None              |
+|   + metrics -> Dict[str, Any]                     |
++---------------------------------------------------+
 ```
 
 #### Connection Lifecycle
@@ -234,23 +241,25 @@ def metrics(self) -> Dict[str, Any]:
 
 Uses **stored procedures** exclusively for mutations to prevent SQL injection and ensure atomic operations.
 
-```python
-┌─────────────────────────────────────────────────┐
-│                   Brotr                          │
-├─────────────────────────────────────────────────┤
-│  _pool: Pool                                     │
-│  config: BrotrConfig                            │
-├─────────────────────────────────────────────────┤
-│  + insert_events(records) → (int, int)          │
-│  + insert_relays(records) → int                 │
-│  + insert_relay_metadata(records) → int         │
-│  + cleanup_orphans(include_relays) → Dict       │
-│  + upsert_service_data(records) → int           │
-│  + get_service_data(service, type, key) → List  │
-│  + delete_service_data(keys) → int              │
-│  + refresh_metadata_latest() → None             │
-│  + pool → Pool (public property)                │
-└─────────────────────────────────────────────────┘
+```
++---------------------------------------------------+
+|                      Brotr                        |
++---------------------------------------------------+
+| Attributes:                                       |
+|   _pool: Pool                                     |
+|   config: BrotrConfig                             |
++---------------------------------------------------+
+| Methods:                                          |
+|   + insert_events(records) -> (int, int)          |
+|   + insert_relays(records) -> int                 |
+|   + insert_relay_metadata(records) -> int         |
+|   + cleanup_orphans(include_relays) -> Dict       |
+|   + upsert_service_data(records) -> int           |
+|   + get_service_data(service, type, key) -> List  |
+|   + delete_service_data(keys) -> int              |
+|   + refresh_metadata_latest() -> None             |
+|   + pool -> Pool (public property)                |
++---------------------------------------------------+
 ```
 
 #### Stored Procedure Pattern
@@ -341,23 +350,26 @@ async def upsert_service_data(
 
 #### Architecture
 
-```python
-┌─────────────────────────────────────────────────┐
-│              BaseService[ConfigT]                │
-├─────────────────────────────────────────────────┤
-│  SERVICE_NAME: ClassVar[str]                    │
-│  CONFIG_CLASS: ClassVar[Type[BaseModel]]        │
-│  MAX_CONSECUTIVE_FAILURES: ClassVar[int]        │
-│                                                  │
-│  config: ConfigT                                │
-│  _shutdown_event: asyncio.Event                 │
-├─────────────────────────────────────────────────┤
-│  + run() → None [ABSTRACT]                      │
-│  + run_forever(interval, max_failures) → None   │
-│  + request_shutdown() → None                    │
-│  + wait(timeout) → bool                         │
-│  + is_running → bool                            │
-└─────────────────────────────────────────────────┘
+```
++---------------------------------------------------+
+|             BaseService[ConfigT]                  |
++---------------------------------------------------+
+| Class Variables:                                  |
+|   SERVICE_NAME: ClassVar[str]                     |
+|   CONFIG_CLASS: ClassVar[Type[BaseModel]]         |
+|   MAX_CONSECUTIVE_FAILURES: ClassVar[int]         |
++---------------------------------------------------+
+| Attributes:                                       |
+|   config: ConfigT                                 |
+|   _shutdown_event: asyncio.Event                  |
++---------------------------------------------------+
+| Methods:                                          |
+|   + run() -> None [ABSTRACT]                      |
+|   + run_forever(interval, max_failures) -> None   |
+|   + request_shutdown() -> None                    |
+|   + wait(timeout) -> bool                         |
+|   + is_running -> bool                            |
++---------------------------------------------------+
 ```
 
 #### Graceful Shutdown Pattern
@@ -509,29 +521,29 @@ Each service inherits from `BaseService` and implements domain-specific logic.
 ### Service Communication Pattern
 
 ```
-┌──────────────┐
-│ Seeder  │ One-shot: verifies schema, loads seeds
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│   Finder     │ Discovers URLs → stores candidates
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│  Validator   │ Tests candidates → inserts relays
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│   Monitor    │ Health checks → inserts metadata
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│Synchronizer  │ Collects events → inserts events
-└──────────────┘
++--------------+
+|    Seeder    |  One-shot: loads seeds as candidates
++--------------+
+       |
+       v
++--------------+
+|    Finder    |  Discovers URLs -> stores candidates
++--------------+
+       |
+       v
++--------------+
+|  Validator   |  Tests candidates -> inserts relays
++--------------+
+       |
+       v
++--------------+
+|   Monitor    |  Health checks -> inserts metadata
++--------------+
+       |
+       v
++--------------+
+| Synchronizer |  Collects events -> inserts events
++--------------+
 ```
 
 ---
@@ -663,8 +675,9 @@ async def _find_from_events(self) -> int:
             valid_urls.append(relay.url)
 
     if valid_urls:
+        # Write candidates with service_name='validator' so Validator picks them up
         candidates = [
-            ("finder", "candidate", url, {"retries": 0})
+            ("validator", "candidate", url, {})
             for url in valid_urls
         ]
         await self._brotr.upsert_service_data(candidates)
@@ -739,17 +752,17 @@ async def _validate_relay(self, url: str) -> bool:
 async def run(self):
     """Validate candidates with probabilistic selection."""
 
-    # Fetch all candidates
+    # Fetch all candidates (written by Seeder and Finder with service_name='validator')
     candidates = await self._brotr.get_service_data(
-        "finder", "candidate"
+        "validator", "candidate"
     )
 
-    # Probabilistic selection: P(select) = 1 / (1 + retries)
+    # Probabilistic selection: P(select) = 1 / (1 + failed_attempts)
     if self.config.max_candidates_per_run:
         selected = []
         for c in candidates:
-            retries = c["value"].get("retries", 0)
-            prob = 1.0 / (1 + retries)
+            failed_attempts = c["value"].get("failed_attempts", 0)
+            prob = 1.0 / (1 + failed_attempts)
             if random.random() < prob:
                 selected.append(c)
                 if len(selected) >= self.config.max_candidates_per_run:
@@ -767,13 +780,13 @@ async def run(self):
             if success:
                 # Remove from candidates
                 await self._brotr.delete_service_data([
-                    ("finder", "candidate", url)
+                    ("validator", "candidate", url)
                 ])
             else:
-                # Increment retry count
-                retries = candidate["value"].get("retries", 0) + 1
+                # Increment failed_attempts count
+                failed_attempts = candidate["value"].get("failed_attempts", 0) + 1
                 await self._brotr.upsert_service_data([
-                    ("finder", "candidate", url, {"retries": retries})
+                    ("validator", "candidate", url, {"failed_attempts": failed_attempts})
                 ])
 
     await asyncio.gather(*[
@@ -910,23 +923,40 @@ async def _publish_nip66_event(self, nip66: Nip66):
 **Architecture**:
 
 ```
-Main Process
-    │
-    ├─> Load relays from database
-    ├─> Distribute to worker queue
-    │
-    ├─> Worker Process 1
-    │   └─> Event loop
-    │       ├─> Connect to relay
-    │       ├─> Send REQ filter
-    │       ├─> Collect EVENTs
-    │       └─> Return batch
-    │
-    ├─> Worker Process 2
-    ├─> Worker Process 3
-    └─> Worker Process N
-    │
-    └─> Collect batches → insert to database
++------------------+
+|   Main Process   |
++--------+---------+
+         |
+         +---> Load relays from database
+         |
+         +---> Distribute to worker queue
+         |
+         +-----+-----+-----+-----+
+         |     |     |     |     |
+         v     v     v     v     v
+      +-----+ +-----+ +-----+ +-----+
+      | W1  | | W2  | | W3  | | WN  |  (Worker Processes)
+      +--+--+ +--+--+ +--+--+ +--+--+
+         |       |       |       |
+         v       v       v       v
+      Connect to relay
+      Send REQ filter
+      Collect EVENTs
+      Return batch
+         |       |       |       |
+         +---+---+---+---+---+---+
+             |
+             v
+      +------+------+
+      | Collect all |
+      |   batches   |
+      +------+------+
+             |
+             v
+      +------+------+
+      |  Insert to  |
+      |  database   |
+      +-------------+
 ```
 
 **Multiprocessing Pattern**:

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.0.0-blue?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/postgresql-16+-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
@@ -89,30 +89,40 @@ docker-compose logs -f seeder
 BigBrotr uses a three-layer architecture that separates concerns and enables flexibility:
 
 ```
++=============================================================================+
+|                         IMPLEMENTATION LAYER                                |
+|                      implementations/bigbrotr/                              |
+|                 (YAML configs, SQL schemas, Docker, seed data)              |
++=====================================+=======================================+
+                                      |
+                                      v
++=============================================================================+
+|                           SERVICE LAYER                                     |
+|                          src/services/                                      |
 +-----------------------------------------------------------------------------+
-|                           IMPLEMENTATION LAYER                              |
-|              implementations/bigbrotr/                                      |
-|              (YAML configs, SQL schemas, Docker, seed data)                 |
-+----------------------------------+------------------------------------------+
-                                   | Uses
-                                   v
-+-----------------------------------------------------------------------------+
-|                             SERVICE LAYER                                   |
-|              src/services/                                                  |
 |                                                                             |
-|   Seeder   Finder  Validator   Monitor   Synchronizer   [API]  [DVM]   |
-|    (seed)     (disco)    (test)    (health)    (events)     Planned Planned |
-+----------------------------------+------------------------------------------+
-                                   | Leverages
-                                   v
-+-----------------------------------------------------------------------------+
-|                              CORE LAYER                                     |
-|              src/core/                                                      |
+|  +--------+  +--------+  +-----------+  +---------+  +--------------+       |
+|  | Seeder |  | Finder |  | Validator |  | Monitor |  | Synchronizer |       |
+|  | (seed) |  |(disco) |  |  (test)   |  |(health) |  |   (events)   |       |
+|  +--------+  +--------+  +-----------+  +---------+  +--------------+       |
 |                                                                             |
-|              Pool          Brotr        BaseService        Logger           |
-|         (Connection    (Database     (Service Base    (Structured           |
-|           Pooling)     Interface)       Class)         Logging)             |
+|  +-------+  +-------+                                                       |
+|  |  API  |  |  DVM  |  (planned)                                            |
+|  +-------+  +-------+                                                       |
+|                                                                             |
++=====================================+=======================================+
+                                      |
+                                      v
++=============================================================================+
+|                            CORE LAYER                                       |
+|                           src/core/                                         |
 +-----------------------------------------------------------------------------+
+|                                                                             |
+|  +--------+     +--------+     +-------------+     +--------+               |
+|  |  Pool  |---->| Brotr  |     | BaseService |     | Logger |               |
+|  +--------+     +--------+     +-------------+     +--------+               |
+|                                                                             |
++=============================================================================+
 ```
 
 ### Core Components
@@ -341,6 +351,7 @@ The Synchronizer is the core data collection engine:
 - **Time-Window Stack Algorithm**: Handles large event volumes efficiently
 - **Incremental Sync**: Tracks per-relay timestamps for efficient updates
 - **Per-Relay Overrides**: Custom timeouts for high-traffic relays
+- **Tor Proxy Support**: SOCKS5 proxy for .onion relay synchronization
 - **Network-Aware**: Different timeouts for clearnet vs Tor relays
 - **Graceful Shutdown**: Clean worker process termination
 
@@ -593,9 +604,11 @@ bigbrotr/
 │
 ├── tests/
 │   ├── conftest.py                    # Shared fixtures
-│   ├── core/                          # Core layer tests
-│   ├── services/                      # Service layer tests
-│   └── models/                        # Models tests
+│   ├── unit/                          # Unit tests
+│   │   ├── core/                      # Core layer tests
+│   │   ├── services/                  # Service layer tests
+│   │   └── models/                    # Models tests
+│   └── integration/                   # Integration tests (planned)
 │
 ├── docs/                              # Documentation
 │   ├── ARCHITECTURE.md
@@ -606,7 +619,8 @@ bigbrotr/
 │
 ├── releases/                          # Release notes
 │   ├── v1.0.0.md
-│   └── v2.0.0.md
+│   ├── v2.0.0.md
+│   └── v3.0.0.md
 │
 ├── .github/                           # GitHub configuration
 │   ├── workflows/ci.yml               # CI pipeline
@@ -683,7 +697,7 @@ For security issues, please see [SECURITY.md](SECURITY.md).
 - [x] Monitor service with NIP-11/NIP-66 support
 - [x] Synchronizer service with multicore processing
 - [x] Docker Compose deployment
-- [x] Unit test suite (412+ tests)
+- [x] Unit test suite (411+ tests)
 - [x] Pre-commit hooks and CI configuration
 
 ### Planned
