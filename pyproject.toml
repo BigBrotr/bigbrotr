@@ -96,6 +96,8 @@ markers = [
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
+    # AsyncMock introspection warning in pytest-asyncio with Python 3.9
+    "ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited:RuntimeWarning",
 ]
 
 # ============================================================================

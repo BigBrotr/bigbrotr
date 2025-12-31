@@ -93,6 +93,7 @@ class TestFetch:
     async def test_success(self, relay):
         mock_response = AsyncMock()
         mock_response.status = 200
+        mock_response.headers = {"Content-Type": "application/nostr+json"}
         mock_response.json = AsyncMock(return_value={"name": "Test"})
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)

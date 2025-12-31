@@ -167,24 +167,24 @@ class TestToRelayMetadata:
 
 
 class TestResolveDns:
-    """_resolve_dns() static method."""
+    """_resolve_dns_sync() static method."""
 
     def test_success(self):
         with patch("socket.gethostbyname", return_value="8.8.8.8"):
-            ip, rtt = Nip66._resolve_dns("example.com")
+            ip, rtt = Nip66._resolve_dns_sync("example.com")
         assert ip == "8.8.8.8"
         assert isinstance(rtt, int)
 
     def test_failure(self):
         import socket
         with patch("socket.gethostbyname", side_effect=socket.gaierror):
-            ip, rtt = Nip66._resolve_dns("nonexistent.example.com")
+            ip, rtt = Nip66._resolve_dns_sync("nonexistent.example.com")
         assert ip is None
         assert rtt is None
 
 
 class TestCheckSsl:
-    """_check_ssl() static method."""
+    """_check_ssl_sync() static method."""
 
     def test_success(self):
         mock_cert = {
@@ -195,17 +195,17 @@ class TestCheckSsl:
         with patch("socket.create_connection") as mock_conn:
             mock_socket = MagicMock()
             mock_conn.return_value.__enter__.return_value = mock_socket
-            mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+            mock_conn.return_value.__exit__ = lambda *args: False
 
             with patch("ssl.create_default_context") as mock_ctx:
                 mock_ssl_socket = MagicMock()
                 mock_ssl_socket.getpeercert.return_value = mock_cert
                 mock_wrapped = MagicMock()
                 mock_wrapped.__enter__.return_value = mock_ssl_socket
-                mock_wrapped.__exit__ = MagicMock(return_value=False)
+                mock_wrapped.__exit__ = lambda *args: False
                 mock_ctx.return_value.wrap_socket.return_value = mock_wrapped
 
-                result = Nip66._check_ssl("example.com")
+                result = Nip66._check_ssl_sync("example.com")
 
         assert result.get("ssl_valid") is True
 
@@ -214,17 +214,17 @@ class TestCheckSsl:
         with patch("socket.create_connection") as mock_conn:
             mock_socket = MagicMock()
             mock_conn.return_value.__enter__.return_value = mock_socket
-            mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+            mock_conn.return_value.__exit__ = lambda *args: False
 
             with patch("ssl.create_default_context") as mock_ctx:
                 mock_ctx.return_value.wrap_socket.side_effect = ssl.SSLError()
-                result = Nip66._check_ssl("example.com")
+                result = Nip66._check_ssl_sync("example.com")
 
         assert result.get("ssl_valid") is False
 
     def test_connection_error(self):
         with patch("socket.create_connection", side_effect=TimeoutError):
-            result = Nip66._check_ssl("example.com")
+            result = Nip66._check_ssl_sync("example.com")
         assert result == {}
 
 
