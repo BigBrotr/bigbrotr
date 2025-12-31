@@ -267,11 +267,12 @@ class Finder(BaseService[FinderConfig]):
                         # Content is not JSON or not a dict, skip
                         pass
 
-            # Insert discovered relays as candidates
+            # Insert discovered relays as candidates for validation
+            # service_name='validator' so Validator service picks them up
             if relays:
                 try:
                     records: list[tuple[str, str, str, dict[str, Any]]] = [
-                        ("finder", "candidate", url, {}) for url in relays
+                        ("validator", "candidate", url, {}) for url in relays
                     ]
                     await self._brotr.upsert_service_data(records)
                     total_relays_found += len(relays)
@@ -395,11 +396,12 @@ class Finder(BaseService[FinderConfig]):
                         url=source.url,
                     )
 
-        # Insert discovered relays as candidates in services table
+        # Insert discovered relays as candidates for validation
+        # service_name='validator' so Validator service picks them up
         if relays:
             try:
                 records: list[tuple[str, str, str, dict[str, Any]]] = [
-                    ("finder", "candidate", url, {}) for url in relays
+                    ("validator", "candidate", url, {}) for url in relays
                 ]
                 await self._brotr.upsert_service_data(records)
                 self._found_relays += len(relays)

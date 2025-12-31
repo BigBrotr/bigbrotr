@@ -193,17 +193,19 @@ class TestCandidateSelection:
         selected = validator._select_candidates(candidates)
         assert len(selected) == 2
 
-    def test_probabilistic_selection_favors_low_retries(self, mock_validator_brotr: Brotr) -> None:
-        """Test that candidates with fewer retries are more likely to be selected."""
+    def test_probabilistic_selection_favors_low_failed_attempts(
+        self, mock_validator_brotr: Brotr
+    ) -> None:
+        """Test that candidates with fewer failed_attempts are more likely to be selected."""
         config = ValidatorConfig(max_candidates_per_run=1)
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
-        # Create candidates with very different retry counts
+        # Create candidates with very different failed_attempts counts
         candidates = [
-            {"key": "wss://low.com", "value": {"retries": 0}, "updated_at": 1000},
-            {"key": "wss://high1.com", "value": {"retries": 100}, "updated_at": 1001},
-            {"key": "wss://high2.com", "value": {"retries": 100}, "updated_at": 1002},
-            {"key": "wss://high3.com", "value": {"retries": 100}, "updated_at": 1003},
+            {"key": "wss://low.com", "value": {"failed_attempts": 0}, "updated_at": 1000},
+            {"key": "wss://high1.com", "value": {"failed_attempts": 100}, "updated_at": 1001},
+            {"key": "wss://high2.com", "value": {"failed_attempts": 100}, "updated_at": 1002},
+            {"key": "wss://high3.com", "value": {"failed_attempts": 100}, "updated_at": 1003},
         ]
 
         # Run selection many times and count how often "low" is selected
@@ -215,13 +217,15 @@ class TestCandidateSelection:
             if selected[0]["key"] == "wss://low.com":
                 low_selected_count += 1
 
-        # With weight = 1/(retries+1), "low" has weight 1.0 and each "high" has weight 0.01
+        # With weight = 1/(failed_attempts+1), "low" has weight 1.0 and each "high" has weight 0.01
         # Expected probability for "low" is 1.0 / (1.0 + 0.01*3) ≈ 97%
         # With 100 iterations, we expect ~97 selections of "low"
         assert low_selected_count > 80, f"Expected >80, got {low_selected_count}"
 
-    def test_empty_value_defaults_to_zero_retries(self, mock_validator_brotr: Brotr) -> None:
-        """Test that empty value defaults to 0 retries."""
+    def test_empty_value_defaults_to_zero_failed_attempts(
+        self, mock_validator_brotr: Brotr
+    ) -> None:
+        """Test that empty value defaults to 0 failed_attempts."""
         config = ValidatorConfig(max_candidates_per_run=None)
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
