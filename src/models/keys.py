@@ -11,7 +11,7 @@ from nostr_sdk import Keys as NostrKeys
 from nostr_sdk import SecretKey
 
 
-class Keys(NostrKeys):
+class Keys(NostrKeys):  # type: ignore[misc]
     """Extended Nostr keys with environment loading."""
 
     @classmethod
