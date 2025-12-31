@@ -40,14 +40,16 @@ from nostr_sdk import (
 )
 from pydantic import BaseModel, Field, model_validator
 
+from core.base_service import BaseService
 from models import (
     Keys as ModelKeys,
+)
+from models import (
     Nip11,
     Nip66,
     Relay,
     RelayMetadata,
 )
-from core.base_service import BaseService
 
 if TYPE_CHECKING:
     from core.brotr import Brotr

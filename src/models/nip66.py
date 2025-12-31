@@ -11,7 +11,7 @@ import ssl
 from dataclasses import dataclass
 from datetime import timedelta
 from time import perf_counter, time
-from typing import TYPE_CHECKING, Any, Optional, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Optional, TypeVar
 
 import geohash2
 import geoip2.database
@@ -50,21 +50,21 @@ class Nip66:
 
     # --- Type-safe helpers ---
 
-    def _get_rtt(self, key: str, expected_type: Type[T], default: T) -> T:
+    def _get_rtt(self, key: str, expected_type: type[T], default: T) -> T:
         """Get value from rtt_metadata with type checking."""
         return self.rtt_metadata._get(key, expected_type, default)
 
-    def _get_rtt_optional(self, key: str, expected_type: Type[T]) -> Optional[T]:
+    def _get_rtt_optional(self, key: str, expected_type: type[T]) -> Optional[T]:
         """Get optional value from rtt_metadata with type checking."""
         return self.rtt_metadata._get_optional(key, expected_type)
 
-    def _get_ssl(self, key: str, expected_type: Type[T]) -> Optional[T]:
+    def _get_ssl(self, key: str, expected_type: type[T]) -> Optional[T]:
         """Get value from ssl_metadata if available."""
         if self.ssl_metadata is None:
             return None
         return self.ssl_metadata._get_optional(key, expected_type)
 
-    def _get_geo(self, key: str, expected_type: Type[T]) -> Optional[T]:
+    def _get_geo(self, key: str, expected_type: type[T]) -> Optional[T]:
         """Get value from geo_metadata if available."""
         if self.geo_metadata is None:
             return None
@@ -236,22 +236,24 @@ class Nip66:
         result: dict[str, Any] = {}
         try:
             context = ssl.create_default_context()
-            with socket.create_connection((host, port), timeout=10) as sock:
-                with context.wrap_socket(sock, server_hostname=host) as ssock:
-                    cert = ssock.getpeercert()
+            with (
+                socket.create_connection((host, port), timeout=10) as sock,
+                context.wrap_socket(sock, server_hostname=host) as ssock,
+            ):
+                cert = ssock.getpeercert()
 
-                    for rdn in cert.get("issuer", []):
-                        for attr, value in rdn:
-                            if attr == "organizationName":
-                                result["ssl_issuer"] = value
-                                break
+                for rdn in cert.get("issuer", []):
+                    for attr, value in rdn:
+                        if attr == "organizationName":
+                            result["ssl_issuer"] = value
+                            break
 
-                    not_after = cert.get("notAfter")
-                    if not_after:
-                        # SSL cert expiry is a Unix timestamp
-                        result["ssl_expires"] = ssl.cert_time_to_seconds(not_after)
+                not_after = cert.get("notAfter")
+                if not_after:
+                    # SSL cert expiry is a Unix timestamp
+                    result["ssl_expires"] = ssl.cert_time_to_seconds(not_after)
 
-                    result["ssl_valid"] = True
+                result["ssl_valid"] = True
         except ssl.SSLError:
             result["ssl_valid"] = False
         except Exception:
