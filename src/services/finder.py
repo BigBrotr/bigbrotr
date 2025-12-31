@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 import aiohttp
 from nostr_sdk import RelayUrl
@@ -103,7 +103,7 @@ class FinderConfig(BaseModel):
 # =============================================================================
 
 
-class Finder(BaseService):
+class Finder(BaseService[FinderConfig]):
     """
     Relay discovery service.
 
@@ -115,8 +115,8 @@ class Finder(BaseService):
         - Kind 10002 (NIP-65): Relay list metadata with r-tags
     """
 
-    SERVICE_NAME = "finder"
-    CONFIG_CLASS = FinderConfig
+    SERVICE_NAME: ClassVar[str] = "finder"
+    CONFIG_CLASS: ClassVar[type[FinderConfig]] = FinderConfig
 
     def __init__(
         self,
@@ -323,7 +323,8 @@ class Finder(BaseService):
                 key="events",
             )
             if results:
-                return results[0].get("value", {})
+                value: dict[str, Any] = results[0].get("value", {})
+                return value
         except Exception as e:
             self._logger.warning("cursor_load_failed", error=str(e), error_type=type(e).__name__)
         return {}

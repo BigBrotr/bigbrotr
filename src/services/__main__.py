@@ -16,6 +16,7 @@ import logging
 import signal
 import sys
 from pathlib import Path
+from typing import Any
 
 from core import Brotr, Logger
 from core.base_service import BaseService
@@ -34,7 +35,7 @@ YAML_BASE = Path("yaml")
 CORE_CONFIG = YAML_BASE / "core" / "brotr.yaml"
 
 # Service registry: name -> (class, config_path, is_oneshot)
-SERVICE_REGISTRY: dict[str, tuple[type[BaseService], Path, bool]] = {
+SERVICE_REGISTRY: dict[str, tuple[type[BaseService[Any]], Path, bool]] = {
     "initializer": (Initializer, YAML_BASE / "services" / "initializer.yaml", True),
     "finder": (Finder, YAML_BASE / "services" / "finder.yaml", False),
     "validator": (Validator, YAML_BASE / "services" / "validator.yaml", False),
@@ -52,7 +53,7 @@ logger = Logger("cli")
 
 async def run_service(
     service_name: str,
-    service_class: type[BaseService],
+    service_class: type[BaseService[Any]],
     brotr: Brotr,
     config_path: Path,
     is_oneshot: bool,
