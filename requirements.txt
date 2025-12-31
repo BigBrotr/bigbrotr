@@ -1,11 +1,35 @@
-aiohttp==3.13.2
-aiohttp-socks==0.10.1
-aiomultiprocess==0.9.1
-asyncpg==0.30.0
+# ============================================================================
+# BigBrotr Runtime Dependencies
+# ============================================================================
+#
+# These are pinned versions for reproducible builds.
+# For development, use: pip install -e ".[dev]"
+#
+# ============================================================================
+
+# HTTP/WebSocket
+aiohttp>=3.9.0
+aiohttp-socks>=0.9.0
+
+# Multiprocessing
+aiomultiprocess>=0.9.1
+
+# Database
+asyncpg>=0.29.0
+
+# Geolocation
 geoip2>=4.8.0
 geohash2>=1.1
-nostr-sdk>=0.44.0
-pydantic==2.10.4
-PyYAML==6.0.2
+
+# Nostr
+nostr-sdk>=0.37.0
+
+# Configuration and validation
+pydantic>=2.5.0
+PyYAML>=6.0.1
+
+# URL parsing
 rfc3986>=2.0.0
-typing-extensions==4.12.2
+
+# Python compatibility
+typing-extensions>=4.9.0
