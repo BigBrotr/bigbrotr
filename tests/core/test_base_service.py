@@ -1,7 +1,6 @@
 """Tests for core.base_service module."""
 
 import asyncio
-from pathlib import Path
 from typing import Optional
 
 import pytest

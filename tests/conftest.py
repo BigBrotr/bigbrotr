@@ -18,9 +18,9 @@ import pytest
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from models import EventRelay, Nip11, Nip66, Relay, RelayMetadata
 from core.brotr import Brotr
 from core.pool import Pool
+from models import EventRelay, Nip11, Nip66, Relay, RelayMetadata
 
 # ============================================================================
 # Logging Configuration

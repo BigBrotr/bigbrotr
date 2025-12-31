@@ -1,7 +1,8 @@
 """Tests for models.relay module."""
 
-import pytest
 from time import time
+
+import pytest
 
 from models import Relay
 
