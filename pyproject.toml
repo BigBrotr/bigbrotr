@@ -59,7 +59,6 @@ dependencies = [
     "pydantic>=2.5.0",
     "PyYAML>=6.0.1",
     "rfc3986>=2.0.0",
-    "typing-extensions>=4.9.0",
 ]
 
 [project.optional-dependencies]
@@ -72,10 +71,13 @@ dev = [
     "pytest-timeout>=2.3.0",
     "pytest-xdist>=3.5.0",
     # Linting and formatting
-    "ruff>=0.8.0",
-    "mypy>=1.13.0",
-    # Pre-commit
+    "ruff>=0.14.0",
+    "mypy>=1.19.0",
+    "yamllint>=1.37.0",
+    "sqlfluff>=3.5.0",
+    # Pre-commit and security
     "pre-commit>=4.0.0",
+    "detect-secrets>=1.5.0",
     # Type stubs
     "types-PyYAML>=6.0.12",
     "asyncpg-stubs>=0.30.0",
@@ -248,6 +250,7 @@ ignore = [
     "SIM102",  # nested if (sometimes more readable)
     "SIM105",  # contextlib.suppress doesn't work with async/await
     "UP007",   # Use X | Y for type annotations (need Optional for Python 3.9)
+    "UP045",   # Use X | None for type annotations (need Optional for Python 3.9)
     "PERF203", # try-except in loop (acceptable for error handling)
     "PERF401", # list.extend vs loop (not always clearer)
 ]
@@ -259,10 +262,16 @@ ignore = [
     "ARG002",  # unused method arguments
     "PLC0415", # import outside top-level (inline imports in fixtures)
     "S101",    # assert statements
+    "RUF043",  # raw string patterns in pytest.raises
+    "RUF059",  # unused unpacked variables (common in test assertions)
 ]
 # TC001/TC002/TC003: These imports are used at runtime, not just for type hints
 "src/core/brotr.py" = ["TC001", "TC002"]
 "src/core/pool.py" = ["TC003"]
+# PLC0415: Deferred imports to avoid circular dependencies
+"src/models/nip11.py" = ["PLC0415"]
+"src/models/nip66.py" = ["PLC0415"]
+"src/services/synchronizer.py" = ["PLC0415"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["core", "models", "services"]
@@ -323,7 +332,6 @@ ignore_missing_imports = false
 [[tool.mypy.overrides]]
 module = [
     "asyncpg.*",
-    "nostr_tools.*",
     "nostr_sdk.*",
     "aiohttp_socks.*",
     "aiomultiprocess.*",
