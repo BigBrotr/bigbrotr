@@ -1,7 +1,8 @@
 """Tests for models.nip66 module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from models import Metadata, Nip66, Relay
 
@@ -195,14 +196,14 @@ class TestCheckSsl:
         with patch("socket.create_connection") as mock_conn:
             mock_socket = MagicMock()
             mock_conn.return_value.__enter__.return_value = mock_socket
-            mock_conn.return_value.__exit__ = lambda *args: False
+            mock_conn.return_value.__exit__ = MagicMock(return_value=False)
 
             with patch("ssl.create_default_context") as mock_ctx:
                 mock_ssl_socket = MagicMock()
                 mock_ssl_socket.getpeercert.return_value = mock_cert
                 mock_wrapped = MagicMock()
                 mock_wrapped.__enter__.return_value = mock_ssl_socket
-                mock_wrapped.__exit__ = lambda *args: False
+                mock_wrapped.__exit__ = MagicMock(return_value=False)
                 mock_ctx.return_value.wrap_socket.return_value = mock_wrapped
 
                 result = Nip66._check_ssl_sync("example.com")
@@ -214,7 +215,7 @@ class TestCheckSsl:
         with patch("socket.create_connection") as mock_conn:
             mock_socket = MagicMock()
             mock_conn.return_value.__enter__.return_value = mock_socket
-            mock_conn.return_value.__exit__ = lambda *args: False
+            mock_conn.return_value.__exit__ = MagicMock(return_value=False)
 
             with patch("ssl.create_default_context") as mock_ctx:
                 mock_ctx.return_value.wrap_socket.side_effect = ssl.SSLError()
@@ -262,26 +263,32 @@ class TestTest:
 
     @pytest.mark.asyncio
     async def test_returns_nip66(self, relay):
-        with patch.object(Nip66, "_resolve_dns", return_value=(None, None)):
-            with patch.object(Nip66, "_check_ssl", return_value={}):
-                with patch.object(Nip66, "_test_connection", new_callable=AsyncMock, return_value={}):
-                    result = await Nip66.test(relay)
+        with (
+            patch.object(Nip66, "_resolve_dns", return_value=(None, None)),
+            patch.object(Nip66, "_check_ssl", return_value={}),
+            patch.object(Nip66, "_test_connection", new_callable=AsyncMock, return_value={}),
+        ):
+            result = await Nip66.test(relay)
         assert isinstance(result, Nip66)
         assert result.network == "clearnet"
 
     @pytest.mark.asyncio
     async def test_skips_dns_for_tor(self):
         tor_relay = Relay("wss://abc123.onion", discovered_at=0)
-        with patch.object(Nip66, "_resolve_dns") as mock_dns:
-            with patch.object(Nip66, "_test_connection", new_callable=AsyncMock, return_value={}):
-                await Nip66.test(tor_relay)
+        with (
+            patch.object(Nip66, "_resolve_dns") as mock_dns,
+            patch.object(Nip66, "_test_connection", new_callable=AsyncMock, return_value={}),
+        ):
+            await Nip66.test(tor_relay)
         mock_dns.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_skips_ssl_for_ws(self):
         ws_relay = Relay("ws://relay.example.com", discovered_at=0)
-        with patch.object(Nip66, "_resolve_dns", return_value=("8.8.8.8", 50)):
-            with patch.object(Nip66, "_check_ssl") as mock_ssl:
-                with patch.object(Nip66, "_test_connection", new_callable=AsyncMock, return_value={}):
-                    await Nip66.test(ws_relay)
+        with (
+            patch.object(Nip66, "_resolve_dns", return_value=("8.8.8.8", 50)),
+            patch.object(Nip66, "_check_ssl") as mock_ssl,
+            patch.object(Nip66, "_test_connection", new_callable=AsyncMock, return_value={}),
+        ):
+            await Nip66.test(ws_relay)
         mock_ssl.assert_not_called()

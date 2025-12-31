@@ -1,9 +1,9 @@
 """Tests for models.event module."""
 
 import json
+from unittest.mock import MagicMock
 
 import pytest
-from unittest.mock import MagicMock
 
 from models import Event
 
