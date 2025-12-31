@@ -57,12 +57,11 @@ This design allows:
 |                             SERVICE LAYER                                    |
 |                                                                              |
 |   src/services/                                                              |
-|   ├── initializer.py   Database bootstrap and verification                  |
-|   ├── finder.py        Relay URL discovery                                  |
+|   ├── initializer.py   Database bootstrap and seed loading                  |
+|   ├── finder.py        Relay URL discovery from APIs and events             |
+|   ├── validator.py     Candidate relay validation                           |
 |   ├── monitor.py       Relay health monitoring (NIP-11/NIP-66)              |
-|   ├── synchronizer.py  Event collection and sync                            |
-|   ├── api.py           REST API (planned)                                   |
-|   └── dvm.py           Data Vending Machine (planned)                       |
+|   └── synchronizer.py  Event collection and sync                            |
 |                                                                              |
 |   Purpose: Business logic, service coordination, data transformation         |
 +----------------------------------+------------------------------------------+
@@ -146,14 +145,14 @@ finally:
 - Timeout configuration per operation type
 - Context manager (delegates to Pool)
 
-**Stored Procedures** (hardcoded for security):
+**Stored Functions** (hardcoded for security):
 ```python
-PROC_INSERT_EVENT = "insert_event"
-PROC_INSERT_RELAY = "insert_relay"
-PROC_INSERT_RELAY_METADATA = "insert_relay_metadata"
-PROC_DELETE_ORPHAN_EVENTS = "delete_orphan_events"
-PROC_DELETE_ORPHAN_NIP11 = "delete_orphan_nip11"
-PROC_DELETE_ORPHAN_NIP66 = "delete_orphan_nip66"
+FUNC_INSERT_EVENT = "insert_event"
+FUNC_INSERT_RELAY = "insert_relay"
+FUNC_INSERT_RELAY_METADATA = "insert_relay_metadata"
+FUNC_DELETE_ORPHAN_EVENTS = "delete_orphan_events"
+FUNC_DELETE_ORPHAN_METADATA = "delete_orphan_metadata"
+FUNC_DELETE_FAILED_CANDIDATES = "delete_failed_candidates"
 ```
 
 **Usage**:
@@ -270,28 +269,45 @@ class MyService(BaseService[MyServiceConfig]):
 
 ### Initializer Service
 
-**Purpose**: Database bootstrap and schema verification.
+**Purpose**: Database bootstrap and relay seeding.
 
 **Lifecycle**: One-shot (runs once, then exits)
 
 **Operations**:
-1. Verify PostgreSQL extensions (pgcrypto, btree_gin)
-2. Verify all expected tables exist
-3. Verify all stored procedures exist
-4. Verify all views exist
-5. Seed relay URLs from configured file
+1. Parse seed relay URLs from configured file
+2. Validate URLs and detect network type (clearnet/tor)
+3. Store as candidates in `service_data` table for Validator
 
 ### Finder Service
 
-**Purpose**: Relay URL discovery.
+**Purpose**: Relay URL discovery from multiple sources.
 
 **Lifecycle**: Continuous (`run_forever`)
 
 **Operations**:
-1. Fetch relay lists from configured API sources
-2. Validate URLs using nostr-tools
-3. Detect network type (clearnet/tor) from URL
-4. Batch insert discovered relays into database
+1. Fetch relay lists from configured API sources (e.g., nostr.watch)
+2. Scan stored events for relay URLs (NIP-65 relay lists, kind 2/3 events)
+3. Validate URLs using the Relay model
+4. Store discovered URLs as candidates in `service_data` table
+
+**Note**: Finder stores candidates, not relays. The Validator service tests and promotes valid candidates to the `relays` table.
+
+### Validator Service
+
+**Purpose**: Test and validate candidate relay URLs.
+
+**Lifecycle**: Continuous (`run_forever`)
+
+**Operations**:
+1. Fetch candidates from `service_data` table
+2. Test WebSocket connectivity for each candidate
+3. Promote successful candidates to `relays` table
+4. Track failed attempts and remove persistently failing candidates
+
+**Features**:
+- Probabilistic selection based on retry count
+- Tor proxy support for .onion addresses
+- Configurable connection timeout
 
 ### Monitor Service
 
@@ -362,10 +378,11 @@ implementations/bigbrotr/
 │   ├── core/
 │   │   └── brotr.yaml           # Database connection, pool settings
 │   └── services/
-│       ├── initializer.yaml     # Schema verification, seed file
+│       ├── initializer.yaml     # Seed file configuration
 │       ├── finder.yaml          # API sources, intervals
+│       ├── validator.yaml       # Validation settings, Tor proxy
 │       ├── monitor.yaml         # Health check settings, Tor enabled
-│       └── synchronizer.yaml    # High concurrency (10 parallel, 10 processes)
+│       └── synchronizer.yaml    # High concurrency (10 parallel, 4 processes)
 ├── postgres/
 │   └── init/                    # SQL schema files (00-99)
 │       ├── 02_tables.sql        # Full schema with tags, tagvalues, content
@@ -549,22 +566,29 @@ async with brotr:           # Connect on enter, close on exit
 ### Event Synchronization Flow
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Finder    │     │   Monitor   │     │ Synchronizer│
-└──────┬──────┘     └──────┬──────┘     └──────┬──────┘
-       │                   │                   │
-       │ Discover          │ Check health      │ Collect events
-       │ relay URLs        │ NIP-11/NIP-66     │ from relays
-       v                   v                   v
-┌─────────────────────────────────────────────────────┐
-│                      PostgreSQL                      │
-│  ┌─────────┐  ┌──────┐  ┌─────────────────┐         │
-│  │ relays  │  │events│  │ relay_metadata  │         │
-│  └─────────┘  └──────┘  └─────────────────┘         │
-│       │           │              │                   │
-│       └───────────┴──────────────┘                   │
-│                events_relays                         │
-└─────────────────────────────────────────────────────┘
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│ Initializer │     │   Finder    │     │  Validator  │     │   Monitor   │
+└──────┬──────┘     └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
+       │                   │                   │                   │
+       │ Seed URLs         │ Discover URLs     │ Test candidates   │ Check health
+       │ (one-shot)        │ from APIs/events  │ Promote to relays │ NIP-11/NIP-66
+       v                   v                   v                   v
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              PostgreSQL                                  │
+│  ┌─────────────────┐  ┌─────────┐  ┌──────┐  ┌─────────────────┐       │
+│  │  service_data   │  │ relays  │  │events│  │ relay_metadata  │       │
+│  │  (candidates)   │  │         │  │      │  │    + metadata   │       │
+│  └─────────────────┘  └─────────┘  └──────┘  └─────────────────┘       │
+│                              │          │              │                │
+│                              └──────────┴──────────────┘                │
+│                                   events_relays                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                                        ^
+                                        │
+                              ┌─────────────────┐
+                              │  Synchronizer   │
+                              │ Collect events  │
+                              └─────────────────┘
 ```
 
 ### Metadata Deduplication Flow
@@ -589,10 +613,12 @@ async with brotr:           # Connect on enter, close on exit
 │                                                  v            │
 │                                    ┌─────────────────────────┐│
 │                                    │ Insert relay_metadata   ││
-│                                    │ (links relay to nip11/  ││
-│                                    │  nip66 by hash ID)      ││
+│                                    │ (links relay to metadata││
+│                                    │  by type and hash ID)   ││
 │                                    └─────────────────────────┘│
 └──────────────────────────────────────────────────────────────┘
+
+**Metadata Types**: `nip11`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`
 ```
 
 ---

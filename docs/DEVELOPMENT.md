@@ -84,12 +84,11 @@ bigbrotr/
 │   └── services/                     # Service layer (business logic)
 │       ├── __init__.py               # Service exports
 │       ├── __main__.py               # CLI entry point
-│       ├── initializer.py            # Database bootstrap (~310 lines)
-│       ├── finder.py                 # Relay discovery (~220 lines)
-│       ├── monitor.py                # Health monitoring (~400 lines)
-│       ├── synchronizer.py           # Event sync (~740 lines)
-│       ├── api.py                    # REST API (planned)
-│       └── dvm.py                    # DVM service (planned)
+│       ├── initializer.py            # Database bootstrap and seeding
+│       ├── finder.py                 # Relay URL discovery
+│       ├── validator.py              # Candidate relay validation
+│       ├── monitor.py                # Health monitoring (NIP-11/NIP-66)
+│       └── synchronizer.py           # Event synchronization
 │
 ├── implementations/                  # Implementation layer
 │   ├── bigbrotr/                     # Full-featured implementation
@@ -531,11 +530,14 @@ FROM events
 ORDER BY created_at DESC
 LIMIT 10;
 
--- Relay status
-SELECT relay_url, nip66_openable, nip66_readable, nip66_writable
-FROM relay_metadata_latest
-WHERE generated_at > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')
-ORDER BY nip66_openable DESC, nip66_readable DESC;
+-- Relay status (latest RTT data from last 24 hours)
+SELECT rm.relay_url, m.data->>'is_openable' AS openable,
+       m.data->>'is_readable' AS readable, m.data->>'is_writable' AS writable
+FROM relay_metadata_latest rm
+JOIN metadata m ON rm.metadata_id = m.id
+WHERE rm.type = 'nip66_rtt'
+  AND rm.snapshot_at > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')
+ORDER BY (m.data->>'is_openable')::boolean DESC;
 
 -- Event kind distribution
 SELECT * FROM kind_counts_total LIMIT 20;
