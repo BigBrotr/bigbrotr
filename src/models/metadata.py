@@ -114,14 +114,14 @@ class Metadata:
             return result
 
         if isinstance(obj, (list, tuple)):
-            result = []
+            list_result: list[Any] = []
             for item in obj:
                 try:
                     sanitized = Metadata._sanitize_for_json(item, _seen)
-                    result.append(sanitized)
+                    list_result.append(sanitized)
                 except (TypeError, ValueError):
                     continue
-            return result
+            return list_result
 
         try:
             return str(obj)
