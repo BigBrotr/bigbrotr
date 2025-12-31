@@ -178,6 +178,7 @@ class TestResolveDns:
 
     def test_failure(self):
         import socket
+
         with patch("socket.gethostbyname", side_effect=socket.gaierror):
             ip, rtt = Nip66._resolve_dns_sync("nonexistent.example.com")
         assert ip is None
@@ -212,6 +213,7 @@ class TestCheckSsl:
 
     def test_ssl_error(self):
         import ssl
+
         with patch("socket.create_connection") as mock_conn:
             mock_socket = MagicMock()
             mock_conn.return_value.__enter__.return_value = mock_socket

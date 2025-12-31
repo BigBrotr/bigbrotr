@@ -51,10 +51,18 @@ class TimeoutsConfig(BaseModel):
     When set, values must be >= 0.1 seconds.
     """
 
-    query: Optional[float] = Field(default=60.0, description="Query timeout (seconds, None=infinite)")
-    batch: Optional[float] = Field(default=120.0, description="Batch insert timeout (seconds, None=infinite)")
-    cleanup: Optional[float] = Field(default=90.0, description="Cleanup procedure timeout (seconds, None=infinite)")
-    refresh: Optional[float] = Field(default=None, description="Materialized view refresh timeout (seconds, None=infinite)")
+    query: Optional[float] = Field(
+        default=60.0, description="Query timeout (seconds, None=infinite)"
+    )
+    batch: Optional[float] = Field(
+        default=120.0, description="Batch insert timeout (seconds, None=infinite)"
+    )
+    cleanup: Optional[float] = Field(
+        default=90.0, description="Cleanup procedure timeout (seconds, None=infinite)"
+    )
+    refresh: Optional[float] = Field(
+        default=None, description="Materialized view refresh timeout (seconds, None=infinite)"
+    )
 
     @field_validator("query", "batch", "cleanup", "refresh", mode="after")
     @classmethod
@@ -246,7 +254,11 @@ class Brotr:
                 except (ValueError, TypeError) as ex:
                     skipped += 1
                     try:
-                        event_id = event_relay.event.id().to_hex() if hasattr(event_relay.event, "id") else "unknown"
+                        event_id = (
+                            event_relay.event.id().to_hex()
+                            if hasattr(event_relay.event, "id")
+                            else "unknown"
+                        )
                     except Exception:
                         event_id = "unknown"
                     self._logger.warning(
@@ -385,9 +397,7 @@ class Brotr:
     # Service Data Operations
     # -------------------------------------------------------------------------
 
-    async def upsert_service_data(
-        self, records: list[tuple[str, str, str, dict]]
-    ) -> int:
+    async def upsert_service_data(self, records: list[tuple[str, str, str, dict]]) -> int:
         """
         Upsert service data records atomically using bulk insert.
 

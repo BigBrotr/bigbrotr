@@ -72,7 +72,9 @@ def _get_worker_logger() -> logging.Logger:
         if not _WORKER_LOGGER.handlers:
             handler = logging.StreamHandler(sys.stdout)
             handler.setFormatter(
-                logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S")
+                logging.Formatter(
+                    "%(asctime)s %(levelname)s %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S"
+                )
             )
             _WORKER_LOGGER.addHandler(handler)
             _WORKER_LOGGER.setLevel(logging.DEBUG)
@@ -508,7 +510,12 @@ def _create_filter(since: int, until: int, config: FilterConfig) -> Filter:
     - tags: Dict of {tag_letter: [values]} for tag filtering
             e.g., {"e": ["event_id_hex"], "p": ["pubkey_hex"], "t": ["hashtag"]}
     """
-    f = Filter().since(Timestamp.from_secs(since)).until(Timestamp.from_secs(until)).limit(config.limit)
+    f = (
+        Filter()
+        .since(Timestamp.from_secs(since))
+        .until(Timestamp.from_secs(until))
+        .limit(config.limit)
+    )
 
     if config.kinds:
         f = f.kinds([Kind(k) for k in config.kinds])
@@ -744,7 +751,12 @@ class Synchronizer(BaseService):
                     relays.append(relay)
                     known_urls.add(relay.url)
                 except Exception as e:
-                    self._logger.warning("parse_override_relay_failed", error=str(e), error_type=type(e).__name__, url=override.url)
+                    self._logger.warning(
+                        "parse_override_relay_failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        url=override.url,
+                    )
 
         if not relays:
             self._logger.info("no_relays_to_sync")
@@ -821,16 +833,23 @@ class Synchronizer(BaseService):
 
                     # Save cursor to service_data after successful sync
                     # Save even if 0 events - relay was reachable and time window was processed
-                    await self._brotr.upsert_service_data([
-                        (
-                            "synchronizer",
-                            "cursor",
-                            relay.url_without_scheme,
-                            {"last_synced_at": end_time},
-                        )
-                    ])
+                    await self._brotr.upsert_service_data(
+                        [
+                            (
+                                "synchronizer",
+                                "cursor",
+                                relay.url_without_scheme,
+                                {"last_synced_at": end_time},
+                            )
+                        ]
+                    )
                 except Exception as e:
-                    self._logger.warning("relay_sync_failed", error=str(e), error_type=type(e).__name__, url=relay.url)
+                    self._logger.warning(
+                        "relay_sync_failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        url=relay.url,
+                    )
                     self._failed_relays += 1
 
         tasks = [worker(relay) for relay in relays]
@@ -875,12 +894,14 @@ class Synchronizer(BaseService):
             # Save cursor even if 0 events - time window was successfully processed
             try:
                 relay = Relay(url)
-                cursor_updates.append((
-                    "synchronizer",
-                    "cursor",
-                    relay.url_without_scheme,
-                    {"last_synced_at": new_time},
-                ))
+                cursor_updates.append(
+                    (
+                        "synchronizer",
+                        "cursor",
+                        relay.url_without_scheme,
+                        {"last_synced_at": new_time},
+                    )
+                )
             except Exception:
                 pass  # Skip invalid URLs
 

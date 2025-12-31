@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import aiohttp
 from nostr_sdk import RelayUrl
@@ -42,9 +42,7 @@ if TYPE_CHECKING:
 class ConcurrencyConfig(BaseModel):
     """Concurrency configuration for parallel API fetching."""
 
-    max_parallel: int = Field(
-        default=5, ge=1, le=20, description="Maximum concurrent API requests"
-    )
+    max_parallel: int = Field(default=5, ge=1, le=20, description="Maximum concurrent API requests")
 
 
 class EventsConfig(BaseModel):
@@ -212,7 +210,9 @@ class Finder(BaseService):
                     self._config.events.batch_size,
                 )
             except Exception as e:
-                self._logger.warning("event_query_failed", error=str(e), error_type=type(e).__name__)
+                self._logger.warning(
+                    "event_query_failed", error=str(e), error_type=type(e).__name__
+                )
                 break
 
             if not rows:
@@ -269,11 +269,18 @@ class Finder(BaseService):
             # Insert discovered relays as candidates
             if relays:
                 try:
-                    records = [("finder", "candidate", url, {}) for url in relays]
+                    records: list[tuple[str, str, str, dict[str, Any]]] = [
+                        ("finder", "candidate", url, {}) for url in relays
+                    ]
                     await self._brotr.upsert_service_data(records)
                     total_relays_found += len(relays)
                 except Exception as e:
-                    self._logger.error("insert_candidates_failed", error=str(e), error_type=type(e).__name__, count=len(relays))
+                    self._logger.error(
+                        "insert_candidates_failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        count=len(relays),
+                    )
 
             total_events_scanned += chunk_events
             chunks_processed += 1
@@ -328,9 +335,7 @@ class Finder(BaseService):
                 "last_timestamp": timestamp,
                 "last_id": event_id.hex(),  # Store as hex string for JSON
             }
-            await self._brotr.upsert_service_data([
-                ("finder", "cursor", "events", cursor_data)
-            ])
+            await self._brotr.upsert_service_data([("finder", "cursor", "events", cursor_data)])
         except Exception as e:
             self._logger.warning("cursor_save_failed", error=str(e), error_type=type(e).__name__)
 
@@ -381,16 +386,28 @@ class Finder(BaseService):
                         await asyncio.sleep(self._config.api.delay_between_requests)
 
                 except Exception as e:
-                    self._logger.warning("api_fetch_failed", error=str(e), error_type=type(e).__name__, url=source.url)
+                    self._logger.warning(
+                        "api_fetch_failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        url=source.url,
+                    )
 
         # Insert discovered relays as candidates in services table
         if relays:
             try:
-                records = [("finder", "candidate", url, {}) for url in relays]
+                records: list[tuple[str, str, str, dict[str, Any]]] = [
+                    ("finder", "candidate", url, {}) for url in relays
+                ]
                 await self._brotr.upsert_service_data(records)
                 self._found_relays += len(relays)
             except Exception as e:
-                self._logger.error("insert_candidates_failed", error=str(e), error_type=type(e).__name__, count=len(relays))
+                self._logger.error(
+                    "insert_candidates_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    count=len(relays),
+                )
 
         if sources_checked > 0:
             self._logger.info("apis_completed", sources=sources_checked, relays=len(relays))

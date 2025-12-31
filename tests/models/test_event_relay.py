@@ -15,10 +15,10 @@ def mock_event():
     mock.to_db_params.return_value = (
         b"\xaa" * 32,  # id
         b"\xbb" * 32,  # pubkey
-        1234567890,    # created_at
-        1,             # kind
+        1234567890,  # created_at
+        1,  # kind
         '[["e","id"]]',  # tags
-        "Hello",       # content
+        "Hello",  # content
         b"\xcc" * 64,  # sig
     )
     return mock
@@ -77,18 +77,18 @@ class TestToDbParams:
         result = er.to_db_params()
         assert result[0] == b"\xaa" * 32  # id
         assert result[1] == b"\xbb" * 32  # pubkey
-        assert result[2] == 1234567890    # created_at
-        assert result[3] == 1             # kind
+        assert result[2] == 1234567890  # created_at
+        assert result[3] == 1  # kind
         assert result[4] == '[["e","id"]]'  # tags
-        assert result[5] == "Hello"       # content
+        assert result[5] == "Hello"  # content
         assert result[6] == b"\xcc" * 64  # sig
 
     def test_relay_params(self, mock_event, relay):
         er = EventRelay(mock_event, relay, seen_at=9999999999)
         result = er.to_db_params()
         assert result[7] == "relay.example.com"  # url
-        assert result[8] == "clearnet"           # network
-        assert result[9] == 1234567890           # discovered_at
+        assert result[8] == "clearnet"  # network
+        assert result[9] == 1234567890  # discovered_at
 
     def test_seen_at_param(self, mock_event, relay):
         er = EventRelay(mock_event, relay, seen_at=9999999999)

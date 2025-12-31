@@ -147,9 +147,7 @@ class ConcurrencyConfig(BaseModel):
     max_parallel: int = Field(
         default=50, ge=1, le=500, description="Maximum concurrent relay checks per process"
     )
-    max_processes: int = Field(
-        default=1, ge=1, le=32, description="Number of worker processes"
-    )
+    max_processes: int = Field(default=1, ge=1, le=32, description="Number of worker processes")
     batch_size: int = Field(
         default=50,
         ge=1,
@@ -210,9 +208,7 @@ class MonitorConfig(BaseModel):
 # =============================================================================
 
 
-async def fetch_nip11(
-    relay: Relay, timeout: float, tor_config: TorConfig
-) -> Optional[Nip11]:
+async def fetch_nip11(relay: Relay, timeout: float, tor_config: TorConfig) -> Optional[Nip11]:
     """Fetch NIP-11 relay information document via HTTP."""
     is_tor = relay.network == "tor"
     proxy_url = tor_config.proxy_url if is_tor and tor_config.enabled else None
@@ -441,7 +437,10 @@ class Monitor(BaseService):
         self._failed_checks = 0
 
         # Publish Kind 10166 announcement if publishing enabled (once per hour max)
-        if self._config.publishing.enabled and self._config.publishing.destination != "database_only":
+        if (
+            self._config.publishing.enabled
+            and self._config.publishing.destination != "database_only"
+        ):
             if time.time() - self._last_announcement > 3600:
                 await self._publish_announcement()
                 self._last_announcement = time.time()
@@ -483,8 +482,7 @@ class Monitor(BaseService):
         # Save checkpoints only for successfully checked relays
         now = int(time.time())
         checkpoint_data = [
-            ("monitor", "checkpoint", url, {"last_check_at": now})
-            for url in successful_relay_urls
+            ("monitor", "checkpoint", url, {"last_check_at": now}) for url in successful_relay_urls
         ]
         if checkpoint_data:
             await self._brotr.upsert_service_data(checkpoint_data)
@@ -506,8 +504,7 @@ class Monitor(BaseService):
 
         # Load checkpoints from service_data (last check time per relay)
         checkpoints = await self._brotr.get_service_data(
-            service_name="monitor",
-            data_type="checkpoint"
+            service_name="monitor", data_type="checkpoint"
         )
 
         # Build set of relay URLs that were checked recently
@@ -636,7 +633,12 @@ class Monitor(BaseService):
             count = await self._brotr.insert_relay_metadata(batch)
             self._logger.debug("metadata_batch_inserted", count=count)
         except Exception as e:
-            self._logger.error("metadata_batch_insert_failed", error=str(e), error_type=type(e).__name__, count=len(batch))
+            self._logger.error(
+                "metadata_batch_insert_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                count=len(batch),
+            )
 
     async def _publish_relay_discovery(
         self, relay: Relay, nip11: Optional[Nip11], nip66: Optional[Nip66]
@@ -649,7 +651,7 @@ class Monitor(BaseService):
             # Build event content (NIP-11 JSON if available)
             content = ""
             if nip11:
-                content = nip11.data_jsonb
+                content = nip11.metadata.data_jsonb
 
             # Build tags
             tags = build_kind_30166_tags(relay, nip11, nip66)

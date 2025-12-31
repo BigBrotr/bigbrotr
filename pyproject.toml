@@ -206,8 +206,11 @@ pretty = true
 module = [
     "asyncpg.*",
     "nostr_tools.*",
+    "nostr_sdk.*",
     "aiohttp_socks.*",
     "aiomultiprocess.*",
+    "rfc3986.*",
+    "geohash2.*",
 ]
 ignore_missing_imports = true
 

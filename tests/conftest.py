@@ -73,7 +73,9 @@ def mock_asyncpg_pool(mock_connection: MagicMock) -> MagicMock:
 
 
 @pytest.fixture
-def mock_pool(mock_asyncpg_pool: MagicMock, mock_connection: MagicMock, monkeypatch: pytest.MonkeyPatch) -> Pool:
+def mock_pool(
+    mock_asyncpg_pool: MagicMock, mock_connection: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> Pool:
     """Create a Pool with mocked internals."""
     from core.pool import DatabaseConfig, PoolConfig
 
@@ -205,7 +207,9 @@ def _make_mock_event(
     return mock_event
 
 
-def _create_nip11(relay: Relay, data: Optional[dict] = None, generated_at: int = 1700000001) -> Nip11:
+def _create_nip11(
+    relay: Relay, data: Optional[dict] = None, generated_at: int = 1700000001
+) -> Nip11:
     """Create a Nip11 instance using object.__new__ pattern."""
     from models import Metadata
 
@@ -299,10 +303,7 @@ def sample_events_batch() -> list[EventRelay]:
 @pytest.fixture
 def sample_relays_batch() -> list[Relay]:
     """Generate a batch of sample Relay objects."""
-    return [
-        Relay(f"wss://relay{i}.example.com", discovered_at=1700000000)
-        for i in range(10)
-    ]
+    return [Relay(f"wss://relay{i}.example.com", discovered_at=1700000000) for i in range(10)]
 
 
 # ============================================================================
@@ -331,9 +332,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "integration: marks tests as integration tests requiring database"
     )
-    config.addinivalue_line(
-        "markers", "unit: marks tests as unit tests (no external dependencies)"
-    )
+    config.addinivalue_line("markers", "unit: marks tests as unit tests (no external dependencies)")
     config.addinivalue_line("markers", "slow: marks tests as slow running")
 
 

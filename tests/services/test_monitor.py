@@ -359,7 +359,9 @@ class TestMonitorConfig:
 # ============================================================================
 
 
-def _create_nip11(relay: Relay, data: Optional[dict] = None, generated_at: int = 1700000001) -> Nip11:
+def _create_nip11(
+    relay: Relay, data: Optional[dict] = None, generated_at: int = 1700000001
+) -> Nip11:
     """Create a Nip11 instance using object.__new__ pattern."""
     from models import Metadata
 
@@ -742,9 +744,17 @@ class TestMonitorFetchRelays:
             side_effect=[
                 [],  # First call: get_service_data returns no checkpoints
                 [  # Second call: relay query
-                    {"url": "wss://relay1.example.com", "network": "clearnet", "discovered_at": 1700000000},
-                    {"url": "wss://relay2.example.com", "network": "clearnet", "discovered_at": 1700000000},
-                ]
+                    {
+                        "url": "wss://relay1.example.com",
+                        "network": "clearnet",
+                        "discovered_at": 1700000000,
+                    },
+                    {
+                        "url": "wss://relay2.example.com",
+                        "network": "clearnet",
+                        "discovered_at": 1700000000,
+                    },
+                ],
             ]
         )
 
@@ -761,7 +771,9 @@ class TestMonitorFetchRelays:
         assert "relay2.example.com" in str(relays[1].url)
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_filters_invalid_urls(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+    async def test_fetch_relays_filters_invalid_urls(
+        self, mock_brotr: Brotr, tmp_path: Path
+    ) -> None:
         """Test fetching relays filters invalid URLs."""
         geo_db = tmp_path / "GeoLite2-City.mmdb"
         geo_db.write_bytes(b"fake")
@@ -770,9 +782,13 @@ class TestMonitorFetchRelays:
             side_effect=[
                 [],  # First call: get_service_data returns no checkpoints
                 [  # Second call: relay query
-                    {"url": "wss://valid.relay.com", "network": "clearnet", "discovered_at": 1700000000},
+                    {
+                        "url": "wss://valid.relay.com",
+                        "network": "clearnet",
+                        "discovered_at": 1700000000,
+                    },
                     {"url": "invalid-url", "network": "unknown", "discovered_at": 1700000000},
-                ]
+                ],
             ]
         )
 
@@ -788,7 +804,9 @@ class TestMonitorFetchRelays:
         assert "valid.relay.com" in str(relays[0].url)
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_skips_tor_when_disabled(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+    async def test_fetch_relays_skips_tor_when_disabled(
+        self, mock_brotr: Brotr, tmp_path: Path
+    ) -> None:
         """Test .onion relays skipped when Tor disabled."""
         geo_db = tmp_path / "GeoLite2-City.mmdb"
         geo_db.write_bytes(b"fake")
@@ -798,9 +816,13 @@ class TestMonitorFetchRelays:
             side_effect=[
                 [],  # First call: get_service_data returns no checkpoints
                 [  # Second call: relay query
-                    {"url": "wss://clearnet.relay.com", "network": "clearnet", "discovered_at": 1700000000},
+                    {
+                        "url": "wss://clearnet.relay.com",
+                        "network": "clearnet",
+                        "discovered_at": 1700000000,
+                    },
                     {"url": onion_url, "network": "tor", "discovered_at": 1700000000},
-                ]
+                ],
             ]
         )
 

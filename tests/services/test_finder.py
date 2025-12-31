@@ -355,7 +355,9 @@ class TestFinderFetchSingleApi:
 
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(return_value={"relays": ["wss://relay.com"]})  # Dict, not list
+        mock_response.json = AsyncMock(
+            return_value={"relays": ["wss://relay.com"]}
+        )  # Dict, not list
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -365,4 +367,3 @@ class TestFinderFetchSingleApi:
         result = await finder._fetch_single_api(mock_session, source)
 
         assert len(result) == 0  # No relays extracted from dict response
-

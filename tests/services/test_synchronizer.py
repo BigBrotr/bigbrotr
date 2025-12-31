@@ -428,8 +428,16 @@ class TestSynchronizerFetchRelays:
         """Test fetching relays from database."""
         mock_synchronizer_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
-                {"relay_url": "wss://relay1.example.com", "network": "clearnet", "discovered_at": 1700000000},
-                {"relay_url": "wss://relay2.example.com", "network": "clearnet", "discovered_at": 1700000000},
+                {
+                    "relay_url": "wss://relay1.example.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
+                {
+                    "relay_url": "wss://relay2.example.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
             ]
         )
 
@@ -446,7 +454,11 @@ class TestSynchronizerFetchRelays:
         """Test fetching relays filters invalid URLs."""
         mock_synchronizer_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
-                {"relay_url": "wss://valid.relay.com", "network": "clearnet", "discovered_at": 1700000000},
+                {
+                    "relay_url": "wss://valid.relay.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
                 {"relay_url": "invalid-url", "network": "unknown", "discovered_at": 1700000000},
             ]
         )

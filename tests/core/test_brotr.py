@@ -62,6 +62,7 @@ class TestBrotrInit:
 
     def test_from_yaml(self, brotr_config_dict, tmp_path, monkeypatch):
         import yaml
+
         monkeypatch.setenv("DB_PASSWORD", "yaml_pass")
         config_file = tmp_path / "brotr_config.yaml"
         config_file.write_text(yaml.dump(brotr_config_dict))

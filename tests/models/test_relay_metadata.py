@@ -71,10 +71,10 @@ class TestToDbParams:
         rm = RelayMetadata(relay, metadata, "nip66_rtt", generated_at=9999999999)
         result = rm.to_db_params()
         assert result[0] == "relay.example.com:8080/nostr"  # url
-        assert result[1] == "clearnet"                       # network
-        assert result[2] == 1234567890                       # relay discovered_at
-        assert result[3] == 9999999999                       # generated_at
-        assert result[4] == "nip66_rtt"                      # type
+        assert result[1] == "clearnet"  # network
+        assert result[2] == 1234567890  # relay discovered_at
+        assert result[3] == 9999999999  # generated_at
+        assert result[4] == "nip66_rtt"  # type
         parsed = json.loads(result[5])
         assert parsed == {"name": "Test", "value": 42}
 
