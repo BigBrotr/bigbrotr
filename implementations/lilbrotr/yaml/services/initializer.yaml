@@ -1,9 +1,0 @@
-# ============================================================================
-# Initializer Service Configuration (LilBrotr)
-# ============================================================================
-# Description: Seed initial relay data for validation
-# Note: Uses all default values from InitializerConfig
-# See: implementations/bigbrotr/yaml/services/initializer.yaml for full config
-# ============================================================================
-
-# No overrides - uses all defaults
