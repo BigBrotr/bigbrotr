@@ -48,12 +48,12 @@ from .pool import (
 __all__ = [
     # Base Service
     "BaseService",
+    "ConfigT",
     # Brotr
     "BatchConfig",
     "Brotr",
     "BrotrConfig",
     "BrotrTimeoutsConfig",
-    "ConfigT",
     # Pool
     "DatabaseConfig",
     # Logger

@@ -115,6 +115,16 @@ class BaseService(ABC, Generic[ConfigT]):
             interval: Seconds to wait between run() cycles
             max_consecutive_failures: Stop after this many consecutive errors
                                       (0 = unlimited, None = use class default)
+
+        Example:
+            >>> async with MyService(brotr, config) as service:
+            ...     # Run every 5 minutes, stop after 3 consecutive failures
+            ...     await service.run_forever(interval=300, max_consecutive_failures=3)
+
+        Note:
+            - Use request_shutdown() to stop gracefully from signal handlers
+            - Consecutive failure counter resets after each successful run()
+            - CancelledError, KeyboardInterrupt, SystemExit propagate immediately
         """
         failure_limit = (
             max_consecutive_failures
