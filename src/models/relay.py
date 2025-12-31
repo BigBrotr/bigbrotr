@@ -62,7 +62,37 @@ class Relay:
     
     @staticmethod
     def _detect_network(host: str) -> str:
-        """Detect the network type from a hostname."""
+        """
+        Detect the network type from a hostname.
+
+        Analyzes the host string to determine which network it belongs to.
+        Checks for overlay network TLDs first, then validates IP addresses
+        against known local/private ranges, and finally validates domain format.
+
+        Args:
+            host: Hostname to analyze (e.g., "relay.example.com", "xyz.onion", "192.168.1.1")
+
+        Returns:
+            Network type string:
+            - "clearnet": Standard domain or public IP address
+            - "tor": .onion address (Tor hidden service)
+            - "i2p": .i2p address (I2P network)
+            - "loki": .loki address (Lokinet)
+            - "local": Private/reserved IP or localhost (127.0.0.1, 10.x.x.x, etc.)
+            - "unknown": Invalid or unrecognized format
+
+        Examples:
+            >>> Relay._detect_network("relay.example.com")
+            'clearnet'
+            >>> Relay._detect_network("abcdef1234567890.onion")
+            'tor'
+            >>> Relay._detect_network("127.0.0.1")
+            'local'
+            >>> Relay._detect_network("10.0.0.1")
+            'local'
+            >>> Relay._detect_network("")
+            'unknown'
+        """
         if not host:
             return "unknown"
         
