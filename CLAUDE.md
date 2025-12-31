@@ -58,6 +58,10 @@ Models Layer (src/models/)
   └── Event, Relay, EventRelay, Keys, Metadata, Nip11, Nip66, RelayMetadata
 ```
 
+**Note on Data Storage**: The `Nip11` and `Nip66` Python models are stored in the unified
+`metadata` table using content-addressed deduplication (SHA-256 hash). The `relay_metadata`
+table links relays to metadata records via the `type` column (`nip11`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`).
+
 ### Core Components
 - **Pool** (`src/core/pool.py`): Async PostgreSQL connection pooling with retry logic
 - **Brotr** (`src/core/brotr.py`): Database interface with stored procedure wrappers
@@ -129,15 +133,15 @@ cd implementations/myimpl
 
 ## Specialized Agents
 
-This project uses two specialized knowledge agents located in `claude/agents/`:
+This project uses two specialized knowledge agents located in `.claude/agents/`:
 
 ### Nostr Expert Agent
 
-**Location:** `claude/agents/nostr-expert/`
+**Location:** `.claude/agents/nostr-expert/`
 
 For questions about the Nostr protocol, NIPs, event formats, and protocol implementation.
 
-**Knowledge Base** (in `claude/resources/`):
+**Knowledge Base** (in `.claude/resources/`):
 - **NIPs**: All 94 Nostr Implementation Possibility specifications
 - **rust-nostr**: Complete Rust library with Python bindings (nostr-sdk)
 - **Khatru**: Go relay framework for relay development
@@ -168,7 +172,7 @@ For questions about the Nostr protocol, NIPs, event formats, and protocol implem
 
 ### BigBrotr Expert Agent
 
-**Location:** `claude/agents/bigbrotr-expert/`
+**Location:** `.claude/agents/bigbrotr-expert/`
 
 For developing, troubleshooting, and extending the BigBrotr codebase.
 
@@ -211,18 +215,18 @@ The two agents work together for Nostr-related BigBrotr development:
 
 ```
 ┌───────────────────────────────────────────────────┐
-│              Development Workflow                  │
+│              Development Workflow                 │
 ├───────────────────────────────────────────────────┤
-│                                                    │
-│   ┌─────────────────┐      ┌──────────────────┐  │
-│   │  NOSTR EXPERT   │      │ BIGBROTR EXPERT  │  │
-│   │                 │      │                  │  │
-│   │ • Protocol      │◄────►│ • Codebase       │  │
-│   │ • NIPs          │      │ • Architecture   │  │
-│   │ • nostr-sdk     │      │ • Database       │  │
-│   │ • Validation    │      │ • Testing        │  │
-│   └─────────────────┘      └──────────────────┘  │
-│                                                    │
+│                                                   │
+│   ┌─────────────────┐      ┌──────────────────┐   │
+│   │  NOSTR EXPERT   │      │ BIGBROTR EXPERT  │   │
+│   │                 │      │                  │   │
+│   │ • Protocol      │◄────►│ • Codebase       │   │
+│   │ • NIPs          │      │ • Architecture   │   │
+│   │ • nostr-sdk     │      │ • Database       │   │
+│   │ • Validation    │      │ • Testing        │   │
+│   └─────────────────┘      └──────────────────┘   │
+│                                                   │
 └───────────────────────────────────────────────────┘
 ```
 
@@ -263,10 +267,10 @@ To work with an agent, read its `AGENT.md` file:
 
 ```bash
 # Nostr protocol questions
-cat claude/agents/nostr-expert/AGENT.md
+cat .claude/agents/nostr-expert/AGENT.md
 
 # BigBrotr development
-cat claude/agents/bigbrotr-expert/AGENT.md
+cat .claude/agents/bigbrotr-expert/AGENT.md
 ```
 
 Both agents have comprehensive documentation and quick reference files for efficient development.
