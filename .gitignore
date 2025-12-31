@@ -2,19 +2,33 @@
 # BigBrotr .gitignore
 # ============================================================================
 
-# Environment and secrets
+# ============================================================================
+# Secrets & Credentials
+# ============================================================================
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 *.pem
 *.key
+*.p12
+*.pfx
+*.crt
 credentials.json
+secrets.yaml
+secrets.yml
+**/secrets/
 
+# ============================================================================
 # Python
+# ============================================================================
+
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -28,60 +42,239 @@ parts/
 sdist/
 var/
 wheels/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
+*.whl
 
 # Virtual environments
 .venv/
 venv/
 ENV/
 env/
+.conda/
+*.conda
 
-# IDE
+# ============================================================================
+# Testing & Coverage
+# ============================================================================
+
+# pytest
+.pytest_cache/
+pytestdebug.log
+junit.xml
+pytest.xml
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.py,cover
+htmlcov/
+
+# Hypothesis
+.hypothesis/
+
+# tox / nox
+.tox/
+.nox/
+
+# ============================================================================
+# Type Checking & Linting
+# ============================================================================
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# pytype
+.pytype/
+
+# ruff
+.ruff_cache/
+
+# pylint
+.pylint.d/
+
+# ============================================================================
+# IDEs & Editors
+# ============================================================================
+
+# JetBrains (PyCharm, IntelliJ)
 .idea/
+*.iml
+*.ipr
+*.iws
+
+# VSCode
 .vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Vim / Neovim
 *.swp
 *.swo
+*.swn
 *~
+.netrwhist
+tags
+
+# Emacs
+\#*\#
+.#*
+*.~undo-tree~
+
+# Eclipse
 .project
 .pydevproject
 .settings/
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.nox/
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
 
-# Logs
-logs/
-*.log
+# ============================================================================
+# Operating Systems
+# ============================================================================
 
 # macOS
 .DS_Store
 .AppleDouble
 .LSOverride
+._*
+.Spotlight-V100
+.Trashes
 
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.fuse_hidden*
+.Trash-*
+.nfs*
+
+# ============================================================================
 # Docker
+# ============================================================================
 docker-compose.override.yml
+docker-compose.override.yaml
+docker-compose.local.yml
+docker-compose.local.yaml
+*.tar
 
-# Database dumps
+# ============================================================================
+# Database
+# ============================================================================
+
+# PostgreSQL data directories (Docker bind mounts)
+implementations/*/data/postgres/
+**/data/postgres/
+
+# Database dumps and backups
 *.sql.gz
 *.dump
+*.sql.bak
+*.pgdump
 
-# PostgreSQL data directory (Docker bind mount)
-implementations/bigbrotr/data/postgres/
-implementations/lilbrotr/data/postgres/
+# ============================================================================
+# Logs & Temporary Files
+# ============================================================================
+
+# Logs
+logs/
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Temporary files
 tmp/
 temp/
 *.tmp
+*.temp
 *.bak
+*.backup
+*.orig
+
+# ============================================================================
+# Documentation
+# ============================================================================
+
+# MkDocs
+site/
+
+# Sphinx
+docs/_build/
+
+# ============================================================================
+# Service State & Runtime
+# ============================================================================
+
+# Service state files (BaseService persistence)
+*.state.json
+state/
+
+# PID files
+*.pid
+
+# ============================================================================
+# Network & Tor
+# ============================================================================
+
+# Tor data directories
+tor/
+.tor/
+torrc.local
+
+# ============================================================================
+# GeoIP Databases
+# ============================================================================
+*.mmdb
+GeoLite2-*.tar.gz
+
+# ============================================================================
+# Claude Code
+# ============================================================================
+.claude/resources/
+.claude/settings.local.json
+# Keep .claude/agents/ tracked for version control
+
+# ============================================================================
+# Miscellaneous
+# ============================================================================
+
+# Archives (prevent accidental commits)
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Large media files
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Node (if any frontend tooling)
+node_modules/
+package-lock.json
+yarn.lock

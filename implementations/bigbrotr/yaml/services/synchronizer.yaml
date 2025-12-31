@@ -4,6 +4,7 @@
 # Description: Synchronize Nostr events from relays to the database
 # Used by: src/services/synchronizer.py
 # Dependencies: Monitor must have checked relays first
+# Notes: Uses Tor proxy for .onion relay synchronization
 # ============================================================================
 
 # Cycle interval (seconds between sync runs)
@@ -43,7 +44,7 @@ timeouts:
 # Concurrency settings
 concurrency:
   max_parallel: 10           # Max parallel relay connections per process (Range: 1 - 100)
-  max_processes: 10           # Number of worker processes (Range: 1 - 32)
+  max_processes: 4           # Number of worker processes (Range: 1 - 32)
   stagger_delay: [0, 60]     # Random delay range [min, max] to prevent thundering herd
 
 # Relay source - which relays to sync from

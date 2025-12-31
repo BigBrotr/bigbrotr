@@ -30,8 +30,9 @@ BigBrotr can be deployed using:
 | PostgreSQL 16+ | Primary data store | Yes |
 | PGBouncer | Connection pooling | Recommended |
 | Tor Proxy | .onion relay support | Optional |
-| Initializer | Database bootstrap | Yes (once) |
-| Finder | Relay discovery | Yes |
+| Seeder | Relay seeding for validation | Yes (once) |
+| Finder | Relay URL discovery | Yes |
+| Validator | Candidate relay validation | Yes |
 | Monitor | Health monitoring | Yes |
 | Synchronizer | Event collection | Yes |
 
@@ -73,7 +74,7 @@ Two implementations are available:
 | Implementation | Use Case | Ports |
 |----------------|----------|-------|
 | **bigbrotr** | Full archiving with tags/content | PostgreSQL: 5432, PGBouncer: 6432, Tor: 9050 |
-| **lilbrotr** | Lightweight (no tags/content) | PostgreSQL: 5433, PGBouncer: 6433, Tor: 9051 |
+| **lilbrotr** | Lightweight indexing (omits tags/content, ~60% disk savings) | PostgreSQL: 5433, PGBouncer: 6433, Tor: 9051 |
 
 ### Quick Start (BigBrotr - Full-Featured)
 
@@ -174,11 +175,11 @@ services:
       test: ["CMD", "nc", "-z", "localhost", "9050"]
 
   # Application Services
-  initializer:
+  seeder:
     build:
       context: ../../
       dockerfile: implementations/bigbrotr/Dockerfile
-    container_name: bigbrotr-initializer
+    container_name: bigbrotr-seeder
     environment:
       DB_PASSWORD: ${DB_PASSWORD}
     volumes:
@@ -187,16 +188,19 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-    command: ["python", "-m", "services", "initializer"]
+    command: ["python", "-m", "services", "seeder"]
 
   finder:
     # ... similar configuration
 
+  validator:
+    # ... similar configuration (depends on finder and tor)
+
   monitor:
-    # ... similar configuration
+    # ... similar configuration (depends on validator)
 
   synchronizer:
-    # ... similar configuration
+    # ... similar configuration (depends on monitor)
 ```
 
 ### Deployment Commands
@@ -331,11 +335,12 @@ export PYTHONPATH=/opt/bigbrotr/src
 # Change to implementation directory
 cd /opt/bigbrotr/implementations/bigbrotr
 
-# Run initializer (once)
-python -m services initializer
+# Run seeder (once)
+python -m services seeder
 
 # Run services (in separate terminals or with process manager)
 python -m services finder &
+python -m services validator &
 python -m services monitor &
 python -m services synchronizer &
 ```
@@ -365,13 +370,13 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-Create similar files for `monitor` and `synchronizer`.
+Create similar files for `validator`, `monitor`, and `synchronizer`.
 
 ```bash
 # Enable and start
 sudo systemctl daemon-reload
-sudo systemctl enable bigbrotr-finder bigbrotr-monitor bigbrotr-synchronizer
-sudo systemctl start bigbrotr-finder bigbrotr-monitor bigbrotr-synchronizer
+sudo systemctl enable bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer
+sudo systemctl start bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer
 
 # Check status
 sudo systemctl status bigbrotr-*
@@ -564,8 +569,8 @@ ANALYZE;
 
 -- Cleanup orphans
 SELECT delete_orphan_events();
-SELECT delete_orphan_nip11();
-SELECT delete_orphan_nip66();
+SELECT delete_orphan_metadata();
+SELECT delete_failed_candidates();
 ```
 
 **Monthly**:
@@ -747,9 +752,10 @@ archive_command = 'cp %p /path/to/archive/%f'
 
 - [ ] `docker-compose up -d`
 - [ ] All services show as "healthy"
-- [ ] Initializer completed successfully
+- [ ] Seeder completed successfully
 - [ ] Database schema verified
-- [ ] Finder discovering relays
+- [ ] Finder discovering relay candidates
+- [ ] Validator testing and promoting candidates
 - [ ] Monitor checking relay health
 - [ ] Synchronizer collecting events
 

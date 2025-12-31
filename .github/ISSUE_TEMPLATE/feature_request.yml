@@ -42,7 +42,7 @@ body:
       description: Which component would this feature affect?
       options:
         - Core (Pool/Brotr/BaseService)
-        - Initializer service
+        - Seeder service
         - Finder service
         - Monitor service
         - Synchronizer service

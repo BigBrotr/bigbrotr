@@ -33,13 +33,15 @@ SQL files are located in `implementations/bigbrotr/postgres/init/` and applied i
 
 | File | Purpose |
 |------|---------|
-| `00_extensions.sql` | PostgreSQL extensions |
-| `01_utility_functions.sql` | Hash functions and utilities |
+| `00_extensions.sql` | PostgreSQL extensions (pgcrypto, btree_gin) |
+| `01_functions_utility.sql` | Utility functions (tags_to_tagvalues) |
 | `02_tables.sql` | Table definitions |
-| `03_indexes.sql` | Performance indexes |
-| `04_integrity_functions.sql` | Orphan cleanup functions |
-| `05_procedures.sql` | Insert procedures |
-| `06_views.sql` | Analytics views |
+| `03_functions_crud.sql` | CRUD stored procedures |
+| `04_functions_cleanup.sql` | Orphan cleanup functions |
+| `05_views.sql` | Regular views (placeholder) |
+| `06_materialized_views.sql` | Materialized views for analytics |
+| `07_functions_refresh.sql` | Materialized view refresh functions |
+| `08_indexes.sql` | Performance indexes |
 | `99_verify.sql` | Schema verification |
 
 ---
@@ -74,13 +76,13 @@ CREATE EXTENSION IF NOT EXISTS btree_gin;
 
 ### relays
 
-Registry of known Nostr relay URLs.
+Registry of validated Nostr relay URLs.
 
 ```sql
 CREATE TABLE relays (
     url TEXT PRIMARY KEY,
-    network TEXT NOT NULL DEFAULT 'clearnet' CHECK (network IN ('clearnet', 'tor')),
-    inserted_at BIGINT NOT NULL
+    network TEXT NOT NULL,
+    discovered_at BIGINT NOT NULL
 );
 ```
 
@@ -88,7 +90,9 @@ CREATE TABLE relays (
 |--------|------|-------------|
 | `url` | TEXT (PK) | WebSocket URL (e.g., `wss://relay.example.com`) |
 | `network` | TEXT | Network type: `clearnet` or `tor` |
-| `inserted_at` | BIGINT | Unix timestamp when relay was discovered |
+| `discovered_at` | BIGINT | Unix timestamp when relay was first discovered and validated |
+
+**Note**: Only relays that have been validated by the Validator service are stored here. Candidates are stored in `service_data`.
 
 ### events
 
@@ -108,7 +112,7 @@ CREATE TABLE events (
 );
 ```
 
-**LilBrotr Schema (Lightweight - No Tags/Content)**:
+**LilBrotr Schema (Essential Metadata - Indexes All Events)**:
 ```sql
 CREATE TABLE events (
     id BYTEA PRIMARY KEY,
@@ -134,7 +138,7 @@ CREATE TABLE events (
 **Notes**:
 - BYTEA storage saves 50% compared to hex strings
 - `tagvalues` is auto-generated from `tags` for efficient querying (BigBrotr only)
-- LilBrotr saves ~60% disk space by not storing tags and content
+- LilBrotr indexes all events with essential metadata (id, pubkey, created_at, kind, sig) but omits tags and content, saving ~60% disk space
 
 ### events_relays
 
@@ -155,112 +159,82 @@ CREATE TABLE events_relays (
 | `relay_url` | TEXT (FK) | Reference to relays table |
 | `seen_at` | BIGINT | Unix timestamp when event was seen on this relay |
 
-### nip11
+### metadata
 
-Deduplicated NIP-11 relay information documents.
+Unified storage for NIP-11 and NIP-66 metadata documents with content-addressed deduplication.
 
 ```sql
-CREATE TABLE nip11 (
+CREATE TABLE metadata (
     id BYTEA PRIMARY KEY,
-    name TEXT,
-    description TEXT,
-    banner TEXT,
-    icon TEXT,
-    pubkey TEXT,
-    contact TEXT,
-    supported_nips JSONB,
-    software TEXT,
-    version TEXT,
-    privacy_policy TEXT,
-    terms_of_service TEXT,
-    limitation JSONB,
-    extra_fields JSONB
+    data JSONB NOT NULL
 );
 ```
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | BYTEA (PK) | Content hash (SHA-256 of all fields) |
-| `name` | TEXT | Human-readable relay name |
-| `description` | TEXT | Relay description |
-| `banner` | TEXT | URL to banner image |
-| `icon` | TEXT | URL to icon |
-| `pubkey` | TEXT | Operator's public key (hex) |
-| `contact` | TEXT | Operator contact info |
-| `supported_nips` | JSONB | Array of supported NIP numbers |
-| `software` | TEXT | Software name/URL |
-| `version` | TEXT | Software version |
-| `privacy_policy` | TEXT | Privacy policy URL |
-| `terms_of_service` | TEXT | ToS URL |
-| `limitation` | JSONB | Relay limitations object |
-| `extra_fields` | JSONB | Non-standard fields |
+| `id` | BYTEA (PK) | Content hash (SHA-256 of JSON data) |
+| `data` | JSONB | Complete JSON document (NIP-11 or NIP-66 data) |
 
-**Deduplication**: Multiple relays with identical NIP-11 data share the same record.
+**Deduplication**: Multiple relays with identical metadata share the same record. The hash is computed from the JSONB content, ensuring automatic deduplication.
 
-### nip66
-
-Deduplicated NIP-66 relay test results.
-
-```sql
-CREATE TABLE nip66 (
-    id BYTEA PRIMARY KEY,
-    openable BOOLEAN NOT NULL DEFAULT FALSE,
-    readable BOOLEAN NOT NULL DEFAULT FALSE,
-    writable BOOLEAN NOT NULL DEFAULT FALSE,
-    rtt_open INTEGER,
-    rtt_read INTEGER,
-    rtt_write INTEGER
-);
-```
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | BYTEA (PK) | Content hash of test results |
-| `openable` | BOOLEAN | Can establish WebSocket connection |
-| `readable` | BOOLEAN | Responds to REQ messages |
-| `writable` | BOOLEAN | Accepts EVENT messages |
-| `rtt_open` | INTEGER | Round-trip time for connection (ms) |
-| `rtt_read` | INTEGER | Round-trip time for read (ms) |
-| `rtt_write` | INTEGER | Round-trip time for write (ms) |
+**Content Types**:
+- **NIP-11**: Relay information documents (name, description, supported NIPs, limitations, etc.)
+- **NIP-66 RTT**: Round-trip time measurements (open, read, write, dns)
+- **NIP-66 SSL**: SSL/TLS certificate information
+- **NIP-66 Geo**: Geolocation data (country, city, coordinates, ASN)
 
 ### relay_metadata
 
-Time-series metadata snapshots linking relays to NIP-11/NIP-66 data.
+Time-series metadata snapshots linking relays to metadata records by type.
 
 ```sql
 CREATE TABLE relay_metadata (
     relay_url TEXT NOT NULL REFERENCES relays(url) ON DELETE CASCADE,
-    generated_at BIGINT NOT NULL,
-    nip11_id BYTEA REFERENCES nip11(id) ON DELETE SET NULL,
-    nip66_id BYTEA REFERENCES nip66(id) ON DELETE SET NULL,
-    PRIMARY KEY (relay_url, generated_at)
+    snapshot_at BIGINT NOT NULL,
+    type TEXT NOT NULL,
+    metadata_id BYTEA NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
+    PRIMARY KEY (relay_url, snapshot_at, type),
+    CONSTRAINT relay_metadata_type_check CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo'))
 );
 ```
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `relay_url` | TEXT (FK, PK) | Reference to relays table |
-| `generated_at` | BIGINT (PK) | Unix timestamp of this snapshot |
-| `nip11_id` | BYTEA (FK) | Reference to nip11 table (nullable) |
-| `nip66_id` | BYTEA (FK) | Reference to nip66 table (nullable) |
+| `snapshot_at` | BIGINT (PK) | Unix timestamp when metadata snapshot was collected |
+| `type` | TEXT (PK) | Metadata type: `nip11`, `nip66_rtt`, `nip66_ssl`, or `nip66_geo` |
+| `metadata_id` | BYTEA (FK) | Reference to metadata table |
 
-### service_state
+**Note**: Each relay can have multiple metadata types per snapshot, allowing separate storage of NIP-11 info, RTT measurements, SSL data, and geolocation data.
 
-Service state persistence for incremental processing.
+### service_data
+
+Per-service operational data storage for candidates, cursors, and checkpoints.
 
 ```sql
-CREATE TABLE service_state (
-    service_name TEXT PRIMARY KEY,
-    state JSONB NOT NULL DEFAULT '{}',
-    updated_at BIGINT NOT NULL
+CREATE TABLE service_data (
+    service_name TEXT NOT NULL,
+    data_type TEXT NOT NULL,
+    data_key TEXT NOT NULL,
+    data JSONB NOT NULL DEFAULT '{}',
+    updated_at BIGINT NOT NULL,
+    PRIMARY KEY (service_name, data_type, data_key)
 );
 ```
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `service_name` | TEXT (PK) | Service identifier |
-| `state` | JSONB | Arbitrary state data |
-| `updated_at` | BIGINT | Last update timestamp |
+| `service_name` | TEXT (PK) | Name of the service (finder, validator, synchronizer, monitor) |
+| `data_type` | TEXT (PK) | Type of data (candidate, cursor, checkpoint, config) |
+| `data_key` | TEXT (PK) | Unique identifier within service/data_type (usually relay URL) |
+| `data` | JSONB | Service-specific data structure |
+| `updated_at` | BIGINT | Unix timestamp when record was last updated |
+
+**Usage Examples**:
+- **Seeder/Finder**: Store discovered relay candidates with `service_name='validator'`, `data_type='candidate'`
+- **Validator**: Reads candidates from `service_name='validator'`, tracks validation attempts with `failed_attempts` counter in `data`
+- **Finder**: Stores event scanning cursor with `service_name='finder'`, `data_type='cursor'`
+- **Synchronizer**: Stores per-relay sync cursors with `data_type='cursor'`
 
 ---
 
@@ -273,10 +247,9 @@ CREATE TABLE service_state (
 PRIMARY KEY (id) ON events
 PRIMARY KEY (url) ON relays
 PRIMARY KEY (event_id, relay_url) ON events_relays
-PRIMARY KEY (id) ON nip11
-PRIMARY KEY (id) ON nip66
-PRIMARY KEY (relay_url, generated_at) ON relay_metadata
-PRIMARY KEY (service_name) ON service_state
+PRIMARY KEY (id) ON metadata
+PRIMARY KEY (relay_url, snapshot_at, type) ON relay_metadata
+PRIMARY KEY (service_name, data_type, data_key) ON service_data
 ```
 
 ### Performance Indexes
@@ -298,8 +271,14 @@ CREATE INDEX idx_events_pubkey_created_at ON events (pubkey, created_at DESC);
 CREATE INDEX idx_events_relays_relay_url ON events_relays (relay_url);
 CREATE INDEX idx_events_relays_seen_at ON events_relays (seen_at DESC);
 
--- Metadata lookups by time
-CREATE INDEX idx_relay_metadata_generated_at ON relay_metadata (generated_at DESC);
+-- Metadata lookups by time and type
+CREATE INDEX idx_relay_metadata_snapshot_at ON relay_metadata (snapshot_at DESC);
+CREATE INDEX idx_relay_metadata_type ON relay_metadata (type);
+CREATE INDEX idx_relay_metadata_relay_type_time ON relay_metadata (relay_url, type, snapshot_at DESC);
+
+-- Service data lookups
+CREATE INDEX idx_service_data_service_name ON service_data (service_name);
+CREATE INDEX idx_service_data_service_type ON service_data (service_name, data_type);
 
 -- Tag value searches (GIN for array containment)
 CREATE INDEX idx_events_tagvalues ON events USING GIN (tagvalues);
@@ -330,7 +309,7 @@ CREATE OR REPLACE FUNCTION insert_event(
     p_sig                   BYTEA,
     p_relay_url             TEXT,
     p_relay_network         TEXT,
-    p_relay_inserted_at     BIGINT,
+    p_relay_discovered_at   BIGINT,
     p_seen_at               BIGINT
 ) RETURNS VOID;
 ```
@@ -350,7 +329,7 @@ Inserts a relay record.
 CREATE OR REPLACE FUNCTION insert_relay(
     p_url           TEXT,
     p_network       TEXT,
-    p_inserted_at   BIGINT
+    p_discovered_at BIGINT
 ) RETURNS VOID;
 ```
 
@@ -358,82 +337,109 @@ CREATE OR REPLACE FUNCTION insert_relay(
 
 ### insert_relay_metadata
 
-Inserts relay metadata with automatic NIP-11/NIP-66 deduplication.
+Inserts relay metadata with automatic content-addressed deduplication.
 
 ```sql
 CREATE OR REPLACE FUNCTION insert_relay_metadata(
-    -- Relay identification
-    p_relay_url                 TEXT,
-    p_relay_network             TEXT,
-    p_relay_inserted_at         BIGINT,
-    p_generated_at              BIGINT,
-
-    -- NIP-66 presence flag and data
-    p_nip66_present             BOOLEAN,
-    p_nip66_openable            BOOLEAN,
-    p_nip66_readable            BOOLEAN,
-    p_nip66_writable            BOOLEAN,
-    p_nip66_rtt_open            INTEGER,
-    p_nip66_rtt_read            INTEGER,
-    p_nip66_rtt_write           INTEGER,
-
-    -- NIP-11 presence flag and data
-    p_nip11_present             BOOLEAN,
-    p_nip11_name                TEXT,
-    p_nip11_description         TEXT,
-    -- ... (all NIP-11 fields)
+    p_relay_url             TEXT,
+    p_relay_network         TEXT,
+    p_relay_discovered_at   BIGINT,
+    p_snapshot_at           BIGINT,
+    p_type                  TEXT,
+    p_metadata_data         JSONB
 ) RETURNS VOID;
 ```
 
+**Parameters**:
+- `p_relay_url`: Relay WebSocket URL
+- `p_relay_network`: Network type (`clearnet` or `tor`)
+- `p_relay_discovered_at`: Relay discovery timestamp
+- `p_snapshot_at`: Metadata snapshot timestamp
+- `p_type`: Metadata type (`nip11`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`)
+- `p_metadata_data`: Complete metadata as JSONB
+
 **Deduplication Process**:
-1. Compute hash of NIP-11 data -> check/insert into `nip11`
-2. Compute hash of NIP-66 data -> check/insert into `nip66`
-3. Insert metadata snapshot linking to existing or new records
+1. Compute SHA-256 hash of JSONB data in PostgreSQL
+2. Insert into `metadata` table (ON CONFLICT DO NOTHING)
+3. Insert `relay_metadata` junction record linking relay to metadata
+
+### upsert_service_data
+
+Upserts a service data record (for candidates, cursors, state, etc.).
+
+```sql
+CREATE OR REPLACE FUNCTION upsert_service_data(
+    p_service_name  TEXT,
+    p_data_type     TEXT,
+    p_data_key      TEXT,
+    p_data          JSONB,
+    p_updated_at    BIGINT
+) RETURNS VOID;
+```
+
+### get_service_data
+
+Retrieves service data records with optional key filter.
+
+```sql
+CREATE OR REPLACE FUNCTION get_service_data(
+    p_service_name  TEXT,
+    p_data_type     TEXT,
+    p_data_key      TEXT DEFAULT NULL
+) RETURNS TABLE (data_key TEXT, data JSONB, updated_at BIGINT);
+```
+
+### delete_service_data
+
+Deletes a service data record.
+
+```sql
+CREATE OR REPLACE FUNCTION delete_service_data(
+    p_service_name  TEXT,
+    p_data_type     TEXT,
+    p_data_key      TEXT
+) RETURNS VOID;
+```
 
 ---
 
 ## Views
 
-### relay_metadata_latest
+### relay_metadata_latest (Materialized View)
 
-Latest metadata for each relay with NIP-11/NIP-66 data.
+Latest metadata for each relay per type.
 
 ```sql
-CREATE OR REPLACE VIEW relay_metadata_latest AS
-WITH latest_metadata AS (
-    SELECT DISTINCT ON (relay_url)
-        relay_url, generated_at, nip11_id, nip66_id
-    FROM relay_metadata
-    ORDER BY relay_url, generated_at DESC
-)
-SELECT
-    r.url AS relay_url,
-    r.network,
-    r.inserted_at,
-    lm.generated_at,
-    -- NIP-66 columns
-    n66.openable AS nip66_openable,
-    n66.readable AS nip66_readable,
-    n66.writable AS nip66_writable,
-    n66.rtt_open AS nip66_rtt_open,
-    n66.rtt_read AS nip66_rtt_read,
-    n66.rtt_write AS nip66_rtt_write,
-    -- NIP-11 columns
-    n11.name AS nip11_name,
-    n11.description AS nip11_description,
-    -- ... (all fields)
-FROM relays r
-LEFT JOIN latest_metadata lm ON r.url = lm.relay_url
-LEFT JOIN nip66 n66 ON lm.nip66_id = n66.id
-LEFT JOIN nip11 n11 ON lm.nip11_id = n11.id;
+CREATE MATERIALIZED VIEW relay_metadata_latest AS
+SELECT DISTINCT ON (relay_url, type)
+    relay_url,
+    type,
+    snapshot_at,
+    metadata_id
+FROM relay_metadata
+ORDER BY relay_url, type, snapshot_at DESC;
 ```
+
+**Purpose**: Provides fast access to the most recent metadata for each relay without scanning the full time-series table.
 
 **Usage**:
 ```sql
--- Get all readable relays
-SELECT relay_url, nip11_name
-FROM relay_metadata_latest
-WHERE nip66_readable = TRUE;
+-- Get latest NIP-11 data for all relays
+SELECT rm.relay_url, m.data
+FROM relay_metadata_latest rm
+JOIN metadata m ON rm.metadata_id = m.id
+WHERE rm.type = 'nip11';
+
+-- Get relays with recent RTT data
+SELECT rm.relay_url, m.data->>'rtt_open' AS rtt_open
+FROM relay_metadata_latest rm
+JOIN metadata m ON rm.metadata_id = m.id
+WHERE rm.type = 'nip66_rtt';
+```
+
+**Refresh**: This materialized view should be refreshed periodically:
+```sql
+REFRESH MATERIALIZED VIEW CONCURRENTLY relay_metadata_latest;
 ```
 
 ### events_statistics
@@ -482,13 +488,13 @@ WITH relay_event_stats AS (
 ),
 relay_performance AS (
     -- Average RTT from last 10 measurements
-    SELECT relay_url, AVG(rtt_open), AVG(rtt_read), AVG(rtt_write)
+    SELECT relay_url, AVG((data->>'rtt_open')::int), AVG((data->>'rtt_read')::int), AVG((data->>'rtt_write')::int)
     FROM (
-        SELECT rm.relay_url, n66.rtt_open, n66.rtt_read, n66.rtt_write,
-               ROW_NUMBER() OVER (PARTITION BY rm.relay_url ORDER BY rm.generated_at DESC) AS rn
+        SELECT rm.relay_url, m.data,
+               ROW_NUMBER() OVER (PARTITION BY rm.relay_url ORDER BY rm.snapshot_at DESC) AS rn
         FROM relay_metadata rm
-        LEFT JOIN nip66 n66 ON rm.nip66_id = n66.id
-        WHERE n66.id IS NOT NULL
+        JOIN metadata m ON rm.metadata_id = m.id
+        WHERE rm.type = 'nip66_rtt'
     ) recent
     WHERE rn <= 10
     GROUP BY relay_url
@@ -527,70 +533,68 @@ FROM events GROUP BY pubkey ORDER BY event_count DESC;
 
 ### tags_to_tagvalues
 
-Extracts searchable values from tags array.
+Extracts tag values from tags array for single-character tag keys.
 
 ```sql
-CREATE OR REPLACE FUNCTION tags_to_tagvalues(tags JSONB)
-RETURNS TEXT[] AS $$
-    SELECT ARRAY(
-        SELECT tag->>0 || ':' || tag->>1
-        FROM jsonb_array_elements(tags) AS tag
-        WHERE jsonb_array_length(tag) >= 2
+CREATE OR REPLACE FUNCTION tags_to_tagvalues(p_tags JSONB)
+RETURNS TEXT[]
+LANGUAGE plpgsql
+IMMUTABLE
+RETURNS NULL ON NULL INPUT
+AS $$
+BEGIN
+    RETURN (
+        SELECT array_agg(tag_element->>1)
+        FROM jsonb_array_elements(p_tags) AS tag_element
+        WHERE length(tag_element->>0) = 1
     );
-$$ LANGUAGE SQL IMMUTABLE;
+END;
+$$;
 ```
 
-**Purpose**: Enables GIN index searches on tag content.
+**Purpose**: Extracts the second element (value) from tags where the first element (key) is a single character. This enables GIN index searches on standard Nostr tag values (e, p, r, d, t, etc.).
 
 **Example**:
 ```sql
--- Find events referencing a specific event
+-- Find events referencing a specific event ID
+-- (where tags contains ["e", "abc123def456..."])
 SELECT * FROM events
-WHERE tagvalues @> ARRAY['e:abc123def456...'];
+WHERE tagvalues @> ARRAY['abc123def456...'];
 
--- Find events mentioning a pubkey
+-- Find events mentioning a specific pubkey
+-- (where tags contains ["p", "fedcba987654..."])
 SELECT * FROM events
-WHERE tagvalues @> ARRAY['p:fedcba987654...'];
+WHERE tagvalues @> ARRAY['fedcba987654...'];
 ```
 
-### compute_nip11_hash / compute_nip66_hash
+**Note**: Only single-character tag keys (standard Nostr tags) are indexed. Multi-character keys are ignored to keep the index focused on common query patterns.
 
-Compute content hashes for deduplication.
+### Cleanup Functions
 
-```sql
-CREATE OR REPLACE FUNCTION compute_nip11_hash(
-    p_name TEXT, p_description TEXT, ...
-) RETURNS BYTEA AS $$
-    SELECT digest(
-        COALESCE(p_name, '') || '|' ||
-        COALESCE(p_description, '') || '|' ||
-        -- ... all fields
-        'SHA256'
-    );
-$$ LANGUAGE SQL IMMUTABLE;
-```
-
-### delete_orphan_* Functions
-
-Cleanup functions for orphaned records.
+Cleanup functions for orphaned records and failed candidates.
 
 ```sql
 -- Delete events without relay associations
-CREATE OR REPLACE FUNCTION delete_orphan_events() RETURNS INTEGER;
+CREATE OR REPLACE FUNCTION delete_orphan_events() RETURNS BIGINT;
 
--- Delete unreferenced NIP-11 records
-CREATE OR REPLACE FUNCTION delete_orphan_nip11() RETURNS INTEGER;
+-- Delete unreferenced metadata records
+CREATE OR REPLACE FUNCTION delete_orphan_metadata() RETURNS BIGINT;
 
--- Delete unreferenced NIP-66 records
-CREATE OR REPLACE FUNCTION delete_orphan_nip66() RETURNS INTEGER;
+-- Delete validator candidates that exceeded max failed attempts
+CREATE OR REPLACE FUNCTION delete_failed_candidates(
+    p_max_attempts INTEGER DEFAULT 10
+) RETURNS BIGINT;
 ```
 
 **Usage**:
 ```sql
-SELECT delete_orphan_events();  -- Returns count of deleted rows
-SELECT delete_orphan_nip11();
-SELECT delete_orphan_nip66();
+SELECT delete_orphan_events();     -- Returns count of deleted rows
+SELECT delete_orphan_metadata();   -- Returns count of deleted rows
+SELECT delete_failed_candidates(); -- Uses default threshold (10)
+SELECT delete_failed_candidates(5); -- Custom threshold
 ```
+
+**Note**: The `delete_failed_candidates` function looks for `service_data` records where `service_name='validator'`, `data_type='candidate'`, and `data->>'failed_attempts'` exceeds the threshold.
 
 ---
 
@@ -605,8 +609,8 @@ The following fields use BYTEA for 50% space savings:
 | `events.id` | 32 bytes | Event ID (SHA-256) |
 | `events.pubkey` | 32 bytes | Public key |
 | `events.sig` | 64 bytes | Schnorr signature |
-| `nip11.id` | 32 bytes | Content hash |
-| `nip66.id` | 32 bytes | Content hash |
+| `metadata.id` | 32 bytes | Content hash (SHA-256 of JSONB data) |
+| `relay_metadata.metadata_id` | 32 bytes | Reference to metadata.id |
 
 **Conversion**:
 ```sql
@@ -653,12 +657,14 @@ psql -U admin -d bigbrotr
 
 # Execute files in order
 \i postgres/init/00_extensions.sql
-\i postgres/init/01_utility_functions.sql
+\i postgres/init/01_functions_utility.sql
 \i postgres/init/02_tables.sql
-\i postgres/init/03_indexes.sql
-\i postgres/init/04_integrity_functions.sql
-\i postgres/init/05_procedures.sql
-\i postgres/init/06_views.sql
+\i postgres/init/03_functions_crud.sql
+\i postgres/init/04_functions_cleanup.sql
+\i postgres/init/05_views.sql
+\i postgres/init/06_materialized_views.sql
+\i postgres/init/07_functions_refresh.sql
+\i postgres/init/08_indexes.sql
 \i postgres/init/99_verify.sql
 ```
 
@@ -705,8 +711,8 @@ Or manually:
 
 ```sql
 SELECT delete_orphan_events();
-SELECT delete_orphan_nip11();
-SELECT delete_orphan_nip66();
+SELECT delete_orphan_metadata();
+SELECT delete_failed_candidates();
 ```
 
 ### Monitoring Queries

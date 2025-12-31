@@ -1,21 +1,29 @@
 # ============================================================================
 # Monitor Service Configuration (LilBrotr)
 # ============================================================================
-# Description: Monitor relay health and capabilities (NIP-11, NIP-66)
+# Description: Monitor relay health and capabilities with full NIP-66 compliance
 # Note: Lighter configuration - only overrides from defaults are listed
 # See: implementations/bigbrotr/yaml/services/monitor.yaml for full config
+# Environment: PRIVATE_KEY required if publishing enabled
 # ============================================================================
 
 # Tor proxy disabled for lilbrotr (clearnet only)
 tor:
   enabled: false
 
-# Nostr keys for NIP-66 write tests (optional)
-# Private key is loaded from MONITOR_PRIVATE_KEY environment variable
-keys:
-  public_key: "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+# NIP-66 event publishing configuration
+publishing:
+  enabled: true
+  destination: "monitored_relay"
+
+# Geolocation configuration
+geo:
+  database_path: "/usr/share/GeoIP/GeoLite2-City.mmdb"
+  # ASN database optional for lilbrotr
+  # asn_database_path: "/usr/share/GeoIP/GeoLite2-ASN.mmdb"
 
 # Reduced concurrency for lighter resource usage
 concurrency:
-  max_parallel: 10
-  batch_size: 25
+  max_parallel: 20           # Maximum concurrent relay checks per process
+  max_processes: 1           # Number of worker processes
+  batch_size: 20             # Relays to process before pushing to database

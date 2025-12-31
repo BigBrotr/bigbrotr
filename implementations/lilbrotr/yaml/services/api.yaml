@@ -1,0 +1,15 @@
+# API Service Configuration (Planned)
+#
+# This service is planned for future implementation.
+# It will provide a REST/GraphQL API for querying relay data.
+#
+# When implemented, uncomment and configure:
+#
+# host: "0.0.0.0"
+# port: 8080
+# cors:
+#   enabled: true
+#   origins: ["*"]
+# rate_limit:
+#   enabled: true
+#   requests_per_minute: 60

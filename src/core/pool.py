@@ -9,6 +9,8 @@ Manages database connections with:
 - Context manager support
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 from collections.abc import AsyncIterator
@@ -18,9 +20,10 @@ from typing import Any, Optional, Union
 
 import asyncpg
 import yaml
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator
 
 from .logger import Logger
+
 
 # ============================================================================
 # Configuration Models
@@ -29,10 +32,10 @@ from .logger import Logger
 
 def _get_password_from_env() -> SecretStr:
     """Load password from DB_PASSWORD environment variable."""
-    password = os.getenv("DB_PASSWORD")
-    if not password:
+    env_password = os.getenv("DB_PASSWORD")
+    if not env_password:
         raise ValueError("DB_PASSWORD environment variable not set")
-    return SecretStr(password)
+    return SecretStr(env_password)
 
 
 class DatabaseConfig(BaseModel):
@@ -44,13 +47,13 @@ class DatabaseConfig(BaseModel):
     user: str = Field(default="admin", min_length=1, description="Database user")
     password: SecretStr = Field(
         default_factory=_get_password_from_env,
-        description="Database password (from DB_PASSWORD env)",
+        description="Database password (from DB_PASSWORD env if not provided)",
     )
 
     @field_validator("password", mode="before")
     @classmethod
     def load_password_from_env(cls, v: Optional[Union[str, SecretStr]]) -> SecretStr:
-        """Load password from environment if not provided."""
+        """Load password from environment if explicitly set to None or empty string."""
         if v is None or v == "":
             return _get_password_from_env()
         if isinstance(v, SecretStr):
@@ -58,7 +61,7 @@ class DatabaseConfig(BaseModel):
         return SecretStr(v)
 
 
-class PoolLimitsConfig(BaseModel):
+class LimitsConfig(BaseModel):
     """Pool size and resource limits."""
 
     min_size: int = Field(default=5, ge=1, le=100, description="Minimum connections")
@@ -70,7 +73,7 @@ class PoolLimitsConfig(BaseModel):
 
     @field_validator("max_size")
     @classmethod
-    def validate_max_size(cls, v: int, info) -> int:
+    def validate_max_size(cls, v: int, info: ValidationInfo) -> int:
         """Ensure max_size >= min_size."""
         min_size = info.data.get("min_size", 5)
         if v < min_size:
@@ -78,7 +81,7 @@ class PoolLimitsConfig(BaseModel):
         return v
 
 
-class PoolTimeoutsConfig(BaseModel):
+class TimeoutsConfig(BaseModel):
     """Pool timeout configuration."""
 
     acquisition: float = Field(default=10.0, ge=0.1, description="Connection acquisition timeout")
@@ -95,7 +98,7 @@ class RetryConfig(BaseModel):
 
     @field_validator("max_delay")
     @classmethod
-    def validate_max_delay(cls, v: float, info) -> float:
+    def validate_max_delay(cls, v: float, info: ValidationInfo) -> float:
         """Ensure max_delay >= initial_delay."""
         initial_delay = info.data.get("initial_delay", 1.0)
         if v < initial_delay:
@@ -114,8 +117,8 @@ class PoolConfig(BaseModel):
     """Complete pool configuration."""
 
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-    limits: PoolLimitsConfig = Field(default_factory=PoolLimitsConfig)
-    timeouts: PoolTimeoutsConfig = Field(default_factory=PoolTimeoutsConfig)
+    limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     retry: RetryConfig = Field(default_factory=RetryConfig)
     server_settings: ServerSettingsConfig = Field(default_factory=ServerSettingsConfig)
 
@@ -153,13 +156,13 @@ class Pool:
             config: Pool configuration (uses defaults if not provided)
         """
         self._config = config or PoolConfig()
-        self._pool: Optional[asyncpg.Pool] = None
+        self._pool: Optional[asyncpg.Pool[asyncpg.Record]] = None
         self._is_connected: bool = False
         self._connection_lock = asyncio.Lock()
         self._logger = Logger("pool")
 
     @classmethod
-    def from_yaml(cls, config_path: str) -> "Pool":
+    def from_yaml(cls, config_path: str) -> Pool:
         """Create pool from YAML configuration file."""
         path = Path(config_path)
         if not path.exists():
@@ -171,7 +174,7 @@ class Pool:
         return cls.from_dict(config_data or {})
 
     @classmethod
-    def from_dict(cls, config_dict: dict[str, Any]) -> "Pool":
+    def from_dict(cls, config_dict: dict[str, Any]) -> Pool:
         """Create pool from dictionary configuration."""
         config = PoolConfig(**config_dict)
         return cls(config=config)
@@ -266,7 +269,7 @@ class Pool:
     # Connection Acquisition
     # -------------------------------------------------------------------------
 
-    def acquire(self) -> AbstractAsyncContextManager[asyncpg.Connection]:
+    def acquire(self) -> AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]:
         """
         Acquire a connection from the pool.
 
@@ -282,7 +285,7 @@ class Pool:
         self,
         max_retries: int = 3,
         health_check_timeout: Optional[float] = None,
-    ) -> AsyncIterator[asyncpg.Connection]:
+    ) -> AsyncIterator[asyncpg.Connection[asyncpg.Record]]:
         """
         Acquire a health-checked connection.
 
@@ -291,6 +294,10 @@ class Pool:
         Args:
             max_retries: Max attempts to acquire healthy connection
             health_check_timeout: Timeout for health check query
+
+        Raises:
+            RuntimeError: If pool is not connected
+            ConnectionError: If all retry attempts fail
         """
         if not self._is_connected or self._pool is None:
             raise RuntimeError("Pool not connected. Call connect() first.")
@@ -298,34 +305,26 @@ class Pool:
         timeout = health_check_timeout or self._config.timeouts.health_check
         last_error: Optional[Exception] = None
 
-        for _attempt in range(max_retries):
-            conn: Optional[asyncpg.Connection] = None
+        for attempt in range(max_retries):
             try:
-                conn = await self._pool.acquire()
-
-                # Health check
-                try:
+                async with self._pool.acquire() as conn:
+                    # Health check - if fails, will raise and retry
                     await conn.fetchval("SELECT 1", timeout=timeout)
-                except (asyncpg.PostgresError, TimeoutError) as e:
-                    last_error = e
-                    await self._pool.release(conn)
-                    conn = None
-                    continue
-
-                # Healthy - yield connection
-                try:
+                    # Connection is healthy, yield it
                     yield conn
                     return
-                finally:
-                    await self._pool.release(conn)
-
-            except (asyncpg.PostgresError, OSError) as e:
+            except (asyncpg.PostgresError, OSError, TimeoutError) as e:
                 last_error = e
-                if conn is not None:
-                    try:
-                        await self._pool.release(conn)
-                    except Exception:
-                        pass
+                self._logger.debug(
+                    "health_check_failed",
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    error=str(e),
+                )
+                # Add backoff delay between retries to avoid thundering herd
+                if attempt < max_retries - 1:
+                    delay = 0.1 * (2**attempt)  # 0.1s, 0.2s, 0.4s...
+                    await asyncio.sleep(delay)
                 continue
 
         raise ConnectionError(
@@ -333,7 +332,7 @@ class Pool:
         )
 
     @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[asyncpg.Connection]:
+    async def transaction(self) -> AsyncIterator[asyncpg.Connection[asyncpg.Record]]:
         """
         Acquire connection with transaction management.
 
@@ -393,16 +392,83 @@ class Pool:
         """Get configuration."""
         return self._config
 
+    @property
+    def metrics(self) -> dict[str, Any]:
+        """
+        Get pool metrics for monitoring.
+
+        Returns:
+            Dictionary with pool statistics:
+            - size: Current number of connections in pool
+            - idle_size: Number of idle (available) connections
+            - min_size: Configured minimum pool size
+            - max_size: Configured maximum pool size
+            - free_size: Number of connections available for acquisition
+            - utilization: Percentage of pool in use (0.0-1.0)
+            - is_connected: Whether pool is connected
+
+        Example:
+            >>> pool.metrics
+            {'size': 10, 'idle_size': 8, 'min_size': 5, 'max_size': 20,
+             'free_size': 8, 'utilization': 0.2, 'is_connected': True}
+        """
+        # Capture local reference to avoid race condition with close()
+        pool = self._pool
+        if not self._is_connected or pool is None:
+            return {
+                "size": 0,
+                "idle_size": 0,
+                "min_size": self._config.limits.min_size,
+                "max_size": self._config.limits.max_size,
+                "free_size": 0,
+                "utilization": 0.0,
+                "is_connected": False,
+            }
+
+        try:
+            size = pool.get_size()
+            idle_size = pool.get_idle_size()
+            min_size = pool.get_min_size()
+            max_size = pool.get_max_size()
+            free_size = max_size - (size - idle_size)
+            utilization = (size - idle_size) / max_size if max_size > 0 else 0.0
+
+            return {
+                "size": size,
+                "idle_size": idle_size,
+                "min_size": min_size,
+                "max_size": max_size,
+                "free_size": free_size,
+                "utilization": round(utilization, 3),
+                "is_connected": True,
+            }
+        except Exception:
+            # Pool was closed between check and access
+            return {
+                "size": 0,
+                "idle_size": 0,
+                "min_size": self._config.limits.min_size,
+                "max_size": self._config.limits.max_size,
+                "free_size": 0,
+                "utilization": 0.0,
+                "is_connected": False,
+            }
+
     # -------------------------------------------------------------------------
     # Context Manager
     # -------------------------------------------------------------------------
 
-    async def __aenter__(self) -> "Pool":
+    async def __aenter__(self) -> Pool:
         """Async context manager entry."""
         await self.connect()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any],
+    ) -> None:
         """Async context manager exit."""
         await self.close()
 

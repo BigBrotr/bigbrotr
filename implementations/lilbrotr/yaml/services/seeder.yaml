@@ -1,0 +1,9 @@
+# ============================================================================
+# Seeder Service Configuration (LilBrotr)
+# ============================================================================
+# Description: Seed initial relay data for validation
+# Note: Uses all default values from SeederConfig
+# See: implementations/bigbrotr/yaml/services/seeder.yaml for full config
+# ============================================================================
+
+# No overrides - uses all defaults

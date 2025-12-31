@@ -1,9 +1,0 @@
-# ============================================================================
-# Initializer Service Configuration (LilBrotr)
-# ============================================================================
-# Description: Bootstrap database and seed initial data
-# Note: Uses all default values from InitializerConfig
-# See: implementations/bigbrotr/yaml/services/initializer.yaml for full config
-# ============================================================================
-
-# No overrides - uses all defaults

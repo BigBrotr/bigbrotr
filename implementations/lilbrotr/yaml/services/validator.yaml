@@ -1,0 +1,26 @@
+# ============================================================================
+# Validator Service Configuration (LilBrotr)
+# ============================================================================
+# Description: Validate candidate relay URLs before adding to relays table
+# See: implementations/bigbrotr/yaml/services/validator.yaml for full config
+# ============================================================================
+
+# Cycle interval (seconds between validation runs)
+interval: 300.0
+
+# WebSocket connection timeout (seconds)
+connection_timeout: 10.0
+
+# Maximum candidates to validate per cycle (null = unlimited)
+# max_candidates_per_run: 100
+
+# Concurrency settings
+concurrency:
+  max_parallel: 10           # Maximum concurrent relay validations
+
+# Tor proxy configuration (for .onion relays)
+# proxy_url is computed as socks5://{host}:{port}
+tor:
+  enabled: true
+  host: "tor"              # Tor proxy host (Docker service name)
+  port: 9050               # Tor proxy port (Range: 1 - 65535)
