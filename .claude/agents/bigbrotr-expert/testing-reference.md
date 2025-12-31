@@ -42,7 +42,7 @@ tests/
 pytest tests/ -v
 
 # Specific test file
-pytest tests/core/test_pool.py -v
+pytest tests/unit/core/test_pool.py -v
 
 # Pattern matching
 pytest -k "test_insert" -v
