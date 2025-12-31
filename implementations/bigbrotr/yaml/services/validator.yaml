@@ -27,5 +27,5 @@ concurrency:
 # proxy_url is computed as socks5://{host}:{port}
 tor:
   enabled: true
-  host: "127.0.0.1"        # Tor proxy host (Docker service name or IP)
+  host: "tor"              # Tor proxy host (Docker service name)
   port: 9050               # Tor proxy port (Range: 1 - 65535)
