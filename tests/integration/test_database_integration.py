@@ -19,8 +19,9 @@ import pytest
 
 from core.brotr import Brotr, BrotrConfig
 from core.pool import DatabaseConfig, Pool, PoolConfig
+from models.metadata import Metadata
 from models.relay import Relay
-from models.relay_metadata import MetadataType, RelayMetadata
+from models.relay_metadata import RelayMetadata
 
 # Skip all tests in this module if DB_PASSWORD is not set
 pytestmark = pytest.mark.skipif(
@@ -134,8 +135,8 @@ class TestRelayMetadataIntegration:
         # Insert metadata
         metadata = RelayMetadata(
             relay=relay,
-            type=MetadataType.NIP11,
-            data={"name": "Test Relay", "description": "Integration test"},
+            metadata_type="nip11",
+            metadata=Metadata({"name": "Test Relay", "description": "Integration test"}),
         )
 
         inserted = await integration_brotr.insert_relay_metadata([metadata])
@@ -151,8 +152,12 @@ class TestRelayMetadataIntegration:
         # Same data should produce same content hash
         data = {"name": "Dedup Test", "version": "1.0"}
 
-        metadata1 = RelayMetadata(relay=relay, type=MetadataType.NIP11, data=data)
-        metadata2 = RelayMetadata(relay=relay, type=MetadataType.NIP11, data=data)
+        metadata1 = RelayMetadata(
+            relay=relay, metadata_type="nip11", metadata=Metadata(data)
+        )
+        metadata2 = RelayMetadata(
+            relay=relay, metadata_type="nip11", metadata=Metadata(data)
+        )
 
         await integration_brotr.insert_relay_metadata([metadata1])
         await integration_brotr.insert_relay_metadata([metadata2])
@@ -189,7 +194,7 @@ class TestServiceDataIntegration:
         # Get
         result = await integration_brotr.get_service_data("integration_test", "cursor", "test_key")
         assert len(result) == 1
-        assert result[0]["data"]["value"] == 123
+        assert result[0]["value"]["value"] == 123
 
     @pytest.mark.asyncio
     @pytest.mark.integration
@@ -210,7 +215,7 @@ class TestServiceDataIntegration:
         # Verify update
         result = await integration_brotr.get_service_data("integration_test", "state", key)
         assert len(result) == 1
-        assert result[0]["data"]["version"] == 2
+        assert result[0]["value"]["version"] == 2
 
     @pytest.mark.asyncio
     @pytest.mark.integration
