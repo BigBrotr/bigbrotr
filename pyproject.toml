@@ -172,6 +172,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["PLR2004", "ARG001", "ARG002", "PLC0415"]  # PLC0415 only for tests (inline imports in fixtures)
+# TC001/TC002/TC003: These imports are used at runtime, not just for type hints
+"src/core/brotr.py" = ["TC001", "TC002"]
+"src/core/pool.py" = ["TC003"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["models", "core", "services"]

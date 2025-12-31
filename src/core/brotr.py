@@ -138,7 +138,7 @@ class Brotr:
         return self._config
 
     @classmethod
-    def from_yaml(cls, config_path: str) -> "Brotr":
+    def from_yaml(cls, config_path: str) -> Brotr:
         """
         Create Brotr from YAML configuration.
 
@@ -164,7 +164,7 @@ class Brotr:
         return cls.from_dict(config_data)
 
     @classmethod
-    def from_dict(cls, config_dict: dict[str, Any]) -> "Brotr":
+    def from_dict(cls, config_dict: dict[str, Any]) -> Brotr:
         """Create Brotr from dictionary configuration."""
         pool = None
         if "pool" in config_dict:
@@ -575,7 +575,7 @@ class Brotr:
     # Context Manager
     # -------------------------------------------------------------------------
 
-    async def __aenter__(self) -> "Brotr":
+    async def __aenter__(self) -> Brotr:
         """
         Async context manager entry - connects the pool.
 
