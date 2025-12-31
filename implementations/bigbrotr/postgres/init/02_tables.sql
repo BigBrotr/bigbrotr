@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS events (
     sig         BYTEA       NOT NULL
 );
 
-COMMENT ON TABLE events IS 'Nostr events with cryptographic validation via nostr-tools';
+COMMENT ON TABLE events IS 'Nostr events with computed tag values for efficient querying';
 COMMENT ON COLUMN events.id IS 'SHA-256 hash of serialized event (stored as bytea from hex string)';
 COMMENT ON COLUMN events.pubkey IS 'Author public key (stored as bytea from hex string)';
 COMMENT ON COLUMN events.created_at IS 'Unix timestamp when event was created';

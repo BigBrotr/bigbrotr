@@ -51,6 +51,7 @@ from models import (
     RelayMetadata,
 )
 
+
 if TYPE_CHECKING:
     from core.brotr import Brotr
 

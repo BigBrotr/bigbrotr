@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from .brotr import Brotr
 from .logger import Logger
 
+
 # Type variable for service configuration
 ConfigT = TypeVar("ConfigT", bound=BaseModel)
 

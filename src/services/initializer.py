@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from core.base_service import BaseService
 from models import Relay
 
+
 if TYPE_CHECKING:
     from core.brotr import Brotr
 

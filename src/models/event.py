@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from nostr_sdk import Event as NostrEvent
 
+
 if TYPE_CHECKING:
     from nostr_sdk import EventId, Kind, PublicKey, Tags, Timestamp
 

@@ -11,6 +11,7 @@ from typing import Literal, Optional
 from .metadata import Metadata
 from .relay import Relay
 
+
 # Valid metadata types matching database CHECK constraint
 MetadataType = Literal["nip11", "nip66_rtt", "nip66_ssl", "nip66_geo"]
 

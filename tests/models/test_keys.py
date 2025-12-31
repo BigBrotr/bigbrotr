@@ -7,6 +7,7 @@ import pytest
 
 from models import Keys
 
+
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
 VALID_HEX_KEY = "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"
 VALID_NSEC_KEY = "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5"

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Optional, Union
 
 from .event import event_to_db_params
 
+
 if TYPE_CHECKING:
     from nostr_sdk import Event as NostrEvent
 
