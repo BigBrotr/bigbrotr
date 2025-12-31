@@ -1,7 +1,8 @@
 """Tests for models.nip11 module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from models import Metadata, Nip11, Relay, RelayMetadata
 
