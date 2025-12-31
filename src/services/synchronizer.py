@@ -744,7 +744,7 @@ class Synchronizer(BaseService):
                     relays.append(relay)
                     known_urls.add(relay.url)
                 except Exception as e:
-                    self._logger.warning("invalid_override_relay", url=override.url, error=str(e))
+                    self._logger.warning("parse_override_relay_failed", error=str(e), error_type=type(e).__name__, url=override.url)
 
         if not relays:
             self._logger.info("no_relays_to_sync")
@@ -830,7 +830,7 @@ class Synchronizer(BaseService):
                         )
                     ])
                 except Exception as e:
-                    self._logger.warning("relay_sync_failed", url=relay.url, error=str(e))
+                    self._logger.warning("relay_sync_failed", error=str(e), error_type=type(e).__name__, url=relay.url)
                     self._failed_relays += 1
 
         tasks = [worker(relay) for relay in relays]

@@ -212,7 +212,7 @@ class Finder(BaseService):
                     self._config.events.batch_size,
                 )
             except Exception as e:
-                self._logger.warning("event_query_failed", error=str(e))
+                self._logger.warning("event_query_failed", error=str(e), error_type=type(e).__name__)
                 break
 
             if not rows:
@@ -273,9 +273,7 @@ class Finder(BaseService):
                     await self._brotr.upsert_service_data(records)
                     total_relays_found += len(relays)
                 except Exception as e:
-                    self._logger.error(
-                        "insert_candidates_failed", error=str(e), count=len(relays)
-                    )
+                    self._logger.error("insert_candidates_failed", error=str(e), error_type=type(e).__name__, count=len(relays))
 
             total_events_scanned += chunk_events
             chunks_processed += 1
@@ -320,7 +318,7 @@ class Finder(BaseService):
             if results:
                 return results[0].get("value", {})
         except Exception as e:
-            self._logger.warning("cursor_load_failed", error=str(e))
+            self._logger.warning("cursor_load_failed", error=str(e), error_type=type(e).__name__)
         return {}
 
     async def _save_event_cursor(self, timestamp: int, event_id: bytes) -> None:
@@ -334,7 +332,7 @@ class Finder(BaseService):
                 ("finder", "cursor", "events", cursor_data)
             ])
         except Exception as e:
-            self._logger.warning("cursor_save_failed", error=str(e))
+            self._logger.warning("cursor_save_failed", error=str(e), error_type=type(e).__name__)
 
     def _validate_relay_url(self, url: str) -> Optional[str]:
         """
@@ -383,7 +381,7 @@ class Finder(BaseService):
                         await asyncio.sleep(self._config.api.delay_between_requests)
 
                 except Exception as e:
-                    self._logger.warning("api_error", url=source.url, error=str(e))
+                    self._logger.warning("api_fetch_failed", error=str(e), error_type=type(e).__name__, url=source.url)
 
         # Insert discovered relays as candidates in services table
         if relays:
@@ -392,7 +390,7 @@ class Finder(BaseService):
                 await self._brotr.upsert_service_data(records)
                 self._found_relays += len(relays)
             except Exception as e:
-                self._logger.error("insert_candidates_failed", error=str(e), count=len(relays))
+                self._logger.error("insert_candidates_failed", error=str(e), error_type=type(e).__name__, count=len(relays))
 
         if sources_checked > 0:
             self._logger.info("apis_completed", sources=sources_checked, relays=len(relays))
