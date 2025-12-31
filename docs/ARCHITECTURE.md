@@ -57,12 +57,11 @@ This design allows:
 |                             SERVICE LAYER                                    |
 |                                                                              |
 |   src/services/                                                              |
-|   ├── initializer.py   Database bootstrap and verification                  |
-|   ├── finder.py        Relay URL discovery                                  |
+|   ├── seeder.py        Relay seeding for validation                         |
+|   ├── finder.py        Relay URL discovery from APIs and events             |
+|   ├── validator.py     Candidate relay validation                           |
 |   ├── monitor.py       Relay health monitoring (NIP-11/NIP-66)              |
-|   ├── synchronizer.py  Event collection and sync                            |
-|   ├── api.py           REST API (planned)                                   |
-|   └── dvm.py           Data Vending Machine (planned)                       |
+|   └── synchronizer.py  Event collection and sync                            |
 |                                                                              |
 |   Purpose: Business logic, service coordination, data transformation         |
 +----------------------------------+------------------------------------------+
@@ -146,14 +145,14 @@ finally:
 - Timeout configuration per operation type
 - Context manager (delegates to Pool)
 
-**Stored Procedures** (hardcoded for security):
+**Stored Functions** (hardcoded for security):
 ```python
-PROC_INSERT_EVENT = "insert_event"
-PROC_INSERT_RELAY = "insert_relay"
-PROC_INSERT_RELAY_METADATA = "insert_relay_metadata"
-PROC_DELETE_ORPHAN_EVENTS = "delete_orphan_events"
-PROC_DELETE_ORPHAN_NIP11 = "delete_orphan_nip11"
-PROC_DELETE_ORPHAN_NIP66 = "delete_orphan_nip66"
+FUNC_INSERT_EVENT = "insert_event"
+FUNC_INSERT_RELAY = "insert_relay"
+FUNC_INSERT_RELAY_METADATA = "insert_relay_metadata"
+FUNC_DELETE_ORPHAN_EVENTS = "delete_orphan_events"
+FUNC_DELETE_ORPHAN_METADATA = "delete_orphan_metadata"
+FUNC_DELETE_FAILED_CANDIDATES = "delete_failed_candidates"
 ```
 
 **Usage**:
@@ -181,30 +180,28 @@ async with brotr:
 **Key Features**:
 - Generic type parameter for configuration class
 - `SERVICE_NAME` and `CONFIG_CLASS` class attributes
-- State persistence via `_load_state()` / `_save_state()`
-- Continuous operation via `run_forever(interval)`
+- Continuous operation via `run_forever(interval)` with failure tracking
 - Factory methods: `from_yaml()`, `from_dict()`
-- Async context manager (auto load/save state)
+- Async context manager for lifecycle management
 - Graceful shutdown via `request_shutdown()`
 - Interruptible wait via `wait(timeout)`
 
 **Interface**:
 ```python
 class BaseService(ABC, Generic[ConfigT]):
-    SERVICE_NAME: str              # Unique identifier for state persistence
+    SERVICE_NAME: str              # Unique identifier for the service
     CONFIG_CLASS: type[ConfigT]    # For automatic config parsing
 
     _brotr: Brotr                  # Database interface
     _config: ConfigT               # Pydantic configuration
-    _state: dict[str, Any]         # Persisted state (JSONB in database)
 
     @abstractmethod
     async def run(self) -> None:
         """Single cycle logic - must be implemented by subclasses."""
         pass
 
-    async def run_forever(self, interval: float) -> None:
-        """Continuous loop with configurable interval."""
+    async def run_forever(self, interval: float, max_consecutive_failures: int = 10) -> None:
+        """Continuous loop with configurable interval and failure tracking."""
         pass
 
     async def health_check(self) -> bool:
@@ -218,14 +215,6 @@ class BaseService(ABC, Generic[ConfigT]):
     async def wait(self, timeout: float) -> bool:
         """Interruptible sleep - returns True if shutdown requested."""
         pass
-```
-
-**State Persistence**:
-```python
-async with brotr:
-    async with service:  # _load_state() called on enter
-        await service.run_forever(interval=3600)
-    # _save_state() called on exit
 ```
 
 ### Logger (`logger.py`)
@@ -278,30 +267,47 @@ class MyService(BaseService[MyServiceConfig]):
         pass
 ```
 
-### Initializer Service
+### Seeder Service
 
-**Purpose**: Database bootstrap and schema verification.
+**Purpose**: Relay seeding for validation.
 
 **Lifecycle**: One-shot (runs once, then exits)
 
 **Operations**:
-1. Verify PostgreSQL extensions (pgcrypto, btree_gin)
-2. Verify all expected tables exist
-3. Verify all stored procedures exist
-4. Verify all views exist
-5. Seed relay URLs from configured file
+1. Parse seed relay URLs from configured file
+2. Validate URLs and detect network type (clearnet/tor)
+3. Store as candidates in `service_data` table for Validator
 
 ### Finder Service
 
-**Purpose**: Relay URL discovery.
+**Purpose**: Relay URL discovery from multiple sources.
 
 **Lifecycle**: Continuous (`run_forever`)
 
 **Operations**:
-1. Fetch relay lists from configured API sources
-2. Validate URLs using nostr-tools
-3. Detect network type (clearnet/tor) from URL
-4. Batch insert discovered relays into database
+1. Fetch relay lists from configured API sources (e.g., nostr.watch)
+2. Scan stored events for relay URLs (NIP-65 relay lists, kind 2/3 events)
+3. Validate URLs using the Relay model
+4. Store discovered URLs as candidates in `service_data` table
+
+**Note**: Finder stores candidates, not relays. The Validator service tests and promotes valid candidates to the `relays` table.
+
+### Validator Service
+
+**Purpose**: Test and validate candidate relay URLs.
+
+**Lifecycle**: Continuous (`run_forever`)
+
+**Operations**:
+1. Fetch candidates from `service_data` table
+2. Test WebSocket connectivity for each candidate
+3. Promote successful candidates to `relays` table
+4. Track failed attempts and remove persistently failing candidates
+
+**Features**:
+- Probabilistic selection based on retry count
+- Tor proxy support for .onion addresses
+- Configurable connection timeout
 
 ### Monitor Service
 
@@ -334,6 +340,7 @@ class MyService(BaseService[MyServiceConfig]):
 - **Incremental Sync**: Per-relay timestamp tracking
 - **Per-Relay Overrides**: Custom settings for specific relays
 - **Graceful Shutdown**: Clean worker process termination via `atexit`
+- **Tor Support**: SOCKS5 proxy for .onion relay synchronization
 
 **Processing Flow**:
 ```
@@ -348,7 +355,7 @@ Main Process                    Worker Processes
      │                               │
      ├─── Insert to database        │
      │                               │
-     └─── Update state             │
+     └─── Continue cycle           │
 ```
 
 ---
@@ -362,7 +369,7 @@ The implementation layer contains deployment-specific resources. Two implementat
 | Implementation | Purpose | Key Differences |
 |----------------|---------|-----------------|
 | **bigbrotr** | Full-featured archiving | Stores tags/content, Tor support, high concurrency |
-| **lilbrotr** | Lightweight monitoring | No tags/content storage, clearnet only, lower resources |
+| **lilbrotr** | Lightweight indexing | Indexes all events but omits tags/content (~60% disk savings), clearnet only |
 
 ### BigBrotr Structure (Full-Featured)
 
@@ -372,10 +379,11 @@ implementations/bigbrotr/
 │   ├── core/
 │   │   └── brotr.yaml           # Database connection, pool settings
 │   └── services/
-│       ├── initializer.yaml     # Schema verification, seed file
+│       ├── seeder.yaml          # Seed file configuration
 │       ├── finder.yaml          # API sources, intervals
-│       ├── monitor.yaml         # Health check settings, Tor enabled
-│       └── synchronizer.yaml    # High concurrency (10 parallel, 10 processes)
+│       ├── validator.yaml       # Validation settings, Tor proxy
+│       ├── monitor.yaml         # Health check settings, Tor proxy
+│       └── synchronizer.yaml    # High concurrency (10 parallel, 4 processes), Tor proxy
 ├── postgres/
 │   └── init/                    # SQL schema files (00-99)
 │       ├── 02_tables.sql        # Full schema with tags, tagvalues, content
@@ -548,7 +556,7 @@ Resources are automatically managed:
 
 ```python
 async with brotr:           # Connect on enter, close on exit
-    async with service:     # Load state on enter, save on exit
+    async with service:     # Lifecycle management
         await service.run_forever(interval=3600)
 ```
 
@@ -559,22 +567,29 @@ async with brotr:           # Connect on enter, close on exit
 ### Event Synchronization Flow
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Finder    │────>│   Monitor   │────>│ Synchronizer│
-└─────────────┘     └─────────────┘     └─────────────┘
-       │                   │                   │
-       │ Discover          │ Check health      │ Collect events
-       │ relay URLs        │ NIP-11/NIP-66     │ from relays
-       v                   v                   v
-┌─────────────────────────────────────────────────────┐
-│                      PostgreSQL                      │
-│  ┌─────────┐  ┌──────┐  ┌─────────────────┐         │
-│  │ relays  │  │events│  │ relay_metadata  │         │
-│  └─────────┘  └──────┘  └─────────────────┘         │
-│       │           │              │                   │
-│       └───────────┴──────────────┘                  │
-│                events_relays                         │
-└─────────────────────────────────────────────────────┘
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Seeder    │     │   Finder    │     │  Validator  │     │   Monitor   │
+└──────┬──────┘     └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
+       │                   │                   │                   │
+       │ Seed URLs         │ Discover URLs     │ Test candidates   │ Check health
+       │ (one-shot)        │ from APIs/events  │ Promote to relays │ NIP-11/NIP-66
+       v                   v                   v                   v
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              PostgreSQL                                  │
+│  ┌─────────────────┐  ┌─────────┐  ┌──────┐  ┌─────────────────┐       │
+│  │  service_data   │  │ relays  │  │events│  │ relay_metadata  │       │
+│  │  (candidates)   │  │         │  │      │  │    + metadata   │       │
+│  └─────────────────┘  └─────────┘  └──────┘  └─────────────────┘       │
+│                              │          │              │                │
+│                              └──────────┴──────────────┘                │
+│                                   events_relays                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                                        ^
+                                        │
+                              ┌─────────────────┐
+                              │  Synchronizer   │
+                              │ Collect events  │
+                              └─────────────────┘
 ```
 
 ### Metadata Deduplication Flow
@@ -599,10 +614,12 @@ async with brotr:           # Connect on enter, close on exit
 │                                                  v            │
 │                                    ┌─────────────────────────┐│
 │                                    │ Insert relay_metadata   ││
-│                                    │ (links relay to nip11/  ││
-│                                    │  nip66 by hash ID)      ││
+│                                    │ (links relay to metadata││
+│                                    │  by type and hash ID)   ││
 │                                    └─────────────────────────┘│
 └──────────────────────────────────────────────────────────────┘
+
+**Metadata Types**: `nip11`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`
 ```
 
 ---
@@ -684,7 +701,7 @@ BigBrotr's architecture provides:
 2. **Flexibility** - Configuration-driven behavior without code changes
 3. **Testability** - Dependency injection enables comprehensive unit testing
 4. **Scalability** - Multicore processing and connection pooling for high throughput
-5. **Reliability** - Graceful shutdown, state persistence, and retry logic
+5. **Reliability** - Graceful shutdown, failure tracking, and retry logic
 6. **Maintainability** - Clear patterns and consistent structure throughout
 
 ---

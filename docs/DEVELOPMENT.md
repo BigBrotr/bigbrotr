@@ -84,12 +84,11 @@ bigbrotr/
 │   └── services/                     # Service layer (business logic)
 │       ├── __init__.py               # Service exports
 │       ├── __main__.py               # CLI entry point
-│       ├── initializer.py            # Database bootstrap (~310 lines)
-│       ├── finder.py                 # Relay discovery (~220 lines)
-│       ├── monitor.py                # Health monitoring (~400 lines)
-│       ├── synchronizer.py           # Event sync (~740 lines)
-│       ├── api.py                    # REST API (planned)
-│       └── dvm.py                    # DVM service (planned)
+│       ├── seeder.py            # Database bootstrap and seeding
+│       ├── finder.py                 # Relay URL discovery
+│       ├── validator.py              # Candidate relay validation
+│       ├── monitor.py                # Health monitoring (NIP-11/NIP-66)
+│       └── synchronizer.py           # Event synchronization
 │
 ├── implementations/                  # Implementation layer
 │   ├── bigbrotr/                     # Full-featured implementation
@@ -115,7 +114,7 @@ bigbrotr/
 │       ├── __init__.py
 │       ├── test_pool.py
 │       ├── test_brotr.py
-│       ├── test_initializer.py
+│       ├── test_seeder.py
 │       ├── test_finder.py
 │       ├── test_monitor.py
 │       ├── test_synchronizer.py
@@ -167,10 +166,10 @@ bigbrotr/
 
 ```bash
 # Run all unit tests
-pytest tests/unit/ -v
+pytest tests/ -v
 
 # Run with coverage report
-pytest tests/unit/ --cov=src --cov-report=html
+pytest tests/ --cov=src --cov-report=html
 
 # Open coverage report
 open htmlcov/index.html  # macOS
@@ -181,13 +180,13 @@ xdg-open htmlcov/index.html  # Linux
 
 ```bash
 # Run single test file
-pytest tests/unit/test_pool.py -v
+pytest tests/test_pool.py -v
 
 # Run single test class
-pytest tests/unit/test_pool.py::TestPool -v
+pytest tests/test_pool.py::TestPool -v
 
 # Run single test method
-pytest tests/unit/test_pool.py::TestPool::test_init_with_defaults -v
+pytest tests/test_pool.py::TestPool::test_init_with_defaults -v
 
 # Run tests matching pattern
 pytest -k "health_check" -v
@@ -435,7 +434,7 @@ __all__ = [
 ### 5. Write Tests
 
 ```python
-# tests/unit/test_myservice.py
+# tests/test_myservice.py
 """Unit tests for MyService."""
 
 import pytest
@@ -493,7 +492,7 @@ myservice:
   depends_on:
     pgbouncer:
       condition: service_healthy
-    initializer:
+    seeder:
       condition: service_completed_successfully
   command: ["python", "-m", "services", "myservice"]
 ```
@@ -531,11 +530,14 @@ FROM events
 ORDER BY created_at DESC
 LIMIT 10;
 
--- Relay status
-SELECT relay_url, nip66_openable, nip66_readable, nip66_writable
-FROM relay_metadata_latest
-WHERE generated_at > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')
-ORDER BY nip66_openable DESC, nip66_readable DESC;
+-- Relay status (latest RTT data from last 24 hours)
+SELECT rm.relay_url, m.data->>'is_openable' AS openable,
+       m.data->>'is_readable' AS readable, m.data->>'is_writable' AS writable
+FROM relay_metadata_latest rm
+JOIN metadata m ON rm.metadata_id = m.id
+WHERE rm.type = 'nip66_rtt'
+  AND rm.snapshot_at > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')
+ORDER BY (m.data->>'is_openable')::boolean DESC;
 
 -- Event kind distribution
 SELECT * FROM kind_counts_total LIMIT 20;
@@ -621,7 +623,7 @@ asyncio.get_event_loop().set_debug(True)
             "type": "python",
             "request": "launch",
             "module": "pytest",
-            "args": ["tests/unit/", "-v", "-s"],
+            "args": ["tests/", "-v", "-s"],
             "env": {
                 "PYTHONPATH": "${workspaceFolder}/src",
                 "DB_PASSWORD": "test_password"
@@ -640,7 +642,7 @@ asyncio.get_event_loop().set_debug(True)
    - Environment: `PYTHONPATH=../../src;DB_PASSWORD=your_password`
 
 2. **Test Configuration**:
-   - Target: `tests/unit/`
+   - Target: `tests/`
    - Additional arguments: `-v -s`
 
 ---
@@ -683,7 +685,7 @@ chore: update dependencies
 
 ### Pull Request Checklist
 
-- [ ] Tests pass: `pytest tests/unit/ -v`
+- [ ] Tests pass: `pytest tests/ -v`
 - [ ] Code quality: `pre-commit run --all-files`
 - [ ] Documentation updated if needed
 - [ ] Commit messages follow conventions
@@ -716,8 +718,8 @@ pip install -r requirements.txt -r requirements-dev.txt
 pre-commit install
 
 # Testing
-pytest tests/unit/ -v
-pytest tests/unit/ --cov=src --cov-report=html
+pytest tests/ -v
+pytest tests/ --cov=src --cov-report=html
 pytest -k "pattern" -v
 
 # Code Quality
@@ -728,7 +730,7 @@ pre-commit run --all-files
 
 # Running Services
 cd implementations/bigbrotr
-python -m services initializer
+python -m services seeder
 python -m services finder --log-level DEBUG
 
 # Docker

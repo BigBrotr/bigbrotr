@@ -133,15 +133,15 @@ services:
         max-file: "3"
 
   # --------------------------------------------------------------------------
-  # BigBrotr Initializer Service
+  # BigBrotr Seeder Service
   # --------------------------------------------------------------------------
-  # Runs once to verify database schema and seed initial data
+  # Runs once to seed initial relay data for validation
 
-  initializer:
+  seeder:
     build:
       context: ../../
       dockerfile: implementations/bigbrotr/Dockerfile
-    container_name: bigbrotr-initializer
+    container_name: bigbrotr-seeder
     restart: "no"
 
     environment:
@@ -158,7 +158,7 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["python", "-m", "services", "initializer"]
+    command: ["python", "-m", "services", "seeder"]
 
     logging:
       driver: "json-file"
@@ -190,7 +190,7 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      initializer:
+      seeder:
         condition: service_completed_successfully
 
     command: ["python", "-m", "services", "finder"]
@@ -218,20 +218,21 @@ services:
           memory: 128M
 
   # --------------------------------------------------------------------------
-  # BigBrotr Monitor Service
+  # BigBrotr Validator Service
   # --------------------------------------------------------------------------
-  # Checks relay health and capabilities (NIP-11, NIP-66)
+  # Validates candidate relay URLs before adding to relays table
+  # Uses Tor proxy for .onion relay connectivity
 
-  monitor:
+  validator:
     build:
       context: ../../
       dockerfile: implementations/bigbrotr/Dockerfile
-    container_name: bigbrotr-monitor
+    container_name: bigbrotr-validator
     restart: unless-stopped
 
     environment:
       DB_PASSWORD: ${DB_PASSWORD}
-      MONITOR_PRIVATE_KEY: ${MONITOR_PRIVATE_KEY}
+      PRIVATE_KEY: ${PRIVATE_KEY}
 
     volumes:
       - ./yaml:/app/yaml:ro
@@ -242,8 +243,69 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      initializer:
+      seeder:
         condition: service_completed_successfully
+      finder:
+        condition: service_healthy
+      tor:
+        condition: service_healthy
+
+    command: ["python", "-m", "services", "validator"]
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # --------------------------------------------------------------------------
+  # BigBrotr Monitor Service
+  # --------------------------------------------------------------------------
+  # Checks relay health and capabilities (NIP-11, NIP-66)
+  # Uses Tor proxy for .onion relay connectivity
+
+  monitor:
+    build:
+      context: ../../
+      dockerfile: implementations/bigbrotr/Dockerfile
+    container_name: bigbrotr-monitor
+    restart: unless-stopped
+
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+      PRIVATE_KEY: ${PRIVATE_KEY}
+
+    volumes:
+      - ./yaml:/app/yaml:ro
+
+    networks:
+      - bigbrotr-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      seeder:
+        condition: service_completed_successfully
+      validator:
+        condition: service_healthy
+      tor:
+        condition: service_healthy
 
     command: ["python", "-m", "services", "monitor"]
 
@@ -273,6 +335,7 @@ services:
   # BigBrotr Synchronizer Service
   # --------------------------------------------------------------------------
   # Synchronizes Nostr events from relays with multicore support
+  # Uses Tor proxy for .onion relay connectivity
 
   synchronizer:
     build:
@@ -283,6 +346,7 @@ services:
 
     environment:
       DB_PASSWORD: ${DB_PASSWORD}
+      PRIVATE_KEY: ${PRIVATE_KEY}
 
     volumes:
       - ./yaml:/app/yaml:ro
@@ -293,9 +357,11 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      initializer:
+      seeder:
         condition: service_completed_successfully
       monitor:
+        condition: service_healthy
+      tor:
         condition: service_healthy
 
     command: ["python", "-m", "services", "synchronizer"]

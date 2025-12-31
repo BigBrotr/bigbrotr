@@ -77,7 +77,7 @@ implementations/
 │   ├── core/
 │   │   └── brotr.yaml                # Database and pool configuration
 │   └── services/
-│       ├── initializer.yaml          # Schema verification, seed file
+│       ├── seeder.yaml               # Seed file configuration
 │       ├── finder.yaml               # Relay discovery settings
 │       ├── monitor.yaml              # Health monitoring (Tor enabled)
 │       └── synchronizer.yaml         # Event sync (high concurrency)
@@ -149,11 +149,12 @@ pool:
 batch:
   max_batch_size: 1000           # Maximum items per batch operation
 
-# Query timeouts
+# Query timeouts (seconds, or null for infinite)
 timeouts:
-  query: 60.0                    # Standard query timeout (seconds)
-  procedure: 90.0                # Stored procedure timeout (seconds)
-  batch: 120.0                   # Batch operation timeout (seconds)
+  query: 60.0                    # Standard query timeout
+  batch: 120.0                   # Batch operation timeout
+  cleanup: 90.0                  # Cleanup procedures (delete_orphan_*, delete_failed_*)
+  refresh: null                  # Materialized view refresh (no timeout)
 ```
 
 ### Configuration Reference
@@ -189,44 +190,21 @@ timeouts:
 
 ## Service Configuration
 
-### Initializer (`yaml/services/initializer.yaml`)
+### Seeder (`yaml/services/seeder.yaml`)
 
 ```yaml
-# Schema verification settings
-verify:
-  extensions: true      # Verify PostgreSQL extensions
-  tables: true          # Verify tables exist
-  procedures: true      # Verify stored procedures exist
-  views: true           # Verify views exist
-
-# Expected schema elements
-schema:
-  extensions:
-    - pgcrypto          # For hash functions
-    - btree_gin         # For GIN indexes
-  tables:
-    - relays
-    - events
-    - events_relays
-    - nip11
-    - nip66
-    - relay_metadata
-    - service_state
-  procedures:
-    - insert_event
-    - insert_relay
-    - insert_relay_metadata
-    - delete_orphan_events
-    - delete_orphan_nip11
-    - delete_orphan_nip66
-  views:
-    - relay_metadata_latest
-
 # Seed relay configuration
+# Note: Network type (clearnet/tor) is auto-detected from URL
+# Note: Duplicate URLs are filtered server-side (existing relays and candidates skipped)
+# Note: File paths are relative to the working directory:
+#       - Docker: /app (so data/seed_relays.txt = /app/data/seed_relays.txt)
+#       - Local: run from implementations/bigbrotr/
 seed:
   enabled: true                     # Enable relay seeding
-  file_path: data/seed_relays.txt   # Path to seed file (relative to workdir)
+  file_path: data/seed_relays.txt   # Path to seed file
 ```
+
+**Note**: The Seeder is a one-shot service that seeds relay URLs as candidates. It does not perform schema verification - the SQL initialization scripts handle schema creation.
 
 ### Finder (`yaml/services/finder.yaml`)
 
@@ -260,6 +238,44 @@ api:
 | `api.enabled` | bool | `true` | - | Enable API discovery |
 | `api.sources[].timeout` | float | `30.0` | 1.0-120.0 | Request timeout |
 | `api.delay_between_requests` | float | `1.0` | 0.0-10.0 | Inter-request delay |
+| `concurrency.max_parallel` | int | `5` | 1-20 | Concurrent API requests |
+
+### Validator (`yaml/services/validator.yaml`)
+
+```yaml
+# Cycle interval (seconds between validation runs)
+# Range: >= 60.0
+interval: 300.0
+
+# WebSocket connection timeout (seconds)
+# Range: 1.0 - 60.0
+connection_timeout: 10.0
+
+# Maximum candidates to validate per cycle (null = unlimited)
+# max_candidates_per_run: 100
+
+# Concurrency settings
+concurrency:
+  max_parallel: 10               # Maximum concurrent relay validations (Range: 1 - 100)
+
+# Tor proxy configuration (for .onion relays)
+tor:
+  enabled: true
+  host: "127.0.0.1"              # Tor proxy host (Docker service name or IP)
+  port: 9050                     # Tor proxy port (Range: 1 - 65535)
+```
+
+#### Validator Configuration Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `interval` | float | `300.0` | >= 60.0 | Seconds between cycles |
+| `connection_timeout` | float | `10.0` | 1.0-60.0 | WebSocket connection timeout |
+| `max_candidates_per_run` | int | `null` | >= 1 | Max candidates per cycle |
+| `concurrency.max_parallel` | int | `10` | 1-100 | Concurrent validations |
+| `tor.enabled` | bool | `true` | - | Enable Tor proxy |
+| `tor.host` | string | `127.0.0.1` | - | Tor SOCKS5 host |
+| `tor.port` | int | `9050` | 1-65535 | Tor SOCKS5 port |
 
 ### Monitor (`yaml/services/monitor.yaml`)
 

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.0.0-blue?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/postgresql-16+-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
@@ -68,7 +68,7 @@ nano .env  # Set DB_PASSWORD (required)
 docker-compose up -d
 
 # Verify deployment
-docker-compose logs -f initializer
+docker-compose logs -f seeder
 ```
 
 ### What Happens on First Run
@@ -76,10 +76,11 @@ docker-compose logs -f initializer
 1. **PostgreSQL** initializes with the complete database schema
 2. **PGBouncer** provides connection pooling in transaction mode
 3. **Tor proxy** enables .onion relay connectivity (optional)
-4. **Initializer** verifies the schema and seeds 8,865 relay URLs
+4. **Seeder** seeds 8,865 relay URLs as candidates for validation
 5. **Finder** begins discovering additional relays from nostr.watch APIs
-6. **Monitor** starts health checking relays (NIP-11/NIP-66)
-7. **Synchronizer** collects events from readable relays using multicore processing
+6. **Validator** tests candidate relays and promotes valid ones
+7. **Monitor** starts health checking relays (NIP-11/NIP-66)
+8. **Synchronizer** collects events from readable relays using multicore processing
 
 ---
 
@@ -88,30 +89,40 @@ docker-compose logs -f initializer
 BigBrotr uses a three-layer architecture that separates concerns and enables flexibility:
 
 ```
++=============================================================================+
+|                         IMPLEMENTATION LAYER                                |
+|                      implementations/bigbrotr/                              |
+|                 (YAML configs, SQL schemas, Docker, seed data)              |
++=====================================+=======================================+
+                                      |
+                                      v
++=============================================================================+
+|                           SERVICE LAYER                                     |
+|                          src/services/                                      |
 +-----------------------------------------------------------------------------+
-|                           IMPLEMENTATION LAYER                               |
-|              implementations/bigbrotr/                                       |
-|              (YAML configs, SQL schemas, Docker, seed data)                  |
-+----------------------------------+------------------------------------------+
-                                   | Uses
-                                   v
+|                                                                             |
+|  +--------+  +--------+  +-----------+  +---------+  +--------------+       |
+|  | Seeder |  | Finder |  | Validator |  | Monitor |  | Synchronizer |       |
+|  | (seed) |  |(disco) |  |  (test)   |  |(health) |  |   (events)   |       |
+|  +--------+  +--------+  +-----------+  +---------+  +--------------+       |
+|                                                                             |
+|  +-------+  +-------+                                                       |
+|  |  API  |  |  DVM  |  (planned)                                            |
+|  +-------+  +-------+                                                       |
+|                                                                             |
++=====================================+=======================================+
+                                      |
+                                      v
++=============================================================================+
+|                            CORE LAYER                                       |
+|                           src/core/                                         |
 +-----------------------------------------------------------------------------+
-|                             SERVICE LAYER                                    |
-|              src/services/                                                   |
-|                                                                              |
-|    Initializer    Finder    Monitor    Synchronizer    [API]    [DVM]       |
-|       Done         Done      Done         Done         Planned  Planned     |
-+----------------------------------+------------------------------------------+
-                                   | Leverages
-                                   v
-+-----------------------------------------------------------------------------+
-|                              CORE LAYER                                      |
-|              src/core/                                                       |
-|                                                                              |
-|              Pool          Brotr        BaseService        Logger            |
-|         (Connection    (Database     (Service Base    (Structured           |
-|           Pooling)     Interface)       Class)         Logging)             |
-+-----------------------------------------------------------------------------+
+|                                                                             |
+|  +--------+     +--------+     +-------------+     +--------+               |
+|  |  Pool  |---->| Brotr  |     | BaseService |     | Logger |               |
+|  +--------+     +--------+     +-------------+     +--------+               |
+|                                                                             |
++=============================================================================+
 ```
 
 ### Core Components
@@ -127,12 +138,13 @@ BigBrotr uses a three-layer architecture that separates concerns and enables fle
 
 | Service | Status | Description |
 |---------|--------|-------------|
-| **Initializer** | Complete | Database bootstrap, schema verification, relay seeding |
-| **Finder** | Complete | Relay discovery from external APIs |
-| **Monitor** | Complete | NIP-11/NIP-66 health monitoring with Tor support |
+| **Seeder** | Complete | Relay seeding for validation |
+| **Finder** | Complete | Relay URL discovery from external APIs and database events |
+| **Validator** | Complete | Candidate relay testing and validation with Tor support |
+| **Monitor** | Complete | NIP-11/NIP-66 health monitoring with comprehensive checks |
 | **Synchronizer** | Complete | Multicore event synchronization with incremental sync |
-| **API** | Planned | REST API endpoints with OpenAPI documentation |
-| **DVM** | Planned | NIP-90 Data Vending Machine protocol support |
+| **API** | Planned (config stub) | REST API endpoints with OpenAPI documentation |
+| **DVM** | Planned (config stub) | NIP-90 Data Vending Machine protocol support |
 
 For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -160,11 +172,11 @@ docker-compose up -d
 
 ### LilBrotr (Lightweight)
 
-A lightweight implementation optimized for minimal disk usage:
+A lightweight implementation that indexes all events but omits storage-heavy fields:
 
 | Feature | Description |
 |---------|-------------|
-| **Minimal Storage** | Does NOT store tags or content (saves ~60% disk space) |
+| **Essential Metadata** | Stores id, pubkey, created_at, kind, sig (omits tags/content, saves ~60% disk space) |
 | **Clearnet Only** | Tor disabled by default |
 | **Lower Concurrency** | 5 parallel connections for reduced resource usage |
 | **Different Ports** | PostgreSQL: 5433, PGBouncer: 6433, Tor: 9051 |
@@ -203,22 +215,22 @@ Common customization scenarios:
 
 ## Services
 
-### Initializer
+### Seeder
 
-**Purpose**: Database bootstrap and schema verification (one-shot)
+**Purpose**: Relay seeding for validation (one-shot)
 
-The Initializer runs once at startup to ensure the database is properly configured:
+The Seeder runs once at startup to seed the database:
 
-- Verifies PostgreSQL extensions (pgcrypto, btree_gin)
-- Validates all tables, procedures, and views exist
-- Seeds the database with initial relay URLs from `data/seed_relays.txt`
+- Parses and validates relay URLs from `data/seed_relays.txt`
+- Stores URLs as candidates in `service_data` table
+- Network type (clearnet/tor) is auto-detected from URL
 
 ```bash
 # Run manually
-python -m services initializer
+python -m services seeder
 
 # Check logs
-docker-compose logs initializer
+docker-compose logs seeder
 ```
 
 ### Finder
@@ -228,8 +240,8 @@ docker-compose logs initializer
 The Finder service discovers new Nostr relays:
 
 - Fetches relay lists from configurable API sources (default: nostr.watch)
-- Validates URLs using nostr-tools
-- Batch inserts discovered relays into the database
+- Scans stored events for relay URLs (NIP-65 relay lists, kind 2/3 events)
+- Validates URLs and stores as candidates for Validator
 - Runs continuously with configurable intervals
 
 ```bash
@@ -256,6 +268,38 @@ api:
     - url: https://api.nostr.watch/v1/offline
       enabled: true
       timeout: 30.0
+```
+
+### Validator
+
+**Purpose**: Test and validate candidate relay URLs
+
+The Validator service tests candidates discovered by Finder and Seeder:
+
+- Tests WebSocket connectivity for each candidate
+- Supports Tor proxy for .onion addresses
+- Promotes successful candidates to `relays` table
+- Tracks failed attempts and removes persistently failing candidates
+- Uses probabilistic selection based on retry count
+
+```bash
+# Run with default config
+python -m services validator
+```
+
+**Configuration highlights** (`yaml/services/validator.yaml`):
+```yaml
+interval: 300.0  # 5 minutes between validation cycles
+
+connection_timeout: 10.0  # WebSocket connection timeout
+
+concurrency:
+  max_parallel: 10  # concurrent validations
+
+tor:
+  enabled: true
+  host: "tor"    # Docker service name (use 127.0.0.1 for local)
+  port: 9050
 ```
 
 ### Monitor
@@ -307,6 +351,7 @@ The Synchronizer is the core data collection engine:
 - **Time-Window Stack Algorithm**: Handles large event volumes efficiently
 - **Incremental Sync**: Tracks per-relay timestamps for efficient updates
 - **Per-Relay Overrides**: Custom timeouts for high-traffic relays
+- **Tor Proxy Support**: SOCKS5 proxy for .onion relay synchronization
 - **Network-Aware**: Different timeouts for clearnet vs Tor relays
 - **Graceful Shutdown**: Clean worker process termination
 
@@ -363,8 +408,9 @@ implementations/bigbrotr/yaml/
 ├── core/
 │   └── brotr.yaml              # Database pool and connection settings
 └── services/
-    ├── initializer.yaml        # Schema verification, seed file path
-    ├── finder.yaml             # API sources, discovery intervals
+    ├── seeder.yaml             # Seed file path
+    ├── finder.yaml         # API sources, discovery intervals
+    ├── validator.yaml          # Validation settings, Tor proxy
     ├── monitor.yaml            # Health check settings, Tor config
     └── synchronizer.yaml       # Sync filters, timeouts, concurrency
 ```
@@ -381,13 +427,12 @@ BigBrotr uses PostgreSQL 16+ with PGBouncer for connection pooling.
 
 | Table | Purpose |
 |-------|---------|
-| `relays` | Registry of known relay URLs with network type (clearnet/tor) |
+| `relays` | Registry of validated relay URLs with network type (clearnet/tor) |
 | `events` | Nostr events with BYTEA IDs for 50% space savings |
 | `events_relays` | Junction table tracking event provenance per relay |
-| `nip11` | Deduplicated NIP-11 documents (content-addressed) |
-| `nip66` | Deduplicated NIP-66 test results (content-addressed) |
-| `relay_metadata` | Time-series metadata snapshots |
-| `service_state` | Service state persistence (JSONB) |
+| `metadata` | Deduplicated NIP-11/NIP-66 documents (content-addressed by SHA-256) |
+| `relay_metadata` | Time-series metadata snapshots linking relays to metadata records |
+| `service_data` | Per-service operational data (candidates, cursors, checkpoints) |
 
 ### Pre-Built Views
 
@@ -403,14 +448,14 @@ BigBrotr uses PostgreSQL 16+ with PGBouncer for connection pooling.
 
 ### Stored Procedures
 
-| Procedure | Purpose |
-|-----------|---------|
+| Function | Purpose |
+|----------|---------|
 | `insert_event` | Atomic insert of event + relay + junction record |
 | `insert_relay` | Idempotent relay insertion |
 | `insert_relay_metadata` | Insert with automatic NIP-11/NIP-66 deduplication |
 | `delete_orphan_events` | Cleanup events without relay associations |
-| `delete_orphan_nip11` | Cleanup unreferenced NIP-11 records |
-| `delete_orphan_nip66` | Cleanup unreferenced NIP-66 records |
+| `delete_orphan_metadata` | Cleanup unreferenced metadata records |
+| `delete_failed_candidates` | Cleanup validator candidates exceeding max attempts |
 
 For complete database documentation, see [docs/DATABASE.md](docs/DATABASE.md).
 
@@ -459,8 +504,9 @@ export DB_PASSWORD=your_secure_password
 
 # Run services (from implementations/bigbrotr/)
 cd implementations/bigbrotr
-python -m services initializer
+python -m services seeder
 python -m services finder &
+python -m services validator &
 python -m services monitor &
 python -m services synchronizer &
 ```
@@ -492,14 +538,14 @@ pre-commit install
 ### Running Tests
 
 ```bash
-# Run all unit tests
-pytest tests/unit/ -v
+# Run all tests
+pytest tests/ -v
 
 # Run with coverage
-pytest tests/unit/ --cov=src --cov-report=html
+pytest tests/ --cov=src --cov-report=html
 
 # Run specific test file
-pytest tests/unit/test_synchronizer.py -v
+pytest tests/unit/services/test_synchronizer.py -v
 
 # Run tests matching pattern
 pytest -k "health_check" -v
@@ -536,12 +582,11 @@ bigbrotr/
 │   └── services/                      # Service layer
 │       ├── __init__.py
 │       ├── __main__.py                # CLI entry point
-│       ├── initializer.py             # Database bootstrap
-│       ├── finder.py                  # Relay discovery
+│       ├── seeder.py                  # Relay seeding
+│       ├── finder.py              # Relay discovery
+│       ├── validator.py               # Relay validation
 │       ├── monitor.py                 # Health monitoring
-│       ├── synchronizer.py            # Event sync
-│       ├── api.py                     # REST API (planned)
-│       └── dvm.py                     # DVM service (planned)
+│       └── synchronizer.py            # Event sync
 │
 ├── implementations/
 │   ├── bigbrotr/                      # Full-featured implementation
@@ -559,7 +604,11 @@ bigbrotr/
 │
 ├── tests/
 │   ├── conftest.py                    # Shared fixtures
-│   └── unit/                          # Unit tests
+│   ├── unit/                          # Unit tests
+│   │   ├── core/                      # Core layer tests
+│   │   ├── services/                  # Service layer tests
+│   │   └── models/                    # Models tests
+│   └── integration/                   # Integration tests (planned)
 │
 ├── docs/                              # Documentation
 │   ├── ARCHITECTURE.md
@@ -570,7 +619,8 @@ bigbrotr/
 │
 ├── releases/                          # Release notes
 │   ├── v1.0.0.md
-│   └── v2.0.0.md
+│   ├── v2.0.0.md
+│   └── v3.0.0.md
 │
 ├── .github/                           # GitHub configuration
 │   ├── workflows/ci.yml               # CI pipeline
@@ -602,7 +652,7 @@ For complete development documentation, see [docs/DEVELOPMENT.md](docs/DEVELOPME
 | **aiohttp** | 3.13.2 | Async HTTP client for API calls |
 | **aiohttp-socks** | 0.10.1 | SOCKS5 proxy support for Tor |
 | **aiomultiprocess** | 0.9.1 | Multicore async processing |
-| **nostr-tools** | 1.4.1 | Nostr protocol library |
+| **nostr-sdk** | 0.39.0 | Nostr protocol library (rust-nostr PyO3 bindings) |
 | **PyYAML** | 6.0.2 | YAML configuration parsing |
 | **PGBouncer** | latest | Connection pooling |
 | **Docker** | - | Containerization |
@@ -628,9 +678,9 @@ Quick start:
 1. Fork the repository
 2. Create a feature branch from `develop`
 3. Write tests for new functionality
-4. Ensure all tests pass: `pytest tests/unit/ -v`
+4. Ensure all tests pass: `pytest tests/ -v`
 5. Run code quality checks: `pre-commit run --all-files`
-6. Submit a pull request to `main`
+6. Submit a pull request to `develop` (or `main` for releases)
 
 For security issues, please see [SECURITY.md](SECURITY.md).
 
@@ -641,12 +691,13 @@ For security issues, please see [SECURITY.md](SECURITY.md).
 ### Completed
 
 - [x] Core layer (Pool, Brotr, BaseService, Logger)
-- [x] Initializer service with schema verification
+- [x] Seeder service with relay seeding
+- [x] Validator service with relay testing
 - [x] Finder service with API discovery
 - [x] Monitor service with NIP-11/NIP-66 support
 - [x] Synchronizer service with multicore processing
 - [x] Docker Compose deployment
-- [x] Unit test suite (174 tests)
+- [x] Unit test suite (411+ tests)
 - [x] Pre-commit hooks and CI configuration
 
 ### Planned
