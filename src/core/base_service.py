@@ -190,7 +190,7 @@ class BaseService(ABC, Generic[ConfigT]):
     def from_dict(cls, data: dict[str, Any], brotr: Brotr, **kwargs: Any) -> "BaseService":
         """Create service from dictionary configuration."""
         config = cls.CONFIG_CLASS(**data)
-        return cls(brotr=brotr, config=config, **kwargs)
+        return cls(brotr=brotr, config=config, **kwargs)  # type: ignore[arg-type]
 
     # -------------------------------------------------------------------------
     # Context Manager

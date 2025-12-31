@@ -242,16 +242,17 @@ class Nip66:
             ):
                 cert = ssock.getpeercert()
 
-                for rdn in cert.get("issuer", []):
-                    for attr, value in rdn:
-                        if attr == "organizationName":
-                            result["ssl_issuer"] = value
-                            break
+                if cert:
+                    for rdn in cert.get("issuer", []):
+                        for attr, value in rdn:  # type: ignore[misc]
+                            if attr == "organizationName":
+                                result["ssl_issuer"] = value
+                                break
 
-                not_after = cert.get("notAfter")
-                if not_after:
-                    # SSL cert expiry is a Unix timestamp
-                    result["ssl_expires"] = ssl.cert_time_to_seconds(not_after)
+                    not_after = cert.get("notAfter")
+                    if not_after and isinstance(not_after, str):
+                        # SSL cert expiry is a Unix timestamp
+                        result["ssl_expires"] = ssl.cert_time_to_seconds(not_after)
 
                 result["ssl_valid"] = True
         except ssl.SSLError:
@@ -300,9 +301,9 @@ class Nip66:
         if asn_db_path:
             try:
                 with geoip2.database.Reader(asn_db_path) as reader:
-                    response = reader.asn(ip)
-                    result["geo_asn"] = response.autonomous_system_number
-                    result["geo_asn_org"] = response.autonomous_system_organization
+                    asn_response = reader.asn(ip)
+                    result["geo_asn"] = asn_response.autonomous_system_number
+                    result["geo_asn_org"] = asn_response.autonomous_system_organization
             except Exception:
                 pass
 

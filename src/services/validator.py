@@ -184,11 +184,11 @@ class Validator(BaseService):
         retry_records: list[tuple[str, int]] = []
 
         for result in results:
-            if isinstance(result, Exception):
+            if isinstance(result, (Exception, BaseException)):
                 continue
             if result is None:
                 continue
-            url, is_valid, retries = result
+            url, is_valid, retries = result  # type: ignore[misc]
             if is_valid:
                 try:
                     relay = Relay(url)
