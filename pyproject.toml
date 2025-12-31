@@ -220,3 +220,9 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "core.pool"
 disable_error_code = ["arg-type", "return-value", "union-attr", "misc", "assignment"]
+
+# src/__init__.py is a re-export module that has import issues when running mypy src/
+# The relative imports work at runtime but not with mypy's module resolution
+[[tool.mypy.overrides]]
+module = "__init__"
+ignore_errors = true

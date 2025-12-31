@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from time import time
-from typing import ClassVar, Optional
+from typing import ClassVar, Optional, Union
 
 from rfc3986 import uri_reference
 from rfc3986.exceptions import UnpermittedComponentError, ValidationError
@@ -28,7 +28,7 @@ class Relay:
     # Complete list of private/reserved IP networks per IANA registries
     # https://www.iana.org/assignments/iana-ipv4-special-registry/
     # https://www.iana.org/assignments/iana-ipv6-special-registry/
-    _LOCAL_NETWORKS: ClassVar[list[IPv4Network | IPv6Network]] = [
+    _LOCAL_NETWORKS: ClassVar[list[Union[IPv4Network, IPv6Network]]] = [
         # IPv4 Private/Reserved
         ip_network("0.0.0.0/8"),  # "This host on this network" (RFC 1122)
         ip_network("10.0.0.0/8"),  # Private-Use (RFC 1918)
