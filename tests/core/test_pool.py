@@ -1,7 +1,6 @@
 """Tests for core.pool module."""
 
 from contextlib import asynccontextmanager
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
@@ -175,9 +174,11 @@ class TestPoolConnect:
         config = PoolConfig(retry=RetryConfig(max_attempts=2, initial_delay=0.1, max_delay=0.2))
         pool = Pool(config=config)
 
-        with patch("asyncpg.create_pool", new_callable=AsyncMock, side_effect=ConnectionError("Fail")):
-            with pytest.raises(ConnectionError, match="2 attempts"):
-                await pool.connect()
+        with (
+            patch("asyncpg.create_pool", new_callable=AsyncMock, side_effect=ConnectionError("Fail")),
+            pytest.raises(ConnectionError, match="2 attempts"),
+        ):
+            await pool.connect()
 
 
 class TestPoolClose:

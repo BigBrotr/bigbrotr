@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from models import Nip11, Nip66, Relay, RelayMetadata
 from core.brotr import Brotr
+from models import Nip11, Nip66, Relay, RelayMetadata
 from services.monitor import (
     ChecksConfig,
     ConcurrencyConfig,

@@ -12,10 +12,9 @@ Tests:
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from nostr_sdk import NostrSdkError
 
-from models import Relay
 from core.brotr import Brotr, BrotrConfig
+from models import Relay
 from services.synchronizer import (
     ConcurrencyConfig,
     EventBatch,
@@ -82,12 +81,12 @@ class TestRelayType:
 
     def test_invalid_url_empty(self) -> None:
         """Test empty URL raises error."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             Relay("")
 
     def test_invalid_url_not_websocket(self) -> None:
         """Test non-websocket URL raises error."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError, match="Invalid scheme"):
             Relay("https://relay.example.com")
 
 

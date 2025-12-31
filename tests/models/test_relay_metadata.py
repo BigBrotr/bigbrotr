@@ -1,9 +1,10 @@
 """Tests for models.relay_metadata module."""
 
 import json
-import pytest
 from time import time
 from typing import get_args
+
+import pytest
 
 from models import Metadata, Relay, RelayMetadata
 from models.relay_metadata import MetadataType

@@ -1,8 +1,9 @@
 """Tests for models.event_relay module."""
 
-import pytest
 from time import time
 from unittest.mock import MagicMock
+
+import pytest
 
 from models import Event, EventRelay, Relay
 

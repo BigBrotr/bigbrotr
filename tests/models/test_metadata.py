@@ -1,6 +1,7 @@
 """Tests for models.metadata module."""
 
 import json
+
 import pytest
 
 from models import Metadata
