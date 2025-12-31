@@ -11,8 +11,10 @@
 interval: 3600.0
 
 # Event scanning - discovers relay URLs from stored events
+# NOTE: Disabled for LilBrotr because it does not store tags/tagvalues/content columns
+# which are required for event scanning. Enable only if using full schema.
 events:
-  enabled: true          # Enable event scanning
+  enabled: false
 
 # External API - discovers relay URLs from public APIs
 api:
