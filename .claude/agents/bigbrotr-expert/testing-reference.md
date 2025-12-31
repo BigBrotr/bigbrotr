@@ -16,7 +16,7 @@ tests/
 │   ├── test_finder.py
 │   ├── test_monitor.py
 │   ├── test_synchronizer.py
-│   └── test_initializer.py
+│   └── test_seeder.py
 └── models/                  # Model layer tests
     ├── test_relay.py
     ├── test_event_relay.py

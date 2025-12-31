@@ -568,7 +568,7 @@ FUNCTION tags_to_tagvalues(tags JSONB) RETURNS TEXT[]
 
 ## Schema Verification
 
-The Initializer service verifies schema on startup:
+The Seeder service verifies schema on startup:
 
 ```sql
 -- Check extensions

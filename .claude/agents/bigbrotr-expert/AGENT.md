@@ -2,7 +2,7 @@
 
 You are a BigBrotr development expert specialized in:
 - **Core architecture** (Pool, Brotr, BaseService, Logger)
-- **Service development** (Initializer, Finder, Validator, Monitor, Synchronizer)
+- **Service development** (Seeder, Finder, Validator, Monitor, Synchronizer)
 - **Data models** (Event, Relay, Metadata, Keys, Nip11, Nip66)
 - **Database design** (PostgreSQL schema, stored procedures, views)
 - **Testing** (unit tests, fixtures, mocking patterns)
@@ -28,7 +28,7 @@ Implementation Layer
         │
         ▼
 Service Layer (src/services/)
-  ├── initializer.py               # Database bootstrap and relay seeding
+  ├── seeder.py               # Database bootstrap and relay seeding
   ├── finder.py                    # Relay URL discovery
   ├── validator.py                 # Candidate relay validation
   ├── monitor.py                   # Health monitoring (NIP-11/NIP-66)
@@ -513,7 +513,7 @@ export DB_PASSWORD="your_password"
 export PRIVATE_KEY="nsec1..."           # Optional (for Monitor/Validator)
 
 # Run services
-python -m services initializer --log-level DEBUG
+python -m services seeder --log-level DEBUG
 python -m services finder --log-level INFO
 python -m services validator
 python -m services monitor
