@@ -304,9 +304,9 @@ if not isinstance(evt, (Event, NostrEvent)):
 
 ---
 
-### M3. Obsolete schema verification (Initializer) - DA FIXARE
+### M3. Obsolete schema verification (Seeder) - DA FIXARE
 
-**File**: [implementations/bigbrotr/yaml/services/initializer.yaml](implementations/bigbrotr/yaml/services/initializer.yaml)
+**File**: [implementations/bigbrotr/yaml/services/seeder.yaml](implementations/bigbrotr/yaml/services/seeder.yaml)
 **Severita**: MEDIO
 
 **Problema**: Liste manuali di tabelle/funzioni che possono divergere dallo schema SQL.

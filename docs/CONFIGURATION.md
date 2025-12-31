@@ -77,7 +77,7 @@ implementations/
 │   ├── core/
 │   │   └── brotr.yaml                # Database and pool configuration
 │   └── services/
-│       ├── initializer.yaml          # Schema verification, seed file
+│       ├── seeder.yaml               # Seed file configuration
 │       ├── finder.yaml               # Relay discovery settings
 │       ├── monitor.yaml              # Health monitoring (Tor enabled)
 │       └── synchronizer.yaml         # Event sync (high concurrency)
@@ -190,7 +190,7 @@ timeouts:
 
 ## Service Configuration
 
-### Initializer (`yaml/services/initializer.yaml`)
+### Seeder (`yaml/services/seeder.yaml`)
 
 ```yaml
 # Seed relay configuration
@@ -204,7 +204,7 @@ seed:
   file_path: data/seed_relays.txt   # Path to seed file
 ```
 
-**Note**: The Initializer is a one-shot service that seeds relay URLs as candidates. It does not perform schema verification - the SQL initialization scripts handle schema creation.
+**Note**: The Seeder is a one-shot service that seeds relay URLs as candidates. It does not perform schema verification - the SQL initialization scripts handle schema creation.
 
 ### Finder (`yaml/services/finder.yaml`)
 

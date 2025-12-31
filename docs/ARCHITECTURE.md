@@ -57,7 +57,7 @@ This design allows:
 |                             SERVICE LAYER                                    |
 |                                                                              |
 |   src/services/                                                              |
-|   ├── initializer.py   Database bootstrap and seed loading                  |
+|   ├── seeder.py        Relay seeding for validation                         |
 |   ├── finder.py        Relay URL discovery from APIs and events             |
 |   ├── validator.py     Candidate relay validation                           |
 |   ├── monitor.py       Relay health monitoring (NIP-11/NIP-66)              |
@@ -267,9 +267,9 @@ class MyService(BaseService[MyServiceConfig]):
         pass
 ```
 
-### Initializer Service
+### Seeder Service
 
-**Purpose**: Database bootstrap and relay seeding.
+**Purpose**: Relay seeding for validation.
 
 **Lifecycle**: One-shot (runs once, then exits)
 
@@ -378,7 +378,7 @@ implementations/bigbrotr/
 │   ├── core/
 │   │   └── brotr.yaml           # Database connection, pool settings
 │   └── services/
-│       ├── initializer.yaml     # Seed file configuration
+│       ├── seeder.yaml          # Seed file configuration
 │       ├── finder.yaml          # API sources, intervals
 │       ├── validator.yaml       # Validation settings, Tor proxy
 │       ├── monitor.yaml         # Health check settings, Tor enabled
@@ -567,7 +567,7 @@ async with brotr:           # Connect on enter, close on exit
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│ Initializer │     │   Finder    │     │  Validator  │     │   Monitor   │
+│   Seeder    │     │   Finder    │     │  Validator  │     │   Monitor   │
 └──────┬──────┘     └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
        │                   │                   │                   │
        │ Seed URLs         │ Discover URLs     │ Test candidates   │ Check health

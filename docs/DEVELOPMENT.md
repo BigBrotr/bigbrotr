@@ -84,7 +84,7 @@ bigbrotr/
 │   └── services/                     # Service layer (business logic)
 │       ├── __init__.py               # Service exports
 │       ├── __main__.py               # CLI entry point
-│       ├── initializer.py            # Database bootstrap and seeding
+│       ├── seeder.py            # Database bootstrap and seeding
 │       ├── finder.py                 # Relay URL discovery
 │       ├── validator.py              # Candidate relay validation
 │       ├── monitor.py                # Health monitoring (NIP-11/NIP-66)
@@ -114,7 +114,7 @@ bigbrotr/
 │       ├── __init__.py
 │       ├── test_pool.py
 │       ├── test_brotr.py
-│       ├── test_initializer.py
+│       ├── test_seeder.py
 │       ├── test_finder.py
 │       ├── test_monitor.py
 │       ├── test_synchronizer.py
@@ -492,7 +492,7 @@ myservice:
   depends_on:
     pgbouncer:
       condition: service_healthy
-    initializer:
+    seeder:
       condition: service_completed_successfully
   command: ["python", "-m", "services", "myservice"]
 ```
@@ -730,7 +730,7 @@ pre-commit run --all-files
 
 # Running Services
 cd implementations/bigbrotr
-python -m services initializer
+python -m services seeder
 python -m services finder --log-level DEBUG
 
 # Docker
