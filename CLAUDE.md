@@ -26,7 +26,7 @@ mypy src/                                    # Type check
 pre-commit run --all-files                   # All hooks
 
 # Run services (from implementations/bigbrotr/)
-python -m services initializer
+python -m services seeder
 python -m services finder --log-level DEBUG
 python -m services monitor
 python -m services synchronizer
@@ -47,7 +47,7 @@ Implementation Layer (implementations/bigbrotr/, implementations/lilbrotr/)
         │
         ▼
 Service Layer (src/services/)
-  └── initializer.py, finder.py, validator.py, monitor.py, synchronizer.py
+  └── seeder.py, finder.py, validator.py, monitor.py, synchronizer.py
         │
         ▼
 Core Layer (src/core/)
@@ -69,7 +69,7 @@ table links relays to metadata records via the `type` column (`nip11`, `nip66_rt
 - **Logger** (`src/core/logger.py`): Structured key=value logging
 
 ### Services
-- **Initializer**: One-shot database bootstrap and schema verification
+- **Seeder**: One-shot relay seeding for validation
 - **Finder**: Continuous relay URL discovery from APIs and events
 - **Validator**: Relay validation and functional testing with Tor support
 - **Monitor**: NIP-11/NIP-66 health monitoring with comprehensive checks
@@ -178,7 +178,7 @@ For developing, troubleshooting, and extending the BigBrotr codebase.
 
 **Expertise Areas:**
 1. **Core layer**: Pool, Brotr, BaseService, Logger
-2. **Service layer**: Initializer, Finder, Validator, Monitor, Synchronizer
+2. **Service layer**: Seeder, Finder, Validator, Monitor, Synchronizer
 3. **Data models**: Event, Relay, Metadata, Keys, Nip11, Nip66
 4. **Database**: PostgreSQL schema, stored procedures, views, indexes
 5. **Testing**: Unit tests, fixtures, mocking strategies

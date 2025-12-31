@@ -26,7 +26,7 @@ Complete architectural rewrite from monolithic prototype to modular, enterprise-
 - Three-layer architecture (Core, Service, Implementation)
 - Multiple implementations: BigBrotr (full) and LilBrotr (lightweight)
 - Core components: Pool, Brotr, BaseService, Logger
-- Services: Initializer, Finder, Monitor, Synchronizer
+- Services: Seeder, Finder, Monitor, Synchronizer
 - Async database driver (asyncpg) with connection pooling
 - PGBouncer for connection management
 - BYTEA storage for 50% space savings
