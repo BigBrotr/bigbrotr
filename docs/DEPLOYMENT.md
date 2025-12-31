@@ -30,7 +30,7 @@ BigBrotr can be deployed using:
 | PostgreSQL 16+ | Primary data store | Yes |
 | PGBouncer | Connection pooling | Recommended |
 | Tor Proxy | .onion relay support | Optional |
-| Initializer | Database bootstrap and seeding | Yes (once) |
+| Seeder | Relay seeding for validation | Yes (once) |
 | Finder | Relay URL discovery | Yes |
 | Validator | Candidate relay validation | Yes |
 | Monitor | Health monitoring | Yes |
@@ -175,11 +175,11 @@ services:
       test: ["CMD", "nc", "-z", "localhost", "9050"]
 
   # Application Services
-  initializer:
+  seeder:
     build:
       context: ../../
       dockerfile: implementations/bigbrotr/Dockerfile
-    container_name: bigbrotr-initializer
+    container_name: bigbrotr-seeder
     environment:
       DB_PASSWORD: ${DB_PASSWORD}
     volumes:
@@ -188,7 +188,7 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-    command: ["python", "-m", "services", "initializer"]
+    command: ["python", "-m", "services", "seeder"]
 
   finder:
     # ... similar configuration
@@ -335,8 +335,8 @@ export PYTHONPATH=/opt/bigbrotr/src
 # Change to implementation directory
 cd /opt/bigbrotr/implementations/bigbrotr
 
-# Run initializer (once)
-python -m services initializer
+# Run seeder (once)
+python -m services seeder
 
 # Run services (in separate terminals or with process manager)
 python -m services finder &
@@ -752,7 +752,7 @@ archive_command = 'cp %p /path/to/archive/%f'
 
 - [ ] `docker-compose up -d`
 - [ ] All services show as "healthy"
-- [ ] Initializer completed successfully
+- [ ] Seeder completed successfully
 - [ ] Database schema verified
 - [ ] Finder discovering relay candidates
 - [ ] Validator testing and promoting candidates

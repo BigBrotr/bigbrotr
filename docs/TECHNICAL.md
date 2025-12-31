@@ -46,7 +46,7 @@ BigBrotr employs a **three-layer architecture** that separates infrastructure, b
 │  Business logic, protocol implementation, data processing    │
 │                                                               │
 │  ┌───────────┐  ┌─────────┐  ┌───────────┐  ┌───────────┐  │
-│  │Initializer│  │ Finder  │  │ Validator │  │  Monitor  │  │
+│  │Seeder│  │ Finder  │  │ Validator │  │  Monitor  │  │
 │  │ (seed)    │  │ (disco) │  │ (test)    │  │ (health)  │  │
 │  └───────────┘  └─────────┘  └───────────┘  └───────────┘  │
 │                                                               │
@@ -510,7 +510,7 @@ Each service inherits from `BaseService` and implements domain-specific logic.
 
 ```
 ┌──────────────┐
-│ Initializer  │ One-shot: verifies schema, loads seeds
+│ Seeder  │ One-shot: verifies schema, loads seeds
 └──────┬───────┘
        │
        ▼
@@ -536,7 +536,7 @@ Each service inherits from `BaseService` and implements domain-specific logic.
 
 ---
 
-### Initializer Service
+### Seeder Service
 
 **Purpose**: One-shot database bootstrap and relay seeding
 
@@ -576,7 +576,7 @@ def _parse_seed_file(self) -> list[Relay]:
     return relays
 ```
 
-**Note**: The Initializer stores relay URLs as candidates in `service_data`. The Validator service tests and promotes valid candidates to the `relays` table.
+**Note**: The Seeder stores relay URLs as candidates in `service_data`. The Validator service tests and promotes valid candidates to the `relays` table.
 
 ---
 
@@ -1634,9 +1634,9 @@ services:
     ports:
       - "9050:9050"
 
-  initializer:
+  seeder:
     build: ../..
-    command: python -m services initializer
+    command: python -m services seeder
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -1646,7 +1646,7 @@ services:
     build: ../..
     command: python -m services finder
     depends_on:
-      initializer:
+      seeder:
         condition: service_completed_successfully
     restart: unless-stopped
 
