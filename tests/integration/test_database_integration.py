@@ -187,9 +187,7 @@ class TestServiceDataIntegration:
         await integration_brotr.upsert_service_data(records)
 
         # Get
-        result = await integration_brotr.get_service_data(
-            "integration_test", "cursor", "test_key"
-        )
+        result = await integration_brotr.get_service_data("integration_test", "cursor", "test_key")
         assert len(result) == 1
         assert result[0]["data"]["value"] == 123
 
@@ -210,9 +208,7 @@ class TestServiceDataIntegration:
         )
 
         # Verify update
-        result = await integration_brotr.get_service_data(
-            "integration_test", "state", key
-        )
+        result = await integration_brotr.get_service_data("integration_test", "state", key)
         assert len(result) == 1
         assert result[0]["data"]["version"] == 2
 
@@ -228,15 +224,11 @@ class TestServiceDataIntegration:
         )
 
         # Delete
-        deleted = await integration_brotr.delete_service_data(
-            [("integration_test", "temp", key)]
-        )
+        deleted = await integration_brotr.delete_service_data([("integration_test", "temp", key)])
         assert deleted == 1
 
         # Verify deletion
-        result = await integration_brotr.get_service_data(
-            "integration_test", "temp", key
-        )
+        result = await integration_brotr.get_service_data("integration_test", "temp", key)
         assert len(result) == 0
 
 

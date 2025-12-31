@@ -186,7 +186,9 @@ class TestSeedRelays:
         await initializer._seed_relays()
 
     @pytest.mark.asyncio
-    async def test_seed_relays_empty_file(self, mock_initializer_brotr: Brotr, tmp_path: Path) -> None:
+    async def test_seed_relays_empty_file(
+        self, mock_initializer_brotr: Brotr, tmp_path: Path
+    ) -> None:
         """Test seeding with empty file."""
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("")

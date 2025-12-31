@@ -192,9 +192,7 @@ class TestCandidateSelection:
         selected = validator._select_candidates(candidates)
         assert len(selected) == 2
 
-    def test_probabilistic_selection_favors_low_retries(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    def test_probabilistic_selection_favors_low_retries(self, mock_validator_brotr: Brotr) -> None:
         """Test that candidates with fewer retries are more likely to be selected."""
         config = ValidatorConfig(max_candidates_per_run=1)
         validator = Validator(brotr=mock_validator_brotr, config=config)
@@ -221,9 +219,7 @@ class TestCandidateSelection:
         # With 100 iterations, we expect ~97 selections of "low"
         assert low_selected_count > 80, f"Expected >80, got {low_selected_count}"
 
-    def test_empty_value_defaults_to_zero_retries(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    def test_empty_value_defaults_to_zero_retries(self, mock_validator_brotr: Brotr) -> None:
         """Test that empty value defaults to 0 retries."""
         config = ValidatorConfig(max_candidates_per_run=None)
         validator = Validator(brotr=mock_validator_brotr, config=config)

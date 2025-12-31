@@ -34,9 +34,7 @@ class EventRelay:
     relay: Relay
     seen_at: int
 
-    def __new__(
-        cls, event: Union[Event, NostrEvent], relay: Relay, seen_at: Optional[int] = None
-    ):
+    def __new__(cls, event: Union[Event, NostrEvent], relay: Relay, seen_at: Optional[int] = None):
         instance = object.__new__(cls)
         object.__setattr__(instance, "event", event)
         object.__setattr__(instance, "relay", relay)

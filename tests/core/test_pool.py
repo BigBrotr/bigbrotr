@@ -31,8 +31,7 @@ class TestDatabaseConfig:
 
     def test_custom(self):
         config = DatabaseConfig(
-            host="custom.host", port=5433, database="mydb",
-            user="myuser", password="mypass"
+            host="custom.host", port=5433, database="mydb", user="myuser", password="mypass"
         )
         assert config.host == "custom.host"
         assert config.password.get_secret_value() == "mypass"
@@ -108,8 +107,9 @@ class TestPoolInit:
 
     def test_custom_config(self):
         config = PoolConfig(
-            database=DatabaseConfig(host="custom", port=5433, database="mydb",
-                                    user="user", password="pass"),
+            database=DatabaseConfig(
+                host="custom", port=5433, database="mydb", user="user", password="pass"
+            ),
             limits=LimitsConfig(min_size=10, max_size=50),
         )
         pool = Pool(config=config)
@@ -122,6 +122,7 @@ class TestPoolInit:
 
     def test_from_yaml(self, pool_config_dict, tmp_path, monkeypatch):
         import yaml
+
         monkeypatch.setenv("DB_PASSWORD", "yaml_pass")
         config_file = tmp_path / "pool_config.yaml"
         config_file.write_text(yaml.dump(pool_config_dict))
@@ -175,7 +176,9 @@ class TestPoolConnect:
         pool = Pool(config=config)
 
         with (
-            patch("asyncpg.create_pool", new_callable=AsyncMock, side_effect=ConnectionError("Fail")),
+            patch(
+                "asyncpg.create_pool", new_callable=AsyncMock, side_effect=ConnectionError("Fail")
+            ),
             pytest.raises(ConnectionError, match="2 attempts"),
         ):
             await pool.connect()

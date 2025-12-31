@@ -320,7 +320,7 @@ class Pool:
                 )
                 # Add backoff delay between retries to avoid thundering herd
                 if attempt < max_retries - 1:
-                    delay = 0.1 * (2 ** attempt)  # 0.1s, 0.2s, 0.4s...
+                    delay = 0.1 * (2**attempt)  # 0.1s, 0.2s, 0.4s...
                     await asyncio.sleep(delay)
                 continue
 

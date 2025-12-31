@@ -118,6 +118,7 @@ class TestSanitize:
         class Custom:
             def __str__(self):
                 return "custom"
+
         assert Metadata._sanitize_for_json(Custom()) == "custom"
 
 

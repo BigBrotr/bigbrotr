@@ -59,7 +59,10 @@ class Logger:
 
         # Truncate long values to prevent log spam
         if len(s) > self.MAX_VALUE_LENGTH:
-            s = s[: self.MAX_VALUE_LENGTH] + f"...<truncated {len(str(value)) - self.MAX_VALUE_LENGTH} chars>"
+            s = (
+                s[: self.MAX_VALUE_LENGTH]
+                + f"...<truncated {len(str(value)) - self.MAX_VALUE_LENGTH} chars>"
+            )
 
         # Quote if contains spaces, equals, quotes, or is empty
         if not s or " " in s or "=" in s or '"' in s or "'" in s:

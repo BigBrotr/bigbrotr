@@ -111,7 +111,12 @@ class Initializer(BaseService):
                 try:
                     relays.append(Relay(line))
                 except Exception as e:
-                    self._logger.warning("seed_parse_relay_failed", error=str(e), error_type=type(e).__name__, line=line)
+                    self._logger.warning(
+                        "seed_parse_relay_failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        line=line,
+                    )
 
         return relays
 
@@ -166,10 +171,7 @@ class Initializer(BaseService):
             return
 
         # Build records for new URLs only
-        records = [
-            ("validator", "candidate", url, {"failed_attempts": 0})
-            for url in new_urls
-        ]
+        records = [("validator", "candidate", url, {"failed_attempts": 0}) for url in new_urls]
 
         # Batch insert
         batch_size = self._brotr.config.batch.max_batch_size

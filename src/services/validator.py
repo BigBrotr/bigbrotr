@@ -196,7 +196,9 @@ class Validator(BaseService):
                     delete_keys.append(url)
                     self._validated_count += 1
                 except Exception as e:
-                    self._logger.warning("parse_failed", error=str(e), error_type=type(e).__name__, url=url)
+                    self._logger.warning(
+                        "parse_failed", error=str(e), error_type=type(e).__name__, url=url
+                    )
                     self._failed_count += 1
             else:
                 retry_records.append((url, retries + 1))
@@ -207,14 +209,24 @@ class Validator(BaseService):
             try:
                 await self._brotr.insert_relays(valid_relays)
             except Exception as e:
-                self._logger.error("insert_relays_failed", error=str(e), error_type=type(e).__name__, count=len(valid_relays))
+                self._logger.error(
+                    "insert_relays_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    count=len(valid_relays),
+                )
 
         if delete_keys:
             try:
                 delete_records = [("finder", "candidate", key) for key in delete_keys]
                 await self._brotr.delete_service_data(delete_records)
             except Exception as e:
-                self._logger.error("delete_candidates_failed", error=str(e), error_type=type(e).__name__, count=len(delete_keys))
+                self._logger.error(
+                    "delete_candidates_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    count=len(delete_keys),
+                )
 
         if retry_records:
             try:
@@ -224,7 +236,12 @@ class Validator(BaseService):
                 ]
                 await self._brotr.upsert_service_data(upsert_records)
             except Exception as e:
-                self._logger.error("upsert_retries_failed", error=str(e), error_type=type(e).__name__, count=len(retry_records))
+                self._logger.error(
+                    "upsert_retries_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    count=len(retry_records),
+                )
 
         # Optional cleanup of candidates that exceeded max attempts
         if self._config.cleanup.enabled:
@@ -275,15 +292,12 @@ class Validator(BaseService):
         probabilities = [w / total_weight for w in weights]
 
         # Weighted random selection without replacement
-        selected_indices = set()
-        selected = []
+        selected_indices: set[int] = set()
+        selected: list[dict[str, Any]] = []
 
         while len(selected) < max_per_run and len(selected_indices) < len(candidates):
             # Adjust probabilities for already selected items
-            adj_probs = [
-                p if i not in selected_indices else 0
-                for i, p in enumerate(probabilities)
-            ]
+            adj_probs = [p if i not in selected_indices else 0 for i, p in enumerate(probabilities)]
             total_adj = sum(adj_probs)
             if total_adj == 0:
                 break
@@ -363,9 +377,7 @@ class Validator(BaseService):
                 # A real Nostr relay must respond with EOSE even for empty results
                 # This filters out non-Nostr WebSocket servers
                 f = Filter().limit(1)
-                await client.fetch_events(
-                    [f], timedelta(seconds=self._config.connection_timeout)
-                )
+                await client.fetch_events([f], timedelta(seconds=self._config.connection_timeout))
 
                 # If fetch_events completes, relay sent EOSE (valid Nostr relay)
                 await client.disconnect()

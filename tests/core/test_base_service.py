@@ -12,6 +12,7 @@ from core.brotr import Brotr
 
 class ConcreteServiceConfig(BaseModel):
     """Test configuration."""
+
     interval: float = Field(default=60.0, ge=1.0)
     max_items: int = Field(default=100, ge=1)
     enabled: bool = Field(default=True)
@@ -19,6 +20,7 @@ class ConcreteServiceConfig(BaseModel):
 
 class ConcreteService(BaseService[ConcreteServiceConfig]):
     """Test implementation."""
+
     SERVICE_NAME = "test_service"
     CONFIG_CLASS = ConcreteServiceConfig
 

@@ -86,33 +86,42 @@ class TestNetworkDetection:
 class TestRejection:
     """Invalid URLs are rejected."""
 
-    @pytest.mark.parametrize("url", [
-        "wss://localhost",
-        "wss://localhost.localdomain",
-        "wss://127.0.0.1",
-        "wss://127.0.0.254",
-        "wss://10.0.0.1",
-        "wss://172.16.0.1",
-        "wss://192.168.1.1",
-        "wss://169.254.0.1",
-        "wss://[::1]",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "wss://localhost",
+            "wss://localhost.localdomain",
+            "wss://127.0.0.1",
+            "wss://127.0.0.254",
+            "wss://10.0.0.1",
+            "wss://172.16.0.1",
+            "wss://192.168.1.1",
+            "wss://169.254.0.1",
+            "wss://[::1]",
+        ],
+    )
     def test_local_addresses(self, url):
         with pytest.raises(ValueError, match="Local addresses"):
             Relay(url)
 
-    @pytest.mark.parametrize("url", [
-        "http://relay.example.com",
-        "https://relay.example.com",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://relay.example.com",
+            "https://relay.example.com",
+        ],
+    )
     def test_invalid_scheme(self, url):
         with pytest.raises(ValueError, match="Invalid scheme"):
             Relay(url)
 
-    @pytest.mark.parametrize("url", [
-        "relay.example.com",
-        "",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "relay.example.com",
+            "",
+        ],
+    )
     def test_missing_scheme(self, url):
         with pytest.raises(ValueError):
             Relay(url)
