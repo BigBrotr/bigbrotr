@@ -3,7 +3,6 @@
 -- ============================================================================
 -- File: 99_verify.sql
 -- Description: Verification and completion notice
--- Note: LilBrotr is a lightweight implementation that does not store tags/content
 -- Dependencies: All previous initialization files
 -- ============================================================================
 
@@ -13,21 +12,40 @@ BEGIN
     RAISE NOTICE '============================================================================';
     RAISE NOTICE 'LilBrotr database schema initialized successfully';
     RAISE NOTICE '============================================================================';
-    RAISE NOTICE 'Note: LilBrotr does NOT store tags or content (~60%% disk savings)';
-    RAISE NOTICE '============================================================================';
-    RAISE NOTICE 'Core tables: relays, events (essential fields only), events_relays';
-    RAISE NOTICE '             metadata, relay_metadata';
-    RAISE NOTICE 'Service table: service_data';
-    RAISE NOTICE 'Utility functions: tags_to_tagvalues (unused but present for compatibility)';
-    RAISE NOTICE 'Integrity functions: delete_orphan_metadata, delete_orphan_events';
-    RAISE NOTICE '                     delete_failed_candidates';
-    RAISE NOTICE 'Procedures: insert_event (tags/content accepted but not stored)';
-    RAISE NOTICE '            insert_relay, insert_relay_metadata';
-    RAISE NOTICE '            upsert_service_data, delete_service_data';
-    RAISE NOTICE 'Materialized views: relay_metadata_latest, events_statistics';
-    RAISE NOTICE '                    relays_statistics, kind_counts_total';
-    RAISE NOTICE '                    kind_counts_by_relay, pubkey_counts_total';
-    RAISE NOTICE '                    pubkey_counts_by_relay';
-    RAISE NOTICE 'Extensions: btree_gin, pgcrypto';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Extensions:';
+    RAISE NOTICE '  btree_gin, pgcrypto';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Tables:';
+    RAISE NOTICE '  relays, events (no tags/content), events_relays, metadata, relay_metadata, service_data';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Utility Functions:';
+    RAISE NOTICE '  (none - LilBrotr does not use tags_to_tagvalues)';
+    RAISE NOTICE '';
+    RAISE NOTICE 'CRUD Functions:';
+    RAISE NOTICE '  insert_event (9 params - no tags/content), insert_relay, insert_relay_metadata';
+    RAISE NOTICE '  upsert_service_data, get_service_data, delete_service_data';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Cleanup Functions:';
+    RAISE NOTICE '  delete_orphan_metadata, delete_orphan_events, delete_failed_candidates';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Views:';
+    RAISE NOTICE '  (none)';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Materialized Views:';
+    RAISE NOTICE '  relay_metadata_latest, events_statistics, relays_statistics';
+    RAISE NOTICE '  kind_counts_total, kind_counts_by_relay';
+    RAISE NOTICE '  pubkey_counts_total, pubkey_counts_by_relay';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Refresh Functions:';
+    RAISE NOTICE '  refresh_relay_metadata_latest, refresh_events_statistics';
+    RAISE NOTICE '  refresh_relays_statistics, refresh_kind_counts_total';
+    RAISE NOTICE '  refresh_kind_counts_by_relay, refresh_pubkey_counts_total';
+    RAISE NOTICE '  refresh_pubkey_counts_by_relay';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Note: LilBrotr is a lightweight implementation that does not store';
+    RAISE NOTICE '      tags, tagvalues, or content columns. Tag-based queries are not supported.';
+    RAISE NOTICE '      Use BigBrotr for full-featured storage with tag indexing.';
+    RAISE NOTICE '';
     RAISE NOTICE '============================================================================';
 END $$;
