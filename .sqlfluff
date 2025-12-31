@@ -1,0 +1,31 @@
+[sqlfluff]
+dialect = postgres
+templater = raw
+max_line_length = 120
+exclude_rules = LT05, LT01, RF06, RF04
+# LT05: Line too long - SQL often has long lines for readability
+# LT01: Spacing issues - alignment in SQL is often intentional
+# RF06: Unnecessary quoted identifiers - sometimes needed for clarity
+# RF04: Keywords as identifiers - PostgreSQL allows this
+
+[sqlfluff:indentation]
+indent_unit = space
+tab_space_size = 4
+
+[sqlfluff:layout:type:comma]
+line_position = trailing
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = upper
+
+[sqlfluff:rules:capitalisation.identifiers]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.functions]
+capitalisation_policy = upper
+
+[sqlfluff:rules:capitalisation.literals]
+capitalisation_policy = upper
+
+[sqlfluff:rules:capitalisation.types]
+capitalisation_policy = upper
