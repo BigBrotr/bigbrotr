@@ -3,8 +3,9 @@
 # ============================================================================
 # Description: Monitor relay health and capabilities with full NIP-66 compliance
 # Used by: src/services/monitor.py
-# Dependencies: Finder must have discovered relays first
+# Dependencies: Validator must have validated relays first
 # Environment: PRIVATE_KEY required if publishing enabled
+# Notes: Uses Tor proxy for .onion relay monitoring
 # ============================================================================
 
 # Cycle interval (seconds between monitoring runs)

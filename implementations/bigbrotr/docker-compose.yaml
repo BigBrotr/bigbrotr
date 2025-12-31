@@ -221,6 +221,7 @@ services:
   # BigBrotr Validator Service
   # --------------------------------------------------------------------------
   # Validates candidate relay URLs before adding to relays table
+  # Uses Tor proxy for .onion relay connectivity
 
   validator:
     build:
@@ -277,6 +278,7 @@ services:
   # BigBrotr Monitor Service
   # --------------------------------------------------------------------------
   # Checks relay health and capabilities (NIP-11, NIP-66)
+  # Uses Tor proxy for .onion relay connectivity
 
   monitor:
     build:
@@ -301,6 +303,8 @@ services:
       seeder:
         condition: service_completed_successfully
       validator:
+        condition: service_healthy
+      tor:
         condition: service_healthy
 
     command: ["python", "-m", "services", "monitor"]
@@ -331,6 +335,7 @@ services:
   # BigBrotr Synchronizer Service
   # --------------------------------------------------------------------------
   # Synchronizes Nostr events from relays with multicore support
+  # Uses Tor proxy for .onion relay connectivity
 
   synchronizer:
     build:
@@ -355,6 +360,8 @@ services:
       seeder:
         condition: service_completed_successfully
       monitor:
+        condition: service_healthy
+      tor:
         condition: service_healthy
 
     command: ["python", "-m", "services", "synchronizer"]
