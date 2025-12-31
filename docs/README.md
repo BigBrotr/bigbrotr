@@ -49,7 +49,7 @@ Comprehensive documentation for the BigBrotr Nostr network intelligence platform
 |----------|-------------|
 | [TECHNICAL.md](TECHNICAL.md) | Architecture, patterns, and design decisions |
 | [../tests/](../tests/) | Test organization and examples |
-| [../claude/agents/bigbrotr-expert/](../claude/agents/bigbrotr-expert/) | Comprehensive codebase reference |
+| [../.claude/agents/bigbrotr-expert/](../.claude/agents/bigbrotr-expert/) | Comprehensive codebase reference |
 
 ---
 
@@ -59,34 +59,34 @@ BigBrotr includes specialized knowledge agents for development:
 
 ### Nostr Expert Agent
 
-**Location:** `claude/agents/nostr-expert/`
+**Location:** `.claude/agents/nostr-expert/`
 
 Expert on Nostr protocol, NIPs, and implementation.
 
 | File | Description |
 |------|-------------|
-| [AGENT.md](../claude/agents/nostr-expert/AGENT.md) | Main agent documentation |
-| [nip-index.md](../claude/agents/nostr-expert/nip-index.md) | NIPs organized by category |
-| [kind-index.md](../claude/agents/nostr-expert/kind-index.md) | All 150+ event kinds |
-| [tag-index.md](../claude/agents/nostr-expert/tag-index.md) | Common tags and usage |
-| [nostr-sdk-python-reference.md](../claude/agents/nostr-expert/nostr-sdk-python-reference.md) | Python SDK docs |
-| [khatru-reference.md](../claude/agents/nostr-expert/khatru-reference.md) | Go relay framework docs |
+| [AGENT.md](../.claude/agents/nostr-expert/AGENT.md) | Main agent documentation |
+| [nip-index.md](../.claude/agents/nostr-expert/nip-index.md) | NIPs organized by category |
+| [kind-index.md](../.claude/agents/nostr-expert/kind-index.md) | All 150+ event kinds |
+| [tag-index.md](../.claude/agents/nostr-expert/tag-index.md) | Common tags and usage |
+| [nostr-sdk-python-reference.md](../.claude/agents/nostr-expert/nostr-sdk-python-reference.md) | Python SDK docs |
+| [khatru-reference.md](../.claude/agents/nostr-expert/khatru-reference.md) | Go relay framework docs |
 
 ### BigBrotr Expert Agent
 
-**Location:** `claude/agents/bigbrotr-expert/`
+**Location:** `.claude/agents/bigbrotr-expert/`
 
 Expert on BigBrotr codebase, architecture, and patterns.
 
 | File | Description |
 |------|-------------|
-| [AGENT.md](../claude/agents/bigbrotr-expert/AGENT.md) | Main agent documentation |
-| [architecture-index.md](../claude/agents/bigbrotr-expert/architecture-index.md) | Component relationships and design patterns |
-| [core-reference.md](../claude/agents/bigbrotr-expert/core-reference.md) | Pool, Brotr, BaseService, Logger API |
-| [services-reference.md](../claude/agents/bigbrotr-expert/services-reference.md) | All services with configs and workflows |
-| [models-reference.md](../claude/agents/bigbrotr-expert/models-reference.md) | Data models and database mappings |
-| [database-reference.md](../claude/agents/bigbrotr-expert/database-reference.md) | Schema, procedures, views, queries |
-| [testing-reference.md](../claude/agents/bigbrotr-expert/testing-reference.md) | Testing patterns, fixtures, examples |
+| [AGENT.md](../.claude/agents/bigbrotr-expert/AGENT.md) | Main agent documentation |
+| [architecture-index.md](../.claude/agents/bigbrotr-expert/architecture-index.md) | Component relationships and design patterns |
+| [core-reference.md](../.claude/agents/bigbrotr-expert/core-reference.md) | Pool, Brotr, BaseService, Logger API |
+| [services-reference.md](../.claude/agents/bigbrotr-expert/services-reference.md) | All services with configs and workflows |
+| [models-reference.md](../.claude/agents/bigbrotr-expert/models-reference.md) | Data models and database mappings |
+| [database-reference.md](../.claude/agents/bigbrotr-expert/database-reference.md) | Schema, procedures, views, queries |
+| [testing-reference.md](../.claude/agents/bigbrotr-expert/testing-reference.md) | Testing patterns, fixtures, examples |
 
 ---
 
@@ -104,25 +104,25 @@ Expert on BigBrotr codebase, architecture, and patterns.
 → Read [TECHNICAL.md](TECHNICAL.md)
 
 #### Add a new service
-→ See [TECHNICAL.md](TECHNICAL.md#service-layer) and [BigBrotr Expert Agent](../claude/agents/bigbrotr-expert/services-reference.md)
+→ See [TECHNICAL.md](TECHNICAL.md#service-layer) and [BigBrotr Expert Agent](../.claude/agents/bigbrotr-expert/services-reference.md)
 
 #### Work with the database
-→ See [TECHNICAL.md](TECHNICAL.md#database-schema) and [database-reference.md](../claude/agents/bigbrotr-expert/database-reference.md)
+→ See [TECHNICAL.md](TECHNICAL.md#database-schema) and [database-reference.md](../.claude/agents/bigbrotr-expert/database-reference.md)
 
 #### Implement Nostr protocol features
-→ Read [Nostr Expert Agent](../claude/agents/nostr-expert/AGENT.md)
+→ Read [Nostr Expert Agent](../.claude/agents/nostr-expert/AGENT.md)
 
 #### Write tests
-→ See [testing-reference.md](../claude/agents/bigbrotr-expert/testing-reference.md)
+→ See [testing-reference.md](../.claude/agents/bigbrotr-expert/testing-reference.md)
 
 #### Deploy to production
 → See [TECHNICAL.md](TECHNICAL.md#deployment-architecture)
 
 #### Understand design decisions
-→ Read [TECHNICAL.md](TECHNICAL.md#design-patterns) and [architecture-index.md](../claude/agents/bigbrotr-expert/architecture-index.md)
+→ Read [TECHNICAL.md](TECHNICAL.md#design-patterns) and [architecture-index.md](../.claude/agents/bigbrotr-expert/architecture-index.md)
 
 #### Troubleshoot issues
-→ Check [BigBrotr Expert Agent](../claude/agents/bigbrotr-expert/AGENT.md) troubleshooting section
+→ Check [BigBrotr Expert Agent](../.claude/agents/bigbrotr-expert/AGENT.md) troubleshooting section
 
 ---
 
