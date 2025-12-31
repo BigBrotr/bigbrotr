@@ -12,17 +12,17 @@
 -- Returns: VOID
 -- Notes: Uses ON CONFLICT DO NOTHING for idempotency
 CREATE OR REPLACE FUNCTION insert_event(
-    p_event_id              BYTEA,
-    p_pubkey                BYTEA,
-    p_created_at            BIGINT,
-    p_kind                  INTEGER,
-    p_tags                  JSONB,
-    p_content               TEXT,
-    p_sig                   BYTEA,
-    p_relay_url             TEXT,
-    p_relay_network         TEXT,
-    p_relay_discovered_at   BIGINT,
-    p_seen_at               BIGINT
+    p_event_id BYTEA,
+    p_pubkey BYTEA,
+    p_created_at BIGINT,
+    p_kind INTEGER,
+    p_tags JSONB,
+    p_content TEXT,
+    p_sig BYTEA,
+    p_relay_url TEXT,
+    p_relay_network TEXT,
+    p_relay_discovered_at BIGINT,
+    p_seen_at BIGINT
 )
 RETURNS VOID
 LANGUAGE plpgsql
@@ -63,9 +63,9 @@ COMMENT ON FUNCTION insert_event IS 'Atomically inserts event, relay, and their 
 -- Parameters: Relay URL, network type, insertion timestamp
 -- Returns: VOID
 CREATE OR REPLACE FUNCTION insert_relay(
-    p_url               TEXT,
-    p_network           TEXT,
-    p_discovered_at     BIGINT
+    p_url TEXT,
+    p_network TEXT,
+    p_discovered_at BIGINT
 )
 RETURNS VOID
 LANGUAGE plpgsql
@@ -102,12 +102,12 @@ COMMENT ON FUNCTION insert_relay IS 'Inserts validated relay with conflict handl
 --   - Content-addressed storage for deduplication
 --   - Uses ON CONFLICT for idempotent operations
 CREATE OR REPLACE FUNCTION insert_relay_metadata(
-    p_relay_url             TEXT,
-    p_relay_network         TEXT,
-    p_relay_discovered_at   BIGINT,
-    p_snapshot_at           BIGINT,
-    p_type                  TEXT,
-    p_metadata_data         JSONB
+    p_relay_url TEXT,
+    p_relay_network TEXT,
+    p_relay_discovered_at BIGINT,
+    p_snapshot_at BIGINT,
+    p_type TEXT,
+    p_metadata_data JSONB
 )
 RETURNS VOID
 LANGUAGE plpgsql
@@ -153,11 +153,11 @@ COMMENT ON FUNCTION insert_relay_metadata IS 'Inserts relay metadata with automa
 -- Parameters: service_name, data_type, data_key, data (JSONB), updated_at
 -- Returns: VOID
 CREATE OR REPLACE FUNCTION upsert_service_data(
-    p_service_name  TEXT,
-    p_data_type     TEXT,
-    p_data_key      TEXT,
-    p_data          JSONB,
-    p_updated_at    BIGINT
+    p_service_name TEXT,
+    p_data_type TEXT,
+    p_data_key TEXT,
+    p_data JSONB,
+    p_updated_at BIGINT
 )
 RETURNS VOID
 LANGUAGE plpgsql
@@ -181,14 +181,14 @@ COMMENT ON FUNCTION upsert_service_data IS 'Upserts service data record (candida
 -- Parameters: service_name, data_type, optional data_key
 -- Returns: TABLE of (data_key, data, updated_at)
 CREATE OR REPLACE FUNCTION get_service_data(
-    p_service_name  TEXT,
-    p_data_type     TEXT,
-    p_data_key      TEXT DEFAULT NULL
+    p_service_name TEXT,
+    p_data_type TEXT,
+    p_data_key TEXT DEFAULT NULL
 )
 RETURNS TABLE (
-    data_key    TEXT,
-    data        JSONB,
-    updated_at  BIGINT
+    data_key TEXT,
+    data JSONB,
+    updated_at BIGINT
 )
 LANGUAGE plpgsql
 AS $$
@@ -218,9 +218,9 @@ COMMENT ON FUNCTION get_service_data IS 'Retrieves service data records with opt
 -- Parameters: service_name, data_type, data_key
 -- Returns: VOID
 CREATE OR REPLACE FUNCTION delete_service_data(
-    p_service_name  TEXT,
-    p_data_type     TEXT,
-    p_data_key      TEXT
+    p_service_name TEXT,
+    p_data_type TEXT,
+    p_data_key TEXT
 )
 RETURNS VOID
 LANGUAGE plpgsql

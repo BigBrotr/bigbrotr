@@ -16,33 +16,33 @@
 -- Purpose: Fast retrieval of recent events (global timeline queries)
 -- Usage: ORDER BY created_at DESC LIMIT ?
 CREATE INDEX IF NOT EXISTS idx_events_created_at
-    ON events USING btree (created_at DESC);
+ON events USING btree (created_at DESC);
 
 -- Index: idx_events_kind
 -- Purpose: Filter events by type (e.g., metadata, text notes, reactions)
 -- Usage: WHERE kind = ? or WHERE kind IN (?, ?, ?)
 CREATE INDEX IF NOT EXISTS idx_events_kind
-    ON events USING btree (kind);
+ON events USING btree (kind);
 
 -- Index: idx_events_kind_created_at
 -- Purpose: Efficient retrieval of recent events of specific types
 -- Usage: WHERE kind = ? ORDER BY created_at DESC
 CREATE INDEX IF NOT EXISTS idx_events_kind_created_at
-    ON events USING btree (kind, created_at DESC);
+ON events USING btree (kind, created_at DESC);
 
 -- Index: idx_events_pubkey_created_at
 -- Purpose: Efficient user timeline queries with chronological ordering
 -- Usage: WHERE pubkey = ? ORDER BY created_at DESC
 -- Note: Also covers queries on pubkey alone (leftmost column)
 CREATE INDEX IF NOT EXISTS idx_events_pubkey_created_at
-    ON events USING btree (pubkey, created_at DESC);
+ON events USING btree (pubkey, created_at DESC);
 
 -- Index: idx_events_pubkey_kind_created_at
 -- Purpose: Efficient queries filtering by both author and event type
 -- Usage: WHERE pubkey = ? AND kind = ? ORDER BY created_at DESC
 -- Note: Critical for user-specific event type queries (e.g., user's text notes only)
 CREATE INDEX IF NOT EXISTS idx_events_pubkey_kind_created_at
-    ON events USING btree (pubkey, kind, created_at DESC);
+ON events USING btree (pubkey, kind, created_at DESC);
 
 -- Note: idx_events_tagvalues is NOT created in LilBrotr
 -- LilBrotr does not store tags, so tag-based queries are not supported
@@ -60,20 +60,20 @@ CREATE INDEX IF NOT EXISTS idx_events_pubkey_kind_created_at
 -- Purpose: Fast lookup of all events from a specific relay
 -- Usage: WHERE relay_url = ? (list events from a relay)
 CREATE INDEX IF NOT EXISTS idx_events_relays_relay_url
-    ON events_relays USING btree (relay_url);
+ON events_relays USING btree (relay_url);
 
 -- Index: idx_events_relays_seen_at
 -- Purpose: Find recently discovered events across all relays
 -- Usage: ORDER BY seen_at DESC LIMIT ? (global recent activity)
 CREATE INDEX IF NOT EXISTS idx_events_relays_seen_at
-    ON events_relays USING btree (seen_at DESC);
+ON events_relays USING btree (seen_at DESC);
 
 -- Index: idx_events_relays_relay_seen (CRITICAL FOR SYNCHRONIZER)
 -- Purpose: Efficiently find the most recent event from each relay
 -- Usage: SELECT MAX(seen_at) WHERE relay_url = ? (sync progress tracking)
 -- Note: Composite index enables index-only scans for synchronization queries
 CREATE INDEX IF NOT EXISTS idx_events_relays_relay_seen
-    ON events_relays USING btree (relay_url, seen_at DESC);
+ON events_relays USING btree (relay_url, seen_at DESC);
 
 -- ============================================================================
 -- TABLE INDEXES: relay_metadata
@@ -84,13 +84,13 @@ CREATE INDEX IF NOT EXISTS idx_events_relays_relay_seen
 -- Purpose: Find most recent metadata snapshots across all relays
 -- Usage: ORDER BY snapshot_at DESC (recent health check results)
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_snapshot_at
-    ON relay_metadata USING btree (snapshot_at DESC);
+ON relay_metadata USING btree (snapshot_at DESC);
 
 -- Index: idx_relay_metadata_metadata_id
 -- Purpose: Find all relays sharing the same metadata document
 -- Usage: WHERE metadata_id = ? (deduplication verification, content-addressed lookups)
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id
-    ON relay_metadata USING btree (metadata_id);
+ON relay_metadata USING btree (metadata_id);
 
 -- Index: idx_relay_metadata_url_type_snapshot (CRITICAL FOR VIEWS)
 -- Purpose: Efficient window functions and latest metadata lookups per type
@@ -98,7 +98,7 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id
 -- Note: Powers the relay_metadata_latest view with index-only scans
 -- Note: This index covers queries on (relay_url), (relay_url, type), and (relay_url, type, snapshot_at)
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_type_snapshot
-    ON relay_metadata USING btree (relay_url, type, snapshot_at DESC);
+ON relay_metadata USING btree (relay_url, type, snapshot_at DESC);
 
 -- ============================================================================
 -- TABLE INDEXES: service_data
@@ -109,13 +109,13 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_type_snapshot
 -- Purpose: Fast lookup of all data for a specific service
 -- Usage: WHERE service_name = ? (list all data for a service)
 CREATE INDEX IF NOT EXISTS idx_service_data_service_name
-    ON service_data USING btree (service_name);
+ON service_data USING btree (service_name);
 
 -- Index: idx_service_data_service_type
 -- Purpose: Fast lookup of specific data type within a service
 -- Usage: WHERE service_name = ? AND data_type = ? (e.g., all finder candidates)
 CREATE INDEX IF NOT EXISTS idx_service_data_service_type
-    ON service_data USING btree (service_name, data_type);
+ON service_data USING btree (service_name, data_type);
 
 -- ============================================================================
 -- MATERIALIZED VIEW INDEXES: relay_metadata_latest
@@ -127,20 +127,20 @@ CREATE INDEX IF NOT EXISTS idx_service_data_service_type
 -- Usage: REFRESH MATERIALIZED VIEW CONCURRENTLY relay_metadata_latest
 -- Note: Must be unique for concurrent refresh to work
 CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_metadata_latest_url
-    ON relay_metadata_latest USING btree (relay_url);
+ON relay_metadata_latest USING btree (relay_url);
 
 -- Index: idx_relay_metadata_latest_network
 -- Purpose: Fast filtering by network type (clearnet/tor)
 -- Usage: WHERE network = ? (filter relays by network)
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_latest_network
-    ON relay_metadata_latest USING btree (network);
+ON relay_metadata_latest USING btree (network);
 
 -- Index: idx_relay_metadata_latest_openable
 -- Purpose: Fast lookup of openable relays
 -- Usage: WHERE is_openable = TRUE (find working relays)
 -- Note: Partial index only on TRUE values for efficiency
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_latest_openable
-    ON relay_metadata_latest USING btree (is_openable) WHERE is_openable = TRUE;
+ON relay_metadata_latest USING btree (is_openable) WHERE is_openable = TRUE;
 
 -- ============================================================================
 -- MATERIALIZED VIEW INDEXES: events_statistics
@@ -152,7 +152,7 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_latest_openable
 -- Usage: REFRESH MATERIALIZED VIEW CONCURRENTLY events_statistics
 -- Note: Single-row view uses dummy id column
 CREATE UNIQUE INDEX IF NOT EXISTS idx_events_statistics_id
-    ON events_statistics USING btree (id);
+ON events_statistics USING btree (id);
 
 -- ============================================================================
 -- MATERIALIZED VIEW INDEXES: relays_statistics
@@ -163,13 +163,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_events_statistics_id
 -- Purpose: Unique index required for REFRESH MATERIALIZED VIEW CONCURRENTLY
 -- Usage: REFRESH MATERIALIZED VIEW CONCURRENTLY relays_statistics
 CREATE UNIQUE INDEX IF NOT EXISTS idx_relays_statistics_url
-    ON relays_statistics USING btree (relay_url);
+ON relays_statistics USING btree (relay_url);
 
 -- Index: idx_relays_statistics_network
 -- Purpose: Fast filtering by network type
 -- Usage: WHERE network = ?
 CREATE INDEX IF NOT EXISTS idx_relays_statistics_network
-    ON relays_statistics USING btree (network);
+ON relays_statistics USING btree (network);
 
 -- ============================================================================
 -- MATERIALIZED VIEW INDEXES: kind_counts_total
@@ -180,7 +180,7 @@ CREATE INDEX IF NOT EXISTS idx_relays_statistics_network
 -- Purpose: Unique index required for REFRESH MATERIALIZED VIEW CONCURRENTLY
 -- Usage: REFRESH MATERIALIZED VIEW CONCURRENTLY kind_counts_total
 CREATE UNIQUE INDEX IF NOT EXISTS idx_kind_counts_total_kind
-    ON kind_counts_total USING btree (kind);
+ON kind_counts_total USING btree (kind);
 
 -- ============================================================================
 -- MATERIALIZED VIEW INDEXES: kind_counts_by_relay
@@ -192,13 +192,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_kind_counts_total_kind
 -- Usage: REFRESH MATERIALIZED VIEW CONCURRENTLY kind_counts_by_relay
 -- Note: Composite unique index on (kind, relay_url)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_kind_counts_by_relay_composite
-    ON kind_counts_by_relay USING btree (kind, relay_url);
+ON kind_counts_by_relay USING btree (kind, relay_url);
 
 -- Index: idx_kind_counts_by_relay_relay
 -- Purpose: Fast filtering by relay
 -- Usage: WHERE relay_url = ?
 CREATE INDEX IF NOT EXISTS idx_kind_counts_by_relay_relay
-    ON kind_counts_by_relay USING btree (relay_url);
+ON kind_counts_by_relay USING btree (relay_url);
 
 -- ============================================================================
 -- MATERIALIZED VIEW INDEXES: pubkey_counts_total
@@ -209,7 +209,7 @@ CREATE INDEX IF NOT EXISTS idx_kind_counts_by_relay_relay
 -- Purpose: Unique index required for REFRESH MATERIALIZED VIEW CONCURRENTLY
 -- Usage: REFRESH MATERIALIZED VIEW CONCURRENTLY pubkey_counts_total
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pubkey_counts_total_pubkey
-    ON pubkey_counts_total USING btree (pubkey_hex);
+ON pubkey_counts_total USING btree (pubkey_hex);
 
 -- ============================================================================
 -- MATERIALIZED VIEW INDEXES: pubkey_counts_by_relay
@@ -221,13 +221,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_pubkey_counts_total_pubkey
 -- Usage: REFRESH MATERIALIZED VIEW CONCURRENTLY pubkey_counts_by_relay
 -- Note: Composite unique index on (pubkey_hex, relay_url)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pubkey_counts_by_relay_composite
-    ON pubkey_counts_by_relay USING btree (pubkey_hex, relay_url);
+ON pubkey_counts_by_relay USING btree (pubkey_hex, relay_url);
 
 -- Index: idx_pubkey_counts_by_relay_relay
 -- Purpose: Fast filtering by relay
 -- Usage: WHERE relay_url = ?
 CREATE INDEX IF NOT EXISTS idx_pubkey_counts_by_relay_relay
-    ON pubkey_counts_by_relay USING btree (relay_url);
+ON pubkey_counts_by_relay USING btree (relay_url);
 
 -- ============================================================================
 -- INDEXES CREATED
