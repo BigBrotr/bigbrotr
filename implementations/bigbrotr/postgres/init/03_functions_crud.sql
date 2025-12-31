@@ -1,12 +1,12 @@
 -- ============================================================================
 -- BigBrotr Database Initialization Script
 -- ============================================================================
--- File: 06_procedures.sql
--- Description: Stored procedures for batch operations
--- Dependencies: 02_tables.sql, 01_utility_functions.sql
+-- File: 03_functions_crud.sql
+-- Description: CRUD Functions for data operations
+-- Dependencies: 02_tables.sql
 -- ============================================================================
 
--- Procedure: insert_event
+-- Function: insert_event
 -- Description: Atomically inserts event + relay + event-relay junction record
 -- Parameters: Event fields, relay info, and seen_at timestamp
 -- Returns: VOID
@@ -58,7 +58,7 @@ $$;
 
 COMMENT ON FUNCTION insert_event IS 'Atomically inserts event, relay, and their association';
 
--- Procedure: insert_relay
+-- Function: insert_relay
 -- Description: Inserts a validated relay record
 -- Parameters: Relay URL, network type, insertion timestamp
 -- Returns: VOID
@@ -87,7 +87,7 @@ $$;
 
 COMMENT ON FUNCTION insert_relay IS 'Inserts validated relay with conflict handling';
 
--- Procedure: insert_relay_metadata
+-- Function: insert_relay_metadata
 -- Description: Inserts relay metadata with automatic deduplication
 -- Parameters:
 --   p_relay_url: Relay WebSocket URL
@@ -148,7 +148,7 @@ $$;
 
 COMMENT ON FUNCTION insert_relay_metadata IS 'Inserts relay metadata with automatic deduplication (6 params, hash computed in DB)';
 
--- Procedure: upsert_service_data
+-- Function: upsert_service_data
 -- Description: Upserts a service data record (for candidates, cursors, state, etc.)
 -- Parameters: service_name, data_type, data_key, data (JSONB), updated_at
 -- Returns: VOID
@@ -176,7 +176,44 @@ $$;
 
 COMMENT ON FUNCTION upsert_service_data IS 'Upserts service data record (candidates, cursors, state)';
 
--- Procedure: delete_service_data
+-- Function: get_service_data
+-- Description: Retrieves service data records with optional key filter
+-- Parameters: service_name, data_type, optional data_key
+-- Returns: TABLE of (data_key, data, updated_at)
+CREATE OR REPLACE FUNCTION get_service_data(
+    p_service_name  TEXT,
+    p_data_type     TEXT,
+    p_data_key      TEXT DEFAULT NULL
+)
+RETURNS TABLE (
+    data_key    TEXT,
+    data        JSONB,
+    updated_at  BIGINT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF p_data_key IS NOT NULL THEN
+        RETURN QUERY
+        SELECT sd.data_key, sd.data, sd.updated_at
+        FROM service_data sd
+        WHERE sd.service_name = p_service_name
+          AND sd.data_type = p_data_type
+          AND sd.data_key = p_data_key;
+    ELSE
+        RETURN QUERY
+        SELECT sd.data_key, sd.data, sd.updated_at
+        FROM service_data sd
+        WHERE sd.service_name = p_service_name
+          AND sd.data_type = p_data_type
+        ORDER BY sd.updated_at ASC;
+    END IF;
+END;
+$$;
+
+COMMENT ON FUNCTION get_service_data IS 'Retrieves service data records with optional key filter';
+
+-- Function: delete_service_data
 -- Description: Deletes a service data record
 -- Parameters: service_name, data_type, data_key
 -- Returns: VOID
@@ -199,5 +236,5 @@ $$;
 COMMENT ON FUNCTION delete_service_data IS 'Deletes a service data record';
 
 -- ============================================================================
--- PROCEDURES CREATED
+-- CRUD FUNCTIONS CREATED
 -- ============================================================================

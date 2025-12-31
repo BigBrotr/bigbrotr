@@ -1,8 +1,8 @@
 -- ============================================================================
 -- BigBrotr Database Initialization Script
 -- ============================================================================
--- File: 05_integrity_functions.sql
--- Description: Data integrity and cleanup functions
+-- File: 04_functions_cleanup.sql
+-- Description: Cleanup Functions for data integrity and maintenance
 -- Dependencies: 02_tables.sql
 -- ============================================================================
 
@@ -82,5 +82,5 @@ $$;
 COMMENT ON FUNCTION delete_failed_candidates IS 'Deletes validator candidates with failed_attempts >= threshold. Default threshold: 10.';
 
 -- ============================================================================
--- INTEGRITY FUNCTIONS CREATED
+-- CLEANUP FUNCTIONS CREATED
 -- ============================================================================

@@ -1,8 +1,8 @@
 -- ============================================================================
 -- BigBrotr Database Initialization Script
 -- ============================================================================
--- File: 01_utility_functions.sql
--- Description: Utility functions for tag indexing and hash computation
+-- File: 01_functions_utility.sql
+-- Description: Utility Functions (must run before tables for generated columns)
 -- Dependencies: 00_extensions.sql
 -- ============================================================================
 
@@ -11,6 +11,7 @@
 -- Purpose: Enables efficient GIN indexing on Nostr event tags
 -- Parameters: JSONB array of tags in format [["key", "value"], ...]
 -- Returns: TEXT[] of tag values where key length = 1
+-- Note: Used by events.tagvalues generated column
 CREATE OR REPLACE FUNCTION tags_to_tagvalues(p_tags JSONB)
 RETURNS TEXT[]
 LANGUAGE plpgsql
