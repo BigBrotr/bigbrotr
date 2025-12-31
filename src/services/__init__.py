@@ -38,7 +38,6 @@ from .finder import (
 from .initializer import (
     Initializer,
     InitializerConfig,
-    InitializerError,
 )
 from .monitor import (
     Monitor,
@@ -60,7 +59,6 @@ __all__ = [
     # Initializer
     "Initializer",
     "InitializerConfig",
-    "InitializerError",
     # Monitor
     "Monitor",
     "MonitorConfig",
