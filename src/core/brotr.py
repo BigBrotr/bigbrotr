@@ -13,6 +13,8 @@ Features:
 - Structured logging
 """
 
+from __future__ import annotations
+
 import json
 import time
 from pathlib import Path
@@ -130,6 +132,11 @@ class Brotr:
         self._config = config or BrotrConfig()
         self._logger = Logger("brotr")
 
+    @property
+    def config(self) -> BrotrConfig:
+        """Get configuration."""
+        return self._config
+
     @classmethod
     def from_yaml(cls, config_path: str) -> "Brotr":
         """
@@ -168,11 +175,6 @@ class Brotr:
 
         return cls(pool=pool, config=config)
 
-    @property
-    def config(self) -> BrotrConfig:
-        """Get configuration."""
-        return self._config
-
     # -------------------------------------------------------------------------
     # Helper Methods
     # -------------------------------------------------------------------------
@@ -188,7 +190,7 @@ class Brotr:
         self,
         procedure_name: str,
         *args: Any,
-        conn: Optional[asyncpg.Connection] = None,
+        conn: Optional[asyncpg.Connection[asyncpg.Record]] = None,
         fetch_result: bool = False,
         timeout: Optional[float] = None,
     ) -> Any:
@@ -208,7 +210,7 @@ class Brotr:
         params = ", ".join(f"${i + 1}" for i in range(len(args))) if args else ""
         query = f"SELECT {procedure_name}({params})"
 
-        async def execute(c: asyncpg.Connection) -> Any:
+        async def execute(c: asyncpg.Connection[asyncpg.Record]) -> Any:
             if fetch_result:
                 result = await c.fetchval(query, *args, timeout=timeout)
                 return result or 0
@@ -361,19 +363,21 @@ class Brotr:
 
     async def delete_orphan_events(self) -> int:
         """Delete orphaned events. Returns count."""
-        return await self._call_procedure(
+        result: int = await self._call_procedure(
             "delete_orphan_events",
             fetch_result=True,
             timeout=self._config.timeouts.cleanup,
         )
+        return result
 
     async def delete_orphan_metadata(self) -> int:
         """Delete orphaned metadata records. Returns count."""
-        return await self._call_procedure(
+        result: int = await self._call_procedure(
             "delete_orphan_metadata",
             fetch_result=True,
             timeout=self._config.timeouts.cleanup,
         )
+        return result
 
     async def delete_failed_candidates(self, max_attempts: int) -> int:
         """
@@ -386,12 +390,13 @@ class Brotr:
         Returns:
             Number of deleted candidates.
         """
-        return await self._call_procedure(
+        result: int = await self._call_procedure(
             "delete_failed_candidates",
             max_attempts,
             fetch_result=True,
             timeout=self._config.timeouts.cleanup,
         )
+        return result
 
     # -------------------------------------------------------------------------
     # Service Data Operations

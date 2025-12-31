@@ -64,6 +64,11 @@ class BaseService(ABC, Generic[ConfigT]):
         # Event not set = service is running, Event set = shutdown requested
         self._shutdown_event = asyncio.Event()
 
+    @property
+    def config(self) -> ConfigT:
+        """Get service configuration (typed to CONFIG_CLASS)."""
+        return self._config
+
     @abstractmethod
     async def run(self) -> None:
         """Execute main service logic."""
@@ -175,7 +180,7 @@ class BaseService(ABC, Generic[ConfigT]):
     # -------------------------------------------------------------------------
 
     @classmethod
-    def from_yaml(cls, config_path: str, brotr: Brotr, **kwargs: Any) -> "BaseService":
+    def from_yaml(cls, config_path: str, brotr: Brotr, **kwargs: Any) -> "BaseService[ConfigT]":
         """Create service from YAML configuration file."""
         path = Path(config_path)
         if not path.exists():
@@ -187,7 +192,7 @@ class BaseService(ABC, Generic[ConfigT]):
         return cls.from_dict(data, brotr=brotr, **kwargs)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], brotr: Brotr, **kwargs: Any) -> "BaseService":
+    def from_dict(cls, data: dict[str, Any], brotr: Brotr, **kwargs: Any) -> "BaseService[ConfigT]":
         """Create service from dictionary configuration."""
         config = cls.CONFIG_CLASS(**data)
         return cls(brotr=brotr, config=config, **kwargs)  # type: ignore[arg-type]
@@ -196,7 +201,7 @@ class BaseService(ABC, Generic[ConfigT]):
     # Context Manager
     # -------------------------------------------------------------------------
 
-    async def __aenter__(self) -> "BaseService":
+    async def __aenter__(self) -> "BaseService[ConfigT]":
         """Start service on context entry."""
         # Clear shutdown event to mark service as running
         self._shutdown_event.clear()
@@ -208,8 +213,3 @@ class BaseService(ABC, Generic[ConfigT]):
         # Set shutdown event to mark service as stopped
         self._shutdown_event.set()
         self._logger.info("stopped")
-
-    @property
-    def config(self) -> ConfigT:
-        """Get service configuration (typed to CONFIG_CLASS)."""
-        return self._config
