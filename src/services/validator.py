@@ -30,8 +30,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Optional
 from nostr_sdk import ClientBuilder, ClientOptions, Filter, RelayUrl
 from pydantic import BaseModel, Field, model_validator
 
-from models import Keys, Relay
 from core.base_service import BaseService
+from models import Keys, Relay
 
 if TYPE_CHECKING:
     from core.brotr import Brotr

@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import atexit
-import logging
 import random
 import signal
 import time
@@ -49,6 +48,7 @@ from core.brotr import Brotr
 from models import EventRelay, Keys, Relay
 
 if TYPE_CHECKING:
+    import logging
     from collections.abc import Iterator
 
 # Module constant for worker logging (workers can't access class attributes)

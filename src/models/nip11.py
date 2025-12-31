@@ -8,7 +8,7 @@ Nip11 is a factory that generates RelayMetadata objects.
 import json
 from dataclasses import dataclass
 from time import time
-from typing import TYPE_CHECKING, Any, Optional, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Optional, TypeVar
 
 import aiohttp
 from aiohttp_socks import ProxyConnector
@@ -38,19 +38,19 @@ class Nip11:
 
     # --- Type-safe helpers (delegated to Metadata) ---
 
-    def _get(self, key: str, expected_type: Type[T], default: T) -> T:
+    def _get(self, key: str, expected_type: type[T], default: T) -> T:
         """Get value with type checking."""
         return self.metadata._get(key, expected_type, default)
 
-    def _get_optional(self, key: str, expected_type: Type[T]) -> Optional[T]:
+    def _get_optional(self, key: str, expected_type: type[T]) -> Optional[T]:
         """Get optional value with type checking."""
         return self.metadata._get_optional(key, expected_type)
 
-    def _get_nested(self, outer: str, key: str, expected_type: Type[T], default: T) -> T:
+    def _get_nested(self, outer: str, key: str, expected_type: type[T], default: T) -> T:
         """Get nested value with type checking."""
         return self.metadata._get_nested(outer, key, expected_type, default)
 
-    def _get_nested_optional(self, outer: str, key: str, expected_type: Type[T]) -> Optional[T]:
+    def _get_nested_optional(self, outer: str, key: str, expected_type: type[T]) -> Optional[T]:
         """Get nested optional value with type checking."""
         return self.metadata._get_nested_optional(outer, key, expected_type)
 
@@ -265,37 +265,39 @@ class Nip11:
             if relay.network != "clearnet" and proxy_url:
                 connector = ProxyConnector.from_url(proxy_url)
 
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.get(
+            async with (
+                aiohttp.ClientSession(connector=connector) as session,
+                session.get(
                     http_url,
                     headers=headers,
                     timeout=aiohttp.ClientTimeout(total=timeout),
-                ) as resp:
-                    if resp.status != 200:
-                        return None
+                ) as resp,
+            ):
+                if resp.status != 200:
+                    return None
 
-                    # Validate Content-Type is JSON
-                    content_type = resp.headers.get("Content-Type", "")
-                    if "json" not in content_type.lower():
-                        return None
+                # Validate Content-Type is JSON
+                content_type = resp.headers.get("Content-Type", "")
+                if "json" not in content_type.lower():
+                    return None
 
-                    # Safely parse JSON
-                    try:
-                        data = await resp.json()
-                    except (aiohttp.ContentTypeError, json.JSONDecodeError):
-                        return None
+                # Safely parse JSON
+                try:
+                    data = await resp.json()
+                except (aiohttp.ContentTypeError, json.JSONDecodeError):
+                    return None
 
-                    if not isinstance(data, dict):
-                        return None
+                if not isinstance(data, dict):
+                    return None
 
-                    metadata = Metadata(data)
-                    generated_at = int(time())
+                metadata = Metadata(data)
+                generated_at = int(time())
 
-                    instance = object.__new__(cls)
-                    object.__setattr__(instance, "relay", relay)
-                    object.__setattr__(instance, "metadata", metadata)
-                    object.__setattr__(instance, "generated_at", generated_at)
-                    return instance
+                instance = object.__new__(cls)
+                object.__setattr__(instance, "relay", relay)
+                object.__setattr__(instance, "metadata", metadata)
+                object.__setattr__(instance, "generated_at", generated_at)
+                return instance
 
         except Exception:
             return None

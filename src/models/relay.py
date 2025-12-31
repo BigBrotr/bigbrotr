@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from ipaddress import ip_address, ip_network
+from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from time import time
-from typing import Optional
+from typing import ClassVar, Optional
 
 from rfc3986 import uri_reference
-from rfc3986.exceptions import ValidationError, UnpermittedComponentError
+from rfc3986.exceptions import UnpermittedComponentError, ValidationError
 from rfc3986.validators import Validator
 
 
@@ -23,11 +23,11 @@ class Relay:
     def url(self) -> str:
         """Full URL with scheme (e.g., wss://relay.example.com)."""
         return f"{self.scheme}://{self.url_without_scheme}"
-    
+
     # Complete list of private/reserved IP networks per IANA registries
     # https://www.iana.org/assignments/iana-ipv4-special-registry/
     # https://www.iana.org/assignments/iana-ipv6-special-registry/
-    _LOCAL_NETWORKS = [
+    _LOCAL_NETWORKS: ClassVar[list[IPv4Network | IPv6Network]] = [
         # IPv4 Private/Reserved
         ip_network("0.0.0.0/8"),         # "This host on this network" (RFC 1122)
         ip_network("10.0.0.0/8"),         # Private-Use (RFC 1918)
@@ -59,7 +59,7 @@ class Relay:
         ip_network("fe80::/10"),          # Link-Local Unicast (RFC 4291)
         ip_network("ff00::/8"),           # Multicast (RFC 4291)
     ]
-    
+
     @staticmethod
     def _detect_network(host: str) -> str:
         """
@@ -95,20 +95,20 @@ class Relay:
         """
         if not host:
             return "unknown"
-        
+
         host = host.lower()
         host_bare = host.strip("[]")
-        
+
         if host_bare.endswith(".onion"):
             return "tor"
         if host_bare.endswith(".i2p"):
             return "i2p"
         if host_bare.endswith(".loki"):
             return "loki"
-        
+
         if host_bare in ("localhost", "localhost.localdomain"):
             return "local"
-        
+
         try:
             ip = ip_address(host_bare)
             if any(ip in net for net in Relay._LOCAL_NETWORKS):
@@ -116,21 +116,21 @@ class Relay:
             return "clearnet"
         except ValueError:
             pass
-        
+
         if "." in host_bare:
             labels = host_bare.split(".")
             for label in labels:
                 if not label or label.startswith("-") or label.endswith("-"):
                     return "unknown"
             return "clearnet"
-        
+
         return "unknown"
-    
+
     @staticmethod
     def _parse(raw: str) -> dict:
         """Parse and normalize URL. Returns components dict."""
         uri = uri_reference(raw.strip()).normalize()
-        
+
         validator = Validator().require_presence_of(
             "scheme", "host"
         ).allow_schemes(
@@ -138,35 +138,35 @@ class Relay:
         ).check_validity_of(
             "scheme", "host", "port", "path"
         )
-        
+
         try:
             validator.validate(uri)
         except UnpermittedComponentError:
-            raise ValueError("Invalid scheme: must be ws or wss")
+            raise ValueError("Invalid scheme: must be ws or wss") from None
         except ValidationError as e:
-            raise ValueError(f"Invalid URL: {e}")
-        
+            raise ValueError(f"Invalid URL: {e}") from None
+
         scheme = uri.scheme
         host = uri.host
         port = int(uri.port) if uri.port else None
-        
+
         # Normalize path
         path = uri.path or ""
         while "//" in path:
             path = path.replace("//", "/")
         path = path.rstrip("/") or None
-        
+
         # Format host for URL
         host_bare = host.strip("[]")
         formatted_host = f"[{host_bare}]" if ":" in host_bare else host_bare
-        
+
         # Build URL without scheme
         default_port = 443 if scheme == "wss" else 80
         if port and port != default_port:
             url = f"{formatted_host}:{port}{path or ''}"
         else:
             url = f"{formatted_host}{path or ''}"
-        
+
         return {
             "url": url,
             "scheme": scheme,
@@ -174,7 +174,7 @@ class Relay:
             "port": port,
             "path": path,
         }
-    
+
     def __new__(cls, raw: str, discovered_at: Optional[int] = None):
         parsed = cls._parse(raw)
         network = cls._detect_network(parsed["host"])
@@ -196,7 +196,7 @@ class Relay:
 
     def __init__(self, raw: str, discovered_at: Optional[int] = None):
         pass
-    
+
     def to_db_params(self) -> tuple:
         """
         Returns parameters for database insert.

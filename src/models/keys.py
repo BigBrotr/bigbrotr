@@ -7,7 +7,8 @@ Provides Keys class for Nostr key management.
 import os
 from typing import Optional
 
-from nostr_sdk import Keys as NostrKeys, SecretKey
+from nostr_sdk import Keys as NostrKeys
+from nostr_sdk import SecretKey
 
 
 class Keys(NostrKeys):

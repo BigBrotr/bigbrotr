@@ -7,8 +7,7 @@ The content-addressed ID (hash) is computed in PostgreSQL during insertion.
 
 import json
 from dataclasses import dataclass
-from typing import Any, Optional, Type, TypeVar
-
+from typing import Any, Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -39,21 +38,21 @@ class Metadata:
 
     # --- Type-safe helpers ---
 
-    def _get(self, key: str, expected_type: Type[T], default: T) -> T:
+    def _get(self, key: str, expected_type: type[T], default: T) -> T:
         """Get value with type checking. Returns default if wrong type."""
         value = self.data.get(key)
         if isinstance(value, expected_type):
             return value
         return default
 
-    def _get_optional(self, key: str, expected_type: Type[T]) -> Optional[T]:
+    def _get_optional(self, key: str, expected_type: type[T]) -> Optional[T]:
         """Get optional value with type checking. Returns None if wrong type."""
         value = self.data.get(key)
         if value is None or isinstance(value, expected_type):
             return value
         return None
 
-    def _get_nested(self, outer: str, key: str, expected_type: Type[T], default: T) -> T:
+    def _get_nested(self, outer: str, key: str, expected_type: type[T], default: T) -> T:
         """Get nested value with type checking."""
         outer_dict = self.data.get(outer, {})
         if not isinstance(outer_dict, dict):
@@ -63,7 +62,7 @@ class Metadata:
             return value
         return default
 
-    def _get_nested_optional(self, outer: str, key: str, expected_type: Type[T]) -> Optional[T]:
+    def _get_nested_optional(self, outer: str, key: str, expected_type: type[T]) -> Optional[T]:
         """Get nested optional value with type checking."""
         outer_dict = self.data.get(outer, {})
         if not isinstance(outer_dict, dict):

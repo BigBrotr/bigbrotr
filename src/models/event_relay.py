@@ -11,12 +11,12 @@ from time import time
 from typing import TYPE_CHECKING, Optional, Union
 
 from .event import event_to_db_params
-from .relay import Relay
 
 if TYPE_CHECKING:
     from nostr_sdk import Event as NostrEvent
 
     from .event import Event
+    from .relay import Relay
 
 
 @dataclass(frozen=True)

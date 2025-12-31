@@ -258,7 +258,7 @@ class Finder(BaseService):
                     try:
                         relay_data = json.loads(content)
                         if isinstance(relay_data, dict):
-                            for url in relay_data.keys():
+                            for url in relay_data:
                                 validated = self._validate_relay_url(url)
                                 if validated:
                                     relays.add(validated)

@@ -20,16 +20,6 @@ Example:
 __version__ = "2.0.0"
 
 # Models
-from .models import (
-    Event,
-    EventRelay,
-    Keys,
-    Nip11,
-    Nip66,
-    Relay,
-    RelayMetadata,
-)
-
 # Core
 from .core import (
     BaseService,
@@ -47,6 +37,15 @@ from .core import (
     RetryConfig,
     ServerSettingsConfig,
 )
+from .models import (
+    Event,
+    EventRelay,
+    Keys,
+    Nip11,
+    Nip66,
+    Relay,
+    RelayMetadata,
+)
 
 # Services
 from .services import (
@@ -63,38 +62,38 @@ from .services import (
 )
 
 __all__ = [
-    # Models
-    "Event",
-    "EventRelay",
-    "Keys",
-    "Nip11",
-    "Nip66",
-    "Relay",
-    "RelayMetadata",
     # Core - Base
     "BaseService",
-    "ConfigT",
-    "Logger",
-    # Core - Pool
-    "DatabaseConfig",
-    "Pool",
-    "PoolConfig",
-    "PoolLimitsConfig",
-    "PoolTimeoutsConfig",
-    "RetryConfig",
-    "ServerSettingsConfig",
     # Core - Brotr
     "BatchConfig",
     "Brotr",
     "BrotrConfig",
     "BrotrTimeoutsConfig",
+    "ConfigT",
+    # Core - Pool
+    "DatabaseConfig",
+    # Models
+    "Event",
+    "EventRelay",
     # Services
     "Finder",
     "FinderConfig",
     "Initializer",
     "InitializerConfig",
+    "Keys",
+    "Logger",
     "Monitor",
     "MonitorConfig",
+    "Nip11",
+    "Nip66",
+    "Pool",
+    "PoolConfig",
+    "PoolLimitsConfig",
+    "PoolTimeoutsConfig",
+    "Relay",
+    "RelayMetadata",
+    "RetryConfig",
+    "ServerSettingsConfig",
     "Synchronizer",
     "SynchronizerConfig",
     "Validator",
