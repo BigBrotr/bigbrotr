@@ -220,7 +220,9 @@ Upsert service data records. Returns count.
 **Tuple format**: `(service_name, data_type, key, value_dict)`
 ```python
 records = [
-    ("finder", "candidate", "wss://relay.example.com", {}),
+    # Candidates for Validator (written by Seeder and Finder)
+    ("validator", "candidate", "wss://relay.example.com", {}),
+    # Cursor for Synchronizer
     ("synchronizer", "cursor", "events", {"last_id": "abc123"})
 ]
 await brotr.upsert_service_data(records)

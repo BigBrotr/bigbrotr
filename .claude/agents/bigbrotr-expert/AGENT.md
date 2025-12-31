@@ -22,28 +22,39 @@ BigBrotr is a modular Nostr data archiving and monitoring system built with:
 ### Three-Layer Architecture
 
 ```
-Implementation Layer
-  ├── implementations/bigbrotr/     # Full-featured (with tags/content)
-  └── implementations/lilbrotr/     # Lightweight (essential fields only)
-        │
-        ▼
-Service Layer (src/services/)
-  ├── seeder.py               # Database bootstrap and relay seeding
-  ├── finder.py                    # Relay URL discovery
-  ├── validator.py                 # Candidate relay validation
-  ├── monitor.py                   # Health monitoring (NIP-11/NIP-66)
-  └── synchronizer.py              # Event synchronization
-        │
-        ▼
-Core Layer (src/core/)
-  ├── pool.py                      # PostgreSQL connection pooling
-  ├── brotr.py                     # Database interface
-  ├── base_service.py              # Service lifecycle management
-  └── logger.py                    # Structured logging
-        │
-        ▼
-Models (src/models/)
-  └── Event, Relay, EventRelay, Keys, Metadata, Nip11, Nip66, RelayMetadata
++-------------------------------------------------------+
+|  Implementation Layer                                 |
+|  +------------------+  +------------------+           |
+|  | bigbrotr/        |  | lilbrotr/        |           |
+|  | (with tags)      |  | (essential only) |           |
+|  +------------------+  +------------------+           |
++-------------------------+-----------------------------+
+                          |
+                          v
++-------------------------------------------------------+
+|  Service Layer (src/services/)                        |
+|  +--------+ +--------+ +-----------+ +-------------+  |
+|  | seeder | | finder | | validator | | monitor     |  |
+|  +--------+ +--------+ +-----------+ +-------------+  |
+|                    +----------------+                 |
+|                    | synchronizer   |                 |
+|                    +----------------+                 |
++-------------------------+-----------------------------+
+                          |
+                          v
++-------------------------------------------------------+
+|  Core Layer (src/core/)                               |
+|  +------+ +-------+ +-------------+ +--------+        |
+|  | pool | | brotr | | base_service| | logger |        |
+|  +------+ +-------+ +-------------+ +--------+        |
++-------------------------+-----------------------------+
+                          |
+                          v
++-------------------------------------------------------+
+|  Models (src/models/)                                 |
+|  Event, Relay, EventRelay, Keys, Metadata,            |
+|  Nip11, Nip66, RelayMetadata                          |
++-------------------------------------------------------+
 ```
 
 ---
@@ -145,19 +156,19 @@ await brotr.refresh_metadata_latest()
 
 **Service State Methods:**
 ```python
-# Store service data
+# Store candidates (Seeder and Finder write to validator/candidate)
 records = [
-    ("finder", "candidate", "wss://relay.com", {"retries": 0}),
-    ("finder", "cursor", "events", {"timestamp": 123456, "id": "abc"})
+    ("validator", "candidate", "wss://relay.com", {"failed_attempts": 0}),
+    ("finder", "cursor", "events", {"last_timestamp": 123456, "last_id": "abc"})
 ]
 count = await brotr.upsert_service_data(records)
 
-# Query service data
-data = await brotr.get_service_data("finder", "candidate", key=None)
+# Query candidates (Validator reads from validator/candidate)
+data = await brotr.get_service_data("validator", "candidate", key=None)
 # Returns: [{"key": "wss://...", "value": {...}, "updated_at": 123456}, ...]
 
-# Delete service data
-keys = [("finder", "candidate", "wss://relay.com")]
+# Delete validated candidates
+keys = [("validator", "candidate", "wss://relay.com")]
 count = await brotr.delete_service_data(keys)
 ```
 

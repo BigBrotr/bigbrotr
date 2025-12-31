@@ -6,23 +6,26 @@ Complete testing guide for BigBrotr including fixtures, patterns, mock strategie
 
 ```
 tests/
-├── conftest.py              # Shared fixtures and configuration
-├── core/                    # Core layer tests
-│   ├── test_pool.py
-│   ├── test_brotr.py
-│   ├── test_base_service.py
-│   └── test_logger.py
-├── services/                # Service layer tests
-│   ├── test_finder.py
-│   ├── test_monitor.py
-│   ├── test_synchronizer.py
-│   └── test_seeder.py
-└── models/                  # Model layer tests
-    ├── test_relay.py
-    ├── test_event_relay.py
-    ├── test_metadata.py
-    ├── test_nip11.py
-    └── test_nip66.py
++-- conftest.py                  # Shared fixtures and configuration
++-- unit/                        # Unit tests
+|   +-- core/                    # Core layer tests
+|   |   +-- test_pool.py
+|   |   +-- test_brotr.py
+|   |   +-- test_base_service.py
+|   |   +-- test_logger.py
+|   +-- services/                # Service layer tests
+|   |   +-- test_seeder.py
+|   |   +-- test_finder.py
+|   |   +-- test_validator.py
+|   |   +-- test_monitor.py
+|   |   +-- test_synchronizer.py
+|   +-- models/                  # Model layer tests
+|       +-- test_relay.py
+|       +-- test_event_relay.py
+|       +-- test_metadata.py
+|       +-- test_nip11.py
+|       +-- test_nip66.py
++-- integration/                 # Integration tests (planned)
 ```
 
 ---
