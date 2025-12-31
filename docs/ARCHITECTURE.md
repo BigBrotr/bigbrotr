@@ -340,6 +340,7 @@ class MyService(BaseService[MyServiceConfig]):
 - **Incremental Sync**: Per-relay timestamp tracking
 - **Per-Relay Overrides**: Custom settings for specific relays
 - **Graceful Shutdown**: Clean worker process termination via `atexit`
+- **Tor Support**: SOCKS5 proxy for .onion relay synchronization
 
 **Processing Flow**:
 ```
@@ -381,8 +382,8 @@ implementations/bigbrotr/
 │       ├── seeder.yaml          # Seed file configuration
 │       ├── finder.yaml          # API sources, intervals
 │       ├── validator.yaml       # Validation settings, Tor proxy
-│       ├── monitor.yaml         # Health check settings, Tor enabled
-│       └── synchronizer.yaml    # High concurrency (10 parallel, 4 processes)
+│       ├── monitor.yaml         # Health check settings, Tor proxy
+│       └── synchronizer.yaml    # High concurrency (10 parallel, 4 processes), Tor proxy
 ├── postgres/
 │   └── init/                    # SQL schema files (00-99)
 │       ├── 02_tables.sql        # Full schema with tags, tagvalues, content
