@@ -268,12 +268,12 @@ class Nip66:
         return await asyncio.to_thread(Nip66._check_ssl_sync, host, port)
 
     @staticmethod
-    def _lookup_geo(
+    def _lookup_geo_sync(
         ip: str,
         city_db_path: str,
         asn_db_path: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Lookup geolocation from IP address."""
+        """Synchronous geolocation lookup (called via asyncio.to_thread)."""
         result: dict[str, Any] = {"geo_ip": ip}
 
         try:
@@ -308,6 +308,17 @@ class Nip66:
                 pass
 
         return result
+
+    @staticmethod
+    async def _lookup_geo(
+        ip: str,
+        city_db_path: str,
+        asn_db_path: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Lookup geolocation asynchronously from IP address."""
+        return await asyncio.to_thread(
+            Nip66._lookup_geo_sync, ip, city_db_path, asn_db_path
+        )
 
     @staticmethod
     async def _test_connection(
@@ -459,7 +470,7 @@ class Nip66:
                     ssl_data = None
 
             if ip and city_db_path:
-                geo_data = cls._lookup_geo(ip, city_db_path, asn_db_path)
+                geo_data = await cls._lookup_geo(ip, city_db_path, asn_db_path)
 
         conn_data = await cls._test_connection(relay, timeout, keys)
         rtt_data.update(conn_data)

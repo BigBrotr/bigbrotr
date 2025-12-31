@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from time import time
-from typing import ClassVar, Optional, Union
+from typing import Any, ClassVar, Optional, Union
 
 from rfc3986 import uri_reference
 from rfc3986.exceptions import UnpermittedComponentError, ValidationError
@@ -128,7 +128,7 @@ class Relay:
         return "unknown"
 
     @staticmethod
-    def _parse(raw: str) -> dict:
+    def _parse(raw: str) -> dict[str, Any]:
         """Parse and normalize URL. Returns components dict."""
         uri = uri_reference(raw.strip()).normalize()
 
@@ -176,6 +176,22 @@ class Relay:
         }
 
     def __new__(cls, raw: str, discovered_at: Optional[int] = None):
+        """
+        Create a new Relay instance.
+
+        Uses __new__ instead of __init__ to support frozen dataclass immutability.
+        The __init__ method is intentionally empty as all initialization happens here.
+
+        Args:
+            raw: WebSocket URL (wss:// or ws://)
+            discovered_at: Unix timestamp when discovered (defaults to now)
+
+        Returns:
+            Relay instance with normalized URL and detected network type
+
+        Raises:
+            ValueError: If URL is invalid, local, or uses unknown network
+        """
         parsed = cls._parse(raw)
         network = cls._detect_network(parsed["host"])
 
@@ -197,9 +213,10 @@ class Relay:
         return instance
 
     def __init__(self, raw: str, discovered_at: Optional[int] = None):
+        """Empty __init__ - all initialization done in __new__ for frozen dataclass."""
         pass
 
-    def to_db_params(self) -> tuple:
+    def to_db_params(self) -> tuple[str, str, int]:
         """
         Returns parameters for database insert.
 
