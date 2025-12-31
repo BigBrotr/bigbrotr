@@ -68,7 +68,7 @@ nano .env  # Set DB_PASSWORD (required)
 docker-compose up -d
 
 # Verify deployment
-docker-compose logs -f initializer
+docker-compose logs -f seeder
 ```
 
 ### What Happens on First Run
@@ -76,7 +76,7 @@ docker-compose logs -f initializer
 1. **PostgreSQL** initializes with the complete database schema
 2. **PGBouncer** provides connection pooling in transaction mode
 3. **Tor proxy** enables .onion relay connectivity (optional)
-4. **Initializer** seeds 8,865 relay URLs as candidates
+4. **Seeder** seeds 8,865 relay URLs as candidates for validation
 5. **Finder** begins discovering additional relays from nostr.watch APIs
 6. **Validator** tests candidate relays and promotes valid ones
 7. **Monitor** starts health checking relays (NIP-11/NIP-66)
@@ -100,7 +100,7 @@ BigBrotr uses a three-layer architecture that separates concerns and enables fle
 |                             SERVICE LAYER                                   |
 |              src/services/                                                  |
 |                                                                             |
-|  Initializer   Finder   Validator   Monitor   Synchronizer   [API]  [DVM]   |
+|   Seeder   Finder  Validator   Monitor   Synchronizer   [API]  [DVM]   |
 |    (seed)     (disco)    (test)    (health)    (events)     Planned Planned |
 +----------------------------------+------------------------------------------+
                                    | Leverages
@@ -128,7 +128,7 @@ BigBrotr uses a three-layer architecture that separates concerns and enables fle
 
 | Service | Status | Description |
 |---------|--------|-------------|
-| **Initializer** | Complete | Database bootstrap and relay seeding |
+| **Seeder** | Complete | Relay seeding for validation |
 | **Finder** | Complete | Relay URL discovery from external APIs and database events |
 | **Validator** | Complete | Candidate relay testing and validation with Tor support |
 | **Monitor** | Complete | NIP-11/NIP-66 health monitoring with comprehensive checks |
@@ -205,11 +205,11 @@ Common customization scenarios:
 
 ## Services
 
-### Initializer
+### Seeder
 
-**Purpose**: Database bootstrap and relay seeding (one-shot)
+**Purpose**: Relay seeding for validation (one-shot)
 
-The Initializer runs once at startup to seed the database:
+The Seeder runs once at startup to seed the database:
 
 - Parses and validates relay URLs from `data/seed_relays.txt`
 - Stores URLs as candidates in `service_data` table
@@ -217,10 +217,10 @@ The Initializer runs once at startup to seed the database:
 
 ```bash
 # Run manually
-python -m services initializer
+python -m services seeder
 
 # Check logs
-docker-compose logs initializer
+docker-compose logs seeder
 ```
 
 ### Finder
@@ -264,7 +264,7 @@ api:
 
 **Purpose**: Test and validate candidate relay URLs
 
-The Validator service tests candidates discovered by Finder and Initializer:
+The Validator service tests candidates discovered by Finder and Seeder:
 
 - Tests WebSocket connectivity for each candidate
 - Supports Tor proxy for .onion addresses
@@ -397,8 +397,8 @@ implementations/bigbrotr/yaml/
 ├── core/
 │   └── brotr.yaml              # Database pool and connection settings
 └── services/
-    ├── initializer.yaml        # Seed file path
-    ├── finder.yaml             # API sources, discovery intervals
+    ├── seeder.yaml             # Seed file path
+    ├── finder.yaml         # API sources, discovery intervals
     ├── validator.yaml          # Validation settings, Tor proxy
     ├── monitor.yaml            # Health check settings, Tor config
     └── synchronizer.yaml       # Sync filters, timeouts, concurrency
@@ -493,7 +493,7 @@ export DB_PASSWORD=your_secure_password
 
 # Run services (from implementations/bigbrotr/)
 cd implementations/bigbrotr
-python -m services initializer
+python -m services seeder
 python -m services finder &
 python -m services validator &
 python -m services monitor &
@@ -571,8 +571,8 @@ bigbrotr/
 │   └── services/                      # Service layer
 │       ├── __init__.py
 │       ├── __main__.py                # CLI entry point
-│       ├── initializer.py             # Database bootstrap
-│       ├── finder.py                  # Relay discovery
+│       ├── seeder.py                  # Relay seeding
+│       ├── finder.py              # Relay discovery
 │       ├── validator.py               # Relay validation
 │       ├── monitor.py                 # Health monitoring
 │       └── synchronizer.py            # Event sync
@@ -677,7 +677,7 @@ For security issues, please see [SECURITY.md](SECURITY.md).
 ### Completed
 
 - [x] Core layer (Pool, Brotr, BaseService, Logger)
-- [x] Initializer service with relay seeding
+- [x] Seeder service with relay seeding
 - [x] Validator service with relay testing
 - [x] Finder service with API discovery
 - [x] Monitor service with NIP-11/NIP-66 support
