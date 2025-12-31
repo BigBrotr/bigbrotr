@@ -288,7 +288,7 @@ concurrency:
 
 tor:
   enabled: true
-  host: "127.0.0.1"
+  host: "tor"    # Docker service name (use 127.0.0.1 for local)
   port: 9050
 ```
 
@@ -638,7 +638,7 @@ For complete development documentation, see [docs/DEVELOPMENT.md](docs/DEVELOPME
 | **aiohttp** | 3.13.2 | Async HTTP client for API calls |
 | **aiohttp-socks** | 0.10.1 | SOCKS5 proxy support for Tor |
 | **aiomultiprocess** | 0.9.1 | Multicore async processing |
-| **nostr-tools** | 1.4.1 | Nostr protocol library |
+| **nostr-sdk** | 0.39.0 | Nostr protocol library (rust-nostr PyO3 bindings) |
 | **PyYAML** | 6.0.2 | YAML configuration parsing |
 | **PGBouncer** | latest | Connection pooling |
 | **Docker** | - | Containerization |
@@ -683,7 +683,7 @@ For security issues, please see [SECURITY.md](SECURITY.md).
 - [x] Monitor service with NIP-11/NIP-66 support
 - [x] Synchronizer service with multicore processing
 - [x] Docker Compose deployment
-- [x] Unit test suite (174 tests)
+- [x] Unit test suite (412+ tests)
 - [x] Pre-commit hooks and CI configuration
 
 ### Planned
