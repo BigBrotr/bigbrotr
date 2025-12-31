@@ -1055,54 +1055,52 @@ All models are **immutable** (`frozen=True` dataclasses) with validation in `__n
 class Relay:
     """Immutable validated relay URL."""
 
-    _url_without_scheme: str
+    url_without_scheme: str  # Unique identifier (e.g., relay.example.com:8080/path)
     network: str  # clearnet, tor, i2p, loki, local, unknown
-    inserted_at: Optional[int] = None
+    discovered_at: int
+    scheme: str
+    host: str
+    port: Optional[int]
+    path: Optional[str]
 
-    def __new__(cls, raw: str, inserted_at: Optional[int] = None):
+    def __new__(cls, raw: str, discovered_at: Optional[int] = None):
         """Validate and normalize on construction."""
 
         # Parse with rfc3986
-        parsed = RelayUrl.parse(raw)
-
-        # Validate scheme
-        if parsed.scheme not in ("ws", "wss"):
-            raise ValueError(f"Invalid scheme: {parsed.scheme}")
-
-        # Normalize
-        normalized = parsed.normalize()
+        parsed = cls._parse(raw)
 
         # Detect network
-        network = cls._detect_network(parsed.host)
+        network = cls._detect_network(parsed["host"])
 
         # Reject local addresses
         if network == "local":
-            raise ValueError(f"Local address rejected: {raw}")
-
-        # Extract URL without scheme
-        url_without_scheme = normalized.removeprefix("ws://") \
-                                      .removeprefix("wss://")
+            raise ValueError("Local addresses not allowed")
+        if network == "unknown":
+            raise ValueError(f"Invalid host: '{parsed['host']}'")
 
         # Create instance
         instance = object.__new__(cls)
-        object.__setattr__(instance, "_url_without_scheme", url_without_scheme)
+        object.__setattr__(instance, "url_without_scheme", parsed["url"])
         object.__setattr__(instance, "network", network)
-        object.__setattr__(instance, "inserted_at", inserted_at)
+        object.__setattr__(instance, "discovered_at", discovered_at or int(time.time()))
+        object.__setattr__(instance, "scheme", parsed["scheme"])
+        object.__setattr__(instance, "host", parsed["host"])
+        object.__setattr__(instance, "port", parsed["port"])
+        object.__setattr__(instance, "path", parsed["path"])
 
         return instance
 
     @property
     def url(self) -> str:
         """Full URL with scheme."""
-        scheme = "wss" if ":443" in self._url_without_scheme else "ws"
-        return f"{scheme}://{self._url_without_scheme}"
+        return f"{self.scheme}://{self.url_without_scheme}"
 
     def to_db_params(self) -> tuple:
         """Extract parameters for database insertion."""
         return (
-            self._url_without_scheme,
+            self.url_without_scheme,
             self.network,
-            self.inserted_at or int(time.time()),
+            self.discovered_at,
         )
 ```
 
