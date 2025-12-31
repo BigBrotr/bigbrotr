@@ -5,7 +5,7 @@ Usage:
     python -m services <service> [options]
 
 Examples:
-    python -m services initializer
+    python -m services seeder
     python -m services finder
     python -m services finder --log-level DEBUG
 """
@@ -22,8 +22,8 @@ from core import Brotr, Logger
 from core.base_service import BaseService
 
 from .finder import Finder
-from .initializer import Initializer
 from .monitor import Monitor
+from .seeder import Seeder
 from .synchronizer import Synchronizer
 from .validator import Validator
 
@@ -37,7 +37,7 @@ CORE_CONFIG = YAML_BASE / "core" / "brotr.yaml"
 
 # Service registry: name -> (class, config_path, is_oneshot)
 SERVICE_REGISTRY: dict[str, tuple[type[BaseService[Any]], Path, bool]] = {
-    "initializer": (Initializer, YAML_BASE / "services" / "initializer.yaml", True),
+    "seeder": (Seeder, YAML_BASE / "services" / "seeder.yaml", True),
     "finder": (Finder, YAML_BASE / "services" / "finder.yaml", False),
     "validator": (Validator, YAML_BASE / "services" / "validator.yaml", False),
     "monitor": (Monitor, YAML_BASE / "services" / "monitor.yaml", False),
@@ -79,7 +79,7 @@ async def run_service(
         logger.warning("config_not_found", path=str(config_path))
         service = service_class(brotr=brotr)
 
-    # One-shot services (like initializer) run once and exit
+    # One-shot services (like seeder) run once and exit
     if is_oneshot:
         try:
             await service.run()
