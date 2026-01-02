@@ -670,6 +670,37 @@ class TestBuildKind10166Tags:
         assert "frequency" in tag_dict
         assert tag_dict["frequency"][0] == "3600"
 
+    def test_timeout_tags_nip66_format(self, tmp_path: Path) -> None:
+        """Test timeout tags follow NIP-66 format: [timeout, ms, test_type]."""
+        geo_db = tmp_path / "GeoLite2-City.mmdb"
+        geo_db.write_bytes(b"fake")
+
+        config = MonitorConfig(
+            interval=3600,
+            timeouts=TimeoutsConfig(clearnet=30.0),
+            publishing=PublishingConfig(destination="database_only"),
+            checks=ChecksConfig(geo=False),
+        )
+
+        tags = build_kind_10166_tags(config)
+
+        # Filter timeout tags
+        timeout_tags = [tag.as_vec() for tag in tags if tag.as_vec()[0] == "timeout"]
+
+        # Should have 3 timeout tags (open, read, write)
+        assert len(timeout_tags) == 3
+
+        # Each timeout tag should be: ["timeout", "<test_type>", "<ms>"]
+        # Per NIP-66: Index 1 is test type, Index 2 is timeout in ms
+        for tag in timeout_tags:
+            assert len(tag) == 3, f"Timeout tag should have 3 elements: {tag}"
+            assert tag[0] == "timeout"
+            # Index 1 should be test type
+            assert tag[1] in ("open", "read", "write"), f"Invalid test_type: {tag}"
+            # Index 2 should be numeric (milliseconds)
+            assert tag[2].isdigit(), f"Index 2 should be ms value: {tag}"
+            assert tag[2] == "30000", f"Expected 30000ms: {tag}"
+
 
 # ============================================================================
 # Monitor Initialization Tests
