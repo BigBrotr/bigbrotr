@@ -369,6 +369,33 @@ class SynchronizerConfig(BaseModel):
 # Global variable for worker process DB connection
 _WORKER_BROTR: Optional[Brotr] = None
 _WORKER_CLEANUP_REGISTERED: bool = False
+_WORKER_BROTR_LOCK: Optional[asyncio.Lock] = None
+
+
+def _get_worker_lock() -> asyncio.Lock:
+    """
+    Get or create the asyncio.Lock for worker Brotr initialization.
+
+    The lock is created lazily on first access. This is safe because Lock()
+    creation is synchronous and atomic in Python's GIL.
+    """
+    global _WORKER_BROTR_LOCK
+    if _WORKER_BROTR_LOCK is None:
+        _WORKER_BROTR_LOCK = asyncio.Lock()
+    return _WORKER_BROTR_LOCK
+
+
+def _reset_worker_state() -> None:
+    """
+    Reset all worker globals to initial state.
+
+    Used for test isolation to ensure each test starts with clean state.
+    This prevents test pollution where one test's state affects another.
+    """
+    global _WORKER_BROTR, _WORKER_CLEANUP_REGISTERED, _WORKER_BROTR_LOCK
+    _WORKER_BROTR = None
+    _WORKER_CLEANUP_REGISTERED = False
+    _WORKER_BROTR_LOCK = None
 
 
 def _cleanup_worker_brotr() -> None:
@@ -410,24 +437,36 @@ async def _get_worker_brotr(brotr_config: dict[str, Any]) -> Brotr:
     This function manages a per-process database connection that is reused
     across all tasks executed by the worker. The connection is automatically
     cleaned up when the worker process terminates via atexit handler or signal.
+
+    Uses double-check locking pattern to prevent race conditions when multiple
+    async tasks call this function concurrently within the same worker process.
+    The pattern: check -> lock -> re-check -> initialize ensures only one
+    task performs initialization while others wait.
     """
     global _WORKER_BROTR, _WORKER_CLEANUP_REGISTERED
 
-    if _WORKER_BROTR is None:
-        _WORKER_BROTR = Brotr.from_dict(brotr_config)
-        await _WORKER_BROTR.pool.connect()
+    # Fast path: return existing connection without lock
+    if _WORKER_BROTR is not None:
+        return _WORKER_BROTR
 
-        # Register cleanup handlers only once per worker process
-        if not _WORKER_CLEANUP_REGISTERED:
-            atexit.register(_cleanup_worker_brotr)
-            # Also handle signals for more reliable cleanup
-            try:
-                signal.signal(signal.SIGTERM, _signal_handler)
-                signal.signal(signal.SIGINT, _signal_handler)
-            except (ValueError, OSError):
-                # Signal handlers can only be set from main thread
-                pass
-            _WORKER_CLEANUP_REGISTERED = True
+    # Slow path: acquire lock and double-check before initializing
+    async with _get_worker_lock():
+        # Re-check after acquiring lock (another task may have initialized)
+        if _WORKER_BROTR is None:
+            _WORKER_BROTR = Brotr.from_dict(brotr_config)
+            await _WORKER_BROTR.pool.connect()
+
+            # Register cleanup handlers only once per worker process
+            if not _WORKER_CLEANUP_REGISTERED:
+                atexit.register(_cleanup_worker_brotr)
+                # Also handle signals for more reliable cleanup
+                try:
+                    signal.signal(signal.SIGTERM, _signal_handler)
+                    signal.signal(signal.SIGINT, _signal_handler)
+                except (ValueError, OSError):
+                    # Signal handlers can only be set from main thread
+                    pass
+                _WORKER_CLEANUP_REGISTERED = True
 
     return _WORKER_BROTR
 
@@ -840,6 +879,9 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         cursor_lock = asyncio.Lock()
         cursor_batch_size = 50  # Flush every N successful relays
 
+        # Lock for thread-safe counter increments (H9: prevent race conditions)
+        counter_lock = asyncio.Lock()
+
         async def worker(relay: Relay) -> None:
             async with semaphore:
                 # Determine network config
@@ -881,10 +923,13 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                     events_synced, invalid_events, skipped_events = await asyncio.wait_for(
                         _sync_with_timeout(), timeout=relay_timeout
                     )
-                    self._synced_events += events_synced
-                    self._invalid_events += invalid_events
-                    self._skipped_events += skipped_events
-                    self._synced_relays += 1
+
+                    # Thread-safe counter updates (H9)
+                    async with counter_lock:
+                        self._synced_events += events_synced
+                        self._invalid_events += invalid_events
+                        self._skipped_events += skipped_events
+                        self._synced_relays += 1
 
                     # Collect cursor update for batch upsert (H8)
                     async with cursor_lock:
@@ -908,7 +953,8 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                         error_type=type(e).__name__,
                         url=relay.url,
                     )
-                    self._failed_relays += 1
+                    async with counter_lock:
+                        self._failed_relays += 1
 
         tasks = [worker(relay) for relay in relays]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -948,8 +994,11 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         }
         service_config_dump = self._config.model_dump()
 
+        # Batch fetch all cursors in one query (avoid N+1 pattern)
+        cursors = await self._fetch_all_cursors()
+
         for relay in relays:
-            start_time = await self._get_start_time(relay)
+            start_time = self._get_start_time_from_cache(relay, cursors)
             tasks.append(
                 (str(relay.url), relay.network, start_time, service_config_dump, brotr_config_dump)
             )
@@ -1047,5 +1096,44 @@ class Synchronizer(BaseService[SynchronizerConfig]):
             if last_synced_at is not None:
                 result: int = last_synced_at + 1
                 return result
+
+        return self._config.time_range.default_start
+
+    async def _fetch_all_cursors(self) -> dict[str, int]:
+        """
+        Batch fetch all relay cursors in one query.
+
+        Returns dict mapping relay URL (without scheme) to last_synced_at timestamp.
+        This avoids N+1 queries when preparing tasks for multiprocess sync.
+        """
+        if not self._config.time_range.use_relay_state:
+            return {}
+
+        records = await self._brotr.pool.fetch(
+            """
+            SELECT data_key, (data->>'last_synced_at')::BIGINT as cursor
+            FROM service_data
+            WHERE service_name = 'synchronizer' AND data_type = 'cursor'
+            """
+        )
+        return {r["data_key"]: r["cursor"] for r in records if r["cursor"] is not None}
+
+    def _get_start_time_from_cache(self, relay: Relay, cursors: dict[str, int]) -> int:
+        """
+        Get start timestamp for relay from pre-fetched cursor cache.
+
+        Args:
+            relay: Relay to get start time for
+            cursors: Dict of relay URL -> last_synced_at from _fetch_all_cursors
+
+        Returns:
+            Start timestamp (cursor + 1 if found, else default_start)
+        """
+        if not self._config.time_range.use_relay_state:
+            return self._config.time_range.default_start
+
+        cursor = cursors.get(relay.url_without_scheme)
+        if cursor is not None:
+            return cursor + 1
 
         return self._config.time_range.default_start
