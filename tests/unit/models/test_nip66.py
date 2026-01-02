@@ -1,4 +1,13 @@
-"""Tests for models.nip66 module."""
+"""
+Unit tests for models.nip66 module.
+
+Tests:
+- NIP-66 property accessors (rtt_open, rtt_read, rtt_write, rtt_dns)
+- SSL fields (ssl_valid, ssl_issuer, ssl_expires)
+- Geo fields (geohash, geo_ip, geo_country, geo_city, geo_asn)
+- to_relay_metadata() conversion (generates up to 3 records)
+- Nip66.test() async connection tests
+"""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 

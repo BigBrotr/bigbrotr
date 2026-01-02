@@ -1,4 +1,13 @@
-"""Tests for models.event module."""
+"""
+Unit tests for models.event module.
+
+Tests:
+- Event immutability enforcement
+- Wrapper around nostr_sdk.Event
+- Property accessors (id, pubkey, created_at, kind, tags, content, sig)
+- Hex string conversions for BYTEA storage
+- JSON serialization
+"""
 
 import json
 from unittest.mock import MagicMock

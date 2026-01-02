@@ -1,4 +1,17 @@
-"""Tests for core.brotr module."""
+"""
+Unit tests for core.brotr module.
+
+Tests:
+- Configuration models (BatchConfig, TimeoutsConfig, BrotrConfig)
+- Brotr initialization with defaults and custom config
+- Factory methods (from_yaml, from_dict)
+- Insert operations (insert_events, insert_relays, insert_relay_metadata)
+- Service data operations (upsert, get, delete)
+- Cleanup operations (delete_orphan_events, delete_orphan_metadata)
+- Query operations (get_relays_needing_check)
+- Materialized view refresh operations
+- Context manager support
+"""
 
 from unittest.mock import AsyncMock, patch
 
@@ -84,6 +97,28 @@ class TestBrotrBatchValidation:
             mock_brotr._validate_batch_size([{"id": i} for i in range(15000)], "test")
 
 
+class TestBrotrTransposeToColumns:
+    """Brotr._transpose_to_columns() method."""
+
+    def test_empty_list(self, mock_brotr):
+        result = mock_brotr._transpose_to_columns([])
+        assert result == ()
+
+    def test_single_row(self, mock_brotr):
+        result = mock_brotr._transpose_to_columns([("a", 1, True)])
+        assert result == (["a"], [1], [True])
+
+    def test_multiple_rows(self, mock_brotr):
+        params = [("a", 1), ("b", 2), ("c", 3)]
+        result = mock_brotr._transpose_to_columns(params)
+        assert result == (["a", "b", "c"], [1, 2, 3])
+
+    def test_inconsistent_lengths_raises(self, mock_brotr):
+        params = [("a", 1, True), ("b", 2)]  # Second row has 2 columns instead of 3
+        with pytest.raises(ValueError, match="Row 1 has 2 columns, expected 3"):
+            mock_brotr._transpose_to_columns(params)
+
+
 class TestBrotrInsertEvents:
     """Brotr.insert_events() method."""
 
@@ -166,3 +201,130 @@ class TestBrotrContextManager:
             async with brotr:
                 mock_connect.assert_called_once()
             mock_close.assert_called_once()
+
+
+class TestUpsertServiceData:
+    """Brotr.upsert_service_data() JSON serialization tests."""
+
+    @pytest.mark.asyncio
+    async def test_json_fallback_for_non_dict(self, mock_brotr, mock_pool):
+        """Test that list values get JSON serialized correctly."""
+        # List value should serialize without issue (no fallback needed)
+        records = [
+            ("finder", "cursor", "api_source_1", ["item1", "item2", "item3"]),
+        ]
+
+        result = await mock_brotr.upsert_service_data(records)
+
+        assert result == 1
+        # Verify execute was called with properly serialized JSON
+        mock_conn = mock_pool._mock_connection
+        call_args = mock_conn.execute.call_args
+        # The 4th argument (index 3) is the values list containing JSON strings
+        values_list = call_args[0][4]
+        assert len(values_list) == 1
+        # Verify the list was serialized to JSON string
+        import json
+
+        assert json.loads(values_list[0]) == ["item1", "item2", "item3"]
+
+    @pytest.mark.asyncio
+    async def test_json_fallback_for_nested_objects(self, mock_brotr, mock_pool):
+        """Test complex nested objects serialize correctly."""
+        # Complex nested structure with various types
+        complex_value = {
+            "nested": {
+                "level2": {
+                    "level3": ["a", "b", "c"],
+                    "numbers": [1, 2, 3],
+                }
+            },
+            "list_of_dicts": [
+                {"key1": "value1"},
+                {"key2": "value2"},
+            ],
+            "mixed": [1, "string", True, None, {"inner": "dict"}],
+        }
+        records = [
+            ("monitor", "state", "complex_key", complex_value),
+        ]
+
+        result = await mock_brotr.upsert_service_data(records)
+
+        assert result == 1
+        # Verify execute was called with properly serialized JSON
+        mock_conn = mock_pool._mock_connection
+        call_args = mock_conn.execute.call_args
+        values_list = call_args[0][4]
+        assert len(values_list) == 1
+        # Verify the complex structure was serialized correctly
+        import json
+
+        deserialized = json.loads(values_list[0])
+        assert deserialized == complex_value
+        assert deserialized["nested"]["level2"]["level3"] == ["a", "b", "c"]
+        assert deserialized["list_of_dicts"][0]["key1"] == "value1"
+        assert deserialized["mixed"] == [1, "string", True, None, {"inner": "dict"}]
+
+    @pytest.mark.asyncio
+    async def test_json_fallback_for_non_serializable(self, mock_brotr, mock_pool):
+        """Test that non-serializable objects trigger the fallback with default=str."""
+        # Create a non-JSON-serializable object (set is not serializable)
+        # The fallback should convert it using str()
+
+        class CustomObject:
+            def __str__(self):
+                return "custom_object_str"
+
+        non_serializable_value = {
+            "custom": CustomObject(),
+            "normal": "value",
+        }
+        records = [
+            ("validator", "state", "non_serializable_key", non_serializable_value),
+        ]
+
+        # This should trigger the fallback path with json.dumps(value, default=str)
+        result = await mock_brotr.upsert_service_data(records)
+
+        assert result == 1
+        # Verify execute was called
+        mock_conn = mock_pool._mock_connection
+        call_args = mock_conn.execute.call_args
+        values_list = call_args[0][4]
+        assert len(values_list) == 1
+        # Verify the fallback serialization worked
+        import json
+
+        deserialized = json.loads(values_list[0])
+        assert deserialized["custom"] == "custom_object_str"
+        assert deserialized["normal"] == "value"
+
+    @pytest.mark.asyncio
+    async def test_empty_records(self, mock_brotr):
+        """Test that empty records list returns 0."""
+        result = await mock_brotr.upsert_service_data([])
+        assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_multiple_records(self, mock_brotr, mock_pool):
+        """Test multiple records are serialized correctly."""
+        records = [
+            ("finder", "cursor", "key1", {"count": 1}),
+            ("finder", "cursor", "key2", {"count": 2}),
+            ("monitor", "state", "key3", ["a", "b"]),
+        ]
+
+        result = await mock_brotr.upsert_service_data(records)
+
+        assert result == 3
+        mock_conn = mock_pool._mock_connection
+        call_args = mock_conn.execute.call_args
+        # Verify all three values were serialized
+        values_list = call_args[0][4]
+        assert len(values_list) == 3
+        import json
+
+        assert json.loads(values_list[0]) == {"count": 1}
+        assert json.loads(values_list[1]) == {"count": 2}
+        assert json.loads(values_list[2]) == ["a", "b"]

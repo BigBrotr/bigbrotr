@@ -1,4 +1,13 @@
-"""Tests for core.logger module."""
+"""
+Unit tests for core.logger module.
+
+Tests:
+- Logger initialization with name and level
+- Structured key=value message formatting
+- All log levels (debug, info, warning, error, critical, exception)
+- Value formatting (strings, numbers, booleans, None)
+- get_child() for hierarchical loggers
+"""
 
 import json
 import logging

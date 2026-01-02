@@ -2,11 +2,13 @@
 Unit tests for services.synchronizer module.
 
 Tests:
-- Configuration models (TorConfig, FilterConfig, TimeoutsConfig, etc.)
-- Synchronizer service initialization
-- Relay fetching and filtering
-- Start time determination
-- EventBatch class
+- Configuration models (TorConfig, FilterConfig, TimeoutsConfig, NetworkTimeoutsConfig)
+- Synchronizer service initialization and defaults
+- Relay fetching and metadata-based filtering
+- Start time determination from cursors
+- EventBatch class (append, is_full, is_empty, time bounds)
+- Per-relay timeout overrides
+- Multicore processing configuration
 """
 
 from unittest.mock import AsyncMock, MagicMock

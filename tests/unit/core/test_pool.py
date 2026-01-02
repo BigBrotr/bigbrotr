@@ -1,4 +1,17 @@
-"""Tests for core.pool module."""
+"""
+Unit tests for core.pool module.
+
+Tests:
+- Configuration models (DatabaseConfig, LimitsConfig, TimeoutsConfig, RetryConfig)
+- Pool initialization with defaults and custom config
+- Factory methods (from_yaml, from_dict)
+- Connection lifecycle (connect, close)
+- Query methods (fetch, fetchrow, fetchval, execute, executemany)
+- Connection acquisition (acquire, acquire_healthy, transaction)
+- Pool metrics and properties
+- Context manager support
+- Retry logic and error handling
+"""
 
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -318,3 +331,220 @@ class TestPoolContextManager:
             async with pool:
                 assert pool.is_connected is True
             assert pool.is_connected is False
+
+
+# ============================================================================
+# H16: acquire_healthy() Retry Exhaustion Tests
+# ============================================================================
+
+
+class TestAcquireHealthyRetryExhaustion:
+    """Tests for acquire_healthy() retry exhaustion behavior (H16)."""
+
+    @pytest.mark.asyncio
+    async def test_exponential_backoff_timing_verified(self, monkeypatch):
+        """H16.1: Exponential backoff timing verified."""
+        import time
+
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        pool = Pool()
+
+        unhealthy_conn = MagicMock()
+        unhealthy_conn.fetchval = AsyncMock(side_effect=asyncpg.PostgresConnectionError("Dead"))
+
+        call_times: list[float] = []
+
+        @asynccontextmanager
+        async def mock_acquire():
+            call_times.append(time.time())
+            yield unhealthy_conn
+
+        mock_asyncpg_pool = MagicMock()
+        mock_asyncpg_pool.acquire = mock_acquire
+        pool._pool = mock_asyncpg_pool
+        pool._is_connected = True
+
+        with pytest.raises(ConnectionError):
+            async with pool.acquire_healthy(max_retries=4):
+                pass
+
+        # Verify we got 4 attempts
+        assert len(call_times) == 4
+
+        # Verify exponential backoff: delays should be approximately 0.1s, 0.2s, 0.4s
+        # Between attempt 1 and 2: ~0.1s
+        # Between attempt 2 and 3: ~0.2s
+        # Between attempt 3 and 4: ~0.4s
+        if len(call_times) >= 4:
+            delay1 = call_times[1] - call_times[0]
+            delay2 = call_times[2] - call_times[1]
+            delay3 = call_times[3] - call_times[2]
+
+            # Delays should roughly double (with some tolerance for test execution)
+            assert delay1 >= 0.05, f"First delay too short: {delay1}"
+            assert delay2 >= delay1 * 1.5, f"Second delay should be larger: {delay2} vs {delay1}"
+            assert delay3 >= delay2 * 1.5, f"Third delay should be larger: {delay3} vs {delay2}"
+
+    @pytest.mark.asyncio
+    async def test_max_retries_exhausted_raises_pool_error(self, monkeypatch):
+        """H16.2: Max retries exhausted raises ConnectionError (PoolError equivalent)."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        pool = Pool()
+
+        unhealthy_conn = MagicMock()
+        unhealthy_conn.fetchval = AsyncMock(side_effect=asyncpg.PostgresConnectionError("Dead"))
+
+        @asynccontextmanager
+        async def mock_acquire():
+            yield unhealthy_conn
+
+        mock_asyncpg_pool = MagicMock()
+        mock_asyncpg_pool.acquire = mock_acquire
+        pool._pool = mock_asyncpg_pool
+        pool._is_connected = True
+
+        with pytest.raises(ConnectionError) as exc_info:
+            async with pool.acquire_healthy(max_retries=3):
+                pass
+
+        assert "Failed to acquire healthy connection" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_error_message_includes_attempt_count(self, monkeypatch):
+        """H16.3: Error message includes attempt count."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        pool = Pool()
+
+        unhealthy_conn = MagicMock()
+        unhealthy_conn.fetchval = AsyncMock(
+            side_effect=asyncpg.PostgresConnectionError("Connection died")
+        )
+
+        @asynccontextmanager
+        async def mock_acquire():
+            yield unhealthy_conn
+
+        mock_asyncpg_pool = MagicMock()
+        mock_asyncpg_pool.acquire = mock_acquire
+        pool._pool = mock_asyncpg_pool
+        pool._is_connected = True
+
+        with pytest.raises(ConnectionError) as exc_info:
+            async with pool.acquire_healthy(max_retries=5):
+                pass
+
+        error_msg = str(exc_info.value)
+        assert "5 attempts" in error_msg
+        assert "Failed to acquire healthy connection" in error_msg
+
+    @pytest.mark.asyncio
+    async def test_successful_acquisition_after_initial_failures(self, monkeypatch):
+        """H16.4: Successful acquisition after initial failures."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        pool = Pool()
+
+        unhealthy_conn = MagicMock()
+        unhealthy_conn.fetchval = AsyncMock(side_effect=asyncpg.PostgresConnectionError("Dead"))
+
+        healthy_conn = MagicMock()
+        healthy_conn.fetchval = AsyncMock(return_value=1)
+
+        connections = [unhealthy_conn, unhealthy_conn, healthy_conn]
+        call_count = 0
+
+        @asynccontextmanager
+        async def mock_acquire():
+            nonlocal call_count
+            conn = connections[min(call_count, len(connections) - 1)]
+            call_count += 1
+            yield conn
+
+        mock_asyncpg_pool = MagicMock()
+        mock_asyncpg_pool.acquire = mock_acquire
+        pool._pool = mock_asyncpg_pool
+        pool._is_connected = True
+
+        async with pool.acquire_healthy(max_retries=5) as conn:
+            assert conn is healthy_conn
+
+        # Should have taken 3 attempts (2 failures + 1 success)
+        assert call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_different_exception_types_trigger_retry(self, monkeypatch):
+        """H16.5: Different exception types trigger retry."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        pool = Pool()
+
+        healthy_conn = MagicMock()
+        healthy_conn.fetchval = AsyncMock(return_value=1)
+
+        exception_sequence = [
+            asyncpg.PostgresConnectionError("Connection lost"),
+            OSError("Network unreachable"),
+            TimeoutError("Query timed out"),
+        ]
+        attempt = 0
+
+        @asynccontextmanager
+        async def mock_acquire():
+            nonlocal attempt
+            conn = MagicMock()
+            if attempt < len(exception_sequence):
+                conn.fetchval = AsyncMock(side_effect=exception_sequence[attempt])
+                attempt += 1
+            else:
+                conn.fetchval = AsyncMock(return_value=1)
+            yield conn
+
+        mock_asyncpg_pool = MagicMock()
+        mock_asyncpg_pool.acquire = mock_acquire
+        pool._pool = mock_asyncpg_pool
+        pool._is_connected = True
+
+        async with pool.acquire_healthy(max_retries=5):
+            # Should succeed on 4th attempt
+            pass
+
+        assert attempt == 3  # 3 failures before success
+
+    @pytest.mark.asyncio
+    async def test_backoff_delay_increases_exponentially(self, monkeypatch):
+        """H16.6: Backoff delay increases exponentially."""
+        import time
+
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        pool = Pool()
+
+        unhealthy_conn = MagicMock()
+        unhealthy_conn.fetchval = AsyncMock(side_effect=asyncpg.PostgresConnectionError("Dead"))
+
+        timestamps: list[float] = []
+
+        @asynccontextmanager
+        async def mock_acquire():
+            timestamps.append(time.time())
+            yield unhealthy_conn
+
+        mock_asyncpg_pool = MagicMock()
+        mock_asyncpg_pool.acquire = mock_acquire
+        pool._pool = mock_asyncpg_pool
+        pool._is_connected = True
+
+        with pytest.raises(ConnectionError):
+            async with pool.acquire_healthy(max_retries=5):
+                pass
+
+        # Should have 5 timestamps
+        assert len(timestamps) == 5
+
+        # Calculate delays between attempts
+        delays = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+
+        # Verify exponential growth pattern: 0.1s, 0.2s, 0.4s, 0.8s
+        # Each delay should be roughly double the previous (with tolerance)
+        for i in range(1, len(delays)):
+            # Allow some tolerance for test execution overhead
+            ratio = delays[i] / delays[i - 1] if delays[i - 1] > 0.01 else 2.0
+            # Ratio should be approximately 2x (1.5x to 3x acceptable due to timing variance)
+            assert 1.5 <= ratio <= 3.0, f"Delay ratio {ratio} at index {i} not exponential"
