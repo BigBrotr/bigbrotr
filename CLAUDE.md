@@ -9,9 +9,14 @@ BigBrotr is a modular Nostr data archiving and monitoring system built with Pyth
 ## Common Commands
 
 ```bash
-# Install dependencies
+# Install dependencies (from lock files for reproducible builds)
 pip install -r requirements.txt -r requirements-dev.txt
 pre-commit install
+
+# Update dependencies (edit .in files, then regenerate lock files)
+pip install pip-tools
+pip-compile requirements.in -o requirements.txt --strip-extras
+pip-compile requirements-dev.in -o requirements-dev.txt --strip-extras
 
 # Run tests
 pytest tests/ -v                             # All tests
