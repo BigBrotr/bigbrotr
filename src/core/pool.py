@@ -163,7 +163,18 @@ class Pool:
 
     @classmethod
     def from_yaml(cls, config_path: str) -> Pool:
-        """Create pool from YAML configuration file."""
+        """
+        Create pool from YAML configuration file.
+
+        Args:
+            config_path: Path to YAML configuration file
+
+        Returns:
+            Pool instance configured from file
+
+        Raises:
+            FileNotFoundError: If config file does not exist
+        """
         path = Path(config_path)
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
@@ -175,7 +186,15 @@ class Pool:
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> Pool:
-        """Create pool from dictionary configuration."""
+        """
+        Create pool from dictionary configuration.
+
+        Args:
+            config_dict: Configuration dictionary with pool settings
+
+        Returns:
+            Pool instance configured from dictionary
+        """
         config = PoolConfig(**config_dict)
         return cls(config=config)
 
@@ -255,7 +274,11 @@ class Pool:
                         )
 
     async def close(self) -> None:
-        """Close pool and release resources."""
+        """
+        Close pool and release all connections.
+
+        Safe to call multiple times. Logs closure status.
+        """
         async with self._connection_lock:
             if self._pool is not None:
                 try:
@@ -348,33 +371,81 @@ class Pool:
     async def fetch(
         self, query: str, *args: Any, timeout: Optional[float] = None
     ) -> list[asyncpg.Record]:
-        """Execute query and fetch all results."""
+        """
+        Execute query and fetch all results.
+
+        Args:
+            query: SQL query string with $1, $2, ... placeholders
+            *args: Query parameters
+            timeout: Query timeout in seconds (None = no timeout)
+
+        Returns:
+            List of Record objects (may be empty)
+        """
         async with self.acquire() as conn:
             return await conn.fetch(query, *args, timeout=timeout)
 
     async def fetchrow(
         self, query: str, *args: Any, timeout: Optional[float] = None
     ) -> Optional[asyncpg.Record]:
-        """Execute query and fetch single row."""
+        """
+        Execute query and fetch single row.
+
+        Args:
+            query: SQL query string with $1, $2, ... placeholders
+            *args: Query parameters
+            timeout: Query timeout in seconds (None = no timeout)
+
+        Returns:
+            Single Record or None if no rows
+        """
         async with self.acquire() as conn:
             return await conn.fetchrow(query, *args, timeout=timeout)
 
     async def fetchval(
         self, query: str, *args: Any, column: int = 0, timeout: Optional[float] = None
     ) -> Any:
-        """Execute query and fetch single value."""
+        """
+        Execute query and fetch single value.
+
+        Args:
+            query: SQL query string with $1, $2, ... placeholders
+            *args: Query parameters
+            column: Column index to fetch (default: 0)
+            timeout: Query timeout in seconds (None = no timeout)
+
+        Returns:
+            Single value from first row, or None if no rows
+        """
         async with self.acquire() as conn:
             return await conn.fetchval(query, *args, column=column, timeout=timeout)
 
     async def execute(self, query: str, *args: Any, timeout: Optional[float] = None) -> str:
-        """Execute query without returning results."""
+        """
+        Execute query without returning results.
+
+        Args:
+            query: SQL query string with $1, $2, ... placeholders
+            *args: Query parameters
+            timeout: Query timeout in seconds (None = no timeout)
+
+        Returns:
+            Status string (e.g., "INSERT 0 1", "UPDATE 5")
+        """
         async with self.acquire() as conn:
             return await conn.execute(query, *args, timeout=timeout)
 
     async def executemany(
         self, query: str, args_list: list[tuple[Any, ...]], timeout: Optional[float] = None
     ) -> None:
-        """Execute query multiple times with different parameters."""
+        """
+        Execute query multiple times with different parameters.
+
+        Args:
+            query: SQL query string with $1, $2, ... placeholders
+            args_list: List of parameter tuples for each execution
+            timeout: Query timeout in seconds (None = no timeout)
+        """
         async with self.acquire() as conn:
             await conn.executemany(query, args_list, timeout=timeout)
 

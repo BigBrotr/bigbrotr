@@ -5,7 +5,7 @@ High-level interface for database operations using stored procedures.
 
 Features:
 - Stored procedure wrappers for event/relay operations
-- Bulk insert optimization via executemany
+- Bulk insert optimization via array parameters (single roundtrip)
 - Batch operations with configurable limits
 - Type-safe dataclass inputs (Relay, EventRelay, RelayMetadata)
 - Cleanup operations for orphaned data
@@ -81,6 +81,28 @@ class BrotrConfig(BaseModel):
 
     batch: BatchConfig = Field(default_factory=BatchConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
+
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+# Whitelist of allowed stored procedure names for SQL injection prevention (H3)
+ALLOWED_PROCEDURES: frozenset[str] = frozenset(
+    {
+        "insert_event",
+        "insert_relay",
+        "insert_relay_metadata",
+        "upsert_service_data",
+        "get_service_data",
+        "delete_service_data",
+        "cleanup_orphaned_metadata",
+        "refresh_relay_metadata_latest",
+        "delete_orphan_events",
+        "delete_orphan_metadata",
+        "delete_failed_candidates",
+    }
+)
 
 
 # ============================================================================
@@ -187,6 +209,29 @@ class Brotr:
                 f"{operation} batch size ({len(batch)}) exceeds maximum ({self._config.batch.max_batch_size})"
             )
 
+    def _transpose_to_columns(self, params: list[tuple[Any, ...]]) -> tuple[list[Any], ...]:
+        """
+        Transpose list of tuples to tuple of lists (columns) for bulk SQL operations.
+
+        Args:
+            params: List of tuples where each tuple represents a row
+
+        Returns:
+            Tuple of lists where each list represents a column
+
+        Raises:
+            ValueError: If tuples have inconsistent lengths
+        """
+        if not params:
+            return ()
+
+        expected_len = len(params[0])
+        for i, row in enumerate(params):
+            if len(row) != expected_len:
+                raise ValueError(f"Row {i} has {len(row)} columns, expected {expected_len}")
+
+        return tuple(list(col) for col in zip(*params))
+
     async def _call_procedure(
         self,
         procedure_name: str,
@@ -199,7 +244,7 @@ class Brotr:
         Call a stored procedure.
 
         Args:
-            procedure_name: Procedure name
+            procedure_name: Procedure name (must be in ALLOWED_PROCEDURES whitelist)
             *args: Procedure arguments
             conn: Optional connection (acquires from pool if None)
             fetch_result: Return result if True
@@ -207,7 +252,17 @@ class Brotr:
 
         Returns:
             Result value if fetch_result=True, otherwise None
+
+        Raises:
+            ValueError: If procedure_name is not in ALLOWED_PROCEDURES whitelist
         """
+        # Validate procedure name against whitelist (H3: SQL injection prevention)
+        if procedure_name not in ALLOWED_PROCEDURES:
+            raise ValueError(
+                f"Invalid procedure name: {procedure_name}. "
+                f"Allowed: {', '.join(sorted(ALLOWED_PROCEDURES))}"
+            )
+
         params = ", ".join(f"${i + 1}" for i in range(len(args))) if args else ""
         query = f"SELECT {procedure_name}({params})"
 
@@ -230,7 +285,7 @@ class Brotr:
 
     async def insert_events(self, records: list[EventRelay]) -> tuple[int, int]:
         """
-        Insert events atomically using bulk insert.
+        Insert events atomically using bulk insert with array parameters.
 
         Args:
             records: List of EventRelay dataclass instances
@@ -247,41 +302,43 @@ class Brotr:
 
         self._validate_batch_size(records, "insert_events")
 
-        async with self.pool.transaction() as conn:
-            params = []
-            skipped = 0
+        # Collect valid params and track skipped
+        valid_params: list[tuple[Any, ...]] = []
+        skipped = 0
 
-            for event_relay in records:
+        for event_relay in records:
+            try:
+                valid_params.append(event_relay.to_db_params())
+            except (ValueError, TypeError) as ex:
+                skipped += 1
                 try:
-                    params.append(event_relay.to_db_params())
-                except (ValueError, TypeError) as ex:
-                    skipped += 1
-                    try:
-                        event_id = (
-                            event_relay.event.id().to_hex()
-                            if hasattr(event_relay.event, "id")
-                            else "unknown"
-                        )
-                    except Exception:
-                        event_id = "unknown"
-                    self._logger.warning(
-                        "invalid_event_skipped",
-                        error=str(ex),
-                        event_id=event_id,
+                    event_id = (
+                        event_relay.event.id().to_hex()
+                        if hasattr(event_relay.event, "id")
+                        else "unknown"
                     )
-                    continue
+                except Exception:
+                    event_id = "unknown"
+                self._logger.warning(
+                    "invalid_event_skipped",
+                    error=str(ex),
+                    event_id=event_id,
+                )
 
-            if not params:
-                self._logger.warning("all_events_invalid", total=len(records), skipped=skipped)
-                return 0, skipped
+        if not valid_params:
+            self._logger.warning("all_events_invalid", total=len(records), skipped=skipped)
+            return 0, skipped
 
-            await conn.executemany(
+        columns = self._transpose_to_columns(valid_params)
+
+        async with self.pool.transaction() as conn:
+            await conn.execute(
                 "SELECT insert_event($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-                params,
+                *columns,
                 timeout=self._config.timeouts.batch,
             )
 
-        inserted = len(params)
+        inserted = len(valid_params)
         if skipped > 0:
             self._logger.info("events_inserted_with_skipped", inserted=inserted, skipped=skipped)
         else:
@@ -290,7 +347,7 @@ class Brotr:
 
     async def insert_relays(self, records: list[Relay]) -> int:
         """
-        Insert relays atomically using bulk insert.
+        Insert relays atomically using bulk insert with array parameters.
 
         Args:
             records: List of Relay dataclass instances
@@ -307,12 +364,13 @@ class Brotr:
 
         self._validate_batch_size(records, "insert_relays")
 
-        async with self.pool.transaction() as conn:
-            params = [relay.to_db_params() for relay in records]
+        params = [relay.to_db_params() for relay in records]
+        columns = self._transpose_to_columns(params)
 
-            await conn.executemany(
+        async with self.pool.transaction() as conn:
+            await conn.execute(
                 "SELECT insert_relay($1, $2, $3)",
-                params,
+                *columns,
                 timeout=self._config.timeouts.batch,
             )
 
@@ -321,7 +379,7 @@ class Brotr:
 
     async def insert_relay_metadata(self, records: list[RelayMetadata]) -> int:
         """
-        Insert relay metadata atomically using bulk insert.
+        Insert relay metadata atomically using bulk insert with array parameters.
 
         Each RelayMetadata represents a single junction record (one row in relay_metadata).
         The schema uses 6 parameters per record:
@@ -347,11 +405,12 @@ class Brotr:
 
         # Collect params from each RelayMetadata
         all_params = [metadata.to_db_params() for metadata in records]
+        columns = self._transpose_to_columns(all_params)
 
         async with self.pool.transaction() as conn:
-            await conn.executemany(
+            await conn.execute(
                 "SELECT insert_relay_metadata($1, $2, $3, $4, $5, $6)",
-                all_params,
+                *columns,
                 timeout=self._config.timeouts.batch,
             )
 
@@ -405,7 +464,7 @@ class Brotr:
 
     async def upsert_service_data(self, records: list[tuple[str, str, str, dict[str, Any]]]) -> int:
         """
-        Upsert service data records atomically using bulk insert.
+        Upsert service data records atomically using bulk insert with array parameters.
 
         Args:
             records: List of tuples (service_name, data_type, key, value)
@@ -425,27 +484,41 @@ class Brotr:
         self._validate_batch_size(records, "upsert_service_data")
 
         now = int(time.time())
-        async with self.pool.transaction() as conn:
-            params = []
-            for service_name, data_type, key, value in records:
-                try:
-                    value_json = json.dumps(value)
-                except (TypeError, ValueError) as e:
-                    # Handle circular references or non-serializable objects
-                    self._logger.warning(
-                        "service_data_json_error",
-                        service=service_name,
-                        data_type=data_type,
-                        key=key,
-                        error=str(e),
-                    )
-                    # Attempt fallback with default serialization
-                    value_json = json.dumps(value, default=str)
-                params.append((service_name, data_type, key, value_json, now))
+        service_names: list[str] = []
+        data_types: list[str] = []
+        keys: list[str] = []
+        values: list[str] = []
+        updated_ats: list[int] = []
 
-            await conn.executemany(
+        for service_name, data_type, key, value in records:
+            try:
+                value_json = json.dumps(value)
+            except (TypeError, ValueError) as e:
+                # Handle circular references or non-serializable objects
+                self._logger.warning(
+                    "service_data_json_error",
+                    service=service_name,
+                    data_type=data_type,
+                    key=key,
+                    error=str(e),
+                )
+                # Attempt fallback with default serialization
+                value_json = json.dumps(value, default=str)
+
+            service_names.append(service_name)
+            data_types.append(data_type)
+            keys.append(key)
+            values.append(value_json)
+            updated_ats.append(now)
+
+        async with self.pool.transaction() as conn:
+            await conn.execute(
                 "SELECT upsert_service_data($1, $2, $3, $4, $5)",
-                params,
+                service_names,
+                data_types,
+                keys,
+                values,
+                updated_ats,
                 timeout=self._config.timeouts.batch,
             )
 
@@ -484,7 +557,7 @@ class Brotr:
 
     async def delete_service_data(self, keys: list[tuple[str, str, str]]) -> int:
         """
-        Delete service data records atomically.
+        Delete service data records atomically using bulk delete with array parameters.
 
         Args:
             keys: List of tuples (service_name, data_type, key)
@@ -502,15 +575,74 @@ class Brotr:
 
         self._validate_batch_size(keys, "delete_service_data")
 
+        # Transpose list of tuples to separate lists
+        service_names = [k[0] for k in keys]
+        data_types = [k[1] for k in keys]
+        data_keys = [k[2] for k in keys]
+
         async with self.pool.transaction() as conn:
-            await conn.executemany(
+            await conn.execute(
                 "SELECT delete_service_data($1, $2, $3)",
-                keys,
+                service_names,
+                data_types,
+                data_keys,
                 timeout=self._config.timeouts.batch,
             )
 
         self._logger.debug("service_data_deleted", count=len(keys))
         return len(keys)
+
+    # -------------------------------------------------------------------------
+    # Query Operations
+    # -------------------------------------------------------------------------
+
+    async def get_relays_needing_check(
+        self,
+        service_name: str,
+        check_interval_seconds: int,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        """
+        Get relays that need health check based on last check time.
+
+        Finds relays that either have no checkpoint record or whose last check
+        was older than the specified interval.
+
+        Args:
+            service_name: Name of the service (e.g., 'monitor')
+            check_interval_seconds: Minimum seconds since last check
+            limit: Maximum number of relays to return (default: 1000)
+
+        Returns:
+            List of dicts with keys: url, network, discovered_at
+        """
+        cutoff = int(time.time()) - check_interval_seconds
+
+        query = """
+            SELECT r.url, r.network, r.discovered_at
+            FROM relays r
+            LEFT JOIN service_data sd ON
+                sd.service_name = $1
+                AND sd.data_type = 'checkpoint'
+                AND sd.data_key = r.url
+            WHERE sd.data_key IS NULL
+               OR (sd.data->>'last_check_at')::BIGINT < $2
+            ORDER BY r.discovered_at ASC
+            LIMIT $3
+        """
+
+        rows = await self.pool.fetch(
+            query, service_name, cutoff, limit, timeout=self._config.timeouts.query
+        )
+
+        self._logger.debug(
+            "relays_needing_check",
+            service=service_name,
+            count=len(rows),
+            cutoff=cutoff,
+        )
+
+        return [dict(r) for r in rows]
 
     # -------------------------------------------------------------------------
     # Refresh Operations
