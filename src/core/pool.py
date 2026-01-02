@@ -365,14 +365,53 @@ class Pool:
             yield conn
 
     # -------------------------------------------------------------------------
-    # Query Methods
+    # Query Methods (with retry for transient connection errors)
     # -------------------------------------------------------------------------
+
+    async def _execute_with_retry(
+        self,
+        operation: str,
+        query: str,
+        args: tuple[Any, ...],
+        timeout: Optional[float],
+        max_retries: int = 3,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        Execute a query operation with retry logic for transient errors.
+
+        Retries on connection errors (InterfaceError, ConnectionDoesNotExistError)
+        with exponential backoff. Does NOT retry on query errors (syntax, constraint).
+        """
+        last_error: Optional[Exception] = None
+
+        for attempt in range(max_retries):
+            try:
+                async with self.acquire() as conn:
+                    method = getattr(conn, operation)
+                    return await method(query, *args, timeout=timeout, **kwargs)
+            except (
+                asyncpg.InterfaceError,
+                asyncpg.ConnectionDoesNotExistError,
+            ) as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.1 * (2**attempt))
+                    continue
+                raise
+
+        # Should not reach here, but satisfy type checker
+        if last_error:
+            raise last_error
+        raise RuntimeError("Unexpected state in _execute_with_retry")
 
     async def fetch(
         self, query: str, *args: Any, timeout: Optional[float] = None
     ) -> list[asyncpg.Record]:
         """
         Execute query and fetch all results.
+
+        Retries on transient connection errors with exponential backoff.
 
         Args:
             query: SQL query string with $1, $2, ... placeholders
@@ -382,14 +421,15 @@ class Pool:
         Returns:
             List of Record objects (may be empty)
         """
-        async with self.acquire() as conn:
-            return await conn.fetch(query, *args, timeout=timeout)
+        return await self._execute_with_retry("fetch", query, args, timeout)
 
     async def fetchrow(
         self, query: str, *args: Any, timeout: Optional[float] = None
     ) -> Optional[asyncpg.Record]:
         """
         Execute query and fetch single row.
+
+        Retries on transient connection errors with exponential backoff.
 
         Args:
             query: SQL query string with $1, $2, ... placeholders
@@ -399,14 +439,15 @@ class Pool:
         Returns:
             Single Record or None if no rows
         """
-        async with self.acquire() as conn:
-            return await conn.fetchrow(query, *args, timeout=timeout)
+        return await self._execute_with_retry("fetchrow", query, args, timeout)
 
     async def fetchval(
         self, query: str, *args: Any, column: int = 0, timeout: Optional[float] = None
     ) -> Any:
         """
         Execute query and fetch single value.
+
+        Retries on transient connection errors with exponential backoff.
 
         Args:
             query: SQL query string with $1, $2, ... placeholders
@@ -417,12 +458,13 @@ class Pool:
         Returns:
             Single value from first row, or None if no rows
         """
-        async with self.acquire() as conn:
-            return await conn.fetchval(query, *args, column=column, timeout=timeout)
+        return await self._execute_with_retry("fetchval", query, args, timeout, column=column)
 
     async def execute(self, query: str, *args: Any, timeout: Optional[float] = None) -> str:
         """
         Execute query without returning results.
+
+        Retries on transient connection errors with exponential backoff.
 
         Args:
             query: SQL query string with $1, $2, ... placeholders
@@ -432,8 +474,7 @@ class Pool:
         Returns:
             Status string (e.g., "INSERT 0 1", "UPDATE 5")
         """
-        async with self.acquire() as conn:
-            return await conn.execute(query, *args, timeout=timeout)
+        return await self._execute_with_retry("execute", query, args, timeout)
 
     async def executemany(
         self, query: str, args_list: list[tuple[Any, ...]], timeout: Optional[float] = None
