@@ -32,6 +32,8 @@ from core.base_service import BaseService
 
 
 if TYPE_CHECKING:
+    import ssl
+
     from core.brotr import Brotr
 
 
@@ -87,6 +89,10 @@ class ApiConfig(BaseModel):
     )
     delay_between_requests: float = Field(
         default=1.0, ge=0.0, le=10.0, description="Delay between API requests"
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        description="Verify TLS certificates (disable only for testing/internal APIs)",
     )
 
 
@@ -186,12 +192,13 @@ class Finder(BaseService[FinderConfig]):
         )
 
         # Process events in chunks until no more events or batch limit reached
-        while True:
+        while self.is_running:
             relays: set[str] = set()
             chunk_events = 0
 
             # Query events after cursor position using UNION for index optimization (H9)
             # Split OR into two queries to allow PostgreSQL to use indexes efficiently
+            # UNION (not UNION ALL) handles deduplication in the database
             # Order by (created_at, id) ASC to ensure deterministic pagination
             query = """
                 (
@@ -202,7 +209,7 @@ class Finder(BaseService[FinderConfig]):
                     ORDER BY created_at ASC, id ASC
                     LIMIT $4
                 )
-                UNION ALL
+                UNION
                 (
                     SELECT id, created_at, kind, tags, content
                     FROM events
@@ -223,14 +230,6 @@ class Finder(BaseService[FinderConfig]):
                     last_id,
                     self._config.events.batch_size,
                 )
-                # Deduplicate rows since UNION ALL may return duplicates (event matches both conditions)
-                seen_ids: set[bytes] = set()
-                unique_rows = []
-                for row in rows:
-                    if row["id"] not in seen_ids:
-                        seen_ids.add(row["id"])
-                        unique_rows.append(row)
-                rows = unique_rows
             except Exception as e:
                 self._logger.warning(
                     "event_query_failed", error=str(e), error_type=type(e).__name__
@@ -392,10 +391,26 @@ class Finder(BaseService[FinderConfig]):
         relays: set[str] = set()
         sources_checked = 0
 
+        # Create SSL context based on configuration
+        # verify_ssl=True (default): Use system CA bundle
+        # verify_ssl=False: Disable verification (for testing/internal APIs only)
+        ssl_context: ssl.SSLContext | bool = True
+        if not self._config.api.verify_ssl:
+            ssl_context = False
+            self._logger.warning("ssl_verification_disabled")
+
+        # Create connector with SSL configuration
+        connector = aiohttp.TCPConnector(ssl=ssl_context)
+
         # Reuse a single ClientSession for all API requests (connection pooling)
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=connector) as session:
             enabled_sources = [s for s in self._config.api.sources if s.enabled]
             for i, source in enumerate(enabled_sources):
+                # Check for graceful shutdown before each API call
+                if not self.is_running:
+                    self._logger.info("api_discovery_interrupted", reason="shutdown")
+                    break
+
                 try:
                     source_relays = await self._fetch_single_api(session, source)
                     for relay_url in source_relays:
@@ -451,7 +466,12 @@ class Finder(BaseService[FinderConfig]):
         """
         relays: list[RelayUrl] = []
 
-        timeout = aiohttp.ClientTimeout(total=source.timeout)
+        # Apply granular timeouts: connect within 10s, read within configured total
+        timeout = aiohttp.ClientTimeout(
+            total=source.timeout,
+            connect=min(10.0, source.timeout),  # Connection timeout
+            sock_read=source.timeout,  # Read timeout per socket operation
+        )
         async with session.get(source.url, timeout=timeout) as resp:
             resp.raise_for_status()
             data = await resp.json()
