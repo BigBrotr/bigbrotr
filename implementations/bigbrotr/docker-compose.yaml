@@ -33,7 +33,7 @@ services:
       - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
 
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
     networks:
       - bigbrotr-network
@@ -82,7 +82,7 @@ services:
       AUTH_TYPE: scram-sha-256
 
     ports:
-      - "6432:5432"
+      - "127.0.0.1:6432:5432"
 
     networks:
       - bigbrotr-network
@@ -114,7 +114,7 @@ services:
     restart: unless-stopped
 
     ports:
-      - "9050:9050"
+      - "127.0.0.1:9050:9050"
 
     networks:
       - bigbrotr-network
