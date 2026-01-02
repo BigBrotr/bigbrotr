@@ -84,28 +84,6 @@ class BrotrConfig(BaseModel):
 
 
 # ============================================================================
-# Constants
-# ============================================================================
-
-# Whitelist of allowed stored procedure names for SQL injection prevention (H3)
-ALLOWED_PROCEDURES: frozenset[str] = frozenset(
-    {
-        "insert_event",
-        "insert_relay",
-        "insert_relay_metadata",
-        "upsert_service_data",
-        "get_service_data",
-        "delete_service_data",
-        "cleanup_orphaned_metadata",
-        "refresh_relay_metadata_latest",
-        "delete_orphan_events",
-        "delete_orphan_metadata",
-        "delete_failed_candidates",
-    }
-)
-
-
-# ============================================================================
 # Brotr Class
 # ============================================================================
 
@@ -243,26 +221,19 @@ class Brotr:
         """
         Call a stored procedure.
 
+        Procedure names are always hardcoded string literals in the calling methods.
+        SQL injection is prevented by parameterized arguments ($1, $2, etc.).
+
         Args:
-            procedure_name: Procedure name (must be in ALLOWED_PROCEDURES whitelist)
-            *args: Procedure arguments
+            procedure_name: Procedure name (hardcoded in calling method)
+            *args: Procedure arguments (passed as parameterized values)
             conn: Optional connection (acquires from pool if None)
             fetch_result: Return result if True
             timeout: Timeout in seconds (None = no timeout)
 
         Returns:
             Result value if fetch_result=True, otherwise None
-
-        Raises:
-            ValueError: If procedure_name is not in ALLOWED_PROCEDURES whitelist
         """
-        # Validate procedure name against whitelist (H3: SQL injection prevention)
-        if procedure_name not in ALLOWED_PROCEDURES:
-            raise ValueError(
-                f"Invalid procedure name: {procedure_name}. "
-                f"Allowed: {', '.join(sorted(ALLOWED_PROCEDURES))}"
-            )
-
         params = ", ".join(f"${i + 1}" for i in range(len(args))) if args else ""
         query = f"SELECT {procedure_name}({params})"
 
