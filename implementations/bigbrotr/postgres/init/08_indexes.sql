@@ -50,6 +50,13 @@ ON events USING btree (pubkey, kind, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_tagvalues
 ON events USING gin (tagvalues);
 
+-- Index: idx_events_created_at_id_asc (H10)
+-- Purpose: Optimized cursor-based pagination for Finder service
+-- Usage: WHERE (created_at, id) > ($1, $2) ORDER BY created_at ASC, id ASC
+-- Note: Enables efficient forward scans for event discovery
+CREATE INDEX IF NOT EXISTS idx_events_created_at_id_asc
+ON events USING btree (created_at ASC, id ASC);
+
 -- ============================================================================
 -- TABLE INDEXES: events_relays
 -- Purpose: Optimize relay-event relationship queries
