@@ -1,4 +1,13 @@
-"""Tests for models.relay module."""
+"""
+Unit tests for models.relay module.
+
+Tests:
+- URL parsing and normalization (wss/ws, with/without ports)
+- Network detection (clearnet, tor, i2p, loki)
+- Host, port, and scheme extraction
+- to_db_params() serialization
+- Immutability and hash/equality
+"""
 
 from time import time
 

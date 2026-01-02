@@ -741,21 +741,19 @@ class TestMonitorFetchRelays:
         geo_db = tmp_path / "GeoLite2-City.mmdb"
         geo_db.write_bytes(b"fake")
 
+        # Single query with JOIN returns relays that need checking
         mock_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            side_effect=[
-                [],  # First call: get_service_data returns no checkpoints
-                [  # Second call: relay query
-                    {
-                        "url": "wss://relay1.example.com",
-                        "network": "clearnet",
-                        "discovered_at": 1700000000,
-                    },
-                    {
-                        "url": "wss://relay2.example.com",
-                        "network": "clearnet",
-                        "discovered_at": 1700000000,
-                    },
-                ],
+            return_value=[
+                {
+                    "url": "wss://relay1.example.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
+                {
+                    "url": "wss://relay2.example.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
             ]
         )
 
@@ -779,17 +777,15 @@ class TestMonitorFetchRelays:
         geo_db = tmp_path / "GeoLite2-City.mmdb"
         geo_db.write_bytes(b"fake")
 
+        # Single query with JOIN returns relays that need checking
         mock_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            side_effect=[
-                [],  # First call: get_service_data returns no checkpoints
-                [  # Second call: relay query
-                    {
-                        "url": "wss://valid.relay.com",
-                        "network": "clearnet",
-                        "discovered_at": 1700000000,
-                    },
-                    {"url": "invalid-url", "network": "unknown", "discovered_at": 1700000000},
-                ],
+            return_value=[
+                {
+                    "url": "wss://valid.relay.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
+                {"url": "invalid-url", "network": "unknown", "discovered_at": 1700000000},
             ]
         )
 
@@ -813,17 +809,15 @@ class TestMonitorFetchRelays:
         geo_db.write_bytes(b"fake")
 
         onion_url = "ws://oxtrdevav64z64yb7x6rjg4ntzqjhedm5b5zjqulugknhzr46ny2qbad.onion"
+        # Single query with JOIN returns relays that need checking
         mock_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            side_effect=[
-                [],  # First call: get_service_data returns no checkpoints
-                [  # Second call: relay query
-                    {
-                        "url": "wss://clearnet.relay.com",
-                        "network": "clearnet",
-                        "discovered_at": 1700000000,
-                    },
-                    {"url": onion_url, "network": "tor", "discovered_at": 1700000000},
-                ],
+            return_value=[
+                {
+                    "url": "wss://clearnet.relay.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
+                {"url": onion_url, "network": "tor", "discovered_at": 1700000000},
             ]
         )
 

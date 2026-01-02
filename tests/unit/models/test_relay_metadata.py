@@ -1,4 +1,13 @@
-"""Tests for models.relay_metadata module."""
+"""
+Unit tests for models.relay_metadata module.
+
+Tests:
+- RelayMetadata construction from Relay and Metadata
+- MetadataType literal values (nip11, nip66_rtt, nip66_ssl, nip66_geo)
+- to_db_params() serialization for bulk insert
+- generated_at timestamp handling
+- Immutability enforcement
+"""
 
 import json
 from time import time

@@ -1,4 +1,14 @@
-"""Tests for models.nip11 module."""
+"""
+Unit tests for models.nip11 module.
+
+Tests:
+- NIP-11 property accessors (name, description, pubkey, contact)
+- Limitation fields (max_message_length, auth_required, etc.)
+- Fee fields (admission, subscription, publication)
+- Retention and language fields
+- to_relay_metadata() conversion
+- Nip11.fetch() async HTTP client
+"""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -92,10 +102,13 @@ class TestFetch:
 
     @pytest.mark.asyncio
     async def test_success(self, relay):
+        mock_content = AsyncMock()
+        mock_content.read = AsyncMock(return_value=b'{"name": "Test"}')
+
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.headers = {"Content-Type": "application/nostr+json"}
-        mock_response.json = AsyncMock(return_value={"name": "Test"})
+        mock_response.content = mock_content
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 

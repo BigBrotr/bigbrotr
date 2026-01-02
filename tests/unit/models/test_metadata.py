@@ -1,4 +1,13 @@
-"""Tests for models.metadata module."""
+"""
+Unit tests for models.metadata module.
+
+Tests:
+- Construction from dict
+- Immutability enforcement
+- JSON serialization (data_jsonb property)
+- Type-safe getters (_get, _get_optional, _get_nested)
+- Equality and hashing
+"""
 
 import json
 

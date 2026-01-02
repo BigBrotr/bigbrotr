@@ -1,4 +1,16 @@
-"""Tests for core.base_service module."""
+"""
+Unit tests for core.base_service module.
+
+Tests:
+- BaseService initialization with Brotr and config
+- Factory methods (from_yaml, from_dict)
+- run_forever() continuous execution with intervals
+- Graceful shutdown via request_shutdown()
+- wait() interruptible sleep
+- is_running property
+- Context manager support (__aenter__/__aexit__)
+- Consecutive failure handling
+"""
 
 import asyncio
 from typing import Optional

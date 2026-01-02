@@ -1,4 +1,13 @@
-"""Tests for models.keys module."""
+"""
+Unit tests for models.keys module.
+
+Tests:
+- Keys construction from hex private key
+- Keys construction from nsec (bech32) format
+- Environment variable loading (from_env)
+- Public key derivation
+- Invalid key handling
+"""
 
 import os
 from unittest.mock import patch

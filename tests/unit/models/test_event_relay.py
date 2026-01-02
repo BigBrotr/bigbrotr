@@ -1,4 +1,12 @@
-"""Tests for models.event_relay module."""
+"""
+Unit tests for models.event_relay module.
+
+Tests:
+- EventRelay construction from Event and Relay
+- to_db_params() serialization for bulk insert
+- seen_at timestamp handling
+- Immutability enforcement
+"""
 
 from time import time
 from unittest.mock import MagicMock
