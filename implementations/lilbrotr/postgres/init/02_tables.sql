@@ -22,28 +22,28 @@ COMMENT ON COLUMN relays.network IS 'Network type: clearnet or tor';
 COMMENT ON COLUMN relays.discovered_at IS 'Unix timestamp when relay was first discovered and validated';
 
 -- Table: events
--- Description: Stores Nostr events with essential metadata only (no tags/content)
+-- Description: Stores Nostr events with essential metadata only (no tags/content/sig)
 -- Notes:
 --   - Uses BYTEA for efficient storage (50% space savings vs CHAR)
---   - Omits tags, tagvalues, and content for lightweight storage (~60% total savings)
---   - Tag-based queries are NOT supported in LilBrotr
+--   - Stores tagvalues (computed at insert) for tag-based queries
+--   - Omits tags, content, sig for lightweight storage (~60% total savings)
 CREATE TABLE IF NOT EXISTS events (
     id BYTEA PRIMARY KEY,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
-    -- tags      JSONB       -- NOT STORED in LilBrotr
-    -- tagvalues TEXT[]      -- NOT STORED in LilBrotr (no tags to index)
-    -- content   TEXT        -- NOT STORED in LilBrotr
-    sig BYTEA NOT NULL
+    tagvalues TEXT[]              -- Computed by insert_event from tags, NOT a generated column
+    -- tags      JSONB           -- NOT STORED in LilBrotr
+    -- content   TEXT            -- NOT STORED in LilBrotr
+    -- sig       BYTEA           -- NOT STORED in LilBrotr
 );
 
-COMMENT ON TABLE events IS 'Nostr events with essential metadata only (no tags/content for lightweight storage)';
+COMMENT ON TABLE events IS 'Nostr events (lightweight: tagvalues only, no tags/content/sig)';
 COMMENT ON COLUMN events.id IS 'SHA-256 hash of serialized event (stored as bytea from hex string)';
 COMMENT ON COLUMN events.pubkey IS 'Author public key (stored as bytea from hex string)';
 COMMENT ON COLUMN events.created_at IS 'Unix timestamp when event was created';
 COMMENT ON COLUMN events.kind IS 'Event kind per NIP-01 (0=metadata, 1=text, 3=contacts, etc.)';
-COMMENT ON COLUMN events.sig IS 'Schnorr signature over event fields (stored as bytea from hex string)';
+COMMENT ON COLUMN events.tagvalues IS 'Computed array of single-char tag values for GIN indexing';
 
 -- Table: events_relays
 -- Description: Junction table tracking which events are hosted on which relays
