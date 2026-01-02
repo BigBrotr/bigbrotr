@@ -3,6 +3,7 @@
 # ============================================================================
 # Description: Complete containerized deployment for BigBrotr
 # Components: PostgreSQL, PGBouncer, Tor (optional)
+# Note: BigBrotr stores full Nostr events (tags, content, sig)
 # Usage: docker-compose up -d
 # ============================================================================
 
@@ -70,7 +71,7 @@ services:
   # Requires: yaml/core/brotr.pgbouncer.yaml configuration
 
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: edoburu/pgbouncer:v1.25.1-p0
     container_name: bigbrotr-pgbouncer
     restart: unless-stopped
 
@@ -109,7 +110,7 @@ services:
   # Provides SOCKS5 proxy for .onion relay support
 
   tor:
-    image: dperson/torproxy:latest
+    image: osminogin/tor-simple:0.4.8.10
     container_name: bigbrotr-tor
     restart: unless-stopped
 
@@ -120,7 +121,7 @@ services:
       - bigbrotr-network
 
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 0.0.0.0 9050 || exit 1"]
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
