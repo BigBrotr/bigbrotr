@@ -1,3 +1,10 @@
+"""
+Relay model for BigBrotr.
+
+Provides the Relay class for representing validated Nostr relay URLs
+with automatic URL normalization and network type detection.
+"""
+
 from dataclasses import dataclass
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from time import time
@@ -10,7 +17,35 @@ from rfc3986.validators import Validator
 
 @dataclass(frozen=True)
 class Relay:
-    """Immutable representation of a Nostr relay."""
+    """
+    Immutable representation of a Nostr relay.
+
+    Validates and normalizes WebSocket URLs (ws:// or wss://), auto-detecting
+    network type (clearnet, tor, i2p, loki). Rejects local/private addresses.
+
+    Attributes:
+        url_without_scheme: Unique identifier without scheme (e.g., "relay.example.com:8080/path").
+        network: Detected network type ("clearnet", "tor", "i2p", "loki").
+        discovered_at: Unix timestamp when the relay was discovered.
+        scheme: URL scheme ("ws" or "wss").
+        host: Hostname or IP address.
+        port: Port number or None if using default (443 for wss, 80 for ws).
+        path: URL path or None.
+
+    Example:
+        >>> relay = Relay("wss://relay.example.com")
+        >>> relay.url
+        'wss://relay.example.com'
+        >>> relay.network
+        'clearnet'
+
+        >>> tor_relay = Relay("ws://abc123.onion")
+        >>> tor_relay.network
+        'tor'
+
+    Raises:
+        ValueError: If URL is invalid, uses unsupported scheme, or is a local address.
+    """
 
     url_without_scheme: str  # Unique identifier (e.g., relay.example.com:8080/path)
     network: str
@@ -129,7 +164,18 @@ class Relay:
 
     @staticmethod
     def _parse(raw: str) -> dict[str, Any]:
-        """Parse and normalize URL. Returns components dict."""
+        """
+        Parse and normalize a relay URL.
+
+        Args:
+            raw: Raw URL string to parse.
+
+        Returns:
+            Dictionary with keys: url, scheme, host, port, path.
+
+        Raises:
+            ValueError: If URL is invalid or uses unsupported scheme.
+        """
         uri = uri_reference(raw.strip()).normalize()
 
         validator = (
@@ -212,8 +258,8 @@ class Relay:
         object.__setattr__(instance, "path", parsed["path"])
         return instance
 
-    def __init__(self, raw: str, discovered_at: Optional[int] = None):
-        """Empty __init__ - all initialization done in __new__ for frozen dataclass."""
+    def __init__(self, raw: str, discovered_at: Optional[int] = None) -> None:
+        """Empty initializer; all initialization is performed in __new__ for frozen dataclass."""
 
     def to_db_params(self) -> tuple[str, str, int]:
         """

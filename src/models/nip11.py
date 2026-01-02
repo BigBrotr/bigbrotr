@@ -1,8 +1,16 @@
 """
-NIP-11 types for BigBrotr.
+NIP-11 Relay Information Document model for BigBrotr.
 
-Provides Nip11 class for relay information documents.
-Nip11 is a factory that generates RelayMetadata objects.
+Provides the Nip11 class for fetching and parsing relay information documents
+per NIP-11 specification. Includes type-safe property access for all standard
+NIP-11 fields and conversion to RelayMetadata for database storage.
+
+See: https://github.com/nostr-protocol/nips/blob/master/11.md
+
+Example:
+    >>> nip11 = await Nip11.fetch(relay)
+    >>> if nip11:
+    ...     print(f"Relay: {nip11.name}, NIPs: {nip11.supported_nips}")
 """
 
 import json
@@ -23,14 +31,42 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
+# Maximum size for NIP-11 responses (1MB) to prevent memory exhaustion
+MAX_NIP11_SIZE = 1_048_576
+
 
 @dataclass(frozen=True)
 class Nip11:
     """
     Immutable NIP-11 relay information document.
 
-    Fetches and parses NIP-11 documents, providing type-safe property access
-    and conversion to RelayMetadata for database storage.
+    Fetches and parses NIP-11 documents via HTTP with the Accept: application/nostr+json
+    header. Provides type-safe property access for all standard NIP-11 fields and
+    conversion to RelayMetadata for content-addressed database storage.
+
+    Attributes:
+        relay: The Relay this information document belongs to.
+        metadata: Parsed JSON data wrapped in a Metadata object.
+        generated_at: Unix timestamp when the document was fetched.
+
+    NIP-11 Fields (accessible as properties):
+        - name, description, banner, icon: Relay display information
+        - pubkey, contact: Operator contact information
+        - supported_nips: List of supported NIP numbers
+        - software, version: Relay software identification
+        - limitation_*: Rate limits and restrictions (auth_required, payment_required, etc.)
+        - retention: Data retention policies
+        - relay_countries: Countries where relay operates
+        - language_tags: Supported content languages
+        - fees_*: Payment requirements for various operations
+
+    Example:
+        >>> nip11 = await Nip11.fetch(relay)
+        >>> if nip11:
+        ...     print(f"Name: {nip11.name}")
+        ...     print(f"Supported NIPs: {nip11.supported_nips}")
+        ...     if nip11.limitation_auth_required:
+        ...         print("Authentication required")
     """
 
     relay: Relay
@@ -282,10 +318,20 @@ class Nip11:
                 if "json" not in content_type.lower():
                     return None
 
+                # Read response with size limit to prevent memory exhaustion
+                try:
+                    body = await resp.content.read(MAX_NIP11_SIZE + 1)
+                except Exception:
+                    return None
+
+                # Reject responses that exceed size limit
+                if len(body) > MAX_NIP11_SIZE:
+                    return None
+
                 # Safely parse JSON
                 try:
-                    data = await resp.json()
-                except (aiohttp.ContentTypeError, json.JSONDecodeError):
+                    data = json.loads(body)
+                except (json.JSONDecodeError, ValueError):
                     return None
 
                 if not isinstance(data, dict):
