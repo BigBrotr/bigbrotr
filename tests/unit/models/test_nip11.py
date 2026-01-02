@@ -189,3 +189,65 @@ class TestFetch:
             await Nip11.fetch(relay)
             headers = mock_get.call_args[1]["headers"]
             assert headers["Accept"] == "application/nostr+json"
+
+    @pytest.mark.asyncio
+    async def test_valid_content_types_accepted(self, relay):
+        """Test valid JSON content types are accepted."""
+        valid_types = [
+            "application/nostr+json",
+            "application/json",
+            "application/nostr+json; charset=utf-8",
+            "application/json; charset=utf-8",
+        ]
+
+        for content_type in valid_types:
+            mock_content = AsyncMock()
+            mock_content.read = AsyncMock(return_value=b'{"name": "Test"}')
+
+            mock_response = AsyncMock()
+            mock_response.status = 200
+            mock_response.headers = {"Content-Type": content_type}
+            mock_response.content = mock_content
+            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_response.__aexit__ = AsyncMock(return_value=None)
+
+            mock_session = AsyncMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("models.nip11.aiohttp.ClientSession", return_value=mock_session):
+                result = await Nip11.fetch(relay)
+                assert result is not None, f"Should accept Content-Type: {content_type}"
+
+    @pytest.mark.asyncio
+    async def test_invalid_content_types_rejected(self, relay):
+        """Test invalid content types are rejected."""
+        invalid_types = [
+            "text/html",
+            "text/plain",
+            "text/json",  # Not a standard JSON type
+            "application/xml",
+            "application/javascript",
+            "",  # Empty
+        ]
+
+        for content_type in invalid_types:
+            mock_content = AsyncMock()
+            mock_content.read = AsyncMock(return_value=b'{"name": "Test"}')
+
+            mock_response = AsyncMock()
+            mock_response.status = 200
+            mock_response.headers = {"Content-Type": content_type}
+            mock_response.content = mock_content
+            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_response.__aexit__ = AsyncMock(return_value=None)
+
+            mock_session = AsyncMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("models.nip11.aiohttp.ClientSession", return_value=mock_session):
+                result = await Nip11.fetch(relay)
+                assert result is None, f"Should reject Content-Type: {content_type}"

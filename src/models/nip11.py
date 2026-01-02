@@ -313,9 +313,15 @@ class Nip11:
                 if resp.status != 200:
                     return None
 
-                # Validate Content-Type is JSON
+                # Validate Content-Type per NIP-11: must be application/nostr+json
+                # or at minimum a valid JSON content type
                 content_type = resp.headers.get("Content-Type", "")
-                if "json" not in content_type.lower():
+                content_type_lower = content_type.lower().split(";")[0].strip()
+                valid_types = (
+                    "application/nostr+json",  # NIP-11 standard
+                    "application/json",  # Common fallback
+                )
+                if content_type_lower not in valid_types:
                     return None
 
                 # Read response with size limit to prevent memory exhaustion
