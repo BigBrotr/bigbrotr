@@ -15,16 +15,16 @@
 --   - Uses unnest for single-roundtrip bulk insert
 --   - Uses ON CONFLICT DO NOTHING for idempotency
 --   - All three inserts happen atomically in one transaction
---   - LilBrotr: Same interface as BigBrotr but ignores p_tags and p_contents
---   - This ensures Python code works identically with both implementations
+--   - LilBrotr: Same interface as BigBrotr but only stores tagvalues (computed)
+--   - Discards: tags (JSONB), content (TEXT), sig (BYTEA) - ~60% disk savings
 CREATE OR REPLACE FUNCTION insert_event(
     p_event_ids BYTEA[],
     p_pubkeys BYTEA[],
     p_created_ats BIGINT[],
     p_kinds INTEGER[],
-    p_tags JSONB[],           -- Accepted but NOT stored in LilBrotr
+    p_tags JSONB[],           -- Used to compute tagvalues, NOT stored
     p_contents TEXT[],        -- Accepted but NOT stored in LilBrotr
-    p_sigs BYTEA[],
+    p_sigs BYTEA[],           -- Accepted but NOT stored in LilBrotr
     p_relay_urls TEXT[],
     p_relay_networks TEXT[],
     p_relay_discovered_ats BIGINT[],
@@ -34,17 +34,11 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    -- Bulk insert events (idempotent)
-    -- Note: LilBrotr ignores p_tags and p_contents - they are NOT stored
-    INSERT INTO events (id, pubkey, created_at, kind, sig)
-    SELECT id, pubkey, created_at, kind, sig
-    FROM unnest(
-        p_event_ids,
-        p_pubkeys,
-        p_created_ats,
-        p_kinds,
-        p_sigs
-    ) AS t(id, pubkey, created_at, kind, sig)
+    -- Bulk insert events (compute tagvalues, discard tags/content/sig)
+    INSERT INTO events (id, pubkey, created_at, kind, tagvalues)
+    SELECT id, pubkey, created_at, kind, tags_to_tagvalues(tags)
+    FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags)
+        AS t(id, pubkey, created_at, kind, tags)
     ON CONFLICT (id) DO NOTHING;
 
     -- Bulk insert relays (idempotent, deduplicated)
@@ -68,7 +62,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION insert_event(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[], TEXT[], TEXT[], BIGINT[], BIGINT[]) IS
-'Bulk insert events, relays, and their associations atomically. LilBrotr: accepts tags/content but does NOT store them.';
+'Bulk insert events (tagvalues computed, tags/content/sig discarded)';
 
 -- Function: insert_relay
 -- Description: Bulk insert validated relay records

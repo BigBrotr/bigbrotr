@@ -3,7 +3,7 @@
 -- ============================================================================
 -- File: 08_indexes.sql
 -- Description: All database indexes
--- Note: No tagvalues index since LilBrotr doesn't store tags
+-- Note: Includes tagvalues GIN index for tag-based queries
 -- Dependencies: 02_tables.sql, 06_materialized_views.sql
 -- ============================================================================
 
@@ -44,10 +44,14 @@ ON events USING btree (pubkey, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_pubkey_kind_created_at
 ON events USING btree (pubkey, kind, created_at DESC);
 
--- Note: idx_events_tagvalues is NOT created in LilBrotr
--- LilBrotr does not store tags, so tag-based queries are not supported
+-- Index: idx_events_tagvalues
+-- Purpose: Fast tag-based queries using GIN index on computed tagvalues array
+-- Usage: WHERE tagvalues @> ARRAY['value'] (finds events with specific tag values)
+-- Note: Critical for relay discovery from r-tags in kind 10002 events
+CREATE INDEX IF NOT EXISTS idx_events_tagvalues
+ON events USING gin (tagvalues);
 
--- Index: idx_events_created_at_id_asc (H10)
+-- Index: idx_events_created_at_id_asc
 -- Purpose: Optimized cursor-based pagination for Finder service
 -- Usage: WHERE (created_at, id) > ($1, $2) ORDER BY created_at ASC, id ASC
 -- Note: Enables efficient forward scans for event discovery

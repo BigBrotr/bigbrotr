@@ -3,17 +3,32 @@
 -- ============================================================================
 -- File: 01_functions_utility.sql
 -- Description: Utility Functions
--- Note: LilBrotr does not use tags_to_tagvalues since it doesn't store tags
 -- Dependencies: 00_extensions.sql
 -- ============================================================================
 
--- Note: LilBrotr does not need tags_to_tagvalues function because:
--- 1. It does not store the 'tags' column
--- 2. It does not have the 'tagvalues' generated column
--- 3. Tag-based queries are not supported in this lightweight implementation
---
--- If you need tag-based queries, use BigBrotr instead.
+-- Function: tags_to_tagvalues
+-- Description: Extracts tag values from single-letter tags for GIN indexing
+-- Input: JSONB array of tags [[tag_name, value, ...], ...]
+-- Output: TEXT[] of values from single-letter tags
+-- Note: LilBrotr computes tagvalues at insert time (not a generated column)
+CREATE OR REPLACE FUNCTION tags_to_tagvalues(p_tags JSONB)
+RETURNS TEXT[]
+LANGUAGE plpgsql
+IMMUTABLE
+RETURNS NULL ON NULL INPUT
+AS $$
+BEGIN
+    RETURN (
+        SELECT array_agg(tag_element->>1)
+        FROM jsonb_array_elements(p_tags) AS tag_element
+        WHERE length(tag_element->>0) = 1
+    );
+END;
+$$;
+
+COMMENT ON FUNCTION tags_to_tagvalues(JSONB) IS
+'Extracts values from single-letter tags for GIN indexing';
 
 -- ============================================================================
--- UTILITY FUNCTIONS (NONE FOR LILBROTR)
+-- UTILITY FUNCTIONS CREATED
 -- ============================================================================
