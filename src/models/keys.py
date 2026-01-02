@@ -2,7 +2,7 @@
 Extended Nostr key management for BigBrotr.
 
 Provides the Keys class for loading Nostr keypairs from hex strings
-or environment variables, wrapping nostr_sdk.Keys with additional convenience methods.
+or environment variables, extending nostr_sdk.Keys with additional convenience methods.
 
 Example:
     >>> keys = Keys.from_env("PRIVATE_KEY")
@@ -17,12 +17,12 @@ from nostr_sdk import Keys as NostrKeys
 from nostr_sdk import SecretKey
 
 
-class Keys(NostrKeys):  # type: ignore[misc]
+class Keys(NostrKeys):
     """
     Extended Nostr keys with environment variable loading.
 
-    Inherits from nostr_sdk.Keys and adds the from_env() factory method
-    for loading keypairs from environment variables (common in containerized deployments).
+    Inherits from nostr_sdk.Keys to provide full SDK compatibility
+    while adding convenience methods for loading from environment variables.
 
     Example:
         >>> keys = Keys.from_env("PRIVATE_KEY")
