@@ -334,7 +334,12 @@ def build_kind_30166_tags(
 
 
 def build_kind_10166_tags(config: MonitorConfig) -> list[Tag]:
-    """Build NIP-66 Kind 10166 monitor announcement tags."""
+    """Build NIP-66 Kind 10166 monitor announcement tags.
+
+    Tag format per NIP-66: ["timeout", <test_type>, <milliseconds>]
+    - Index 1: test type (open, read, write, nip11)
+    - Index 2: timeout value in milliseconds
+    """
     tags = [
         Tag.parse(["frequency", str(int(config.interval))]),
         Tag.parse(["timeout", "open", str(int(config.timeouts.clearnet * 1000))]),
@@ -464,6 +469,11 @@ class Monitor(BaseService[MonitorConfig]):
         chunk_size = max(self._config.concurrency.max_parallel * 4, 100)
 
         for chunk_start in range(0, len(relays), chunk_size):
+            # Check for graceful shutdown between chunks
+            if not self.is_running:
+                self._logger.info("monitor_interrupted", reason="shutdown", processed=chunk_start)
+                break
+
             chunk = relays[chunk_start : chunk_start + chunk_size]
 
             # Create task-to-relay mapping for this chunk only
