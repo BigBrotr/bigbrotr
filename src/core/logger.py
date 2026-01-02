@@ -83,25 +83,31 @@ class Logger:
         return f"{msg} {pairs}"
 
     def debug(self, msg: str, **kwargs: Any) -> None:
+        """Log a DEBUG level message with optional key=value pairs."""
         if self._logger.isEnabledFor(logging.DEBUG):
             self._logger.debug(self._format_message(msg, kwargs))
 
     def info(self, msg: str, **kwargs: Any) -> None:
+        """Log an INFO level message with optional key=value pairs."""
         if self._logger.isEnabledFor(logging.INFO):
             self._logger.info(self._format_message(msg, kwargs))
 
     def warning(self, msg: str, **kwargs: Any) -> None:
+        """Log a WARNING level message with optional key=value pairs."""
         if self._logger.isEnabledFor(logging.WARNING):
             self._logger.warning(self._format_message(msg, kwargs))
 
     def error(self, msg: str, **kwargs: Any) -> None:
+        """Log an ERROR level message with optional key=value pairs."""
         if self._logger.isEnabledFor(logging.ERROR):
             self._logger.error(self._format_message(msg, kwargs))
 
     def critical(self, msg: str, **kwargs: Any) -> None:
+        """Log a CRITICAL level message with optional key=value pairs."""
         if self._logger.isEnabledFor(logging.CRITICAL):
             self._logger.critical(self._format_message(msg, kwargs))
 
     def exception(self, msg: str, **kwargs: Any) -> None:
+        """Log an ERROR level message with exception traceback and optional key=value pairs."""
         if self._logger.isEnabledFor(logging.ERROR):
             self._logger.exception(self._format_message(msg, kwargs))

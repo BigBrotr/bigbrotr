@@ -14,7 +14,7 @@ storage using dedicated database tables.
 import asyncio
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar, Generic, Optional, TypeVar
+from typing import Any, ClassVar, Generic, Optional, TypeVar, cast
 
 import yaml
 from pydantic import BaseModel
@@ -59,7 +59,9 @@ class BaseService(ABC, Generic[ConfigT]):
 
     def __init__(self, brotr: Brotr, config: Optional[ConfigT] = None) -> None:
         self._brotr = brotr
-        self._config: ConfigT = config if config is not None else self.CONFIG_CLASS()  # type: ignore[assignment]
+        self._config: ConfigT = (
+            config if config is not None else cast("ConfigT", self.CONFIG_CLASS())
+        )
         self._logger = Logger(self.SERVICE_NAME)
         # Use shutdown event as single source of truth to avoid race conditions
         # Event not set = service is running, Event set = shutdown requested
