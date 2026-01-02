@@ -2,184 +2,207 @@
 -- LilBrotr Database Initialization Script
 -- ============================================================================
 -- File: 03_functions_crud.sql
--- Description: CRUD Functions for data operations (lightweight version)
--- Note: insert_event omits tags and content parameters
+-- Description: CRUD Functions for data operations (bulk optimized with unnest)
+-- Note: insert_event accepts tags/content parameters but does NOT store them
 -- Dependencies: 02_tables.sql
 -- ============================================================================
 
 -- Function: insert_event
--- Description: Atomically inserts event + relay + event-relay junction record
--- Parameters: Event fields, relay info, and seen_at timestamp
+-- Description: Bulk insert events + relays + event-relay junction records
+-- Parameters: Arrays of event fields, relay info, and seen_at timestamps
 -- Returns: VOID
 -- Notes:
+--   - Uses unnest for single-roundtrip bulk insert
 --   - Uses ON CONFLICT DO NOTHING for idempotency
---   - LilBrotr: Same interface as BigBrotr but ignores p_tags and p_content
+--   - All three inserts happen atomically in one transaction
+--   - LilBrotr: Same interface as BigBrotr but ignores p_tags and p_contents
 --   - This ensures Python code works identically with both implementations
 CREATE OR REPLACE FUNCTION insert_event(
-    p_event_id BYTEA,
-    p_pubkey BYTEA,
-    p_created_at BIGINT,
-    p_kind INTEGER,
-    p_tags JSONB,      -- Accepted but NOT stored in LilBrotr
-    p_content TEXT,       -- Accepted but NOT stored in LilBrotr
-    p_sig BYTEA,
-    p_relay_url TEXT,
-    p_relay_network TEXT,
-    p_relay_discovered_at BIGINT,
-    p_seen_at BIGINT
+    p_event_ids BYTEA[],
+    p_pubkeys BYTEA[],
+    p_created_ats BIGINT[],
+    p_kinds INTEGER[],
+    p_tags JSONB[],           -- Accepted but NOT stored in LilBrotr
+    p_contents TEXT[],        -- Accepted but NOT stored in LilBrotr
+    p_sigs BYTEA[],
+    p_relay_urls TEXT[],
+    p_relay_networks TEXT[],
+    p_relay_discovered_ats BIGINT[],
+    p_seen_ats BIGINT[]
 )
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    -- Insert event (idempotent)
-    -- Note: LilBrotr ignores p_tags and p_content - they are NOT stored
+    -- Bulk insert events (idempotent)
+    -- Note: LilBrotr ignores p_tags and p_contents - they are NOT stored
     INSERT INTO events (id, pubkey, created_at, kind, sig)
-    VALUES (p_event_id, p_pubkey, p_created_at, p_kind, p_sig)
+    SELECT id, pubkey, created_at, kind, sig
+    FROM unnest(
+        p_event_ids,
+        p_pubkeys,
+        p_created_ats,
+        p_kinds,
+        p_sigs
+    ) AS t(id, pubkey, created_at, kind, sig)
     ON CONFLICT (id) DO NOTHING;
 
-    -- Insert relay (idempotent) - relay must already exist (validated by Validator)
+    -- Bulk insert relays (idempotent, deduplicated)
     INSERT INTO relays (url, network, discovered_at)
-    VALUES (p_relay_url, p_relay_network, p_relay_discovered_at)
+    SELECT DISTINCT * FROM unnest(
+        p_relay_urls,
+        p_relay_networks,
+        p_relay_discovered_ats
+    )
     ON CONFLICT (url) DO NOTHING;
 
-    -- Insert event-relay association (idempotent)
+    -- Bulk insert event-relay associations (idempotent)
     INSERT INTO events_relays (event_id, relay_url, seen_at)
-    VALUES (p_event_id, p_relay_url, p_seen_at)
+    SELECT * FROM unnest(
+        p_event_ids,
+        p_relay_urls,
+        p_seen_ats
+    )
     ON CONFLICT (event_id, relay_url) DO NOTHING;
-
-EXCEPTION
-    WHEN unique_violation THEN
-        -- OK, duplicate record (idempotent operation)
-        RETURN;
-    WHEN foreign_key_violation THEN
-        -- Critical: relay doesn't exist
-        RAISE EXCEPTION 'Relay % does not exist for event %', p_relay_url, p_event_id;
-    WHEN OTHERS THEN
-        -- Unknown error, fail loudly
-        RAISE EXCEPTION 'insert_event failed for event %: %', p_event_id, SQLERRM;
 END;
 $$;
 
-COMMENT ON FUNCTION insert_event IS 'Atomically inserts event, relay, and their association. LilBrotr: accepts tags/content but does NOT store them.';
+COMMENT ON FUNCTION insert_event(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[], TEXT[], TEXT[], BIGINT[], BIGINT[]) IS
+'Bulk insert events, relays, and their associations atomically. LilBrotr: accepts tags/content but does NOT store them.';
 
 -- Function: insert_relay
--- Description: Inserts a validated relay record
--- Parameters: Relay URL, network type, insertion timestamp
+-- Description: Bulk insert validated relay records
+-- Parameters: Arrays of relay URL, network type, discovery timestamp
 -- Returns: VOID
 CREATE OR REPLACE FUNCTION insert_relay(
-    p_url TEXT,
-    p_network TEXT,
-    p_discovered_at BIGINT
+    p_urls TEXT[],
+    p_networks TEXT[],
+    p_discovered_ats BIGINT[]
 )
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
     INSERT INTO relays (url, network, discovered_at)
-    VALUES (p_url, p_network, p_discovered_at)
+    SELECT * FROM unnest(p_urls, p_networks, p_discovered_ats)
     ON CONFLICT (url) DO NOTHING;
-
-EXCEPTION
-    WHEN unique_violation THEN
-        -- OK, duplicate relay (idempotent operation)
-        RETURN;
-    WHEN OTHERS THEN
-        -- Unknown error, fail loudly
-        RAISE EXCEPTION 'insert_relay failed for %: %', p_url, SQLERRM;
 END;
 $$;
 
-COMMENT ON FUNCTION insert_relay IS 'Inserts validated relay with conflict handling';
+COMMENT ON FUNCTION insert_relay(TEXT[], TEXT[], BIGINT[]) IS
+'Bulk insert validated relays with conflict handling';
 
 -- Function: insert_relay_metadata
--- Description: Inserts relay metadata with automatic deduplication
+-- Description: Bulk insert relay metadata with automatic deduplication
 -- Parameters:
---   p_relay_url: Relay WebSocket URL
---   p_relay_network: Network type (clearnet/tor)
---   p_relay_discovered_at: Relay discovery timestamp
---   p_snapshot_at: Metadata snapshot timestamp
---   p_type: Metadata type ('nip11', 'nip66_rtt', 'nip66_geo')
---   p_metadata_data: Complete metadata as JSONB
+--   p_relay_urls: Array of relay WebSocket URLs
+--   p_relay_networks: Array of network types (clearnet/tor)
+--   p_relay_discovered_ats: Array of relay discovery timestamps
+--   p_snapshot_ats: Array of metadata snapshot timestamps
+--   p_types: Array of metadata types ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo')
+--   p_metadata_datas: Array of complete metadata as JSONB
 -- Returns: VOID
 -- Notes:
---   - Hash is computed in PostgreSQL using sha256
+--   - Hash is computed ONCE in PostgreSQL using sha256 (via CTE)
 --   - Content-addressed storage for deduplication
 --   - Uses ON CONFLICT for idempotent operations
+--   - Single statement with chained CTEs for optimal performance
 CREATE OR REPLACE FUNCTION insert_relay_metadata(
-    p_relay_url TEXT,
-    p_relay_network TEXT,
-    p_relay_discovered_at BIGINT,
-    p_snapshot_at BIGINT,
-    p_type TEXT,
-    p_metadata_data JSONB
+    p_relay_urls TEXT[],
+    p_relay_networks TEXT[],
+    p_relay_discovered_ats BIGINT[],
+    p_snapshot_ats BIGINT[],
+    p_types TEXT[],
+    p_metadata_datas JSONB[]
 )
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
-DECLARE
-    v_metadata_id BYTEA;
 BEGIN
-    -- Compute content-addressed hash from JSONB data
-    -- Uses canonical JSON representation for consistent hashing
-    v_metadata_id := digest(p_metadata_data::TEXT, 'sha256');
-
-    -- Ensure relay exists (idempotent)
-    INSERT INTO relays (url, network, discovered_at)
-    VALUES (p_relay_url, p_relay_network, p_relay_discovered_at)
-    ON CONFLICT (url) DO NOTHING;
-
-    -- Upsert metadata (deduplicated by content hash)
-    INSERT INTO metadata (id, data)
-    VALUES (v_metadata_id, p_metadata_data)
-    ON CONFLICT (id) DO NOTHING;
-
-    -- Insert relay_metadata junction (idempotent)
+    -- Single statement with chained CTEs:
+    -- 1. Compute hash ONCE and prepare all data
+    -- 2. Insert relays (idempotent)
+    -- 3. Insert metadata (deduplicated by content hash)
+    -- 4. Insert relay_metadata junction (idempotent)
+    WITH
+    -- CTE 1: Unnest arrays and compute hash ONCE per row
+    input_data AS (
+        SELECT
+            u AS relay_url,
+            n AS network,
+            d_at AS discovered_at,
+            s AS snapshot_at,
+            t AS type,
+            m AS metadata_data,
+            digest(m::TEXT, 'sha256') AS metadata_hash
+        FROM unnest(
+            p_relay_urls,
+            p_relay_networks,
+            p_relay_discovered_ats,
+            p_snapshot_ats,
+            p_types,
+            p_metadata_datas
+        ) AS x(u, n, d_at, s, t, m)
+    ),
+    -- CTE 2: Insert relays (deduplicated)
+    insert_relays AS (
+        INSERT INTO relays (url, network, discovered_at)
+        SELECT DISTINCT relay_url, network, discovered_at
+        FROM input_data
+        ON CONFLICT (url) DO NOTHING
+        RETURNING url
+    ),
+    -- CTE 3: Insert metadata (deduplicated by hash)
+    insert_metadata AS (
+        INSERT INTO metadata (id, data)
+        SELECT DISTINCT metadata_hash, metadata_data
+        FROM input_data
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+    )
+    -- Final: Insert relay_metadata junction (uses pre-computed hash)
     INSERT INTO relay_metadata (relay_url, snapshot_at, type, metadata_id)
-    VALUES (p_relay_url, p_snapshot_at, p_type, v_metadata_id)
+    SELECT relay_url, snapshot_at, type, metadata_hash
+    FROM input_data
     ON CONFLICT (relay_url, snapshot_at, type) DO NOTHING;
-
-EXCEPTION
-    WHEN check_violation THEN
-        -- Invalid type value
-        RAISE EXCEPTION 'Invalid metadata type % for relay %', p_type, p_relay_url;
-    WHEN foreign_key_violation THEN
-        -- Should not happen due to insert order, but handle gracefully
-        RAISE EXCEPTION 'Foreign key violation for relay %', p_relay_url;
-    WHEN OTHERS THEN
-        RAISE EXCEPTION 'insert_relay_metadata failed for %: %', p_relay_url, SQLERRM;
 END;
 $$;
 
-COMMENT ON FUNCTION insert_relay_metadata IS 'Inserts relay metadata with automatic deduplication (6 params, hash computed in DB)';
+COMMENT ON FUNCTION insert_relay_metadata(TEXT[], TEXT[], BIGINT[], BIGINT[], TEXT[], JSONB[]) IS
+'Bulk insert relay metadata with automatic deduplication (hash computed ONCE in DB via CTE)';
 
 -- Function: upsert_service_data
--- Description: Upserts a service data record (for candidates, cursors, state, etc.)
--- Parameters: service_name, data_type, data_key, data (JSONB), updated_at
+-- Description: Bulk upsert service data records (for candidates, cursors, state, etc.)
+-- Parameters: Arrays of service_name, data_type, data_key, data (JSONB), updated_at
 -- Returns: VOID
 CREATE OR REPLACE FUNCTION upsert_service_data(
-    p_service_name TEXT,
-    p_data_type TEXT,
-    p_data_key TEXT,
-    p_data JSONB,
-    p_updated_at BIGINT
+    p_service_names TEXT[],
+    p_data_types TEXT[],
+    p_data_keys TEXT[],
+    p_datas JSONB[],
+    p_updated_ats BIGINT[]
 )
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
     INSERT INTO service_data (service_name, data_type, data_key, data, updated_at)
-    VALUES (p_service_name, p_data_type, p_data_key, p_data, p_updated_at)
+    SELECT * FROM unnest(
+        p_service_names,
+        p_data_types,
+        p_data_keys,
+        p_datas,
+        p_updated_ats
+    )
     ON CONFLICT (service_name, data_type, data_key)
-    DO UPDATE SET data = p_data, updated_at = p_updated_at;
-
-EXCEPTION
-    WHEN OTHERS THEN
-        RAISE EXCEPTION 'upsert_service_data failed for %/%/%: %', p_service_name, p_data_type, p_data_key, SQLERRM;
+    DO UPDATE SET
+        data = EXCLUDED.data,
+        updated_at = EXCLUDED.updated_at;
 END;
 $$;
 
-COMMENT ON FUNCTION upsert_service_data IS 'Upserts service data record (candidates, cursors, state)';
+COMMENT ON FUNCTION upsert_service_data(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[]) IS
+'Bulk upsert service data records (candidates, cursors, state)';
 
 -- Function: get_service_data
 -- Description: Retrieves service data records with optional key filter
@@ -219,27 +242,33 @@ $$;
 COMMENT ON FUNCTION get_service_data IS 'Retrieves service data records with optional key filter';
 
 -- Function: delete_service_data
--- Description: Deletes a service data record
--- Parameters: service_name, data_type, data_key
+-- Description: Bulk delete service data records
+-- Parameters: Arrays of service_name, data_type, data_key
 -- Returns: VOID
 CREATE OR REPLACE FUNCTION delete_service_data(
-    p_service_name TEXT,
-    p_data_type TEXT,
-    p_data_key TEXT
+    p_service_names TEXT[],
+    p_data_types TEXT[],
+    p_data_keys TEXT[]
 )
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    DELETE FROM service_data
-    WHERE service_name = p_service_name
-      AND data_type = p_data_type
-      AND data_key = p_data_key;
+    DELETE FROM service_data sd
+    USING unnest(
+        p_service_names,
+        p_data_types,
+        p_data_keys
+    ) AS d(sn, dt, dk)
+    WHERE sd.service_name = d.sn
+      AND sd.data_type = d.dt
+      AND sd.data_key = d.dk;
 END;
 $$;
 
-COMMENT ON FUNCTION delete_service_data IS 'Deletes a service data record';
+COMMENT ON FUNCTION delete_service_data(TEXT[], TEXT[], TEXT[]) IS
+'Bulk delete service data records';
 
 -- ============================================================================
--- CRUD FUNCTIONS CREATED
+-- CRUD FUNCTIONS CREATED (bulk optimized)
 -- ============================================================================
