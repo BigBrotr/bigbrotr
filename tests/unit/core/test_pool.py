@@ -334,16 +334,16 @@ class TestPoolContextManager:
 
 
 # ============================================================================
-# H16: acquire_healthy() Retry Exhaustion Tests
+# acquire_healthy() Retry Exhaustion Tests
 # ============================================================================
 
 
 class TestAcquireHealthyRetryExhaustion:
-    """Tests for acquire_healthy() retry exhaustion behavior (H16)."""
+    """Tests for acquire_healthy() retry exhaustion behavior."""
 
     @pytest.mark.asyncio
     async def test_exponential_backoff_timing_verified(self, monkeypatch):
-        """H16.1: Exponential backoff timing verified."""
+        """Exponential backoff timing verified."""
         import time
 
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
@@ -387,7 +387,7 @@ class TestAcquireHealthyRetryExhaustion:
 
     @pytest.mark.asyncio
     async def test_max_retries_exhausted_raises_pool_error(self, monkeypatch):
-        """H16.2: Max retries exhausted raises ConnectionError (PoolError equivalent)."""
+        """Max retries exhausted raises ConnectionError."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         pool = Pool()
 
@@ -411,7 +411,7 @@ class TestAcquireHealthyRetryExhaustion:
 
     @pytest.mark.asyncio
     async def test_error_message_includes_attempt_count(self, monkeypatch):
-        """H16.3: Error message includes attempt count."""
+        """Error message includes attempt count."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         pool = Pool()
 
@@ -439,7 +439,7 @@ class TestAcquireHealthyRetryExhaustion:
 
     @pytest.mark.asyncio
     async def test_successful_acquisition_after_initial_failures(self, monkeypatch):
-        """H16.4: Successful acquisition after initial failures."""
+        """Successful acquisition after initial failures."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         pool = Pool()
 
@@ -472,7 +472,7 @@ class TestAcquireHealthyRetryExhaustion:
 
     @pytest.mark.asyncio
     async def test_different_exception_types_trigger_retry(self, monkeypatch):
-        """H16.5: Different exception types trigger retry."""
+        """Different exception types trigger retry."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         pool = Pool()
 
@@ -510,7 +510,7 @@ class TestAcquireHealthyRetryExhaustion:
 
     @pytest.mark.asyncio
     async def test_backoff_delay_increases_exponentially(self, monkeypatch):
-        """H16.6: Backoff delay increases exponentially."""
+        """Backoff delay increases exponentially."""
         import time
 
         monkeypatch.setenv("DB_PASSWORD", "test_pass")

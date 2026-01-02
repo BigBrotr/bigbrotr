@@ -244,16 +244,16 @@ class TestCandidateSelection:
 
 
 # ============================================================================
-# H14: validator.run() Error Handling Tests
+# validator.run() Error Handling Tests
 # ============================================================================
 
 
 class TestValidatorRunErrorHandling:
-    """Tests for Validator.run() error handling (H14)."""
+    """Tests for Validator.run() error handling."""
 
     @pytest.mark.asyncio
     async def test_database_error_during_candidate_fetch(self, mock_validator_brotr: Brotr) -> None:
-        """H14.1: Database error during candidate fetch logged and handled."""
+        """Database error during candidate fetch logged and handled."""
         mock_validator_brotr.get_service_data = AsyncMock(
             side_effect=Exception("DB connection failed")
         )
@@ -266,7 +266,7 @@ class TestValidatorRunErrorHandling:
 
     @pytest.mark.asyncio
     async def test_database_error_during_batch_insert(self, mock_validator_brotr: Brotr) -> None:
-        """H14.2: Database error during batch insert logged and handled."""
+        """Database error during batch insert logged and handled."""
         mock_validator_brotr.get_service_data = AsyncMock(
             return_value=[
                 {"key": "wss://relay.com", "value": {"failed_attempts": 0}, "updated_at": 1000}
@@ -289,7 +289,7 @@ class TestValidatorRunErrorHandling:
 
     @pytest.mark.asyncio
     async def test_partial_batch_success(self, mock_validator_brotr: Brotr) -> None:
-        """H14.3: Partial batch success (some candidates fail)."""
+        """Partial batch success (some candidates fail)."""
         candidates = [
             {"key": "wss://good.relay.com", "value": {"failed_attempts": 0}, "updated_at": 1000},
             {"key": "wss://bad.relay.com", "value": {"failed_attempts": 0}, "updated_at": 1001},
@@ -315,7 +315,7 @@ class TestValidatorRunErrorHandling:
 
     @pytest.mark.asyncio
     async def test_empty_candidate_list_after_filtering(self, mock_validator_brotr: Brotr) -> None:
-        """H14.4: Empty candidate list after filtering."""
+        """Empty candidate list after filtering."""
         mock_validator_brotr.get_service_data = AsyncMock(return_value=[])
 
         validator = Validator(brotr=mock_validator_brotr)
@@ -327,7 +327,7 @@ class TestValidatorRunErrorHandling:
 
     @pytest.mark.asyncio
     async def test_all_candidates_fail_validation(self, mock_validator_brotr: Brotr) -> None:
-        """H14.5: All candidates fail validation."""
+        """All candidates fail validation."""
         candidates = [
             {"key": "wss://fail1.com", "value": {"failed_attempts": 0}, "updated_at": 1000},
             {"key": "wss://fail2.com", "value": {"failed_attempts": 0}, "updated_at": 1001},
@@ -352,7 +352,7 @@ class TestValidatorRunErrorHandling:
     async def test_mix_of_successful_and_failed_validations(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """H14.6: Mix of successful and failed validations."""
+        """Mix of successful and failed validations."""
         candidates = [
             {"key": "wss://success1.com", "value": {"failed_attempts": 0}, "updated_at": 1000},
             {"key": "wss://fail1.com", "value": {"failed_attempts": 1}, "updated_at": 1001},
@@ -380,7 +380,7 @@ class TestValidatorRunErrorHandling:
     async def test_shutdown_during_validation_stops_gracefully(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """H14.7: Shutdown during validation stops gracefully."""
+        """Shutdown during validation stops gracefully."""
         candidates = [
             {"key": f"wss://relay{i}.com", "value": {"failed_attempts": 0}, "updated_at": 1000 + i}
             for i in range(10)
@@ -411,7 +411,7 @@ class TestValidatorRunErrorHandling:
 
     @pytest.mark.asyncio
     async def test_timeout_during_batch_insert_handled(self, mock_validator_brotr: Brotr) -> None:
-        """H14.8: Timeout during batch insert handled."""
+        """Timeout during batch insert handled."""
         candidates = [
             {"key": "wss://relay.com", "value": {"failed_attempts": 0}, "updated_at": 1000}
         ]
@@ -431,7 +431,7 @@ class TestValidatorRunErrorHandling:
 
     @pytest.mark.asyncio
     async def test_connection_pool_exhaustion_handled(self, mock_validator_brotr: Brotr) -> None:
-        """H14.9: Connection pool exhaustion handled."""
+        """Connection pool exhaustion handled."""
         candidates = [
             {"key": "wss://relay.com", "value": {"failed_attempts": 0}, "updated_at": 1000}
         ]
@@ -451,7 +451,7 @@ class TestValidatorRunErrorHandling:
 
 
 # ============================================================================
-# H15: _validate_candidate() and _test_connection() Tests
+# _validate_candidate() and _test_connection() Tests
 # ============================================================================
 
 
@@ -462,7 +462,7 @@ class TestValidateCandidateAndTestConnection:
     async def test_valid_clearnet_relay_passes_validation(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """H15.1: Valid clearnet relay passes validation."""
+        """Valid clearnet relay passes validation."""
         config = ValidatorConfig(connection_timeout=5.0)
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
@@ -484,7 +484,7 @@ class TestValidateCandidateAndTestConnection:
     async def test_valid_tor_relay_passes_validation_with_proxy(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """H15.2: Valid Tor relay passes validation (with proxy)."""
+        """Valid Tor relay passes validation (with proxy)."""
         config = ValidatorConfig(connection_timeout=5.0, tor=TorConfig(enabled=True))
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
@@ -502,7 +502,7 @@ class TestValidateCandidateAndTestConnection:
 
     @pytest.mark.asyncio
     async def test_connection_timeout_fails_validation(self, mock_validator_brotr: Brotr) -> None:
-        """H15.3: Connection timeout fails validation."""
+        """Connection timeout fails validation."""
         # connection_timeout minimum is 1.0 per ValidatorConfig validation
         config = ValidatorConfig(connection_timeout=1.0)
         validator = Validator(brotr=mock_validator_brotr, config=config)
@@ -527,7 +527,7 @@ class TestValidateCandidateAndTestConnection:
     async def test_invalid_websocket_url_fails_validation(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """H15.4: Invalid WebSocket URL fails validation."""
+        """Invalid WebSocket URL fails validation."""
         config = ValidatorConfig(connection_timeout=5.0)
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
@@ -539,7 +539,7 @@ class TestValidateCandidateAndTestConnection:
     async def test_relay_refuses_connection_fails_validation(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """H15.5: Relay refuses connection fails validation."""
+        """Relay refuses connection fails validation."""
         config = ValidatorConfig(connection_timeout=5.0)
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
@@ -561,7 +561,7 @@ class TestValidateCandidateAndTestConnection:
     async def test_relay_accepts_but_returns_error_fails_validation(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """H15.6: Relay accepts but returns error fails validation."""
+        """Relay accepts but returns error fails validation."""
         config = ValidatorConfig(connection_timeout=5.0)
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
@@ -584,7 +584,7 @@ class TestValidateCandidateAndTestConnection:
     async def test_tor_proxy_configuration_applied_correctly(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """H15.7: Tor proxy configuration applied correctly."""
+        """Tor proxy configuration applied correctly."""
         config = ValidatorConfig(
             connection_timeout=5.0,
             tor=TorConfig(enabled=True, host="127.0.0.1", port=9050),
@@ -597,7 +597,7 @@ class TestValidateCandidateAndTestConnection:
 
     @pytest.mark.asyncio
     async def test_connection_timeout_value_respected(self, mock_validator_brotr: Brotr) -> None:
-        """H15.8: Connection timeout value respected."""
+        """Connection timeout value respected."""
         config = ValidatorConfig(connection_timeout=15.0)
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
@@ -607,7 +607,7 @@ class TestValidateCandidateAndTestConnection:
     async def test_failed_attempts_counter_incremented_on_failure(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """H15.9: Failed attempts counter incremented on failure."""
+        """Failed attempts counter incremented on failure."""
         config = ValidatorConfig(connection_timeout=5.0)
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
@@ -631,7 +631,7 @@ class TestValidateCandidateAndTestConnection:
     async def test_successful_validation_resets_failed_attempts(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """H15.10: Successful validation resets failed attempts."""
+        """Successful validation resets failed attempts."""
         candidates = [
             {
                 "key": "wss://recovered.relay.com",
@@ -658,7 +658,7 @@ class TestValidateCandidateAndTestConnection:
     async def test_nip11_info_fetched_on_successful_connection(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """H15.11: NIP-11 info fetched on successful connection."""
+        """NIP-11 info fetched on successful connection."""
         # The validator uses nostr-sdk's fetch_events which implicitly validates
         # Nostr protocol compliance (EOSE response). NIP-11 is optional metadata.
         config = ValidatorConfig(connection_timeout=5.0)
