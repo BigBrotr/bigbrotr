@@ -1,8 +1,20 @@
 """
-NIP-66 types for BigBrotr.
+NIP-66 Relay Monitoring and Discovery model for BigBrotr.
 
-Provides Nip66 class for relay monitoring and discovery.
-Nip66 is a factory that generates up to 3 RelayMetadata objects (rtt, ssl, geo).
+Provides the Nip66 class for testing relay capabilities and collecting monitoring
+data per NIP-66 specification. Generates up to 3 RelayMetadata objects for
+content-addressed database storage:
+- nip66_rtt: Round-trip times and network classification
+- nip66_ssl: SSL/TLS certificate information
+- nip66_geo: Geolocation data from IP address
+
+See: https://github.com/nostr-protocol/nips/blob/master/66.md
+
+Example:
+    >>> nip66 = await Nip66.fetch(relay, keys=keys, geo_reader=geo_db)
+    >>> if nip66:
+    ...     print(f"Open: {nip66.is_open}, RTT: {nip66.rtt_open}ms")
+    ...     print(f"Country: {nip66.country_code}")
 """
 
 import asyncio
@@ -34,13 +46,30 @@ class Nip66:
     """
     Immutable NIP-66 relay monitoring data.
 
-    Collects and stores relay test results, providing type-safe property access
-    and conversion to RelayMetadata objects for database storage.
+    Tests relay capabilities (openable, readable, writable) and collects monitoring
+    metrics including round-trip times, SSL certificate data, and geolocation info.
+    Provides type-safe property access and conversion to RelayMetadata objects.
+
+    Attributes:
+        relay: The Relay being monitored.
+        rtt_metadata: RTT and capability data (always present).
+        ssl_metadata: SSL/TLS certificate data (optional, clearnet only).
+        geo_metadata: Geolocation data (optional, requires GeoIP database).
+        generated_at: Unix timestamp when monitoring was performed.
 
     Generates up to 3 RelayMetadata records:
-    - nip66_rtt: Round-trip times and network classification (always present)
-    - nip66_ssl: SSL/TLS certificate data (if available)
-    - nip66_geo: Geolocation data (if available)
+        - nip66_rtt: Round-trip times (rtt_open, rtt_read, rtt_write, rtt_dns),
+          network classification, and capability flags (is_open, is_readable, is_writable)
+        - nip66_ssl: SSL certificate info (issuer, not_before, not_after, fingerprint)
+        - nip66_geo: Geolocation (country_code, city, lat/lon, geohash, isp, asn)
+
+    Example:
+        >>> nip66 = await Nip66.fetch(relay, keys=keys, geo_reader=geo_db)
+        >>> if nip66:
+        ...     print(f"Openable: {nip66.is_open}, RTT: {nip66.rtt_open}ms")
+        ...     print(f"Readable: {nip66.is_readable}")
+        ...     if nip66.country_code:
+        ...         print(f"Location: {nip66.country_code}")
     """
 
     relay: Relay
@@ -232,13 +261,19 @@ class Nip66:
         return await asyncio.to_thread(Nip66._resolve_dns_sync, host)
 
     @staticmethod
-    def _check_ssl_sync(host: str, port: int = 443) -> dict[str, Any]:
-        """Synchronous SSL check (called via asyncio.to_thread)."""
+    def _check_ssl_sync(host: str, port: int = 443, timeout: float = 10.0) -> dict[str, Any]:
+        """Synchronous SSL check (called via asyncio.to_thread).
+
+        Args:
+            host: Hostname to check SSL certificate for
+            port: Port number (default 443)
+            timeout: Connection timeout in seconds (default 10.0)
+        """
         result: dict[str, Any] = {}
         try:
             context = ssl.create_default_context()
             with (
-                socket.create_connection((host, port), timeout=10) as sock,
+                socket.create_connection((host, port), timeout=timeout) as sock,
                 context.wrap_socket(sock, server_hostname=host) as ssock,
             ):
                 cert = ssock.getpeercert()
@@ -264,9 +299,15 @@ class Nip66:
         return result
 
     @staticmethod
-    async def _check_ssl(host: str, port: int = 443) -> dict[str, Any]:
-        """Check SSL certificate asynchronously and return ssl_* fields."""
-        return await asyncio.to_thread(Nip66._check_ssl_sync, host, port)
+    async def _check_ssl(host: str, port: int = 443, timeout: float = 10.0) -> dict[str, Any]:
+        """Check SSL certificate asynchronously and return ssl_* fields.
+
+        Args:
+            host: Hostname to check SSL certificate for
+            port: Port number (default 443)
+            timeout: Connection timeout in seconds (default 10.0)
+        """
+        return await asyncio.to_thread(Nip66._check_ssl_sync, host, port, timeout)
 
     @staticmethod
     def _lookup_geo_sync(

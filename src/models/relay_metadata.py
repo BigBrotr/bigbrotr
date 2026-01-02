@@ -1,7 +1,21 @@
 """
-RelayMetadata class for BigBrotr.
+RelayMetadata junction model for BigBrotr.
 
-Represents a record in the `relay_metadata` junction table.
+Represents a time-series snapshot linking a Relay to its Metadata by type.
+Used for storing NIP-11 and NIP-66 monitoring data with content-addressed
+deduplication (metadata hash computed by PostgreSQL during insertion).
+
+Database mapping:
+    - relay_url -> relays.url (FK)
+    - snapshot_at -> generated_at timestamp
+    - type -> 'nip11', 'nip66_rtt', 'nip66_ssl', or 'nip66_geo'
+    - metadata_id -> metadata.id (FK, computed from content hash)
+
+Example:
+    >>> relay_metadata = RelayMetadata(
+    ...     relay=relay, metadata=Metadata({"name": "My Relay"}), metadata_type="nip11"
+    ... )
+    >>> params = relay_metadata.to_db_params()
 """
 
 from dataclasses import dataclass
@@ -58,7 +72,7 @@ class RelayMetadata:
         metadata_type: MetadataType,
         generated_at: Optional[int] = None,
     ) -> None:
-        pass
+        """Empty initializer; all initialization is performed in __new__ for frozen dataclass."""
 
     def to_db_params(self) -> tuple[str, str, int, int, str, str]:
         """

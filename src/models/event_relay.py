@@ -1,7 +1,19 @@
 """
 EventRelay junction model for BigBrotr.
 
-Represents an Event seen on a specific Relay at a specific time.
+Represents an Event seen on a specific Relay at a specific time, mapping to
+the `events_relays` junction table in the database. This model enables tracking
+of event provenance (which relay an event was received from and when).
+
+Database mapping:
+    - event_id -> events.id (FK)
+    - relay_url -> relays.url (FK)
+    - seen_at -> timestamp when event was first seen on this relay
+
+Example:
+    >>> from nostr_sdk import Event
+    >>> event_relay = EventRelay.from_nostr_event(nostr_event, relay)
+    >>> params = event_relay.to_db_params()  # For insert_event procedure
 """
 
 from __future__ import annotations
@@ -46,8 +58,8 @@ class EventRelay:
 
     def __init__(
         self, event: Union[Event, NostrEvent], relay: Relay, seen_at: Optional[int] = None
-    ):
-        pass
+    ) -> None:
+        """Empty initializer; all initialization is performed in __new__ for frozen dataclass."""
 
     @classmethod
     def from_nostr_event(

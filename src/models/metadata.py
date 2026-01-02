@@ -1,8 +1,20 @@
 """
-Metadata class for BigBrotr.
+Content-addressed metadata payload for BigBrotr.
 
-Represents metadata payload for relay information documents.
-The content-addressed ID (hash) is computed in PostgreSQL during insertion.
+Provides the Metadata class for storing NIP-11 and NIP-66 data in the unified
+`metadata` table. The content hash (SHA-256) is computed by PostgreSQL during
+insertion, enabling automatic deduplication of identical metadata across relays.
+
+Features:
+    - Type-safe accessor methods with defaults
+    - JSON sanitization for PostgreSQL JSONB storage
+    - Circular reference handling during serialization
+    - Immutable frozen dataclass design
+
+Example:
+    >>> metadata = Metadata({"name": "My Relay", "supported_nips": [1, 11]})
+    >>> name = metadata._get_optional("name", str)  # "My Relay"
+    >>> json_str = metadata.data_jsonb  # For database insertion
 """
 
 import json
@@ -35,7 +47,7 @@ class Metadata:
         return instance
 
     def __init__(self, data: Optional[dict[str, Any]] = None) -> None:
-        pass
+        """Empty initializer; all initialization is performed in __new__ for frozen dataclass."""
 
     # --- Type-safe helpers ---
 
