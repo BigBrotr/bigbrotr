@@ -190,14 +190,27 @@ class Finder(BaseService[FinderConfig]):
             relays: set[str] = set()
             chunk_events = 0
 
-            # Query events after cursor position
+            # Query events after cursor position using UNION for index optimization (H9)
+            # Split OR into two queries to allow PostgreSQL to use indexes efficiently
             # Order by (created_at, id) ASC to ensure deterministic pagination
-            # Uses composite comparison for correct cursor resumption
             query = """
-                SELECT id, created_at, kind, tags, content
-                FROM events
-                WHERE (kind = ANY($1) OR tagvalues @> ARRAY['r'])
-                  AND (created_at > $2 OR (created_at = $2 AND id > $3))
+                (
+                    SELECT id, created_at, kind, tags, content
+                    FROM events
+                    WHERE kind = ANY($1)
+                      AND (created_at > $2 OR (created_at = $2 AND id > $3))
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT $4
+                )
+                UNION ALL
+                (
+                    SELECT id, created_at, kind, tags, content
+                    FROM events
+                    WHERE tagvalues @> ARRAY['r']
+                      AND (created_at > $2 OR (created_at = $2 AND id > $3))
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT $4
+                )
                 ORDER BY created_at ASC, id ASC
                 LIMIT $4
             """
@@ -210,6 +223,14 @@ class Finder(BaseService[FinderConfig]):
                     last_id,
                     self._config.events.batch_size,
                 )
+                # Deduplicate rows since UNION ALL may return duplicates (event matches both conditions)
+                seen_ids: set[bytes] = set()
+                unique_rows = []
+                for row in rows:
+                    if row["id"] not in seen_ids:
+                        seen_ids.add(row["id"])
+                        unique_rows.append(row)
+                rows = unique_rows
             except Exception as e:
                 self._logger.warning(
                     "event_query_failed", error=str(e), error_type=type(e).__name__
@@ -272,7 +293,7 @@ class Finder(BaseService[FinderConfig]):
             if relays:
                 try:
                     records: list[tuple[str, str, str, dict[str, Any]]] = [
-                        ("validator", "candidate", url, {}) for url in relays
+                        ("validator", "candidate", url, {"failed_attempts": 0}) for url in relays
                     ]
                     await self._brotr.upsert_service_data(records)
                     total_relays_found += len(relays)
@@ -373,10 +394,8 @@ class Finder(BaseService[FinderConfig]):
 
         # Reuse a single ClientSession for all API requests (connection pooling)
         async with aiohttp.ClientSession() as session:
-            for source in self._config.api.sources:
-                if not source.enabled:
-                    continue
-
+            enabled_sources = [s for s in self._config.api.sources if s.enabled]
+            for i, source in enumerate(enabled_sources):
                 try:
                     source_relays = await self._fetch_single_api(session, source)
                     for relay_url in source_relays:
@@ -385,7 +404,8 @@ class Finder(BaseService[FinderConfig]):
 
                     self._logger.debug("api_fetched", url=source.url, count=len(source_relays))
 
-                    if self._config.api.delay_between_requests > 0:
+                    # Don't delay after last source
+                    if self._config.api.delay_between_requests > 0 and i < len(enabled_sources) - 1:
                         await asyncio.sleep(self._config.api.delay_between_requests)
 
                 except Exception as e:
@@ -401,7 +421,7 @@ class Finder(BaseService[FinderConfig]):
         if relays:
             try:
                 records: list[tuple[str, str, str, dict[str, Any]]] = [
-                    ("validator", "candidate", url, {}) for url in relays
+                    ("validator", "candidate", url, {"failed_attempts": 0}) for url in relays
                 ]
                 await self._brotr.upsert_service_data(records)
                 self._found_relays += len(relays)

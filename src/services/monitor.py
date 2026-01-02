@@ -459,22 +459,41 @@ class Monitor(BaseService[MonitorConfig]):
         metadata_batch: list[RelayMetadata] = []
         successful_relay_urls: list[str] = []  # Track only successfully checked relays
 
-        # Process relays
-        tasks = [(relay, self._process_relay(relay, semaphore)) for relay in relays]
+        # Process relays in chunks to limit memory from pending tasks (H11)
+        # Chunk size is 4x max_parallel to keep pipeline full without scheduling all at once
+        chunk_size = max(self._config.concurrency.max_parallel * 4, 100)
 
-        for relay, future in [(r, asyncio.ensure_future(f)) for r, f in tasks]:
-            try:
-                result = await future
-                if result:
+        for chunk_start in range(0, len(relays), chunk_size):
+            chunk = relays[chunk_start : chunk_start + chunk_size]
+
+            # Create task-to-relay mapping for this chunk only
+            tasks: list[asyncio.Task[list[RelayMetadata] | None]] = []
+            task_relays: list[Relay] = []
+            for relay in chunk:
+                task = asyncio.create_task(self._process_relay(relay, semaphore))
+                tasks.append(task)
+                task_relays.append(relay)
+
+            # Await all tasks in this chunk
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for relay, result in zip(task_relays, results):
+                if isinstance(result, BaseException):
+                    self._logger.error(
+                        "monitor_task_failed",
+                        error=str(result),
+                        error_type=type(result).__name__,
+                        url=relay.url,
+                    )
+                    continue
+                if result is not None:
                     metadata_batch.extend(result)
-                    successful_relay_urls.append(relay.url)  # Only track if check succeeded
+                    successful_relay_urls.append(relay.url)
 
                     # Insert batch if full
                     if len(metadata_batch) >= self._config.concurrency.batch_size:
                         await self._insert_metadata_batch(metadata_batch)
                         metadata_batch = []
-            except Exception as e:
-                self._logger.error("monitor_loop_failed", error=str(e), error_type=type(e).__name__)
 
         # Insert remaining records
         if metadata_batch:
@@ -499,40 +518,30 @@ class Monitor(BaseService[MonitorConfig]):
         )
 
     async def _fetch_relays_to_check(self) -> list[Relay]:
-        """Fetch relays that need health checking from database."""
+        """Fetch relays that need health checking from database using SQL JOIN."""
         relays: list[Relay] = []
         threshold = int(time.time()) - self._config.selection.min_age_since_check
 
-        # Load checkpoints from service_data (last check time per relay)
-        checkpoints = await self._brotr.get_service_data(
-            service_name="monitor", data_type="checkpoint"
-        )
-
-        # Build set of relay URLs that were checked recently
-        recently_checked = {
-            record["key"]
-            for record in checkpoints
-            if record["value"].get("last_check_at", 0) >= threshold
-        }
-
-        # Get all validated relays
+        # Single query with LEFT JOIN to filter relays that need checking
+        # This avoids loading all checkpoints and relays into Python memory
         query = """
-            SELECT url, network, discovered_at
-            FROM relays
-            ORDER BY discovered_at ASC
+            SELECT r.url, r.network, r.discovered_at
+            FROM relays r
+            LEFT JOIN service_data sd ON
+                sd.service_name = 'monitor'
+                AND sd.data_type = 'checkpoint'
+                AND sd.data_key = r.url
+            WHERE
+                sd.data_key IS NULL
+                OR (sd.data->>'last_check_at')::BIGINT < $1
+            ORDER BY r.discovered_at ASC
         """
-        rows = await self._brotr.pool.fetch(query)
+        rows = await self._brotr.pool.fetch(query, threshold)
 
         skipped_tor = 0
-        skipped_recent = 0
 
         for row in rows:
             url_str = row["url"]
-
-            # Skip if checked recently
-            if url_str in recently_checked:
-                skipped_recent += 1
-                continue
 
             try:
                 relay = Relay(url_str, discovered_at=row["discovered_at"])
@@ -546,8 +555,6 @@ class Monitor(BaseService[MonitorConfig]):
 
         if skipped_tor > 0:
             self._logger.debug("skipped_tor_relays", count=skipped_tor)
-        if skipped_recent > 0:
-            self._logger.debug("skipped_recently_checked", count=skipped_recent)
 
         self._logger.debug("relays_to_check", count=len(relays))
         return relays

@@ -22,6 +22,8 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import heapq
+import math
 import random
 import time
 from datetime import timedelta
@@ -271,6 +273,10 @@ class Validator(BaseService[ValidatorConfig]):
         If max_candidates_per_run is None, return all candidates.
         Otherwise, use weighted random selection where candidates with
         fewer failed_attempts have higher probability of being selected.
+
+        Uses Efraimidis-Spirakis algorithm for O(n log k) weighted sampling
+        without replacement, where n = len(candidates), k = max_per_run.
+        This is much faster than the previous O(n * k) approach for large n.
         """
         max_per_run = self._config.max_candidates_per_run
 
@@ -285,33 +291,37 @@ class Validator(BaseService[ValidatorConfig]):
             weight = 1.0 / (failed_attempts + 1)
             weights.append(weight)
 
-        # Normalize weights
+        # Check for zero total weight edge case
         total_weight = sum(weights)
         if total_weight == 0:
-            # All candidates have infinite failed_attempts somehow, select randomly
             return random.sample(candidates, max_per_run)
 
-        probabilities = [w / total_weight for w in weights]
+        # Efraimidis-Spirakis algorithm: O(n log k) weighted sampling without replacement
+        # For each item, compute key = u^(1/weight) where u ~ Uniform(0,1)
+        # Then select the k items with the largest keys
+        # We use -log(key) = -log(u)/weight to avoid numerical issues with small numbers
+        # and use a min-heap of size k to efficiently track the top k items
 
-        # Weighted random selection without replacement
-        selected_indices: set[int] = set()
-        selected: list[dict[str, Any]] = []  # Type annotation matches return type
+        # Generate (priority, index) pairs where priority = log(random()) / weight
+        # We want the LARGEST keys, so we use a min-heap with NEGATIVE priorities
+        heap: list[tuple[float, int]] = []
 
-        while len(selected) < max_per_run and len(selected_indices) < len(candidates):
-            # Adjust probabilities for already selected items
-            adj_probs = [p if i not in selected_indices else 0 for i, p in enumerate(probabilities)]
-            total_adj = sum(adj_probs)
-            if total_adj == 0:
-                break
-            adj_probs = [p / total_adj for p in adj_probs]
+        for i, weight in enumerate(weights):
+            if weight > 0:
+                # key = random^(1/weight), we want largest keys
+                # Using log: log(key) = log(random) / weight
+                # For max-heap behavior with min-heap, we negate
+                u = random.random()
+                if u > 0:
+                    priority = math.log(u) / weight
+                    if len(heap) < max_per_run:
+                        heapq.heappush(heap, (priority, i))
+                    elif priority > heap[0][0]:
+                        heapq.heapreplace(heap, (priority, i))
 
-            # Select one candidate
-            idx = random.choices(range(len(candidates)), weights=adj_probs, k=1)[0]
-            if idx not in selected_indices:
-                selected_indices.add(idx)
-                selected.append(candidates[idx])
-
-        return selected
+        # Extract selected candidates
+        selected_indices = [idx for _, idx in heap]
+        return [candidates[i] for i in selected_indices]
 
     async def _validate_candidate(
         self, candidate: dict[str, Any], semaphore: asyncio.Semaphore

@@ -100,7 +100,8 @@ async def run_service(
 
     try:
         async with service:
-            assert service.config is not None  # Always set by service constructor
+            if service.config is None:
+                raise ValueError("Service configuration not set")
             await service.run_forever(interval=service.config.interval)
         return 0
     except Exception as e:

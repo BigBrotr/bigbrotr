@@ -170,9 +170,26 @@ class EventBatch:
 
     Used by Synchronizer to collect events within a time interval
     and track min/max created_at timestamps.
+
+    Attributes:
+        since: Minimum timestamp (inclusive) for events in batch
+        until: Maximum timestamp (inclusive) for events in batch
+        limit: Maximum number of events allowed in batch
+        size: Current number of events in batch
+        events: List of Event objects in batch
+        min_created_at: Lowest created_at timestamp in batch (or None if empty)
+        max_created_at: Highest created_at timestamp in batch (or None if empty)
     """
 
     def __init__(self, since: int, until: int, limit: int) -> None:
+        """
+        Initialize an EventBatch.
+
+        Args:
+            since: Minimum timestamp for events (inclusive)
+            until: Maximum timestamp for events (inclusive)
+            limit: Maximum number of events to store
+        """
         self.since = since
         self.until = until
         self.limit = limit
@@ -182,7 +199,15 @@ class EventBatch:
         self.max_created_at: Optional[int] = None
 
     def append(self, event: Event) -> None:
-        """Add an event to the batch if valid."""
+        """
+        Add an event to the batch if within time bounds.
+
+        Args:
+            event: Event to add to batch
+
+        Raises:
+            OverflowError: If batch has reached its limit
+        """
         created_at = event.created_at().as_secs()
 
         if created_at < self.since or created_at > self.until:
@@ -208,9 +233,11 @@ class EventBatch:
         return self.size == 0
 
     def __len__(self) -> int:
+        """Return the number of events in the batch."""
         return self.size
 
     def __iter__(self) -> Iterator[Event]:
+        """Iterate over events in the batch."""
         return iter(self.events)
 
 
@@ -680,7 +707,7 @@ async def _sync_relay_events(
 
         if event_list:
             # Convert to batch format
-            batch = EventBatch(start_time, end_time, len(event_list) + 100)
+            batch = EventBatch(start_time, end_time, len(event_list))
             for evt in event_list:
                 try:
                     batch.append(evt)
@@ -711,6 +738,27 @@ async def _sync_relay_events(
 class Synchronizer(BaseService[SynchronizerConfig]):
     """
     Event synchronization service.
+
+    Synchronizes Nostr events from validated relays:
+    - Connects to relays via WebSocket using nostr-sdk
+    - Subscribes to event streams with configurable filters
+    - Validates event signatures and timestamps
+    - Stores events in database via Brotr
+    - Supports multicore processing via aiomultiprocess for high throughput
+
+    Workflow:
+    1. Fetch relays from database (requires recent Monitor check)
+    2. Load per-relay sync cursor from service_data table
+    3. Connect to relays and request events since last sync
+    4. Validate and insert events into database
+    5. Update per-relay cursor for next sync cycle
+
+    Configuration:
+        - filter: Event kinds, authors, tags to sync
+        - timeouts: Per-network (clearnet/tor) request and relay timeouts
+        - concurrency: Parallel connections and worker processes
+        - source: Relay selection criteria (metadata age, readability)
+        - overrides: Per-relay timeout overrides for high-traffic relays
     """
 
     SERVICE_NAME: ClassVar[str] = "synchronizer"
@@ -787,6 +835,11 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         """Run sync in single process using shared sync algorithm."""
         semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel)
 
+        # Collect cursor updates for batch upsert (H8: batch cursor upserts)
+        cursor_updates: list[tuple[str, str, str, dict[str, Any]]] = []
+        cursor_lock = asyncio.Lock()
+        cursor_batch_size = 50  # Flush every N successful relays
+
         async def worker(relay: Relay) -> None:
             async with semaphore:
                 # Determine network config
@@ -833,18 +886,21 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                     self._skipped_events += skipped_events
                     self._synced_relays += 1
 
-                    # Save cursor to service_data after successful sync
-                    # Save even if 0 events - relay was reachable and time window was processed
-                    await self._brotr.upsert_service_data(
-                        [
+                    # Collect cursor update for batch upsert (H8)
+                    async with cursor_lock:
+                        cursor_updates.append(
                             (
                                 "synchronizer",
                                 "cursor",
                                 relay.url_without_scheme,
                                 {"last_synced_at": end_time},
                             )
-                        ]
-                    )
+                        )
+                        # Periodic checkpoint for crash resilience
+                        if len(cursor_updates) >= cursor_batch_size:
+                            await self._brotr.upsert_service_data(cursor_updates.copy())
+                            cursor_updates.clear()
+
                 except Exception as e:
                     self._logger.warning(
                         "relay_sync_failed",
@@ -855,7 +911,30 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                     self._failed_relays += 1
 
         tasks = [worker(relay) for relay in relays]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Log any exceptions that escaped the worker's try/except (H7)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                relay_url = relays[i].url if i < len(relays) else "unknown"
+                self._logger.error(
+                    "worker_unexpected_exception",
+                    error=str(result),
+                    error_type=type(result).__name__,
+                    url=relay_url,
+                )
+                self._failed_relays += 1
+
+        # Final batch upsert for remaining cursors (H8)
+        if cursor_updates:
+            try:
+                await self._brotr.upsert_service_data(cursor_updates)
+            except Exception as e:
+                self._logger.error(
+                    "cursor_batch_upsert_failed",
+                    error=str(e),
+                    count=len(cursor_updates),
+                )
 
     async def _run_multiprocess(self, relays: list[Relay]) -> None:
         """Run sync using aiomultiprocess Pool (Queue-based balancing)."""
