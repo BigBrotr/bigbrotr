@@ -131,6 +131,56 @@ cd implementations/myimpl
 - **Feature branches**: `feature/<name>` (from develop)
 - **Commit style**: Conventional commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`)
 
+## AI Agents & Audit Commands
+
+This project includes **31 AI agents** and **3 audit commands** in `.claude/`:
+
+```
+.claude/
+├── agents/                  # 31 AI agents
+│   ├── bigbrotr-expert/     # BigBrotr codebase expert (7 files)
+│   ├── nostr-expert/        # Nostr protocol expert (6 files)
+│   └── *.md                 # 29 generic agents
+│
+└── commands/                # 3 audit commands
+    ├── audit-quick.md       # 5 agents, ~2-3 min
+    ├── audit-core.md        # 10 agents, ~5-7 min
+    └── audit-full.md        # 31 agents, ~15-20 min
+```
+
+### Audit Commands
+
+Run multi-agent audits to analyze the codebase:
+
+| Command | Agents | Time | Use Case |
+|---------|--------|------|----------|
+| `/audit-quick` | 5 | ~2-3 min | Quick health check |
+| `/audit-core` | 10 | ~5-7 min | Regular development |
+| `/audit-full` | 31 | ~15-20 min | Before release |
+
+**Workflow:**
+1. Run audit command (e.g., `/audit-core`)
+2. Agents analyze in parallel
+3. `AUDIT_REPORT.md` generated with findings
+4. You approve what to fix (all, by severity, by category, or specific items)
+5. Approved fixes are applied
+
+### Generic Agents (29)
+
+| Category | Agents |
+|----------|--------|
+| **Python & Language** | python-pro, sql-pro, cli-developer |
+| **Database** | postgres-pro, database-optimizer, database-administrator |
+| **Architecture** | backend-developer, microservices-architect, api-designer, websocket-engineer |
+| **Quality & Testing** | code-reviewer, qa-expert, test-automator, debugger, error-detective, performance-engineer |
+| **Security** | security-auditor, penetration-tester, architect-reviewer |
+| **DevOps** | devops-engineer, deployment-engineer, sre-engineer, incident-responder, chaos-engineer |
+| **Developer Experience** | refactoring-specialist, dependency-manager, documentation-engineer, legacy-modernizer, data-engineer |
+
+See `.claude/agents/README.md` for full documentation.
+
+---
+
 ## Specialized Agents
 
 This project uses two specialized knowledge agents located in `.claude/agents/`:
@@ -261,9 +311,22 @@ The two agents work together for Nostr-related BigBrotr development:
 
 ---
 
-## Agent Access
+## Agent & Command Access
 
-To work with an agent, read its `AGENT.md` file:
+### Run Audit Commands
+
+```bash
+# Quick audit (5 agents, ~2-3 min)
+/audit-quick
+
+# Core audit (10 agents, ~5-7 min)
+/audit-core
+
+# Full audit (31 agents, ~15-20 min)
+/audit-full
+```
+
+### Use Specialized Agents
 
 ```bash
 # Nostr protocol questions
@@ -273,4 +336,17 @@ cat .claude/agents/nostr-expert/AGENT.md
 cat .claude/agents/bigbrotr-expert/AGENT.md
 ```
 
-Both agents have comprehensive documentation and quick reference files for efficient development.
+### Use Generic Agents
+
+```bash
+# Example: Python expert
+cat .claude/agents/python-pro.md
+
+# Example: Security audit
+cat .claude/agents/security-auditor.md
+
+# List all agents
+ls .claude/agents/
+```
+
+All agents have comprehensive documentation. See `.claude/agents/README.md` for suggested combinations and usage patterns.

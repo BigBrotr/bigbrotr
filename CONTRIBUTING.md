@@ -33,7 +33,7 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 - Look for issues labeled `good first issue` for beginner-friendly tasks
 - Issues labeled `help wanted` are open for community contribution
-- Check the [roadmap](releases/v2.0.0.md#future-roadmap) for planned features
+- Check the [roadmap](README.md#roadmap) for planned features
 
 ---
 

@@ -7,14 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Major release with validator service, improved documentation, and performance optimizations.
+
 ### Added
-- Nothing yet
+- Validator service for testing candidate relay URLs before promotion
+- NIP-42 authentication support in Validator, Monitor, and Synchronizer
+- Probabilistic candidate selection based on failed attempt count
+- Automatic cleanup of failed candidates (configurable threshold)
+- Efraimidis-Spirakis weighted sampling algorithm for O(n log k) selection
+- Keys model for loading Nostr keypairs from environment variables
+- Comprehensive docstrings across all models and services
+- 31 AI agents for code analysis and audit commands
 
 ### Changed
-- Nothing yet
+- Finder now stores candidates in service_data table (validator picks them up)
+- Monitor checks use service_data checkpoints for efficient scheduling
+- Synchronizer uses relay_metadata_latest view for faster relay selection
+- Improved error handling and logging across all services
+- Enhanced test coverage with 411+ unit tests
 
 ### Fixed
-- Nothing yet
+- Race conditions in Monitor metrics collection (added asyncio.Lock)
+- Resource leaks in Monitor client shutdown (added try/finally)
+- Memory optimization in Monitor with chunked relay processing
 
 ---
 
