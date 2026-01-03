@@ -18,13 +18,13 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import asyncpg
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-from models import EventRelay, Relay, RelayMetadata
+from models import Event, EventRelay, Metadata, Relay, RelayMetadata
 
 from .logger import Logger
 from .pool import Pool
@@ -39,10 +39,7 @@ class BatchConfig(BaseModel):
     """Batch operation configuration."""
 
     max_batch_size: int = Field(
-        default=10000,
-        ge=1,
-        le=100000,
-        description="Maximum items per batch operation",
+        default=10000, ge=1, le=100000, description="Maximum items per batch operation"
     )
 
 
@@ -54,22 +51,20 @@ class TimeoutsConfig(BaseModel):
     When set, values must be >= 0.1 seconds.
     """
 
-    query: Optional[float] = Field(
-        default=60.0, description="Query timeout (seconds, None=infinite)"
-    )
-    batch: Optional[float] = Field(
+    query: float | None = Field(default=60.0, description="Query timeout (seconds, None=infinite)")
+    batch: float | None = Field(
         default=120.0, description="Batch insert timeout (seconds, None=infinite)"
     )
-    cleanup: Optional[float] = Field(
+    cleanup: float | None = Field(
         default=90.0, description="Cleanup procedure timeout (seconds, None=infinite)"
     )
-    refresh: Optional[float] = Field(
+    refresh: float | None = Field(
         default=None, description="Materialized view refresh timeout (seconds, None=infinite)"
     )
 
     @field_validator("query", "batch", "cleanup", "refresh", mode="after")
     @classmethod
-    def validate_timeout(cls, v: Optional[float]) -> Optional[float]:
+    def validate_timeout(cls, v: float | None) -> float | None:
         """Validate timeout: None (infinite) or >= 0.1 seconds."""
         if v is not None and v < 0.1:
             raise ValueError("Timeout must be None (infinite) or >= 0.1 seconds")
@@ -96,10 +91,10 @@ class Brotr:
     Uses composition: has a Pool (public property) for all connection operations.
     Implements async context manager for automatic pool lifecycle management.
 
-    All insert methods accept ONLY dataclass instances (Relay, EventRelay, RelayMetadata).
+    All insert methods accept ONLY dataclass instances (Relay, Event, EventRelay, Metadata, RelayMetadata).
 
     Usage:
-        from models import Relay, EventRelay, RelayMetadata
+        from models import Relay, Event, EventRelay, Metadata, RelayMetadata
 
         brotr = Brotr.from_yaml("config.yaml")
 
@@ -108,19 +103,27 @@ class Brotr:
             relay = Relay("wss://relay.example.com")
             await brotr.insert_relays(records=[relay])
 
-            # Insert events
-            event_relay = EventRelay.from_nostr_event(nostr_event, relay)
-            inserted, skipped = await brotr.insert_events(records=[event_relay])
+            # Insert events only
+            event = Event(nostr_event)
+            inserted, skipped = await brotr.insert_events(records=[event])
 
-            # Insert metadata
-            metadata = RelayMetadata(relay, nip11=nip11, nip66=nip66)
-            await brotr.insert_relay_metadata(records=[metadata])
+            # Insert events with relays and junctions (cascade)
+            event_relay = EventRelay(Event(nostr_event), relay)
+            inserted, skipped = await brotr.insert_events_relays(records=[event_relay])
+
+            # Insert metadata only
+            metadata = Metadata({"name": "My Relay"})
+            await brotr.insert_metadata(records=[metadata])
+
+            # Insert relay metadata with relay and junction (cascade)
+            relay_metadata = RelayMetadata(relay, metadata=metadata, metadata_type="nip11")
+            await brotr.insert_relay_metadata(records=[relay_metadata])
     """
 
     def __init__(
         self,
-        pool: Optional[Pool] = None,
-        config: Optional[BrotrConfig] = None,
+        pool: Pool | None = None,
+        config: BrotrConfig | None = None,
     ) -> None:
         """
         Initialize Brotr.
@@ -208,15 +211,15 @@ class Brotr:
             if len(row) != expected_len:
                 raise ValueError(f"Row {i} has {len(row)} columns, expected {expected_len}")
 
-        return tuple(list(col) for col in zip(*params))
+        return tuple(list(col) for col in zip(*params, strict=False))
 
     async def _call_procedure(
         self,
         procedure_name: str,
         *args: Any,
-        conn: Optional[asyncpg.Connection[asyncpg.Record]] = None,
+        conn: asyncpg.Connection[asyncpg.Record] | None = None,
         fetch_result: bool = False,
-        timeout: Optional[float] = None,
+        timeout: float | None = None,
     ) -> Any:
         """
         Call a stored procedure.
@@ -254,71 +257,9 @@ class Brotr:
     # Insert Operations
     # -------------------------------------------------------------------------
 
-    async def insert_events(self, records: list[EventRelay]) -> tuple[int, int]:
-        """
-        Insert events atomically using bulk insert with array parameters.
-
-        Args:
-            records: List of EventRelay dataclass instances
-
-        Returns:
-            Tuple of (inserted, skipped) counts
-
-        Raises:
-            asyncpg.PostgresError: On database errors
-            ValueError: On validation errors (batch size)
-        """
-        if not records:
-            return 0, 0
-
-        self._validate_batch_size(records, "insert_events")
-
-        # Collect valid params and track skipped
-        valid_params: list[tuple[Any, ...]] = []
-        skipped = 0
-
-        for event_relay in records:
-            try:
-                valid_params.append(event_relay.to_db_params())
-            except (ValueError, TypeError) as ex:
-                skipped += 1
-                try:
-                    event_id = (
-                        event_relay.event.id().to_hex()
-                        if hasattr(event_relay.event, "id")
-                        else "unknown"
-                    )
-                except Exception:
-                    event_id = "unknown"
-                self._logger.warning(
-                    "invalid_event_skipped",
-                    error=str(ex),
-                    event_id=event_id,
-                )
-
-        if not valid_params:
-            self._logger.warning("all_events_invalid", total=len(records), skipped=skipped)
-            return 0, skipped
-
-        columns = self._transpose_to_columns(valid_params)
-
-        async with self.pool.transaction() as conn:
-            await conn.execute(
-                "SELECT insert_event($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-                *columns,
-                timeout=self._config.timeouts.batch,
-            )
-
-        inserted = len(valid_params)
-        if skipped > 0:
-            self._logger.info("events_inserted_with_skipped", inserted=inserted, skipped=skipped)
-        else:
-            self._logger.debug("events_inserted", count=inserted)
-        return inserted, skipped
-
     async def insert_relays(self, records: list[Relay]) -> int:
         """
-        Insert relays atomically using bulk insert with array parameters.
+        Insert relays using bulk insert with array parameters.
 
         Args:
             records: List of Relay dataclass instances
@@ -339,28 +280,163 @@ class Brotr:
         columns = self._transpose_to_columns(params)
 
         async with self.pool.transaction() as conn:
-            await conn.execute(
-                "SELECT insert_relay($1, $2, $3)",
-                *columns,
-                timeout=self._config.timeouts.batch,
+            inserted: int = (
+                await conn.fetchval(
+                    "SELECT relays_insert($1, $2, $3)",
+                    *columns,
+                    timeout=self._config.timeouts.batch,
+                )
+                or 0
             )
 
-        self._logger.debug("relays_inserted", count=len(records))
-        return len(records)
+        self._logger.debug("relays_inserted", count=inserted, attempted=len(records))
+        return inserted
 
-    async def insert_relay_metadata(self, records: list[RelayMetadata]) -> int:
+    async def insert_events(self, records: list[Event]) -> tuple[int, int]:
         """
-        Insert relay metadata atomically using bulk insert with array parameters.
+        Insert events using bulk insert with array parameters.
 
-        Each RelayMetadata represents a single junction record (one row in relay_metadata).
-        The schema uses 6 parameters per record:
-            (relay_url, relay_network, relay_discovered_at, generated_at,
-             metadata_type, metadata_data)
-
-        The metadata hash (content-addressed ID) is computed by PostgreSQL.
+        Inserts only into the events table. Use insert_events_relays with
+        cascade=True to also insert relays and event-relay junctions.
 
         Args:
-            records: List of RelayMetadata dataclass instances
+            records: List of Event instances
+
+        Returns:
+            Tuple of (inserted, skipped) counts
+
+        Raises:
+            asyncpg.PostgresError: On database errors
+            ValueError: On validation errors (batch size)
+        """
+        if not records:
+            return 0, 0
+
+        self._validate_batch_size(records, "insert_events")
+
+        # Collect valid params and track skipped
+        valid_params: list[tuple[Any, ...]] = []
+        skipped = 0
+
+        for event in records:
+            try:
+                valid_params.append(event.to_db_params())
+            except (ValueError, TypeError) as ex:
+                skipped += 1
+                self._logger.warning(
+                    "invalid_event_skipped",
+                    error=str(ex),
+                    event_id=event.id().to_hex(),
+                )
+
+        if not valid_params:
+            self._logger.warning("all_events_invalid", total=len(records), skipped=skipped)
+            return 0, skipped
+
+        columns = self._transpose_to_columns(valid_params)
+
+        async with self.pool.transaction() as conn:
+            inserted: int = (
+                await conn.fetchval(
+                    "SELECT events_insert($1, $2, $3, $4, $5, $6, $7)",
+                    *columns,
+                    timeout=self._config.timeouts.batch,
+                )
+                or 0
+            )
+
+        if skipped > 0:
+            self._logger.info("events_inserted_with_skipped", inserted=inserted, skipped=skipped)
+        else:
+            self._logger.debug("events_inserted", count=inserted, attempted=len(valid_params))
+        return inserted, skipped
+
+    async def insert_events_relays(
+        self, records: list[EventRelay], *, cascade: bool = True
+    ) -> tuple[int, int]:
+        """
+        Insert event-relay junctions using bulk insert with array parameters.
+
+        Args:
+            records: List of EventRelay dataclass instances
+            cascade: If True (default), also inserts relays and events.
+                     If False, inserts only into events_relays junction (FKs must exist).
+
+        Returns:
+            Tuple of (inserted, skipped) counts
+
+        Raises:
+            asyncpg.PostgresError: On database errors
+            ValueError: On validation errors (batch size)
+        """
+        if not records:
+            return 0, 0
+
+        self._validate_batch_size(records, "insert_events_relays")
+
+        # Collect valid params and track skipped
+        valid_params: list[tuple[Any, ...]] = []
+        skipped = 0
+
+        for event_relay in records:
+            try:
+                valid_params.append(event_relay.to_db_params())
+            except (ValueError, TypeError) as ex:
+                skipped += 1
+                self._logger.warning(
+                    "invalid_event_relay_skipped",
+                    error=str(ex),
+                    event_id=event_relay.event.id().to_hex(),
+                )
+
+        if not valid_params:
+            self._logger.warning("all_event_relays_invalid", total=len(records), skipped=skipped)
+            return 0, skipped
+
+        columns = self._transpose_to_columns(valid_params)
+
+        if cascade:
+            # Insert relays → events → events_relays
+            query = (
+                "SELECT events_relays_insert_cascade($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+            )
+        else:
+            # Insert only events_relays junction (event_id, relay_url, seen_at)
+            # Columns: 0=id, 7=relay_url, 10=seen_at
+            event_ids = columns[0]
+            relay_urls = columns[7]
+            seen_ats = columns[10]
+            query = "SELECT events_relays_insert($1, $2, $3)"
+            columns = (event_ids, relay_urls, seen_ats)
+
+        async with self.pool.transaction() as conn:
+            inserted: int = (
+                await conn.fetchval(query, *columns, timeout=self._config.timeouts.batch) or 0
+            )
+
+        if skipped > 0:
+            self._logger.info(
+                "events_relays_inserted_with_skipped", inserted=inserted, skipped=skipped
+            )
+        else:
+            self._logger.debug(
+                "events_relays_inserted",
+                count=inserted,
+                attempted=len(valid_params),
+                cascade=cascade,
+            )
+        return inserted, skipped
+
+    async def insert_metadata(self, records: list[Metadata]) -> int:
+        """
+        Insert metadata records using bulk insert with array parameters.
+
+        Inserts only into the metadata table (content-addressed by hash).
+        Hash is computed in PostgreSQL using digest().
+        Use insert_relay_metadata with cascade=True to also insert relays and junctions.
+
+        Args:
+            records: List of Metadata dataclass instances
 
         Returns:
             Number of metadata records inserted
@@ -372,21 +448,92 @@ class Brotr:
         if not records:
             return 0
 
-        self._validate_batch_size(records, "insert_relay_metadata")
+        self._validate_batch_size(records, "insert_metadata")
 
-        # Collect params from each RelayMetadata
-        all_params = [metadata.to_db_params() for metadata in records]
-        columns = self._transpose_to_columns(all_params)
+        # Pass only data, hash computed in DB
+        datas = [metadata.to_db_params()[0] for metadata in records]
 
         async with self.pool.transaction() as conn:
-            await conn.execute(
-                "SELECT insert_relay_metadata($1, $2, $3, $4, $5, $6)",
-                *columns,
-                timeout=self._config.timeouts.batch,
+            inserted: int = (
+                await conn.fetchval(
+                    "SELECT metadata_insert($1)",
+                    datas,
+                    timeout=self._config.timeouts.batch,
+                )
+                or 0
             )
 
-        self._logger.debug("relay_metadata_inserted", count=len(all_params))
-        return len(all_params)
+        self._logger.debug("metadata_inserted", count=inserted, attempted=len(records))
+        return inserted
+
+    async def insert_relay_metadata(
+        self, records: list[RelayMetadata], *, cascade: bool = True
+    ) -> int:
+        """
+        Insert relay metadata using bulk insert with array parameters.
+
+        Args:
+            records: List of RelayMetadata dataclass instances
+            cascade: If True (default), also inserts relays and metadata records.
+                     If False, inserts only into relay_metadata junction (FKs must exist).
+
+        Returns:
+            Number of relay_metadata records inserted
+
+        Raises:
+            asyncpg.PostgresError: On database errors
+            ValueError: On validation errors (batch size)
+        """
+        if not records:
+            return 0
+
+        self._validate_batch_size(records, "insert_relay_metadata")
+
+        if cascade:
+            # Insert relays → metadata → relay_metadata (hash computed in DB)
+            all_params = [metadata.to_db_params() for metadata in records]
+            columns = self._transpose_to_columns(all_params)
+
+            async with self.pool.transaction() as conn:
+                inserted: int = (
+                    await conn.fetchval(
+                        "SELECT relay_metadata_insert_cascade($1, $2, $3, $4, $5, $6)",
+                        *columns,
+                        timeout=self._config.timeouts.batch,
+                    )
+                    or 0
+                )
+        else:
+            # Insert only into relay_metadata junction (FKs must exist)
+            # Hash is computed in PostgreSQL using digest()
+            relay_urls: list[str] = []
+            metadata_datas: list[str] = []
+            types: list[str] = []
+            generated_ats: list[int] = []
+
+            for record in records:
+                relay_urls.append(record.relay.url_without_scheme)
+                metadata_datas.append(record.metadata.to_db_params()[0])
+                types.append(record.metadata_type)
+                generated_ats.append(record.generated_at)
+
+            async with self.pool.transaction() as conn:
+                inserted = (
+                    await conn.fetchval(
+                        "SELECT relay_metadata_insert($1, $2, $3, $4)",
+                        relay_urls,
+                        metadata_datas,
+                        types,
+                        generated_ats,
+                        timeout=self._config.timeouts.batch,
+                    )
+                    or 0
+                )
+
+        self._logger.debug(
+            "relay_metadata_inserted", count=inserted, attempted=len(records), cascade=cascade
+        )
+        return inserted
 
     # -------------------------------------------------------------------------
     # Cleanup Operations
@@ -395,7 +542,7 @@ class Brotr:
     async def delete_orphan_events(self) -> int:
         """Delete orphaned events. Returns count."""
         result: int = await self._call_procedure(
-            "delete_orphan_events",
+            "orphan_events_delete",
             fetch_result=True,
             timeout=self._config.timeouts.cleanup,
         )
@@ -404,7 +551,7 @@ class Brotr:
     async def delete_orphan_metadata(self) -> int:
         """Delete orphaned metadata records. Returns count."""
         result: int = await self._call_procedure(
-            "delete_orphan_metadata",
+            "orphan_metadata_delete",
             fetch_result=True,
             timeout=self._config.timeouts.cleanup,
         )
@@ -422,7 +569,7 @@ class Brotr:
             Number of deleted candidates.
         """
         result: int = await self._call_procedure(
-            "delete_failed_candidates",
+            "failed_candidates_delete",
             max_attempts,
             fetch_result=True,
             timeout=self._config.timeouts.cleanup,
@@ -484,7 +631,7 @@ class Brotr:
 
         async with self.pool.transaction() as conn:
             await conn.execute(
-                "SELECT upsert_service_data($1, $2, $3, $4, $5)",
+                "SELECT service_data_upsert($1, $2, $3, $4, $5)",
                 service_names,
                 data_types,
                 keys,
@@ -500,7 +647,7 @@ class Brotr:
         self,
         service_name: str,
         data_type: str,
-        key: Optional[str] = None,
+        key: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Get service data records.
@@ -514,7 +661,7 @@ class Brotr:
             List of records with keys: key, value, updated_at
         """
         rows = await self.pool.fetch(
-            "SELECT * FROM get_service_data($1, $2, $3)",
+            "SELECT * FROM service_data_get($1, $2, $3)",
             service_name,
             data_type,
             key,
@@ -552,16 +699,19 @@ class Brotr:
         data_keys = [k[2] for k in keys]
 
         async with self.pool.transaction() as conn:
-            await conn.execute(
-                "SELECT delete_service_data($1, $2, $3)",
-                service_names,
-                data_types,
-                data_keys,
-                timeout=self._config.timeouts.batch,
+            deleted: int = (
+                await conn.fetchval(
+                    "SELECT service_data_delete($1, $2, $3)",
+                    service_names,
+                    data_types,
+                    data_keys,
+                    timeout=self._config.timeouts.batch,
+                )
+                or 0
             )
 
-        self._logger.debug("service_data_deleted", count=len(keys))
-        return len(keys)
+        self._logger.debug("service_data_deleted", count=deleted, attempted=len(keys))
+        return deleted
 
     # -------------------------------------------------------------------------
     # Query Operations
@@ -622,7 +772,7 @@ class Brotr:
     async def refresh_relay_metadata_latest(self) -> None:
         """Refresh relay_metadata_latest materialized view (concurrent, non-blocking)."""
         await self._call_procedure(
-            "refresh_relay_metadata_latest",
+            "relay_metadata_latest_refresh",
             timeout=self._config.timeouts.refresh,
         )
         self._logger.debug("matview_refreshed", view="relay_metadata_latest")
@@ -630,7 +780,7 @@ class Brotr:
     async def refresh_events_statistics(self) -> None:
         """Refresh events_statistics materialized view (concurrent, non-blocking)."""
         await self._call_procedure(
-            "refresh_events_statistics",
+            "events_statistics_refresh",
             timeout=self._config.timeouts.refresh,
         )
         self._logger.debug("matview_refreshed", view="events_statistics")
@@ -638,7 +788,7 @@ class Brotr:
     async def refresh_relays_statistics(self) -> None:
         """Refresh relays_statistics materialized view (concurrent, non-blocking)."""
         await self._call_procedure(
-            "refresh_relays_statistics",
+            "relays_statistics_refresh",
             timeout=self._config.timeouts.refresh,
         )
         self._logger.debug("matview_refreshed", view="relays_statistics")
@@ -646,7 +796,7 @@ class Brotr:
     async def refresh_kind_counts_total(self) -> None:
         """Refresh kind_counts_total materialized view (concurrent, non-blocking)."""
         await self._call_procedure(
-            "refresh_kind_counts_total",
+            "kind_counts_total_refresh",
             timeout=self._config.timeouts.refresh,
         )
         self._logger.debug("matview_refreshed", view="kind_counts_total")
@@ -654,7 +804,7 @@ class Brotr:
     async def refresh_kind_counts_by_relay(self) -> None:
         """Refresh kind_counts_by_relay materialized view (concurrent, non-blocking)."""
         await self._call_procedure(
-            "refresh_kind_counts_by_relay",
+            "kind_counts_by_relay_refresh",
             timeout=self._config.timeouts.refresh,
         )
         self._logger.debug("matview_refreshed", view="kind_counts_by_relay")
@@ -662,7 +812,7 @@ class Brotr:
     async def refresh_pubkey_counts_total(self) -> None:
         """Refresh pubkey_counts_total materialized view (concurrent, non-blocking)."""
         await self._call_procedure(
-            "refresh_pubkey_counts_total",
+            "pubkey_counts_total_refresh",
             timeout=self._config.timeouts.refresh,
         )
         self._logger.debug("matview_refreshed", view="pubkey_counts_total")
@@ -670,7 +820,7 @@ class Brotr:
     async def refresh_pubkey_counts_by_relay(self) -> None:
         """Refresh pubkey_counts_by_relay materialized view (concurrent, non-blocking)."""
         await self._call_procedure(
-            "refresh_pubkey_counts_by_relay",
+            "pubkey_counts_by_relay_refresh",
             timeout=self._config.timeouts.refresh,
         )
         self._logger.debug("matview_refreshed", view="pubkey_counts_by_relay")
@@ -685,7 +835,7 @@ class Brotr:
 
         Usage:
             async with brotr:
-                await brotr.insert_events([...])
+                await brotr.insert_events_relays([...])
         """
         await self.pool.connect()
         return self
