@@ -10,7 +10,7 @@ Provides:
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -182,7 +182,7 @@ def _make_mock_event(
     pubkey: str = "b" * 64,
     created_at: int = 1700000000,
     kind: int = 1,
-    tags: Optional[list[list[str]]] = None,
+    tags: list[list[str]] | None = None,
     content: str = "Test content",
     sig: str = "e" * 128,
 ) -> MagicMock:
@@ -209,9 +209,7 @@ def _make_mock_event(
     return mock_event
 
 
-def _create_nip11(
-    relay: Relay, data: Optional[dict] = None, generated_at: int = 1700000001
-) -> Nip11:
+def _create_nip11(relay: Relay, data: dict | None = None, generated_at: int = 1700000001) -> Nip11:
     """Create a Nip11 instance using object.__new__ pattern."""
     from models import Metadata
 
@@ -231,8 +229,8 @@ def _create_nip11(
 
 def _create_nip66(
     relay: Relay,
-    rtt_data: Optional[dict] = None,
-    geo_data: Optional[dict] = None,
+    rtt_data: dict | None = None,
+    geo_data: dict | None = None,
     generated_at: int = 1700000001,
 ) -> Nip66:
     """Create a Nip66 instance using object.__new__ pattern."""

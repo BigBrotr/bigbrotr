@@ -44,7 +44,7 @@ def mock_synchronizer_brotr(mock_brotr: Brotr) -> Brotr:
     mock_config = MagicMock(spec=BrotrConfig)
     mock_config.batch = mock_batch_config
     mock_brotr._config = mock_config
-    mock_brotr.insert_events = AsyncMock(return_value=0)  # type: ignore[attr-defined]
+    mock_brotr.insert_events_relays = AsyncMock(return_value=(0, 0))  # type: ignore[attr-defined]
     return mock_brotr
 
 

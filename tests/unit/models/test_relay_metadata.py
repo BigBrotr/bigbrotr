@@ -63,7 +63,7 @@ class TestImmutability:
 
     def test_new_attribute_blocked(self, relay, metadata):
         rm = RelayMetadata(relay, metadata, "nip11")
-        with pytest.raises(AttributeError):
+        with pytest.raises((AttributeError, TypeError)):
             rm.new_attr = "value"
 
 
@@ -82,10 +82,10 @@ class TestToDbParams:
         assert result[0] == "relay.example.com:8080/nostr"  # url
         assert result[1] == "clearnet"  # network
         assert result[2] == 1234567890  # relay discovered_at
-        assert result[3] == 9999999999  # generated_at
-        assert result[4] == "nip66_rtt"  # type
-        parsed = json.loads(result[5])
+        parsed = json.loads(result[3])  # metadata_data
         assert parsed == {"name": "Test", "value": 42}
+        assert result[4] == "nip66_rtt"  # type
+        assert result[5] == 9999999999  # generated_at
 
 
 class TestEquality:
@@ -113,3 +113,33 @@ class TestMetadataTypeLiteral:
     def test_valid_types(self):
         valid = get_args(MetadataType)
         assert set(valid) == {"nip11", "nip66_rtt", "nip66_ssl", "nip66_geo"}
+
+
+class TestFromDbParams:
+    """Reconstruction from database parameters."""
+
+    def test_simple(self):
+        rm = RelayMetadata.from_db_params(
+            relay_url="relay.example.com",
+            relay_network="clearnet",
+            relay_discovered_at=1234567890,
+            generated_at=9999999999,
+            metadata_type="nip11",
+            metadata_data='{"name": "Test"}',
+        )
+        assert rm.relay.url_without_scheme == "relay.example.com"
+        assert rm.relay.network == "clearnet"
+        assert rm.generated_at == 9999999999
+        assert rm.metadata_type == "nip11"
+        assert rm.metadata.data == {"name": "Test"}
+
+    def test_roundtrip(self, relay, metadata):
+        """to_db_params -> from_db_params should preserve data."""
+        original = RelayMetadata(relay, metadata, "nip66_rtt", generated_at=1234567890)
+        params = original.to_db_params()
+        reconstructed = RelayMetadata.from_db_params(*params)
+        assert reconstructed.relay.url_without_scheme == original.relay.url_without_scheme
+        assert reconstructed.relay.network == original.relay.network
+        assert reconstructed.generated_at == original.generated_at
+        assert reconstructed.metadata_type == original.metadata_type
+        assert reconstructed.metadata.data == original.metadata.data

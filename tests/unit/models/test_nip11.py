@@ -118,7 +118,7 @@ class TestFetch:
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with patch("models.nip11.aiohttp.ClientSession", return_value=mock_session):
-            result = await Nip11.fetch(relay)
+            result = await Nip11.fetch(relay, timeout=30.0, max_size=1_048_576)
 
         assert result is not None
         assert result.name == "Test"
@@ -136,7 +136,7 @@ class TestFetch:
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with patch("models.nip11.aiohttp.ClientSession", return_value=mock_session):
-            assert await Nip11.fetch(relay) is None
+            assert await Nip11.fetch(relay, timeout=30.0, max_size=1_048_576) is None
 
     @pytest.mark.asyncio
     async def test_exception_returns_none(self, relay):
@@ -145,7 +145,7 @@ class TestFetch:
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with patch("models.nip11.aiohttp.ClientSession", return_value=mock_session):
-            assert await Nip11.fetch(relay) is None
+            assert await Nip11.fetch(relay, timeout=30.0, max_size=1_048_576) is None
 
     @pytest.mark.asyncio
     async def test_uses_correct_protocol(self, relay):
@@ -163,12 +163,12 @@ class TestFetch:
 
         with patch("models.nip11.aiohttp.ClientSession", return_value=mock_session):
             # Test wss -> https
-            await Nip11.fetch(relay)
+            await Nip11.fetch(relay, timeout=30.0, max_size=1_048_576)
             assert mock_get.call_args[0][0].startswith("https://")
 
             # Test ws -> http
             ws_relay = Relay("ws://relay.example.com", discovered_at=0)
-            await Nip11.fetch(ws_relay)
+            await Nip11.fetch(ws_relay, timeout=30.0, max_size=1_048_576)
             assert mock_get.call_args[0][0].startswith("http://")
 
     @pytest.mark.asyncio
@@ -186,7 +186,7 @@ class TestFetch:
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with patch("models.nip11.aiohttp.ClientSession", return_value=mock_session):
-            await Nip11.fetch(relay)
+            await Nip11.fetch(relay, timeout=30.0, max_size=1_048_576)
             headers = mock_get.call_args[1]["headers"]
             assert headers["Accept"] == "application/nostr+json"
 
@@ -217,7 +217,7 @@ class TestFetch:
             mock_session.__aexit__ = AsyncMock(return_value=None)
 
             with patch("models.nip11.aiohttp.ClientSession", return_value=mock_session):
-                result = await Nip11.fetch(relay)
+                result = await Nip11.fetch(relay, timeout=30.0, max_size=1_048_576)
                 assert result is not None, f"Should accept Content-Type: {content_type}"
 
     @pytest.mark.asyncio
@@ -249,5 +249,5 @@ class TestFetch:
             mock_session.__aexit__ = AsyncMock(return_value=None)
 
             with patch("models.nip11.aiohttp.ClientSession", return_value=mock_session):
-                result = await Nip11.fetch(relay)
+                result = await Nip11.fetch(relay, timeout=30.0, max_size=1_048_576)
                 assert result is None, f"Should reject Content-Type: {content_type}"

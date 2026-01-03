@@ -150,7 +150,7 @@ class TestImmutability:
 
     def test_new_attribute_blocked(self):
         r = Relay("wss://relay.example.com")
-        with pytest.raises(AttributeError):
+        with pytest.raises((AttributeError, TypeError)):
             r.new_attr = "value"
 
 
@@ -202,3 +202,56 @@ class TestEquality:
         r1 = Relay("wss://relay.example.com", discovered_at=1234567890)
         r2 = Relay("wss://relay.example.com", discovered_at=1234567890)
         assert len({r1, r2}) == 1
+
+
+class TestFromDbParams:
+    """Reconstruction from database parameters."""
+
+    def test_simple_relay(self):
+        r = Relay.from_db_params("relay.example.com", "clearnet", 1234567890)
+        assert r.url_without_scheme == "relay.example.com"
+        assert r.network == "clearnet"
+        assert r.discovered_at == 1234567890
+        assert r.host == "relay.example.com"
+        assert r.port is None
+        assert r.path is None
+        assert r.scheme == "wss"
+
+    def test_with_port(self):
+        r = Relay.from_db_params("relay.example.com:8080", "clearnet", 1234567890)
+        assert r.host == "relay.example.com"
+        assert r.port == 8080
+        assert r.path is None
+
+    def test_with_path(self):
+        r = Relay.from_db_params("relay.example.com/nostr", "clearnet", 1234567890)
+        assert r.host == "relay.example.com"
+        assert r.port is None
+        assert r.path == "/nostr"
+
+    def test_with_port_and_path(self):
+        r = Relay.from_db_params("relay.example.com:8080/nostr", "clearnet", 1234567890)
+        assert r.host == "relay.example.com"
+        assert r.port == 8080
+        assert r.path == "/nostr"
+
+    def test_ipv6(self):
+        r = Relay.from_db_params("[2606:4700::1]:8080", "clearnet", 1234567890)
+        assert r.host == "2606:4700::1"  # host without brackets
+        assert r.port == 8080
+
+    def test_tor_network(self):
+        r = Relay.from_db_params("abc123.onion", "tor", 1234567890)
+        assert r.network == "tor"
+
+    def test_roundtrip(self):
+        """to_db_params -> from_db_params should preserve data."""
+        original = Relay("wss://relay.example.com:8080/nostr", discovered_at=1234567890)
+        params = original.to_db_params()
+        reconstructed = Relay.from_db_params(*params)
+        assert reconstructed.url_without_scheme == original.url_without_scheme
+        assert reconstructed.network == original.network
+        assert reconstructed.discovered_at == original.discovered_at
+        assert reconstructed.host == original.host
+        assert reconstructed.port == original.port
+        assert reconstructed.path == original.path

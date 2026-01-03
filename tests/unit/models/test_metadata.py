@@ -4,7 +4,7 @@ Unit tests for models.metadata module.
 Tests:
 - Construction from dict
 - Immutability enforcement
-- JSON serialization (data_jsonb property)
+- JSON serialization (to_db_params method)
 - Type-safe getters (_get, _get_optional, _get_nested)
 - Equality and hashing
 """
@@ -46,111 +46,132 @@ class TestImmutability:
 
     def test_new_attribute_blocked(self):
         m = Metadata({})
-        with pytest.raises(AttributeError):
+        with pytest.raises((AttributeError, TypeError)):
             m.new_attr = "value"
 
 
 class TestGetMethods:
     """Type-safe getter methods."""
 
-    def test_get_correct_type(self):
+    def test_get_with_default(self):
         m = Metadata({"name": "test"})
-        assert m._get("name", str, "default") == "test"
+        assert m._get("name", expected_type=str, default="default") == "test"
 
-    def test_get_wrong_type(self):
+    def test_get_wrong_type_returns_default(self):
         m = Metadata({"name": 123})
-        assert m._get("name", str, "default") == "default"
+        assert m._get("name", expected_type=str, default="default") == "default"
 
-    def test_get_missing(self):
+    def test_get_missing_returns_default(self):
         m = Metadata({})
-        assert m._get("missing", str, "default") == "default"
+        assert m._get("missing", expected_type=str, default="default") == "default"
 
     def test_get_optional_exists(self):
         m = Metadata({"name": "test"})
-        assert m._get_optional("name", str) == "test"
+        assert m._get("name", expected_type=str) == "test"
 
     def test_get_optional_wrong_type(self):
         m = Metadata({"name": 123})
-        assert m._get_optional("name", str) is None
+        assert m._get("name", expected_type=str) is None
 
     def test_get_optional_missing(self):
         m = Metadata({})
-        assert m._get_optional("missing", str) is None
+        assert m._get("missing", expected_type=str) is None
 
-    def test_get_nested_exists(self):
+    def test_get_nested_with_default(self):
         m = Metadata({"outer": {"inner": "value"}})
-        assert m._get_nested("outer", "inner", str, "default") == "value"
+        assert m._get("outer", "inner", expected_type=str, default="default") == "value"
 
     def test_get_nested_missing_outer(self):
         m = Metadata({})
-        assert m._get_nested("missing", "inner", str, "default") == "default"
+        assert m._get("missing", "inner", expected_type=str, default="default") == "default"
 
     def test_get_nested_outer_not_dict(self):
         m = Metadata({"outer": "not_a_dict"})
-        assert m._get_nested("outer", "inner", str, "default") == "default"
+        assert m._get("outer", "inner", expected_type=str, default="default") == "default"
 
     def test_get_nested_optional_exists(self):
         m = Metadata({"outer": {"inner": "value"}})
-        assert m._get_nested_optional("outer", "inner", str) == "value"
+        assert m._get("outer", "inner", expected_type=str) == "value"
 
     def test_get_nested_optional_missing(self):
         m = Metadata({})
-        assert m._get_nested_optional("missing", "inner", str) is None
+        assert m._get("missing", "inner", expected_type=str) is None
+
+    def test_get_deep_nested(self):
+        m = Metadata({"a": {"b": {"c": "deep"}}})
+        assert m._get("a", "b", "c", expected_type=str) == "deep"
+
+    def test_get_deep_nested_with_default(self):
+        m = Metadata({"a": {"b": {}}})
+        assert m._get("a", "b", "c", expected_type=str, default="fallback") == "fallback"
 
 
 class TestSanitize:
-    """JSON sanitization for PostgreSQL."""
+    """JSON sanitization via to_db_params."""
 
-    def test_primitives(self):
-        assert Metadata._sanitize_for_json(None) is None
-        assert Metadata._sanitize_for_json(True) is True
-        assert Metadata._sanitize_for_json(42) == 42
-        assert Metadata._sanitize_for_json(3.14) == 3.14
-        assert Metadata._sanitize_for_json("test") == "test"
+    def test_non_string_keys_skipped(self):
+        m = Metadata({"key": "value", 123: "skipped"})  # type: ignore[dict-item]
+        parsed = json.loads(m.to_db_params()[0])
+        assert parsed == {"key": "value"}
 
-    def test_dict(self):
-        data = {"key": "value", "nested": {"inner": 123}}
-        assert Metadata._sanitize_for_json(data) == data
-
-    def test_dict_skips_non_string_keys(self):
-        data = {"key": "value", 123: "skipped"}
-        assert Metadata._sanitize_for_json(data) == {"key": "value"}
-
-    def test_list(self):
-        data = [1, "two", {"three": 3}]
-        assert Metadata._sanitize_for_json(data) == data
-
-    def test_tuple_to_list(self):
-        assert Metadata._sanitize_for_json((1, 2, 3)) == [1, 2, 3]
-
-    def test_object_to_string(self):
+    def test_non_serializable_becomes_none(self):
         class Custom:
-            def __str__(self):
-                return "custom"
+            pass
 
-        assert Metadata._sanitize_for_json(Custom()) == "custom"
+        m = Metadata({"valid": "ok", "invalid": Custom()})
+        parsed = json.loads(m.to_db_params()[0])
+        assert parsed == {"valid": "ok", "invalid": None}
 
 
-class TestDataJsonb:
+class TestToDbParams:
     """JSONB serialization for PostgreSQL."""
+
+    def test_returns_tuple(self):
+        m = Metadata({"name": "test"})
+        result = m.to_db_params()
+        assert isinstance(result, tuple)
+        assert len(result) == 1
 
     def test_valid_json(self):
         m = Metadata({"name": "test", "value": 123})
-        parsed = json.loads(m.data_jsonb)
+        parsed = json.loads(m.to_db_params()[0])
         assert parsed == {"name": "test", "value": 123}
 
     def test_empty(self):
         m = Metadata({})
-        assert m.data_jsonb == "{}"
+        assert m.to_db_params()[0] == "{}"
 
     def test_unicode(self):
         m = Metadata({"name": "日本語"})
-        assert "日本語" in m.data_jsonb
+        assert "日本語" in m.to_db_params()[0]
 
     def test_nested(self):
         m = Metadata({"a": {"b": {"c": [1, 2, 3]}}})
-        parsed = json.loads(m.data_jsonb)
+        parsed = json.loads(m.to_db_params()[0])
         assert parsed["a"]["b"]["c"] == [1, 2, 3]
+
+
+class TestFromDbParams:
+    """Reconstruction from database parameters."""
+
+    def test_simple(self):
+        m = Metadata.from_db_params('{"name": "test"}')
+        assert m.data == {"name": "test"}
+
+    def test_nested(self):
+        m = Metadata.from_db_params('{"a": {"b": [1, 2, 3]}}')
+        assert m.data["a"]["b"] == [1, 2, 3]
+
+    def test_empty(self):
+        m = Metadata.from_db_params("{}")
+        assert m.data == {}
+
+    def test_roundtrip(self):
+        """to_db_params -> from_db_params should preserve data."""
+        original = Metadata({"name": "test", "value": 123})
+        params = original.to_db_params()
+        reconstructed = Metadata.from_db_params(params[0])
+        assert reconstructed.data == original.data
 
 
 class TestEquality:

@@ -67,7 +67,7 @@ class TestImmutability:
 
     def test_new_attribute_blocked(self, mock_event, relay):
         er = EventRelay(mock_event, relay)
-        with pytest.raises(AttributeError):
+        with pytest.raises((AttributeError, TypeError)):
             er.new_attr = "value"
 
 
@@ -123,3 +123,44 @@ class TestEquality:
         er1 = EventRelay(mock_event, relay1, seen_at=1234567890)
         er2 = EventRelay(mock_event, relay2, seen_at=1234567890)
         assert er1 != er2
+
+
+class TestFromDbParams:
+    """Reconstruction from database parameters."""
+
+    def test_reconstructs_relay(self):
+        """from_db_params should reconstruct relay correctly."""
+        er = EventRelay.from_db_params(
+            event_id=b"\xaa" * 32,
+            pubkey=b"\xbb" * 32,
+            created_at=1234567890,
+            kind=1,
+            tags_json="[]",
+            content="test",
+            sig=b"\xcc" * 64,
+            relay_url="relay.example.com",
+            relay_network="clearnet",
+            relay_discovered_at=1234567890,
+            seen_at=9999999999,
+        )
+        assert er.relay.url_without_scheme == "relay.example.com"
+        assert er.relay.network == "clearnet"
+        assert er.seen_at == 9999999999
+
+    def test_to_db_params_structure(self, mock_event, relay):
+        """Verify to_db_params output can be used with from_db_params."""
+        er = EventRelay(mock_event, relay, seen_at=1234567890)
+        params = er.to_db_params()
+        assert len(params) == 11
+        # Verify types match from_db_params signature
+        assert isinstance(params[0], bytes)  # event_id
+        assert isinstance(params[1], bytes)  # pubkey
+        assert isinstance(params[2], int)  # created_at
+        assert isinstance(params[3], int)  # kind
+        assert isinstance(params[4], str)  # tags_json
+        assert isinstance(params[5], str)  # content
+        assert isinstance(params[6], bytes)  # sig
+        assert isinstance(params[7], str)  # relay_url
+        assert isinstance(params[8], str)  # relay_network
+        assert isinstance(params[9], int)  # relay_discovered_at
+        assert isinstance(params[10], int)  # seen_at

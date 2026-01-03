@@ -159,24 +159,30 @@ class TestDataProperty:
 class TestToRelayMetadata:
     """to_relay_metadata() method."""
 
-    def test_returns_all_three(self, nip66):
-        results = nip66.to_relay_metadata()
-        assert len(results) == 3
-        types = {r.metadata_type for r in results}
-        assert types == {"nip66_rtt", "nip66_ssl", "nip66_geo"}
+    def test_returns_tuple_of_three(self, nip66):
+        rtt, ssl, geo = nip66.to_relay_metadata()
+        assert rtt is not None
+        assert rtt.metadata_type == "nip66_rtt"
+        assert ssl is not None
+        assert ssl.metadata_type == "nip66_ssl"
+        assert geo is not None
+        assert geo.metadata_type == "nip66_geo"
 
-    def test_returns_only_rtt(self, minimal_nip66):
-        results = minimal_nip66.to_relay_metadata()
-        assert len(results) == 1
-        assert results[0].metadata_type == "nip66_rtt"
+    def test_returns_none_for_missing(self, minimal_nip66):
+        rtt, ssl, geo = minimal_nip66.to_relay_metadata()
+        assert rtt is not None
+        assert rtt.metadata_type == "nip66_rtt"
+        assert ssl is None
+        assert geo is None
 
     def test_preserves_generated_at(self, nip66):
-        results = nip66.to_relay_metadata()
-        for r in results:
-            assert r.generated_at == 1234567890
+        rtt, ssl, geo = nip66.to_relay_metadata()
+        assert rtt.generated_at == 1234567890
+        assert ssl.generated_at == 1234567890
+        assert geo.generated_at == 1234567890
 
 
-class TestResolveDns:
+class TestResolveDnsSync:
     """_resolve_dns_sync() static method."""
 
     def test_success(self):
@@ -185,16 +191,17 @@ class TestResolveDns:
         assert ip == "8.8.8.8"
         assert isinstance(rtt, int)
 
-    def test_failure(self):
+    def test_failure_raises(self):
         import socket
 
-        with patch("socket.gethostbyname", side_effect=socket.gaierror):
-            ip, rtt = Nip66._resolve_dns_sync("nonexistent.example.com")
-        assert ip is None
-        assert rtt is None
+        with (
+            patch("socket.gethostbyname", side_effect=socket.gaierror),
+            pytest.raises(socket.gaierror),
+        ):
+            Nip66._resolve_dns_sync("nonexistent.example.com")
 
 
-class TestCheckSsl:
+class TestCheckSslSync:
     """_check_ssl_sync() static method."""
 
     def test_success(self):
@@ -216,11 +223,11 @@ class TestCheckSsl:
                 mock_wrapped.__exit__ = MagicMock(return_value=False)
                 mock_ctx.return_value.wrap_socket.return_value = mock_wrapped
 
-                result = Nip66._check_ssl_sync("example.com")
+                result = Nip66._check_ssl_sync("example.com", 443, 30.0)
 
         assert result.get("ssl_valid") is True
 
-    def test_ssl_error(self):
+    def test_ssl_error_raises(self):
         import ssl
 
         with patch("socket.create_connection") as mock_conn:
@@ -228,23 +235,25 @@ class TestCheckSsl:
             mock_conn.return_value.__enter__.return_value = mock_socket
             mock_conn.return_value.__exit__ = MagicMock(return_value=False)
 
-            with patch("ssl.create_default_context") as mock_ctx:
+            with (
+                patch("ssl.create_default_context") as mock_ctx,
+                pytest.raises(ssl.SSLError),
+            ):
                 mock_ctx.return_value.wrap_socket.side_effect = ssl.SSLError()
-                result = Nip66._check_ssl_sync("example.com")
+                Nip66._check_ssl_sync("example.com", 443, 30.0)
 
-        assert result.get("ssl_valid") is False
+    def test_connection_error_raises(self):
+        with (
+            patch("socket.create_connection", side_effect=TimeoutError),
+            pytest.raises(TimeoutError),
+        ):
+            Nip66._check_ssl_sync("example.com", 443, 30.0)
 
-    def test_connection_error(self):
-        with patch("socket.create_connection", side_effect=TimeoutError):
-            result = Nip66._check_ssl_sync("example.com")
-        assert result == {}
 
+class TestLookupGeoSync:
+    """_lookup_geo_sync() static method."""
 
-class TestLookupGeo:
-    """_lookup_geo() static method."""
-
-    @pytest.mark.asyncio
-    async def test_success(self):
+    def test_success(self):
         mock_response = MagicMock()
         mock_response.country.iso_code = "US"
         mock_response.city.name = "Mountain View"
@@ -255,20 +264,48 @@ class TestLookupGeo:
 
         with patch("geoip2.database.Reader") as mock_reader:
             mock_reader.return_value.__enter__.return_value.city.return_value = mock_response
-            result = await Nip66._lookup_geo("8.8.8.8", "/path/to/city.mmdb")
+            result = Nip66._lookup_geo_sync("8.8.8.8", "/path/to/city.mmdb")
 
         assert result["geo_ip"] == "8.8.8.8"
         assert result["geo_country"] == "US"
         assert "geohash" in result
 
-    @pytest.mark.asyncio
-    async def test_failure_still_includes_ip(self):
-        with patch("geoip2.database.Reader") as mock_reader:
+    def test_failure_raises(self):
+        with (
+            patch("geoip2.database.Reader") as mock_reader,
+            pytest.raises(Exception),
+        ):
             mock_reader.return_value.__enter__.return_value.city.side_effect = Exception()
-            result = await Nip66._lookup_geo("8.8.8.8", "/path/to/city.mmdb")
+            Nip66._lookup_geo_sync("8.8.8.8", "/path/to/city.mmdb")
 
-        assert result["geo_ip"] == "8.8.8.8"
-        assert "geo_country" not in result
+
+class TestTestRtt:
+    """_test_rtt() class method."""
+
+    @pytest.mark.asyncio
+    async def test_returns_metadata(self, relay):
+        rtt_data = {"network": "clearnet", "rtt_open": 100}
+        with patch.object(
+            Nip66, "_test_rtt", new_callable=AsyncMock, return_value=Metadata(rtt_data)
+        ):
+            result = await Nip66._test_rtt(relay, timeout=30.0, keys=None)
+        assert isinstance(result, Metadata)
+
+
+class TestTestSsl:
+    """_test_ssl() class method."""
+
+    @pytest.mark.asyncio
+    async def test_requires_wss(self):
+        ws_relay = Relay("ws://relay.example.com", discovered_at=0)
+        with pytest.raises(ValueError, match="wss://"):
+            await Nip66._test_ssl(ws_relay, timeout=30.0)
+
+    @pytest.mark.asyncio
+    async def test_requires_clearnet(self):
+        tor_relay = Relay("wss://abc123.onion", discovered_at=0)
+        with pytest.raises(ValueError, match="clearnet"):
+            await Nip66._test_ssl(tor_relay, timeout=30.0)
 
 
 class TestTest:
@@ -276,32 +313,29 @@ class TestTest:
 
     @pytest.mark.asyncio
     async def test_returns_nip66(self, relay):
-        with (
-            patch.object(Nip66, "_resolve_dns", return_value=(None, None)),
-            patch.object(Nip66, "_check_ssl", return_value={}),
-            patch.object(Nip66, "_test_connection", new_callable=AsyncMock, return_value={}),
-        ):
-            result = await Nip66.test(relay)
+        rtt_metadata = Metadata({"network": "clearnet"})
+        with patch.object(Nip66, "_test_rtt", new_callable=AsyncMock, return_value=rtt_metadata):
+            result = await Nip66.test(relay, timeout=30.0)
         assert isinstance(result, Nip66)
         assert result.network == "clearnet"
 
     @pytest.mark.asyncio
-    async def test_skips_dns_for_tor(self):
-        tor_relay = Relay("wss://abc123.onion", discovered_at=0)
+    async def test_handles_ssl_failure(self, relay):
+        rtt_metadata = Metadata({"network": "clearnet"})
         with (
-            patch.object(Nip66, "_resolve_dns") as mock_dns,
-            patch.object(Nip66, "_test_connection", new_callable=AsyncMock, return_value={}),
+            patch.object(Nip66, "_test_rtt", new_callable=AsyncMock, return_value=rtt_metadata),
+            patch.object(Nip66, "_test_ssl", new_callable=AsyncMock, side_effect=Exception()),
         ):
-            await Nip66.test(tor_relay)
-        mock_dns.assert_not_called()
+            result = await Nip66.test(relay, timeout=30.0)
+        assert result.ssl_metadata is None
 
     @pytest.mark.asyncio
-    async def test_skips_ssl_for_ws(self):
-        ws_relay = Relay("ws://relay.example.com", discovered_at=0)
+    async def test_handles_geo_failure(self, relay):
+        rtt_metadata = Metadata({"network": "clearnet", "_ip": "8.8.8.8"})
         with (
-            patch.object(Nip66, "_resolve_dns", return_value=("8.8.8.8", 50)),
-            patch.object(Nip66, "_check_ssl") as mock_ssl,
-            patch.object(Nip66, "_test_connection", new_callable=AsyncMock, return_value={}),
+            patch.object(Nip66, "_test_rtt", new_callable=AsyncMock, return_value=rtt_metadata),
+            patch.object(Nip66, "_test_ssl", new_callable=AsyncMock, side_effect=Exception()),
+            patch.object(Nip66, "_test_geo", new_callable=AsyncMock, side_effect=Exception()),
         ):
-            await Nip66.test(ws_relay)
-        mock_ssl.assert_not_called()
+            result = await Nip66.test(relay, timeout=30.0, city_db_path="/path/to/db")
+        assert result.geo_metadata is None
