@@ -14,7 +14,7 @@ storage using dedicated database tables.
 import asyncio
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar, Generic, Optional, TypeVar, cast
+from typing import Any, ClassVar, Generic, TypeVar, cast
 
 import yaml
 from pydantic import BaseModel
@@ -57,7 +57,7 @@ class BaseService(ABC, Generic[ConfigT]):
     CONFIG_CLASS: ClassVar[type[BaseModel]]
     MAX_CONSECUTIVE_FAILURES: ClassVar[int] = 5
 
-    def __init__(self, brotr: Brotr, config: Optional[ConfigT] = None) -> None:
+    def __init__(self, brotr: Brotr, config: ConfigT | None = None) -> None:
         self._brotr = brotr
         self._config: ConfigT = (
             config if config is not None else cast("ConfigT", self.CONFIG_CLASS())
@@ -111,7 +111,7 @@ class BaseService(ABC, Generic[ConfigT]):
     async def run_forever(
         self,
         interval: float,
-        max_consecutive_failures: Optional[int] = None,
+        max_consecutive_failures: int | None = None,
     ) -> None:
         """
         Run service continuously with interval between cycles.
