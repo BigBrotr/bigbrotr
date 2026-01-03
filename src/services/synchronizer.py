@@ -28,24 +28,41 @@ import random
 import signal
 import time
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiomultiprocess
 from nostr_sdk import (
     Alphabet,
     ClientBuilder,
     ClientOptions,
-    Event,
     Filter,
     Kind,
     SingleLetterTag,
     Timestamp,
 )
+from nostr_sdk import (
+    Event as NostrEvent,
+)
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from core.base_service import BaseService
 from core.brotr import Brotr
-from models import EventRelay, Keys, Relay
+from models import Event, EventRelay, Keys, Relay
+
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+# Environment variable for private key
+ENV_PRIVATE_KEY = "PRIVATE_KEY"  # pragma: allowlist secret
+
+# Nostr protocol constants
+HEX_STRING_LENGTH = 64
+EVENT_KIND_MAX = 65535
+
+# Batch sizes
+BATCH_CURSOR = 50
 
 
 if TYPE_CHECKING:
@@ -56,7 +73,7 @@ if TYPE_CHECKING:
 _WORKER_SERVICE_NAME = "synchronizer"
 
 # Worker-level logger instance (created once per worker process)
-_WORKER_LOGGER: Optional[logging.Logger] = None
+_WORKER_LOGGER: logging.Logger | None = None
 
 
 def _get_worker_logger() -> logging.Logger:
@@ -146,7 +163,7 @@ class KeysConfig(BaseModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
-    keys: Optional[Keys] = Field(
+    keys: Keys | None = Field(
         default=None,
         description="Keys loaded from PRIVATE_KEY env",
     )
@@ -155,7 +172,7 @@ class KeysConfig(BaseModel):
     @classmethod
     def load_keys_from_env(cls, data: Any) -> Any:
         if isinstance(data, dict) and "keys" not in data:
-            data["keys"] = Keys.from_env()
+            data["keys"] = Keys.from_env(ENV_PRIVATE_KEY)
         return data
 
 
@@ -194,16 +211,16 @@ class EventBatch:
         self.until = until
         self.limit = limit
         self.size = 0
-        self.events: list[Event] = []
-        self.min_created_at: Optional[int] = None
-        self.max_created_at: Optional[int] = None
+        self.events: list[NostrEvent] = []
+        self.min_created_at: int | None = None
+        self.max_created_at: int | None = None
 
-    def append(self, event: Event) -> None:
+    def append(self, event: NostrEvent) -> None:
         """
         Add an event to the batch if within time bounds.
 
         Args:
-            event: Event to add to batch
+            event: NostrEvent to add to batch
 
         Raises:
             OverflowError: If batch has reached its limit
@@ -236,7 +253,7 @@ class EventBatch:
         """Return the number of events in the batch."""
         return self.size
 
-    def __iter__(self) -> Iterator[Event]:
+    def __iter__(self) -> Iterator[NostrEvent]:
         """Iterate over events in the batch."""
         return iter(self.events)
 
@@ -244,34 +261,34 @@ class EventBatch:
 class FilterConfig(BaseModel):
     """Event filter configuration."""
 
-    ids: Optional[list[str]] = Field(default=None, description="Event IDs to sync (None = all)")
-    kinds: Optional[list[int]] = Field(default=None, description="Event kinds to sync (None = all)")
-    authors: Optional[list[str]] = Field(default=None, description="Authors to sync (None = all)")
-    tags: Optional[dict[str, list[str]]] = Field(
-        default=None, description="Tag filters (None = all)"
-    )
+    ids: list[str] | None = Field(default=None, description="Event IDs to sync (None = all)")
+    kinds: list[int] | None = Field(default=None, description="Event kinds to sync (None = all)")
+    authors: list[str] | None = Field(default=None, description="Authors to sync (None = all)")
+    tags: dict[str, list[str]] | None = Field(default=None, description="Tag filters (None = all)")
     limit: int = Field(default=500, ge=1, le=5000, description="Events per request")
 
     @field_validator("kinds", mode="after")
     @classmethod
-    def validate_kinds(cls, v: Optional[list[int]]) -> Optional[list[int]]:
+    def validate_kinds(cls, v: list[int] | None) -> list[int] | None:
         """Validate event kinds are within valid range (0-65535)."""
         if v is None:
             return v
         for kind in v:
-            if not 0 <= kind <= 65535:
-                raise ValueError(f"Event kind {kind} out of valid range (0-65535)")
+            if not 0 <= kind <= EVENT_KIND_MAX:
+                raise ValueError(f"Event kind {kind} out of valid range (0-{EVENT_KIND_MAX})")
         return v
 
     @field_validator("ids", "authors", mode="after")
     @classmethod
-    def validate_hex_strings(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+    def validate_hex_strings(cls, v: list[str] | None) -> list[str] | None:
         """Validate hex strings are valid 64-character hex."""
         if v is None:
             return v
         for hex_str in v:
-            if len(hex_str) != 64:
-                raise ValueError(f"Invalid hex string length: {len(hex_str)} (expected 64)")
+            if len(hex_str) != HEX_STRING_LENGTH:
+                raise ValueError(
+                    f"Invalid hex string length: {len(hex_str)} (expected {HEX_STRING_LENGTH})"
+                )
             try:
                 bytes.fromhex(hex_str)
             except ValueError as e:
@@ -327,7 +344,7 @@ class SourceConfig(BaseModel):
 
     from_database: bool = Field(default=True, description="Fetch relays from database")
     max_metadata_age: int = Field(
-        default=43200,  # 12 hours
+        default=43200,
         ge=0,
         description="Only sync relays checked within N seconds",
     )
@@ -337,8 +354,8 @@ class SourceConfig(BaseModel):
 class RelayOverrideTimeouts(BaseModel):
     """Override timeouts for a specific relay."""
 
-    request: Optional[float] = None
-    relay: Optional[float] = None
+    request: float | None = None
+    relay: float | None = None
 
 
 class RelayOverride(BaseModel):
@@ -367,9 +384,9 @@ class SynchronizerConfig(BaseModel):
 # =============================================================================
 
 # Global variable for worker process DB connection
-_WORKER_BROTR: Optional[Brotr] = None
+_WORKER_BROTR: Brotr | None = None
 _WORKER_CLEANUP_REGISTERED: bool = False
-_WORKER_BROTR_LOCK: Optional[asyncio.Lock] = None
+_WORKER_BROTR_LOCK: asyncio.Lock | None = None
 
 
 def _get_worker_lock() -> asyncio.Lock:
@@ -494,7 +511,7 @@ async def sync_relay_task(
         config = SynchronizerConfig(**config_dict)
 
         # Get keys for NIP-42 auth (already loaded from env by KeysConfig)
-        keys: Optional[Keys] = config.keys.keys
+        keys: Keys | None = config.keys.keys
 
         # Determine network config
         net_config = config.timeouts.clearnet
@@ -673,7 +690,7 @@ async def _insert_batch(
                 invalid_count += 1
                 continue
 
-            event_relays.append(EventRelay.from_nostr_event(evt, relay))
+            event_relays.append(EventRelay(Event(evt), relay))
         except Exception as e:
             _worker_log("DEBUG", "event_parse_error", relay=relay.url, error=str(e))
 
@@ -683,7 +700,7 @@ async def _insert_batch(
     if event_relays:
         batch_size = brotr.config.batch.max_batch_size
         for i in range(0, len(event_relays), batch_size):
-            inserted, skipped = await brotr.insert_events(event_relays[i : i + batch_size])
+            inserted, skipped = await brotr.insert_events_relays(event_relays[i : i + batch_size])
             total_inserted += inserted
             total_skipped += skipped
 
@@ -698,7 +715,7 @@ async def _sync_relay_events(
     tor_config: TorConfig,
     request_timeout: float,
     brotr: Brotr,
-    keys: Optional[Keys] = None,
+    keys: Keys | None = None,
 ) -> tuple[int, int, int]:
     """
     Core sync algorithm for a single relay using nostr-sdk.
@@ -806,7 +823,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
     def __init__(
         self,
         brotr: Brotr,
-        config: Optional[SynchronizerConfig] = None,
+        config: SynchronizerConfig | None = None,
     ) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: SynchronizerConfig
@@ -817,7 +834,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         self._skipped_events: int = 0
 
         # Nostr keys for NIP-42 authentication
-        self._keys: Optional[Keys] = self._config.keys.keys
+        self._keys: Keys | None = self._config.keys.keys
 
     async def run(self) -> None:
         """Run synchronization cycle."""
@@ -877,7 +894,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         # Collect cursor updates for batch upsert (H8: batch cursor upserts)
         cursor_updates: list[tuple[str, str, str, dict[str, Any]]] = []
         cursor_lock = asyncio.Lock()
-        cursor_batch_size = 50  # Flush every N successful relays
+        cursor_batch_size = BATCH_CURSOR  # Flush every N successful relays
 
         # Lock for thread-safe counter increments (H9: prevent race conditions)
         counter_lock = asyncio.Lock()
