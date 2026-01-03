@@ -7,7 +7,7 @@ deduplication (metadata hash computed by PostgreSQL during insertion).
 
 Database mapping:
     - relay_url -> relays.url (FK)
-    - snapshot_at -> generated_at timestamp
+    - generated_at -> relay_metadata.generated_at timestamp
     - type -> 'nip11', 'nip66_rtt', 'nip66_ssl', or 'nip66_geo'
     - metadata_id -> metadata.id (FK, computed from content hash)
 
@@ -20,7 +20,7 @@ Example:
 
 from dataclasses import dataclass
 from time import time
-from typing import Literal, Optional
+from typing import Literal
 
 from .metadata import Metadata
 from .relay import Relay
@@ -30,7 +30,7 @@ from .relay import Relay
 MetadataType = Literal["nip11", "nip66_rtt", "nip66_ssl", "nip66_geo"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RelayMetadata:
     """
     Immutable relay metadata junction record.
@@ -54,7 +54,7 @@ class RelayMetadata:
         relay: Relay,
         metadata: Metadata,
         metadata_type: MetadataType,
-        generated_at: Optional[int] = None,
+        generated_at: int | None = None,
     ) -> "RelayMetadata":
         instance = object.__new__(cls)
         object.__setattr__(instance, "relay", relay)
@@ -70,25 +70,60 @@ class RelayMetadata:
         relay: Relay,
         metadata: Metadata,
         metadata_type: MetadataType,
-        generated_at: Optional[int] = None,
+        generated_at: int | None = None,
     ) -> None:
         """Empty initializer; all initialization is performed in __new__ for frozen dataclass."""
 
-    def to_db_params(self) -> tuple[str, str, int, int, str, str]:
+    def to_db_params(self) -> tuple[str, str, int, str, str, int]:
         """
-        Return database parameters for insert_relay_metadata procedure.
+        Return database parameters for relay_metadata_insert_cascade procedure.
 
         The metadata hash is computed by PostgreSQL, not Python.
 
         Returns:
-            Tuple of (relay_url, relay_network, relay_discovered_at,
-                     generated_at, metadata_type, metadata_data)
+            Tuple of:
+            - relay_url: Relay URL without scheme
+            - relay_network: Relay network type
+            - relay_discovered_at: Relay discovery timestamp
+            - metadata_data: JSON string of metadata
+            - metadata_type: Type of metadata ('nip11', 'nip66_rtt', etc.)
+            - generated_at: When metadata was collected
         """
         return (
-            self.relay.url_without_scheme,
-            self.relay.network,
-            self.relay.discovered_at,
-            self.generated_at,
-            self.metadata_type,
-            self.metadata.data_jsonb,
+            self.relay.to_db_params()
+            + self.metadata.to_db_params()
+            + (self.metadata_type, self.generated_at)
+        )
+
+    @classmethod
+    def from_db_params(
+        cls,
+        relay_url: str,
+        relay_network: str,
+        relay_discovered_at: int,
+        metadata_data: str,
+        metadata_type: MetadataType,
+        generated_at: int,
+    ) -> "RelayMetadata":
+        """
+        Create RelayMetadata from database parameters.
+
+        Args:
+            relay_url: Relay URL without scheme
+            relay_network: Relay network type
+            relay_discovered_at: Relay discovery timestamp
+            metadata_data: JSON string of metadata
+            metadata_type: Type of metadata ('nip11', 'nip66_rtt', etc.)
+            generated_at: When metadata was collected
+
+        Returns:
+            RelayMetadata instance
+        """
+        relay = Relay.from_db_params(relay_url, relay_network, relay_discovered_at)
+        metadata = Metadata.from_db_params(metadata_data)
+        return cls(
+            relay=relay,
+            metadata=metadata,
+            metadata_type=metadata_type,
+            generated_at=generated_at,
         )

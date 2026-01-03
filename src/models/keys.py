@@ -1,8 +1,8 @@
 """
-Extended Nostr key management for BigBrotr.
+Nostr key management wrapper for BigBrotr.
 
-Provides the Keys class for loading Nostr keypairs from hex strings
-or environment variables, extending nostr_sdk.Keys with additional convenience methods.
+Provides the Keys class that wraps nostr_sdk.Keys with environment variable loading.
+Uses frozen dataclass with __getattr__ delegation to transparently proxy all NostrKeys methods.
 
 Example:
     >>> keys = Keys.from_env("PRIVATE_KEY")
@@ -11,18 +11,19 @@ Example:
 """
 
 import os
-from typing import Optional
+from dataclasses import dataclass
+from typing import Any
 
 from nostr_sdk import Keys as NostrKeys
-from nostr_sdk import SecretKey
 
 
-class Keys(NostrKeys):
+@dataclass(frozen=True, slots=True)
+class Keys:
     """
-    Extended Nostr keys with environment variable loading.
+    Immutable Nostr keys wrapper with environment variable loading.
 
-    Inherits from nostr_sdk.Keys to provide full SDK compatibility
-    while adding convenience methods for loading from environment variables.
+    Frozen dataclass that transparently proxies all NostrKeys methods via
+    __getattr__ and adds from_env() for loading from environment variables.
 
     Example:
         >>> keys = Keys.from_env("PRIVATE_KEY")
@@ -30,28 +31,86 @@ class Keys(NostrKeys):
         ...     print(f"Loaded keys for: {keys.public_key().to_hex()}")
     """
 
+    _inner: NostrKeys
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate all attribute access to the wrapped NostrKeys."""
+        return getattr(self._inner, name)
+
     @classmethod
-    def from_env(cls, env_var: str = "PRIVATE_KEY") -> Optional["Keys"]:
+    def generate(cls) -> "Keys":
+        """
+        Generate new random keys.
+
+        Returns:
+            Keys instance with newly generated keypair
+
+        Example:
+            >>> keys = Keys.generate()
+            >>> print(keys.public_key().to_bech32())  # npub1...
+        """
+        return cls(NostrKeys.generate())
+
+    @classmethod
+    def parse(cls, key: str) -> "Keys":
+        """
+        Parse keys from bech32 (nsec) or hex format.
+
+        Args:
+            key: Private key in nsec1... or hex format
+
+        Returns:
+            Keys instance
+
+        Raises:
+            Exception: If key format is invalid
+
+        Example:
+            >>> keys = Keys.parse("nsec1...")
+            >>> keys = Keys.parse("hex-private-key")
+        """
+        return cls(NostrKeys.parse(key))
+
+    @classmethod
+    def from_mnemonic(cls, mnemonic: str, passphrase: str | None = None) -> "Keys":
+        """
+        Derive keys from BIP-39 mnemonic (NIP-06).
+
+        Args:
+            mnemonic: BIP-39 mnemonic phrase (12 or 24 words)
+            passphrase: Optional passphrase for additional security
+
+        Returns:
+            Keys instance derived from mnemonic
+
+        Raises:
+            Exception: If mnemonic is invalid
+
+        Example:
+            >>> keys = Keys.from_mnemonic("abandon abandon ... about")
+            >>> keys = Keys.from_mnemonic("abandon ...", passphrase="secret")
+        """
+        if passphrase:
+            return cls(NostrKeys.from_mnemonic(mnemonic, passphrase))
+        return cls(NostrKeys.from_mnemonic(mnemonic))
+
+    @classmethod
+    def from_env(cls, env_var: str) -> "Keys | None":
         """
         Load keys from environment variable.
 
         Args:
-            env_var: Environment variable name (default: PRIVATE_KEY)
+            env_var: Environment variable name containing the private key
 
         Returns:
             Keys instance or None if not set
 
         Raises:
-            ValueError: If key is invalid
+            Exception: If key is invalid
         """
-        key = os.getenv(env_var)
+        value = os.getenv(env_var)
 
-        if not key:
+        if not value:
             return None
 
-        try:
-            sk = SecretKey.parse(key)
-            return cls(sk)
-        except Exception:
-            # Sanitize error message to avoid exposing the key
-            raise ValueError(f"Invalid {env_var}: failed to parse private key") from None
+        return cls.parse(value)

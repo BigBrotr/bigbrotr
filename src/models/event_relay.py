@@ -11,92 +11,50 @@ Database mapping:
     - seen_at -> timestamp when event was first seen on this relay
 
 Example:
-    >>> from nostr_sdk import Event
-    >>> event_relay = EventRelay.from_nostr_event(nostr_event, relay)
-    >>> params = event_relay.to_db_params()  # For insert_event procedure
+    >>> from models import Event, EventRelay, Relay
+    >>> event_relay = EventRelay(Event(nostr_event), relay)
+    >>> params = (
+    ...     event_relay.to_db_params()
+    ... )  # For events_relays_insert_cascade procedure
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from time import time
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
-from .event import event_to_db_params
+from .event import Event
 
 
 if TYPE_CHECKING:
-    from nostr_sdk import Event as NostrEvent
-
-    from .event import Event
     from .relay import Relay
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EventRelay:
     """
     Immutable representation of an Event seen on a Relay.
 
     Attributes:
-        event: The Nostr event (Event wrapper or raw NostrEvent)
+        event: The wrapped Nostr event
         relay: The relay where the event was seen
         seen_at: Unix timestamp when event was first seen
     """
 
-    event: Union[Event, NostrEvent]
+    event: Event
     relay: Relay
     seen_at: int
 
-    def __new__(
-        cls, event: Union[Event, NostrEvent], relay: Relay, seen_at: Optional[int] = None
-    ) -> EventRelay:
+    def __new__(cls, event: Event, relay: Relay, seen_at: int | None = None) -> EventRelay:
         instance = object.__new__(cls)
         object.__setattr__(instance, "event", event)
         object.__setattr__(instance, "relay", relay)
         object.__setattr__(instance, "seen_at", seen_at if seen_at is not None else int(time()))
         return instance
 
-    def __init__(
-        self, event: Union[Event, NostrEvent], relay: Relay, seen_at: Optional[int] = None
-    ) -> None:
+    def __init__(self, event: Event, relay: Relay, seen_at: int | None = None) -> None:
         """Empty initializer; all initialization is performed in __new__ for frozen dataclass."""
-
-    @classmethod
-    def from_nostr_event(
-        cls, event: NostrEvent, relay: Relay, seen_at: Optional[int] = None
-    ) -> EventRelay:
-        """
-        Create EventRelay from a nostr_sdk Event and Relay.
-
-        Args:
-            event: nostr_sdk Event object received from relay
-            relay: Relay where the event was seen
-            seen_at: Unix timestamp when event was seen (defaults to now)
-
-        Returns:
-            EventRelay instance
-        """
-        return cls(event=event, relay=relay, seen_at=seen_at)
-
-    def _event_to_db_params(self) -> tuple[bytes, bytes, int, int, str, str, bytes]:
-        """
-        Extract database parameters from event.
-
-        Uses shared event_to_db_params function to avoid code duplication.
-        Works with both Event wrapper and raw NostrEvent.
-        """
-        evt = self.event
-
-        # If it's our Event wrapper, use its to_db_params
-        if hasattr(evt, "to_db_params") and callable(getattr(evt, "to_db_params", None)):
-            return evt.to_db_params()
-
-        # If it's an Event wrapper with inner, get the inner NostrEvent
-        if hasattr(evt, "inner"):
-            return event_to_db_params(evt.inner)
-
-        # Otherwise it's a raw NostrEvent - use the shared function
-        return event_to_db_params(evt)
 
     def to_db_params(
         self,
@@ -108,4 +66,44 @@ class EventRelay:
             Tuple of (e_id, e_pubkey, e_created_at, e_kind, e_tags, e_content, e_sig,
                       r_url, r_network, r_discovered_at, er_seen_at)
         """
-        return self._event_to_db_params() + self.relay.to_db_params() + (self.seen_at,)
+        return self.event.to_db_params() + self.relay.to_db_params() + (self.seen_at,)
+
+    @classmethod
+    def from_db_params(
+        cls,
+        event_id: bytes,
+        pubkey: bytes,
+        created_at: int,
+        kind: int,
+        tags_json: str,
+        content: str,
+        sig: bytes,
+        relay_url: str,
+        relay_network: str,
+        relay_discovered_at: int,
+        seen_at: int,
+    ) -> EventRelay:
+        """
+        Create an EventRelay from database parameters.
+
+        Args:
+            event_id: Event ID as bytes
+            pubkey: Author public key as bytes
+            created_at: Event creation timestamp
+            kind: Event kind number
+            tags_json: JSON string of tags array
+            content: Event content
+            sig: Signature as bytes
+            relay_url: Relay URL without scheme
+            relay_network: Relay network type
+            relay_discovered_at: Relay discovery timestamp
+            seen_at: When event was seen on relay
+
+        Returns:
+            EventRelay instance
+        """
+        from .relay import Relay  # noqa: PLC0415
+
+        event = Event.from_db_params(event_id, pubkey, created_at, kind, tags_json, content, sig)
+        relay = Relay.from_db_params(relay_url, relay_network, relay_discovered_at)
+        return cls(event, relay, seen_at)

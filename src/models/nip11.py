@@ -16,7 +16,7 @@ Example:
 import json
 from dataclasses import dataclass
 from time import time
-from typing import TYPE_CHECKING, Any, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 import aiohttp
 from aiohttp_socks import ProxyConnector
@@ -29,13 +29,7 @@ if TYPE_CHECKING:
     from .relay_metadata import RelayMetadata
 
 
-T = TypeVar("T")
-
-# Maximum size for NIP-11 responses (1MB) to prevent memory exhaustion
-MAX_NIP11_SIZE = 1_048_576
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Nip11:
     """
     Immutable NIP-11 relay information document.
@@ -73,23 +67,9 @@ class Nip11:
     metadata: Metadata
     generated_at: int
 
-    # --- Type-safe helpers (delegated to Metadata) ---
-
-    def _get(self, key: str, expected_type: type[T], default: T) -> T:
-        """Get value with type checking."""
-        return self.metadata._get(key, expected_type, default)
-
-    def _get_optional(self, key: str, expected_type: type[T]) -> Optional[T]:
-        """Get optional value with type checking."""
-        return self.metadata._get_optional(key, expected_type)
-
-    def _get_nested(self, outer: str, key: str, expected_type: type[T], default: T) -> T:
-        """Get nested value with type checking."""
-        return self.metadata._get_nested(outer, key, expected_type, default)
-
-    def _get_nested_optional(self, outer: str, key: str, expected_type: type[T]) -> Optional[T]:
-        """Get nested optional value with type checking."""
-        return self.metadata._get_nested_optional(outer, key, expected_type)
+    # --- Class-level defaults for fetch() ---
+    _FETCH_TIMEOUT: ClassVar[float] = 10.0
+    _FETCH_MAX_SIZE: ClassVar[int] = 65536  # 64 KB
 
     # --- Convenience properties ---
 
@@ -101,158 +81,158 @@ class Nip11:
     # --- Base fields ---
 
     @property
-    def name(self) -> Optional[str]:
-        return self._get_optional("name", str)
+    def name(self) -> str | None:
+        return self.metadata._get("name", expected_type=str)
 
     @property
-    def description(self) -> Optional[str]:
-        return self._get_optional("description", str)
+    def description(self) -> str | None:
+        return self.metadata._get("description", expected_type=str)
 
     @property
-    def banner(self) -> Optional[str]:
-        return self._get_optional("banner", str)
+    def banner(self) -> str | None:
+        return self.metadata._get("banner", expected_type=str)
 
     @property
-    def icon(self) -> Optional[str]:
-        return self._get_optional("icon", str)
+    def icon(self) -> str | None:
+        return self.metadata._get("icon", expected_type=str)
 
     @property
-    def pubkey(self) -> Optional[str]:
-        return self._get_optional("pubkey", str)
+    def pubkey(self) -> str | None:
+        return self.metadata._get("pubkey", expected_type=str)
 
     @property
-    def self_pubkey(self) -> Optional[str]:
-        return self._get_optional("self", str)
+    def self_pubkey(self) -> str | None:
+        return self.metadata._get("self", expected_type=str)
 
     @property
-    def contact(self) -> Optional[str]:
-        return self._get_optional("contact", str)
+    def contact(self) -> str | None:
+        return self.metadata._get("contact", expected_type=str)
 
     @property
     def supported_nips(self) -> list[int]:
-        return self._get("supported_nips", list, [])
+        return self.metadata._get("supported_nips", expected_type=list, default=[])
 
     @property
-    def software(self) -> Optional[str]:
-        return self._get_optional("software", str)
+    def software(self) -> str | None:
+        return self.metadata._get("software", expected_type=str)
 
     @property
-    def version(self) -> Optional[str]:
-        return self._get_optional("version", str)
+    def version(self) -> str | None:
+        return self.metadata._get("version", expected_type=str)
 
     @property
-    def privacy_policy(self) -> Optional[str]:
-        return self._get_optional("privacy_policy", str)
+    def privacy_policy(self) -> str | None:
+        return self.metadata._get("privacy_policy", expected_type=str)
 
     @property
-    def terms_of_service(self) -> Optional[str]:
-        return self._get_optional("terms_of_service", str)
+    def terms_of_service(self) -> str | None:
+        return self.metadata._get("terms_of_service", expected_type=str)
 
     # --- Server limitations ---
 
     @property
     def limitation(self) -> dict[str, Any]:
-        return self._get("limitation", dict, {})
+        return self.metadata._get("limitation", expected_type=dict, default={})
 
     @property
-    def max_message_length(self) -> Optional[int]:
-        return self._get_nested_optional("limitation", "max_message_length", int)
+    def max_message_length(self) -> int | None:
+        return self.metadata._get("limitation", "max_message_length", expected_type=int)
 
     @property
-    def max_subscriptions(self) -> Optional[int]:
-        return self._get_nested_optional("limitation", "max_subscriptions", int)
+    def max_subscriptions(self) -> int | None:
+        return self.metadata._get("limitation", "max_subscriptions", expected_type=int)
 
     @property
-    def max_limit(self) -> Optional[int]:
-        return self._get_nested_optional("limitation", "max_limit", int)
+    def max_limit(self) -> int | None:
+        return self.metadata._get("limitation", "max_limit", expected_type=int)
 
     @property
-    def max_subid_length(self) -> Optional[int]:
-        return self._get_nested_optional("limitation", "max_subid_length", int)
+    def max_subid_length(self) -> int | None:
+        return self.metadata._get("limitation", "max_subid_length", expected_type=int)
 
     @property
-    def max_event_tags(self) -> Optional[int]:
-        return self._get_nested_optional("limitation", "max_event_tags", int)
+    def max_event_tags(self) -> int | None:
+        return self.metadata._get("limitation", "max_event_tags", expected_type=int)
 
     @property
-    def max_content_length(self) -> Optional[int]:
-        return self._get_nested_optional("limitation", "max_content_length", int)
+    def max_content_length(self) -> int | None:
+        return self.metadata._get("limitation", "max_content_length", expected_type=int)
 
     @property
-    def min_pow_difficulty(self) -> Optional[int]:
-        return self._get_nested_optional("limitation", "min_pow_difficulty", int)
+    def min_pow_difficulty(self) -> int | None:
+        return self.metadata._get("limitation", "min_pow_difficulty", expected_type=int)
 
     @property
-    def auth_required(self) -> Optional[bool]:
-        return self._get_nested_optional("limitation", "auth_required", bool)
+    def auth_required(self) -> bool | None:
+        return self.metadata._get("limitation", "auth_required", expected_type=bool)
 
     @property
-    def payment_required(self) -> Optional[bool]:
-        return self._get_nested_optional("limitation", "payment_required", bool)
+    def payment_required(self) -> bool | None:
+        return self.metadata._get("limitation", "payment_required", expected_type=bool)
 
     @property
-    def restricted_writes(self) -> Optional[bool]:
-        return self._get_nested_optional("limitation", "restricted_writes", bool)
+    def restricted_writes(self) -> bool | None:
+        return self.metadata._get("limitation", "restricted_writes", expected_type=bool)
 
     @property
-    def created_at_lower_limit(self) -> Optional[int]:
-        return self._get_nested_optional("limitation", "created_at_lower_limit", int)
+    def created_at_lower_limit(self) -> int | None:
+        return self.metadata._get("limitation", "created_at_lower_limit", expected_type=int)
 
     @property
-    def created_at_upper_limit(self) -> Optional[int]:
-        return self._get_nested_optional("limitation", "created_at_upper_limit", int)
+    def created_at_upper_limit(self) -> int | None:
+        return self.metadata._get("limitation", "created_at_upper_limit", expected_type=int)
 
     @property
-    def default_limit(self) -> Optional[int]:
-        return self._get_nested_optional("limitation", "default_limit", int)
+    def default_limit(self) -> int | None:
+        return self.metadata._get("limitation", "default_limit", expected_type=int)
 
     # --- Event retention ---
 
     @property
     def retention(self) -> list[dict[str, Any]]:
-        return self._get("retention", list, [])
+        return self.metadata._get("retention", expected_type=list, default=[])
 
     # --- Content limitations ---
 
     @property
     def relay_countries(self) -> list[str]:
-        return self._get("relay_countries", list, [])
+        return self.metadata._get("relay_countries", expected_type=list, default=[])
 
     # --- Community preferences ---
 
     @property
     def language_tags(self) -> list[str]:
-        return self._get("language_tags", list, [])
+        return self.metadata._get("language_tags", expected_type=list, default=[])
 
     @property
     def tags(self) -> list[str]:
-        return self._get("tags", list, [])
+        return self.metadata._get("tags", expected_type=list, default=[])
 
     @property
-    def posting_policy(self) -> Optional[str]:
-        return self._get_optional("posting_policy", str)
+    def posting_policy(self) -> str | None:
+        return self.metadata._get("posting_policy", expected_type=str)
 
     # --- Pay-to-relay ---
 
     @property
-    def payments_url(self) -> Optional[str]:
-        return self._get_optional("payments_url", str)
+    def payments_url(self) -> str | None:
+        return self.metadata._get("payments_url", expected_type=str)
 
     @property
     def fees(self) -> dict[str, Any]:
-        return self._get("fees", dict, {})
+        return self.metadata._get("fees", expected_type=dict, default={})
 
     @property
     def admission_fees(self) -> list[dict[str, Any]]:
-        return self._get_nested("fees", "admission", list, [])
+        return self.metadata._get("fees", "admission", expected_type=list, default=[])
 
     @property
     def subscription_fees(self) -> list[dict[str, Any]]:
-        return self._get_nested("fees", "subscription", list, [])
+        return self.metadata._get("fees", "subscription", expected_type=list, default=[])
 
     @property
     def publication_fees(self) -> list[dict[str, Any]]:
-        return self._get_nested("fees", "publication", list, [])
+        return self.metadata._get("fees", "publication", expected_type=list, default=[])
 
     # --- Factory method ---
 
@@ -263,94 +243,108 @@ class Nip11:
         Returns:
             Single RelayMetadata with type='nip11'
         """
-        from .relay_metadata import RelayMetadata
+        from .relay_metadata import MetadataType, RelayMetadata
 
+        metadata_type: MetadataType = "nip11"
         return RelayMetadata(
             relay=self.relay,
             metadata=self.metadata,
-            metadata_type="nip11",
+            metadata_type=metadata_type,
             generated_at=self.generated_at,
         )
 
     # --- Fetch ---
 
     @classmethod
+    async def _fetch(
+        cls,
+        relay: Relay,
+        timeout: float | None = None,
+        max_size: int | None = None,
+        proxy_url: str | None = None,
+    ) -> Metadata:
+        """
+        Internal fetch that raises exceptions on failure.
+
+        Args:
+            relay: Relay object
+            timeout: Request timeout in seconds (default: _FETCH_TIMEOUT)
+            max_size: Maximum response size in bytes (default: _FETCH_MAX_SIZE)
+            proxy_url: Optional SOCKS5 proxy URL
+
+        Returns:
+            Metadata instance with parsed NIP-11 data
+
+        Raises:
+            aiohttp.ClientError: Connection or HTTP errors
+            asyncio.TimeoutError: Request timeout
+            ValueError: Invalid response (status, content-type, size, JSON)
+        """
+        timeout = timeout if timeout is not None else cls._FETCH_TIMEOUT
+        max_size = max_size if max_size is not None else cls._FETCH_MAX_SIZE
+
+        protocol = "https" if relay.scheme == "wss" else "http"
+        http_url = f"{protocol}://{relay.url_without_scheme}"
+
+        headers = {"Accept": "application/nostr+json"}
+        connector = ProxyConnector.from_url(proxy_url) if proxy_url else None
+
+        async with (
+            aiohttp.ClientSession(connector=connector) as session,
+            session.get(
+                http_url,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=timeout),
+            ) as resp,
+        ):
+            if resp.status != 200:
+                raise ValueError(f"HTTP {resp.status}")
+
+            # Validate Content-Type per NIP-11
+            content_type = resp.headers.get("Content-Type", "")
+            content_type_lower = content_type.lower().split(";")[0].strip()
+            valid_types = ("application/nostr+json", "application/json")
+            if content_type_lower not in valid_types:
+                raise ValueError(f"Invalid Content-Type: {content_type}")
+
+            # Read response with size limit
+            body = await resp.content.read(max_size + 1)
+            if len(body) > max_size:
+                raise ValueError(f"Response too large: {len(body)} > {max_size}")
+
+            # Parse JSON
+            data = json.loads(body)
+            if not isinstance(data, dict):
+                raise ValueError(f"Expected dict, got {type(data).__name__}")
+
+            return Metadata(data)
+
+    @classmethod
     async def fetch(
         cls,
         relay: Relay,
-        timeout: float = 30.0,
-        proxy_url: Optional[str] = None,
+        timeout: float | None = None,
+        max_size: int | None = None,
+        proxy_url: str | None = None,
     ) -> Optional["Nip11"]:
         """
         Fetch NIP-11 document from relay.
 
         Args:
             relay: Relay object
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (default: _FETCH_TIMEOUT)
+            max_size: Maximum response size in bytes (default: _FETCH_MAX_SIZE)
             proxy_url: Optional SOCKS5 proxy URL for Tor/I2P/Loki
 
         Returns:
             Nip11 instance if successful, None otherwise
         """
-        protocol = "https" if relay.scheme == "wss" else "http"
-        http_url = f"{protocol}://{relay.url_without_scheme}"
-
-        headers = {"Accept": "application/nostr+json"}
-
         try:
-            connector = None
-            if relay.network != "clearnet" and proxy_url:
-                connector = ProxyConnector.from_url(proxy_url)
-
-            async with (
-                aiohttp.ClientSession(connector=connector) as session,
-                session.get(
-                    http_url,
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=timeout),
-                ) as resp,
-            ):
-                if resp.status != 200:
-                    return None
-
-                # Validate Content-Type per NIP-11: must be application/nostr+json
-                # or at minimum a valid JSON content type
-                content_type = resp.headers.get("Content-Type", "")
-                content_type_lower = content_type.lower().split(";")[0].strip()
-                valid_types = (
-                    "application/nostr+json",  # NIP-11 standard
-                    "application/json",  # Common fallback
-                )
-                if content_type_lower not in valid_types:
-                    return None
-
-                # Read response with size limit to prevent memory exhaustion
-                try:
-                    body = await resp.content.read(MAX_NIP11_SIZE + 1)
-                except Exception:
-                    return None
-
-                # Reject responses that exceed size limit
-                if len(body) > MAX_NIP11_SIZE:
-                    return None
-
-                # Safely parse JSON
-                try:
-                    data = json.loads(body)
-                except (json.JSONDecodeError, ValueError):
-                    return None
-
-                if not isinstance(data, dict):
-                    return None
-
-                metadata = Metadata(data)
-                generated_at = int(time())
-
-                instance = object.__new__(cls)
-                object.__setattr__(instance, "relay", relay)
-                object.__setattr__(instance, "metadata", metadata)
-                object.__setattr__(instance, "generated_at", generated_at)
-                return instance
-
+            metadata = await cls._fetch(relay, timeout, max_size, proxy_url)
+            return cls(
+                relay=relay,
+                metadata=metadata,
+                generated_at=int(time()),
+            )
         except Exception:
             return None

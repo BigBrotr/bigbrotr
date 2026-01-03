@@ -13,26 +13,28 @@ Features:
 
 Example:
     >>> metadata = Metadata({"name": "My Relay", "supported_nips": [1, 11]})
-    >>> name = metadata._get_optional("name", str)  # "My Relay"
-    >>> json_str = metadata.data_jsonb  # For database insertion
+    >>> name = metadata._get("name", expected_type=str)  # "My Relay"
+    >>> nips = metadata._get("supported_nips", expected_type=list, default=[])
+    >>> (json_str,) = metadata.to_db_params()  # For database insertion
 """
 
 import json
 from dataclasses import dataclass
-from typing import Any, Optional, TypeVar
+from typing import Any, TypeVar, overload
 
 
 T = TypeVar("T")
+_UNSET: Any = object()  # Sentinel for missing default
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Metadata:
     """
     Immutable metadata payload.
 
     Contains the JSONB data for NIP-11 or NIP-66 metadata.
     The content-addressed hash ID is computed by PostgreSQL
-    during insertion (see insert_relay_metadata procedure).
+    during insertion (see relay_metadata_insert_cascade procedure).
 
     This class provides:
     - Type-safe property accessors with defaults
@@ -41,108 +43,84 @@ class Metadata:
 
     data: dict[str, Any]
 
-    def __new__(cls, data: Optional[dict[str, Any]] = None) -> "Metadata":
-        instance = object.__new__(cls)
-        object.__setattr__(instance, "data", data if data is not None else {})
-        return instance
-
-    def __init__(self, data: Optional[dict[str, Any]] = None) -> None:
-        """Empty initializer; all initialization is performed in __new__ for frozen dataclass."""
-
-    # --- Type-safe helpers ---
-
-    def _get(self, key: str, expected_type: type[T], default: T) -> T:
-        """Get value with type checking. Returns default if wrong type."""
-        value = self.data.get(key)
-        if isinstance(value, expected_type):
-            return value
-        return default
-
-    def _get_optional(self, key: str, expected_type: type[T]) -> Optional[T]:
-        """Get optional value with type checking. Returns None if wrong type."""
-        value = self.data.get(key)
-        if value is None or isinstance(value, expected_type):
-            return value
+    @staticmethod
+    def _sanitize(obj: Any) -> Any:
+        """Recursively sanitize to JSON-compatible types. Non-serializable values become None."""
+        if obj is None or isinstance(obj, (bool, int, float)):
+            return obj
+        if isinstance(obj, str):
+            return obj.replace("\x00", "") if "\x00" in obj else obj
+        if isinstance(obj, dict):
+            return {k: Metadata._sanitize(v) for k, v in obj.items() if isinstance(k, str)}
+        if isinstance(obj, list):
+            return [Metadata._sanitize(item) for item in obj]
         return None
-
-    def _get_nested(self, outer: str, key: str, expected_type: type[T], default: T) -> T:
-        """Get nested value with type checking."""
-        outer_dict = self.data.get(outer, {})
-        if not isinstance(outer_dict, dict):
-            return default
-        value = outer_dict.get(key)
-        if isinstance(value, expected_type):
-            return value
-        return default
-
-    def _get_nested_optional(self, outer: str, key: str, expected_type: type[T]) -> Optional[T]:
-        """Get nested optional value with type checking."""
-        outer_dict = self.data.get(outer, {})
-        if not isinstance(outer_dict, dict):
-            return None
-        value = outer_dict.get(key)
-        if value is None or isinstance(value, expected_type):
-            return value
-        return None
-
-    # --- JSON serialization ---
 
     @staticmethod
-    def _sanitize_for_json(obj: Any, _seen: Optional[set[int]] = None) -> Any:
-        """
-        Recursively sanitize object for JSON serialization.
+    def _to_jsonb(data: dict[str, Any]) -> str:
+        """Serialize any dict to JSON string safe for PostgreSQL JSONB."""
+        return json.dumps(Metadata._sanitize(data), ensure_ascii=False)
 
-        Handles circular references to prevent infinite recursion.
+    def __new__(cls, data: dict[str, Any] | None = None) -> "Metadata":
+        instance = object.__new__(cls)
+        sanitized = cls._sanitize(data) if data else {}
+        object.__setattr__(instance, "data", sanitized)
+        return instance
+
+    def __init__(self, data: dict[str, Any] | None = None) -> None:
+        """Empty initializer; all initialization is performed in __new__ for frozen dataclass."""
+
+    # --- Type-safe accessor ---
+
+    @overload
+    def _get(self, *keys: str, expected_type: type[T]) -> T | None: ...
+    @overload
+    def _get(self, *keys: str, expected_type: type[T], default: T) -> T: ...
+
+    def _get(self, *keys: str, expected_type: type[T], default: T = _UNSET) -> T | None:
+        """
+        Get value at any nesting depth with type checking.
 
         Args:
-            obj: Object to sanitize
-            _seen: Set of object IDs already visited (for cycle detection)
+            *keys: Path to the value (e.g., "name" or "limitation", "max_limit")
+            expected_type: Expected type of the value
+            default: Default value if missing/wrong type (None if not provided)
 
         Returns:
-            JSON-serializable version of the object
+            The value if found and type matches, otherwise default (or None)
+
+        Examples:
+            >>> metadata._get("name", expected_type=str)  # top-level, optional
+            >>> metadata._get("supported_nips", expected_type=list, default=[])  # with default
+            >>> metadata._get("limitation", "max_limit", expected_type=int)  # nested
+            >>> metadata._get("fees", "admission", "amount", expected_type=int)  # deep nested
         """
-        if obj is None or isinstance(obj, (bool, int, float, str)):
-            return obj
+        value: Any = self.data
+        for key in keys:
+            if not isinstance(value, dict):
+                return None if default is _UNSET else default
+            value = value.get(key)
 
-        # Track visited objects to detect circular references
-        if _seen is None:
-            _seen = set()
-
-        obj_id = id(obj)
-        if obj_id in _seen:
-            return "<circular reference>"
-        _seen.add(obj_id)
-
-        if isinstance(obj, dict):
-            result = {}
-            for k, v in obj.items():
-                if not isinstance(k, str):
-                    continue
-                try:
-                    sanitized = Metadata._sanitize_for_json(v, _seen)
-                    if sanitized is not None or v is None:
-                        result[k] = sanitized
-                except (TypeError, ValueError):
-                    continue
-            return result
-
-        if isinstance(obj, (list, tuple)):
-            list_result: list[Any] = []
-            for item in obj:
-                try:
-                    sanitized = Metadata._sanitize_for_json(item, _seen)
-                    list_result.append(sanitized)
-                except (TypeError, ValueError):
-                    continue
-            return list_result
-
-        try:
-            return str(obj)
-        except Exception:
+        if isinstance(value, expected_type):
+            return value
+        if value is None and default is _UNSET:
             return None
+        return None if default is _UNSET else default
 
-    @property
-    def data_jsonb(self) -> str:
-        """Data as JSON string for PostgreSQL JSONB storage."""
-        sanitized = self._sanitize_for_json(self.data)
-        return json.dumps(sanitized, ensure_ascii=False)
+    def to_db_params(self) -> tuple[str]:
+        """Returns parameters for database insert: (json_string,)."""
+        return (self._to_jsonb(self.data),)
+
+    @classmethod
+    def from_db_params(cls, data_jsonb: str) -> "Metadata":
+        """
+        Create a Metadata from database parameters.
+
+        Args:
+            data_jsonb: JSON string from PostgreSQL JSONB column
+
+        Returns:
+            Metadata instance with parsed data
+        """
+        data = json.loads(data_jsonb)
+        return cls(data)
