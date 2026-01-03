@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import TYPE_CHECKING, ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -67,7 +67,7 @@ class Seeder(BaseService[SeederConfig]):
     def __init__(
         self,
         brotr: Brotr,
-        config: Optional[SeederConfig] = None,
+        config: SeederConfig | None = None,
     ) -> None:
         super().__init__(brotr=brotr, config=config)
 

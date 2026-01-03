@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiohttp
 from nostr_sdk import RelayUrl
@@ -74,7 +74,7 @@ class ApiSourceConfig(BaseModel):
 
     url: str = Field(description="API endpoint URL")
     enabled: bool = Field(default=True, description="Enable this source")
-    timeout: float = Field(default=30.0, ge=1.0, le=120.0, description="Request timeout")
+    timeout: float = Field(default=30.0, ge=0.1, le=120.0, description="Request timeout")
 
 
 class ApiConfig(BaseModel):
@@ -128,7 +128,7 @@ class Finder(BaseService[FinderConfig]):
     def __init__(
         self,
         brotr: Brotr,
-        config: Optional[FinderConfig] = None,
+        config: FinderConfig | None = None,
     ) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: FinderConfig
@@ -362,7 +362,7 @@ class Finder(BaseService[FinderConfig]):
         except Exception as e:
             self._logger.warning("cursor_save_failed", error=str(e), error_type=type(e).__name__)
 
-    def _validate_relay_url(self, url: str) -> Optional[str]:
+    def _validate_relay_url(self, url: str) -> str | None:
         """
         Validate and normalize a relay URL.
 

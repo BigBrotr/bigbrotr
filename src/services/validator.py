@@ -27,7 +27,7 @@ import math
 import random
 import time
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from nostr_sdk import ClientBuilder, ClientOptions, Filter, RelayUrl
 from pydantic import BaseModel, Field, model_validator
@@ -38,6 +38,14 @@ from models import Keys, Relay
 
 if TYPE_CHECKING:
     from core.brotr import Brotr
+
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+# Environment variable for private key
+ENV_PRIVATE_KEY = "PRIVATE_KEY"  # pragma: allowlist secret
 
 
 # =============================================================================
@@ -63,7 +71,7 @@ class KeysConfig(BaseModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
-    keys: Optional[Keys] = Field(
+    keys: Keys | None = Field(
         default=None,
         description="Keys loaded from PRIVATE_KEY env",
     )
@@ -72,19 +80,14 @@ class KeysConfig(BaseModel):
     @classmethod
     def load_keys_from_env(cls, data: Any) -> Any:
         if isinstance(data, dict) and "keys" not in data:
-            data["keys"] = Keys.from_env()
+            data["keys"] = Keys.from_env(ENV_PRIVATE_KEY)
         return data
 
 
 class ConcurrencyConfig(BaseModel):
     """Concurrency configuration for parallel validation."""
 
-    max_parallel: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Maximum concurrent operations",
-    )
+    max_parallel: int = Field(default=10, ge=1, le=100, description="Maximum concurrent operations")
 
 
 class CleanupConfig(BaseModel):
@@ -107,9 +110,9 @@ class ValidatorConfig(BaseModel):
 
     interval: float = Field(default=300.0, ge=60.0, description="Seconds between validation cycles")
     connection_timeout: float = Field(
-        default=10.0, ge=1.0, le=60.0, description="WebSocket connection timeout"
+        default=10.0, ge=0.1, le=60.0, description="WebSocket connection timeout"
     )
-    max_candidates_per_run: Optional[int] = Field(
+    max_candidates_per_run: int | None = Field(
         default=None, ge=1, description="Max candidates to validate per cycle (None = unlimited)"
     )
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
@@ -145,7 +148,7 @@ class Validator(BaseService[ValidatorConfig]):
     def __init__(
         self,
         brotr: Brotr,
-        config: Optional[ValidatorConfig] = None,
+        config: ValidatorConfig | None = None,
     ) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: ValidatorConfig
@@ -153,7 +156,7 @@ class Validator(BaseService[ValidatorConfig]):
         self._failed_count: int = 0
 
         # Nostr keys for NIP-42 authentication
-        self._keys: Optional[Keys] = self._config.keys.keys
+        self._keys: Keys | None = self._config.keys.keys
 
     async def run(self) -> None:
         """Run single validation cycle."""
@@ -347,7 +350,7 @@ class Validator(BaseService[ValidatorConfig]):
 
             return (url, is_valid, failed_attempts)
 
-    async def _test_connection(self, url: str, keys: Optional[Keys] = None) -> bool:
+    async def _test_connection(self, url: str, keys: Keys | None = None) -> bool:
         """
         Test WebSocket connection and verify Nostr protocol execution.
 

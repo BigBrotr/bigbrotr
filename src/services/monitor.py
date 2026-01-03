@@ -28,7 +28,7 @@ import asyncio
 import time
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import geoip2.database
 from nostr_sdk import (
@@ -50,6 +50,24 @@ from models import (
     Relay,
     RelayMetadata,
 )
+
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+# Environment variable for private key
+ENV_PRIVATE_KEY = "PRIVATE_KEY"  # pragma: allowlist secret
+
+# Time interval for publishing announcements
+ANNOUNCE_INTERVAL = 3600  # 1 hour
+
+# Chunk sizing for multiprocess distribution
+CHUNK_MIN_SIZE = 100
+CHUNK_MULTIPLIER = 4
+
+# Timeout for publishing events
+TIMEOUT_PUBLISH = 10.0
 
 
 if TYPE_CHECKING:
@@ -79,7 +97,7 @@ class KeysConfig(BaseModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
-    keys: Optional[ModelKeys] = Field(
+    keys: ModelKeys | None = Field(
         default=None,
         description="Keys loaded from PRIVATE_KEY env",
     )
@@ -88,7 +106,7 @@ class KeysConfig(BaseModel):
     @classmethod
     def load_keys_from_env(cls, data: Any) -> Any:
         if isinstance(data, dict) and "keys" not in data:
-            data["keys"] = ModelKeys.from_env()
+            data["keys"] = ModelKeys.from_env(ENV_PRIVATE_KEY)
         return data
 
 
@@ -113,6 +131,12 @@ class ChecksConfig(BaseModel):
     read: bool = Field(default=True, description="Test REQ/EOSE subscription")
     write: bool = Field(default=True, description="Test EVENT/OK publication")
     nip11: bool = Field(default=True, description="Fetch NIP-11 info document")
+    nip11_max_size: int = Field(
+        default=1_048_576,
+        ge=1024,
+        le=10_485_760,
+        description="Maximum NIP-11 response size in bytes (1MB default)",
+    )
     ssl: bool = Field(default=True, description="Validate SSL/TLS certificate")
     dns: bool = Field(default=True, description="Measure DNS resolution time")
     geo: bool = Field(default=True, description="Geolocate relay IP address")
@@ -125,7 +149,7 @@ class GeoConfig(BaseModel):
         default="/usr/share/GeoIP/GeoLite2-City.mmdb",
         description="Path to MaxMind GeoLite2-City database",
     )
-    asn_database_path: Optional[str] = Field(
+    asn_database_path: str | None = Field(
         default=None,
         description="Path to MaxMind GeoLite2-ASN database (optional)",
     )
@@ -161,9 +185,7 @@ class SelectionConfig(BaseModel):
     """Configuration for relay selection."""
 
     min_age_since_check: int = Field(
-        default=3600,  # 1 hour
-        ge=0,
-        description="Minimum seconds since last check",
+        default=3600, ge=0, description="Minimum seconds since last check"
     )
 
 
@@ -209,14 +231,16 @@ class MonitorConfig(BaseModel):
 # =============================================================================
 
 
-async def fetch_nip11(relay: Relay, timeout: float, tor_config: TorConfig) -> Optional[Nip11]:
+async def fetch_nip11(
+    relay: Relay, timeout: float, max_size: int, tor_config: TorConfig
+) -> Nip11 | None:
     """Fetch NIP-11 relay information document via HTTP."""
     is_tor = relay.network == "tor"
     proxy_url = tor_config.proxy_url if is_tor and tor_config.enabled else None
-    return await Nip11.fetch(relay, timeout=timeout, proxy_url=proxy_url)
+    return await Nip11.fetch(relay, timeout=timeout, max_size=max_size, proxy_url=proxy_url)
 
 
-def _determine_relay_type(limitation: dict[str, Any]) -> Optional[str]:
+def _determine_relay_type(limitation: dict[str, Any]) -> str | None:
     """
     Determine relay type based on NIP-11 limitation fields.
 
@@ -265,9 +289,7 @@ def _extract_kinds_from_retention(retention: list[dict[str, Any]]) -> list[str]:
     return kinds
 
 
-def build_kind_30166_tags(
-    relay: Relay, nip11: Optional[Nip11], nip66: Optional[Nip66]
-) -> list[Tag]:
+def build_kind_30166_tags(relay: Relay, nip11: Nip11 | None, nip66: Nip66 | None) -> list[Tag]:
     """Build NIP-66 Kind 30166 event tags."""
     tags = [
         Tag.parse(["d", relay.url]),
@@ -392,17 +414,17 @@ class Monitor(BaseService[MonitorConfig]):
     def __init__(
         self,
         brotr: Brotr,
-        config: Optional[MonitorConfig] = None,
+        config: MonitorConfig | None = None,
     ) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: MonitorConfig
 
         # Keys for signing events and NIP-66 tests (models.Keys extends nostr_sdk.Keys)
-        self._keys: Optional[ModelKeys] = self._config.keys.keys
+        self._keys: ModelKeys | None = self._config.keys.keys
 
         # GeoIP reader (lazy loaded)
-        self._geo_reader: Optional[geoip2.database.Reader] = None
-        self._asn_reader: Optional[geoip2.database.Reader] = None
+        self._geo_reader: geoip2.database.Reader | None = None
+        self._asn_reader: geoip2.database.Reader | None = None
 
         # Metrics (protected by lock to prevent race conditions)
         self._metrics_lock: asyncio.Lock = asyncio.Lock()
@@ -447,7 +469,7 @@ class Monitor(BaseService[MonitorConfig]):
             self._config.publishing.enabled
             and self._config.publishing.destination != "database_only"
         ):
-            if time.time() - self._last_announcement > 3600:
+            if time.time() - self._last_announcement > ANNOUNCE_INTERVAL:
                 await self._publish_announcement()
                 self._last_announcement = time.time()
 
@@ -466,7 +488,7 @@ class Monitor(BaseService[MonitorConfig]):
 
         # Process relays in chunks to limit memory from pending tasks (H11)
         # Chunk size is 4x max_parallel to keep pipeline full without scheduling all at once
-        chunk_size = max(self._config.concurrency.max_parallel * 4, 100)
+        chunk_size = max(self._config.concurrency.max_parallel * CHUNK_MULTIPLIER, CHUNK_MIN_SIZE)
 
         for chunk_start in range(0, len(relays), chunk_size):
             # Check for graceful shutdown between chunks
@@ -487,7 +509,7 @@ class Monitor(BaseService[MonitorConfig]):
             # Await all tasks in this chunk
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            for relay, result in zip(task_relays, results):
+            for relay, result in zip(task_relays, results, strict=False):
                 if isinstance(result, BaseException):
                     self._logger.error(
                         "monitor_task_failed",
@@ -581,14 +603,16 @@ class Monitor(BaseService[MonitorConfig]):
             is_tor = relay.network == "tor"
             timeout = self._config.timeouts.tor if is_tor else self._config.timeouts.clearnet
 
-            nip11: Optional[Nip11] = None
-            nip66: Optional[Nip66] = None
+            nip11: Nip11 | None = None
+            nip66: Nip66 | None = None
             metadata_records: list[RelayMetadata] = []
 
             try:
                 # NIP-11 check
                 if self._config.checks.nip11:
-                    nip11 = await fetch_nip11(relay, timeout, self._config.tor)
+                    nip11 = await fetch_nip11(
+                        relay, timeout, self._config.checks.nip11_max_size, self._config.tor
+                    )
                     if nip11:
                         metadata_records.append(nip11.to_relay_metadata())
 
@@ -659,7 +683,7 @@ class Monitor(BaseService[MonitorConfig]):
             )
 
     async def _publish_relay_discovery(
-        self, relay: Relay, nip11: Optional[Nip11], nip66: Optional[Nip66]
+        self, relay: Relay, nip11: Nip11 | None, nip66: Nip66 | None
     ) -> None:
         """Publish Kind 30166 relay discovery event."""
         if not self._keys:
@@ -669,7 +693,7 @@ class Monitor(BaseService[MonitorConfig]):
             # Build event content (NIP-11 JSON if available)
             content = ""
             if nip11:
-                content = nip11.metadata.data_jsonb
+                content = nip11.metadata.to_db_params()[0]
 
             # Build tags
             tags = build_kind_30166_tags(relay, nip11, nip66)
@@ -681,7 +705,7 @@ class Monitor(BaseService[MonitorConfig]):
             if self._config.publishing.destination == "monitored_relay":
                 # Publish to the relay being monitored
                 # Resource leak fix: Use try/finally to ensure client shutdown
-                opts = ClientOptions().connection_timeout(timedelta(seconds=10))
+                opts = ClientOptions().connection_timeout(timedelta(seconds=TIMEOUT_PUBLISH))
                 client = ClientBuilder().signer(self._keys).opts(opts).build()
                 try:
                     await client.add_relay(relay.url)
@@ -693,7 +717,7 @@ class Monitor(BaseService[MonitorConfig]):
             elif self._config.publishing.destination == "configured_relays":
                 # Publish to configured relay list
                 # Resource leak fix: Use try/finally to ensure client shutdown
-                opts = ClientOptions().connection_timeout(timedelta(seconds=10))
+                opts = ClientOptions().connection_timeout(timedelta(seconds=TIMEOUT_PUBLISH))
                 client = ClientBuilder().signer(self._keys).opts(opts).build()
                 try:
                     for url in self._config.publishing.relays:
@@ -724,7 +748,7 @@ class Monitor(BaseService[MonitorConfig]):
             # Publish to configured relays
             if self._config.publishing.relays:
                 # Resource leak fix: Use try/finally to ensure client shutdown
-                opts = ClientOptions().connection_timeout(timedelta(seconds=10))
+                opts = ClientOptions().connection_timeout(timedelta(seconds=TIMEOUT_PUBLISH))
                 client = ClientBuilder().signer(self._keys).opts(opts).build()
                 try:
                     for url in self._config.publishing.relays:
