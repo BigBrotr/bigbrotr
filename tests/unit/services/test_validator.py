@@ -82,10 +82,10 @@ class TestValidatorConfig:
     def test_connection_timeout_bounds(self) -> None:
         """Test connection timeout bounds."""
         with pytest.raises(ValueError):
-            ValidatorConfig(connection_timeout=0.5)
+            ValidatorConfig(connection_timeout=0.05)  # Below TIMEOUT_MIN (0.1)
 
         with pytest.raises(ValueError):
-            ValidatorConfig(connection_timeout=100.0)
+            ValidatorConfig(connection_timeout=100.0)  # Above TIMEOUT_MAX_CONNECTION (60.0)
 
 
 # ============================================================================

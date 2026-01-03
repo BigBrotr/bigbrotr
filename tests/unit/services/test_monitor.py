@@ -10,7 +10,6 @@ Tests:
 """
 
 from pathlib import Path
-from typing import Optional
 from unittest.mock import AsyncMock
 
 import pytest
@@ -360,9 +359,7 @@ class TestMonitorConfig:
 # ============================================================================
 
 
-def _create_nip11(
-    relay: Relay, data: Optional[dict] = None, generated_at: int = 1700000001
-) -> Nip11:
+def _create_nip11(relay: Relay, data: dict | None = None, generated_at: int = 1700000001) -> Nip11:
     """Create a Nip11 instance using object.__new__ pattern."""
     from models import Metadata
 
@@ -378,9 +375,9 @@ def _create_nip11(
 
 def _create_nip66(
     relay: Relay,
-    rtt_data: Optional[dict] = None,
-    ssl_data: Optional[dict] = None,
-    geo_data: Optional[dict] = None,
+    rtt_data: dict | None = None,
+    ssl_data: dict | None = None,
+    geo_data: dict | None = None,
     generated_at: int = 1700000001,
 ) -> Nip66:
     """Create a Nip66 instance using object.__new__ pattern."""
@@ -466,12 +463,14 @@ class TestNip66:
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(relay, rtt_data={"rtt_open": 100})
 
-        rm_list = nip66.to_relay_metadata()
+        rtt, ssl, geo = nip66.to_relay_metadata()
 
-        assert len(rm_list) == 1
-        assert rm_list[0].metadata_type == "nip66_rtt"
-        assert rm_list[0].relay == relay
-        assert rm_list[0].metadata.data == {"rtt_open": 100}
+        assert rtt is not None
+        assert rtt.metadata_type == "nip66_rtt"
+        assert rtt.relay == relay
+        assert rtt.metadata.data == {"rtt_open": 100}
+        assert ssl is None
+        assert geo is None
 
     def test_to_relay_metadata_with_geo(self) -> None:
         """Test NIP-66 to_relay_metadata factory with RTT and geo data."""
@@ -482,13 +481,15 @@ class TestNip66:
             geo_data={"geohash": "abc123", "geo_country": "US"},
         )
 
-        rm_list = nip66.to_relay_metadata()
+        rtt, ssl, geo = nip66.to_relay_metadata()
 
-        assert len(rm_list) == 2
-        assert rm_list[0].metadata_type == "nip66_rtt"
-        assert rm_list[0].metadata.data == {"rtt_open": 100}
-        assert rm_list[1].metadata_type == "nip66_geo"
-        assert rm_list[1].metadata.data == {"geohash": "abc123", "geo_country": "US"}
+        assert rtt is not None
+        assert rtt.metadata_type == "nip66_rtt"
+        assert rtt.metadata.data == {"rtt_open": 100}
+        assert ssl is None
+        assert geo is not None
+        assert geo.metadata_type == "nip66_geo"
+        assert geo.metadata.data == {"geohash": "abc123", "geo_country": "US"}
 
     def test_to_relay_metadata_with_ssl(self) -> None:
         """Test NIP-66 to_relay_metadata factory with RTT and SSL data."""
@@ -499,13 +500,15 @@ class TestNip66:
             ssl_data={"ssl_valid": True, "ssl_issuer": "Let's Encrypt"},
         )
 
-        rm_list = nip66.to_relay_metadata()
+        rtt, ssl, geo = nip66.to_relay_metadata()
 
-        assert len(rm_list) == 2
-        assert rm_list[0].metadata_type == "nip66_rtt"
-        assert rm_list[0].metadata.data == {"rtt_open": 100}
-        assert rm_list[1].metadata_type == "nip66_ssl"
-        assert rm_list[1].metadata.data == {"ssl_valid": True, "ssl_issuer": "Let's Encrypt"}
+        assert rtt is not None
+        assert rtt.metadata_type == "nip66_rtt"
+        assert rtt.metadata.data == {"rtt_open": 100}
+        assert ssl is not None
+        assert ssl.metadata_type == "nip66_ssl"
+        assert ssl.metadata.data == {"ssl_valid": True, "ssl_issuer": "Let's Encrypt"}
+        assert geo is None
 
     def test_to_relay_metadata_with_all(self) -> None:
         """Test NIP-66 to_relay_metadata factory with RTT, SSL, and geo data."""
@@ -517,15 +520,17 @@ class TestNip66:
             geo_data={"geohash": "abc123", "geo_country": "US"},
         )
 
-        rm_list = nip66.to_relay_metadata()
+        rtt, ssl, geo = nip66.to_relay_metadata()
 
-        assert len(rm_list) == 3
-        assert rm_list[0].metadata_type == "nip66_rtt"
-        assert rm_list[0].metadata.data == {"rtt_open": 100, "network": "clearnet"}
-        assert rm_list[1].metadata_type == "nip66_ssl"
-        assert rm_list[1].metadata.data == {"ssl_valid": True, "ssl_issuer": "Let's Encrypt"}
-        assert rm_list[2].metadata_type == "nip66_geo"
-        assert rm_list[2].metadata.data == {"geohash": "abc123", "geo_country": "US"}
+        assert rtt is not None
+        assert rtt.metadata_type == "nip66_rtt"
+        assert rtt.metadata.data == {"rtt_open": 100, "network": "clearnet"}
+        assert ssl is not None
+        assert ssl.metadata_type == "nip66_ssl"
+        assert ssl.metadata.data == {"ssl_valid": True, "ssl_issuer": "Let's Encrypt"}
+        assert geo is not None
+        assert geo.metadata_type == "nip66_geo"
+        assert geo.metadata.data == {"geohash": "abc123", "geo_country": "US"}
 
     def test_ssl_properties(self) -> None:
         """Test NIP-66 SSL property access."""
@@ -591,13 +596,13 @@ class TestRelayMetadataType:
 
         params = rm.to_db_params()
 
-        # 6 params: relay_url, network, inserted_at, generated_at, type, data_jsonb
+        # 6 params: relay_url, network, discovered_at, metadata_data, type, generated_at
         assert len(params) == 6
         assert params[0] == "relay.example.com"  # relay_url without scheme
         assert params[1] == "clearnet"  # network
-        assert params[3] == 1700000001  # generated_at
+        assert params[3] == metadata_obj.to_db_params()[0]  # metadata as JSON string
         assert params[4] == "nip66_rtt"  # metadata_type
-        assert params[5] == metadata_obj.data_jsonb  # metadata as JSON string
+        assert params[5] == 1700000001  # generated_at
 
 
 # ============================================================================

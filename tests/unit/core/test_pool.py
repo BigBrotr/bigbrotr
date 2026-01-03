@@ -39,7 +39,7 @@ class TestDatabaseConfig:
         config = DatabaseConfig(password=None)
         assert config.host == "localhost"
         assert config.port == 5432
-        assert config.database == "database"
+        assert config.database == "bigbrotr"
         assert config.user == "admin"
 
     def test_custom(self):

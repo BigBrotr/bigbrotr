@@ -13,7 +13,6 @@ Tests:
 """
 
 import asyncio
-from typing import Optional
 
 import pytest
 from pydantic import BaseModel, Field
@@ -36,7 +35,7 @@ class ConcreteService(BaseService[ConcreteServiceConfig]):
     SERVICE_NAME = "test_service"
     CONFIG_CLASS = ConcreteServiceConfig
 
-    def __init__(self, brotr: Brotr, config: Optional[ConcreteServiceConfig] = None):
+    def __init__(self, brotr: Brotr, config: ConcreteServiceConfig | None = None):
         super().__init__(brotr=brotr, config=config or ConcreteServiceConfig())
         self.run_count = 0
         self.should_fail = False

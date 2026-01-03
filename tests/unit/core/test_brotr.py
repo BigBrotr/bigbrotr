@@ -5,7 +5,7 @@ Tests:
 - Configuration models (BatchConfig, TimeoutsConfig, BrotrConfig)
 - Brotr initialization with defaults and custom config
 - Factory methods (from_yaml, from_dict)
-- Insert operations (insert_events, insert_relays, insert_relay_metadata)
+- Insert operations (insert_events, insert_events_relays, insert_relays, insert_relay_metadata)
 - Service data operations (upsert, get, delete)
 - Cleanup operations (delete_orphan_events, delete_orphan_metadata)
 - Query operations (get_relays_needing_check)
@@ -119,23 +119,25 @@ class TestBrotrTransposeToColumns:
             mock_brotr._transpose_to_columns(params)
 
 
-class TestBrotrInsertEvents:
-    """Brotr.insert_events() method."""
+class TestBrotrInsertEventsRelays:
+    """Brotr.insert_events_relays() method."""
 
     @pytest.mark.asyncio
     async def test_empty_list(self, mock_brotr):
-        inserted, skipped = await mock_brotr.insert_events([])
+        inserted, skipped = await mock_brotr.insert_events_relays([])
         assert inserted == 0
         assert skipped == 0
 
     @pytest.mark.asyncio
     async def test_single(self, mock_brotr, sample_event):
-        inserted, skipped = await mock_brotr.insert_events([sample_event])
+        inserted, skipped = await mock_brotr.insert_events_relays([sample_event])
         assert inserted == 1
 
     @pytest.mark.asyncio
-    async def test_multiple(self, mock_brotr, sample_events_batch):
-        inserted, skipped = await mock_brotr.insert_events(sample_events_batch)
+    async def test_multiple(self, mock_brotr, mock_pool, sample_events_batch):
+        # Configure mock to return the batch size (simulating all records inserted)
+        mock_pool._mock_connection.fetchval = AsyncMock(return_value=len(sample_events_batch))
+        inserted, skipped = await mock_brotr.insert_events_relays(sample_events_batch)
         assert inserted == len(sample_events_batch)
 
 
