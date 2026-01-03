@@ -20,11 +20,11 @@ WITH latest AS (
         rm.relay_url,
         rm.type,
         rm.metadata_id,
-        rm.snapshot_at,
+        rm.generated_at,
         m.data
     FROM relay_metadata AS rm
     INNER JOIN metadata AS m ON rm.metadata_id = m.id
-    ORDER BY rm.relay_url ASC, rm.type ASC, rm.snapshot_at DESC
+    ORDER BY rm.relay_url ASC, rm.type ASC, rm.generated_at DESC
 )
 
 SELECT
@@ -46,22 +46,22 @@ SELECT
     (
         MAX(l.data) FILTER (WHERE l.type = 'nip66_ssl') ->> 'ssl_expires'
     )::BIGINT AS ssl_expires,
-    MAX(l.snapshot_at) FILTER (WHERE l.type = 'nip11') AS nip11_at,
+    MAX(l.generated_at) FILTER (WHERE l.type = 'nip11') AS nip11_at,
 
     -- NIP-66 SSL latest (SSL/TLS certificate data)
     MAX(l.metadata_id) FILTER (WHERE l.type = 'nip11') AS nip11_id,
     MAX(l.data) FILTER (WHERE l.type = 'nip11') AS nip11_data,
-    MAX(l.snapshot_at) FILTER (WHERE l.type = 'nip66_rtt') AS nip66_rtt_at,
+    MAX(l.generated_at) FILTER (WHERE l.type = 'nip66_rtt') AS nip66_rtt_at,
 
     -- NIP-66 GEO latest (geolocation)
     MAX(l.metadata_id) FILTER (WHERE l.type = 'nip66_rtt') AS nip66_rtt_id,
     MAX(l.data) FILTER (WHERE l.type = 'nip66_rtt') AS nip66_rtt_data,
-    MAX(l.snapshot_at) FILTER (WHERE l.type = 'nip66_ssl') AS nip66_ssl_at,
+    MAX(l.generated_at) FILTER (WHERE l.type = 'nip66_ssl') AS nip66_ssl_at,
 
     -- Extracted NIP-66 RTT fields for quick filtering (cast to proper types)
     MAX(l.metadata_id) FILTER (WHERE l.type = 'nip66_ssl') AS nip66_ssl_id,
     MAX(l.data) FILTER (WHERE l.type = 'nip66_ssl') AS nip66_ssl_data,
-    MAX(l.snapshot_at) FILTER (WHERE l.type = 'nip66_geo') AS nip66_geo_at,
+    MAX(l.generated_at) FILTER (WHERE l.type = 'nip66_geo') AS nip66_geo_at,
     MAX(l.metadata_id) FILTER (WHERE l.type = 'nip66_geo') AS nip66_geo_id,
     MAX(l.data) FILTER (WHERE l.type = 'nip66_geo') AS nip66_geo_data,
     (
@@ -193,7 +193,7 @@ relay_performance AS (
             (m.data ->> 'rtt_read')::INTEGER AS rtt_read,
             (m.data ->> 'rtt_write')::INTEGER AS rtt_write,
             ROW_NUMBER()
-                OVER (PARTITION BY rm.relay_url ORDER BY rm.snapshot_at DESC)
+                OVER (PARTITION BY rm.relay_url ORDER BY rm.generated_at DESC)
                 AS rn
         FROM relay_metadata AS rm
         INNER JOIN metadata AS m ON rm.metadata_id = m.id

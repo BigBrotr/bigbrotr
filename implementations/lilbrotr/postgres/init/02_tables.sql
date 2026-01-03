@@ -81,12 +81,12 @@ COMMENT ON COLUMN metadata.data IS 'Complete JSON document (NIP-11 or NIP-66 dat
 -- Purpose: Tracks metadata changes over time with deduplication via metadata table
 CREATE TABLE IF NOT EXISTS relay_metadata (
     relay_url TEXT NOT NULL,
-    snapshot_at BIGINT NOT NULL,
+    generated_at BIGINT NOT NULL,
     type TEXT NOT NULL,
     metadata_id BYTEA NOT NULL,
 
     -- Constraints
-    PRIMARY KEY (relay_url, snapshot_at, type),
+    PRIMARY KEY (relay_url, generated_at, type),
     FOREIGN KEY (relay_url) REFERENCES relays (url) ON DELETE CASCADE,
     FOREIGN KEY (metadata_id) REFERENCES metadata (id) ON DELETE CASCADE,
 
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
 
 COMMENT ON TABLE relay_metadata IS 'Time-series relay metadata snapshots (references metadata records by type)';
 COMMENT ON COLUMN relay_metadata.relay_url IS 'Reference to relays.url';
-COMMENT ON COLUMN relay_metadata.snapshot_at IS 'Unix timestamp when metadata snapshot was collected';
+COMMENT ON COLUMN relay_metadata.generated_at IS 'Unix timestamp when metadata was generated/collected';
 COMMENT ON COLUMN relay_metadata.type IS 'Metadata type: nip11, nip66_rtt, nip66_ssl, or nip66_geo';
 COMMENT ON COLUMN relay_metadata.metadata_id IS 'Reference to metadata.id';
 

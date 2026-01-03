@@ -6,11 +6,11 @@
 -- Dependencies: 06_materialized_views.sql
 -- ============================================================================
 
--- Function: refresh_relay_metadata_latest
+-- Function: relay_metadata_latest_refresh
 -- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_relay_metadata_latest();
+-- Usage: SELECT relay_metadata_latest_refresh();
 -- Note: Call from cron job or application scheduler once daily
-CREATE OR REPLACE FUNCTION refresh_relay_metadata_latest()
+CREATE OR REPLACE FUNCTION relay_metadata_latest_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
@@ -19,13 +19,13 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION refresh_relay_metadata_latest() IS
+COMMENT ON FUNCTION relay_metadata_latest_refresh() IS
 'Refreshes relay_metadata_latest materialized view concurrently. Call daily.';
 
--- Function: refresh_events_statistics
+-- Function: events_statistics_refresh
 -- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_events_statistics();
-CREATE OR REPLACE FUNCTION refresh_events_statistics()
+-- Usage: SELECT events_statistics_refresh();
+CREATE OR REPLACE FUNCTION events_statistics_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
@@ -34,12 +34,12 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION refresh_events_statistics() IS 'Refreshes events_statistics materialized view concurrently.';
+COMMENT ON FUNCTION events_statistics_refresh() IS 'Refreshes events_statistics materialized view concurrently.';
 
--- Function: refresh_relays_statistics
+-- Function: relays_statistics_refresh
 -- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_relays_statistics();
-CREATE OR REPLACE FUNCTION refresh_relays_statistics()
+-- Usage: SELECT relays_statistics_refresh();
+CREATE OR REPLACE FUNCTION relays_statistics_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
@@ -48,12 +48,12 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION refresh_relays_statistics() IS 'Refreshes relays_statistics materialized view concurrently.';
+COMMENT ON FUNCTION relays_statistics_refresh() IS 'Refreshes relays_statistics materialized view concurrently.';
 
--- Function: refresh_kind_counts_total
+-- Function: kind_counts_total_refresh
 -- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_kind_counts_total();
-CREATE OR REPLACE FUNCTION refresh_kind_counts_total()
+-- Usage: SELECT kind_counts_total_refresh();
+CREATE OR REPLACE FUNCTION kind_counts_total_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
@@ -62,12 +62,12 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION refresh_kind_counts_total() IS 'Refreshes kind_counts_total materialized view concurrently.';
+COMMENT ON FUNCTION kind_counts_total_refresh() IS 'Refreshes kind_counts_total materialized view concurrently.';
 
--- Function: refresh_kind_counts_by_relay
+-- Function: kind_counts_by_relay_refresh
 -- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_kind_counts_by_relay();
-CREATE OR REPLACE FUNCTION refresh_kind_counts_by_relay()
+-- Usage: SELECT kind_counts_by_relay_refresh();
+CREATE OR REPLACE FUNCTION kind_counts_by_relay_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
@@ -76,12 +76,12 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION refresh_kind_counts_by_relay() IS 'Refreshes kind_counts_by_relay materialized view concurrently.';
+COMMENT ON FUNCTION kind_counts_by_relay_refresh() IS 'Refreshes kind_counts_by_relay materialized view concurrently.';
 
--- Function: refresh_pubkey_counts_total
+-- Function: pubkey_counts_total_refresh
 -- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_pubkey_counts_total();
-CREATE OR REPLACE FUNCTION refresh_pubkey_counts_total()
+-- Usage: SELECT pubkey_counts_total_refresh();
+CREATE OR REPLACE FUNCTION pubkey_counts_total_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
@@ -90,12 +90,12 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION refresh_pubkey_counts_total() IS 'Refreshes pubkey_counts_total materialized view concurrently.';
+COMMENT ON FUNCTION pubkey_counts_total_refresh() IS 'Refreshes pubkey_counts_total materialized view concurrently.';
 
--- Function: refresh_pubkey_counts_by_relay
+-- Function: pubkey_counts_by_relay_refresh
 -- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT refresh_pubkey_counts_by_relay();
-CREATE OR REPLACE FUNCTION refresh_pubkey_counts_by_relay()
+-- Usage: SELECT pubkey_counts_by_relay_refresh();
+CREATE OR REPLACE FUNCTION pubkey_counts_by_relay_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
@@ -104,7 +104,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION refresh_pubkey_counts_by_relay() IS 'Refreshes pubkey_counts_by_relay materialized view concurrently.';
+COMMENT ON FUNCTION pubkey_counts_by_relay_refresh() IS 'Refreshes pubkey_counts_by_relay materialized view concurrently.';
 
 -- ============================================================================
 -- REFRESH FUNCTIONS CREATED
