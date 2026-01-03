@@ -14,7 +14,7 @@ version = "2.0.0"
 description = "A modular Nostr data archiving and monitoring system"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [{ name = "BigBrotr Contributors" }]
 maintainers = [{ name = "BigBrotr Contributors" }]
 keywords = [
@@ -35,7 +35,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -144,8 +143,6 @@ markers = [
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
-    # AsyncMock introspection warning in pytest-asyncio with Python 3.9
-    "ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited:RuntimeWarning",
 ]
 
 # ============================================================================
@@ -187,7 +184,7 @@ output = "coverage.xml"
 # https://docs.astral.sh/ruff/
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 100
 src = ["src", "tests"]
 # Exclude common directories
@@ -249,8 +246,6 @@ ignore = [
     "ARG002",  # unused method argument
     "SIM102",  # nested if (sometimes more readable)
     "SIM105",  # contextlib.suppress doesn't work with async/await
-    "UP007",   # Use X | Y for type annotations (need Optional for Python 3.9)
-    "UP045",   # Use X | None for type annotations (need Optional for Python 3.9)
     "PERF203", # try-except in loop (acceptable for error handling)
     "PERF401", # list.extend vs loop (not always clearer)
 ]
@@ -303,7 +298,7 @@ docstring-code-line-length = 80
 # https://mypy.readthedocs.io/
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 mypy_path = "src"
 files = ["src"]
 explicit_package_bases = true
