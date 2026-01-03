@@ -90,11 +90,11 @@ ON events_relays USING btree (relay_url, seen_at DESC);
 -- Purpose: Optimize metadata history and snapshot queries
 -- ============================================================================
 
--- Index: idx_relay_metadata_snapshot_at
+-- Index: idx_relay_metadata_generated_at
 -- Purpose: Find most recent metadata snapshots across all relays
--- Usage: ORDER BY snapshot_at DESC (recent health check results)
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_snapshot_at
-ON relay_metadata USING btree (snapshot_at DESC);
+-- Usage: ORDER BY generated_at DESC (recent health check results)
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_generated_at
+ON relay_metadata USING btree (generated_at DESC);
 
 -- Index: idx_relay_metadata_metadata_id
 -- Purpose: Find all relays sharing the same metadata document
@@ -102,13 +102,13 @@ ON relay_metadata USING btree (snapshot_at DESC);
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id
 ON relay_metadata USING btree (metadata_id);
 
--- Index: idx_relay_metadata_url_type_snapshot (CRITICAL FOR VIEWS)
+-- Index: idx_relay_metadata_url_type_generated (CRITICAL FOR VIEWS)
 -- Purpose: Efficient window functions and latest metadata lookups per type
--- Usage: ROW_NUMBER() OVER (PARTITION BY relay_url, type ORDER BY snapshot_at DESC)
+-- Usage: ROW_NUMBER() OVER (PARTITION BY relay_url, type ORDER BY generated_at DESC)
 -- Note: Powers the relay_metadata_latest view with index-only scans
--- Note: This index covers queries on (relay_url), (relay_url, type), and (relay_url, type, snapshot_at)
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_type_snapshot
-ON relay_metadata USING btree (relay_url, type, snapshot_at DESC);
+-- Note: This index covers queries on (relay_url), (relay_url, type), and (relay_url, type, generated_at)
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_type_generated
+ON relay_metadata USING btree (relay_url, type, generated_at DESC);
 
 -- ============================================================================
 -- TABLE INDEXES: service_data

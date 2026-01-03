@@ -2,36 +2,81 @@
 -- BigBrotr Database Initialization Script
 -- ============================================================================
 -- File: 03_functions_crud.sql
--- Description: CRUD Functions for data operations (bulk optimized with unnest)
+-- Description: CRUD Functions organized by table (base + cascade)
 -- Dependencies: 02_tables.sql
 -- ============================================================================
+--
+-- STRUCTURE:
+--   Level 1 (Base): Single-table operations
+--     - relays_insert()
+--     - events_insert()
+--     - metadata_insert()
+--     - events_relays_insert()      (requires FK to exist)
+--     - relay_metadata_insert()     (requires FK to exist)
+--     - service_data_upsert/get/delete()
+--
+--   Level 2 (Cascade): Multi-table operations (call base functions internally)
+--     - events_relays_insert_cascade()   → relays + events + events_relays
+--     - relay_metadata_insert_cascade()  → relays + metadata + relay_metadata
+--
+-- ============================================================================
 
--- Function: insert_event
--- Description: Bulk insert events + relays + event-relay junction records
--- Parameters: Arrays of event fields, relay info, and seen_at timestamps
--- Returns: VOID
--- Notes:
---   - Uses unnest for single-roundtrip bulk insert
---   - Uses ON CONFLICT DO NOTHING for idempotency
---   - All three inserts happen atomically in one transaction
-CREATE OR REPLACE FUNCTION insert_event(
+
+-- ============================================================================
+-- LEVEL 1: BASE FUNCTIONS (single table)
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- relays_insert
+-- ----------------------------------------------------------------------------
+-- Description: Bulk insert relay records
+-- Parameters: Arrays of relay URL, network type, discovery timestamp
+-- Returns: Number of rows inserted
+CREATE OR REPLACE FUNCTION relays_insert(
+    p_urls TEXT[],
+    p_networks TEXT[],
+    p_discovered_ats BIGINT[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    INSERT INTO relays (url, network, discovered_at)
+    SELECT * FROM unnest(p_urls, p_networks, p_discovered_ats)
+    ON CONFLICT (url) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
+END;
+$$;
+
+COMMENT ON FUNCTION relays_insert(TEXT[], TEXT[], BIGINT[]) IS
+'Bulk insert relays, returns number of rows inserted';
+
+
+-- ----------------------------------------------------------------------------
+-- events_insert
+-- ----------------------------------------------------------------------------
+-- Description: Bulk insert event records (FK to relays NOT checked here)
+-- Parameters: Arrays of event fields
+-- Returns: Number of rows inserted
+CREATE OR REPLACE FUNCTION events_insert(
     p_event_ids BYTEA[],
     p_pubkeys BYTEA[],
     p_created_ats BIGINT[],
     p_kinds INTEGER[],
     p_tags JSONB[],
     p_contents TEXT[],
-    p_sigs BYTEA[],
-    p_relay_urls TEXT[],
-    p_relay_networks TEXT[],
-    p_relay_discovered_ats BIGINT[],
-    p_seen_ats BIGINT[]
+    p_sigs BYTEA[]
 )
-RETURNS VOID
+RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    row_count INTEGER;
 BEGIN
-    -- Bulk insert events (idempotent)
     INSERT INTO events (id, pubkey, created_at, kind, tags, content, sig)
     SELECT * FROM unnest(
         p_event_ids,
@@ -44,83 +89,210 @@ BEGIN
     )
     ON CONFLICT (id) DO NOTHING;
 
-    -- Bulk insert relays (idempotent, deduplicated)
-    INSERT INTO relays (url, network, discovered_at)
-    SELECT DISTINCT * FROM unnest(
-        p_relay_urls,
-        p_relay_networks,
-        p_relay_discovered_ats
-    )
-    ON CONFLICT (url) DO NOTHING;
-
-    -- Bulk insert event-relay associations (idempotent)
-    INSERT INTO events_relays (event_id, relay_url, seen_at)
-    SELECT * FROM unnest(
-        p_event_ids,
-        p_relay_urls,
-        p_seen_ats
-    )
-    ON CONFLICT (event_id, relay_url) DO NOTHING;
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
 END;
 $$;
 
-COMMENT ON FUNCTION insert_event(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[], TEXT[], TEXT[], BIGINT[], BIGINT[]) IS
-'Bulk insert events, relays, and their associations atomically using unnest';
+COMMENT ON FUNCTION events_insert(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[]) IS
+'Bulk insert events, returns number of rows inserted';
 
--- Function: insert_relay
--- Description: Bulk insert validated relay records
--- Parameters: Arrays of relay URL, network type, discovery timestamp
--- Returns: VOID
-CREATE OR REPLACE FUNCTION insert_relay(
-    p_urls TEXT[],
-    p_networks TEXT[],
-    p_discovered_ats BIGINT[]
+
+-- ----------------------------------------------------------------------------
+-- metadata_insert
+-- ----------------------------------------------------------------------------
+-- Description: Bulk insert metadata records (content-addressed by hash)
+-- Parameters: Array of data (hash computed in DB)
+-- Returns: Number of rows inserted
+CREATE OR REPLACE FUNCTION metadata_insert(
+    p_datas JSONB[]
 )
-RETURNS VOID
+RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    row_count INTEGER;
 BEGIN
-    INSERT INTO relays (url, network, discovered_at)
-    SELECT * FROM unnest(p_urls, p_networks, p_discovered_ats)
-    ON CONFLICT (url) DO NOTHING;
+    INSERT INTO metadata (id, data)
+    SELECT digest(d::TEXT, 'sha256'), d
+    FROM unnest(p_datas) AS d
+    ON CONFLICT (id) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
 END;
 $$;
 
-COMMENT ON FUNCTION insert_relay(TEXT[], TEXT[], BIGINT[]) IS
-'Bulk insert validated relays with conflict handling';
+COMMENT ON FUNCTION metadata_insert(JSONB[]) IS
+'Bulk insert metadata records (content-addressed), returns number of rows inserted';
 
--- Function: insert_relay_metadata
--- Description: Bulk insert relay metadata with automatic deduplication
+
+-- ----------------------------------------------------------------------------
+-- events_relays_insert
+-- ----------------------------------------------------------------------------
+-- Description: Bulk insert event-relay junction records (FK must exist)
+-- Parameters: Arrays of event_id, relay_url, seen_at
+-- Returns: Number of rows inserted
+-- Notes: Will fail if FK references don't exist - use cascade version if needed
+CREATE OR REPLACE FUNCTION events_relays_insert(
+    p_event_ids BYTEA[],
+    p_relay_urls TEXT[],
+    p_seen_ats BIGINT[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    INSERT INTO events_relays (event_id, relay_url, seen_at)
+    SELECT * FROM unnest(p_event_ids, p_relay_urls, p_seen_ats)
+    ON CONFLICT (event_id, relay_url) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
+END;
+$$;
+
+COMMENT ON FUNCTION events_relays_insert(BYTEA[], TEXT[], BIGINT[]) IS
+'Bulk insert event-relay junctions, returns number of rows inserted';
+
+
+-- ----------------------------------------------------------------------------
+-- relay_metadata_insert
+-- ----------------------------------------------------------------------------
+-- Description: Bulk insert relay-metadata junction records (FK must exist)
+-- Parameters: Arrays of relay_url, metadata_data, type, generated_at (hash computed in DB)
+-- Returns: Number of rows inserted
+-- Notes: Will fail if FK references don't exist - use cascade version if needed
+CREATE OR REPLACE FUNCTION relay_metadata_insert(
+    p_relay_urls TEXT[],
+    p_metadata_datas JSONB[],
+    p_types TEXT[],
+    p_generated_ats BIGINT[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    INSERT INTO relay_metadata (relay_url, generated_at, type, metadata_id)
+    SELECT u, g, t, digest(m::TEXT, 'sha256')
+    FROM unnest(p_relay_urls, p_metadata_datas, p_types, p_generated_ats) AS x(u, m, t, g)
+    ON CONFLICT (relay_url, generated_at, type) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
+END;
+$$;
+
+COMMENT ON FUNCTION relay_metadata_insert(TEXT[], JSONB[], TEXT[], BIGINT[]) IS
+'Bulk insert relay-metadata junctions, returns number of rows inserted';
+
+
+-- ============================================================================
+-- LEVEL 2: CASCADE FUNCTIONS (multi-table, call base functions)
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- events_relays_insert_cascade
+-- ----------------------------------------------------------------------------
+-- Description: Bulk insert events with relays and junctions atomically
+-- Parameters: Arrays of event fields, relay info, and seen_at timestamps
+-- Returns: Number of junction rows inserted (events_relays)
+-- Notes:
+--   - Inserts into: relays → events → events_relays
+--   - Uses chained CTEs for atomic operation
+--   - Returns only junction count (last INSERT)
+CREATE OR REPLACE FUNCTION events_relays_insert_cascade(
+    p_event_ids BYTEA[],
+    p_pubkeys BYTEA[],
+    p_created_ats BIGINT[],
+    p_kinds INTEGER[],
+    p_tags JSONB[],
+    p_contents TEXT[],
+    p_sigs BYTEA[],
+    p_relay_urls TEXT[],
+    p_relay_networks TEXT[],
+    p_relay_discovered_ats BIGINT[],
+    p_seen_ats BIGINT[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    -- Single statement with chained CTEs for optimal performance
+    WITH
+    -- CTE 1: Unnest relay data and dedupe
+    relay_data AS (
+        SELECT DISTINCT ON (u) u AS url, n AS network, d AS discovered_at
+        FROM unnest(p_relay_urls, p_relay_networks, p_relay_discovered_ats) AS t(u, n, d)
+    ),
+    -- CTE 2: Insert relays (deduplicated before insert)
+    insert_relays AS (
+        INSERT INTO relays (url, network, discovered_at)
+        SELECT url, network, discovered_at FROM relay_data
+        ON CONFLICT (url) DO NOTHING
+        RETURNING url
+    ),
+    -- CTE 3: Insert events (deduplicated by id)
+    insert_events AS (
+        INSERT INTO events (id, pubkey, created_at, kind, tags, content, sig)
+        SELECT DISTINCT ON (id) id, pubkey, created_at, kind, tags, content, sig
+        FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags, p_contents, p_sigs)
+            AS t(id, pubkey, created_at, kind, tags, content, sig)
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+    )
+    -- Final: Insert junctions
+    INSERT INTO events_relays (event_id, relay_url, seen_at)
+    SELECT DISTINCT ON (event_id, relay_url) event_id, relay_url, seen_at
+    FROM unnest(p_event_ids, p_relay_urls, p_seen_ats) AS t(event_id, relay_url, seen_at)
+    ON CONFLICT (event_id, relay_url) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
+END;
+$$;
+
+COMMENT ON FUNCTION events_relays_insert_cascade(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[], TEXT[], TEXT[], BIGINT[], BIGINT[]) IS
+'Bulk insert events with relays and junctions atomically, returns junction count';
+
+
+-- ----------------------------------------------------------------------------
+-- relay_metadata_insert_cascade
+-- ----------------------------------------------------------------------------
+-- Description: Bulk insert relay metadata with relays and junctions atomically
 -- Parameters:
 --   p_relay_urls: Array of relay WebSocket URLs
 --   p_relay_networks: Array of network types (clearnet/tor)
 --   p_relay_discovered_ats: Array of relay discovery timestamps
---   p_snapshot_ats: Array of metadata snapshot timestamps
---   p_types: Array of metadata types ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo')
 --   p_metadata_datas: Array of complete metadata as JSONB
--- Returns: VOID
+--   p_types: Array of metadata types ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo')
+--   p_generated_ats: Array of metadata generation timestamps
+-- Returns: Number of junction rows inserted (relay_metadata)
 -- Notes:
+--   - Inserts into: relays → metadata → relay_metadata
 --   - Hash is computed ONCE in PostgreSQL using sha256 (via CTE)
---   - Content-addressed storage for deduplication
---   - Uses ON CONFLICT for idempotent operations
---   - Single statement with chained CTEs for optimal performance
-CREATE OR REPLACE FUNCTION insert_relay_metadata(
+--   - Returns only junction count (last INSERT)
+CREATE OR REPLACE FUNCTION relay_metadata_insert_cascade(
     p_relay_urls TEXT[],
     p_relay_networks TEXT[],
     p_relay_discovered_ats BIGINT[],
-    p_snapshot_ats BIGINT[],
+    p_metadata_datas JSONB[],
     p_types TEXT[],
-    p_metadata_datas JSONB[]
+    p_generated_ats BIGINT[]
 )
-RETURNS VOID
+RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    row_count INTEGER;
 BEGIN
-    -- Single statement with chained CTEs:
-    -- 1. Compute hash ONCE and prepare all data
-    -- 2. Insert relays (idempotent)
-    -- 3. Insert metadata (deduplicated by content hash)
-    -- 4. Insert relay_metadata junction (idempotent)
+    -- Single statement with chained CTEs for optimal performance
     WITH
     -- CTE 1: Unnest arrays and compute hash ONCE per row
     input_data AS (
@@ -128,18 +300,18 @@ BEGIN
             u AS relay_url,
             n AS network,
             d_at AS discovered_at,
-            s AS snapshot_at,
-            t AS type,
             m AS metadata_data,
+            t AS type,
+            g AS generated_at,
             digest(m::TEXT, 'sha256') AS metadata_hash
         FROM unnest(
             p_relay_urls,
             p_relay_networks,
             p_relay_discovered_ats,
-            p_snapshot_ats,
+            p_metadata_datas,
             p_types,
-            p_metadata_datas
-        ) AS x(u, n, d_at, s, t, m)
+            p_generated_ats
+        ) AS x(u, n, d_at, m, t, g)
     ),
     -- CTE 2: Insert relays (deduplicated)
     insert_relays AS (
@@ -158,21 +330,31 @@ BEGIN
         RETURNING id
     )
     -- Final: Insert relay_metadata junction (uses pre-computed hash)
-    INSERT INTO relay_metadata (relay_url, snapshot_at, type, metadata_id)
-    SELECT relay_url, snapshot_at, type, metadata_hash
+    INSERT INTO relay_metadata (relay_url, generated_at, type, metadata_id)
+    SELECT relay_url, generated_at, type, metadata_hash
     FROM input_data
-    ON CONFLICT (relay_url, snapshot_at, type) DO NOTHING;
+    ON CONFLICT (relay_url, generated_at, type) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
 END;
 $$;
 
-COMMENT ON FUNCTION insert_relay_metadata(TEXT[], TEXT[], BIGINT[], BIGINT[], TEXT[], JSONB[]) IS
-'Bulk insert relay metadata with automatic deduplication (hash computed in DB)';
+COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT[], TEXT[], BIGINT[], JSONB[], TEXT[], BIGINT[]) IS
+'Bulk insert relay metadata atomically, returns junction count';
 
--- Function: upsert_service_data
+
+-- ============================================================================
+-- SERVICE DATA FUNCTIONS
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- service_data_upsert
+-- ----------------------------------------------------------------------------
 -- Description: Bulk upsert service data records (for candidates, cursors, state, etc.)
 -- Parameters: Arrays of service_name, data_type, data_key, data (JSONB), updated_at
 -- Returns: VOID
-CREATE OR REPLACE FUNCTION upsert_service_data(
+CREATE OR REPLACE FUNCTION service_data_upsert(
     p_service_names TEXT[],
     p_data_types TEXT[],
     p_data_keys TEXT[],
@@ -198,14 +380,17 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION upsert_service_data(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[]) IS
+COMMENT ON FUNCTION service_data_upsert(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[]) IS
 'Bulk upsert service data records (candidates, cursors, state)';
 
--- Function: get_service_data
+
+-- ----------------------------------------------------------------------------
+-- service_data_get
+-- ----------------------------------------------------------------------------
 -- Description: Retrieves service data records with optional key filter
 -- Parameters: service_name, data_type, optional data_key
 -- Returns: TABLE of (data_key, data, updated_at)
-CREATE OR REPLACE FUNCTION get_service_data(
+CREATE OR REPLACE FUNCTION service_data_get(
     p_service_name TEXT,
     p_data_type TEXT,
     p_data_key TEXT DEFAULT NULL
@@ -236,20 +421,25 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION get_service_data IS 'Retrieves service data records with optional key filter';
+COMMENT ON FUNCTION service_data_get IS 'Retrieves service data records with optional key filter';
 
--- Function: delete_service_data
+
+-- ----------------------------------------------------------------------------
+-- service_data_delete
+-- ----------------------------------------------------------------------------
 -- Description: Bulk delete service data records
 -- Parameters: Arrays of service_name, data_type, data_key
--- Returns: VOID
-CREATE OR REPLACE FUNCTION delete_service_data(
+-- Returns: Number of rows deleted
+CREATE OR REPLACE FUNCTION service_data_delete(
     p_service_names TEXT[],
     p_data_types TEXT[],
     p_data_keys TEXT[]
 )
-RETURNS VOID
+RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    row_count INTEGER;
 BEGIN
     DELETE FROM service_data sd
     USING unnest(
@@ -260,12 +450,30 @@ BEGIN
     WHERE sd.service_name = d.sn
       AND sd.data_type = d.dt
       AND sd.data_key = d.dk;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
 END;
 $$;
 
-COMMENT ON FUNCTION delete_service_data(TEXT[], TEXT[], TEXT[]) IS
-'Bulk delete service data records';
+COMMENT ON FUNCTION service_data_delete(TEXT[], TEXT[], TEXT[]) IS
+'Bulk delete service data records, returns number of rows deleted';
+
 
 -- ============================================================================
--- CRUD FUNCTIONS CREATED (bulk optimized)
+-- CRUD FUNCTIONS CREATED
+-- ============================================================================
+-- Level 1 (Base):
+--   - relays_insert
+--   - events_insert
+--   - metadata_insert
+--   - events_relays_insert
+--   - relay_metadata_insert
+--   - service_data_upsert
+--   - service_data_get
+--   - service_data_delete
+--
+-- Level 2 (Cascade):
+--   - events_relays_insert_cascade
+--   - relay_metadata_insert_cascade
 -- ============================================================================

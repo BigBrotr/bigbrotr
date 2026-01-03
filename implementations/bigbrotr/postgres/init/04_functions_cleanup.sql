@@ -6,13 +6,13 @@
 -- Dependencies: 02_tables.sql
 -- ============================================================================
 
--- Function: delete_orphan_metadata
+-- Function: orphan_metadata_delete
 -- Description: Removes metadata records that are not referenced by any relay_metadata
 -- Purpose: Cleanup unused metadata data after old snapshots are removed
 -- Returns: BIGINT (number of deleted rows)
--- Usage: SELECT delete_orphan_metadata();
+-- Usage: SELECT orphan_metadata_delete();
 -- Note: Should be called after cleanup_old_metadata_snapshots
-CREATE OR REPLACE FUNCTION delete_orphan_metadata()
+CREATE OR REPLACE FUNCTION orphan_metadata_delete()
 RETURNS BIGINT
 LANGUAGE plpgsql
 AS $$
@@ -28,15 +28,15 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION delete_orphan_metadata() IS 'Deletes metadata records without relay_metadata references';
+COMMENT ON FUNCTION orphan_metadata_delete() IS 'Deletes metadata records without relay_metadata references';
 
--- Function: delete_orphan_events
+-- Function: orphan_events_delete
 -- Description: Removes events that have no associated relay references
--- Purpose: Maintains data integrity constraint (events must have ≥1 relay)
+-- Purpose: Maintains data integrity constraint (events must have >=1 relay)
 -- Returns: BIGINT (number of deleted rows)
--- Usage: SELECT delete_orphan_events();
+-- Usage: SELECT orphan_events_delete();
 -- Note: Should be called after relay deletion or cleanup operations
-CREATE OR REPLACE FUNCTION delete_orphan_events()
+CREATE OR REPLACE FUNCTION orphan_events_delete()
 RETURNS BIGINT
 LANGUAGE plpgsql
 AS $$
@@ -52,16 +52,16 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION delete_orphan_events() IS 'Deletes events without relay associations (maintains 1:N relationship)';
+COMMENT ON FUNCTION orphan_events_delete() IS 'Deletes events without relay associations (maintains 1:N relationship)';
 
--- Function: delete_failed_candidates
+-- Function: failed_candidates_delete
 -- Description: Removes validator candidates that have exceeded max failed attempts
 -- Purpose: Cleanup maintenance for candidates that consistently fail validation
 -- Parameters:
 --   p_max_attempts: Maximum number of failed attempts before deletion
 -- Returns: BIGINT (number of deleted rows)
--- Usage: SELECT delete_failed_candidates(10);
-CREATE OR REPLACE FUNCTION delete_failed_candidates(
+-- Usage: SELECT failed_candidates_delete(10);
+CREATE OR REPLACE FUNCTION failed_candidates_delete(
     p_max_attempts INTEGER
 )
 RETURNS BIGINT
@@ -79,7 +79,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION delete_failed_candidates IS 'Deletes validator candidates with failed_attempts >= threshold.';
+COMMENT ON FUNCTION failed_candidates_delete IS 'Deletes validator candidates with failed_attempts >= threshold.';
 
 -- ============================================================================
 -- CLEANUP FUNCTIONS CREATED
