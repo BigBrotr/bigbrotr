@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-BigBrotr is a modular Nostr data archiving and monitoring system built with Python 3.9+ and PostgreSQL. It provides relay discovery, health monitoring (NIP-11/NIP-66), and event synchronization with Tor network support.
+BigBrotr is a modular Nostr data archiving and monitoring system built with Python 3.10+ and PostgreSQL. It provides relay discovery, health monitoring (NIP-11/NIP-66), and event synchronization with Tor network support.
 
 ## Common Commands
 
