@@ -2,123 +2,40 @@
 Nostr Event wrapper for BigBrotr.
 
 Provides Event class that wraps nostr_sdk.Event with database conversion.
-Uses composition instead of inheritance to avoid fragile PyO3 binding inheritance.
+Uses frozen dataclass with __getattr__ delegation to transparently proxy all NostrEvent methods.
 """
 
 import json
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import Any
 
 from nostr_sdk import Event as NostrEvent
 
 
-if TYPE_CHECKING:
-    from nostr_sdk import EventId, Kind, PublicKey, Tags, Timestamp
-
-
-def tags_to_list(event: NostrEvent) -> list[list[str]]:
-    """
-    Convert nostr_sdk event tags to list of lists.
-
-    Shared utility function used by Event and EventRelay.
-
-    Args:
-        event: nostr_sdk.Event instance
-
-    Returns:
-        List of tag arrays: [["e", "id"], ["p", "pubkey"], ...]
-    """
-    return [list(tag.as_vec()) for tag in event.tags().to_vec()]
-
-
-def event_to_db_params(event: NostrEvent) -> tuple[bytes, bytes, int, int, str, str, bytes]:
-    """
-    Convert nostr_sdk event to database parameters tuple.
-
-    Shared utility function used by Event and EventRelay.
-
-    Args:
-        event: nostr_sdk.Event instance
-
-    Returns:
-        Tuple of (id, pubkey, created_at, kind, tags_json, content, sig)
-    """
-    tags = tags_to_list(event)
-    return (
-        bytes.fromhex(event.id().to_hex()),
-        bytes.fromhex(event.author().to_hex()),
-        event.created_at().as_secs(),
-        event.kind().as_u16(),
-        json.dumps(tags),
-        event.content(),
-        bytes.fromhex(event.signature()),
-    )
-
-
+@dataclass(frozen=True, slots=True)
 class Event:
     """
-    Immutable Nostr event wrapper.
+    Immutable Nostr event wrapper with database conversion.
 
-    Uses composition instead of inheritance to wrap nostr_sdk.Event safely.
-    The inner NostrEvent is a Rust/PyO3 binding that may have different behavior
-    across versions, so composition provides better stability.
+    Frozen dataclass that transparently proxies all NostrEvent methods via
+    __getattr__ and adds to_db_params() for database insertion.
 
-    Attributes:
-        _inner: The wrapped nostr_sdk.Event instance
+    Note:
+        Like all Python frozen dataclasses, immutability is enforced at the
+        normal API level. Direct calls to object.__setattr__() can bypass
+        this, but such usage is explicitly discouraged.
+
+    Example:
+        >>> event = Event(nostr_event)
+        >>> event.id()  # Delegated to nostr_event
+        >>> event.to_db_params()  # Added method
     """
 
-    __slots__ = ("_inner",)
     _inner: NostrEvent
 
-    def __init__(self, inner: NostrEvent) -> None:
-        """
-        Create Event wrapper from nostr_sdk.Event.
-
-        Args:
-            inner: nostr_sdk.Event instance to wrap
-        """
-        object.__setattr__(self, "_inner", inner)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        raise AttributeError("Event is immutable")
-
-    def __delattr__(self, name: str) -> None:
-        raise AttributeError("Event is immutable")
-
-    # Delegate common methods to inner event
-    def id(self) -> "EventId":
-        """Get event ID."""
-        return self._inner.id()
-
-    def author(self) -> "PublicKey":
-        """Get event author (pubkey)."""
-        return self._inner.author()
-
-    def created_at(self) -> "Timestamp":
-        """Get event creation timestamp."""
-        return self._inner.created_at()
-
-    def kind(self) -> "Kind":
-        """Get event kind."""
-        return self._inner.kind()
-
-    def tags(self) -> "Tags":
-        """Get event tags."""
-        return self._inner.tags()
-
-    def content(self) -> str:
-        """Get event content."""
-        result: str = self._inner.content()
-        return result
-
-    def signature(self) -> str:
-        """Get event signature."""
-        result: str = self._inner.signature()
-        return result
-
-    def verify(self) -> bool:
-        """Verify event signature."""
-        result: bool = self._inner.verify()
-        return result
+    def __getattr__(self, name: str) -> Any:
+        """Delegate all attribute access to the wrapped NostrEvent."""
+        return getattr(self._inner, name)
 
     def to_db_params(self) -> tuple[bytes, bytes, int, int, str, str, bytes]:
         """
@@ -127,9 +44,56 @@ class Event:
         Returns:
             Tuple of (id, pubkey, created_at, kind, tags_json, content, sig)
         """
-        return event_to_db_params(self._inner)
+        inner = self._inner
+        tags = [list(tag.as_vec()) for tag in inner.tags().to_vec()]
+        return (
+            bytes.fromhex(inner.id().to_hex()),
+            bytes.fromhex(inner.author().to_hex()),
+            inner.created_at().as_secs(),
+            inner.kind().as_u16(),
+            json.dumps(tags),
+            inner.content(),
+            bytes.fromhex(inner.signature()),
+        )
 
-    @property
-    def inner(self) -> NostrEvent:
-        """Access the underlying nostr_sdk.Event."""
-        return self._inner
+    @classmethod
+    def from_db_params(
+        cls,
+        event_id: bytes,
+        pubkey: bytes,
+        created_at: int,
+        kind: int,
+        tags_json: str,
+        content: str,
+        sig: bytes,
+    ) -> "Event":
+        """
+        Create an Event from database parameters.
+
+        Args:
+            event_id: Event ID as bytes (32 bytes)
+            pubkey: Author public key as bytes (32 bytes)
+            created_at: Unix timestamp
+            kind: Event kind number
+            tags_json: JSON string of tags array
+            content: Event content
+            sig: Signature as bytes (64 bytes)
+
+        Returns:
+            Event instance wrapping a reconstructed NostrEvent
+        """
+        tags = json.loads(tags_json)
+        inner = NostrEvent.from_json(
+            json.dumps(
+                {
+                    "id": event_id.hex(),
+                    "pubkey": pubkey.hex(),
+                    "created_at": created_at,
+                    "kind": kind,
+                    "tags": tags,
+                    "content": content,
+                    "sig": sig.hex(),
+                }
+            )
+        )
+        return cls(inner)

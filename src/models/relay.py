@@ -8,14 +8,19 @@ with automatic URL normalization and network type detection.
 from dataclasses import dataclass
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from time import time
-from typing import Any, ClassVar, Optional, Union
+from typing import Any, ClassVar
 
 from rfc3986 import uri_reference
 from rfc3986.exceptions import UnpermittedComponentError, ValidationError
 from rfc3986.validators import Validator
 
 
-@dataclass(frozen=True)
+# Standard WebSocket ports
+PORT_WS = 80
+PORT_WSS = 443
+
+
+@dataclass(frozen=True, slots=True)
 class Relay:
     """
     Immutable representation of a Nostr relay.
@@ -52,18 +57,13 @@ class Relay:
     discovered_at: int
     scheme: str
     host: str
-    port: Optional[int]
-    path: Optional[str]
-
-    @property
-    def url(self) -> str:
-        """Full URL with scheme (e.g., wss://relay.example.com)."""
-        return f"{self.scheme}://{self.url_without_scheme}"
+    port: int | None
+    path: str | None
 
     # Complete list of private/reserved IP networks per IANA registries
     # https://www.iana.org/assignments/iana-ipv4-special-registry/
     # https://www.iana.org/assignments/iana-ipv6-special-registry/
-    _LOCAL_NETWORKS: ClassVar[list[Union[IPv4Network, IPv6Network]]] = [
+    _LOCAL_NETWORKS: ClassVar[list[IPv4Network | IPv6Network]] = [
         # IPv4 Private/Reserved
         ip_network("0.0.0.0/8"),  # "This host on this network" (RFC 1122)
         ip_network("10.0.0.0/8"),  # Private-Use (RFC 1918)
@@ -95,6 +95,11 @@ class Relay:
         ip_network("fe80::/10"),  # Link-Local Unicast (RFC 4291)
         ip_network("ff00::/8"),  # Multicast (RFC 4291)
     ]
+
+    @property
+    def url(self) -> str:
+        """Full URL with scheme (e.g., wss://relay.example.com)."""
+        return f"{self.scheme}://{self.url_without_scheme}"
 
     @staticmethod
     def _detect_network(host: str) -> str:
@@ -171,7 +176,7 @@ class Relay:
             raw: Raw URL string to parse.
 
         Returns:
-            Dictionary with keys: url, scheme, host, port, path.
+            Dictionary with keys: url_without_scheme, scheme, host, port, path.
 
         Raises:
             ValueError: If URL is invalid or uses unsupported scheme.
@@ -193,8 +198,10 @@ class Relay:
             raise ValueError(f"Invalid URL: {e}") from None
 
         scheme = uri.scheme
-        host = uri.host
         port = int(uri.port) if uri.port else None
+
+        # Normalize host (strip brackets from IPv6)
+        host = uri.host.strip("[]")
 
         # Normalize path
         path = uri.path or ""
@@ -202,26 +209,25 @@ class Relay:
             path = path.replace("//", "/")
         path = path.rstrip("/") or None
 
-        # Format host for URL
-        host_bare = host.strip("[]")
-        formatted_host = f"[{host_bare}]" if ":" in host_bare else host_bare
+        # Format host for URL (add brackets back for IPv6)
+        formatted_host = f"[{host}]" if ":" in host else host
 
         # Build URL without scheme
-        default_port = 443 if scheme == "wss" else 80
+        default_port = PORT_WSS if scheme == "wss" else PORT_WS
         if port and port != default_port:
-            url = f"{formatted_host}:{port}{path or ''}"
+            url_without_scheme = f"{formatted_host}:{port}{path or ''}"
         else:
-            url = f"{formatted_host}{path or ''}"
+            url_without_scheme = f"{formatted_host}{path or ''}"
 
         return {
-            "url": url,
+            "url_without_scheme": url_without_scheme,
             "scheme": scheme,
             "host": host,
             "port": port,
             "path": path,
         }
 
-    def __new__(cls, raw: str, discovered_at: Optional[int] = None) -> "Relay":
+    def __new__(cls, raw: str, discovered_at: int | None = None) -> "Relay":
         """
         Create a new Relay instance.
 
@@ -247,7 +253,7 @@ class Relay:
             raise ValueError(f"Invalid host: '{parsed['host']}'")
 
         instance = object.__new__(cls)
-        object.__setattr__(instance, "url_without_scheme", parsed["url"])
+        object.__setattr__(instance, "url_without_scheme", parsed["url_without_scheme"])
         object.__setattr__(instance, "network", network)
         object.__setattr__(
             instance, "discovered_at", discovered_at if discovered_at is not None else int(time())
@@ -258,7 +264,7 @@ class Relay:
         object.__setattr__(instance, "path", parsed["path"])
         return instance
 
-    def __init__(self, raw: str, discovered_at: Optional[int] = None) -> None:
+    def __init__(self, raw: str, discovered_at: int | None = None) -> None:
         """Empty initializer; all initialization is performed in __new__ for frozen dataclass."""
 
     def to_db_params(self) -> tuple[str, str, int]:
@@ -269,3 +275,23 @@ class Relay:
             Tuple of (url_without_scheme, network, discovered_at)
         """
         return (self.url_without_scheme, self.network, self.discovered_at)
+
+    @classmethod
+    def from_db_params(
+        cls,
+        url_without_scheme: str,
+        network: str,  # noqa: ARG003
+        discovered_at: int,
+    ) -> "Relay":
+        """
+        Create a Relay from database parameters by re-parsing the URL.
+
+        Args:
+            url_without_scheme: The relay URL without scheme (e.g., "relay.example.com")
+            network: Network type ("clearnet", "tor", "i2p", "loki")
+            discovered_at: Unix timestamp when discovered
+
+        Returns:
+            Relay instance with the provided values
+        """
+        return cls(f"wss://{url_without_scheme}", discovered_at)

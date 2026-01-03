@@ -23,7 +23,7 @@ import ssl
 from dataclasses import dataclass
 from datetime import timedelta
 from time import perf_counter, time
-from typing import TYPE_CHECKING, Any, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import geohash2
 import geoip2.database
@@ -31,17 +31,14 @@ from nostr_sdk import Client, EventBuilder, Filter, Kind, NostrSigner, RelayUrl
 
 from .keys import Keys
 from .metadata import Metadata
-from .relay import Relay
+from .relay import PORT_WSS, Relay
 
 
 if TYPE_CHECKING:
     from .relay_metadata import RelayMetadata
 
 
-T = TypeVar("T")
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Nip66:
     """
     Immutable NIP-66 relay monitoring data.
@@ -74,31 +71,12 @@ class Nip66:
 
     relay: Relay
     rtt_metadata: Metadata  # RTT and network data (always present)
-    ssl_metadata: Optional[Metadata]  # SSL/TLS data (optional)
-    geo_metadata: Optional[Metadata]  # Geo data (optional)
+    ssl_metadata: Metadata | None  # SSL/TLS data (optional)
+    geo_metadata: Metadata | None  # Geo data (optional)
     generated_at: int
 
-    # --- Type-safe helpers ---
-
-    def _get_rtt(self, key: str, expected_type: type[T], default: T) -> T:
-        """Get value from rtt_metadata with type checking."""
-        return self.rtt_metadata._get(key, expected_type, default)
-
-    def _get_rtt_optional(self, key: str, expected_type: type[T]) -> Optional[T]:
-        """Get optional value from rtt_metadata with type checking."""
-        return self.rtt_metadata._get_optional(key, expected_type)
-
-    def _get_ssl(self, key: str, expected_type: type[T]) -> Optional[T]:
-        """Get value from ssl_metadata if available."""
-        if self.ssl_metadata is None:
-            return None
-        return self.ssl_metadata._get_optional(key, expected_type)
-
-    def _get_geo(self, key: str, expected_type: type[T]) -> Optional[T]:
-        """Get value from geo_metadata if available."""
-        if self.geo_metadata is None:
-            return None
-        return self.geo_metadata._get_optional(key, expected_type)
+    # --- Class-level defaults for test() ---
+    _TEST_TIMEOUT: ClassVar[float] = 10.0
 
     # --- Convenience properties ---
 
@@ -115,20 +93,20 @@ class Nip66:
     # --- RTT (Round-Trip Time) ---
 
     @property
-    def rtt_open(self) -> Optional[int]:
-        return self._get_rtt_optional("rtt_open", int)
+    def rtt_open(self) -> int | None:
+        return self.rtt_metadata._get("rtt_open", expected_type=int)
 
     @property
-    def rtt_read(self) -> Optional[int]:
-        return self._get_rtt_optional("rtt_read", int)
+    def rtt_read(self) -> int | None:
+        return self.rtt_metadata._get("rtt_read", expected_type=int)
 
     @property
-    def rtt_write(self) -> Optional[int]:
-        return self._get_rtt_optional("rtt_write", int)
+    def rtt_write(self) -> int | None:
+        return self.rtt_metadata._get("rtt_write", expected_type=int)
 
     @property
-    def rtt_dns(self) -> Optional[int]:
-        return self._get_rtt_optional("rtt_dns", int)
+    def rtt_dns(self) -> int | None:
+        return self.rtt_metadata._get("rtt_dns", expected_type=int)
 
     @property
     def is_openable(self) -> bool:
@@ -145,16 +123,22 @@ class Nip66:
     # --- SSL/TLS ---
 
     @property
-    def ssl_valid(self) -> Optional[bool]:
-        return self._get_ssl("ssl_valid", bool)
+    def ssl_valid(self) -> bool | None:
+        return (
+            self.ssl_metadata._get("ssl_valid", expected_type=bool) if self.ssl_metadata else None
+        )
 
     @property
-    def ssl_issuer(self) -> Optional[str]:
-        return self._get_ssl("ssl_issuer", str)
+    def ssl_issuer(self) -> str | None:
+        return (
+            self.ssl_metadata._get("ssl_issuer", expected_type=str) if self.ssl_metadata else None
+        )
 
     @property
-    def ssl_expires(self) -> Optional[int]:
-        return self._get_ssl("ssl_expires", int)
+    def ssl_expires(self) -> int | None:
+        return (
+            self.ssl_metadata._get("ssl_expires", expected_type=int) if self.ssl_metadata else None
+        )
 
     @property
     def has_ssl(self) -> bool:
@@ -164,78 +148,84 @@ class Nip66:
     # --- Classification (in RTT metadata) ---
 
     @property
-    def network(self) -> Optional[str]:
-        return self._get_rtt_optional("network", str)
+    def network(self) -> str | None:
+        return self.rtt_metadata._get("network", expected_type=str)
 
     @property
-    def relay_type(self) -> Optional[str]:
-        return self._get_rtt_optional("relay_type", str)
+    def relay_type(self) -> str | None:
+        return self.rtt_metadata._get("relay_type", expected_type=str)
 
     @property
     def supported_nips(self) -> list[int]:
-        return self._get_rtt("supported_nips", list, [])
+        return self.rtt_metadata._get("supported_nips", expected_type=list, default=[])
 
     @property
     def requirements(self) -> list[str]:
-        return self._get_rtt("requirements", list, [])
+        return self.rtt_metadata._get("requirements", expected_type=list, default=[])
 
     @property
     def topics(self) -> list[str]:
-        return self._get_rtt("topics", list, [])
+        return self.rtt_metadata._get("topics", expected_type=list, default=[])
 
     @property
     def accepted_kinds(self) -> list[int]:
-        return self._get_rtt("accepted_kinds", list, [])
+        return self.rtt_metadata._get("accepted_kinds", expected_type=list, default=[])
 
     @property
     def rejected_kinds(self) -> list[int]:
-        return self._get_rtt("rejected_kinds", list, [])
+        return self.rtt_metadata._get("rejected_kinds", expected_type=list, default=[])
 
     # --- Geolocation ---
 
     @property
-    def geohash(self) -> Optional[str]:
-        return self._get_geo("geohash", str)
+    def geohash(self) -> str | None:
+        return self.geo_metadata._get("geohash", expected_type=str) if self.geo_metadata else None
 
     @property
-    def geo_ip(self) -> Optional[str]:
-        return self._get_geo("geo_ip", str)
+    def geo_ip(self) -> str | None:
+        return self.geo_metadata._get("geo_ip", expected_type=str) if self.geo_metadata else None
 
     @property
-    def geo_country(self) -> Optional[str]:
-        return self._get_geo("geo_country", str)
+    def geo_country(self) -> str | None:
+        return (
+            self.geo_metadata._get("geo_country", expected_type=str) if self.geo_metadata else None
+        )
 
     @property
-    def geo_region(self) -> Optional[str]:
-        return self._get_geo("geo_region", str)
+    def geo_region(self) -> str | None:
+        return (
+            self.geo_metadata._get("geo_region", expected_type=str) if self.geo_metadata else None
+        )
 
     @property
-    def geo_city(self) -> Optional[str]:
-        return self._get_geo("geo_city", str)
+    def geo_city(self) -> str | None:
+        return self.geo_metadata._get("geo_city", expected_type=str) if self.geo_metadata else None
 
     @property
-    def geo_lat(self) -> Optional[float]:
-        return self._get_geo("geo_lat", float)
+    def geo_lat(self) -> float | None:
+        return self.geo_metadata._get("geo_lat", expected_type=float) if self.geo_metadata else None
 
     @property
-    def geo_lon(self) -> Optional[float]:
-        return self._get_geo("geo_lon", float)
+    def geo_lon(self) -> float | None:
+        return self.geo_metadata._get("geo_lon", expected_type=float) if self.geo_metadata else None
 
     @property
-    def geo_tz(self) -> Optional[str]:
-        return self._get_geo("geo_tz", str)
+    def geo_tz(self) -> str | None:
+        return self.geo_metadata._get("geo_tz", expected_type=str) if self.geo_metadata else None
 
     @property
-    def geo_asn(self) -> Optional[int]:
-        return self._get_geo("geo_asn", int)
+    def geo_asn(self) -> int | None:
+        return self.geo_metadata._get("geo_asn", expected_type=int) if self.geo_metadata else None
 
     @property
-    def geo_asn_org(self) -> Optional[str]:
-        return self._get_geo("geo_asn_org", str)
+    def geo_asn_org(self) -> str | None:
+        return (
+            self.geo_metadata._get("geo_asn_org", expected_type=str) if self.geo_metadata else None
+        )
 
     @property
-    def geo_isp(self) -> Optional[str]:
-        return self._get_geo("geo_isp", str)
+    def geo_isp(self) -> str | None:
+        return self.geo_metadata._get("geo_isp", expected_type=str) if self.geo_metadata else None
 
     @property
     def has_geo(self) -> bool:
@@ -245,133 +235,56 @@ class Nip66:
     # --- Internal test methods ---
 
     @staticmethod
-    def _resolve_dns_sync(host: str) -> tuple[Optional[str], Optional[int]]:
-        """Synchronous DNS resolution (called via asyncio.to_thread)."""
-        try:
-            start = perf_counter()
-            ip = socket.gethostbyname(host)
-            rtt = int((perf_counter() - start) * 1000)
-            return ip, rtt
-        except socket.gaierror:
-            return None, None
-
-    @staticmethod
-    async def _resolve_dns(host: str) -> tuple[Optional[str], Optional[int]]:
-        """Resolve DNS asynchronously and return (IP, RTT in ms)."""
-        return await asyncio.to_thread(Nip66._resolve_dns_sync, host)
-
-    @staticmethod
-    def _check_ssl_sync(host: str, port: int = 443, timeout: float = 10.0) -> dict[str, Any]:
-        """Synchronous SSL check (called via asyncio.to_thread).
-
-        Args:
-            host: Hostname to check SSL certificate for
-            port: Port number (default 443)
-            timeout: Connection timeout in seconds (default 10.0)
+    def _resolve_dns_sync(host: str) -> tuple[str, int]:
         """
-        result: dict[str, Any] = {}
-        try:
-            context = ssl.create_default_context()
-            with (
-                socket.create_connection((host, port), timeout=timeout) as sock,
-                context.wrap_socket(sock, server_hostname=host) as ssock,
-            ):
-                cert = ssock.getpeercert()
+        Synchronous DNS resolution.
 
-                if cert:
-                    for rdn in cert.get("issuer", []):
-                        for attr, value in rdn:  # type: ignore[misc]
-                            if attr == "organizationName":
-                                result["ssl_issuer"] = value
-                                break
+        Returns:
+            Tuple of (IP address, RTT in ms)
 
-                    not_after = cert.get("notAfter")
-                    if not_after and isinstance(not_after, str):
-                        # SSL cert expiry is a Unix timestamp
-                        result["ssl_expires"] = ssl.cert_time_to_seconds(not_after)
-
-                result["ssl_valid"] = True
-        except ssl.SSLError:
-            result["ssl_valid"] = False
-        except Exception:
-            pass
-
-        return result
-
-    @staticmethod
-    async def _check_ssl(host: str, port: int = 443, timeout: float = 10.0) -> dict[str, Any]:
-        """Check SSL certificate asynchronously and return ssl_* fields.
-
-        Args:
-            host: Hostname to check SSL certificate for
-            port: Port number (default 443)
-            timeout: Connection timeout in seconds (default 10.0)
+        Raises:
+            socket.gaierror: DNS resolution failed
         """
-        return await asyncio.to_thread(Nip66._check_ssl_sync, host, port, timeout)
+        start = perf_counter()
+        ip = socket.gethostbyname(host)
+        rtt = int((perf_counter() - start) * 1000)
+        return ip, rtt
 
-    @staticmethod
-    def _lookup_geo_sync(
-        ip: str,
-        city_db_path: str,
-        asn_db_path: Optional[str] = None,
-    ) -> dict[str, Any]:
-        """Synchronous geolocation lookup (called via asyncio.to_thread)."""
-        result: dict[str, Any] = {"geo_ip": ip}
-
-        try:
-            with geoip2.database.Reader(city_db_path) as reader:
-                response = reader.city(ip)
-
-                result["geo_country"] = response.country.iso_code
-                result["geo_city"] = response.city.name
-                result["geo_lat"] = response.location.latitude
-                result["geo_lon"] = response.location.longitude
-                result["geo_tz"] = response.location.time_zone
-
-                if response.subdivisions:
-                    result["geo_region"] = response.subdivisions.most_specific.name
-
-                if result.get("geo_lat") and result.get("geo_lon"):
-                    result["geohash"] = geohash2.encode(
-                        result["geo_lat"],
-                        result["geo_lon"],
-                        precision=9,
-                    )
-        except Exception:
-            pass
-
-        if asn_db_path:
-            try:
-                with geoip2.database.Reader(asn_db_path) as reader:
-                    asn_response = reader.asn(ip)
-                    result["geo_asn"] = asn_response.autonomous_system_number
-                    result["geo_asn_org"] = asn_response.autonomous_system_organization
-            except Exception:
-                pass
-
-        return result
-
-    @staticmethod
-    async def _lookup_geo(
-        ip: str,
-        city_db_path: str,
-        asn_db_path: Optional[str] = None,
-    ) -> dict[str, Any]:
-        """Lookup geolocation asynchronously from IP address."""
-        return await asyncio.to_thread(Nip66._lookup_geo_sync, ip, city_db_path, asn_db_path)
-
-    @staticmethod
-    async def _test_connection(
+    @classmethod
+    async def _test_rtt(
+        cls,
         relay: Relay,
         timeout: float,
-        keys: Optional[Keys],
-    ) -> dict[str, Any]:
-        """Test relay connection and return rtt_* fields."""
-        result: dict[str, Any] = {}
+        keys: Keys | None,
+    ) -> Metadata:
+        """
+        Test relay RTT (round-trip times) and capabilities.
+
+        Args:
+            relay: Relay to test
+            timeout: Connection timeout in seconds
+            keys: Optional Keys for write test
+
+        Returns:
+            Metadata with rtt_open, rtt_read, rtt_write, rtt_dns, network
+
+        Raises:
+            Exception: Connection or test failures
+        """
+        data: dict[str, Any] = {"network": relay.network}
+
+        # DNS resolution for clearnet relays
+        if relay.network == "clearnet":
+            try:
+                ip, rtt_dns = await asyncio.to_thread(cls._resolve_dns_sync, relay.host)
+                data["rtt_dns"] = rtt_dns
+                data["_ip"] = ip  # Internal, used for geo lookup
+            except socket.gaierror:
+                pass
 
         # Create client (with or without signer)
         if keys:
-            signer = NostrSigner.keys(keys)
+            signer = NostrSigner.keys(keys._inner)
             client = Client(signer)
         else:
             client = Client()
@@ -382,89 +295,190 @@ class Nip66:
             relay_url = RelayUrl.parse(relay.url)
             await client.add_relay(relay_url)
             await client.connect()
-            result["rtt_open"] = int((perf_counter() - start) * 1000)
+            data["rtt_open"] = int((perf_counter() - start) * 1000)
 
             # Test read
             try:
                 start = perf_counter()
                 f = Filter().limit(1)
                 await client.fetch_events([f], timedelta(seconds=timeout))
-                result["rtt_read"] = int((perf_counter() - start) * 1000)
+                data["rtt_read"] = int((perf_counter() - start) * 1000)
             except Exception:
                 pass
 
             # Test write (only if keys provided)
-            # Use ephemeral kind (20000-29999) to avoid polluting relay with permanent events
+            # Use ephemeral kind (20000-29999) to avoid polluting relay
             if keys:
                 try:
                     start = perf_counter()
                     builder = EventBuilder(Kind(20000), "")
                     output = await client.send_event_builder(builder)
                     if output:
-                        result["rtt_write"] = int((perf_counter() - start) * 1000)
+                        data["rtt_write"] = int((perf_counter() - start) * 1000)
                 except Exception:
                     pass
 
-        except Exception:
-            pass
         finally:
-            # Always shutdown client to release all resources
             try:
                 await client.shutdown()
             except Exception:
                 pass
 
+        return Metadata(data)
+
+    @classmethod
+    async def _test_ssl(
+        cls,
+        relay: Relay,
+        timeout: float,
+    ) -> Metadata:
+        """
+        Test SSL/TLS certificate.
+
+        Args:
+            relay: Relay to test (must be wss://)
+            timeout: Connection timeout in seconds
+
+        Returns:
+            Metadata with ssl_valid, ssl_issuer, ssl_expires
+
+        Raises:
+            ValueError: Not a wss:// relay or not clearnet
+            Exception: SSL connection failures
+        """
+        if relay.scheme != "wss":
+            raise ValueError("SSL test requires wss:// scheme")
+        if relay.network != "clearnet":
+            raise ValueError("SSL test requires clearnet relay")
+
+        port = relay.port or PORT_WSS
+        data = await asyncio.to_thread(cls._check_ssl_sync, relay.host, port, timeout)
+
+        if not data:
+            raise ValueError("No SSL data collected")
+
+        return Metadata(data)
+
+    @staticmethod
+    def _check_ssl_sync(host: str, port: int, timeout: float) -> dict[str, Any]:
+        """Synchronous SSL check."""
+        result: dict[str, Any] = {}
+
+        context = ssl.create_default_context()
+        with (
+            socket.create_connection((host, port), timeout=timeout) as sock,
+            context.wrap_socket(sock, server_hostname=host) as ssock,
+        ):
+            cert = ssock.getpeercert()
+
+            if cert:
+                for rdn in cert.get("issuer", []):
+                    for attr, value in rdn:  # type: ignore[misc]
+                        if attr == "organizationName":
+                            result["ssl_issuer"] = value
+                            break
+
+                not_after = cert.get("notAfter")
+                if not_after and isinstance(not_after, str):
+                    result["ssl_expires"] = ssl.cert_time_to_seconds(not_after)
+
+            result["ssl_valid"] = True
+
+        return result
+
+    @classmethod
+    async def _test_geo(
+        cls,
+        ip: str,
+        city_db_path: str,
+        asn_db_path: str | None = None,
+    ) -> Metadata:
+        """
+        Lookup geolocation from IP address.
+
+        Args:
+            ip: IP address to lookup
+            city_db_path: Path to GeoLite2-City database
+            asn_db_path: Optional path to GeoLite2-ASN database
+
+        Returns:
+            Metadata with geo_ip, geo_country, geo_city, geo_lat, geo_lon, geohash, etc.
+
+        Raises:
+            Exception: GeoIP lookup failures
+        """
+        data = await asyncio.to_thread(cls._lookup_geo_sync, ip, city_db_path, asn_db_path)
+
+        if len(data) <= 1:  # Only geo_ip, no actual geo data
+            raise ValueError("No geolocation data found")
+
+        return Metadata(data)
+
+    @staticmethod
+    def _lookup_geo_sync(
+        ip: str,
+        city_db_path: str,
+        asn_db_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Synchronous geolocation lookup."""
+        result: dict[str, Any] = {"geo_ip": ip}
+
+        with geoip2.database.Reader(city_db_path) as reader:
+            response = reader.city(ip)
+
+            result["geo_country"] = response.country.iso_code
+            result["geo_city"] = response.city.name
+            result["geo_lat"] = response.location.latitude
+            result["geo_lon"] = response.location.longitude
+            result["geo_tz"] = response.location.time_zone
+
+            if response.subdivisions:
+                result["geo_region"] = response.subdivisions.most_specific.name
+
+            if result.get("geo_lat") and result.get("geo_lon"):
+                result["geohash"] = geohash2.encode(
+                    result["geo_lat"],
+                    result["geo_lon"],
+                    precision=9,
+                )
+
+        if asn_db_path:
+            with geoip2.database.Reader(asn_db_path) as reader:
+                asn_response = reader.asn(ip)
+                result["geo_asn"] = asn_response.autonomous_system_number
+                result["geo_asn_org"] = asn_response.autonomous_system_organization
+
         return result
 
     # --- Factory method ---
 
-    def to_relay_metadata(self) -> list["RelayMetadata"]:
+    def to_relay_metadata(
+        self,
+    ) -> tuple["RelayMetadata", "RelayMetadata | None", "RelayMetadata | None"]:
         """
         Convert to RelayMetadata objects for database storage.
 
         Returns:
-            List of RelayMetadata (up to 3):
-            - Always includes nip66_rtt (RTT and network data)
-            - Includes nip66_ssl if SSL data was collected
-            - Includes nip66_geo if geo data was collected
+            Tuple of 3 elements (rtt, ssl, geo):
+            - rtt: Always present (RTT and network data)
+            - ssl: RelayMetadata if SSL data collected, None otherwise
+            - geo: RelayMetadata if geo data collected, None otherwise
         """
-        from .relay_metadata import RelayMetadata
+        from .relay_metadata import MetadataType, RelayMetadata
 
-        results = []
-
-        # Always add RTT metadata
-        results.append(
-            RelayMetadata(
+        def make(metadata: Metadata, metadata_type: MetadataType) -> RelayMetadata:
+            return RelayMetadata(
                 relay=self.relay,
-                metadata=self.rtt_metadata,
-                metadata_type="nip66_rtt",
+                metadata=metadata,
+                metadata_type=metadata_type,
                 generated_at=self.generated_at,
             )
-        )
 
-        # Add SSL metadata if available
-        if self.ssl_metadata is not None:
-            results.append(
-                RelayMetadata(
-                    relay=self.relay,
-                    metadata=self.ssl_metadata,
-                    metadata_type="nip66_ssl",
-                    generated_at=self.generated_at,
-                )
-            )
+        rtt = make(self.rtt_metadata, "nip66_rtt")
+        ssl = make(self.ssl_metadata, "nip66_ssl") if self.ssl_metadata else None
+        geo = make(self.geo_metadata, "nip66_geo") if self.geo_metadata else None
 
-        # Add geo metadata if available
-        if self.geo_metadata is not None:
-            results.append(
-                RelayMetadata(
-                    relay=self.relay,
-                    metadata=self.geo_metadata,
-                    metadata_type="nip66_geo",
-                    generated_at=self.generated_at,
-                )
-            )
-
-        return results
+        return (rtt, ssl, geo)
 
     # --- Test ---
 
@@ -472,17 +486,17 @@ class Nip66:
     async def test(
         cls,
         relay: Relay,
-        timeout: float = 30.0,
-        keys: Optional[Keys] = None,
-        city_db_path: Optional[str] = None,
-        asn_db_path: Optional[str] = None,
+        timeout: float | None = None,
+        keys: Keys | None = None,
+        city_db_path: str | None = None,
+        asn_db_path: str | None = None,
     ) -> "Nip66":
         """
         Test relay and collect NIP-66 monitoring data.
 
         Args:
             relay: Relay object to test
-            timeout: Connection timeout in seconds
+            timeout: Connection timeout in seconds (default: _TEST_TIMEOUT)
             keys: Optional Keys for write test
             city_db_path: Path to GeoLite2-City database
             asn_db_path: Optional path to GeoLite2-ASN database
@@ -490,40 +504,36 @@ class Nip66:
         Returns:
             Nip66 instance with test results
         """
-        rtt_data: dict[str, Any] = {"network": relay.network}
-        ssl_data: Optional[dict[str, Any]] = None
-        geo_data: Optional[dict[str, Any]] = None
-        ip: Optional[str] = None
+        timeout = timeout if timeout is not None else cls._TEST_TIMEOUT
 
-        # Only perform DNS/SSL/Geo tests for clearnet relays
-        # Tor/I2P relays don't resolve via standard DNS
-        if relay.network == "clearnet":
-            ip, rtt_dns = await cls._resolve_dns(relay.host)
-            if rtt_dns is not None:
-                rtt_data["rtt_dns"] = rtt_dns
+        # RTT test (always performed)
+        rtt_metadata = await cls._test_rtt(relay, timeout, keys)
 
-            if relay.scheme == "wss":
-                port = relay.port or 443
-                ssl_data = await cls._check_ssl(relay.host, port)
-                # Only keep ssl_data if it has content
-                if not ssl_data:
-                    ssl_data = None
+        # Extract IP from RTT metadata for geo lookup
+        ip = rtt_metadata._get("_ip", expected_type=str)
 
-            if ip and city_db_path:
-                geo_data = await cls._lookup_geo(ip, city_db_path, asn_db_path)
+        # SSL test (clearnet wss:// only)
+        ssl_metadata: Metadata | None = None
+        try:
+            ssl_metadata = await cls._test_ssl(relay, timeout)
+        except Exception:
+            pass
 
-        conn_data = await cls._test_connection(relay, timeout, keys)
-        rtt_data.update(conn_data)
+        # Geo test (clearnet with IP and db path)
+        geo_metadata: Metadata | None = None
+        if ip and city_db_path:
+            try:
+                geo_metadata = await cls._test_geo(ip, city_db_path, asn_db_path)
+            except Exception:
+                pass
 
-        rtt_metadata = Metadata(rtt_data)
-        ssl_metadata = Metadata(ssl_data) if ssl_data else None
-        geo_metadata = Metadata(geo_data) if geo_data else None
-        generated_at = int(time())
+        # Remove internal _ip field from RTT metadata
+        rtt_data = {k: v for k, v in rtt_metadata.data.items() if not k.startswith("_")}
 
-        instance = object.__new__(cls)
-        object.__setattr__(instance, "relay", relay)
-        object.__setattr__(instance, "rtt_metadata", rtt_metadata)
-        object.__setattr__(instance, "ssl_metadata", ssl_metadata)
-        object.__setattr__(instance, "geo_metadata", geo_metadata)
-        object.__setattr__(instance, "generated_at", generated_at)
-        return instance
+        return cls(
+            relay=relay,
+            rtt_metadata=Metadata(rtt_data),
+            ssl_metadata=ssl_metadata,
+            geo_metadata=geo_metadata,
+            generated_at=int(time()),
+        )
