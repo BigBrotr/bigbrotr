@@ -20,7 +20,7 @@ from .keys import Keys
 from .metadata import Metadata
 from .nip11 import Nip11
 from .nip66 import Nip66
-from .relay import Relay
+from .relay import NetworkType, Relay
 from .relay_metadata import MetadataType, RelayMetadata
 
 
@@ -30,6 +30,7 @@ __all__ = [
     "Keys",
     "Metadata",
     "MetadataType",
+    "NetworkType",
     "Nip11",
     "Nip66",
     "Relay",

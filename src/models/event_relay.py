@@ -13,18 +13,35 @@ Database mapping:
 Example:
     >>> from models import Event, EventRelay, Relay
     >>> event_relay = EventRelay(Event(nostr_event), relay)
-    >>> params = (
-    ...     event_relay.to_db_params()
-    ... )  # For events_relays_insert_cascade procedure
+    >>> params = event_relay.to_db_params()  # EventRelayDbParams for insert
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from .event import Event
+
+
+class EventRelayDbParams(NamedTuple):
+    """Database parameters for EventRelay insert operations."""
+
+    # Event fields
+    event_id: bytes
+    pubkey: bytes
+    created_at: int
+    kind: int
+    tags_json: str
+    content: str
+    sig: bytes
+    # Relay fields
+    relay_url: str
+    relay_network: str
+    relay_discovered_at: int
+    # Junction field
+    seen_at: int
 
 
 if TYPE_CHECKING:
@@ -39,34 +56,35 @@ class EventRelay:
     Attributes:
         event: The wrapped Nostr event
         relay: The relay where the event was seen
-        seen_at: Unix timestamp when event was first seen
+        seen_at: Unix timestamp when event was first seen (defaults to now)
     """
 
     event: Event
     relay: Relay
-    seen_at: int
+    seen_at: int = field(default_factory=lambda: int(time()))
 
-    def __new__(cls, event: Event, relay: Relay, seen_at: int | None = None) -> EventRelay:
-        instance = object.__new__(cls)
-        object.__setattr__(instance, "event", event)
-        object.__setattr__(instance, "relay", relay)
-        object.__setattr__(instance, "seen_at", seen_at if seen_at is not None else int(time()))
-        return instance
-
-    def __init__(self, event: Event, relay: Relay, seen_at: int | None = None) -> None:
-        """Empty initializer; all initialization is performed in __new__ for frozen dataclass."""
-
-    def to_db_params(
-        self,
-    ) -> tuple[bytes, bytes, int, int, str, str, bytes, str, str, int, int]:
+    def to_db_params(self) -> EventRelayDbParams:
         """
-        Convert to database parameters tuple.
+        Convert to database parameters.
 
         Returns:
-            Tuple of (e_id, e_pubkey, e_created_at, e_kind, e_tags, e_content, e_sig,
-                      r_url, r_network, r_discovered_at, er_seen_at)
+            EventRelayDbParams with named fields for event, relay, and seen_at
         """
-        return self.event.to_db_params() + self.relay.to_db_params() + (self.seen_at,)
+        e = self.event.to_db_params()
+        r = self.relay.to_db_params()
+        return EventRelayDbParams(
+            event_id=e.id,
+            pubkey=e.pubkey,
+            created_at=e.created_at,
+            kind=e.kind,
+            tags_json=e.tags_json,
+            content=e.content,
+            sig=e.sig,
+            relay_url=r.url_without_scheme,
+            relay_network=r.network,
+            relay_discovered_at=r.discovered_at,
+            seen_at=self.seen_at,
+        )
 
     @classmethod
     def from_db_params(

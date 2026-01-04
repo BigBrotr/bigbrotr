@@ -15,19 +15,41 @@ Example:
     >>> relay_metadata = RelayMetadata(
     ...     relay=relay, metadata=Metadata({"name": "My Relay"}), metadata_type="nip11"
     ... )
-    >>> params = relay_metadata.to_db_params()
+    >>> params = relay_metadata.to_db_params()  # RelayMetadataDbParams
 """
 
-from dataclasses import dataclass
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import StrEnum
 from time import time
-from typing import Literal
+from typing import NamedTuple
 
 from .metadata import Metadata
 from .relay import Relay
 
 
-# Valid metadata types matching database CHECK constraint
-MetadataType = Literal["nip11", "nip66_rtt", "nip66_ssl", "nip66_geo"]
+class MetadataType(StrEnum):
+    """Metadata type constants matching database CHECK constraint."""
+
+    NIP11 = "nip11"
+    NIP66_RTT = "nip66_rtt"
+    NIP66_SSL = "nip66_ssl"
+    NIP66_GEO = "nip66_geo"
+
+
+class RelayMetadataDbParams(NamedTuple):
+    """Database parameters for RelayMetadata insert operations."""
+
+    # Relay fields
+    relay_url: str
+    relay_network: str
+    relay_discovered_at: int
+    # Metadata fields
+    metadata_data: str
+    # Junction fields
+    metadata_type: MetadataType
+    generated_at: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,52 +69,26 @@ class RelayMetadata:
     relay: Relay
     metadata: Metadata
     metadata_type: MetadataType
-    generated_at: int
+    generated_at: int = field(default_factory=lambda: int(time()))
 
-    def __new__(
-        cls,
-        relay: Relay,
-        metadata: Metadata,
-        metadata_type: MetadataType,
-        generated_at: int | None = None,
-    ) -> "RelayMetadata":
-        instance = object.__new__(cls)
-        object.__setattr__(instance, "relay", relay)
-        object.__setattr__(instance, "metadata", metadata)
-        object.__setattr__(instance, "metadata_type", metadata_type)
-        object.__setattr__(
-            instance, "generated_at", generated_at if generated_at is not None else int(time())
-        )
-        return instance
-
-    def __init__(
-        self,
-        relay: Relay,
-        metadata: Metadata,
-        metadata_type: MetadataType,
-        generated_at: int | None = None,
-    ) -> None:
-        """Empty initializer; all initialization is performed in __new__ for frozen dataclass."""
-
-    def to_db_params(self) -> tuple[str, str, int, str, str, int]:
+    def to_db_params(self) -> RelayMetadataDbParams:
         """
         Return database parameters for relay_metadata_insert_cascade procedure.
 
         The metadata hash is computed by PostgreSQL, not Python.
 
         Returns:
-            Tuple of:
-            - relay_url: Relay URL without scheme
-            - relay_network: Relay network type
-            - relay_discovered_at: Relay discovery timestamp
-            - metadata_data: JSON string of metadata
-            - metadata_type: Type of metadata ('nip11', 'nip66_rtt', etc.)
-            - generated_at: When metadata was collected
+            RelayMetadataDbParams with named fields for relay, metadata, type, and timestamp
         """
-        return (
-            self.relay.to_db_params()
-            + self.metadata.to_db_params()
-            + (self.metadata_type, self.generated_at)
+        r = self.relay.to_db_params()
+        m = self.metadata.to_db_params()
+        return RelayMetadataDbParams(
+            relay_url=r.url_without_scheme,
+            relay_network=r.network,
+            relay_discovered_at=r.discovered_at,
+            metadata_data=m.data_json,
+            metadata_type=self.metadata_type,
+            generated_at=self.generated_at,
         )
 
     @classmethod
@@ -104,7 +100,7 @@ class RelayMetadata:
         metadata_data: str,
         metadata_type: MetadataType,
         generated_at: int,
-    ) -> "RelayMetadata":
+    ) -> RelayMetadata:
         """
         Create RelayMetadata from database parameters.
 

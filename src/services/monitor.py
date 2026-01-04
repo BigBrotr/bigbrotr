@@ -637,7 +637,8 @@ class Monitor(BaseService[MonitorConfig]):
                 )
 
                 # Add nip66 metadata records (rtt and optionally ssl/geo)
-                metadata_records.extend(r for r in nip66.to_relay_metadata() if r)
+                if nip66:
+                    metadata_records.extend(r for r in nip66.to_relay_metadata() if r)
 
                 # Publish Kind 30166 event if enabled
                 if (
@@ -648,7 +649,7 @@ class Monitor(BaseService[MonitorConfig]):
                     await self._publish_relay_discovery(relay, nip11, nip66)
 
                 # Race condition fix: Protect counter increments with lock
-                if nip66.is_openable or nip11:
+                if (nip66 and nip66.is_openable) or nip11:
                     async with self._metrics_lock:
                         self._successful_checks += 1
                     self._logger.info("check_ok", relay=relay.url)
