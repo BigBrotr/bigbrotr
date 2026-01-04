@@ -7,27 +7,19 @@
 -- ============================================================================
 
 -- Function: tags_to_tagvalues
--- Description: Extracts tag values from single-letter tags for GIN indexing
--- Input: JSONB array of tags [[tag_name, value, ...], ...]
--- Output: TEXT[] of values from single-letter tags
+-- Description: Extracts single-character tag keys and their values from JSONB array
+-- Purpose: Enables efficient GIN indexing on Nostr event tags
 -- Note: LilBrotr computes tagvalues at insert time (not a generated column)
-CREATE OR REPLACE FUNCTION tags_to_tagvalues(p_tags JSONB)
+--
+-- Example Input:  [["e", "abc123"], ["p", "def456"], ["relay", "wss://..."]]
+-- Example Output: ARRAY['abc123', 'def456']
+-- Note: "relay" is excluded because key length > 1
+CREATE OR REPLACE FUNCTION tags_to_tagvalues(JSONB)
 RETURNS TEXT[]
-LANGUAGE plpgsql
+LANGUAGE SQL
 IMMUTABLE
 RETURNS NULL ON NULL INPUT
-AS $$
-BEGIN
-    RETURN (
-        SELECT array_agg(tag_element->>1)
-        FROM jsonb_array_elements(p_tags) AS tag_element
-        WHERE length(tag_element->>0) = 1
-    );
-END;
-$$;
-
-COMMENT ON FUNCTION tags_to_tagvalues(JSONB) IS
-'Extracts values from single-letter tags for GIN indexing';
+AS 'SELECT array_agg(t->>1) FROM (SELECT jsonb_array_elements($1) AS t)s WHERE length(t->>0) = 1;';
 
 -- ============================================================================
 -- UTILITY FUNCTIONS CREATED
