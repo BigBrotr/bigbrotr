@@ -52,6 +52,10 @@ from models import (
 )
 
 
+if TYPE_CHECKING:
+    from models.nip11 import Nip11Limitation, Nip11RetentionEntry
+
+
 # =============================================================================
 # Constants
 # =============================================================================
@@ -240,7 +244,7 @@ async def fetch_nip11(
     return await Nip11.fetch(relay, timeout=timeout, max_size=max_size, proxy_url=proxy_url)
 
 
-def _determine_relay_type(limitation: dict[str, Any]) -> str | None:
+def _determine_relay_type(limitation: Nip11Limitation | dict[str, Any]) -> str | None:
     """
     Determine relay type based on NIP-11 limitation fields.
 
@@ -262,7 +266,9 @@ def _determine_relay_type(limitation: dict[str, Any]) -> str | None:
         return "Public"
 
 
-def _extract_kinds_from_retention(retention: list[dict[str, Any]]) -> list[str]:
+def _extract_kinds_from_retention(
+    retention: list[Nip11RetentionEntry] | list[dict[str, Any]],
+) -> list[str]:
     """
     Extract kind information from NIP-11 retention field.
 
@@ -271,10 +277,8 @@ def _extract_kinds_from_retention(retention: list[dict[str, Any]]) -> list[str]:
     kinds: list[str] = []
 
     for entry in retention:
-        # Entry can have "kinds" array or "kind" single value
-        entry_kinds = entry.get("kinds", [])
-        if "kind" in entry:
-            entry_kinds = [entry["kind"]]
+        # Entry has "kinds" array (NIP-11 spec uses "kinds" not "kind")
+        entry_kinds: list[int | list[int]] = entry.get("kinds") or []
 
         # Check if this is a discard rule (time=0 or count=0)
         is_discard = entry.get("time") == 0 or entry.get("count") == 0
@@ -617,13 +621,6 @@ class Monitor(BaseService[MonitorConfig]):
                         metadata_records.append(nip11.to_relay_metadata())
 
                 # NIP-66 test (DNS, SSL, Geo, Connection)
-                # Get paths for geo databases if geo check enabled
-                city_db_path = None
-                asn_db_path = None
-                if self._config.checks.geo:
-                    city_db_path = self._config.geo.database_path
-                    asn_db_path = self._config.geo.asn_database_path
-
                 # Get keys for write test if enabled
                 keys = self._keys if self._config.checks.write else None
 
@@ -632,8 +629,9 @@ class Monitor(BaseService[MonitorConfig]):
                     relay=relay,
                     timeout=timeout,
                     keys=keys,
-                    city_db_path=city_db_path,
-                    asn_db_path=asn_db_path,
+                    city_reader=self._geo_reader,
+                    asn_reader=self._asn_reader,
+                    run_geo=self._config.checks.geo,
                 )
 
                 # Add nip66 metadata records (rtt and optionally ssl/geo)
