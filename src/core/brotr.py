@@ -16,18 +16,23 @@ Features:
 from __future__ import annotations
 
 import json
+import re
 import time
-from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import asyncpg
-import yaml
 from pydantic import BaseModel, Field, field_validator
 
 from models import Event, EventRelay, Metadata, Relay, RelayMetadata
+from models.event_relay import EventRelayDbParams
 
 from .logger import Logger
 from .pool import Pool
+from .utils import load_yaml
+
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 # ============================================================================
@@ -160,14 +165,7 @@ class Brotr:
               cleanup: 90.0    # seconds, or null for infinite
               refresh: null    # seconds, or null for infinite (default: null)
         """
-        path = Path(config_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-
-        with path.open() as f:
-            config_data = yaml.safe_load(f) or {}
-
-        return cls.from_dict(config_data)
+        return cls.from_dict(load_yaml(config_path))
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> Brotr:
@@ -192,7 +190,7 @@ class Brotr:
                 f"{operation} batch size ({len(batch)}) exceeds maximum ({self._config.batch.max_batch_size})"
             )
 
-    def _transpose_to_columns(self, params: list[tuple[Any, ...]]) -> tuple[list[Any], ...]:
+    def _transpose_to_columns(self, params: Sequence[tuple[Any, ...]]) -> tuple[list[Any], ...]:
         """
         Transpose list of tuples to tuple of lists (columns) for bulk SQL operations.
 
@@ -215,6 +213,11 @@ class Brotr:
 
         return tuple(list(col) for col in zip(*params, strict=False))
 
+    # Valid SQL identifier: letters, numbers, underscores; starts with letter or underscore
+    _VALID_PROCEDURE_NAME: ClassVar[re.Pattern[str]] = re.compile(
+        r"^[a-z_][a-z0-9_]*$", re.IGNORECASE
+    )
+
     async def _call_procedure(
         self,
         procedure_name: str,
@@ -226,11 +229,9 @@ class Brotr:
         """
         Call a stored procedure.
 
-        Procedure names are always hardcoded string literals in the calling methods.
-        SQL injection is prevented by parameterized arguments ($1, $2, etc.).
-
         Args:
-            procedure_name: Procedure name (hardcoded in calling method)
+            procedure_name: Valid SQL identifier (letters, numbers, underscores).
+                           Must start with a letter or underscore.
             *args: Procedure arguments (passed as parameterized values)
             conn: Optional connection (acquires from pool if None)
             fetch_result: Return result if True
@@ -238,7 +239,16 @@ class Brotr:
 
         Returns:
             Result value if fetch_result=True, otherwise None
+
+        Raises:
+            ValueError: If procedure_name is not a valid SQL identifier
         """
+        if not self._VALID_PROCEDURE_NAME.match(procedure_name):
+            raise ValueError(
+                f"Invalid procedure name '{procedure_name}': "
+                "must be a valid SQL identifier (letters, numbers, underscores)"
+            )
+
         params = ", ".join(f"${i + 1}" for i in range(len(args))) if args else ""
         query = f"SELECT {procedure_name}({params})"
 
@@ -377,7 +387,7 @@ class Brotr:
         self._validate_batch_size(records, "insert_events_relays")
 
         # Collect valid params and track skipped
-        valid_params: list[tuple[Any, ...]] = []
+        valid_params: list[EventRelayDbParams] = []
         skipped = 0
 
         for event_relay in records:
@@ -395,19 +405,20 @@ class Brotr:
             self._logger.warning("all_event_relays_invalid", total=len(records), skipped=skipped)
             return 0, skipped
 
-        columns = self._transpose_to_columns(valid_params)
+        columns: tuple[list[Any], ...]
 
         if cascade:
             # Insert relays → events → events_relays
+            columns = self._transpose_to_columns(valid_params)
             query = (
                 "SELECT events_relays_insert_cascade($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
             )
         else:
             # Insert only events_relays junction (event_id, relay_url, seen_at)
-            # Columns: 0=id, 7=relay_url, 10=seen_at
-            event_ids = columns[0]
-            relay_urls = columns[7]
-            seen_ats = columns[10]
+            # Extract specific columns by name from EventRelayDbParams
+            event_ids = [p.event_id for p in valid_params]
+            relay_urls = [p.relay_url for p in valid_params]
+            seen_ats = [p.seen_at for p in valid_params]
             query = "SELECT events_relays_insert($1, $2, $3)"
             columns = (event_ids, relay_urls, seen_ats)
 
@@ -453,7 +464,7 @@ class Brotr:
         self._validate_batch_size(records, "insert_metadata")
 
         # Pass only data, hash computed in DB
-        datas = [metadata.to_db_params()[0] for metadata in records]
+        datas = [metadata.to_db_params().data_json for metadata in records]
 
         async with self.pool.transaction() as conn:
             inserted: int = (
@@ -515,7 +526,7 @@ class Brotr:
 
             for record in records:
                 relay_urls.append(record.relay.url_without_scheme)
-                metadata_datas.append(record.metadata.to_db_params()[0])
+                metadata_datas.append(record.metadata.to_db_params().data_json)
                 types.append(record.metadata_type)
                 generated_ats.append(record.generated_at)
 
@@ -773,61 +784,18 @@ class Brotr:
     # Refresh Operations
     # -------------------------------------------------------------------------
 
-    async def refresh_relay_metadata_latest(self) -> None:
-        """Refresh relay_metadata_latest materialized view (concurrent, non-blocking)."""
-        await self._call_procedure(
-            "relay_metadata_latest_refresh",
-            timeout=self._config.timeouts.refresh,
-        )
-        self._logger.debug("matview_refreshed", view="relay_metadata_latest")
+    async def refresh_matview(self, view_name: str) -> None:
+        """
+        Refresh a materialized view by name (concurrent, non-blocking).
 
-    async def refresh_events_statistics(self) -> None:
-        """Refresh events_statistics materialized view (concurrent, non-blocking)."""
+        Args:
+            view_name: Name of the materialized view to refresh.
+        """
         await self._call_procedure(
-            "events_statistics_refresh",
+            f"{view_name}_refresh",
             timeout=self._config.timeouts.refresh,
         )
-        self._logger.debug("matview_refreshed", view="events_statistics")
-
-    async def refresh_relays_statistics(self) -> None:
-        """Refresh relays_statistics materialized view (concurrent, non-blocking)."""
-        await self._call_procedure(
-            "relays_statistics_refresh",
-            timeout=self._config.timeouts.refresh,
-        )
-        self._logger.debug("matview_refreshed", view="relays_statistics")
-
-    async def refresh_kind_counts_total(self) -> None:
-        """Refresh kind_counts_total materialized view (concurrent, non-blocking)."""
-        await self._call_procedure(
-            "kind_counts_total_refresh",
-            timeout=self._config.timeouts.refresh,
-        )
-        self._logger.debug("matview_refreshed", view="kind_counts_total")
-
-    async def refresh_kind_counts_by_relay(self) -> None:
-        """Refresh kind_counts_by_relay materialized view (concurrent, non-blocking)."""
-        await self._call_procedure(
-            "kind_counts_by_relay_refresh",
-            timeout=self._config.timeouts.refresh,
-        )
-        self._logger.debug("matview_refreshed", view="kind_counts_by_relay")
-
-    async def refresh_pubkey_counts_total(self) -> None:
-        """Refresh pubkey_counts_total materialized view (concurrent, non-blocking)."""
-        await self._call_procedure(
-            "pubkey_counts_total_refresh",
-            timeout=self._config.timeouts.refresh,
-        )
-        self._logger.debug("matview_refreshed", view="pubkey_counts_total")
-
-    async def refresh_pubkey_counts_by_relay(self) -> None:
-        """Refresh pubkey_counts_by_relay materialized view (concurrent, non-blocking)."""
-        await self._call_procedure(
-            "pubkey_counts_by_relay_refresh",
-            timeout=self._config.timeouts.refresh,
-        )
-        self._logger.debug("matview_refreshed", view="pubkey_counts_by_relay")
+        self._logger.debug("matview_refreshed", view=view_name)
 
     # -------------------------------------------------------------------------
     # Context Manager

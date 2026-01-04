@@ -12,7 +12,7 @@ Example:
 
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Self
 
 from nostr_sdk import Keys as NostrKeys
 
@@ -38,7 +38,7 @@ class Keys:
         return getattr(self._inner, name)
 
     @classmethod
-    def generate(cls) -> "Keys":
+    def generate(cls) -> Self:
         """
         Generate new random keys.
 
@@ -52,7 +52,7 @@ class Keys:
         return cls(NostrKeys.generate())
 
     @classmethod
-    def parse(cls, key: str) -> "Keys":
+    def parse(cls, key: str) -> Self:
         """
         Parse keys from bech32 (nsec) or hex format.
 
@@ -72,7 +72,7 @@ class Keys:
         return cls(NostrKeys.parse(key))
 
     @classmethod
-    def from_mnemonic(cls, mnemonic: str, passphrase: str | None = None) -> "Keys":
+    def from_mnemonic(cls, mnemonic: str, passphrase: str | None = None) -> Self:
         """
         Derive keys from BIP-39 mnemonic (NIP-06).
 
@@ -95,7 +95,7 @@ class Keys:
         return cls(NostrKeys.from_mnemonic(mnemonic))
 
     @classmethod
-    def from_env(cls, env_var: str) -> "Keys | None":
+    def from_env(cls, env_var: str) -> Self | None:
         """
         Load keys from environment variable.
 

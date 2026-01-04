@@ -44,6 +44,7 @@ from .pool import (
 from .pool import (
     TimeoutsConfig as PoolTimeoutsConfig,
 )
+from .utils import load_yaml
 
 
 __all__ = [
@@ -61,4 +62,5 @@ __all__ = [
     "PoolTimeoutsConfig",
     "RetryConfig",
     "ServerSettingsConfig",
+    "load_yaml",
 ]

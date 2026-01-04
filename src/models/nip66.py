@@ -11,11 +11,19 @@ content-addressed database storage:
 See: https://github.com/nostr-protocol/nips/blob/master/66.md
 
 Example:
-    >>> nip66 = await Nip66.fetch(relay, keys=keys, geo_reader=geo_db)
+    >>> nip66 = await Nip66.test(relay, keys=keys, city_db_path="/path/to/db")
     >>> if nip66:
     ...     print(f"Open: {nip66.is_open}, RTT: {nip66.rtt_open}ms")
     ...     print(f"Country: {nip66.country_code}")
+
+    >>> # For debugging, use test_or_raise to get error details
+    >>> try:
+    ...     nip66 = await Nip66.test_or_raise(relay, keys=keys)
+    ... except Nip66TestError as e:
+    ...     print(f"Failed: {e.cause}")
 """
+
+from __future__ import annotations
 
 import asyncio
 import socket
@@ -29,13 +37,22 @@ import geohash2
 import geoip2.database
 from nostr_sdk import Client, EventBuilder, Filter, Kind, NostrSigner, RelayUrl
 
-from .keys import Keys
 from .metadata import Metadata
-from .relay import PORT_WSS, Relay
+from .relay import Relay
 
 
 if TYPE_CHECKING:
+    from .keys import Keys
     from .relay_metadata import RelayMetadata
+
+
+class Nip66TestError(Exception):
+    """Error testing relay for NIP-66 monitoring data."""
+
+    def __init__(self, relay: Relay, cause: Exception) -> None:
+        self.relay = relay
+        self.cause = cause
+        super().__init__(f"Failed to test NIP-66 for {relay.url}: {cause}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,7 +368,7 @@ class Nip66:
         if relay.network != "clearnet":
             raise ValueError("SSL test requires clearnet relay")
 
-        port = relay.port or PORT_WSS
+        port = relay.port or Relay._PORT_WSS
         data = await asyncio.to_thread(cls._check_ssl_sync, relay.host, port, timeout)
 
         if not data:
@@ -454,7 +471,7 @@ class Nip66:
 
     def to_relay_metadata(
         self,
-    ) -> tuple["RelayMetadata", "RelayMetadata | None", "RelayMetadata | None"]:
+    ) -> tuple[RelayMetadata, RelayMetadata | None, RelayMetadata | None]:
         """
         Convert to RelayMetadata objects for database storage.
 
@@ -474,13 +491,55 @@ class Nip66:
                 generated_at=self.generated_at,
             )
 
-        rtt = make(self.rtt_metadata, "nip66_rtt")
-        ssl = make(self.ssl_metadata, "nip66_ssl") if self.ssl_metadata else None
-        geo = make(self.geo_metadata, "nip66_geo") if self.geo_metadata else None
+        rtt = make(self.rtt_metadata, MetadataType.NIP66_RTT)
+        ssl = make(self.ssl_metadata, MetadataType.NIP66_SSL) if self.ssl_metadata else None
+        geo = make(self.geo_metadata, MetadataType.NIP66_GEO) if self.geo_metadata else None
 
         return (rtt, ssl, geo)
 
     # --- Test ---
+
+    @classmethod
+    async def _run_optional_tests(
+        cls,
+        relay: Relay,
+        timeout: float,
+        ip: str | None,
+        city_db_path: str | None,
+        asn_db_path: str | None,
+    ) -> tuple[Metadata | None, Metadata | None]:
+        """
+        Run SSL and geo tests in parallel.
+
+        Both tests are optional - failures return None instead of raising.
+
+        Args:
+            relay: Relay object to test
+            timeout: Connection timeout in seconds
+            ip: IP address from RTT test (required for geo)
+            city_db_path: Path to GeoLite2-City database
+            asn_db_path: Optional path to GeoLite2-ASN database
+
+        Returns:
+            Tuple of (ssl_metadata, geo_metadata), either may be None
+        """
+
+        async def safe_ssl() -> Metadata | None:
+            try:
+                return await cls._test_ssl(relay, timeout)
+            except Exception:
+                return None
+
+        async def safe_geo() -> Metadata | None:
+            if not ip or not city_db_path:
+                return None
+            try:
+                return await cls._test_geo(ip, city_db_path, asn_db_path)
+            except Exception:
+                return None
+
+        ssl_result, geo_result = await asyncio.gather(safe_ssl(), safe_geo())
+        return ssl_result, geo_result
 
     @classmethod
     async def test(
@@ -490,9 +549,41 @@ class Nip66:
         keys: Keys | None = None,
         city_db_path: str | None = None,
         asn_db_path: str | None = None,
-    ) -> "Nip66":
+    ) -> Nip66 | None:
         """
-        Test relay and collect NIP-66 monitoring data.
+        Test relay and collect NIP-66 monitoring data, returning None on failure.
+
+        Use test_or_raise() if you need error details for debugging.
+
+        Args:
+            relay: Relay object to test
+            timeout: Connection timeout in seconds (default: _TEST_TIMEOUT)
+            keys: Optional Keys for write test
+            city_db_path: Path to GeoLite2-City database
+            asn_db_path: Optional path to GeoLite2-ASN database
+
+        Returns:
+            Nip66 instance with test results, or None on failure
+        """
+        try:
+            return await cls.test_or_raise(relay, timeout, keys, city_db_path, asn_db_path)
+        except Nip66TestError:
+            return None
+
+    @classmethod
+    async def test_or_raise(
+        cls,
+        relay: Relay,
+        timeout: float | None = None,
+        keys: Keys | None = None,
+        city_db_path: str | None = None,
+        asn_db_path: str | None = None,
+    ) -> Nip66:
+        """
+        Test relay and collect NIP-66 monitoring data, raising Nip66TestError on failure.
+
+        Use this method when you need error details for debugging or logging.
+        For simple "test or skip" patterns, use test() instead.
 
         Args:
             relay: Relay object to test
@@ -503,29 +594,27 @@ class Nip66:
 
         Returns:
             Nip66 instance with test results
+
+        Raises:
+            Nip66TestError: If RTT test fails (wraps the original exception)
         """
         timeout = timeout if timeout is not None else cls._TEST_TIMEOUT
 
-        # RTT test (always performed)
-        rtt_metadata = await cls._test_rtt(relay, timeout, keys)
+        try:
+            # RTT test (always performed, required for success)
+            rtt_metadata = await cls._test_rtt(relay, timeout, keys)
+        except asyncio.CancelledError:
+            raise  # Never swallow cancellation
+        except Exception as e:
+            raise Nip66TestError(relay, e) from e
 
         # Extract IP from RTT metadata for geo lookup
         ip = rtt_metadata._get("_ip", expected_type=str)
 
-        # SSL test (clearnet wss:// only)
-        ssl_metadata: Metadata | None = None
-        try:
-            ssl_metadata = await cls._test_ssl(relay, timeout)
-        except Exception:
-            pass
-
-        # Geo test (clearnet with IP and db path)
-        geo_metadata: Metadata | None = None
-        if ip and city_db_path:
-            try:
-                geo_metadata = await cls._test_geo(ip, city_db_path, asn_db_path)
-            except Exception:
-                pass
+        # Run SSL and geo tests in parallel (both optional, failures don't raise)
+        ssl_metadata, geo_metadata = await cls._run_optional_tests(
+            relay, timeout, ip, city_db_path, asn_db_path
+        )
 
         # Remove internal _ip field from RTT metadata
         rtt_data = {k: v for k, v in rtt_metadata.data.items() if not k.startswith("_")}

@@ -15,14 +15,13 @@ import asyncio
 import os
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from pathlib import Path
 from typing import Any, ClassVar
 
 import asyncpg
-import yaml
 from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator
 
 from .logger import Logger
+from .utils import load_yaml
 
 
 # ============================================================================
@@ -171,14 +170,7 @@ class Pool:
         Raises:
             FileNotFoundError: If config file does not exist
         """
-        path = Path(config_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-
-        with path.open() as f:
-            config_data = yaml.safe_load(f)
-
-        return cls.from_dict(config_data or {})
+        return cls.from_dict(load_yaml(config_path))
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> Pool:
@@ -525,18 +517,20 @@ class Pool:
             {'size': 10, 'idle_size': 8, 'min_size': 5, 'max_size': 20,
              'free_size': 8, 'utilization': 0.2, 'is_connected': True}
         """
+        disconnected = {
+            "size": 0,
+            "idle_size": 0,
+            "min_size": self._config.limits.min_size,
+            "max_size": self._config.limits.max_size,
+            "free_size": 0,
+            "utilization": 0.0,
+            "is_connected": False,
+        }
+
         # Capture local reference to avoid race condition with close()
         pool = self._pool
         if not self._is_connected or pool is None:
-            return {
-                "size": 0,
-                "idle_size": 0,
-                "min_size": self._config.limits.min_size,
-                "max_size": self._config.limits.max_size,
-                "free_size": 0,
-                "utilization": 0.0,
-                "is_connected": False,
-            }
+            return disconnected
 
         try:
             size = pool.get_size()
@@ -555,17 +549,13 @@ class Pool:
                 "utilization": round(utilization, 3),
                 "is_connected": True,
             }
-        except Exception:
-            # Pool was closed between check and access
-            return {
-                "size": 0,
-                "idle_size": 0,
-                "min_size": self._config.limits.min_size,
-                "max_size": self._config.limits.max_size,
-                "free_size": 0,
-                "utilization": 0.0,
-                "is_connected": False,
-            }
+        except asyncpg.InterfaceError:
+            # Expected: pool was closed between check and access
+            return disconnected
+        except Exception as e:
+            # Unexpected error - log but don't crash monitoring
+            self._logger.warning("metrics_error", error=str(e))
+            return disconnected
 
     # -------------------------------------------------------------------------
     # Context Manager

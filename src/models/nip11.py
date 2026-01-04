@@ -11,22 +11,40 @@ Example:
     >>> nip11 = await Nip11.fetch(relay)
     >>> if nip11:
     ...     print(f"Relay: {nip11.name}, NIPs: {nip11.supported_nips}")
+
+    >>> # For debugging, use fetch_or_raise to get error details
+    >>> try:
+    ...     nip11 = await Nip11.fetch_or_raise(relay)
+    ... except Nip11FetchError as e:
+    ...     print(f"Failed: {e.cause}")
 """
 
+from __future__ import annotations
+
+import asyncio
 import json
 from dataclasses import dataclass
 from time import time
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
 from .metadata import Metadata
-from .relay import Relay
 
 
 if TYPE_CHECKING:
+    from .relay import Relay
     from .relay_metadata import RelayMetadata
+
+
+class Nip11FetchError(Exception):
+    """Error fetching NIP-11 document from relay."""
+
+    def __init__(self, relay: Relay, cause: Exception) -> None:
+        self.relay = relay
+        self.cause = cause
+        super().__init__(f"Failed to fetch NIP-11 from {relay.url}: {cause}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,7 +254,7 @@ class Nip11:
 
     # --- Factory method ---
 
-    def to_relay_metadata(self) -> "RelayMetadata":
+    def to_relay_metadata(self) -> RelayMetadata:
         """
         Convert to RelayMetadata for database storage.
 
@@ -245,11 +263,10 @@ class Nip11:
         """
         from .relay_metadata import MetadataType, RelayMetadata
 
-        metadata_type: MetadataType = "nip11"
         return RelayMetadata(
             relay=self.relay,
             metadata=self.metadata,
-            metadata_type=metadata_type,
+            metadata_type=MetadataType.NIP11,
             generated_at=self.generated_at,
         )
 
@@ -267,7 +284,7 @@ class Nip11:
         Internal fetch that raises exceptions on failure.
 
         Args:
-            relay: Relay object
+            relay: "Relay" object
             timeout: Request timeout in seconds (default: _FETCH_TIMEOUT)
             max_size: Maximum response size in bytes (default: _FETCH_MAX_SIZE)
             proxy_url: Optional SOCKS5 proxy URL
@@ -326,12 +343,14 @@ class Nip11:
         timeout: float | None = None,
         max_size: int | None = None,
         proxy_url: str | None = None,
-    ) -> Optional["Nip11"]:
+    ) -> Nip11 | None:
         """
-        Fetch NIP-11 document from relay.
+        Fetch NIP-11 document from relay, returning None on failure.
+
+        Use fetch_or_raise() if you need error details for debugging.
 
         Args:
-            relay: Relay object
+            relay: "Relay" object
             timeout: Request timeout in seconds (default: _FETCH_TIMEOUT)
             max_size: Maximum response size in bytes (default: _FETCH_MAX_SIZE)
             proxy_url: Optional SOCKS5 proxy URL for Tor/I2P/Loki
@@ -340,11 +359,44 @@ class Nip11:
             Nip11 instance if successful, None otherwise
         """
         try:
+            return await cls.fetch_or_raise(relay, timeout, max_size, proxy_url)
+        except Nip11FetchError:
+            return None
+
+    @classmethod
+    async def fetch_or_raise(
+        cls,
+        relay: Relay,
+        timeout: float | None = None,
+        max_size: int | None = None,
+        proxy_url: str | None = None,
+    ) -> Nip11:
+        """
+        Fetch NIP-11 document from relay, raising Nip11FetchError on failure.
+
+        Use this method when you need error details for debugging or logging.
+        For simple "fetch or skip" patterns, use fetch() instead.
+
+        Args:
+            relay: "Relay" object
+            timeout: Request timeout in seconds (default: _FETCH_TIMEOUT)
+            max_size: Maximum response size in bytes (default: _FETCH_MAX_SIZE)
+            proxy_url: Optional SOCKS5 proxy URL for Tor/I2P/Loki
+
+        Returns:
+            Nip11 instance
+
+        Raises:
+            Nip11FetchError: If fetch fails (wraps the original exception)
+        """
+        try:
             metadata = await cls._fetch(relay, timeout, max_size, proxy_url)
             return cls(
                 relay=relay,
                 metadata=metadata,
                 generated_at=int(time()),
             )
-        except Exception:
-            return None
+        except asyncio.CancelledError:
+            raise  # Never swallow cancellation
+        except Exception as e:
+            raise Nip11FetchError(relay, e) from e

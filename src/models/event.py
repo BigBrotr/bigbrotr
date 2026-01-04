@@ -5,11 +5,25 @@ Provides Event class that wraps nostr_sdk.Event with database conversion.
 Uses frozen dataclass with __getattr__ delegation to transparently proxy all NostrEvent methods.
 """
 
+from __future__ import annotations
+
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 from nostr_sdk import Event as NostrEvent
+
+
+class EventDbParams(NamedTuple):
+    """Database parameters for Event insert operations."""
+
+    id: bytes
+    pubkey: bytes
+    created_at: int
+    kind: int
+    tags_json: str
+    content: str
+    sig: bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,23 +51,23 @@ class Event:
         """Delegate all attribute access to the wrapped NostrEvent."""
         return getattr(self._inner, name)
 
-    def to_db_params(self) -> tuple[bytes, bytes, int, int, str, str, bytes]:
+    def to_db_params(self) -> EventDbParams:
         """
         Convert to database parameters tuple.
 
         Returns:
-            Tuple of (id, pubkey, created_at, kind, tags_json, content, sig)
+            EventDbParams with named fields: id, pubkey, created_at, kind, tags_json, content, sig
         """
         inner = self._inner
         tags = [list(tag.as_vec()) for tag in inner.tags().to_vec()]
-        return (
-            bytes.fromhex(inner.id().to_hex()),
-            bytes.fromhex(inner.author().to_hex()),
-            inner.created_at().as_secs(),
-            inner.kind().as_u16(),
-            json.dumps(tags),
-            inner.content(),
-            bytes.fromhex(inner.signature()),
+        return EventDbParams(
+            id=bytes.fromhex(inner.id().to_hex()),
+            pubkey=bytes.fromhex(inner.author().to_hex()),
+            created_at=inner.created_at().as_secs(),
+            kind=inner.kind().as_u16(),
+            tags_json=json.dumps(tags),
+            content=inner.content(),
+            sig=bytes.fromhex(inner.signature()),
         )
 
     @classmethod
@@ -66,7 +80,7 @@ class Event:
         tags_json: str,
         content: str,
         sig: bytes,
-    ) -> "Event":
+    ) -> Event:
         """
         Create an Event from database parameters.
 

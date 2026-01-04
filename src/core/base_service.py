@@ -13,14 +13,13 @@ storage using dedicated database tables.
 
 import asyncio
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any, ClassVar, Generic, TypeVar, cast
 
-import yaml
 from pydantic import BaseModel
 
 from .brotr import Brotr
 from .logger import Logger
+from .utils import load_yaml
 
 
 # Type variable for service configuration
@@ -185,14 +184,7 @@ class BaseService(ABC, Generic[ConfigT]):
     @classmethod
     def from_yaml(cls, config_path: str, brotr: Brotr, **kwargs: Any) -> "BaseService[ConfigT]":
         """Create service from YAML configuration file."""
-        path = Path(config_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-
-        with path.open(encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-
-        return cls.from_dict(data, brotr=brotr, **kwargs)
+        return cls.from_dict(load_yaml(config_path), brotr=brotr, **kwargs)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], brotr: Brotr, **kwargs: Any) -> "BaseService[ConfigT]":

@@ -5,19 +5,36 @@ Provides the Relay class for representing validated Nostr relay URLs
 with automatic URL normalization and network type detection.
 """
 
-from dataclasses import dataclass
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from time import time
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NamedTuple
 
 from rfc3986 import uri_reference
 from rfc3986.exceptions import UnpermittedComponentError, ValidationError
 from rfc3986.validators import Validator
 
 
-# Standard WebSocket ports
-PORT_WS = 80
-PORT_WSS = 443
+class NetworkType(StrEnum):
+    """Network type constants for relay classification."""
+
+    CLEARNET = "clearnet"
+    TOR = "tor"
+    I2P = "i2p"
+    LOKI = "loki"
+    LOCAL = "local"
+    UNKNOWN = "unknown"
+
+
+class RelayDbParams(NamedTuple):
+    """Database parameters for Relay insert operations."""
+
+    url_without_scheme: str
+    network: str
+    discovered_at: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,13 +69,29 @@ class Relay:
         ValueError: If URL is invalid, uses unsupported scheme, or is a local address.
     """
 
-    url_without_scheme: str  # Unique identifier (e.g., relay.example.com:8080/path)
-    network: str
-    discovered_at: int
-    scheme: str
-    host: str
-    port: int | None
-    path: str | None
+    # Input fields
+    raw_url: str = field(repr=False)
+    discovered_at: int = field(default_factory=lambda: int(time()))
+
+    # Computed fields (set in __post_init__)
+    url: str = field(init=False)
+    url_without_scheme: str = field(init=False)
+    network: NetworkType = field(init=False)
+    scheme: str = field(init=False)
+    host: str = field(init=False)
+    port: int | None = field(init=False)
+    path: str | None = field(init=False)
+
+    # Standard WebSocket ports
+    _PORT_WS: ClassVar[int] = 80
+    _PORT_WSS: ClassVar[int] = 443
+
+    # Overlay network TLDs
+    _NETWORK_TLDS: ClassVar[dict[str, NetworkType]] = {
+        ".onion": NetworkType.TOR,
+        ".i2p": NetworkType.I2P,
+        ".loki": NetworkType.LOKI,
+    }
 
     # Complete list of private/reserved IP networks per IANA registries
     # https://www.iana.org/assignments/iana-ipv4-special-registry/
@@ -96,13 +129,27 @@ class Relay:
         ip_network("ff00::/8"),  # Multicast (RFC 4291)
     ]
 
-    @property
-    def url(self) -> str:
-        """Full URL with scheme (e.g., wss://relay.example.com)."""
-        return f"{self.scheme}://{self.url_without_scheme}"
+    def __post_init__(self) -> None:
+        """Parse and validate the raw URL, setting computed fields."""
+        parsed = self._parse(self.raw_url)
+        network = self._detect_network(parsed["host"])
+
+        if network == NetworkType.LOCAL:
+            raise ValueError("Local addresses not allowed")
+        if network == NetworkType.UNKNOWN:
+            raise ValueError(f"Invalid host: '{parsed['host']}'")
+
+        # Use object.__setattr__ to bypass frozen restriction
+        object.__setattr__(self, "url", f"{parsed['scheme']}://{parsed['url_without_scheme']}")
+        object.__setattr__(self, "url_without_scheme", parsed["url_without_scheme"])
+        object.__setattr__(self, "network", network)
+        object.__setattr__(self, "scheme", parsed["scheme"])
+        object.__setattr__(self, "host", parsed["host"])
+        object.__setattr__(self, "port", parsed["port"])
+        object.__setattr__(self, "path", parsed["path"])
 
     @staticmethod
-    def _detect_network(host: str) -> str:
+    def _detect_network(host: str) -> NetworkType:
         """
         Detect the network type from a hostname.
 
@@ -114,47 +161,40 @@ class Relay:
             host: Hostname to analyze (e.g., "relay.example.com", "xyz.onion", "192.168.1.1")
 
         Returns:
-            Network type string:
-            - "clearnet": Standard domain or public IP address
-            - "tor": .onion address (Tor hidden service)
-            - "i2p": .i2p address (I2P network)
-            - "loki": .loki address (Lokinet)
-            - "local": Private/reserved IP or localhost (127.0.0.1, 10.x.x.x, etc.)
-            - "unknown": Invalid or unrecognized format
+            NetworkType enum value:
+            - CLEARNET: Standard domain or public IP address
+            - TOR: .onion address (Tor hidden service)
+            - I2P: .i2p address (I2P network)
+            - LOKI: .loki address (Lokinet)
+            - LOCAL: Private/reserved IP or localhost
+            - UNKNOWN: Invalid or unrecognized format
 
         Examples:
             >>> Relay._detect_network("relay.example.com")
-            'clearnet'
+            NetworkType.CLEARNET
             >>> Relay._detect_network("abcdef1234567890.onion")
-            'tor'
+            NetworkType.TOR
             >>> Relay._detect_network("127.0.0.1")
-            'local'
-            >>> Relay._detect_network("10.0.0.1")
-            'local'
-            >>> Relay._detect_network("")
-            'unknown'
+            NetworkType.LOCAL
         """
         if not host:
-            return "unknown"
+            return NetworkType.UNKNOWN
 
         host = host.lower()
         host_bare = host.strip("[]")
 
-        if host_bare.endswith(".onion"):
-            return "tor"
-        if host_bare.endswith(".i2p"):
-            return "i2p"
-        if host_bare.endswith(".loki"):
-            return "loki"
+        for tld, network in Relay._NETWORK_TLDS.items():
+            if host_bare.endswith(tld):
+                return network
 
         if host_bare in ("localhost", "localhost.localdomain"):
-            return "local"
+            return NetworkType.LOCAL
 
         try:
             ip = ip_address(host_bare)
             if any(ip in net for net in Relay._LOCAL_NETWORKS):
-                return "local"
-            return "clearnet"
+                return NetworkType.LOCAL
+            return NetworkType.CLEARNET
         except ValueError:
             pass
 
@@ -162,10 +202,10 @@ class Relay:
             labels = host_bare.split(".")
             for label in labels:
                 if not label or label.startswith("-") or label.endswith("-"):
-                    return "unknown"
-            return "clearnet"
+                    return NetworkType.UNKNOWN
+            return NetworkType.CLEARNET
 
-        return "unknown"
+        return NetworkType.UNKNOWN
 
     @staticmethod
     def _parse(raw: str) -> dict[str, Any]:
@@ -213,7 +253,7 @@ class Relay:
         formatted_host = f"[{host}]" if ":" in host else host
 
         # Build URL without scheme
-        default_port = PORT_WSS if scheme == "wss" else PORT_WS
+        default_port = Relay._PORT_WSS if scheme == "wss" else Relay._PORT_WS
         if port and port != default_port:
             url_without_scheme = f"{formatted_host}:{port}{path or ''}"
         else:
@@ -227,54 +267,18 @@ class Relay:
             "path": path,
         }
 
-    def __new__(cls, raw: str, discovered_at: int | None = None) -> "Relay":
-        """
-        Create a new Relay instance.
-
-        Uses __new__ instead of __init__ to support frozen dataclass immutability.
-        The __init__ method is intentionally empty as all initialization happens here.
-
-        Args:
-            raw: WebSocket URL (wss:// or ws://)
-            discovered_at: Unix timestamp when discovered (defaults to now)
-
-        Returns:
-            Relay instance with normalized URL and detected network type
-
-        Raises:
-            ValueError: If URL is invalid, local, or uses unknown network
-        """
-        parsed = cls._parse(raw)
-        network = cls._detect_network(parsed["host"])
-
-        if network == "local":
-            raise ValueError("Local addresses not allowed")
-        if network == "unknown":
-            raise ValueError(f"Invalid host: '{parsed['host']}'")
-
-        instance = object.__new__(cls)
-        object.__setattr__(instance, "url_without_scheme", parsed["url_without_scheme"])
-        object.__setattr__(instance, "network", network)
-        object.__setattr__(
-            instance, "discovered_at", discovered_at if discovered_at is not None else int(time())
-        )
-        object.__setattr__(instance, "scheme", parsed["scheme"])
-        object.__setattr__(instance, "host", parsed["host"])
-        object.__setattr__(instance, "port", parsed["port"])
-        object.__setattr__(instance, "path", parsed["path"])
-        return instance
-
-    def __init__(self, raw: str, discovered_at: int | None = None) -> None:
-        """Empty initializer; all initialization is performed in __new__ for frozen dataclass."""
-
-    def to_db_params(self) -> tuple[str, str, int]:
+    def to_db_params(self) -> RelayDbParams:
         """
         Returns parameters for database insert.
 
         Returns:
-            Tuple of (url_without_scheme, network, discovered_at)
+            RelayDbParams with named fields: url_without_scheme, network, discovered_at
         """
-        return (self.url_without_scheme, self.network, self.discovered_at)
+        return RelayDbParams(
+            url_without_scheme=self.url_without_scheme,
+            network=self.network,
+            discovered_at=self.discovered_at,
+        )
 
     @classmethod
     def from_db_params(
@@ -282,7 +286,7 @@ class Relay:
         url_without_scheme: str,
         network: str,  # noqa: ARG003
         discovered_at: int,
-    ) -> "Relay":
+    ) -> Relay:
         """
         Create a Relay from database parameters by re-parsing the URL.
 
