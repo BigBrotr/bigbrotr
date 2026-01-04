@@ -42,7 +42,7 @@ class BaseService(ABC, Generic[ConfigT]):
     Class Attributes:
         SERVICE_NAME: Unique identifier for the service (used in logging)
         CONFIG_CLASS: Pydantic model class for configuration parsing
-        MAX_CONSECUTIVE_FAILURES: Default limit before run_forever stops
+        _DEFAULT_MAX_CONSECUTIVE_FAILURES: Default limit before run_forever stops
 
     Instance Attributes:
         _brotr: Database interface (access pool via _brotr.pool)
@@ -55,7 +55,7 @@ class BaseService(ABC, Generic[ConfigT]):
 
     SERVICE_NAME: ClassVar[str] = "base_service"
     CONFIG_CLASS: ClassVar[type[BaseModel]]
-    MAX_CONSECUTIVE_FAILURES: ClassVar[int] = 5
+    _DEFAULT_MAX_CONSECUTIVE_FAILURES: ClassVar[int] = 5
 
     def __init__(self, brotr: Brotr, config: ConfigT | None = None) -> None:
         self._brotr = brotr
@@ -134,16 +134,13 @@ class BaseService(ABC, Generic[ConfigT]):
             - Consecutive failure counter resets after each successful run()
             - CancelledError, KeyboardInterrupt, SystemExit propagate immediately
         """
-        failure_limit = (
-            max_consecutive_failures
-            if max_consecutive_failures is not None
-            else self.MAX_CONSECUTIVE_FAILURES
-        )
+        if max_consecutive_failures is None:
+            max_consecutive_failures = self._DEFAULT_MAX_CONSECUTIVE_FAILURES
 
         self._logger.info(
             "run_forever_started",
             interval=interval,
-            max_consecutive_failures=failure_limit,
+            max_consecutive_failures=max_consecutive_failures,
         )
 
         consecutive_failures = 0
@@ -165,11 +162,14 @@ class BaseService(ABC, Generic[ConfigT]):
                     consecutive_failures=consecutive_failures,
                 )
 
-                if failure_limit > 0 and consecutive_failures >= failure_limit:
+                if (
+                    max_consecutive_failures > 0
+                    and consecutive_failures >= max_consecutive_failures
+                ):
                     self._logger.critical(
                         "max_consecutive_failures_reached",
                         failures=consecutive_failures,
-                        limit=failure_limit,
+                        limit=max_consecutive_failures,
                     )
                     break
 

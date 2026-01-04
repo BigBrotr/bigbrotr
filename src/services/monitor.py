@@ -636,8 +636,8 @@ class Monitor(BaseService[MonitorConfig]):
                     asn_db_path=asn_db_path,
                 )
 
-                # Add nip66 metadata records (rtt and optionally geo)
-                metadata_records.extend(nip66.to_relay_metadata())
+                # Add nip66 metadata records (rtt and optionally ssl/geo)
+                metadata_records.extend(r for r in nip66.to_relay_metadata() if r)
 
                 # Publish Kind 30166 event if enabled
                 if (

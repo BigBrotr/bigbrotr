@@ -39,29 +39,37 @@ class Logger:
         # Output: error message="hello world" path="/my path/file"
     """
 
-    # Class attribute for maximum value length (truncated if exceeded)
-    MAX_VALUE_LENGTH: ClassVar[int] = 1000
+    _DEFAULT_MAX_VALUE_LENGTH: ClassVar[int] = 1000
 
-    def __init__(self, name: str, json_output: bool = False) -> None:
+    def __init__(
+        self,
+        name: str,
+        json_output: bool = False,
+        max_value_length: int | None = None,
+    ) -> None:
         """
         Initialize logger.
 
         Args:
             name: Logger name (typically service/module name)
             json_output: If True, output JSON instead of key=value format
+            max_value_length: Maximum length for logged values (default: 1000)
         """
+        if max_value_length is None:
+            max_value_length = self._DEFAULT_MAX_VALUE_LENGTH
         self._logger = logging.getLogger(name)
         self._json_output = json_output
+        self._max_value_length = max_value_length
 
     def _format_value(self, value: Any) -> str:
         """Format a single value, quoting if necessary and truncating if too long."""
         s = str(value)
 
         # Truncate long values to prevent log spam
-        if len(s) > self.MAX_VALUE_LENGTH:
+        if len(s) > self._max_value_length:
             s = (
-                s[: self.MAX_VALUE_LENGTH]
-                + f"...<truncated {len(str(value)) - self.MAX_VALUE_LENGTH} chars>"
+                s[: self._max_value_length]
+                + f"...<truncated {len(str(value)) - self._max_value_length} chars>"
             )
 
         # Quote if contains spaces, equals, quotes, or is empty
