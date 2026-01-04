@@ -201,9 +201,8 @@ COMMENT ON FUNCTION relay_metadata_insert(TEXT[], JSONB[], TEXT[], BIGINT[]) IS
 -- Parameters: Arrays of event fields, relay info, and seen_at timestamps
 -- Returns: Number of junction rows inserted (events_relays)
 -- Notes:
---   - Inserts into: relays → events → events_relays
---   - LilBrotr: events_insert computes tagvalues and discards tags/content/sig
---   - Returns only junction count (last INSERT)
+--   - Reuses relays_insert() and events_insert() for DRY principle
+--   - If you customize events_insert(), changes automatically apply here too
 CREATE OR REPLACE FUNCTION events_relays_insert_cascade(
     p_event_ids BYTEA[],
     p_pubkeys BYTEA[],
@@ -223,30 +222,13 @@ AS $$
 DECLARE
     row_count INTEGER;
 BEGIN
-    -- Single statement with chained CTEs for optimal performance
-    WITH
-    -- CTE 1: Unnest relay data and dedupe
-    relay_data AS (
-        SELECT DISTINCT ON (u) u AS url, n AS network, d AS discovered_at
-        FROM unnest(p_relay_urls, p_relay_networks, p_relay_discovered_ats) AS t(u, n, d)
-    ),
-    -- CTE 2: Insert relays (deduplicated before insert)
-    insert_relays AS (
-        INSERT INTO relays (url, network, discovered_at)
-        SELECT url, network, discovered_at FROM relay_data
-        ON CONFLICT (url) DO NOTHING
-        RETURNING url
-    ),
-    -- CTE 3: Insert events (LilBrotr: compute tagvalues, discard tags/content/sig)
-    insert_events AS (
-        INSERT INTO events (id, pubkey, created_at, kind, tagvalues)
-        SELECT DISTINCT ON (id) id, pubkey, created_at, kind, tags_to_tagvalues(tags)
-        FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags)
-            AS t(id, pubkey, created_at, kind, tags)
-        ON CONFLICT (id) DO NOTHING
-        RETURNING id
-    )
-    -- Final: Insert junctions
+    -- Insert relays (reuse base function)
+    PERFORM relays_insert(p_relay_urls, p_relay_networks, p_relay_discovered_ats);
+
+    -- Insert events (reuse base function - customize events_insert, not here)
+    PERFORM events_insert(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags, p_contents, p_sigs);
+
+    -- Insert junction records
     INSERT INTO events_relays (event_id, relay_url, seen_at)
     SELECT DISTINCT ON (event_id, relay_url) event_id, relay_url, seen_at
     FROM unnest(p_event_ids, p_relay_urls, p_seen_ats) AS t(event_id, relay_url, seen_at)
@@ -265,18 +247,9 @@ COMMENT ON FUNCTION events_relays_insert_cascade(BYTEA[], BYTEA[], BIGINT[], INT
 -- relay_metadata_insert_cascade
 -- ----------------------------------------------------------------------------
 -- Description: Bulk insert relay metadata with relays and junctions atomically
--- Parameters:
---   p_relay_urls: Array of relay WebSocket URLs
---   p_relay_networks: Array of network types (clearnet/tor)
---   p_relay_discovered_ats: Array of relay discovery timestamps
---   p_metadata_datas: Array of complete metadata as JSONB
---   p_types: Array of metadata types ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo')
---   p_generated_ats: Array of metadata generation timestamps
 -- Returns: Number of junction rows inserted (relay_metadata)
 -- Notes:
---   - Inserts into: relays → metadata → relay_metadata
---   - Hash is computed ONCE in PostgreSQL using sha256 (via CTE)
---   - Returns only junction count (last INSERT)
+--   - Reuses relays_insert() and metadata_insert() for DRY principle
 CREATE OR REPLACE FUNCTION relay_metadata_insert_cascade(
     p_relay_urls TEXT[],
     p_relay_networks TEXT[],
@@ -291,47 +264,16 @@ AS $$
 DECLARE
     row_count INTEGER;
 BEGIN
-    -- Single statement with chained CTEs for optimal performance
-    WITH
-    -- CTE 1: Unnest arrays and compute hash ONCE per row
-    input_data AS (
-        SELECT
-            u AS relay_url,
-            n AS network,
-            d_at AS discovered_at,
-            m AS metadata_data,
-            t AS type,
-            g AS generated_at,
-            digest(m::TEXT, 'sha256') AS metadata_hash
-        FROM unnest(
-            p_relay_urls,
-            p_relay_networks,
-            p_relay_discovered_ats,
-            p_metadata_datas,
-            p_types,
-            p_generated_ats
-        ) AS x(u, n, d_at, m, t, g)
-    ),
-    -- CTE 2: Insert relays (deduplicated)
-    insert_relays AS (
-        INSERT INTO relays (url, network, discovered_at)
-        SELECT DISTINCT relay_url, network, discovered_at
-        FROM input_data
-        ON CONFLICT (url) DO NOTHING
-        RETURNING url
-    ),
-    -- CTE 3: Insert metadata (deduplicated by hash)
-    insert_metadata AS (
-        INSERT INTO metadata (id, data)
-        SELECT DISTINCT metadata_hash, metadata_data
-        FROM input_data
-        ON CONFLICT (id) DO NOTHING
-        RETURNING id
-    )
-    -- Final: Insert relay_metadata junction (uses pre-computed hash)
+    -- Insert relays (reuse base function)
+    PERFORM relays_insert(p_relay_urls, p_relay_networks, p_relay_discovered_ats);
+
+    -- Insert metadata (reuse base function)
+    PERFORM metadata_insert(p_metadata_datas);
+
+    -- Insert junction records
     INSERT INTO relay_metadata (relay_url, generated_at, type, metadata_id)
-    SELECT relay_url, generated_at, type, metadata_hash
-    FROM input_data
+    SELECT u, g, t, digest(m::TEXT, 'sha256')
+    FROM unnest(p_relay_urls, p_metadata_datas, p_types, p_generated_ats) AS x(u, m, t, g)
     ON CONFLICT (relay_url, generated_at, type) DO NOTHING;
 
     GET DIAGNOSTICS row_count = ROW_COUNT;
