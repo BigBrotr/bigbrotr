@@ -1,0 +1,115 @@
+# ============================================================================
+# BigBrotr Implementation Template - Synchronizer Service Configuration
+# ============================================================================
+# Description: Synchronize Nostr events from relays to the database
+# Used by: src/services/synchronizer.py
+# Run mode: Continuous (runs every interval)
+# Dependencies: Monitor must have checked relays first
+# ============================================================================
+#
+# PURPOSE:
+# The Synchronizer service fetches Nostr events from relays and stores them:
+# 1. Selects readable relays from database (based on Monitor results)
+# 2. Opens WebSocket connections to relays
+# 3. Subscribes to events using configurable filters
+# 4. Receives and stores events with relay associations
+# 5. Tracks sync progress per relay using cursors
+#
+# Supports multicore processing for high-throughput synchronization.
+#
+# ============================================================================
+
+# Cycle interval (seconds between sync runs)
+# Range: >= 60.0
+# Recommendation: 900-1800 for production (15-30 minutes)
+interval: 900.0
+
+# Tor proxy configuration (for .onion relay synchronization)
+tor:
+  enabled: true               # Set to false to skip Tor relay sync
+  host: "tor"                 # Tor proxy host (Docker service name)
+  port: 9050                  # Tor SOCKS5 port (Range: 1 - 65535)
+
+# Event filter settings
+# Set to null to accept all values for that field
+filter:
+  ids: null                   # Specific event IDs to sync (null = all)
+  kinds: null                 # Event kinds to sync (null = all)
+                              # Example: [0, 1, 3, 10002] for profiles, notes, contacts, relay lists
+  authors: null               # Specific author pubkeys to sync (null = all)
+  tags: null                  # Tag filters (null = all)
+                              # Format: {"e": ["event_id"], "p": ["pubkey"]}
+  limit: 500                  # Events per request batch (Range: 1 - 5000)
+
+# Time range for sync
+time_range:
+  default_start: 0            # Default start timestamp (0 = epoch, Range: >= 0)
+  use_relay_state: true       # Use per-relay cursor for incremental sync
+  lookback_seconds: 86400     # Lookback window in seconds (Range: 3600 - 604800)
+                              # Default: 24 hours (86400)
+
+# Timeouts (seconds) - separate settings for clearnet and Tor
+timeouts:
+  clearnet:
+    request: 30.0             # WebSocket request timeout (Range: 5.0 - 120.0)
+    relay: 1800.0             # Max time per relay sync (Range: 60.0 - 14400.0)
+                              # Default: 30 minutes
+  tor:
+    request: 60.0             # WebSocket request timeout (Range: 5.0 - 120.0)
+    relay: 3600.0             # Max time per relay sync (Range: 60.0 - 14400.0)
+                              # Default: 60 minutes
+
+# Concurrency settings
+concurrency:
+  max_parallel: 10            # Max parallel relay connections per process (Range: 1 - 100)
+  max_processes: 4            # Number of worker processes (Range: 1 - 32)
+  stagger_delay: [0, 60]      # Random delay range [min, max] seconds
+                              # Prevents thundering herd on startup
+
+# Relay source - which relays to sync from
+source:
+  from_database: true         # Fetch relay list from database
+  max_metadata_age: 43200     # Only sync relays checked within N seconds (Range: >= 0)
+                              # Default: 12 hours (43200)
+  require_readable: true      # Only sync relays marked as readable by Monitor
+
+# Override settings for specific relays (optional)
+# Useful for large or slow relays that need custom timeouts
+overrides: []
+  # Example:
+  # - url: "wss://relay.damus.io"
+  #   timeouts:
+  #     request: 60.0
+  #     relay: 7200.0
+
+# ============================================================================
+# CUSTOMIZATION NOTES
+# ============================================================================
+#
+# SPECIFIC EVENT KINDS ONLY:
+#   filter.kinds: [0, 1, 3]   # Only profiles, notes, contacts
+#
+# LIGHTWEIGHT STORAGE:
+#   If using lightweight events table (no tags/content/sig), the service
+#   automatically handles this - no config change needed.
+#
+# MINIMAL RESOURCES:
+#   interval: 1800.0
+#   concurrency.max_parallel: 5
+#   concurrency.max_processes: 1
+#   filter.limit: 200
+#
+# AGGRESSIVE SYNC:
+#   interval: 300.0
+#   concurrency.max_parallel: 25
+#   concurrency.max_processes: 8
+#   filter.limit: 1000
+#
+# NO TOR SUPPORT:
+#   tor.enabled: false
+#
+# FULL HISTORICAL SYNC:
+#   time_range.default_start: 1672531200  # Jan 1, 2023
+#   time_range.lookback_seconds: 604800   # 7 days
+#
+# ============================================================================

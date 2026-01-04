@@ -1,0 +1,80 @@
+# ============================================================================
+# BigBrotr Implementation Template - Finder Service Configuration
+# ============================================================================
+# Description: Discover Nostr relay URLs from events and external APIs
+# Used by: src/services/finder.py
+# Run mode: Continuous (runs every interval)
+# Dependencies: Seeder must complete first
+# ============================================================================
+#
+# PURPOSE:
+# The Finder service discovers new relay URLs from two sources:
+# 1. Database events - Scans stored events for relay URLs in tags
+# 2. External APIs - Fetches relay lists from public API endpoints
+#
+# Discovered URLs are stored as candidates for the Validator service.
+#
+# ============================================================================
+
+# Cycle interval (seconds between discovery runs)
+# Range: >= 60.0
+# Recommendation: 1800-3600 for production
+interval: 3600.0
+
+# Event scanning - discovers relay URLs from stored events
+# Scans events for relay URLs in tags (e.g., relay lists, relay recommendations)
+events:
+  enabled: true               # Set to false if you only want API discovery
+
+# External API fetching - discovers relay URLs from public APIs
+api:
+  enabled: true               # Set to false if you only want event scanning
+
+  # API sources to fetch relay URLs from
+  # Each source should return a JSON array of relay URLs or objects with URLs
+  sources:
+    - url: https://api.nostr.watch/v1/online
+      enabled: true
+      timeout: 30.0           # Request timeout in seconds (Range: 1.0 - 120.0)
+
+    - url: https://api.nostr.watch/v1/offline
+      enabled: true
+      timeout: 30.0
+
+    # Add more sources as needed:
+    # - url: https://your-api.com/relays
+    #   enabled: true
+    #   timeout: 30.0
+
+  # Delay between API requests to avoid rate limiting
+  # Range: 0.0 - 10.0
+  delay_between_requests: 1.0
+
+# Concurrency settings
+concurrency:
+  # Maximum concurrent API requests
+  # Range: 1 - 20
+  # Higher = faster discovery but more memory and network usage
+  max_parallel: 5
+
+# ============================================================================
+# CUSTOMIZATION NOTES
+# ============================================================================
+#
+# MINIMAL RESOURCES:
+#   interval: 7200.0            # Every 2 hours
+#   concurrency.max_parallel: 2
+#   api.sources: (keep only one enabled)
+#
+# AGGRESSIVE DISCOVERY:
+#   interval: 900.0             # Every 15 minutes
+#   concurrency.max_parallel: 10
+#   api.sources: (add more sources)
+#
+# EVENTS ONLY (no external API calls):
+#   api.enabled: false
+#
+# API ONLY (no event scanning):
+#   events.enabled: false
+#
+# ============================================================================
