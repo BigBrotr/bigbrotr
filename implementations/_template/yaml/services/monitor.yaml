@@ -1,0 +1,121 @@
+# ============================================================================
+# BigBrotr Implementation Template - Monitor Service Configuration
+# ============================================================================
+# Description: Monitor relay health and collect NIP-11/NIP-66 metadata
+# Used by: src/services/monitor.py
+# Run mode: Continuous (runs every interval)
+# Dependencies: Validator must have validated relays first
+# Environment: PRIVATE_KEY required for write tests and NIP-66 publishing
+# ============================================================================
+#
+# PURPOSE:
+# The Monitor service performs health checks on validated relays:
+# 1. Tests WebSocket connectivity (open)
+# 2. Tests subscription capability (read)
+# 3. Tests event publication (write, requires PRIVATE_KEY)
+# 4. Fetches NIP-11 relay info document
+# 5. Validates SSL/TLS certificate
+# 6. Measures DNS resolution time
+# 7. Geolocates relay IP address
+# 8. Stores results as NIP-66 metadata
+#
+# ============================================================================
+
+# Cycle interval (seconds between monitoring runs)
+# Range: >= 60.0
+# Recommendation: 3600-7200 for production (1-2 hours)
+interval: 3600.0
+
+# Tor proxy configuration (for .onion relay monitoring)
+tor:
+  enabled: true               # Set to false to skip Tor relay monitoring
+  host: "tor"                 # Tor proxy host (Docker service name)
+  port: 9050                  # Tor SOCKS5 port (Range: 1 - 65535)
+
+# Nostr keys for NIP-66 events
+# Private key is loaded from PRIVATE_KEY environment variable
+keys: {}
+
+# NIP-66 event publishing configuration
+publishing:
+  enabled: true               # Enable publishing Kind 30166/10166 events
+
+  # Destination options:
+  #   "monitored_relay"   : Publish to the relay being checked (default)
+  #   "configured_relays" : Publish to relays listed below
+  #   "database_only"     : No Nostr publishing, only store in database
+  destination: "monitored_relay"
+
+  # Relays for publishing (only used if destination: "configured_relays")
+  relays: []
+    # - wss://relay.damus.io
+    # - wss://nos.lol
+
+# Health checks to perform on each relay
+checks:
+  open: true                  # Test WebSocket connection
+  read: true                  # Test REQ/EOSE subscription
+  write: true                 # Test EVENT/OK publication (requires PRIVATE_KEY)
+  nip11: true                 # Fetch NIP-11 relay info document
+  ssl: true                   # Validate SSL/TLS certificate
+  dns: true                   # Measure DNS resolution time
+  geo: true                   # Geolocate relay IP address
+
+# Geolocation configuration
+# Requires MaxMind GeoLite2-City database (free with registration)
+# Download from: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
+geo:
+  database_path: "/usr/share/GeoIP/GeoLite2-City.mmdb"
+  asn_database_path: "/usr/share/GeoIP/GeoLite2-ASN.mmdb"  # Optional, for ASN/ISP info
+
+# Timeouts for relay checks (seconds)
+timeouts:
+  clearnet: 30.0              # Timeout for clearnet relays (Range: 5.0 - 120.0)
+  tor: 60.0                   # Timeout for Tor relays (Range: 10.0 - 180.0)
+
+# Concurrency settings
+concurrency:
+  max_parallel: 50            # Max concurrent relay checks per process (Range: 1 - 500)
+  max_processes: 1            # Number of worker processes (Range: 1 - 32)
+  batch_size: 50              # Relays to process before pushing to database (Range: 1 - 500)
+
+# Relay selection - which relays to check
+selection:
+  # Minimum seconds since last check before re-checking
+  # Prevents checking the same relay too frequently
+  # Range: >= 0
+  min_age_since_check: 3600
+
+# ============================================================================
+# CUSTOMIZATION NOTES
+# ============================================================================
+#
+# NO GEOLOCATION:
+#   checks.geo: false
+#   geo: {}  # Remove database paths
+#
+# NO WRITE TESTS (no PRIVATE_KEY needed):
+#   checks.write: false
+#
+# DATABASE ONLY (no Nostr publishing):
+#   publishing.destination: "database_only"
+#
+# MINIMAL RESOURCES:
+#   interval: 7200.0
+#   concurrency.max_parallel: 10
+#   concurrency.batch_size: 10
+#   checks:
+#     open: true
+#     read: false
+#     write: false
+#     nip11: true
+#     ssl: false
+#     dns: false
+#     geo: false
+#
+# AGGRESSIVE MONITORING:
+#   interval: 1800.0
+#   concurrency.max_parallel: 100
+#   concurrency.max_processes: 4
+#
+# ============================================================================

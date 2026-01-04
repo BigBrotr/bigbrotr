@@ -1,0 +1,72 @@
+# ============================================================================
+# BigBrotr Implementation Template - Validator Service Configuration
+# ============================================================================
+# Description: Validate candidate relay URLs before adding to relays table
+# Used by: src/services/validator.py
+# Run mode: Continuous (runs every interval)
+# Dependencies: Seeder/Finder write candidates to service_data
+# ============================================================================
+#
+# PURPOSE:
+# The Validator service processes candidate relay URLs by:
+# 1. Attempting WebSocket connection
+# 2. Verifying relay protocol compliance
+# 3. Handling NIP-42 authentication (if PRIVATE_KEY set)
+# 4. Adding valid relays to the relays table
+# 5. Tracking failed attempts for cleanup
+#
+# ============================================================================
+
+# Cycle interval (seconds between validation runs)
+# Range: >= 60.0
+# Recommendation: 300-600 for production (5-10 minutes)
+interval: 300.0
+
+# WebSocket connection timeout (seconds)
+# Range: 1.0 - 60.0
+# Note: Tor relays may need longer timeouts
+connection_timeout: 10.0
+
+# Maximum candidates to validate per cycle (optional)
+# When set, candidates are selected probabilistically based on retry count
+# (candidates with more failed attempts have lower selection probability)
+# Uncomment to limit validation rate:
+# max_candidates_per_run: 100
+
+# Concurrency settings
+concurrency:
+  # Maximum concurrent relay validations
+  # Range: 1 - 100
+  # Higher = faster validation but more memory and connections
+  max_parallel: 10
+
+# Tor proxy configuration (for .onion relay validation)
+# Requires Tor service running and accessible
+tor:
+  enabled: true               # Set to false to skip Tor relay validation
+  host: "tor"                 # Tor proxy host (Docker service name)
+  port: 9050                  # Tor SOCKS5 port (Range: 1 - 65535)
+
+# ============================================================================
+# CUSTOMIZATION NOTES
+# ============================================================================
+#
+# NO TOR SUPPORT:
+#   tor.enabled: false
+#   (Remove tor dependency from docker-compose.yaml)
+#
+# MINIMAL RESOURCES:
+#   interval: 600.0
+#   connection_timeout: 5.0
+#   concurrency.max_parallel: 5
+#   max_candidates_per_run: 50
+#
+# AGGRESSIVE VALIDATION:
+#   interval: 120.0
+#   concurrency.max_parallel: 50
+#
+# SLOW NETWORK:
+#   connection_timeout: 30.0
+#   tor.enabled: true
+#
+# ============================================================================

@@ -1,0 +1,52 @@
+# ============================================================================
+# BigBrotr Implementation Template - Seeder Service Configuration
+# ============================================================================
+# Description: Seed initial relay URLs for validation
+# Used by: src/services/seeder.py
+# Run mode: One-shot (runs once at startup, then exits)
+# Dependencies: None (runs first in service chain)
+# ============================================================================
+#
+# PURPOSE:
+# The Seeder service loads initial relay URLs from a seed file and stores
+# them as candidates for the Validator service to process. This bootstraps
+# the relay discovery process with known relay addresses.
+#
+# ============================================================================
+
+# Seed configuration
+seed:
+  # Path to seed file containing relay URLs (one per line)
+  # Comments (lines starting with #) are ignored
+  # Invalid URLs are skipped with a warning
+  #
+  # Path resolution:
+  #   - Docker: Relative to /app (working directory)
+  #   - Local: Relative to current working directory
+  #
+  # The file should contain WebSocket URLs:
+  #   wss://relay.damus.io
+  #   wss://nos.lol
+  #   wss://relay.nostr.band
+  #   # This is a comment
+  #   ws://localhost:8080
+  #
+  file_path: data/seed_relays.txt
+
+# ============================================================================
+# CUSTOMIZATION NOTES
+# ============================================================================
+#
+# MINIMAL SEED:
+#   Create seed_relays.txt with 3-5 well-known relays to start.
+#   The Finder service will discover more relays from events and APIs.
+#
+# LARGE SEED:
+#   For faster initial population, include more relays.
+#   Get relay lists from: https://api.nostr.watch/v1/online
+#
+# NETWORK-SPECIFIC:
+#   Include Tor relays if tor.enabled=true in Validator:
+#     ws://oxtrdevav64z64yb7x6rjg4ntzqjhedm5b5jqulugknhzr46ny2qwaid.onion
+#
+# ============================================================================

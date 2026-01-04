@@ -1,0 +1,361 @@
+-- ============================================================================
+-- BigBrotr Implementation Template - CRUD Functions
+-- ============================================================================
+-- File: 03_functions_crud.sql
+-- Purpose: Database functions for Create, Read, Update, Delete operations
+-- Dependencies: 02_tables.sql
+-- ============================================================================
+--
+-- IMPORTANT: Function signatures are FIXED and called by src/core/brotr.py
+-- All parameters must be accepted even if not used.
+-- Customize only the INSERT statements to match your events table columns.
+--
+-- ============================================================================
+
+
+-- ============================================================================
+-- LEVEL 1: BASE FUNCTIONS
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- relays_insert
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION relays_insert(
+    p_urls TEXT[],
+    p_networks TEXT[],
+    p_discovered_ats BIGINT[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    INSERT INTO relays (url, network, discovered_at)
+    SELECT * FROM unnest(p_urls, p_networks, p_discovered_ats)
+    ON CONFLICT (url) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
+END;
+$$;
+
+
+-- ----------------------------------------------------------------------------
+-- events_insert
+-- ----------------------------------------------------------------------------
+-- IMPORTANT: Signature is FIXED. All parameters must be accepted.
+-- Customize the INSERT statement to match your events table columns.
+--
+-- EXAMPLES:
+--
+-- Minimal table (only id):
+--   INSERT INTO events (id)
+--   SELECT id FROM unnest(p_event_ids) AS t(id)
+--
+-- Lightweight table (id, pubkey, created_at, kind, tagvalues):
+--   INSERT INTO events (id, pubkey, created_at, kind, tagvalues)
+--   SELECT id, pubkey, created_at, kind, tags_to_tagvalues(tags)
+--   FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags)
+--       AS t(id, pubkey, created_at, kind, tags)
+--
+-- Full table (all columns):
+--   INSERT INTO events (id, pubkey, created_at, kind, tags, content, sig)
+--   SELECT * FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags, p_contents, p_sigs)
+--
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION events_insert(
+    p_event_ids BYTEA[],
+    p_pubkeys BYTEA[],
+    p_created_ats BIGINT[],
+    p_kinds INTEGER[],
+    p_tags JSONB[],
+    p_contents TEXT[],
+    p_sigs BYTEA[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    -- CUSTOMIZE: Modify INSERT to match your events table columns
+    INSERT INTO events (id, pubkey, created_at, kind, tags, content, sig)
+    SELECT * FROM unnest(
+        p_event_ids,
+        p_pubkeys,
+        p_created_ats,
+        p_kinds,
+        p_tags,
+        p_contents,
+        p_sigs
+    )
+    ON CONFLICT (id) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
+END;
+$$;
+
+
+-- ----------------------------------------------------------------------------
+-- metadata_insert
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION metadata_insert(
+    p_datas JSONB[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    INSERT INTO metadata (id, data)
+    SELECT digest(d::TEXT, 'sha256'), d
+    FROM unnest(p_datas) AS d
+    ON CONFLICT (id) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
+END;
+$$;
+
+
+-- ----------------------------------------------------------------------------
+-- events_relays_insert
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION events_relays_insert(
+    p_event_ids BYTEA[],
+    p_relay_urls TEXT[],
+    p_seen_ats BIGINT[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    INSERT INTO events_relays (event_id, relay_url, seen_at)
+    SELECT * FROM unnest(p_event_ids, p_relay_urls, p_seen_ats)
+    ON CONFLICT (event_id, relay_url) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
+END;
+$$;
+
+
+-- ----------------------------------------------------------------------------
+-- relay_metadata_insert
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION relay_metadata_insert(
+    p_relay_urls TEXT[],
+    p_metadata_datas JSONB[],
+    p_types TEXT[],
+    p_generated_ats BIGINT[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    INSERT INTO relay_metadata (relay_url, generated_at, type, metadata_id)
+    SELECT u, g, t, digest(m::TEXT, 'sha256')
+    FROM unnest(p_relay_urls, p_metadata_datas, p_types, p_generated_ats) AS x(u, m, t, g)
+    ON CONFLICT (relay_url, generated_at, type) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
+END;
+$$;
+
+
+-- ============================================================================
+-- LEVEL 2: CASCADE FUNCTIONS
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- events_relays_insert_cascade
+-- ----------------------------------------------------------------------------
+-- IMPORTANT: Signature is FIXED. All parameters must be accepted.
+-- This function reuses relays_insert() and events_insert() for DRY principle.
+-- If you customize events_insert(), changes automatically apply here too.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION events_relays_insert_cascade(
+    p_event_ids BYTEA[],
+    p_pubkeys BYTEA[],
+    p_created_ats BIGINT[],
+    p_kinds INTEGER[],
+    p_tags JSONB[],
+    p_contents TEXT[],
+    p_sigs BYTEA[],
+    p_relay_urls TEXT[],
+    p_relay_networks TEXT[],
+    p_relay_discovered_ats BIGINT[],
+    p_seen_ats BIGINT[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    -- Insert relays (reuse base function)
+    PERFORM relays_insert(p_relay_urls, p_relay_networks, p_relay_discovered_ats);
+
+    -- Insert events (reuse base function - customize events_insert, not here)
+    PERFORM events_insert(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags, p_contents, p_sigs);
+
+    -- Insert junction records
+    INSERT INTO events_relays (event_id, relay_url, seen_at)
+    SELECT DISTINCT ON (event_id, relay_url) event_id, relay_url, seen_at
+    FROM unnest(p_event_ids, p_relay_urls, p_seen_ats) AS t(event_id, relay_url, seen_at)
+    ON CONFLICT (event_id, relay_url) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
+END;
+$$;
+
+
+-- ----------------------------------------------------------------------------
+-- relay_metadata_insert_cascade
+-- ----------------------------------------------------------------------------
+-- IMPORTANT: Signature is FIXED. All parameters must be accepted.
+-- This function reuses relays_insert() and metadata_insert() for DRY principle.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION relay_metadata_insert_cascade(
+    p_relay_urls TEXT[],
+    p_relay_networks TEXT[],
+    p_relay_discovered_ats BIGINT[],
+    p_metadata_datas JSONB[],
+    p_types TEXT[],
+    p_generated_ats BIGINT[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    -- Insert relays (reuse base function)
+    PERFORM relays_insert(p_relay_urls, p_relay_networks, p_relay_discovered_ats);
+
+    -- Insert metadata (reuse base function)
+    PERFORM metadata_insert(p_metadata_datas);
+
+    -- Insert junction records
+    INSERT INTO relay_metadata (relay_url, generated_at, type, metadata_id)
+    SELECT u, g, t, digest(m::TEXT, 'sha256')
+    FROM unnest(p_relay_urls, p_metadata_datas, p_types, p_generated_ats) AS x(u, m, t, g)
+    ON CONFLICT (relay_url, generated_at, type) DO NOTHING;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
+END;
+$$;
+
+
+-- ============================================================================
+-- SERVICE DATA FUNCTIONS
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- service_data_upsert
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION service_data_upsert(
+    p_service_names TEXT[],
+    p_data_types TEXT[],
+    p_data_keys TEXT[],
+    p_datas JSONB[],
+    p_updated_ats BIGINT[]
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO service_data (service_name, data_type, data_key, data, updated_at)
+    SELECT * FROM unnest(
+        p_service_names,
+        p_data_types,
+        p_data_keys,
+        p_datas,
+        p_updated_ats
+    )
+    ON CONFLICT (service_name, data_type, data_key)
+    DO UPDATE SET
+        data = EXCLUDED.data,
+        updated_at = EXCLUDED.updated_at;
+END;
+$$;
+
+
+-- ----------------------------------------------------------------------------
+-- service_data_get
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION service_data_get(
+    p_service_name TEXT,
+    p_data_type TEXT,
+    p_data_key TEXT DEFAULT NULL
+)
+RETURNS TABLE (
+    data_key TEXT,
+    data JSONB,
+    updated_at BIGINT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF p_data_key IS NOT NULL THEN
+        RETURN QUERY
+        SELECT sd.data_key, sd.data, sd.updated_at
+        FROM service_data sd
+        WHERE sd.service_name = p_service_name
+          AND sd.data_type = p_data_type
+          AND sd.data_key = p_data_key;
+    ELSE
+        RETURN QUERY
+        SELECT sd.data_key, sd.data, sd.updated_at
+        FROM service_data sd
+        WHERE sd.service_name = p_service_name
+          AND sd.data_type = p_data_type
+        ORDER BY sd.updated_at ASC;
+    END IF;
+END;
+$$;
+
+
+-- ----------------------------------------------------------------------------
+-- service_data_delete
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION service_data_delete(
+    p_service_names TEXT[],
+    p_data_types TEXT[],
+    p_data_keys TEXT[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    DELETE FROM service_data sd
+    USING unnest(
+        p_service_names,
+        p_data_types,
+        p_data_keys
+    ) AS d(sn, dt, dk)
+    WHERE sd.service_name = d.sn
+      AND sd.data_type = d.dt
+      AND sd.data_key = d.dk;
+
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RETURN row_count;
+END;
+$$;
+
+
+-- ============================================================================
+-- FUNCTIONS CREATED
+-- ============================================================================
