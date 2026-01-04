@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 class SeedConfig(BaseModel):
     """Seed data configuration."""
 
-    file_path: str = Field(default="data/seed_relays.txt", description="Seed file path")
+    file_path: str = Field(default="seed_relays.txt", description="Seed file path")
 
 
 class SeederConfig(BaseModel):

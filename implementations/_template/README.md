@@ -56,8 +56,7 @@ implementations/myimpl/
 │       ├── validator.yaml
 │       ├── monitor.yaml
 │       └── synchronizer.yaml
-└── data/
-    └── seed_relays.txt               # Initial relay URLs
+└── seed_relays.txt                   # Initial relay URLs
 ```
 
 ## What's Mandatory vs Optional

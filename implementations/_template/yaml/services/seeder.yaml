@@ -31,7 +31,7 @@ seed:
   #   # This is a comment
   #   ws://localhost:8080
   #
-  file_path: data/seed_relays.txt
+  file_path: seed_relays.txt
 
 # ============================================================================
 # CUSTOMIZATION NOTES

@@ -153,7 +153,7 @@ services:
 
     volumes:
       - ./yaml:/app/yaml:ro
-      - ./data/seed_relays.txt:/app/data/seed_relays.txt:ro
+      - ./seed_relays.txt:/app/seed_relays.txt:ro
 
     networks:
       - myimpl-network                        # <-- CUSTOMIZE
