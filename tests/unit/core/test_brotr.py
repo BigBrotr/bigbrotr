@@ -169,6 +169,46 @@ class TestBrotrInsertMetadata:
         assert result == 1
 
 
+class TestCallProcedureValidation:
+    """Brotr._call_procedure() name validation."""
+
+    @pytest.mark.asyncio
+    async def test_valid_procedure_names(self, mock_brotr):
+        """Valid SQL identifiers should be accepted."""
+        valid_names = [
+            "my_procedure",
+            "procedure123",
+            "_private_proc",
+            "CamelCaseProc",
+            "a",
+            "_",
+        ]
+        for name in valid_names:
+            # Should not raise - will fail on execution but pass validation
+            try:
+                await mock_brotr._call_procedure(name, fetch_result=True)
+            except ValueError as e:
+                if "Invalid procedure name" in str(e):
+                    pytest.fail(f"Valid name '{name}' was rejected")
+
+    @pytest.mark.asyncio
+    async def test_invalid_procedure_names(self, mock_brotr):
+        """Invalid SQL identifiers should be rejected."""
+        invalid_names = [
+            "my_proc; DROP TABLE users",  # SQL injection attempt
+            "my_proc()",  # Contains parentheses
+            "my-proc",  # Contains hyphen
+            "123proc",  # Starts with number
+            "my proc",  # Contains space
+            "my_proc--comment",  # SQL comment
+            "",  # Empty string
+            "proc\nname",  # Newline
+        ]
+        for name in invalid_names:
+            with pytest.raises(ValueError, match="Invalid procedure name"):
+                await mock_brotr._call_procedure(name)
+
+
 class TestBrotrCleanup:
     """Brotr cleanup operations."""
 

@@ -13,7 +13,7 @@ from time import time
 
 import pytest
 
-from models import Relay
+from models import NetworkType, Relay
 
 
 class TestParsing:
@@ -72,24 +72,47 @@ class TestParsing:
         assert r.network == "clearnet"
 
 
+class TestNetworkTypeEnum:
+    """NetworkType StrEnum."""
+
+    def test_valid_types(self):
+        valid = {member.value for member in NetworkType}
+        assert valid == {"clearnet", "tor", "i2p", "loki", "local", "unknown"}
+
+    def test_str_compatibility(self):
+        assert NetworkType.CLEARNET == "clearnet"
+        assert str(NetworkType.TOR) == "tor"
+        assert NetworkType.LOCAL == "local"
+        assert NetworkType.UNKNOWN == "unknown"
+
+
 class TestNetworkDetection:
     """Network type detection."""
 
     def test_tor(self):
-        assert Relay("wss://abc123.onion").network == "tor"
+        assert Relay("wss://abc123.onion").network == NetworkType.TOR
 
     def test_i2p(self):
-        assert Relay("wss://relay.i2p").network == "i2p"
+        assert Relay("wss://relay.i2p").network == NetworkType.I2P
 
     def test_loki(self):
-        assert Relay("wss://relay.loki").network == "loki"
+        assert Relay("wss://relay.loki").network == NetworkType.LOKI
+
+    def test_clearnet(self):
+        assert Relay("wss://relay.example.com").network == NetworkType.CLEARNET
 
     def test_case_insensitive(self):
-        assert Relay._detect_network("ABC.ONION") == "tor"
-        assert Relay._detect_network("RELAY.I2P") == "i2p"
+        assert Relay._detect_network("ABC.ONION") == NetworkType.TOR
+        assert Relay._detect_network("RELAY.I2P") == NetworkType.I2P
 
-    def test_empty_host(self):
-        assert Relay._detect_network("") == "unknown"
+    def test_local_detection(self):
+        assert Relay._detect_network("localhost") == NetworkType.LOCAL
+        assert Relay._detect_network("127.0.0.1") == NetworkType.LOCAL
+        assert Relay._detect_network("192.168.1.1") == NetworkType.LOCAL
+
+    def test_unknown_detection(self):
+        assert Relay._detect_network("") == NetworkType.UNKNOWN
+        assert Relay._detect_network("invalid-host-") == NetworkType.UNKNOWN
 
 
 class TestRejection:

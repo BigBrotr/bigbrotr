@@ -14,20 +14,21 @@ from unittest.mock import MagicMock
 import pytest
 
 from models import Event, EventRelay, Relay
+from models.event import EventDbParams
 
 
 @pytest.fixture
 def mock_event():
     """Create a mock Event."""
     mock = MagicMock(spec=Event)
-    mock.to_db_params.return_value = (
-        b"\xaa" * 32,  # id
-        b"\xbb" * 32,  # pubkey
-        1234567890,  # created_at
-        1,  # kind
-        '[["e","id"]]',  # tags
-        "Hello",  # content
-        b"\xcc" * 64,  # sig
+    mock.to_db_params.return_value = EventDbParams(
+        id=b"\xaa" * 32,
+        pubkey=b"\xbb" * 32,
+        created_at=1234567890,
+        kind=1,
+        tags_json='[["e","id"]]',
+        content="Hello",
+        sig=b"\xcc" * 64,
     )
     return mock
 

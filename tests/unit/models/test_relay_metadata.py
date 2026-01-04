@@ -11,7 +11,6 @@ Tests:
 
 import json
 from time import time
-from typing import get_args
 
 import pytest
 
@@ -107,12 +106,16 @@ class TestEquality:
         assert rm1 != rm2
 
 
-class TestMetadataTypeLiteral:
-    """MetadataType Literal type."""
+class TestMetadataTypeEnum:
+    """MetadataType StrEnum."""
 
     def test_valid_types(self):
-        valid = get_args(MetadataType)
-        assert set(valid) == {"nip11", "nip66_rtt", "nip66_ssl", "nip66_geo"}
+        valid = {member.value for member in MetadataType}
+        assert valid == {"nip11", "nip66_rtt", "nip66_ssl", "nip66_geo"}
+
+    def test_str_compatibility(self):
+        assert MetadataType.NIP11 == "nip11"
+        assert str(MetadataType.NIP11) == "nip11"
 
 
 class TestFromDbParams:
