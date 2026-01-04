@@ -16,7 +16,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import asyncpg
 import yaml
@@ -26,27 +26,8 @@ from .logger import Logger
 
 
 # ============================================================================
-# Constants
-# ============================================================================
-
-# Environment variable for database password
-ENV_DB_PASSWORD = "DB_PASSWORD"  # pragma: allowlist secret
-
-# Exponential backoff base delay for retries
-BACKOFF_BASE = 0.1
-
-
-# ============================================================================
 # Configuration Models
 # ============================================================================
-
-
-def _get_password_from_env(env_var: str = ENV_DB_PASSWORD) -> SecretStr:
-    """Load password from environment variable."""
-    env_password = os.getenv(env_var)
-    if not env_password:
-        raise ValueError(f"{env_var} environment variable not set")
-    return SecretStr(env_password)
 
 
 class DatabaseConfig(BaseModel):
@@ -56,24 +37,21 @@ class DatabaseConfig(BaseModel):
     port: int = Field(default=5432, ge=1, le=65535, description="Database port")
     database: str = Field(default="bigbrotr", min_length=1, description="Database name")
     user: str = Field(default="admin", min_length=1, description="Database user")
-    password_env: str = Field(
-        default=ENV_DB_PASSWORD,
-        description="Environment variable name for database password",
-    )
-    password: SecretStr = Field(
-        default_factory=_get_password_from_env,
+    password: SecretStr | None = Field(
+        default=None,
         description="Database password (from DB_PASSWORD env if not provided)",
     )
 
-    @field_validator("password", mode="before")
+    @field_validator("password", mode="after")
     @classmethod
-    def load_password_from_env(cls, v: str | SecretStr | None) -> SecretStr:
-        """Load password from environment if explicitly set to None or empty string."""
-        if v is None or v == "":
-            return _get_password_from_env()
-        if isinstance(v, SecretStr):
+    def resolve_password(cls, v: SecretStr | None) -> SecretStr:
+        """Load password from DB_PASSWORD environment variable if not provided."""
+        if v is not None:
             return v
-        return SecretStr(v)
+        value = os.getenv("DB_PASSWORD")  # pragma: allowlist secret
+        if not value:
+            raise ValueError("DB_PASSWORD environment variable not set")
+        return SecretStr(value)
 
 
 class LimitsConfig(BaseModel):
@@ -162,6 +140,9 @@ class Pool:
             async with pool.transaction() as conn:
                 await conn.execute("INSERT INTO ...")
     """
+
+    _DEFAULT_RETRY_BASE_DELAY: ClassVar[float] = 0.1  # seconds, for exponential backoff
+    _DEFAULT_MAX_RETRIES: ClassVar[int] = 3
 
     def __init__(self, config: PoolConfig | None = None) -> None:
         """
@@ -321,7 +302,7 @@ class Pool:
     @asynccontextmanager
     async def acquire_healthy(
         self,
-        max_retries: int = 3,
+        max_retries: int | None = None,
         health_check_timeout: float | None = None,
     ) -> AsyncIterator[asyncpg.Connection[asyncpg.Record]]:
         """
@@ -340,14 +321,17 @@ class Pool:
         if not self._is_connected or self._pool is None:
             raise RuntimeError("Pool not connected. Call connect() first.")
 
-        timeout = health_check_timeout or self._config.timeouts.health_check
+        if max_retries is None:
+            max_retries = self._DEFAULT_MAX_RETRIES
+        if health_check_timeout is None:
+            health_check_timeout = self._config.timeouts.health_check
         last_error: Exception | None = None
 
         for attempt in range(max_retries):
             try:
                 async with self._pool.acquire() as conn:
                     # Health check - if fails, will raise and retry
-                    await conn.fetchval("SELECT 1", timeout=timeout)
+                    await conn.fetchval("SELECT 1", timeout=health_check_timeout)
                     # Connection is healthy, yield it
                     yield conn
                     return
@@ -361,7 +345,7 @@ class Pool:
                 )
                 # Add backoff delay between retries to avoid thundering herd
                 if attempt < max_retries - 1:
-                    delay = BACKOFF_BASE * (2**attempt)
+                    delay = self._DEFAULT_RETRY_BASE_DELAY * (2**attempt)
                     await asyncio.sleep(delay)
                 continue
 
@@ -389,7 +373,7 @@ class Pool:
         query: str,
         args: tuple[Any, ...],
         timeout: float | None,
-        max_retries: int = 3,
+        max_retries: int | None = None,
         **kwargs: Any,
     ) -> Any:
         """
@@ -398,6 +382,8 @@ class Pool:
         Retries on connection errors (InterfaceError, ConnectionDoesNotExistError)
         with exponential backoff. Does NOT retry on query errors (syntax, constraint).
         """
+        if max_retries is None:
+            max_retries = self._DEFAULT_MAX_RETRIES
         last_error: Exception | None = None
 
         for attempt in range(max_retries):
@@ -411,7 +397,7 @@ class Pool:
             ) as e:
                 last_error = e
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(BACKOFF_BASE * (2**attempt))
+                    await asyncio.sleep(self._DEFAULT_RETRY_BASE_DELAY * (2**attempt))
                     continue
                 raise
 

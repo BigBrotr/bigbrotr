@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import asyncpg
 import yaml
@@ -119,6 +119,8 @@ class Brotr:
             relay_metadata = RelayMetadata(relay, metadata=metadata, metadata_type="nip11")
             await brotr.insert_relay_metadata(records=[relay_metadata])
     """
+
+    _DEFAULT_QUERY_LIMIT: ClassVar[int] = 1000
 
     def __init__(
         self,
@@ -721,7 +723,7 @@ class Brotr:
         self,
         service_name: str,
         check_interval_seconds: int,
-        limit: int = 1000,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """
         Get relays that need health check based on last check time.
@@ -737,6 +739,8 @@ class Brotr:
         Returns:
             List of dicts with keys: url, network, discovered_at
         """
+        if limit is None:
+            limit = self._DEFAULT_QUERY_LIMIT
         cutoff = int(time.time()) - check_interval_seconds
 
         query = """
