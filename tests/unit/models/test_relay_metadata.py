@@ -78,7 +78,7 @@ class TestToDbParams:
     def test_structure(self, relay, metadata):
         rm = RelayMetadata(relay, metadata, "nip66_rtt", generated_at=9999999999)
         result = rm.to_db_params()
-        assert result[0] == "relay.example.com:8080/nostr"  # url
+        assert result[0] == "wss://relay.example.com:8080/nostr"  # url
         assert result[1] == "clearnet"  # network
         assert result[2] == 1234567890  # relay discovered_at
         parsed = json.loads(result[3])  # metadata_data
@@ -111,7 +111,7 @@ class TestMetadataTypeEnum:
 
     def test_valid_types(self):
         valid = {member.value for member in MetadataType}
-        assert valid == {"nip11", "nip66_rtt", "nip66_ssl", "nip66_geo"}
+        assert valid == {"nip11", "nip66_rtt", "nip66_ssl", "nip66_geo", "nip66_dns", "nip66_http"}
 
     def test_str_compatibility(self):
         assert MetadataType.NIP11 == "nip11"
@@ -123,14 +123,14 @@ class TestFromDbParams:
 
     def test_simple(self):
         rm = RelayMetadata.from_db_params(
-            relay_url="relay.example.com",
+            relay_url="wss://relay.example.com",
             relay_network="clearnet",
             relay_discovered_at=1234567890,
             generated_at=9999999999,
             metadata_type="nip11",
             metadata_data='{"name": "Test"}',
         )
-        assert rm.relay.url_without_scheme == "relay.example.com"
+        assert rm.relay.url == "wss://relay.example.com"
         assert rm.relay.network == "clearnet"
         assert rm.generated_at == 9999999999
         assert rm.metadata_type == "nip11"
@@ -141,7 +141,7 @@ class TestFromDbParams:
         original = RelayMetadata(relay, metadata, "nip66_rtt", generated_at=1234567890)
         params = original.to_db_params()
         reconstructed = RelayMetadata.from_db_params(*params)
-        assert reconstructed.relay.url_without_scheme == original.relay.url_without_scheme
+        assert reconstructed.relay.url == original.relay.url
         assert reconstructed.relay.network == original.relay.network
         assert reconstructed.generated_at == original.generated_at
         assert reconstructed.metadata_type == original.metadata_type

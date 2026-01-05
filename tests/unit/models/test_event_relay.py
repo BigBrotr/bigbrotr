@@ -95,7 +95,7 @@ class TestToDbParams:
     def test_relay_params(self, mock_event, relay):
         er = EventRelay(mock_event, relay, seen_at=9999999999)
         result = er.to_db_params()
-        assert result[7] == "relay.example.com"  # url
+        assert result[7] == "wss://relay.example.com"  # url
         assert result[8] == "clearnet"  # network
         assert result[9] == 1234567890  # discovered_at
 
@@ -139,12 +139,12 @@ class TestFromDbParams:
             tags_json="[]",
             content="test",
             sig=b"\xcc" * 64,
-            relay_url="relay.example.com",
+            relay_url="wss://relay.example.com",
             relay_network="clearnet",
             relay_discovered_at=1234567890,
             seen_at=9999999999,
         )
-        assert er.relay.url_without_scheme == "relay.example.com"
+        assert er.relay.url == "wss://relay.example.com"
         assert er.relay.network == "clearnet"
         assert er.seen_at == 9999999999
 

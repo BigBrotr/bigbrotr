@@ -86,66 +86,68 @@ class TestConstruction:
         """Construct with Metadata object."""
         metadata = Metadata(complete_nip11_data)
         nip11 = Nip11(relay=relay, metadata=metadata)
-        assert nip11.name == "Test Relay"
+        assert nip11.metadata.data["name"] == "Test Relay"
         assert nip11.relay is relay
 
     def test_with_dict(self, relay, complete_nip11_data):
         """Construct with raw dict (converted internally)."""
         nip11 = Nip11(relay=relay, metadata=Metadata(complete_nip11_data))
-        assert nip11.name == "Test Relay"
+        assert nip11.metadata.data["name"] == "Test Relay"
 
-    def test_empty_metadata(self, relay):
-        """Construct with empty metadata."""
-        nip11 = Nip11(relay=relay, metadata=Metadata({}))
-        assert nip11.name is None
-        assert nip11.metadata.data == {}
+    def test_empty_metadata_raises_error(self, relay):
+        """Empty metadata raises ValueError."""
+        with pytest.raises(ValueError, match="cannot be empty"):
+            Nip11(relay=relay, metadata=Metadata({}))
 
     def test_generated_at_default(self, relay):
         """generated_at defaults to current time."""
-        nip11 = Nip11(relay=relay, metadata=Metadata({}))
+        nip11 = Nip11(relay=relay, metadata={"name": "Test"})
         assert nip11.generated_at > 0
 
     def test_generated_at_explicit(self, relay):
         """Explicit generated_at is preserved."""
-        nip11 = Nip11(relay=relay, metadata=Metadata({}), generated_at=1000)
+        nip11 = Nip11(relay=relay, metadata={"name": "Test"}, generated_at=1000)
         assert nip11.generated_at == 1000
 
 
-class TestBaseProperties:
-    """Test base string field properties."""
+class TestBaseFields:
+    """Test base string fields via metadata.data."""
 
     def test_all_base_fields(self, nip11):
         """Access all base string fields."""
-        assert nip11.name == "Test Relay"
-        assert nip11.description == "A test relay for unit tests"
-        assert nip11.banner == "https://example.com/banner.jpg"
-        assert nip11.icon == "https://example.com/icon.jpg"
-        assert nip11.pubkey == "a" * 64
-        assert nip11.self_pubkey == "b" * 64
-        assert nip11.contact == "admin@example.com"
-        assert nip11.software == "nostr-rs-relay"
-        assert nip11.version == "0.8.0"
-        assert nip11.privacy_policy == "https://example.com/privacy"
-        assert nip11.terms_of_service == "https://example.com/tos"
-        assert nip11.posting_policy == "https://example.com/posting"
-        assert nip11.payments_url == "https://example.com/pay"
+        data = nip11.metadata.data
+        assert data["name"] == "Test Relay"
+        assert data["description"] == "A test relay for unit tests"
+        assert data["banner"] == "https://example.com/banner.jpg"
+        assert data["icon"] == "https://example.com/icon.jpg"
+        assert data["pubkey"] == "a" * 64
+        assert data["self"] == "b" * 64
+        assert data["contact"] == "admin@example.com"
+        assert data["software"] == "nostr-rs-relay"
+        assert data["version"] == "0.8.0"
+        assert data["privacy_policy"] == "https://example.com/privacy"
+        assert data["terms_of_service"] == "https://example.com/tos"
+        assert data["posting_policy"] == "https://example.com/posting"
+        assert data["payments_url"] == "https://example.com/pay"
 
     def test_missing_optional_fields(self, relay):
-        """Missing optional fields return None."""
-        nip11 = Nip11(relay=relay, metadata=Metadata({}))
-        assert nip11.name is None
-        assert nip11.description is None
-        assert nip11.banner is None
-        assert nip11.icon is None
-        assert nip11.pubkey is None
-        assert nip11.self_pubkey is None
-        assert nip11.contact is None
-        assert nip11.software is None
-        assert nip11.version is None
-        assert nip11.privacy_policy is None
-        assert nip11.terms_of_service is None
-        assert nip11.posting_policy is None
-        assert nip11.payments_url is None
+        """Missing optional fields are None."""
+        # Use minimal valid metadata (just name) to test other fields are None
+        nip11 = Nip11(relay=relay, metadata=Metadata({"name": "Test"}))
+        data = nip11.metadata.data
+        assert data["name"] == "Test"
+        assert data["description"] is None
+        assert data["banner"] is None
+        assert data["icon"] is None
+        assert data["pubkey"] is None
+        assert data["self"] is None
+        assert data["contact"] is None
+        assert data["software"] is None
+        assert data["version"] is None
+        assert data["privacy_policy"] is None
+        assert data["terms_of_service"] is None
+        assert data["posting_policy"] is None
+        assert data["payments_url"] is None
 
 
 class TestSupportedNips:
@@ -153,23 +155,23 @@ class TestSupportedNips:
 
     def test_valid_nips(self, nip11):
         """Valid NIPs are parsed."""
-        assert nip11.supported_nips == [1, 11, 42, 65]
+        assert nip11.metadata.data["supported_nips"] == [1, 11, 42, 65]
 
     def test_empty_list_becomes_none(self, relay):
         """Empty list becomes None."""
-        nip11 = Nip11(relay=relay, metadata=Metadata({"supported_nips": []}))
-        assert nip11.supported_nips is None
+        nip11 = Nip11(relay=relay, metadata=Metadata({"name": "Test", "supported_nips": []}))
+        assert nip11.metadata.data["supported_nips"] is None
 
     def test_filters_non_integers(self, relay):
         """Non-integer values are filtered."""
         data = {"supported_nips": [1, "two", 3, None, 4]}
         nip11 = Nip11(relay=relay, metadata=Metadata(data))
-        assert nip11.supported_nips == [1, 3, 4]
+        assert nip11.metadata.data["supported_nips"] == [1, 3, 4]
 
     def test_invalid_type_becomes_none(self, relay):
         """Invalid type becomes None."""
-        nip11 = Nip11(relay=relay, metadata=Metadata({"supported_nips": "1,2,3"}))
-        assert nip11.supported_nips is None
+        nip11 = Nip11(relay=relay, metadata=Metadata({"name": "Test", "supported_nips": "1,2,3"}))
+        assert nip11.metadata.data["supported_nips"] is None
 
 
 class TestLimitation:
@@ -177,7 +179,7 @@ class TestLimitation:
 
     def test_all_limitation_fields(self, nip11):
         """All limitation fields are parsed."""
-        limitation = nip11.limitation
+        limitation = nip11.metadata.data["limitation"]
         assert limitation is not None
         assert limitation["max_message_length"] == 65535
         assert limitation["max_subscriptions"] == 20
@@ -193,13 +195,18 @@ class TestLimitation:
         assert limitation["created_at_upper_limit"] == 2147483647
         assert limitation["default_limit"] == 100
 
-    def test_empty_limitation_becomes_none(self, relay):
-        """Empty limitation dict becomes None."""
-        nip11 = Nip11(relay=relay, metadata=Metadata({"limitation": {}}))
-        assert nip11.limitation is None
+    def test_empty_limitation_has_skeleton(self, relay):
+        """Empty limitation dict keeps skeleton with all keys set to None."""
+        nip11 = Nip11(relay=relay, metadata=Metadata({"name": "Test", "limitation": {}}))
+        limitation = nip11.metadata.data["limitation"]
+        assert limitation is not None
+        # All keys present with None values
+        assert "max_message_length" in limitation
+        assert "auth_required" in limitation
+        assert all(v is None for v in limitation.values())
 
     def test_filters_invalid_types(self, relay):
-        """Invalid types in limitation are filtered."""
+        """Invalid types in limitation become None."""
         data = {
             "limitation": {
                 "max_message_length": "large",  # Invalid: should be int
@@ -209,11 +216,11 @@ class TestLimitation:
             }
         }
         nip11 = Nip11(relay=relay, metadata=Metadata(data))
-        limitation = nip11.limitation
+        limitation = nip11.metadata.data["limitation"]
         assert limitation is not None
-        assert "max_message_length" not in limitation
+        assert limitation["max_message_length"] is None  # Invalid type -> None
         assert limitation["max_subscriptions"] == 100
-        assert "auth_required" not in limitation
+        assert limitation["auth_required"] is None  # Invalid type -> None
         assert limitation["payment_required"] is True
 
 
@@ -222,7 +229,7 @@ class TestRetention:
 
     def test_valid_retention(self, nip11):
         """Valid retention entries are parsed."""
-        retention = nip11.retention
+        retention = nip11.metadata.data["retention"]
         assert retention is not None
         assert len(retention) == 3
         assert retention[0]["kinds"] == [0, 3]
@@ -235,15 +242,15 @@ class TestRetention:
 
     def test_empty_retention_becomes_none(self, relay):
         """Empty retention list becomes None."""
-        nip11 = Nip11(relay=relay, metadata=Metadata({"retention": []}))
-        assert nip11.retention is None
+        nip11 = Nip11(relay=relay, metadata=Metadata({"name": "Test", "retention": []}))
+        assert nip11.metadata.data["retention"] is None
 
     def test_filters_non_dict_entries(self, relay):
         """Non-dict entries in retention are filtered."""
         data = {"retention": [{"kinds": [1], "time": 3600}, "invalid", None]}
         nip11 = Nip11(relay=relay, metadata=Metadata(data))
-        assert nip11.retention is not None
-        assert len(nip11.retention) == 1
+        assert nip11.metadata.data["retention"] is not None
+        assert len(nip11.metadata.data["retention"]) == 1
 
     def test_filters_invalid_kind_values(self, relay):
         """Invalid kind values are filtered."""
@@ -253,7 +260,7 @@ class TestRetention:
             ]
         }
         nip11 = Nip11(relay=relay, metadata=Metadata(data))
-        retention = nip11.retention
+        retention = nip11.metadata.data["retention"]
         assert retention is not None
         assert retention[0]["kinds"] == [1, [3, 5]]
 
@@ -263,18 +270,18 @@ class TestRelayCountries:
 
     def test_valid_countries(self, nip11):
         """Valid countries are parsed."""
-        assert nip11.relay_countries == ["US", "CA"]
+        assert nip11.metadata.data["relay_countries"] == ["US", "CA"]
 
     def test_empty_list_becomes_none(self, relay):
         """Empty list becomes None."""
-        nip11 = Nip11(relay=relay, metadata=Metadata({"relay_countries": []}))
-        assert nip11.relay_countries is None
+        nip11 = Nip11(relay=relay, metadata=Metadata({"name": "Test", "relay_countries": []}))
+        assert nip11.metadata.data["relay_countries"] is None
 
     def test_filters_non_strings(self, relay):
         """Non-string values are filtered."""
         data = {"relay_countries": ["US", 123, "CA", None]}
         nip11 = Nip11(relay=relay, metadata=Metadata(data))
-        assert nip11.relay_countries == ["US", "CA"]
+        assert nip11.metadata.data["relay_countries"] == ["US", "CA"]
 
 
 class TestLanguageTagsAndTags:
@@ -282,17 +289,19 @@ class TestLanguageTagsAndTags:
 
     def test_language_tags(self, nip11):
         """Language tags are parsed."""
-        assert nip11.language_tags == ["en", "en-US"]
+        assert nip11.metadata.data["language_tags"] == ["en", "en-US"]
 
     def test_tags(self, nip11):
         """Tags are parsed."""
-        assert nip11.tags == ["sfw-only", "bitcoin-only"]
+        assert nip11.metadata.data["tags"] == ["sfw-only", "bitcoin-only"]
 
     def test_empty_lists_become_none(self, relay):
         """Empty lists become None."""
-        nip11 = Nip11(relay=relay, metadata=Metadata({"language_tags": [], "tags": []}))
-        assert nip11.language_tags is None
-        assert nip11.tags is None
+        nip11 = Nip11(
+            relay=relay, metadata=Metadata({"name": "Test", "language_tags": [], "tags": []})
+        )
+        assert nip11.metadata.data["language_tags"] is None
+        assert nip11.metadata.data["tags"] is None
 
 
 class TestFees:
@@ -300,22 +309,28 @@ class TestFees:
 
     def test_all_fee_categories(self, nip11):
         """All fee categories are parsed."""
-        fees = nip11.fees
+        fees = nip11.metadata.data["fees"]
         assert fees is not None
         assert fees["admission"] == [{"amount": 1000, "unit": "sats"}]
         assert fees["subscription"] == [{"amount": 5000, "unit": "sats", "period": 2628003}]
         assert fees["publication"] == [{"kinds": [4], "amount": 100, "unit": "msats"}]
 
-    def test_empty_fees_becomes_none(self, relay):
-        """Empty fees dict becomes None."""
-        nip11 = Nip11(relay=relay, metadata=Metadata({"fees": {}}))
-        assert nip11.fees is None
+    def test_empty_fees_has_skeleton(self, relay):
+        """Empty fees dict returns skeleton with all keys set to None."""
+        nip11 = Nip11(relay=relay, metadata=Metadata({"name": "Test", "fees": {}}))
+        fees = nip11.metadata.data["fees"]
+        assert fees is not None
+        # Should have all keys with None values
+        assert "admission" in fees
+        assert "subscription" in fees
+        assert "publication" in fees
+        assert all(v is None for v in fees.values())
 
     def test_partial_fees(self, relay):
         """Partial fees are preserved."""
         data = {"fees": {"admission": [{"amount": 1000, "unit": "sats"}]}}
         nip11 = Nip11(relay=relay, metadata=Metadata(data))
-        fees = nip11.fees
+        fees = nip11.metadata.data["fees"]
         assert fees is not None
         assert "admission" in fees
         assert fees.get("subscription") is None
@@ -325,7 +340,7 @@ class TestFees:
         data = {"fees": {"admission": [{"amount": "free", "unit": "sats"}, {"amount": 100}]}}
         nip11 = Nip11(relay=relay, metadata=Metadata(data))
         # Both are partially valid (have at least one valid field)
-        assert nip11.fees is not None
+        assert nip11.metadata.data["fees"] is not None
 
 
 class TestMetadataDataAccess:
@@ -337,10 +352,17 @@ class TestMetadataDataAccess:
         assert nip11.metadata.data["supported_nips"] == [1, 11, 42, 65]
 
     def test_unknown_fields_filtered(self, relay):
-        """Unknown fields are filtered out during parsing."""
+        """Unknown fields are filtered out, all schema keys present."""
         data = {"name": "Test", "unknown_field": "value", "another_unknown": 123}
         nip11 = Nip11(relay=relay, metadata=Metadata(data))
-        assert nip11.metadata.data == {"name": "Test"}
+        # Unknown fields are not included
+        assert "unknown_field" not in nip11.metadata.data
+        assert "another_unknown" not in nip11.metadata.data
+        # Known field is present
+        assert nip11.metadata.data["name"] == "Test"
+        # All schema keys are present (with None for missing)
+        assert "description" in nip11.metadata.data
+        assert nip11.metadata.data["description"] is None
 
 
 class TestToRelayMetadata:
@@ -398,7 +420,7 @@ class TestFetch:
             result = await Nip11.fetch(relay)
 
         assert result is not None
-        assert result.name == "Test Relay"
+        assert result.metadata.data["name"] == "Test Relay"
         assert result.relay is relay
 
     @pytest.mark.asyncio
@@ -457,8 +479,9 @@ class TestFetch:
 
     @pytest.mark.asyncio
     async def test_uses_http_for_ws(self):
-        """Uses HTTP protocol for ws:// relays."""
-        ws_relay = Relay(raw_url="ws://relay.example.com", discovered_at=0)
+        """Uses HTTP protocol for ws:// relays (overlay networks)."""
+        # Use a Tor relay since clearnet relays are forced to wss://
+        ws_relay = Relay(raw_url="ws://abc123.onion", discovered_at=0)
 
         mock_content = AsyncMock()
         mock_content.read = AsyncMock(return_value=b'{"name": "Test"}')

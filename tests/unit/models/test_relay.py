@@ -28,9 +28,11 @@ class TestParsing:
         assert r.port is None
         assert r.path is None
 
-    def test_ws_clearnet(self):
+    def test_ws_clearnet_upgraded_to_wss(self):
+        """Clearnet ws:// gets upgraded to wss://."""
         r = Relay("ws://relay.example.com")
-        assert r.scheme == "ws"
+        assert r.scheme == "wss"
+        assert r.url == "wss://relay.example.com"
 
     def test_explicit_port(self):
         r = Relay("wss://relay.example.com:8080")
@@ -43,8 +45,9 @@ class TestParsing:
         assert r.port == 443
 
     def test_default_port_80_omitted(self):
+        """ws:// with port 80 gets upgraded to wss:// (clearnet), port omitted."""
         r = Relay("ws://relay.example.com:80")
-        assert r.url == "ws://relay.example.com"
+        assert r.url == "wss://relay.example.com"
         assert r.port == 80
 
     def test_path_preserved(self):
@@ -90,16 +93,28 @@ class TestNetworkDetection:
     """Network type detection."""
 
     def test_tor(self):
-        assert Relay("wss://abc123.onion").network == NetworkType.TOR
+        r = Relay("wss://abc123.onion")
+        assert r.network == NetworkType.TOR
+        assert r.scheme == "ws"  # overlay networks use ws://
+        assert r.url == "ws://abc123.onion"
 
     def test_i2p(self):
-        assert Relay("wss://relay.i2p").network == NetworkType.I2P
+        r = Relay("wss://relay.i2p")
+        assert r.network == NetworkType.I2P
+        assert r.scheme == "ws"  # overlay networks use ws://
+        assert r.url == "ws://relay.i2p"
 
     def test_loki(self):
-        assert Relay("wss://relay.loki").network == NetworkType.LOKI
+        r = Relay("wss://relay.loki")
+        assert r.network == NetworkType.LOKI
+        assert r.scheme == "ws"  # overlay networks use ws://
+        assert r.url == "ws://relay.loki"
 
     def test_clearnet(self):
-        assert Relay("wss://relay.example.com").network == NetworkType.CLEARNET
+        r = Relay("ws://relay.example.com")
+        assert r.network == NetworkType.CLEARNET
+        assert r.scheme == "wss"  # clearnet uses wss://
+        assert r.url == "wss://relay.example.com"
 
     def test_case_insensitive(self):
         assert Relay._detect_network("ABC.ONION") == NetworkType.TOR
@@ -197,15 +212,17 @@ class TestDbParams:
     def test_structure(self):
         r = Relay("wss://relay.example.com", discovered_at=1234567890)
         params = r.to_db_params()
-        assert params == ("relay.example.com", "clearnet", 1234567890)
+        assert params == ("wss://relay.example.com", "clearnet", 1234567890)
 
     def test_tor(self):
         r = Relay("wss://abc123.onion", discovered_at=1234567890)
-        assert r.to_db_params()[1] == "tor"
+        params = r.to_db_params()
+        assert params[0] == "ws://abc123.onion"  # tor uses ws://
+        assert params[1] == "tor"
 
     def test_with_port_and_path(self):
         r = Relay("wss://relay.example.com:8080/nostr", discovered_at=1234567890)
-        assert r.to_db_params()[0] == "relay.example.com:8080/nostr"
+        assert r.to_db_params()[0] == "wss://relay.example.com:8080/nostr"
 
 
 class TestEquality:
@@ -231,8 +248,8 @@ class TestFromDbParams:
     """Reconstruction from database parameters."""
 
     def test_simple_relay(self):
-        r = Relay.from_db_params("relay.example.com", "clearnet", 1234567890)
-        assert r.url_without_scheme == "relay.example.com"
+        r = Relay.from_db_params("wss://relay.example.com", "clearnet", 1234567890)
+        assert r.url == "wss://relay.example.com"
         assert r.network == "clearnet"
         assert r.discovered_at == 1234567890
         assert r.host == "relay.example.com"
@@ -241,38 +258,39 @@ class TestFromDbParams:
         assert r.scheme == "wss"
 
     def test_with_port(self):
-        r = Relay.from_db_params("relay.example.com:8080", "clearnet", 1234567890)
+        r = Relay.from_db_params("wss://relay.example.com:8080", "clearnet", 1234567890)
         assert r.host == "relay.example.com"
         assert r.port == 8080
         assert r.path is None
 
     def test_with_path(self):
-        r = Relay.from_db_params("relay.example.com/nostr", "clearnet", 1234567890)
+        r = Relay.from_db_params("wss://relay.example.com/nostr", "clearnet", 1234567890)
         assert r.host == "relay.example.com"
         assert r.port is None
         assert r.path == "/nostr"
 
     def test_with_port_and_path(self):
-        r = Relay.from_db_params("relay.example.com:8080/nostr", "clearnet", 1234567890)
+        r = Relay.from_db_params("wss://relay.example.com:8080/nostr", "clearnet", 1234567890)
         assert r.host == "relay.example.com"
         assert r.port == 8080
         assert r.path == "/nostr"
 
     def test_ipv6(self):
-        r = Relay.from_db_params("[2606:4700::1]:8080", "clearnet", 1234567890)
+        r = Relay.from_db_params("wss://[2606:4700::1]:8080", "clearnet", 1234567890)
         assert r.host == "2606:4700::1"  # host without brackets
         assert r.port == 8080
 
     def test_tor_network(self):
-        r = Relay.from_db_params("abc123.onion", "tor", 1234567890)
+        r = Relay.from_db_params("ws://abc123.onion", "tor", 1234567890)
         assert r.network == "tor"
+        assert r.scheme == "ws"
 
     def test_roundtrip(self):
         """to_db_params -> from_db_params should preserve data."""
         original = Relay("wss://relay.example.com:8080/nostr", discovered_at=1234567890)
         params = original.to_db_params()
         reconstructed = Relay.from_db_params(*params)
-        assert reconstructed.url_without_scheme == original.url_without_scheme
+        assert reconstructed.url == original.url
         assert reconstructed.network == original.network
         assert reconstructed.discovered_at == original.discovered_at
         assert reconstructed.host == original.host

@@ -2,7 +2,7 @@
 Unit tests for services.synchronizer module.
 
 Tests:
-- Configuration models (TorConfig, FilterConfig, TimeoutsConfig, NetworkTimeoutsConfig)
+- Configuration models (ProxyConfig, FilterConfig, TimeoutsConfig, NetworkTimeoutsConfig)
 - Synchronizer service initialization and defaults
 - Relay fetching and metadata-based filtering
 - Start time determination from cursors
@@ -21,13 +21,14 @@ from services.synchronizer import (
     ConcurrencyConfig,
     EventBatch,
     FilterConfig,
+    NetworkProxyConfig,
     NetworkTimeoutsConfig,
+    ProxyConfig,
     SourceConfig,
     Synchronizer,
     SynchronizerConfig,
     TimeoutsConfig,
     TimeRangeConfig,
-    TorConfig,
 )
 
 
@@ -94,37 +95,38 @@ class TestRelayType:
 
 
 # ============================================================================
-# TorConfig Tests
+# ProxyConfig Tests
 # ============================================================================
 
 
-class TestSyncTorConfig:
-    """Tests for TorConfig Pydantic model."""
+class TestSyncProxyConfig:
+    """Tests for ProxyConfig Pydantic model."""
 
     def test_default_values(self) -> None:
-        """Test default Tor proxy config."""
-        config = TorConfig()
+        """Test default proxy config has Tor enabled."""
+        config = ProxyConfig()
 
-        assert config.enabled is True
-        assert config.host == "127.0.0.1"
-        assert config.port == 9050
+        assert config.tor.enabled is True
+        assert config.tor.url == "socks5://127.0.0.1:9050"
+        assert config.i2p.enabled is False
+        assert config.loki.enabled is False
 
-    def test_port_validation(self) -> None:
-        """Test port validation."""
-        config = TorConfig(port=9150)
-        assert config.port == 9150
+    def test_get_proxy_url(self) -> None:
+        """Test get_proxy_url method."""
+        config = ProxyConfig()
 
-        with pytest.raises(ValueError):
-            TorConfig(port=0)
+        assert config.get_proxy_url("tor") == "socks5://127.0.0.1:9050"
+        assert config.get_proxy_url("i2p") is None  # disabled
+        assert config.get_proxy_url("loki") is None  # disabled
+        assert config.get_proxy_url("clearnet") is None
 
-        with pytest.raises(ValueError):
-            TorConfig(port=70000)
+    def test_is_network_enabled(self) -> None:
+        """Test is_network_enabled method."""
+        config = ProxyConfig()
 
-    def test_proxy_url_property(self) -> None:
-        """Test proxy_url property."""
-        config = TorConfig(host="localhost", port=9050)
-
-        assert config.proxy_url == "socks5://localhost:9050"
+        assert config.is_network_enabled("tor") is True
+        assert config.is_network_enabled("i2p") is False
+        assert config.is_network_enabled("loki") is False
 
 
 # ============================================================================
@@ -339,7 +341,7 @@ class TestSynchronizerConfig:
         """Test default configuration values."""
         config = SynchronizerConfig()
 
-        assert config.tor.enabled is True
+        assert config.proxy.tor.enabled is True
         assert config.filter.limit == 500
         assert config.time_range.default_start == 0
         assert config.timeouts.clearnet.request == 30.0
@@ -350,12 +352,12 @@ class TestSynchronizerConfig:
     def test_custom_nested_config(self) -> None:
         """Test custom nested configuration."""
         config = SynchronizerConfig(
-            tor=TorConfig(enabled=False),
+            proxy=ProxyConfig(tor=NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:9050")),
             concurrency=ConcurrencyConfig(max_parallel=5),
             interval=1800.0,
         )
 
-        assert config.tor.enabled is False
+        assert config.proxy.tor.enabled is False
         assert config.concurrency.max_parallel == 5
         assert config.interval == 1800.0
 
@@ -374,28 +376,28 @@ class TestSynchronizerInit:
 
         assert sync._brotr is mock_synchronizer_brotr
         assert sync.SERVICE_NAME == "synchronizer"
-        assert sync.config.tor.enabled is True
+        assert sync.config.proxy.tor.enabled is True
 
     def test_init_with_custom_config(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test initialization with custom config."""
         config = SynchronizerConfig(
-            tor=TorConfig(enabled=False),
+            proxy=ProxyConfig(tor=NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:9050")),
             concurrency=ConcurrencyConfig(max_parallel=5),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
-        assert sync.config.tor.enabled is False
+        assert sync.config.proxy.tor.enabled is False
         assert sync.config.concurrency.max_parallel == 5
 
     def test_from_dict(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test factory method from_dict."""
         data = {
-            "tor": {"enabled": False},
+            "proxy": {"tor": {"enabled": False, "url": "socks5://127.0.0.1:9050"}},
             "concurrency": {"max_parallel": 5},
         }
         sync = Synchronizer.from_dict(data, brotr=mock_synchronizer_brotr)
 
-        assert sync.config.tor.enabled is False
+        assert sync.config.proxy.tor.enabled is False
         assert sync.config.concurrency.max_parallel == 5
 
 
@@ -511,7 +513,7 @@ class TestSynchronizerGetStartTime:
         mock_synchronizer_brotr.get_service_data.assert_called_once_with(
             service_name="synchronizer",
             data_type="cursor",
-            key="test.relay.com",
+            key="wss://test.relay.com",
         )
 
     @pytest.mark.asyncio

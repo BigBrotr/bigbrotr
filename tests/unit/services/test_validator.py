@@ -2,10 +2,10 @@
 Unit tests for services.validator module.
 
 Tests:
-- Configuration models (ValidatorConfig, TorConfig, ConcurrencyConfig)
+- Configuration models (ValidatorConfig, ProxyConfig, ConcurrencyConfig)
 - Validator service initialization and defaults
 - Candidate selection with probabilistic weighting (Efraimidis-Spirakis)
-- Tor proxy URL construction
+- Overlay network proxy configuration
 - Relay validation workflow
 - Candidate promotion and failure tracking
 """
@@ -18,7 +18,8 @@ import pytest
 from core.brotr import Brotr, BrotrConfig
 from services.validator import (
     ConcurrencyConfig,
-    TorConfig,
+    NetworkProxyConfig,
+    ProxyConfig,
     Validator,
     ValidatorConfig,
 )
@@ -60,7 +61,7 @@ class TestValidatorConfig:
         assert config.connection_timeout == 10.0
         assert config.max_candidates_per_run is None
         assert config.concurrency.max_parallel == 10
-        assert config.tor.enabled is True  # TorConfig defaults to enabled=True
+        assert config.proxy.tor.enabled is True  # ProxyConfig defaults tor to enabled=True
 
     def test_custom_config(self) -> None:
         """Test custom configuration values."""
@@ -485,7 +486,10 @@ class TestValidateCandidateAndTestConnection:
         self, mock_validator_brotr: Brotr
     ) -> None:
         """Valid Tor relay passes validation (with proxy)."""
-        config = ValidatorConfig(connection_timeout=5.0, tor=TorConfig(enabled=True))
+        config = ValidatorConfig(
+            connection_timeout=5.0,
+            proxy=ProxyConfig(tor=NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:9050")),
+        )
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
             "key": "ws://tortest.onion",
@@ -587,13 +591,13 @@ class TestValidateCandidateAndTestConnection:
         """Tor proxy configuration applied correctly."""
         config = ValidatorConfig(
             connection_timeout=5.0,
-            tor=TorConfig(enabled=True, host="127.0.0.1", port=9050),
+            proxy=ProxyConfig(tor=NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:9050")),
         )
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
-        # Verify proxy URL is correctly constructed
-        assert validator._config.tor.proxy_url == "socks5://127.0.0.1:9050"
-        assert validator._config.tor.enabled is True
+        # Verify proxy URL is correctly configured
+        assert validator._config.proxy.get_proxy_url("tor") == "socks5://127.0.0.1:9050"
+        assert validator._config.proxy.is_network_enabled("tor") is True
 
     @pytest.mark.asyncio
     async def test_connection_timeout_value_respected(self, mock_validator_brotr: Brotr) -> None:

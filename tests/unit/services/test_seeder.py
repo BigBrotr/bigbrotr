@@ -46,7 +46,7 @@ class TestSeedConfig:
         """Test default seed configuration."""
         config = SeedConfig()
 
-        assert config.file_path == "data/seed_relays.txt"
+        assert config.file_path == "seed_relays.txt"
 
     def test_custom_values(self) -> None:
         """Test custom seed configuration."""
@@ -67,7 +67,7 @@ class TestSeederConfig:
         """Test default configuration."""
         config = SeederConfig()
 
-        assert config.seed.file_path == "data/seed_relays.txt"
+        assert config.seed.file_path == "seed_relays.txt"
 
     def test_custom_nested_config(self) -> None:
         """Test custom nested configuration."""
@@ -92,7 +92,7 @@ class TestSeederInit:
 
         assert seeder._brotr is mock_seeder_brotr
         assert seeder.SERVICE_NAME == "seeder"
-        assert seeder.config.seed.file_path == "data/seed_relays.txt"
+        assert seeder.config.seed.file_path == "seed_relays.txt"
 
     def test_init_with_custom_config(self, mock_seeder_brotr: Brotr) -> None:
         """Test initialization with custom config."""
@@ -138,8 +138,8 @@ class TestSeedRelays:
         # Mock fetch to return both URLs as new
         mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
-                {"url": "relay1.example.com"},
-                {"url": "relay2.example.com"},
+                {"url": "wss://relay1.example.com"},
+                {"url": "wss://relay2.example.com"},
             ]
         )
 
@@ -158,7 +158,7 @@ class TestSeedRelays:
 
         # Mock fetch to return the URL as new
         mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            return_value=[{"url": "relay.example.com"}]
+            return_value=[{"url": "wss://relay.example.com"}]
         )
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
@@ -176,7 +176,7 @@ class TestSeedRelays:
 
         # Mock fetch to return the valid URL as new
         mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            return_value=[{"url": "valid.relay.com"}]
+            return_value=[{"url": "wss://valid.relay.com"}]
         )
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))

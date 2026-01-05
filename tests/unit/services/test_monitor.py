@@ -2,7 +2,7 @@
 Unit tests for services.monitor module.
 
 Tests:
-- Configuration models (TorConfig, KeysConfig, TimeoutsConfig, etc.)
+- Configuration models (ProxyConfig, KeysConfig, TimeoutsConfig, etc.)
 - Monitor service initialization
 - Relay selection logic
 - Metadata batch insertion
@@ -23,10 +23,11 @@ from services.monitor import (
     KeysConfig,
     Monitor,
     MonitorConfig,
+    NetworkProxyConfig,
+    ProxyConfig,
     PublishingConfig,
     SelectionConfig,
     TimeoutsConfig,
-    TorConfig,
     build_kind_10166_tags,
     build_kind_30166_tags,
 )
@@ -52,45 +53,63 @@ class TestRelayType:
 
 
 # ============================================================================
-# TorConfig Tests
+# ProxyConfig Tests
 # ============================================================================
 
 
-class TestTorConfig:
-    """Tests for TorConfig Pydantic model."""
+class TestNetworkProxyConfig:
+    """Tests for NetworkProxyConfig Pydantic model."""
 
     def test_default_values(self) -> None:
-        """Test default Tor proxy config."""
-        config = TorConfig()
-
-        assert config.enabled is True
-        assert config.host == "127.0.0.1"
-        assert config.port == 9050
-
-    def test_custom_values(self) -> None:
-        """Test custom Tor proxy config."""
-        config = TorConfig(enabled=False, host="tor-proxy", port=9150)
+        """Test default network proxy config."""
+        config = NetworkProxyConfig()
 
         assert config.enabled is False
-        assert config.host == "tor-proxy"
-        assert config.port == 9150
+        assert config.url == ""
 
-    def test_port_validation(self) -> None:
-        """Test port validation."""
-        config = TorConfig(port=9150)
-        assert config.port == 9150
+    def test_custom_values(self) -> None:
+        """Test custom network proxy config."""
+        config = NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:9050")
 
-        with pytest.raises(ValueError):
-            TorConfig(port=0)
+        assert config.enabled is True
+        assert config.url == "socks5://127.0.0.1:9050"
 
-        with pytest.raises(ValueError):
-            TorConfig(port=70000)
 
-    def test_proxy_url_property(self) -> None:
-        """Test proxy_url property."""
-        config = TorConfig(host="127.0.0.1", port=9050)
+class TestProxyConfig:
+    """Tests for ProxyConfig Pydantic model."""
 
-        assert config.proxy_url == "socks5://127.0.0.1:9050"
+    def test_default_values(self) -> None:
+        """Test default proxy config has Tor enabled."""
+        config = ProxyConfig()
+
+        assert config.tor.enabled is True
+        assert config.tor.url == "socks5://127.0.0.1:9050"
+        assert config.i2p.enabled is False
+        assert config.loki.enabled is False
+
+    def test_get_proxy_url(self) -> None:
+        """Test get_proxy_url method."""
+        config = ProxyConfig()
+
+        assert config.get_proxy_url("tor") == "socks5://127.0.0.1:9050"
+        assert config.get_proxy_url("i2p") is None  # disabled
+        assert config.get_proxy_url("loki") is None  # disabled
+        assert config.get_proxy_url("clearnet") is None
+
+    def test_get_proxy_url_with_enabled(self) -> None:
+        """Test get_proxy_url returns URL when network is enabled."""
+        config = ProxyConfig(i2p=NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:4447"))
+
+        assert config.get_proxy_url("i2p") == "socks5://127.0.0.1:4447"
+
+    def test_is_network_enabled(self) -> None:
+        """Test is_network_enabled method."""
+        config = ProxyConfig()
+
+        assert config.is_network_enabled("tor") is True
+        assert config.is_network_enabled("i2p") is False
+        assert config.is_network_enabled("loki") is False
+        assert config.is_network_enabled("clearnet") is False
 
 
 # ============================================================================
@@ -187,18 +206,24 @@ class TestGeoConfig:
         """Test default geo config."""
         config = GeoConfig()
 
-        assert config.database_path == "/usr/share/GeoIP/GeoLite2-City.mmdb"
+        assert config.city_database_path == "static/GeoLite2-City.mmdb"
         assert config.asn_database_path is None
+        assert config.country_database_path is None
+        assert config.update_frequency == "monthly"
 
     def test_custom_paths(self) -> None:
         """Test custom database paths."""
         config = GeoConfig(
-            database_path="/custom/path/city.mmdb",
+            city_database_path="/custom/path/city.mmdb",
             asn_database_path="/custom/path/asn.mmdb",
+            country_database_path="/custom/path/country.mmdb",
+            update_frequency="weekly",
         )
 
-        assert config.database_path == "/custom/path/city.mmdb"
+        assert config.city_database_path == "/custom/path/city.mmdb"
         assert config.asn_database_path == "/custom/path/asn.mmdb"
+        assert config.country_database_path == "/custom/path/country.mmdb"
+        assert config.update_frequency == "weekly"
 
 
 # ============================================================================
@@ -315,7 +340,7 @@ class TestMonitorConfig:
             checks=ChecksConfig(geo=False),
         )
 
-        assert config.tor.enabled is True
+        assert config.proxy.tor.enabled is True
         assert config.keys.keys is None
         assert config.publishing.destination == "database_only"
 
@@ -346,11 +371,11 @@ class TestMonitorConfig:
 
     def test_geo_database_validation(self) -> None:
         """Test geo check requires database file to exist."""
-        with pytest.raises(ValueError, match="geo.database_path"):
+        with pytest.raises(ValueError, match="geo.city_database_path"):
             MonitorConfig(
                 publishing=PublishingConfig(destination="database_only"),
                 checks=ChecksConfig(geo=True),
-                geo=GeoConfig(database_path="/nonexistent/path.mmdb"),
+                geo=GeoConfig(city_database_path="/nonexistent/path.mmdb"),
             )
 
 
@@ -412,7 +437,7 @@ class TestNip11:
         data = _create_nip11(relay, {})
 
         assert data.name is None
-        assert data.supported_nips == []
+        assert data.supported_nips is None  # None when not present in metadata
 
     def test_properties(self) -> None:
         """Test NIP-11 property access."""
@@ -598,7 +623,7 @@ class TestRelayMetadataType:
 
         # 6 params: relay_url, network, discovered_at, metadata_data, type, generated_at
         assert len(params) == 6
-        assert params[0] == "relay.example.com"  # relay_url without scheme
+        assert params[0] == "wss://relay.example.com"  # relay_url with scheme
         assert params[1] == "clearnet"  # network
         assert params[3] == metadata_obj.to_db_params()[0]  # metadata as JSON string
         assert params[4] == "nip66_rtt"  # metadata_type
@@ -735,14 +760,14 @@ class TestMonitorInit:
         geo_db.write_bytes(b"fake")
 
         config = MonitorConfig(
-            tor=TorConfig(enabled=False),
+            proxy=ProxyConfig(tor=NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:9050")),
             selection=SelectionConfig(min_age_since_check=7200),
             publishing=PublishingConfig(destination="database_only"),
             checks=ChecksConfig(geo=False),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
 
-        assert monitor.config.tor.enabled is False
+        assert monitor.config.proxy.tor.enabled is False
         assert monitor.config.selection.min_age_since_check == 7200
 
 
@@ -858,7 +883,7 @@ class TestMonitorFetchRelays:
         )
 
         config = MonitorConfig(
-            tor=TorConfig(enabled=False),
+            proxy=ProxyConfig(tor=NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:9050")),
             publishing=PublishingConfig(destination="database_only"),
             checks=ChecksConfig(geo=False),
         )
