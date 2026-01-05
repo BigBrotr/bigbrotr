@@ -83,17 +83,68 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
-class TorConfig(BaseModel):
-    """Tor proxy configuration for .onion relay support."""
+class NetworkProxyConfig(BaseModel):
+    """Configuration for a single overlay network proxy."""
 
-    enabled: bool = Field(default=True, description="Enable Tor proxy for .onion relays")
-    host: str = Field(default="127.0.0.1", description="Tor proxy host")
-    port: int = Field(default=9050, ge=1, le=65535, description="Tor proxy port")
+    enabled: bool = Field(default=False, description="Enable this proxy")
+    url: str = Field(default="", description="SOCKS5 proxy URL (e.g., socks5://host:port)")
 
-    @property
-    def proxy_url(self) -> str:
-        """Get the SOCKS5 proxy URL for aiohttp-socks."""
-        return f"socks5://{self.host}:{self.port}"
+
+class ProxyConfig(BaseModel):
+    """Overlay network proxy configuration for hidden relay support.
+
+    Supports Tor (.onion), I2P (.i2p), and Lokinet (.loki) networks.
+    Each network requires its own SOCKS5 proxy for connectivity.
+    """
+
+    tor: NetworkProxyConfig = Field(
+        default_factory=lambda: NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:9050"),
+        description="Tor proxy for .onion relays",
+    )
+    i2p: NetworkProxyConfig = Field(
+        default_factory=lambda: NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:4447"),
+        description="I2P proxy for .i2p relays",
+    )
+    loki: NetworkProxyConfig = Field(
+        default_factory=lambda: NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:1080"),
+        description="Lokinet proxy for .loki relays",
+    )
+
+    def get_proxy_url(self, network: str) -> str | None:
+        """Get proxy URL for a given network type.
+
+        Args:
+            network: Network type ('tor', 'i2p', 'loki', 'clearnet', etc.)
+
+        Returns:
+            Proxy URL if network is supported and enabled, None otherwise.
+        """
+        config_map = {
+            "tor": self.tor,
+            "i2p": self.i2p,
+            "loki": self.loki,
+        }
+        config = config_map.get(network)
+        if config and config.enabled and config.url:
+            return config.url
+        return None
+
+    def is_network_enabled(self, network: str) -> bool:
+        """Check if a network proxy is enabled.
+
+        Args:
+            network: Network type ('tor', 'i2p', 'loki')
+
+        Returns:
+            True if network proxy is enabled, False otherwise.
+        """
+        config_map = {
+            "tor": self.tor,
+            "i2p": self.i2p,
+            "loki": self.loki,
+        }
+        config = config_map.get(network)
+        return config.enabled if config else False
 
 
 class KeysConfig(BaseModel):
@@ -149,13 +200,21 @@ class ChecksConfig(BaseModel):
 class GeoConfig(BaseModel):
     """Geolocation configuration."""
 
-    database_path: str = Field(
-        default="/usr/share/GeoIP/GeoLite2-City.mmdb",
+    city_database_path: str = Field(
+        default="static/GeoLite2-City.mmdb",
         description="Path to MaxMind GeoLite2-City database",
     )
     asn_database_path: str | None = Field(
         default=None,
         description="Path to MaxMind GeoLite2-ASN database (optional)",
+    )
+    country_database_path: str | None = Field(
+        default=None,
+        description="Path to MaxMind GeoLite2-Country database (optional fallback)",
+    )
+    update_frequency: str = Field(
+        default="monthly",
+        description="GeoIP update frequency: 'monthly', 'weekly', or 'none'",
     )
 
 
@@ -197,7 +256,7 @@ class MonitorConfig(BaseModel):
     """Monitor configuration."""
 
     interval: float = Field(default=3600.0, ge=60.0, description="Seconds between monitor cycles")
-    tor: TorConfig = Field(default_factory=TorConfig)
+    proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     keys: KeysConfig = Field(default_factory=KeysConfig)
     publishing: PublishingConfig = Field(default_factory=PublishingConfig)
     checks: ChecksConfig = Field(default_factory=ChecksConfig)
@@ -221,10 +280,10 @@ class MonitorConfig(BaseModel):
     def validate_geo_database_exists(self) -> MonitorConfig:
         """Fail-fast: If geo check enabled, database MUST exist."""
         if self.checks.geo:
-            path = Path(self.geo.database_path)
+            path = Path(self.geo.city_database_path)
             if not path.exists():
                 raise ValueError(
-                    f"geo.database_path does not exist: {self.geo.database_path}. "
+                    f"geo.city_database_path does not exist: {self.geo.city_database_path}. "
                     "Download MaxMind GeoLite2-City database or set checks.geo=false."
                 )
         return self
@@ -236,11 +295,20 @@ class MonitorConfig(BaseModel):
 
 
 async def fetch_nip11(
-    relay: Relay, timeout: float, max_size: int, tor_config: TorConfig
+    relay: Relay, timeout: float, max_size: int, proxy_config: ProxyConfig
 ) -> Nip11 | None:
-    """Fetch NIP-11 relay information document via HTTP."""
-    is_tor = relay.network == "tor"
-    proxy_url = tor_config.proxy_url if is_tor and tor_config.enabled else None
+    """Fetch NIP-11 relay information document via HTTP.
+
+    Args:
+        relay: Relay to fetch NIP-11 from
+        timeout: Request timeout in seconds
+        max_size: Maximum response size in bytes
+        proxy_config: Proxy configuration for overlay networks (Tor, I2P, Loki)
+
+    Returns:
+        Nip11 instance if successful, None otherwise
+    """
+    proxy_url = proxy_config.get_proxy_url(relay.network)
     return await Nip11.fetch(relay, timeout=timeout, max_size=max_size, proxy_url=proxy_url)
 
 
@@ -437,29 +505,33 @@ class Monitor(BaseService[MonitorConfig]):
         self._failed_checks: int = 0
         self._last_announcement: float = 0
 
-    async def __aenter__(self) -> Monitor:
-        """Initialize resources on context entry."""
-        await super().__aenter__()
+    def _open_geo_readers(self) -> None:
+        """Open GeoIP database readers for the current run.
 
-        # Open GeoIP database readers
-        if self._config.checks.geo:
-            self._geo_reader = geoip2.database.Reader(self._config.geo.database_path)
-            if self._config.geo.asn_database_path:
-                self._asn_reader = geoip2.database.Reader(self._config.geo.asn_database_path)
+        Readers are opened at the start of each run() cycle to allow
+        database files to be updated between runs without restarting.
+        """
+        if not self._config.checks.geo:
+            return
 
-        return self
+        self._geo_reader = geoip2.database.Reader(self._config.geo.city_database_path)
+        if self._config.geo.asn_database_path:
+            asn_path = Path(self._config.geo.asn_database_path)
+            if asn_path.exists():
+                self._asn_reader = geoip2.database.Reader(str(asn_path))
 
-    async def __aexit__(self, *args: Any) -> None:
-        """Cleanup resources on context exit."""
-        # Close GeoIP readers
+    def _close_geo_readers(self) -> None:
+        """Close GeoIP database readers after the run.
+
+        Closing readers between runs allows database files to be
+        replaced/updated without requiring service restart.
+        """
         if self._geo_reader:
             self._geo_reader.close()
             self._geo_reader = None
         if self._asn_reader:
             self._asn_reader.close()
             self._asn_reader = None
-
-        await super().__aexit__(*args)
 
     async def run(self) -> None:
         """Run single monitoring cycle."""
@@ -468,90 +540,102 @@ class Monitor(BaseService[MonitorConfig]):
         self._successful_checks = 0
         self._failed_checks = 0
 
-        # Publish Kind 10166 announcement if publishing enabled (once per hour max)
-        if (
-            self._config.publishing.enabled
-            and self._config.publishing.destination != "database_only"
-        ):
-            if time.time() - self._last_announcement > ANNOUNCE_INTERVAL:
-                await self._publish_announcement()
-                self._last_announcement = time.time()
+        # Open GeoIP readers at start of run (closed at end to allow DB updates)
+        self._open_geo_readers()
 
-        # Fetch relays to check
-        relays = await self._fetch_relays_to_check()
-        if not relays:
-            self._logger.info("no_relays_to_check")
-            return
+        try:
+            # Publish Kind 10166 announcement if publishing enabled (once per hour max)
+            if (
+                self._config.publishing.enabled
+                and self._config.publishing.destination != "database_only"
+            ):
+                if time.time() - self._last_announcement > ANNOUNCE_INTERVAL:
+                    await self._publish_announcement()
+                    self._last_announcement = time.time()
 
-        self._logger.info("monitor_started", relay_count=len(relays))
+            # Fetch relays to check
+            relays = await self._fetch_relays_to_check()
+            if not relays:
+                self._logger.info("no_relays_to_check")
+                return
 
-        # Prepare for parallel execution
-        semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel)
-        metadata_batch: list[RelayMetadata] = []
-        successful_relay_urls: list[str] = []  # Track only successfully checked relays
+            self._logger.info("monitor_started", relay_count=len(relays))
 
-        # Process relays in chunks to limit memory from pending tasks (H11)
-        # Chunk size is 4x max_parallel to keep pipeline full without scheduling all at once
-        chunk_size = max(self._config.concurrency.max_parallel * CHUNK_MULTIPLIER, CHUNK_MIN_SIZE)
+            # Prepare for parallel execution
+            semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel)
+            metadata_batch: list[RelayMetadata] = []
+            successful_relay_urls: list[str] = []  # Track only successfully checked relays
 
-        for chunk_start in range(0, len(relays), chunk_size):
-            # Check for graceful shutdown between chunks
-            if not self.is_running:
-                self._logger.info("monitor_interrupted", reason="shutdown", processed=chunk_start)
-                break
+            # Process relays in chunks to limit memory from pending tasks (H11)
+            # Chunk size is 4x max_parallel to keep pipeline full without scheduling all at once
+            chunk_size = max(
+                self._config.concurrency.max_parallel * CHUNK_MULTIPLIER, CHUNK_MIN_SIZE
+            )
 
-            chunk = relays[chunk_start : chunk_start + chunk_size]
-
-            # Create task-to-relay mapping for this chunk only
-            tasks: list[asyncio.Task[list[RelayMetadata] | None]] = []
-            task_relays: list[Relay] = []
-            for relay in chunk:
-                task = asyncio.create_task(self._process_relay(relay, semaphore))
-                tasks.append(task)
-                task_relays.append(relay)
-
-            # Await all tasks in this chunk
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for relay, result in zip(task_relays, results, strict=False):
-                if isinstance(result, BaseException):
-                    self._logger.error(
-                        "monitor_task_failed",
-                        error=str(result),
-                        error_type=type(result).__name__,
-                        url=relay.url,
+            for chunk_start in range(0, len(relays), chunk_size):
+                # Check for graceful shutdown between chunks
+                if not self.is_running:
+                    self._logger.info(
+                        "monitor_interrupted", reason="shutdown", processed=chunk_start
                     )
-                    continue
-                if result is not None:
-                    metadata_batch.extend(result)
-                    successful_relay_urls.append(relay.url)
+                    break
 
-                    # Insert batch if full
-                    if len(metadata_batch) >= self._config.concurrency.batch_size:
-                        await self._insert_metadata_batch(metadata_batch)
-                        metadata_batch = []
+                chunk = relays[chunk_start : chunk_start + chunk_size]
 
-        # Insert remaining records
-        if metadata_batch:
-            await self._insert_metadata_batch(metadata_batch)
+                # Create task-to-relay mapping for this chunk only
+                tasks: list[asyncio.Task[list[RelayMetadata] | None]] = []
+                task_relays: list[Relay] = []
+                for relay in chunk:
+                    task = asyncio.create_task(self._process_relay(relay, semaphore))
+                    tasks.append(task)
+                    task_relays.append(relay)
 
-        # Save checkpoints only for successfully checked relays
-        now = int(time.time())
-        checkpoint_data = [
-            ("monitor", "checkpoint", url, {"last_check_at": now}) for url in successful_relay_urls
-        ]
-        if checkpoint_data:
-            await self._brotr.upsert_service_data(checkpoint_data)
+                # Await all tasks in this chunk
+                results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Log stats
-        elapsed = time.time() - cycle_start
-        self._logger.info(
-            "cycle_completed",
-            checked=self._checked_relays,
-            successful=self._successful_checks,
-            failed=self._failed_checks,
-            duration=round(elapsed, 2),
-        )
+                for relay, result in zip(task_relays, results, strict=False):
+                    if isinstance(result, BaseException):
+                        self._logger.error(
+                            "monitor_task_failed",
+                            error=str(result),
+                            error_type=type(result).__name__,
+                            url=relay.url,
+                        )
+                        continue
+                    if result is not None:
+                        metadata_batch.extend(result)
+                        successful_relay_urls.append(relay.url)
+
+                        # Insert batch if full
+                        if len(metadata_batch) >= self._config.concurrency.batch_size:
+                            await self._insert_metadata_batch(metadata_batch)
+                            metadata_batch = []
+
+            # Insert remaining records
+            if metadata_batch:
+                await self._insert_metadata_batch(metadata_batch)
+
+            # Save checkpoints only for successfully checked relays
+            now = int(time.time())
+            checkpoint_data = [
+                ("monitor", "checkpoint", url, {"last_check_at": now})
+                for url in successful_relay_urls
+            ]
+            if checkpoint_data:
+                await self._brotr.upsert_service_data(checkpoint_data)
+
+            # Log stats
+            elapsed = time.time() - cycle_start
+            self._logger.info(
+                "cycle_completed",
+                checked=self._checked_relays,
+                successful=self._successful_checks,
+                failed=self._failed_checks,
+                duration=round(elapsed, 2),
+            )
+        finally:
+            # Close GeoIP readers to allow database file updates between runs
+            self._close_geo_readers()
 
     async def _fetch_relays_to_check(self) -> list[Relay]:
         """Fetch relays that need health checking from database using SQL JOIN."""
@@ -574,23 +658,24 @@ class Monitor(BaseService[MonitorConfig]):
         """
         rows = await self._brotr.pool.fetch(query, threshold)
 
-        skipped_tor = 0
+        skipped_overlay: dict[str, int] = {}  # Track skipped relays by network
 
         for row in rows:
             url_str = row["url"]
 
             try:
                 relay = Relay(url_str, discovered_at=row["discovered_at"])
-                # Filter Tor relays if proxy disabled
-                if relay.network == "tor" and not self._config.tor.enabled:
-                    skipped_tor += 1
-                    continue
+                # Filter overlay network relays if proxy disabled
+                if relay.network in ("tor", "i2p", "loki"):
+                    if not self._config.proxy.is_network_enabled(relay.network):
+                        skipped_overlay[relay.network] = skipped_overlay.get(relay.network, 0) + 1
+                        continue
                 relays.append(relay)
             except Exception:
                 self._logger.debug("invalid_relay_url", url=url_str)
 
-        if skipped_tor > 0:
-            self._logger.debug("skipped_tor_relays", count=skipped_tor)
+        if skipped_overlay:
+            self._logger.debug("skipped_overlay_relays", **skipped_overlay)
 
         self._logger.debug("relays_to_check", count=len(relays))
         return relays
@@ -604,8 +689,9 @@ class Monitor(BaseService[MonitorConfig]):
             async with self._metrics_lock:
                 self._checked_relays += 1
 
-            is_tor = relay.network == "tor"
-            timeout = self._config.timeouts.tor if is_tor else self._config.timeouts.clearnet
+            # Use longer timeout for overlay networks (Tor, I2P, Loki)
+            is_overlay = relay.network in ("tor", "i2p", "loki")
+            timeout = self._config.timeouts.tor if is_overlay else self._config.timeouts.clearnet
 
             nip11: Nip11 | None = None
             nip66: Nip66 | None = None
@@ -615,7 +701,7 @@ class Monitor(BaseService[MonitorConfig]):
                 # NIP-11 check
                 if self._config.checks.nip11:
                     nip11 = await fetch_nip11(
-                        relay, timeout, self._config.checks.nip11_max_size, self._config.tor
+                        relay, timeout, self._config.checks.nip11_max_size, self._config.proxy
                     )
                     if nip11:
                         metadata_records.append(nip11.to_relay_metadata())
@@ -623,6 +709,9 @@ class Monitor(BaseService[MonitorConfig]):
                 # NIP-66 test (DNS, SSL, Geo, Connection)
                 # Get keys for write test if enabled
                 keys = self._keys if self._config.checks.write else None
+
+                # Get proxy URL for overlay networks
+                proxy_url = self._config.proxy.get_proxy_url(relay.network)
 
                 # Run all NIP-66 tests via Nip66.test()
                 nip66 = await Nip66.test(
@@ -632,6 +721,7 @@ class Monitor(BaseService[MonitorConfig]):
                     city_reader=self._geo_reader,
                     asn_reader=self._asn_reader,
                     run_geo=self._config.checks.geo,
+                    proxy_url=proxy_url,
                 )
 
                 # Add nip66 metadata records (rtt and optionally ssl/geo)

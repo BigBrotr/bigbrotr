@@ -525,7 +525,7 @@ class Brotr:
             generated_ats: list[int] = []
 
             for record in records:
-                relay_urls.append(record.relay.url_without_scheme)
+                relay_urls.append(record.relay.url)
                 metadata_datas.append(record.metadata.to_db_params().data_json)
                 types.append(record.metadata_type)
                 generated_ats.append(record.generated_at)

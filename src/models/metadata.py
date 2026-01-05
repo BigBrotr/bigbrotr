@@ -41,12 +41,9 @@ class Metadata:
     Immutable metadata payload.
 
     Contains the JSONB data for NIP-11 or NIP-66 metadata.
-    The content-addressed hash ID is computed by PostgreSQL
-    during insertion (see relay_metadata_insert_cascade procedure).
+    The content hash (SHA-256) is computed by PostgreSQL during insertion.
 
-    This class provides:
-    - Type-safe property accessors with defaults
-    - JSON sanitization for PostgreSQL JSONB storage
+    Data is sanitized in __post_init__ to ensure JSON compatibility.
     """
 
     _DEFAULT_MAX_DEPTH: ClassVar[int] = 50
@@ -55,8 +52,8 @@ class Metadata:
 
     def __post_init__(self) -> None:
         """Sanitize data after initialization."""
-        # Use object.__setattr__ to bypass frozen restriction
-        object.__setattr__(self, "data", self._sanitize(self.data) if self.data else {})
+        sanitized = self._sanitize(self.data) if self.data else {}
+        object.__setattr__(self, "data", sanitized)
 
     @classmethod
     def _sanitize(

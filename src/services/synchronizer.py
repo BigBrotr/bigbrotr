@@ -145,17 +145,68 @@ def _worker_log(level: str, message: str, **kwargs: Any) -> None:
 # =============================================================================
 
 
-class TorConfig(BaseModel):
-    """Tor proxy configuration for .onion relay support."""
+class NetworkProxyConfig(BaseModel):
+    """Configuration for a single overlay network proxy."""
 
-    enabled: bool = Field(default=True, description="Enable Tor proxy for .onion relays")
-    host: str = Field(default="127.0.0.1", description="Tor proxy host")
-    port: int = Field(default=9050, ge=1, le=65535, description="Tor proxy port")
+    enabled: bool = Field(default=False, description="Enable this proxy")
+    url: str = Field(default="", description="SOCKS5 proxy URL (e.g., socks5://host:port)")
 
-    @property
-    def proxy_url(self) -> str:
-        """Get the SOCKS5 proxy URL for aiohttp-socks."""
-        return f"socks5://{self.host}:{self.port}"
+
+class ProxyConfig(BaseModel):
+    """Overlay network proxy configuration for hidden relay support.
+
+    Supports Tor (.onion), I2P (.i2p), and Lokinet (.loki) networks.
+    Each network requires its own SOCKS5 proxy for connectivity.
+    """
+
+    tor: NetworkProxyConfig = Field(
+        default_factory=lambda: NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:9050"),
+        description="Tor proxy for .onion relays",
+    )
+    i2p: NetworkProxyConfig = Field(
+        default_factory=lambda: NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:4447"),
+        description="I2P proxy for .i2p relays",
+    )
+    loki: NetworkProxyConfig = Field(
+        default_factory=lambda: NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:1080"),
+        description="Lokinet proxy for .loki relays",
+    )
+
+    def get_proxy_url(self, network: str) -> str | None:
+        """Get proxy URL for a given network type.
+
+        Args:
+            network: Network type ('tor', 'i2p', 'loki', 'clearnet', etc.)
+
+        Returns:
+            Proxy URL if network is supported and enabled, None otherwise.
+        """
+        config_map = {
+            "tor": self.tor,
+            "i2p": self.i2p,
+            "loki": self.loki,
+        }
+        config = config_map.get(network)
+        if config and config.enabled and config.url:
+            return config.url
+        return None
+
+    def is_network_enabled(self, network: str) -> bool:
+        """Check if a network proxy is enabled.
+
+        Args:
+            network: Network type ('tor', 'i2p', 'loki')
+
+        Returns:
+            True if network proxy is enabled, False otherwise.
+        """
+        config_map = {
+            "tor": self.tor,
+            "i2p": self.i2p,
+            "loki": self.loki,
+        }
+        config = config_map.get(network)
+        return config.enabled if config else False
 
 
 class KeysConfig(BaseModel):
@@ -369,7 +420,7 @@ class SynchronizerConfig(BaseModel):
     """Synchronizer configuration."""
 
     interval: float = Field(default=900.0, ge=60.0, description="Seconds between sync cycles")
-    tor: TorConfig = Field(default_factory=TorConfig)
+    proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     keys: KeysConfig = Field(default_factory=KeysConfig)
     filter: FilterConfig = Field(default_factory=FilterConfig)
     time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
@@ -550,7 +601,7 @@ async def sync_relay_task(
                 start_time=start_time,
                 end_time=end_time,
                 filter_config=config.filter,
-                tor_config=config.tor,
+                proxy_config=config.proxy,
                 request_timeout=request_timeout,
                 brotr=brotr,
                 keys=keys,
@@ -712,7 +763,7 @@ async def _sync_relay_events(
     start_time: int,
     end_time: int,
     filter_config: FilterConfig,
-    tor_config: TorConfig,
+    proxy_config: ProxyConfig,
     request_timeout: float,
     brotr: Brotr,
     keys: Keys | None = None,
@@ -725,7 +776,7 @@ async def _sync_relay_events(
         start_time: Start timestamp (since)
         end_time: End timestamp (until)
         filter_config: Event filter configuration
-        tor_config: Tor proxy configuration
+        proxy_config: Overlay network proxy configuration (Tor, I2P, Loki)
         request_timeout: Request timeout in seconds
         brotr: Database interface
         keys: Optional Nostr keys for NIP-42 authentication
@@ -740,8 +791,10 @@ async def _sync_relay_events(
     # Build client options
     opts = ClientOptions().connection_timeout(timedelta(seconds=request_timeout))
 
-    if relay.network == "tor" and tor_config.enabled:
-        opts = opts.proxy(tor_config.proxy_url)
+    # Set proxy for overlay networks (Tor, I2P, Loki)
+    proxy_url = proxy_config.get_proxy_url(relay.network)
+    if proxy_url:
+        opts = opts.proxy(proxy_url)
 
     # Create client with signer if keys available (enables NIP-42 auth)
     builder = ClientBuilder().opts(opts)
@@ -930,7 +983,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                         start_time=start,
                         end_time=end_time,
                         filter_config=self._config.filter,
-                        tor_config=self._config.tor,
+                        proxy_config=self._config.proxy,
                         request_timeout=request_timeout,
                         brotr=self._brotr,
                         keys=self._keys,
@@ -954,7 +1007,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                             (
                                 "synchronizer",
                                 "cursor",
-                                relay.url_without_scheme,
+                                relay.url,
                                 {"last_synced_at": end_time},
                             )
                         )
@@ -1047,7 +1100,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                         (
                             "synchronizer",
                             "cursor",
-                            relay.url_without_scheme,
+                            relay.url,
                             {"last_synced_at": new_time},
                         )
                     )
@@ -1104,7 +1157,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         cursors = await self._brotr.get_service_data(
             service_name="synchronizer",
             data_type="cursor",
-            key=relay.url_without_scheme,
+            key=relay.url,
         )
 
         if cursors and len(cursors) > 0:
@@ -1120,7 +1173,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         """
         Batch fetch all relay cursors in one query.
 
-        Returns dict mapping relay URL (without scheme) to last_synced_at timestamp.
+        Returns dict mapping relay URL to last_synced_at timestamp.
         This avoids N+1 queries when preparing tasks for multiprocess sync.
         """
         if not self._config.time_range.use_relay_state:
@@ -1149,7 +1202,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         if not self._config.time_range.use_relay_state:
             return self._config.time_range.default_start
 
-        cursor = cursors.get(relay.url_without_scheme)
+        cursor = cursors.get(relay.url)
         if cursor is not None:
             return cursor + 1
 
