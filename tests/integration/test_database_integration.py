@@ -82,7 +82,7 @@ class TestRelayIntegration:
         # Query
         rows = await integration_brotr.pool.fetch(
             "SELECT url, network, discovered_at FROM relays WHERE url = $1",
-            relay.url_without_scheme,
+            relay.url,
         )
         assert len(rows) == 1
         assert rows[0]["network"] == "clearnet"
@@ -110,7 +110,7 @@ class TestRelayIntegration:
 
         rows = await integration_brotr.pool.fetch(
             "SELECT network FROM relays WHERE url = $1",
-            relay.url_without_scheme,
+            relay.url,
         )
         assert len(rows) == 1
         assert rows[0]["network"] == "tor"
