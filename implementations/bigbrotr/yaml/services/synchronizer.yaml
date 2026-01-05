@@ -4,18 +4,30 @@
 # Description: Synchronize Nostr events from relays to the database
 # Used by: src/services/synchronizer.py
 # Dependencies: Monitor must have checked relays first
-# Notes: Uses Tor proxy for .onion relay synchronization
+# Notes: Uses overlay network proxies for hidden relay synchronization (.onion, .i2p, .loki)
 # ============================================================================
 
 # Cycle interval (seconds between sync runs)
 # Range: >= 60.0
 interval: 900.0
 
-# Tor proxy for .onion relays
-tor:
-  enabled: true              # Enable Tor proxy for .onion relays
-  host: "tor"                # Tor proxy host (Docker service name)
-  port: 9050                 # Tor proxy port (Range: 1 - 65535)
+# Overlay network proxy configuration
+# Each network requires its own SOCKS5 proxy for connectivity
+proxy:
+  # Tor proxy for .onion relays
+  tor:
+    enabled: true
+    url: "socks5://tor:9050"
+
+  # I2P proxy for .i2p relays
+  i2p:
+    enabled: true
+    url: "socks5://i2p:4447"
+
+  # Lokinet proxy for .loki relays (Linux only - requires TUN device)
+  loki:
+    enabled: false           # Enable only on Linux with --profile linux-only
+    url: "socks5://lokinet:1080"
 
 # Event filter settings
 # Set to null to accept all values for that field

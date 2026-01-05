@@ -6,9 +6,18 @@
 # See: implementations/bigbrotr/yaml/services/synchronizer.yaml for full config
 # ============================================================================
 
-# Tor proxy disabled for lilbrotr (clearnet only)
-tor:
-  enabled: false
+# Overlay network proxy configuration
+# Disabled for lilbrotr (clearnet only by default)
+proxy:
+  tor:
+    enabled: false
+    url: "socks5://tor:9050"
+  i2p:
+    enabled: false
+    url: "socks5://i2p:4447"
+  loki:
+    enabled: false
+    url: "socks5://lokinet:1080"
 
 # Reduced concurrency for lighter resource usage
 concurrency:

@@ -7,9 +7,18 @@
 # Environment: PRIVATE_KEY required if publishing enabled
 # ============================================================================
 
-# Tor proxy disabled for lilbrotr (clearnet only)
-tor:
-  enabled: false
+# Overlay network proxy configuration
+# Disabled for lilbrotr (clearnet only by default)
+proxy:
+  tor:
+    enabled: false
+    url: "socks5://tor:9050"
+  i2p:
+    enabled: false
+    url: "socks5://i2p:4447"
+  loki:
+    enabled: false
+    url: "socks5://lokinet:1080"
 
 # NIP-66 event publishing configuration
 publishing:
@@ -17,10 +26,13 @@ publishing:
   destination: "monitored_relay"
 
 # Geolocation configuration
+# Place databases in static/ folder
 geo:
-  database_path: "/usr/share/GeoIP/GeoLite2-City.mmdb"
+  city_database_path: "static/GeoLite2-City.mmdb"
   # ASN database optional for lilbrotr
-  # asn_database_path: "/usr/share/GeoIP/GeoLite2-ASN.mmdb"
+  # asn_database_path: "static/GeoLite2-ASN.mmdb"
+  # Update frequency: "monthly", "weekly", "none" (none = never auto-update)
+  update_frequency: "none"  # Manual updates only for lilbrotr
 
 # Reduced concurrency for lighter resource usage
 concurrency:

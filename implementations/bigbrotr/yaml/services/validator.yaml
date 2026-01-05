@@ -4,7 +4,7 @@
 # Description: Validate candidate relay URLs before adding to relays table
 # Used by: src/services/validator.py
 # Dependencies: Seeder and Finder write candidates to service_data
-# Notes: Uses Tor proxy for .onion relay validation
+# Notes: Uses overlay network proxies for hidden relay validation (.onion, .i2p, .loki)
 # ============================================================================
 
 # Cycle interval (seconds between validation runs)
@@ -24,9 +24,20 @@ connection_timeout: 10.0
 concurrency:
   max_parallel: 10           # Maximum concurrent relay validations (Range: 1 - 100)
 
-# Tor proxy configuration (for .onion relays)
-# proxy_url is computed as socks5://{host}:{port}
-tor:
-  enabled: true
-  host: "tor"              # Tor proxy host (Docker service name)
-  port: 9050               # Tor proxy port (Range: 1 - 65535)
+# Overlay network proxy configuration
+# Each network requires its own SOCKS5 proxy for connectivity
+proxy:
+  # Tor proxy for .onion relays
+  tor:
+    enabled: true
+    url: "socks5://tor:9050"
+
+  # I2P proxy for .i2p relays
+  i2p:
+    enabled: true
+    url: "socks5://i2p:4447"
+
+  # Lokinet proxy for .loki relays (Linux only - requires TUN device)
+  loki:
+    enabled: false           # Enable only on Linux with --profile linux-only
+    url: "socks5://lokinet:1080"
