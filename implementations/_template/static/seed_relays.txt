@@ -1,0 +1,34 @@
+# ============================================================================
+# BigBrotr Implementation Template - Seed Relays
+# ============================================================================
+# Initial relay URLs for bootstrapping relay discovery.
+# Format: One WebSocket URL per line (ws:// or wss://)
+# Comments (lines starting with #) are ignored
+# ============================================================================
+
+# Popular public relays
+wss://relay.damus.io
+wss://nos.lol
+wss://relay.nostr.band
+wss://nostr.wine
+wss://relay.snort.social
+wss://relay.primal.net
+wss://nostr.mom
+
+# Relay aggregators (good for discovery)
+wss://relay.noswhere.com
+wss://nostr-pub.wellorder.net
+
+# Paid/premium relays (may require NIP-42 auth)
+wss://relay.nostr.com.au
+wss://nostr.land
+
+# Add more relays as needed...
+# The Finder service will discover additional relays automatically
+# from events and external APIs.
+
+# ============================================================================
+# TOR RELAYS (uncomment if tor.enabled=true in service configs)
+# ============================================================================
+# ws://oxtrdevav64z64yb7x6rjg4ntzqjhedm5b5jqulugknhzr46ny2qwaid.onion
+# ws://2jsnlhfnelig5acq6iacydmzdbdmg7xwunm4xl6qwbvzacw4lwrjmlid.onion
