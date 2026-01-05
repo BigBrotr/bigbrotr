@@ -17,6 +17,9 @@ aiomultiprocess>=0.9.1
 # Database
 asyncpg>=0.29.0
 
+# DNS resolution
+dnspython>=2.5.0
+
 # Geolocation
 geoip2>=4.8.0
 geohash2>=1.1
