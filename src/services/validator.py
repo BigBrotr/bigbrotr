@@ -29,7 +29,7 @@ import time
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from nostr_sdk import ClientBuilder, ClientOptions, Filter, RelayUrl
+from nostr_sdk import ClientBuilder, ClientOptions, Filter
 from pydantic import BaseModel, Field, model_validator
 
 from core.base_service import BaseService
@@ -53,17 +53,68 @@ ENV_PRIVATE_KEY = "PRIVATE_KEY"  # pragma: allowlist secret
 # =============================================================================
 
 
-class TorConfig(BaseModel):
-    """Tor proxy configuration for .onion relay support."""
+class NetworkProxyConfig(BaseModel):
+    """Configuration for a single overlay network proxy."""
 
-    enabled: bool = Field(default=True, description="Enable Tor proxy for .onion relays")
-    host: str = Field(default="127.0.0.1", description="Tor proxy host")
-    port: int = Field(default=9050, ge=1, le=65535, description="Tor proxy port")
+    enabled: bool = Field(default=False, description="Enable this proxy")
+    url: str = Field(default="", description="SOCKS5 proxy URL (e.g., socks5://host:port)")
 
-    @property
-    def proxy_url(self) -> str:
-        """Get the SOCKS5 proxy URL for aiohttp-socks."""
-        return f"socks5://{self.host}:{self.port}"
+
+class ProxyConfig(BaseModel):
+    """Overlay network proxy configuration for hidden relay support.
+
+    Supports Tor (.onion), I2P (.i2p), and Lokinet (.loki) networks.
+    Each network requires its own SOCKS5 proxy for connectivity.
+    """
+
+    tor: NetworkProxyConfig = Field(
+        default_factory=lambda: NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:9050"),
+        description="Tor proxy for .onion relays",
+    )
+    i2p: NetworkProxyConfig = Field(
+        default_factory=lambda: NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:4447"),
+        description="I2P proxy for .i2p relays",
+    )
+    loki: NetworkProxyConfig = Field(
+        default_factory=lambda: NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:1080"),
+        description="Lokinet proxy for .loki relays",
+    )
+
+    def get_proxy_url(self, network: str) -> str | None:
+        """Get proxy URL for a given network type.
+
+        Args:
+            network: Network type ('tor', 'i2p', 'loki', 'clearnet', etc.)
+
+        Returns:
+            Proxy URL if network is supported and enabled, None otherwise.
+        """
+        config_map = {
+            "tor": self.tor,
+            "i2p": self.i2p,
+            "loki": self.loki,
+        }
+        config = config_map.get(network)
+        if config and config.enabled and config.url:
+            return config.url
+        return None
+
+    def is_network_enabled(self, network: str) -> bool:
+        """Check if a network proxy is enabled.
+
+        Args:
+            network: Network type ('tor', 'i2p', 'loki')
+
+        Returns:
+            True if network proxy is enabled, False otherwise.
+        """
+        config_map = {
+            "tor": self.tor,
+            "i2p": self.i2p,
+            "loki": self.loki,
+        }
+        config = config_map.get(network)
+        return config.enabled if config else False
 
 
 class KeysConfig(BaseModel):
@@ -117,7 +168,7 @@ class ValidatorConfig(BaseModel):
     )
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     cleanup: CleanupConfig = Field(default_factory=CleanupConfig)
-    tor: TorConfig = Field(default_factory=TorConfig)
+    proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     keys: KeysConfig = Field(default_factory=KeysConfig)
 
 
@@ -361,21 +412,23 @@ class Validator(BaseService[ValidatorConfig]):
         Returns True if the relay responds with EOSE (valid Nostr relay), False otherwise.
         """
         try:
-            # Parse URL to determine network
-            relay_url = RelayUrl.parse(url)
-            is_tor = relay_url.is_onion()
+            # Detect network type from URL
+            network = self._detect_network(url)
 
-            # Skip Tor relays if Tor is not enabled
-            if is_tor and not self._config.tor.enabled:
-                return False
+            # Skip overlay network relays if proxy is not enabled
+            if network in ("tor", "i2p", "loki"):
+                if not self._config.proxy.is_network_enabled(network):
+                    return False
 
             # Build client options
             opts = ClientOptions().connection_timeout(
                 timedelta(seconds=self._config.connection_timeout)
             )
 
-            if is_tor and self._config.tor.enabled:
-                opts = opts.proxy(self._config.tor.proxy_url)
+            # Set proxy for overlay networks
+            proxy_url = self._config.proxy.get_proxy_url(network)
+            if proxy_url:
+                opts = opts.proxy(proxy_url)
 
             # Build client with signer if keys available (enables NIP-42 auth)
             builder = ClientBuilder().opts(opts)
@@ -408,3 +461,26 @@ class Validator(BaseService[ValidatorConfig]):
 
         except Exception:
             return False
+
+    @staticmethod
+    def _detect_network(url: str) -> str:
+        """Detect network type from URL.
+
+        Args:
+            url: Relay URL (e.g., wss://relay.example.com, ws://abc.onion)
+
+        Returns:
+            Network type: 'tor', 'i2p', 'loki', or 'clearnet'
+        """
+        # Extract host from URL
+        url_lower = url.lower()
+
+        # Check for overlay network TLDs
+        if ".onion" in url_lower:
+            return "tor"
+        elif ".i2p" in url_lower:
+            return "i2p"
+        elif ".loki" in url_lower:
+            return "loki"
+        else:
+            return "clearnet"

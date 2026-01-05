@@ -36,6 +36,8 @@ class MetadataType(StrEnum):
     NIP66_RTT = "nip66_rtt"
     NIP66_SSL = "nip66_ssl"
     NIP66_GEO = "nip66_geo"
+    NIP66_DNS = "nip66_dns"
+    NIP66_HTTP = "nip66_http"
 
 
 class RelayMetadataDbParams(NamedTuple):
@@ -83,7 +85,7 @@ class RelayMetadata:
         r = self.relay.to_db_params()
         m = self.metadata.to_db_params()
         return RelayMetadataDbParams(
-            relay_url=r.url_without_scheme,
+            relay_url=r.url,
             relay_network=r.network,
             relay_discovered_at=r.discovered_at,
             metadata_data=m.data_json,

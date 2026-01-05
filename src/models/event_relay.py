@@ -80,7 +80,7 @@ class EventRelay:
             tags_json=e.tags_json,
             content=e.content,
             sig=e.sig,
-            relay_url=r.url_without_scheme,
+            relay_url=r.url,
             relay_network=r.network,
             relay_discovered_at=r.discovered_at,
             seen_at=self.seen_at,

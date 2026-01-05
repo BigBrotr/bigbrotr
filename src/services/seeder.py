@@ -140,7 +140,7 @@ class Seeder(BaseService[SeederConfig]):
             return
 
         # Filter server-side: exclude URLs already in relays or service_data
-        all_urls = [relay.url_without_scheme for relay in relays]
+        all_urls = [relay.url for relay in relays]
 
         new_urls_rows = await self._brotr.pool.fetch(
             """

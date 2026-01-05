@@ -32,7 +32,7 @@ class NetworkType(StrEnum):
 class RelayDbParams(NamedTuple):
     """Database parameters for Relay insert operations."""
 
-    url_without_scheme: str
+    url: str
     network: str
     discovered_at: int
 
@@ -45,25 +45,31 @@ class Relay:
     Validates and normalizes WebSocket URLs (ws:// or wss://), auto-detecting
     network type (clearnet, tor, i2p, loki). Rejects local/private addresses.
 
+    The scheme is enforced based on network type:
+    - clearnet: wss:// (secure WebSocket)
+    - tor/i2p/loki: ws:// (overlay networks handle encryption)
+
     Attributes:
-        url_without_scheme: Unique identifier without scheme (e.g., "relay.example.com:8080/path").
+        url: Normalized URL with scheme (e.g., "wss://relay.example.com:8080/path").
         network: Detected network type ("clearnet", "tor", "i2p", "loki").
         discovered_at: Unix timestamp when the relay was discovered.
-        scheme: URL scheme ("ws" or "wss").
+        scheme: URL scheme ("ws" or "wss"), enforced by network type.
         host: Hostname or IP address.
         port: Port number or None if using default (443 for wss, 80 for ws).
         path: URL path or None.
 
     Example:
-        >>> relay = Relay("wss://relay.example.com")
+        >>> relay = Relay("ws://relay.example.com")  # clearnet gets upgraded to wss
         >>> relay.url
         'wss://relay.example.com'
-        >>> relay.network
-        'clearnet'
+        >>> relay.scheme
+        'wss'
 
-        >>> tor_relay = Relay("ws://abc123.onion")
-        >>> tor_relay.network
-        'tor'
+        >>> tor_relay = Relay("wss://abc123.onion")  # tor gets downgraded to ws
+        >>> tor_relay.url
+        'ws://abc123.onion'
+        >>> tor_relay.scheme
+        'ws'
 
     Raises:
         ValueError: If URL is invalid, uses unsupported scheme, or is a local address.
@@ -75,7 +81,6 @@ class Relay:
 
     # Computed fields (set in __post_init__)
     url: str = field(init=False)
-    url_without_scheme: str = field(init=False)
     network: NetworkType = field(init=False)
     scheme: str = field(init=False)
     host: str = field(init=False)
@@ -139,11 +144,15 @@ class Relay:
         if network == NetworkType.UNKNOWN:
             raise ValueError(f"Invalid host: '{parsed['host']}'")
 
+        # Enforce scheme based on network type:
+        # - clearnet: wss:// (TLS required for public internet)
+        # - overlay networks (tor/i2p/loki): ws:// (encryption handled by overlay)
+        scheme = "wss" if network == NetworkType.CLEARNET else "ws"
+
         # Use object.__setattr__ to bypass frozen restriction
-        object.__setattr__(self, "url", f"{parsed['scheme']}://{parsed['url_without_scheme']}")
-        object.__setattr__(self, "url_without_scheme", parsed["url_without_scheme"])
+        object.__setattr__(self, "url", f"{scheme}://{parsed['url_without_scheme']}")
         object.__setattr__(self, "network", network)
-        object.__setattr__(self, "scheme", parsed["scheme"])
+        object.__setattr__(self, "scheme", scheme)
         object.__setattr__(self, "host", parsed["host"])
         object.__setattr__(self, "port", parsed["port"])
         object.__setattr__(self, "path", parsed["path"])
@@ -272,10 +281,10 @@ class Relay:
         Returns parameters for database insert.
 
         Returns:
-            RelayDbParams with named fields: url_without_scheme, network, discovered_at
+            RelayDbParams with named fields: url, network, discovered_at
         """
         return RelayDbParams(
-            url_without_scheme=self.url_without_scheme,
+            url=self.url,
             network=self.network,
             discovered_at=self.discovered_at,
         )
@@ -283,7 +292,7 @@ class Relay:
     @classmethod
     def from_db_params(
         cls,
-        url_without_scheme: str,
+        url: str,
         network: str,  # noqa: ARG003
         discovered_at: int,
     ) -> Relay:
@@ -291,11 +300,11 @@ class Relay:
         Create a Relay from database parameters by re-parsing the URL.
 
         Args:
-            url_without_scheme: The relay URL without scheme (e.g., "relay.example.com")
-            network: Network type ("clearnet", "tor", "i2p", "loki")
+            url: The relay URL with scheme (e.g., "wss://relay.example.com")
+            network: Network type ("clearnet", "tor", "i2p", "loki") - unused, recomputed
             discovered_at: Unix timestamp when discovered
 
         Returns:
             Relay instance with the provided values
         """
-        return cls(f"wss://{url_without_scheme}", discovered_at)
+        return cls(url, discovered_at)
