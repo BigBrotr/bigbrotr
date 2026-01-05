@@ -14,4 +14,4 @@
 #       - Local: run from implementations/bigbrotr/
 # Note: Batch size is controlled by Brotr's max_batch_size in brotr.yaml
 seed:
-  file_path: seed_relays.txt  # Path to seed file
+  file_path: static/seed_relays.txt  # Path to seed file
