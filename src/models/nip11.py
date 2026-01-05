@@ -90,12 +90,13 @@ import json
 import ssl
 from dataclasses import dataclass, field
 from time import time
-from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
+from typing import TYPE_CHECKING, Any, ClassVar, TypedDict, get_type_hints
 
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
 from .metadata import Metadata
+from .utils import parse_typed_dict
 
 
 if TYPE_CHECKING:
@@ -112,107 +113,82 @@ if TYPE_CHECKING:
 
 
 class Nip11Limitation(TypedDict, total=False):
-    """
-    Server limitations per NIP-11.
+    """Server limitations per NIP-11."""
 
-    All fields are optional - relays may omit any or all fields.
-    Used for type validation: values with incorrect types are silently dropped.
-    """
-
-    max_message_length: int | None  # Max WebSocket message size in bytes
-    max_subscriptions: int | None  # Max concurrent subscriptions per connection
-    max_limit: int | None  # Max events per REQ response
-    max_subid_length: int | None  # Max subscription ID length
-    max_event_tags: int | None  # Max tags per event
-    max_content_length: int | None  # Max event content length
-    min_pow_difficulty: int | None  # Minimum proof-of-work difficulty
-    auth_required: bool | None  # NIP-42 auth required
-    payment_required: bool | None  # Payment required
-    restricted_writes: bool | None  # Write restrictions
-    created_at_lower_limit: int | None  # Min allowed created_at timestamp
-    created_at_upper_limit: int | None  # Max allowed created_at timestamp
-    default_limit: int | None  # Default limit for REQ without limit
+    max_message_length: int  # Max WebSocket message size in bytes
+    max_subscriptions: int  # Max concurrent subscriptions per connection
+    max_limit: int  # Max events per REQ response
+    max_subid_length: int  # Max subscription ID length
+    max_event_tags: int  # Max tags per event
+    max_content_length: int  # Max event content length
+    min_pow_difficulty: int  # Minimum proof-of-work difficulty
+    auth_required: bool  # NIP-42 auth required
+    payment_required: bool  # Payment required
+    restricted_writes: bool  # Write restrictions
+    created_at_lower_limit: int  # Min allowed created_at timestamp
+    created_at_upper_limit: int  # Max allowed created_at timestamp
+    default_limit: int  # Default limit for REQ without limit
 
 
 class Nip11RetentionEntry(TypedDict, total=False):
-    """
-    Single retention policy entry per NIP-11.
+    """Single retention policy entry per NIP-11."""
 
-    All fields are optional - each entry defines retention for specific kinds or all events.
-    Used for type validation: values with incorrect types are silently dropped.
-    """
-
-    kinds: list[int | list[int]] | None  # Event kinds or ranges [start, end]
-    time: int | None  # Retention time in seconds (null = indefinite)
-    count: int | None  # Max events to retain per kind
+    kinds: list[int | list[int]]  # Event kinds or ranges [start, end]
+    time: int  # Retention time in seconds (null = indefinite)
+    count: int  # Max events to retain per kind
 
 
 class Nip11FeeEntry(TypedDict, total=False):
-    """
-    Single fee entry per NIP-11.
+    """Single fee entry per NIP-11."""
 
-    All fields are optional - defines payment amounts for relay access/features.
-    Used for type validation: values with incorrect types are silently dropped.
-    """
-
-    amount: int | None  # Fee amount in specified unit
-    unit: str | None  # Unit: "msats", "sats", etc.
-    period: int | None  # Subscription period in seconds
-    kinds: list[int] | None  # Event kinds this fee applies to
+    amount: int  # Fee amount in specified unit
+    unit: str  # Unit: "msats", "sats", etc.
+    period: int  # Subscription period in seconds
+    kinds: list[int]  # Event kinds this fee applies to
 
 
 class Nip11Fees(TypedDict, total=False):
-    """
-    Fee schedules per NIP-11.
+    """Fee schedules per NIP-11."""
 
-    All fields are optional - defines admission, subscription, and publication fees.
-    Used for type validation: values with incorrect types are silently dropped.
-    """
-
-    admission: list[Nip11FeeEntry] | None  # One-time admission fees
-    subscription: list[Nip11FeeEntry] | None  # Recurring subscription fees
-    publication: list[Nip11FeeEntry] | None  # Per-event publication fees
+    admission: list[Nip11FeeEntry]  # One-time admission fees
+    subscription: list[Nip11FeeEntry]  # Recurring subscription fees
+    publication: list[Nip11FeeEntry]  # Per-event publication fees
 
 
 class Nip11Data(TypedDict, total=False):
-    """
-    Complete NIP-11 document structure.
-
-    All fields are optional - relays may provide any subset of these fields.
-    Used for type validation: values with incorrect types are silently dropped.
-    """
+    """Complete NIP-11 document structure."""
 
     # Base fields - relay identification and contact
-    name: str | None  # Relay name
-    description: str | None  # Relay description
-    banner: str | None  # Banner image URL
-    icon: str | None  # Icon image URL
-    pubkey: str | None  # Relay operator pubkey (hex)
-    self: str | None  # Relay's own pubkey for signing (hex)
-    contact: str | None  # Contact info (email, URI, etc.)
-    supported_nips: list[int] | None  # List of supported NIP numbers
-    software: str | None  # Software URL/identifier
-    version: str | None  # Software version string
-    privacy_policy: str | None  # Privacy policy URL
-    terms_of_service: str | None  # Terms of service URL
+    name: str  # Relay name
+    description: str  # Relay description
+    banner: str  # Banner image URL
+    icon: str  # Icon image URL
+    pubkey: str  # Relay operator pubkey (hex)
+    self: str  # Relay's own pubkey for signing (hex)
+    contact: str  # Contact info (email, URI, etc.)
+    supported_nips: list[int]  # List of supported NIP numbers
+    software: str  # Software URL/identifier
+    version: str  # Software version string
+    privacy_policy: str  # Privacy policy URL
+    terms_of_service: str  # Terms of service URL
 
     # Server limitations
-    limitation: Nip11Limitation | None  # Server constraints
+    limitation: Nip11Limitation  # Server constraints
 
     # Event retention
-    retention: list[Nip11RetentionEntry] | None  # Retention policies
+    retention: list[Nip11RetentionEntry]  # Retention policies
 
     # Content limitations
-    relay_countries: list[str] | None  # ISO country codes for content filtering
+    relay_countries: list[str]  # ISO country codes for content filtering
 
     # Community preferences
-    language_tags: list[str] | None  # BCP 47 language tags
-    tags: list[str] | None  # Community tags (e.g., "sfw-only")
-    posting_policy: str | None  # Posting policy URL
+    language_tags: list[str]  # BCP 47 language tags
+    tags: list[str]  # Community tags (e.g., "sfw-only")
+    posting_policy: str  # Posting policy URL
 
     # Pay-to-relay
-    payments_url: str | None  # Payments info URL
-    fees: Nip11Fees | None  # Fee schedules
+    payments_url: str  # Payments info URL
+    fees: Nip11Fees  # Fee schedules
 
 
 # --- Exception ---
@@ -243,20 +219,13 @@ class Nip11:
 
     Attributes:
         relay: The Relay this document belongs to.
-        metadata: Parsed NIP-11 data (only valid fields).
+        metadata: Parsed NIP-11 data (all schema keys, None for missing).
         generated_at: Unix timestamp when fetched (default: now).
 
-    Properties (first-level access):
-        name, description, banner, icon: Display information.
-        pubkey, self_pubkey, contact: Operator contact.
-        supported_nips: List of supported NIP numbers.
-        software, version: Relay software identification.
-        privacy_policy, terms_of_service, posting_policy: Policy URLs.
-        limitation: Server limitations dict (Nip11Limitation).
-        retention: Event retention policies list (Nip11RetentionEntry).
-        relay_countries: ISO country codes list.
-        language_tags, tags: Community preferences.
-        payments_url, fees: Payment information (Nip11Fees).
+    Access fields via metadata.data dict:
+        nip11.metadata.data["name"]
+        nip11.metadata.data["supported_nips"]
+        nip11.metadata.data["limitation"]["max_message_length"]
     """
 
     relay: Relay
@@ -268,116 +237,98 @@ class Nip11:
     _FETCH_MAX_SIZE: ClassVar[int] = 65536  # 64 KB
 
     def __post_init__(self) -> None:
-        """Parse and validate metadata."""
+        """Parse and validate metadata.
+
+        Creates full skeleton with all keys (None for missing values).
+        Raises ValueError if all leaf values are None (empty metadata).
+        """
         raw = self.metadata.data if isinstance(self.metadata, Metadata) else self.metadata
         parsed = self._parse(raw)
+
+        # Check if all leaves are None
+        if self._all_leaves_none(dict(parsed)):
+            raise ValueError("NIP-11 metadata cannot be empty (all values are None)")
+
         object.__setattr__(self, "metadata", Metadata(dict(parsed)))
+
+    # --- Convenience properties for common fields ---
+
+    @property
+    def supported_nips(self) -> list[int] | None:
+        """List of supported NIP numbers."""
+        return self.metadata.data.get("supported_nips")
+
+    @property
+    def limitation(self) -> Nip11Limitation | None:
+        """Server limitations dict."""
+        return self.metadata.data.get("limitation")
+
+    @property
+    def retention(self) -> list[Nip11RetentionEntry] | None:
+        """Event retention policies."""
+        return self.metadata.data.get("retention")
+
+    @property
+    def tags(self) -> list[str] | None:
+        """Community tags (e.g., 'sfw-only')."""
+        return self.metadata.data.get("tags")
+
+    @property
+    def name(self) -> str | None:
+        """Relay name."""
+        return self.metadata.data.get("name")
+
+    # --- Static methods ---
+
+    @staticmethod
+    def _all_leaves_none(data: dict[str, Any]) -> bool:
+        """Check if all leaf values in the dict are None.
+
+        Handles nested dicts (limitation, fees) by checking their leaves too.
+        """
+        for value in data.values():
+            if isinstance(value, dict):
+                # Nested dict - check if any leaf is not None
+                if not all(v is None for v in value.values()):
+                    return False
+            elif value is not None:
+                return False
+        return True
 
     @classmethod
     def _parse(cls, raw: dict[str, Any]) -> Nip11Data:
-        """Parse raw JSON into validated NIP-11 structure."""
-        result: Nip11Data = {}
+        """Parse raw JSON into validated NIP-11 structure.
 
-        # Base string fields
-        for key in (
-            "name",
-            "description",
-            "banner",
-            "icon",
-            "pubkey",
-            "self",
-            "contact",
-            "software",
-            "version",
-            "privacy_policy",
-            "terms_of_service",
-            "posting_policy",
-            "payments_url",
-        ):
-            val = raw.get(key)
-            if isinstance(val, str):
-                result[key] = val  # type: ignore[literal-required]
+        Uses parse_typed_dict for base fields (str, int, list[str], list[int]).
+        Custom parsing for nested structures (limitation, retention, fees).
+        """
+        # Parse base fields using shared function
+        result = parse_typed_dict(raw, Nip11Data)
 
-        # supported_nips: list of ints (only if non-empty)
-        supported_nips = raw.get("supported_nips")
-        if isinstance(supported_nips, list):
-            parsed_nips = [n for n in supported_nips if isinstance(n, int)]
-            if parsed_nips:
-                result["supported_nips"] = parsed_nips
-
-        # relay_countries: list of strings (only if non-empty)
-        relay_countries = raw.get("relay_countries")
-        if isinstance(relay_countries, list):
-            parsed_countries = [c for c in relay_countries if isinstance(c, str)]
-            if parsed_countries:
-                result["relay_countries"] = parsed_countries
-
-        # language_tags: list of strings (only if non-empty)
-        language_tags = raw.get("language_tags")
-        if isinstance(language_tags, list):
-            parsed_langs = [t for t in language_tags if isinstance(t, str)]
-            if parsed_langs:
-                result["language_tags"] = parsed_langs
-
-        # tags: list of strings (only if non-empty)
-        tags = raw.get("tags")
-        if isinstance(tags, list):
-            parsed_tags = [t for t in tags if isinstance(t, str)]
-            if parsed_tags:
-                result["tags"] = parsed_tags
-
-        # limitation: dict with specific fields (only if non-empty)
+        # Override nested types that need custom parsing
+        # Always include full skeleton (all keys present, None for missing)
         limitation = raw.get("limitation")
         if isinstance(limitation, dict):
-            parsed_limitation = cls._parse_limitation(limitation)
-            if parsed_limitation:
-                result["limitation"] = parsed_limitation
+            result["limitation"] = parse_typed_dict(limitation, Nip11Limitation)
+        else:
+            # Empty skeleton with all keys set to None
+            result["limitation"] = dict.fromkeys(get_type_hints(Nip11Limitation))
 
-        # retention: list of retention entries (only if non-empty)
         retention = raw.get("retention")
         if isinstance(retention, list):
             parsed_retention = cls._parse_retention(retention)
-            if parsed_retention:
-                result["retention"] = parsed_retention
+            result["retention"] = parsed_retention if parsed_retention else None
+        else:
+            result["retention"] = None
 
-        # fees: dict with admission/subscription/publication (only if non-empty)
         fees = raw.get("fees")
         if isinstance(fees, dict):
-            parsed_fees = cls._parse_fees(fees)
-            if parsed_fees:
-                result["fees"] = parsed_fees
+            result["fees"] = cls._parse_fees(fees)
+        else:
+            # Empty skeleton with all keys set to None
+            result["fees"] = dict.fromkeys(get_type_hints(Nip11Fees))
 
-        return result
-
-    @classmethod
-    def _parse_limitation(cls, raw: dict[str, Any]) -> Nip11Limitation:
-        """Parse limitation dict, keeping only valid NIP-11 fields."""
-        result: Nip11Limitation = {}
-
-        # Integer fields
-        for key in (
-            "max_message_length",
-            "max_subscriptions",
-            "max_limit",
-            "max_subid_length",
-            "max_event_tags",
-            "max_content_length",
-            "min_pow_difficulty",
-            "created_at_lower_limit",
-            "created_at_upper_limit",
-            "default_limit",
-        ):
-            val = raw.get(key)
-            if isinstance(val, int):
-                result[key] = val  # type: ignore[literal-required]
-
-        # Boolean fields
-        for key in ("auth_required", "payment_required", "restricted_writes"):
-            val = raw.get(key)
-            if isinstance(val, bool):
-                result[key] = val  # type: ignore[literal-required]
-
-        return result
+        return result  # type: ignore[return-value]
 
     @classmethod
     def _parse_retention(cls, raw: list[Any]) -> list[Nip11RetentionEntry]:
@@ -405,7 +356,7 @@ class Nip11:
 
             if "time" in entry:
                 time_val = entry["time"]
-                if time_val is None or isinstance(time_val, int):
+                if isinstance(time_val, int):
                     parsed["time"] = time_val
 
             count_val = entry.get("count")
@@ -418,15 +369,19 @@ class Nip11:
 
     @classmethod
     def _parse_fees(cls, raw: dict[str, Any]) -> Nip11Fees:
-        """Parse fees dict, validating each category."""
+        """Parse fees dict, validating each category.
+
+        Always returns full skeleton with all keys (None for missing).
+        """
         result: Nip11Fees = {}
 
         for category in ("admission", "subscription", "publication"):
             fee_list = raw.get(category)
             if isinstance(fee_list, list):
                 parsed_list = cls._parse_fee_list(fee_list)
-                if parsed_list:
-                    result[category] = parsed_list  # type: ignore[literal-required]
+                result[category] = parsed_list if parsed_list else None  # type: ignore[literal-required, typeddict-item]
+            else:
+                result[category] = None  # type: ignore[literal-required, typeddict-item]
 
         return result
 
@@ -461,94 +416,6 @@ class Nip11:
                 result.append(parsed)
         return result
 
-    # --- Helper for metadata access ---
-
-    def _get(self, key: str) -> Any:
-        """Get metadata value by key."""
-        return self.metadata.data.get(key)
-
-    # --- Properties for first-level access ---
-
-    @property
-    def name(self) -> str | None:
-        return self._get("name")
-
-    @property
-    def description(self) -> str | None:
-        return self._get("description")
-
-    @property
-    def banner(self) -> str | None:
-        return self._get("banner")
-
-    @property
-    def icon(self) -> str | None:
-        return self._get("icon")
-
-    @property
-    def pubkey(self) -> str | None:
-        return self._get("pubkey")
-
-    @property
-    def self_pubkey(self) -> str | None:
-        return self._get("self")
-
-    @property
-    def contact(self) -> str | None:
-        return self._get("contact")
-
-    @property
-    def supported_nips(self) -> list[int] | None:
-        return self._get("supported_nips")
-
-    @property
-    def software(self) -> str | None:
-        return self._get("software")
-
-    @property
-    def version(self) -> str | None:
-        return self._get("version")
-
-    @property
-    def privacy_policy(self) -> str | None:
-        return self._get("privacy_policy")
-
-    @property
-    def terms_of_service(self) -> str | None:
-        return self._get("terms_of_service")
-
-    @property
-    def limitation(self) -> Nip11Limitation | None:
-        return self._get("limitation")
-
-    @property
-    def retention(self) -> list[Nip11RetentionEntry] | None:
-        return self._get("retention")
-
-    @property
-    def relay_countries(self) -> list[str] | None:
-        return self._get("relay_countries")
-
-    @property
-    def language_tags(self) -> list[str] | None:
-        return self._get("language_tags")
-
-    @property
-    def tags(self) -> list[str] | None:
-        return self._get("tags")
-
-    @property
-    def posting_policy(self) -> str | None:
-        return self._get("posting_policy")
-
-    @property
-    def payments_url(self) -> str | None:
-        return self._get("payments_url")
-
-    @property
-    def fees(self) -> Nip11Fees | None:
-        return self._get("fees")
-
     # --- Factory method ---
 
     def to_relay_metadata(self) -> RelayMetadata:
@@ -576,7 +443,6 @@ class Nip11:
         timeout: float,
         max_size: int,
         proxy_url: str | None = None,
-        verify_ssl: bool = False,
     ) -> Metadata:
         """
         Internal fetch returning raw Metadata or raising exception.
@@ -586,7 +452,6 @@ class Nip11:
             timeout: Request timeout in seconds
             max_size: Maximum response size in bytes
             proxy_url: Optional SOCKS5 proxy URL
-            verify_ssl: Verify SSL certificates (default: False, SSL check is NIP-66's job)
 
         Returns:
             Metadata with raw NIP-11 data (parsing happens in __post_init__)
@@ -596,17 +461,22 @@ class Nip11:
             asyncio.TimeoutError: Request timeout
             ValueError: Invalid response (status, content-type, size, JSON)
         """
+        # Build HTTP URL from relay components
         protocol = "https" if relay.scheme == "wss" else "http"
-        http_url = f"{protocol}://{relay.url_without_scheme}"
+        # Format host for URL (add brackets for IPv6)
+        formatted_host = f"[{relay.host}]" if ":" in relay.host else relay.host
+        # Include port only if non-default
+        default_port = 443 if protocol == "https" else 80
+        port_suffix = f":{relay.port}" if relay.port and relay.port != default_port else ""
+        path_suffix = relay.path or ""
+        http_url = f"{protocol}://{formatted_host}{port_suffix}{path_suffix}"
 
         headers = {"Accept": "application/nostr+json"}
 
-        # SSL context: skip verification by default (SSL check is NIP-66's job)
-        ssl_context: ssl.SSLContext | bool = True
-        if not verify_ssl:
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
+        # SSL verification disabled (SSL check is NIP-66's job)
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
 
         connector: aiohttp.BaseConnector
         if proxy_url:
@@ -651,20 +521,19 @@ class Nip11:
         timeout: float | None = None,
         max_size: int | None = None,
         proxy_url: str | None = None,
-        verify_ssl: bool = False,
     ) -> Nip11:
         """
         Fetch NIP-11 document from relay.
 
         Connects via HTTP(S) with Accept: application/nostr+json header,
         validates the response, and parses into a validated Nip11 instance.
+        SSL verification is disabled (SSL check is NIP-66's job).
 
         Args:
             relay: Relay object to fetch NIP-11 from
             timeout: Request timeout in seconds (default: _FETCH_TIMEOUT)
             max_size: Maximum response size in bytes (default: _FETCH_MAX_SIZE)
             proxy_url: Optional SOCKS5 proxy URL for Tor/I2P/Loki
-            verify_ssl: Verify SSL certificates (default: False, SSL check is NIP-66's job)
 
         Returns:
             Nip11 instance with parsed data
@@ -676,21 +545,18 @@ class Nip11:
             SystemExit: If system exit requested
 
         Example:
-            # Basic fetch (SSL verification disabled by default)
+            # Basic fetch
             nip11 = await Nip11.fetch(relay)
-            print(f"Name: {nip11.name}")
+            print(f"Name: {nip11.metadata.data['name']}")
 
             # With proxy for onion relay
             nip11 = await Nip11.fetch(relay, proxy_url="socks5://localhost:9050")
-
-            # With SSL verification enabled
-            nip11 = await Nip11.fetch(relay, verify_ssl=True)
         """
         timeout = timeout if timeout is not None else cls._FETCH_TIMEOUT
         max_size = max_size if max_size is not None else cls._FETCH_MAX_SIZE
 
         try:
-            metadata = await cls._fetch(relay, timeout, max_size, proxy_url, verify_ssl)
+            metadata = await cls._fetch(relay, timeout, max_size, proxy_url)
             return cls(relay=relay, metadata=metadata)
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
