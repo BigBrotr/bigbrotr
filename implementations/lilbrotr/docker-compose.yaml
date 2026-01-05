@@ -2,9 +2,10 @@
 # LilBrotr Docker Compose Configuration
 # ============================================================================
 # Description: Complete containerized deployment for LilBrotr
-# Components: PostgreSQL, PGBouncer, Tor (optional)
+# Components: PostgreSQL, PGBouncer, Tor, I2P, Lokinet (overlay network proxies)
 # Note: LilBrotr stores lightweight events (tagvalues only, no tags/content/sig)
 # Usage: docker-compose up -d
+#        docker-compose --profile linux-only up -d  # Include Lokinet (Linux only)
 # ============================================================================
 
 services:
@@ -134,6 +135,78 @@ services:
         max-file: "3"
 
   # --------------------------------------------------------------------------
+  # I2P Proxy (SOCKS5)
+  # --------------------------------------------------------------------------
+  # Provides SOCKS5 proxy for .i2p relay support
+
+  i2p:
+    image: divax/i2p:current
+    container_name: lilbrotr-i2p
+    restart: unless-stopped
+
+    environment:
+      - ENABLE_SOCKSPROXY=1
+      - PORT_SOCKSPROXY=4447
+
+    ports:
+      - "127.0.0.1:4448:4447"   # SOCKS5 proxy (different host port to avoid conflict)
+      - "127.0.0.1:7071:7070"   # Web console (optional)
+
+    networks:
+      - lilbrotr-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 4447 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 180s  # I2P needs 2-5 min for tunnel bootstrap
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # Lokinet Proxy (SOCKS5) - Linux Only
+  # --------------------------------------------------------------------------
+  # Provides SOCKS5 proxy for .loki relay support
+  # Requires TUN device - only works on Linux hosts (not macOS/Windows Docker)
+
+  lokinet:
+    image: mahdi5/lokinet-socks:latest
+    container_name: lilbrotr-lokinet
+    restart: unless-stopped
+    profiles:
+      - linux-only  # Only starts with: docker-compose --profile linux-only up
+
+    cap_add:
+      - NET_ADMIN
+
+    devices:
+      - /dev/net/tun
+
+    ports:
+      - "127.0.0.1:1081:1080"   # SOCKS5 proxy (different host port to avoid conflict)
+
+    networks:
+      - lilbrotr-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 1080 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
   # LilBrotr Seeder Service
   # --------------------------------------------------------------------------
   # Runs once to seed initial relay data for validation
@@ -150,7 +223,7 @@ services:
 
     volumes:
       - ./yaml:/app/yaml:ro
-      - ./seed_relays.txt:/app/seed_relays.txt:ro
+      - ./static:/app/static:ro
 
     networks:
       - lilbrotr-network
@@ -222,6 +295,7 @@ services:
   # LilBrotr Validator Service
   # --------------------------------------------------------------------------
   # Validates candidate relay URLs before adding to relays table
+  # Uses overlay network proxies (Tor, I2P, Lokinet) for hidden relay connectivity
 
   validator:
     build:
@@ -248,6 +322,8 @@ services:
       finder:
         condition: service_healthy
       tor:
+        condition: service_healthy
+      i2p:
         condition: service_healthy
 
     command: ["python", "-m", "services", "validator"]
@@ -278,6 +354,7 @@ services:
   # LilBrotr Monitor Service
   # --------------------------------------------------------------------------
   # Checks relay health and capabilities (NIP-11, NIP-66)
+  # Uses overlay network proxies (Tor, I2P, Lokinet) for hidden relay connectivity
 
   monitor:
     build:
@@ -292,6 +369,7 @@ services:
 
     volumes:
       - ./yaml:/app/yaml:ro
+      - ./static:/app/static:ro
 
     networks:
       - lilbrotr-network
@@ -302,6 +380,10 @@ services:
       seeder:
         condition: service_completed_successfully
       validator:
+        condition: service_healthy
+      tor:
+        condition: service_healthy
+      i2p:
         condition: service_healthy
 
     command: ["python", "-m", "services", "monitor"]
@@ -332,6 +414,7 @@ services:
   # LilBrotr Synchronizer Service
   # --------------------------------------------------------------------------
   # Synchronizes Nostr events from relays (lightweight config)
+  # Uses overlay network proxies (Tor, I2P, Lokinet) for hidden relay connectivity
 
   synchronizer:
     build:
@@ -356,6 +439,10 @@ services:
       seeder:
         condition: service_completed_successfully
       monitor:
+        condition: service_healthy
+      tor:
+        condition: service_healthy
+      i2p:
         condition: service_healthy
 
     command: ["python", "-m", "services", "synchronizer"]
