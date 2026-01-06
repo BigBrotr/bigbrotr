@@ -638,18 +638,22 @@ class TestTestSsl:
         assert result.data.get("ssl_protocol") == "TLSv1.3"
 
     @pytest.mark.asyncio
-    async def test_ws_returns_all_none_metadata(self, ws_relay):
-        """Returns metadata with all None values for ws:// relay (no SSL)."""
-        result = await Nip66._test_ssl(ws_relay, 10.0)
-        assert isinstance(result, Metadata)
-        assert all(v is None for v in result.data.values())
+    async def test_ssl_failure_raises_error(self, relay):
+        """Raises Nip66TestError when SSL check fails."""
+        # Mock _check_ssl_sync to return empty dict (SSL check failed)
+        with (
+            patch.object(Nip66, "_check_ssl_sync", return_value={}),
+            pytest.raises(Nip66TestError) as exc_info,
+        ):
+            await Nip66._test_ssl(relay, 10.0)
+        assert "returned no data" in str(exc_info.value.cause)
 
     @pytest.mark.asyncio
-    async def test_tor_returns_all_none_metadata(self, tor_relay):
-        """Returns metadata with all None values for Tor relay."""
-        result = await Nip66._test_ssl(tor_relay, 10.0)
-        assert isinstance(result, Metadata)
-        assert all(v is None for v in result.data.values())
+    async def test_tor_raises_error(self, tor_relay):
+        """Raises Nip66TestError for Tor relay."""
+        with pytest.raises(Nip66TestError) as exc_info:
+            await Nip66._test_ssl(tor_relay, 10.0)
+        assert "not applicable" in str(exc_info.value.cause)
 
 
 class TestTestGeo:
@@ -666,34 +670,60 @@ class TestTestGeo:
 
         mock_city_reader = MagicMock()
 
-        with patch.object(Nip66, "_lookup_geo_sync", return_value=geo_result):
-            result = await Nip66._test_geo(relay, "8.8.8.8", mock_city_reader)
+        with (
+            patch("socket.gethostbyname", return_value="8.8.8.8"),
+            patch.object(Nip66, "_lookup_geo_sync", return_value=geo_result),
+        ):
+            result = await Nip66._test_geo(relay, mock_city_reader)
 
         assert isinstance(result, Metadata)
         assert result.data.get("geo_country") == "US"
 
     @pytest.mark.asyncio
-    async def test_tor_returns_all_none_metadata(self, tor_relay):
-        """Returns metadata with all None values for Tor relay."""
+    async def test_tor_raises_error(self, tor_relay):
+        """Raises Nip66TestError for Tor relay."""
         mock_city_reader = MagicMock()
-        result = await Nip66._test_geo(tor_relay, "8.8.8.8", mock_city_reader)
-        assert isinstance(result, Metadata)
-        assert all(v is None for v in result.data.values())
+        with pytest.raises(Nip66TestError) as exc_info:
+            await Nip66._test_geo(tor_relay, mock_city_reader)
+        assert "not applicable" in str(exc_info.value.cause)
 
     @pytest.mark.asyncio
-    async def test_no_reader_returns_all_none_metadata(self, relay):
-        """Returns metadata with all None values when no city reader provided."""
-        result = await Nip66._test_geo(relay, "8.8.8.8", city_reader=None)
-        assert isinstance(result, Metadata)
-        assert all(v is None for v in result.data.values())
+    async def test_no_reader_raises_error(self, relay):
+        """Raises Nip66TestError when no readers provided."""
+        with pytest.raises(Nip66TestError) as exc_info:
+            await Nip66._test_geo(relay, city_reader=None, asn_reader=None)
+        assert "requires city_reader or asn_reader" in str(exc_info.value.cause)
 
     @pytest.mark.asyncio
-    async def test_no_ip_returns_all_none_metadata(self, relay):
-        """Returns metadata with all None values when no IP provided."""
-        mock_city_reader = MagicMock()
-        result = await Nip66._test_geo(relay, None, mock_city_reader)
+    async def test_asn_only_returns_data(self, relay):
+        """Returns geo data with ASN reader only (no city reader)."""
+        geo_result = {
+            "geo_ip": "8.8.8.8",
+            "geo_asn": 15169,
+            "geo_asn_org": "GOOGLE",
+        }
+
+        mock_asn_reader = MagicMock()
+
+        with (
+            patch("socket.gethostbyname", return_value="8.8.8.8"),
+            patch.object(Nip66, "_lookup_geo_sync", return_value=geo_result),
+        ):
+            result = await Nip66._test_geo(relay, city_reader=None, asn_reader=mock_asn_reader)
+
         assert isinstance(result, Metadata)
-        assert all(v is None for v in result.data.values())
+        assert result.data.get("geo_asn") == 15169
+
+    @pytest.mark.asyncio
+    async def test_dns_failure_raises_error(self, relay):
+        """Raises Nip66TestError when DNS resolution fails."""
+        mock_city_reader = MagicMock()
+        with (
+            patch("socket.gethostbyname", side_effect=OSError("DNS failed")),
+            pytest.raises(Nip66TestError) as exc_info,
+        ):
+            await Nip66._test_geo(relay, mock_city_reader)
+        assert "returned no data" in str(exc_info.value.cause)
 
 
 class TestTestDns:
@@ -717,11 +747,11 @@ class TestTestDns:
         assert result.data.get("dns_rtt") == 50
 
     @pytest.mark.asyncio
-    async def test_tor_returns_all_none_metadata(self, tor_relay):
-        """Returns metadata with all None values for Tor relay."""
-        result = await Nip66._test_dns(tor_relay, 5.0)
-        assert isinstance(result, Metadata)
-        assert all(v is None for v in result.data.values())
+    async def test_tor_raises_error(self, tor_relay):
+        """Raises Nip66TestError for Tor relay."""
+        with pytest.raises(Nip66TestError) as exc_info:
+            await Nip66._test_dns(tor_relay, 5.0)
+        assert "not applicable" in str(exc_info.value.cause)
 
 
 class TestTestHttp:
@@ -735,18 +765,21 @@ class TestTestHttp:
             "http_powered_by": "Strfry",
         }
 
-        with patch.object(Nip66, "_check_http_sync", return_value=http_result):
+        async def mock_check_http(*args, **kwargs):
+            return http_result
+
+        with patch.object(Nip66, "_check_http", mock_check_http):
             result = await Nip66._test_http(relay, 10.0)
 
         assert isinstance(result, Metadata)
         assert result.data.get("http_server") == "nginx/1.24.0"
 
     @pytest.mark.asyncio
-    async def test_tor_returns_all_none_metadata(self, tor_relay):
-        """Returns metadata with all None values for Tor relay."""
-        result = await Nip66._test_http(tor_relay, 10.0)
-        assert isinstance(result, Metadata)
-        assert all(v is None for v in result.data.values())
+    async def test_tor_raises_error(self, tor_relay):
+        """Raises Nip66TestError for Tor relay without proxy."""
+        with pytest.raises(Nip66TestError) as exc_info:
+            await Nip66._test_http(tor_relay, 10.0)
+        assert "not applicable" in str(exc_info.value.cause)
 
 
 class TestTest:
@@ -761,7 +794,9 @@ class TestTest:
         mock_keys = MagicMock()
         mock_keys._inner = MagicMock()
         mock_event_builder = MagicMock()
+        mock_read_filter = MagicMock()
 
+        # _test_* methods now raise Nip66TestError on failure, so we mock success cases
         with (
             patch.object(
                 Nip66, "_test_dns", new_callable=AsyncMock, return_value=Metadata(dns_data)
@@ -769,11 +804,32 @@ class TestTest:
             patch.object(
                 Nip66, "_test_rtt", new_callable=AsyncMock, return_value=Metadata(rtt_data)
             ),
-            patch.object(Nip66, "_test_ssl", new_callable=AsyncMock, return_value=Metadata({})),
-            patch.object(Nip66, "_test_geo", new_callable=AsyncMock, return_value=Metadata({})),
-            patch.object(Nip66, "_test_http", new_callable=AsyncMock, return_value=Metadata({})),
+            # SSL, geo, http raise Nip66TestError (simulating failure)
+            patch.object(
+                Nip66,
+                "_test_ssl",
+                new_callable=AsyncMock,
+                side_effect=Nip66TestError(relay, ValueError("test")),
+            ),
+            patch.object(
+                Nip66,
+                "_test_geo",
+                new_callable=AsyncMock,
+                side_effect=Nip66TestError(relay, ValueError("test")),
+            ),
+            patch.object(
+                Nip66,
+                "_test_http",
+                new_callable=AsyncMock,
+                side_effect=Nip66TestError(relay, ValueError("test")),
+            ),
         ):
-            result = await Nip66.test(relay, keys=mock_keys, event_builder=mock_event_builder)
+            result = await Nip66.test(
+                relay,
+                keys=mock_keys,
+                event_builder=mock_event_builder,
+                read_filter=mock_read_filter,
+            )
 
         assert isinstance(result, Nip66)
         assert result.rtt_metadata.data.get("rtt_open") == 100
@@ -785,22 +841,43 @@ class TestTest:
         mock_keys = MagicMock()
         mock_keys._inner = MagicMock()
         mock_event_builder = MagicMock()
+        mock_read_filter = MagicMock()
 
+        # All _test_* methods raise Nip66TestError
+        test_error = Nip66TestError(relay, ValueError("test failed"))
         with (
-            patch.object(Nip66, "_test_dns", new_callable=AsyncMock, return_value=Metadata({})),
-            patch.object(Nip66, "_test_rtt", new_callable=AsyncMock, return_value=Metadata({})),
-            patch.object(Nip66, "_test_ssl", new_callable=AsyncMock, return_value=Metadata({})),
-            patch.object(Nip66, "_test_geo", new_callable=AsyncMock, return_value=Metadata({})),
-            patch.object(Nip66, "_test_http", new_callable=AsyncMock, return_value=Metadata({})),
+            patch.object(Nip66, "_test_dns", new_callable=AsyncMock, side_effect=test_error),
+            patch.object(Nip66, "_test_rtt", new_callable=AsyncMock, side_effect=test_error),
+            patch.object(Nip66, "_test_ssl", new_callable=AsyncMock, side_effect=test_error),
+            patch.object(Nip66, "_test_geo", new_callable=AsyncMock, side_effect=test_error),
+            patch.object(Nip66, "_test_http", new_callable=AsyncMock, side_effect=test_error),
             pytest.raises(Nip66TestError),
         ):
-            await Nip66.test(relay, keys=mock_keys, event_builder=mock_event_builder)
+            await Nip66.test(
+                relay,
+                keys=mock_keys,
+                event_builder=mock_event_builder,
+                read_filter=mock_read_filter,
+            )
 
     @pytest.mark.asyncio
-    async def test_run_rtt_requires_keys_and_event_builder(self, relay):
-        """run_rtt=True requires keys and event_builder."""
-        with pytest.raises(ValueError, match="requires keys and event_builder"):
-            await Nip66.test(relay, run_rtt=True, keys=None, event_builder=None)
+    async def test_run_rtt_requires_keys_event_builder_and_read_filter(self, relay):
+        """run_rtt=True without keys/event_builder/read_filter raises Nip66TestError."""
+        # Disable all other tests so only RTT is attempted
+        # _test_rtt raises Nip66TestError for missing params, which then causes
+        # test() to raise Nip66TestError because no metadata was collected
+        with pytest.raises(Nip66TestError):
+            await Nip66.test(
+                relay,
+                run_rtt=True,
+                run_ssl=False,
+                run_geo=False,
+                run_dns=False,
+                run_http=False,
+                keys=None,
+                event_builder=None,
+                read_filter=None,
+            )
 
     @pytest.mark.asyncio
     async def test_can_skip_all_except_dns(self, relay):
