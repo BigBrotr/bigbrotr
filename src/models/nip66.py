@@ -81,11 +81,13 @@ Usage::
     asn_reader = geoip2.database.Reader("/path/to/GeoLite2-ASN.mmdb")
     keys = Keys.generate()
     event_builder = EventBuilder.text_note("test")
+    read_filter = Filter().limit(1)
 
     nip66 = await Nip66.test(
         relay,
         keys=keys,
         event_builder=event_builder,
+        read_filter=read_filter,
         city_reader=city_reader,
         asn_reader=asn_reader,
     )
@@ -104,6 +106,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import socket
 import ssl
 from dataclasses import dataclass, field
@@ -111,10 +114,12 @@ from datetime import timedelta
 from time import perf_counter, time
 from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 
+logger = logging.getLogger(__name__)
+
 import dns.resolver  # type: ignore[import-not-found]
 import geohash2
 import geoip2.database  # noqa: TC002 - used at runtime in _lookup_geo_sync
-from nostr_sdk import ClientBuilder, ClientOptions, EventBuilder, Filter, NostrSigner, RelayUrl
+from nostr_sdk import ClientBuilder, ClientOptions, EventBuilder, Filter, NostrSigner, RelayUrl  # noqa: TC002 - Filter used at runtime
 
 from .metadata import Metadata
 from .relay import Relay
@@ -351,8 +356,9 @@ class Nip66:
         cls,
         relay: Relay,
         timeout: float,
-        keys: Keys,
-        event_builder: EventBuilder,
+        keys: Keys | None,
+        event_builder: EventBuilder | None,
+        read_filter: Filter | None,
         proxy_url: str | None = None,
     ) -> Metadata:
         """Test relay RTT (round-trip times) and capabilities.
@@ -360,10 +366,22 @@ class Nip66:
         Args:
             relay: Relay to test
             timeout: Connection timeout in seconds
-            keys: Keys for signing test events
-            event_builder: EventBuilder for write test
+            keys: Keys for signing test events (required)
+            event_builder: EventBuilder for write test (required)
+            read_filter: Filter for read test (required)
             proxy_url: Optional SOCKS5 proxy URL for overlay networks
+
+        Raises:
+            Nip66TestError: If keys/event_builder/read_filter not provided or test fails.
         """
+        logger.debug("_test_rtt: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url)
+
+        if keys is None or event_builder is None or read_filter is None:
+            logger.warning("_test_rtt: missing required params relay=%s", relay.url)
+            raise Nip66TestError(
+                relay, ValueError("RTT test requires keys, event_builder and read_filter")
+            )
+
         data: dict[str, Any] = {}
 
         # Create client with signer and optional proxy
@@ -374,13 +392,15 @@ class Nip66:
         client = ClientBuilder().signer(signer).opts(opts).build()
 
         try:
-            # Test open
+            # Test open: measure full connection time from connect() to connected
+            # connect() starts the connection in background, wait_for_connection() blocks
+            # until handshake completes. Start timer before connect() to capture full RTT.
             relay_url = RelayUrl.parse(relay.url)
             await client.add_relay(relay_url)
 
-            # connect() returns immediately, use wait_for_connection() to measure actual RTT
-            await client.connect()
+            logger.debug("_test_rtt: connecting relay=%s", relay.url)
             start = perf_counter()
+            await client.connect()
             await client.wait_for_connection(timedelta(seconds=timeout))
             rtt_open = int((perf_counter() - start) * 1000)
 
@@ -388,46 +408,82 @@ class Nip66:
             relay_obj = await client.relay(relay_url)
             status = relay_obj.status()
             if str(status) != "RelayStatus.CONNECTED":
+                logger.warning("_test_rtt: connection failed relay=%s status=%s", relay.url, status)
                 raise ConnectionError(f"Relay not connected: {status}")
 
             data["rtt_open"] = rtt_open
+            logger.debug("_test_rtt: open succeeded relay=%s rtt_open=%dms", relay.url, rtt_open)
 
-            # Test read
+            # Test read: stream_events() to measure time to first event or EOSE
+            # Stop timer at first event received, or at EOSE if no events
+            # EventStream uses next() method, not async iterator
+            read_success = False
             try:
+                logger.debug("_test_rtt: reading relay=%s", relay.url)
                 start = perf_counter()
-                f = Filter().limit(1)
-                await client.fetch_events(f, timedelta(seconds=timeout))
+                stream = await client.stream_events(read_filter, timedelta(seconds=timeout))
+                # next() returns None when stream closes (on EOSE)
+                event = await stream.next()
                 rtt_read = int((perf_counter() - start) * 1000)
+                data["rtt_read"] = rtt_read
+                read_success = True
+                if event is not None:
+                    logger.debug("_test_rtt: read event relay=%s rtt_read=%dms", relay.url, rtt_read)
+                else:
+                    logger.debug("_test_rtt: read eose relay=%s rtt_read=%dms", relay.url, rtt_read)
+            except Exception as e:
+                logger.debug("_test_rtt: read failed relay=%s error=%s", relay.url, e)
 
-                # Validate read: if rtt_read >= timeout, it means we waited the full timeout
-                # without receiving any response (connection not working)
-                timeout_ms = int(timeout * 1000)
-                if rtt_read < timeout_ms:
-                    data["rtt_read"] = rtt_read
-            except Exception:
-                pass
-
-            # Test write
+            # Test write: send event and verify acceptance
+            # send_event_builder() returns Output with success/failed relay lists
+            # If read worked, also verify by querying the event back
             try:
+                logger.debug("_test_rtt: writing relay=%s", relay.url)
                 start = perf_counter()
                 output = await client.send_event_builder(event_builder)
-                rtt_write = int((perf_counter() - start) * 1000)
 
-                # Validate write: if output exists and rtt_write > 0, it's likely valid
-                # rtt_write < 1 with output is suspicious (too fast for network roundtrip)
-                if output and rtt_write >= 1:
-                    data["rtt_write"] = rtt_write
-            except Exception:
-                pass
+                # Check if relay accepted the event (OK message with true)
+                if output and relay.url in [str(u) for u in output.success]:
+                    logger.debug("_test_rtt: write accepted relay=%s", relay.url)
+                    # Relay sent OK=true, event was accepted
+                    if read_success:
+                        # Verify by querying back (most reliable)
+                        event_id = output.id
+                        verify_filter = Filter().id(event_id).limit(1)
+                        logger.debug("_test_rtt: verifying write relay=%s event_id=%s", relay.url, event_id)
+                        events = await client.fetch_events(
+                            verify_filter, timedelta(seconds=timeout)
+                        )
+                        if events and len(events.to_vec()) > 0:
+                            rtt_write = int((perf_counter() - start) * 1000)
+                            data["rtt_write"] = rtt_write
+                            logger.debug("_test_rtt: write verified relay=%s rtt_write=%dms", relay.url, rtt_write)
+                        else:
+                            logger.debug("_test_rtt: write verify failed relay=%s (event not found)", relay.url)
+                    else:
+                        # Can't verify via read, trust the OK response
+                        rtt_write = int((perf_counter() - start) * 1000)
+                        data["rtt_write"] = rtt_write
+                        logger.debug("_test_rtt: write trusted relay=%s rtt_write=%dms", relay.url, rtt_write)
+                else:
+                    failed = [str(u) for u in output.failed] if output else []
+                    logger.debug("_test_rtt: write rejected relay=%s failed=%s", relay.url, failed)
+            except Exception as e:
+                logger.debug("_test_rtt: write failed relay=%s error=%s", relay.url, e)
 
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("_test_rtt: connection error relay=%s error=%s", relay.url, e)
         finally:
             try:
                 await client.shutdown()
             except Exception:
                 pass
 
+        if not data:
+            logger.warning("_test_rtt: no data relay=%s", relay.url)
+            raise Nip66TestError(relay, ValueError("RTT test returned no data"))
+
+        logger.debug("_test_rtt: completed relay=%s data=%s", relay.url, list(data.keys()))
         return Metadata(data)
 
     @classmethod
@@ -440,18 +496,28 @@ class Nip66:
 
         Note: SSL test requires direct socket connection, not supported via proxy.
         Only works for clearnet wss:// relays.
+
+        Raises:
+            Nip66TestError: If test returns no data (not applicable or failed).
         """
+        logger.debug("_test_ssl: relay=%s timeout=%.1fs", relay.url, timeout)
+
+        if relay.network != "clearnet":
+            logger.debug("_test_ssl: skipped (non-clearnet) relay=%s", relay.url)
+            raise Nip66TestError(relay, ValueError("SSL test not applicable (non-clearnet)"))
+
         data: dict[str, Any] = {}
-
-        if relay.scheme != "wss" or relay.network != "clearnet":
-            return Metadata(data)
-
         port = relay.port or Relay._PORT_WSS
         try:
+            logger.debug("_test_ssl: checking host=%s port=%d", relay.host, port)
             data = await asyncio.to_thread(cls._check_ssl_sync, relay.host, port, timeout)
-        except Exception:
-            pass
+            logger.debug("_test_ssl: completed relay=%s valid=%s", relay.url, data.get("ssl_valid"))
+        except Exception as e:
+            logger.debug("_test_ssl: error relay=%s error=%s", relay.url, e)
 
+        if not data:
+            logger.warning("_test_ssl: no data relay=%s", relay.url)
+            raise Nip66TestError(relay, ValueError("SSL test returned no data"))
         return Metadata(data)
 
     @staticmethod
@@ -558,95 +624,121 @@ class Nip66:
     async def _test_geo(
         cls,
         relay: Relay,
-        ip: str | None,
-        city_reader: geoip2.database.Reader | None,
+        city_reader: geoip2.database.Reader | None = None,
         asn_reader: geoip2.database.Reader | None = None,
     ) -> Metadata:
-        """Lookup geolocation for relay using provided IP.
+        """Lookup geolocation for relay.
 
-        Note: Geolocation lookup uses local GeoIP database, no network call.
+        Resolves the relay hostname to IP internally, then performs GeoIP lookup.
+        Note: Geolocation lookup uses local GeoIP database after DNS resolution.
         Only works for clearnet relays (overlay networks have no public IP).
+
+        Raises:
+            Nip66TestError: If test returns no data (not applicable or failed).
         """
+        logger.debug("_test_geo: relay=%s city=%s asn=%s", relay.url, city_reader is not None, asn_reader is not None)
+
+        if relay.network != "clearnet":
+            logger.debug("_test_geo: skipped (non-clearnet) relay=%s", relay.url)
+            raise Nip66TestError(relay, ValueError("Geo test not applicable (non-clearnet)"))
+        if not city_reader and not asn_reader:
+            logger.warning("_test_geo: no readers relay=%s", relay.url)
+            raise Nip66TestError(relay, ValueError("Geo test requires city_reader or asn_reader"))
+
         data: dict[str, Any] = {}
-
-        if relay.network != "clearnet" or not city_reader or not ip:
-            return Metadata(data)
-
         try:
+            # Resolve hostname to IP first
+            logger.debug("_test_geo: resolving host=%s", relay.host)
+            ip = await asyncio.to_thread(socket.gethostbyname, relay.host)
+            logger.debug("_test_geo: resolved ip=%s relay=%s", ip, relay.url)
             data = await asyncio.to_thread(cls._lookup_geo_sync, ip, city_reader, asn_reader)
-            if len(data) <= 1:  # Only geo_ip, no actual geo data
-                data = {}
-        except Exception:
-            pass
+            if len(data) == 1 and "geo_ip" in data:
+                logger.debug("_test_geo: only geo_ip found relay=%s", relay.url)
+                data = {}  # Only geo_ip present, treat as no data
+            else:
+                logger.debug("_test_geo: completed relay=%s country=%s", relay.url, data.get("geo_country"))
+        except Exception as e:
+            logger.debug("_test_geo: error relay=%s error=%s", relay.url, e)
 
+        if not data:
+            logger.warning("_test_geo: no data relay=%s", relay.url)
+            raise Nip66TestError(relay, ValueError("Geo test returned no data"))
         return Metadata(data)
 
     @staticmethod
     def _lookup_geo_sync(
         ip: str,
-        city_reader: geoip2.database.Reader,
+        city_reader: geoip2.database.Reader | None = None,
         asn_reader: geoip2.database.Reader | None = None,
     ) -> dict[str, Any]:
-        """Synchronous geolocation lookup with comprehensive field extraction."""
+        """Synchronous geolocation lookup with comprehensive field extraction.
+
+        Requires at least one of city_reader or asn_reader.
+        """
         result: dict[str, Any] = {"geo_ip": ip}
 
-        response = city_reader.city(ip)
+        # City/Country data from city reader
+        if city_reader:
+            try:
+                response = city_reader.city(ip)
 
-        # Country
-        if response.country.iso_code:
-            result["geo_country"] = response.country.iso_code
-        elif response.registered_country.iso_code:
-            result["geo_country"] = response.registered_country.iso_code
+                # Country
+                if response.country.iso_code:
+                    result["geo_country"] = response.country.iso_code
+                elif response.registered_country.iso_code:
+                    result["geo_country"] = response.registered_country.iso_code
 
-        if response.country.name:
-            result["geo_country_name"] = response.country.name
-        elif response.registered_country.name:
-            result["geo_country_name"] = response.registered_country.name
+                if response.country.name:
+                    result["geo_country_name"] = response.country.name
+                elif response.registered_country.name:
+                    result["geo_country_name"] = response.registered_country.name
 
-        # EU membership
-        is_eu = response.country.is_in_european_union
-        if is_eu is not None:
-            result["geo_is_eu"] = is_eu
+                # EU membership
+                is_eu = response.country.is_in_european_union
+                if is_eu is not None:
+                    result["geo_is_eu"] = is_eu
 
-        # Continent
-        if response.continent.code:
-            result["geo_continent"] = response.continent.code
-        if response.continent.name:
-            result["geo_continent_name"] = response.continent.name
+                # Continent
+                if response.continent.code:
+                    result["geo_continent"] = response.continent.code
+                if response.continent.name:
+                    result["geo_continent_name"] = response.continent.name
 
-        # City
-        if response.city.name:
-            result["geo_city"] = response.city.name
-        if response.city.geoname_id:
-            result["geo_geoname_id"] = response.city.geoname_id
+                # City
+                if response.city.name:
+                    result["geo_city"] = response.city.name
+                if response.city.geoname_id:
+                    result["geo_geoname_id"] = response.city.geoname_id
 
-        # Region
-        if response.subdivisions:
-            region = response.subdivisions.most_specific.name
-            if region:
-                result["geo_region"] = region
+                # Region
+                if response.subdivisions:
+                    region = response.subdivisions.most_specific.name
+                    if region:
+                        result["geo_region"] = region
 
-        # Postal
-        if response.postal.code:
-            result["geo_postal"] = response.postal.code
+                # Postal
+                if response.postal.code:
+                    result["geo_postal"] = response.postal.code
 
-        # Location
-        if response.location.latitude is not None:
-            result["geo_lat"] = response.location.latitude
-        if response.location.longitude is not None:
-            result["geo_lon"] = response.location.longitude
-        if response.location.accuracy_radius is not None:
-            result["geo_accuracy"] = response.location.accuracy_radius
-        if response.location.time_zone:
-            result["geo_tz"] = response.location.time_zone
+                # Location
+                if response.location.latitude is not None:
+                    result["geo_lat"] = response.location.latitude
+                if response.location.longitude is not None:
+                    result["geo_lon"] = response.location.longitude
+                if response.location.accuracy_radius is not None:
+                    result["geo_accuracy"] = response.location.accuracy_radius
+                if response.location.time_zone:
+                    result["geo_tz"] = response.location.time_zone
 
-        # Generate geohash if coordinates available
-        if "geo_lat" in result and "geo_lon" in result:
-            result["geohash"] = geohash2.encode(
-                result["geo_lat"],
-                result["geo_lon"],
-                precision=9,
-            )
+                # Generate geohash if coordinates available
+                if "geo_lat" in result and "geo_lon" in result:
+                    result["geohash"] = geohash2.encode(
+                        result["geo_lat"],
+                        result["geo_lon"],
+                        precision=9,
+                    )
+            except Exception:
+                pass
 
         # ASN data
         if asn_reader:
@@ -673,17 +765,27 @@ class Nip66:
 
         Note: DNS resolution uses system resolver, no proxy support.
         Only works for clearnet relays (overlay hostnames can't be resolved).
+
+        Raises:
+            Nip66TestError: If test returns no data (not applicable or failed).
         """
-        data: dict[str, Any] = {}
+        logger.debug("_test_dns: relay=%s timeout=%.1fs", relay.url, timeout)
 
         if relay.network != "clearnet":
-            return Metadata(data)
+            logger.debug("_test_dns: skipped (non-clearnet) relay=%s", relay.url)
+            raise Nip66TestError(relay, ValueError("DNS test not applicable (non-clearnet)"))
 
+        data: dict[str, Any] = {}
         try:
+            logger.debug("_test_dns: resolving host=%s", relay.host)
             data = await asyncio.to_thread(cls._resolve_dns_sync, relay.host, timeout)
-        except Exception:
-            pass
+            logger.debug("_test_dns: completed relay=%s ip=%s rtt=%sms", relay.url, data.get("dns_ip"), data.get("dns_rtt"))
+        except Exception as e:
+            logger.debug("_test_dns: error relay=%s error=%s", relay.url, e)
 
+        if not data:
+            logger.warning("_test_dns: no data relay=%s", relay.url)
+            raise Nip66TestError(relay, ValueError("DNS test returned no data"))
         return Metadata(data)
 
     @staticmethod
@@ -768,45 +870,46 @@ class Nip66:
             timeout: Request timeout in seconds
             proxy_url: Optional SOCKS5 proxy URL for overlay networks
 
-        Note: For clearnet relays without proxy, uses sync http.client.
-        For overlay networks or when proxy is specified, uses aiohttp with proxy.
+        Raises:
+            Nip66TestError: If test returns no data (not applicable or failed).
         """
+        logger.debug("_test_http: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url)
+
+        # Non-clearnet relays require proxy
+        if relay.network != "clearnet" and not proxy_url:
+            logger.debug("_test_http: skipped (non-clearnet without proxy) relay=%s", relay.url)
+            raise Nip66TestError(relay, ValueError("HTTP test not applicable (non-clearnet without proxy)"))
+
         data: dict[str, Any] = {}
-
-        # Use async aiohttp when proxy is needed
-        if proxy_url:
-            try:
-                data = await cls._check_http_async(relay, timeout, proxy_url)
-            except Exception:
-                pass
-            return Metadata(data)
-
-        # Skip non-clearnet relays without proxy
-        if relay.network != "clearnet":
-            return Metadata(data)
-
-        # Use sync http.client for clearnet (faster, no extra dependencies)
         try:
-            data = await asyncio.to_thread(cls._check_http_sync, relay, timeout)
-        except Exception:
-            pass
+            data = await cls._check_http(relay, timeout, proxy_url)
+            logger.debug("_test_http: completed relay=%s server=%s", relay.url, data.get("http_server"))
+        except Exception as e:
+            logger.debug("_test_http: error relay=%s error=%s", relay.url, e)
 
+        if not data:
+            logger.warning("_test_http: no data relay=%s", relay.url)
+            raise Nip66TestError(relay, ValueError("HTTP test returned no data"))
         return Metadata(data)
 
     @classmethod
-    async def _check_http_async(
+    async def _check_http(
         cls,
         relay: Relay,
         timeout: float,
-        proxy_url: str,
+        proxy_url: str | None = None,
     ) -> dict[str, Any]:
-        """Async HTTP header extraction via aiohttp with proxy support.
+        """Async HTTP header extraction via aiohttp.
 
         SSL verification is disabled to allow testing relays with expired
         or invalid certificates (SSL validation is done separately in _test_ssl).
+
+        Args:
+            relay: Relay to test
+            timeout: Request timeout in seconds
+            proxy_url: Optional SOCKS5 proxy URL (required for overlay networks)
         """
         import aiohttp
-        from aiohttp_socks import ProxyConnector
 
         result: dict[str, Any] = {}
 
@@ -830,72 +933,28 @@ class Nip66:
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
 
-        connector = ProxyConnector.from_url(proxy_url, ssl=ssl_context)
+        # Use proxy connector if proxy_url provided, otherwise standard TCPConnector
+        connector: aiohttp.BaseConnector
+        if proxy_url:
+            from aiohttp_socks import ProxyConnector
+
+            connector = ProxyConnector.from_url(proxy_url, ssl=ssl_context)
+        else:
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+
         client_timeout = aiohttp.ClientTimeout(total=timeout)
 
-        async with (
-            aiohttp.ClientSession(connector=connector, timeout=client_timeout) as session,
-            session.get(url, headers=headers) as response,
-        ):
-            server = response.headers.get("Server")
-            if server:
-                result["http_server"] = server
+        async with aiohttp.ClientSession(
+            connector=connector, timeout=client_timeout
+        ) as session:
+            async with session.get(url, headers=headers) as response:
+                server = response.headers.get("Server")
+                if server:
+                    result["http_server"] = server
 
-            powered_by = response.headers.get("X-Powered-By")
-            if powered_by:
-                result["http_powered_by"] = powered_by
-
-        return result
-
-    @staticmethod
-    def _check_http_sync(relay: Relay, timeout: float) -> dict[str, Any]:
-        """Synchronous HTTP header extraction via WebSocket upgrade request.
-
-        SSL verification is disabled to allow testing relays with expired
-        or invalid certificates (SSL validation is done separately in _test_ssl).
-        """
-        import http.client
-
-        result: dict[str, Any] = {}
-
-        port = relay.port or (443 if relay.scheme == "wss" else 80)
-        path = relay.path or "/"
-
-        conn: http.client.HTTPConnection | http.client.HTTPSConnection
-        if relay.scheme == "wss":
-            # Disable SSL verification
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
-            conn = http.client.HTTPSConnection(
-                relay.host, port, timeout=timeout, context=ssl_context
-            )
-        else:
-            conn = http.client.HTTPConnection(relay.host, port, timeout=timeout)
-
-        try:
-            # Send WebSocket upgrade request
-            headers = {
-                "Host": relay.host,
-                "Upgrade": "websocket",
-                "Connection": "Upgrade",
-                "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-                "Sec-WebSocket-Version": "13",
-            }
-            conn.request("GET", path, headers=headers)
-            response = conn.getresponse()
-
-            # Extract relevant headers
-            server = response.getheader("Server")
-            if server:
-                result["http_server"] = server
-
-            powered_by = response.getheader("X-Powered-By")
-            if powered_by:
-                result["http_powered_by"] = powered_by
-
-        finally:
-            conn.close()
+                powered_by = response.headers.get("X-Powered-By")
+                if powered_by:
+                    result["http_powered_by"] = powered_by
 
         return result
 
@@ -945,6 +1004,7 @@ class Nip66:
         timeout: float | None = None,
         keys: Keys | None = None,
         event_builder: EventBuilder | None = None,
+        read_filter: Filter | None = None,
         city_reader: geoip2.database.Reader | None = None,
         asn_reader: geoip2.database.Reader | None = None,
         run_rtt: bool = True,
@@ -965,11 +1025,12 @@ class Nip66:
             timeout: Connection timeout in seconds (default: _DEFAULT_TEST_TIMEOUT)
             keys: Keys for signing test events (required if run_rtt=True)
             event_builder: EventBuilder for write test (required if run_rtt=True)
+            read_filter: Filter for read test (required if run_rtt=True)
             city_reader: Pre-opened GeoLite2-City database reader for geo lookup
             asn_reader: Optional pre-opened GeoLite2-ASN database reader
-            run_rtt: Run RTT test (open/read/write). Requires keys and event_builder.
+            run_rtt: Run RTT test (open/read/write). Requires keys, event_builder, read_filter.
             run_ssl: Run SSL certificate test (clearnet wss:// only)
-            run_geo: Run geolocation test. Requires city_reader and dns_ip.
+            run_geo: Run geolocation test. Requires city_reader.
             run_dns: Run DNS resolution test (clearnet only)
             run_http: Run HTTP headers test (clearnet only, or via proxy for overlay)
             proxy_url: Optional SOCKS5 proxy URL for overlay networks (Tor, I2P, Loki)
@@ -979,41 +1040,35 @@ class Nip66:
 
         Raises:
             Nip66TestError: If all tests fail and no metadata collected
-            ValueError: If run_rtt=True but keys/event_builder not provided
         """
-        if run_rtt and (keys is None or event_builder is None):
-            raise ValueError("run_rtt=True requires keys and event_builder")
-
         timeout = timeout if timeout is not None else cls._DEFAULT_TEST_TIMEOUT
+        logger.info("test: relay=%s timeout=%.1fs", relay.url, timeout)
 
-        # Phase 1: Run DNS first (needed for geo lookup)
-        dns_metadata: Metadata | None = None
-        dns_ip: str | None = None
-        if run_dns:
-            dns_metadata = await cls._test_dns(relay, timeout)
-            if dns_metadata and dns_metadata.data:
-                dns_ip = dns_metadata.data.get("dns_ip")
-
-        # Phase 2: Run remaining tests in parallel
+        # Run all tests in parallel
         tasks: list[Any] = []
         task_names: list[str] = []
 
-        if run_rtt and keys and event_builder:
-            tasks.append(cls._test_rtt(relay, timeout, keys, event_builder, proxy_url))
+        if run_dns:
+            tasks.append(cls._test_dns(relay, timeout))
+            task_names.append("dns")
+        if run_rtt:
+            tasks.append(cls._test_rtt(relay, timeout, keys, event_builder, read_filter, proxy_url))
             task_names.append("rtt")
         if run_ssl:
             tasks.append(cls._test_ssl(relay, timeout))
             task_names.append("ssl")
         if run_geo:
-            tasks.append(cls._test_geo(relay, dns_ip, city_reader, asn_reader))
+            tasks.append(cls._test_geo(relay, city_reader, asn_reader))
             task_names.append("geo")
         if run_http:
             tasks.append(cls._test_http(relay, timeout, proxy_url))
             task_names.append("http")
 
+        logger.debug("test: running tests=%s", task_names)
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Map results back to metadata types
+        dns_metadata: Metadata | None = None
         rtt_metadata: Metadata | None = None
         ssl_metadata: Metadata | None = None
         geo_metadata: Metadata | None = None
@@ -1021,8 +1076,12 @@ class Nip66:
 
         for name, result in zip(task_names, results, strict=True):
             if isinstance(result, BaseException):
+                logger.debug("test: %s failed: %s", name, result)
                 continue
-            if name == "rtt":
+            logger.debug("test: %s succeeded", name)
+            if name == "dns":
+                dns_metadata = result
+            elif name == "rtt":
                 rtt_metadata = result
             elif name == "ssl":
                 ssl_metadata = result
@@ -1032,7 +1091,7 @@ class Nip66:
                 http_metadata = result
 
         try:
-            return cls(
+            nip66 = cls(
                 relay=relay,
                 rtt_metadata=rtt_metadata,
                 ssl_metadata=ssl_metadata,
@@ -1040,5 +1099,8 @@ class Nip66:
                 dns_metadata=dns_metadata,
                 http_metadata=http_metadata,
             )
+            logger.info("test: completed relay=%s", relay.url)
+            return nip66
         except ValueError as e:
+            logger.warning("test: all tests failed relay=%s", relay.url)
             raise Nip66TestError(relay, e) from e

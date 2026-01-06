@@ -233,7 +233,7 @@ class TestRetention:
         assert retention is not None
         assert len(retention) == 3
         assert retention[0]["kinds"] == [0, 3]
-        assert retention[0]["time"] is None
+        assert "time" not in retention[0]  # None values are not included
         assert retention[1]["kinds"] == [[10000, 19999]]
         assert retention[1]["time"] == 86400
         assert retention[2]["kinds"] == [[30000, 39999]]
