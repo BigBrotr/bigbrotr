@@ -1065,21 +1065,13 @@ class Nip66:
         if run_dns:
             tasks.append(cls._test_dns(relay, timeout))
             task_names.append("dns")
-        if run_rtt:
-            if keys is None or event_builder is None or read_filter is None:
-                raise Nip66TestError(
-                    relay, ValueError("RTT test requires keys, event_builder, and read_filter")
-                )
+        if run_rtt and keys is not None and event_builder is not None and read_filter is not None:
             tasks.append(cls._test_rtt(relay, timeout, keys, event_builder, read_filter, proxy_url))
             task_names.append("rtt")
         if run_ssl:
             tasks.append(cls._test_ssl(relay, timeout))
             task_names.append("ssl")
-        if run_geo:
-            if city_reader is None or asn_reader is None:
-                raise Nip66TestError(
-                    relay, ValueError("GEO test requires city_reader and asn_reader")
-                )
+        if run_geo and city_reader is not None and asn_reader is not None:
             tasks.append(cls._test_geo(relay, city_reader, asn_reader))
             task_names.append("geo")
         if run_http:
