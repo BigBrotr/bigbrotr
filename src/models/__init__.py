@@ -4,6 +4,7 @@ BigBrotr Data Models.
 First-class types for working with Nostr relays, events, and metadata.
 
 Models:
+    - Client: Nostr client wrapper with SSL fallback and proxy support
     - Event: Immutable wrapper for nostr_sdk.Event
     - EventRelay: Junction model linking Event to Relay with seen_at timestamp
     - Relay: Validated Nostr relay URL with network detection
