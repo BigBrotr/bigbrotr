@@ -6,9 +6,8 @@ Run with: pytest tests/integration/test_nip66_integration.py -v -m integration
 """
 
 import pytest
-from nostr_sdk import EventBuilder, Filter
+from nostr_sdk import EventBuilder, Filter, Keys
 
-from models.keys import Keys
 from models.nip66 import Nip66
 from models.relay import Relay
 

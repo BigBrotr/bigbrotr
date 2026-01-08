@@ -34,9 +34,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import geoip2.database
-from nostr_sdk import EventBuilder, Filter, Kind
+from nostr_sdk import EventBuilder, Filter, Keys, Kind
 
-from models.keys import Keys
 from models.metadata import Metadata
 from models.nip66 import Nip66, Nip66TestError
 from models.relay import NetworkType, Relay
