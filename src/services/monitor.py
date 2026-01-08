@@ -26,14 +26,11 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import geoip2.database
 from nostr_sdk import (
-    ClientBuilder,
-    ClientOptions,
     EventBuilder,
     Keys,
     Kind,
@@ -44,19 +41,18 @@ from pydantic import BaseModel, Field, model_validator
 from core.base_service import BaseService
 from models import Nip11, Nip66, Relay, RelayMetadata
 from models.relay import NetworkType
-from utils.keys import load_keys_from_env
+from utils.keys import KeysConfig
+from utils.proxy import ProxyConfig
 
 
 if TYPE_CHECKING:
+    from core.brotr import Brotr
     from models.nip11 import Nip11Limitation, Nip11RetentionEntry
 
 
 # =============================================================================
 # Constants
 # =============================================================================
-
-# Environment variable for private key
-ENV_PRIVATE_KEY = "PRIVATE_KEY"  # pragma: allowlist secret
 
 # Time interval for publishing announcements
 ANNOUNCE_INTERVAL = 3600  # 1 hour
@@ -69,107 +65,9 @@ CHUNK_MULTIPLIER = 4
 TIMEOUT_PUBLISH = 10.0
 
 
-if TYPE_CHECKING:
-    from core.brotr import Brotr
-
-
 # =============================================================================
 # Configuration
 # =============================================================================
-
-
-class NetworkProxyConfig(BaseModel):
-    """Configuration for a single overlay network proxy."""
-
-    enabled: bool = Field(default=False, description="Enable this proxy")
-    url: str = Field(default="", description="SOCKS5 proxy URL (e.g., socks5://host:port)")
-
-
-class ProxyConfig(BaseModel):
-    """Overlay network proxy configuration for hidden relay support.
-
-    Supports Tor (.onion), I2P (.i2p), and Lokinet (.loki) networks.
-    Each network requires its own SOCKS5 proxy for connectivity.
-    """
-
-    tor: NetworkProxyConfig = Field(
-        default_factory=lambda: NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:9050"),
-        description="Tor proxy for .onion relays",
-    )
-    i2p: NetworkProxyConfig = Field(
-        default_factory=lambda: NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:4447"),
-        description="I2P proxy for .i2p relays",
-    )
-    loki: NetworkProxyConfig = Field(
-        default_factory=lambda: NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:1080"),
-        description="Lokinet proxy for .loki relays",
-    )
-
-    def get_proxy_url(self, network: str | NetworkType) -> str | None:
-        """Get proxy URL for a given network type.
-
-        Args:
-            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-
-        Returns:
-            Proxy URL if network is supported and enabled, None otherwise.
-        """
-        # Ensure network is NetworkType for dict lookup
-        if isinstance(network, str):
-            try:
-                network = NetworkType(network)
-            except ValueError:
-                return None
-        config_map = {
-            NetworkType.TOR: self.tor,
-            NetworkType.I2P: self.i2p,
-            NetworkType.LOKI: self.loki,
-        }
-        config = config_map.get(network)
-        if config and config.enabled and config.url:
-            return config.url
-        return None
-
-    def is_network_enabled(self, network: str | NetworkType) -> bool:
-        """Check if a network proxy is enabled.
-
-        Args:
-            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-
-        Returns:
-            True if network proxy is enabled, False otherwise.
-        """
-        # Ensure network is NetworkType for dict lookup
-        if isinstance(network, str):
-            try:
-                network = NetworkType(network)
-            except ValueError:
-                return False
-        config_map = {
-            NetworkType.TOR: self.tor,
-            NetworkType.I2P: self.i2p,
-            NetworkType.LOKI: self.loki,
-        }
-        config = config_map.get(network)
-        return config.enabled if config else False
-
-
-class KeysConfig(BaseModel):
-    """Nostr keys configuration for NIP-66 publishing."""
-
-    model_config = {"arbitrary_types_allowed": True}
-
-    keys: Keys | None = Field(
-        default=None,
-        description="Keys loaded from PRIVATE_KEY env",
-    )
-
-    @model_validator(mode="before")
-    @classmethod
-    def _load_keys_from_env(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "keys" not in data:
-            data["keys"] = load_keys_from_env(ENV_PRIVATE_KEY)
-        return data
 
 
 class PublishingConfig(BaseModel):
@@ -787,6 +685,8 @@ class Monitor(BaseService[MonitorConfig]):
         if not self._keys:
             return
 
+        from core.transport import create_client, create_publish_client  # noqa: PLC0415
+
         try:
             # Build event content (NIP-11 JSON if available)
             content = ""
@@ -797,16 +697,14 @@ class Monitor(BaseService[MonitorConfig]):
             tags = build_kind_30166_tags(relay, nip11, nip66)
 
             # Create and sign event
-            builder = EventBuilder.new(Kind(30166), content).tags(tags)
+            builder = EventBuilder(Kind(30166), content).tags(tags)
 
             # Determine destination
             if self._config.publishing.destination == "monitored_relay":
                 # Publish to the relay being monitored
-                # Resource leak fix: Use try/finally to ensure client shutdown
-                opts = ClientOptions().connection_timeout(timedelta(seconds=TIMEOUT_PUBLISH))
-                client = ClientBuilder().signer(self._keys).opts(opts).build()
+                proxy_url = self._config.proxy.get_proxy_url(relay.network)
+                client = await create_client(relay, self._keys, proxy_url)
                 try:
-                    await client.add_relay(relay.url)
                     await client.connect()
                     await client.send_event_builder(builder)
                 finally:
@@ -814,15 +712,8 @@ class Monitor(BaseService[MonitorConfig]):
 
             elif self._config.publishing.destination == "configured_relays":
                 # Publish to configured relay list
-                # Resource leak fix: Use try/finally to ensure client shutdown
-                opts = ClientOptions().connection_timeout(timedelta(seconds=TIMEOUT_PUBLISH))
-                client = ClientBuilder().signer(self._keys).opts(opts).build()
+                client = await create_publish_client(self._config.publishing.relays, self._keys)
                 try:
-                    for url in self._config.publishing.relays:
-                        try:
-                            await client.add_relay(url)
-                        except Exception as e:
-                            self._logger.debug("add_relay_failed", url=url, error=str(e))
                     await client.connect()
                     await client.send_event_builder(builder)
                 finally:
@@ -836,24 +727,19 @@ class Monitor(BaseService[MonitorConfig]):
         if not self._keys:
             return
 
+        from core.transport import create_publish_client  # noqa: PLC0415
+
         try:
             # Build tags
             tags = build_kind_10166_tags(self._config)
 
             # Create and sign event
-            builder = EventBuilder.new(Kind(10166), "").tags(tags)
+            builder = EventBuilder(Kind(10166), "").tags(tags)
 
             # Publish to configured relays
             if self._config.publishing.relays:
-                # Resource leak fix: Use try/finally to ensure client shutdown
-                opts = ClientOptions().connection_timeout(timedelta(seconds=TIMEOUT_PUBLISH))
-                client = ClientBuilder().signer(self._keys).opts(opts).build()
+                client = await create_publish_client(self._config.publishing.relays, self._keys)
                 try:
-                    for url in self._config.publishing.relays:
-                        try:
-                            await client.add_relay(url)
-                        except Exception as e:
-                            self._logger.debug("add_relay_failed", url=url, error=str(e))
                     await client.connect()
                     await client.send_event_builder(builder)
                     self._logger.info("announcement_published")
