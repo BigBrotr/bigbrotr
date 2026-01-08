@@ -26,127 +26,26 @@ import heapq
 import math
 import random
 import time
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from nostr_sdk import ClientBuilder, ClientOptions, Filter, Keys
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from core.base_service import BaseService
 from models import Relay
 from models.relay import NetworkType
-from utils.keys import load_keys_from_env
+from utils.keys import KeysConfig
+from utils.proxy import ProxyConfig
 
 
 if TYPE_CHECKING:
+    from nostr_sdk import Keys
+
     from core.brotr import Brotr
-
-
-# =============================================================================
-# Constants
-# =============================================================================
-
-# Environment variable for private key
-ENV_PRIVATE_KEY = "PRIVATE_KEY"  # pragma: allowlist secret
 
 
 # =============================================================================
 # Configuration
 # =============================================================================
-
-
-class NetworkProxyConfig(BaseModel):
-    """Configuration for a single overlay network proxy."""
-
-    enabled: bool = Field(default=False, description="Enable this proxy")
-    url: str = Field(default="", description="SOCKS5 proxy URL (e.g., socks5://host:port)")
-
-
-class ProxyConfig(BaseModel):
-    """Overlay network proxy configuration for hidden relay support.
-
-    Supports Tor (.onion), I2P (.i2p), and Lokinet (.loki) networks.
-    Each network requires its own SOCKS5 proxy for connectivity.
-    """
-
-    tor: NetworkProxyConfig = Field(
-        default_factory=lambda: NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:9050"),
-        description="Tor proxy for .onion relays",
-    )
-    i2p: NetworkProxyConfig = Field(
-        default_factory=lambda: NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:4447"),
-        description="I2P proxy for .i2p relays",
-    )
-    loki: NetworkProxyConfig = Field(
-        default_factory=lambda: NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:1080"),
-        description="Lokinet proxy for .loki relays",
-    )
-
-    def get_proxy_url(self, network: str | NetworkType) -> str | None:
-        """Get proxy URL for a given network type.
-
-        Args:
-            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-
-        Returns:
-            Proxy URL if network is supported and enabled, None otherwise.
-        """
-        # Ensure network is NetworkType for dict lookup
-        if isinstance(network, str):
-            try:
-                network = NetworkType(network)
-            except ValueError:
-                return None
-        config_map = {
-            NetworkType.TOR: self.tor,
-            NetworkType.I2P: self.i2p,
-            NetworkType.LOKI: self.loki,
-        }
-        config = config_map.get(network)
-        if config and config.enabled and config.url:
-            return config.url
-        return None
-
-    def is_network_enabled(self, network: str | NetworkType) -> bool:
-        """Check if a network proxy is enabled.
-
-        Args:
-            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-
-        Returns:
-            True if network proxy is enabled, False otherwise.
-        """
-        # Ensure network is NetworkType for dict lookup
-        if isinstance(network, str):
-            try:
-                network = NetworkType(network)
-            except ValueError:
-                return False
-        config_map = {
-            NetworkType.TOR: self.tor,
-            NetworkType.I2P: self.i2p,
-            NetworkType.LOKI: self.loki,
-        }
-        config = config_map.get(network)
-        return config.enabled if config else False
-
-
-class KeysConfig(BaseModel):
-    """Nostr keys configuration for NIP-42 authentication."""
-
-    model_config = {"arbitrary_types_allowed": True}
-
-    keys: Keys | None = Field(
-        default=None,
-        description="Keys loaded from PRIVATE_KEY env",
-    )
-
-    @model_validator(mode="before")
-    @classmethod
-    def _load_keys_from_env(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "keys" not in data:
-            data["keys"] = load_keys_from_env(ENV_PRIVATE_KEY)
-        return data
 
 
 class ConcurrencyConfig(BaseModel):
@@ -276,44 +175,52 @@ class Validator(BaseService[ValidatorConfig]):
                 retry_records.append((url, failed_attempts + 1))
                 self._failed_count += 1
 
-        # Execute batch database operations
+        # Execute batch database operations in chunks (max 1000 per batch)
+        batch_size = 1000
+
         if valid_relays:
-            try:
-                await self._brotr.insert_relays(valid_relays)
-            except Exception as e:
-                self._logger.error(
-                    "insert_relays_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    count=len(valid_relays),
-                )
+            for i in range(0, len(valid_relays), batch_size):
+                chunk = valid_relays[i : i + batch_size]
+                try:
+                    await self._brotr.insert_relays(chunk)
+                except Exception as e:
+                    self._logger.error(
+                        "insert_relays_failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        count=len(chunk),
+                    )
 
         if delete_keys:
-            try:
-                delete_records = [("validator", "candidate", key) for key in delete_keys]
-                await self._brotr.delete_service_data(delete_records)
-            except Exception as e:
-                self._logger.error(
-                    "delete_candidates_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    count=len(delete_keys),
-                )
+            for i in range(0, len(delete_keys), batch_size):
+                chunk = delete_keys[i : i + batch_size]
+                try:
+                    delete_records = [("validator", "candidate", key) for key in chunk]
+                    await self._brotr.delete_service_data(delete_records)
+                except Exception as e:
+                    self._logger.error(
+                        "delete_candidates_failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        count=len(chunk),
+                    )
 
         if retry_records:
-            try:
-                upsert_records = [
-                    ("validator", "candidate", url, {"failed_attempts": failed_attempts})
-                    for url, failed_attempts in retry_records
-                ]
-                await self._brotr.upsert_service_data(upsert_records)
-            except Exception as e:
-                self._logger.error(
-                    "upsert_retries_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    count=len(retry_records),
-                )
+            for i in range(0, len(retry_records), batch_size):
+                chunk = retry_records[i : i + batch_size]
+                try:
+                    upsert_records = [
+                        ("validator", "candidate", url, {"failed_attempts": failed_attempts})
+                        for url, failed_attempts in chunk
+                    ]
+                    await self._brotr.upsert_service_data(upsert_records)
+                except Exception as e:
+                    self._logger.error(
+                        "upsert_retries_failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        count=len(chunk),
+                    )
 
         # Optional cleanup of candidates that exceeded max attempts
         if self._config.cleanup.enabled:
@@ -415,64 +322,73 @@ class Validator(BaseService[ValidatorConfig]):
 
             return (url, is_valid, failed_attempts)
 
-    async def _test_connection(self, url: str, keys: Keys | None = None) -> bool:
+    async def _test_connection(self, url: str, keys: Keys) -> bool:
         """
-        Test WebSocket connection and verify Nostr protocol execution.
+        Validate relay by testing NIP-11 and NIP-66 RTT.
 
-        Performs a real REQ/EOSE exchange to confirm the server speaks Nostr protocol,
-        not just any WebSocket server. If keys are provided, enables automatic NIP-42
-        authentication for auth-required relays.
+        A relay is considered valid if either:
+        - NIP-11 document is fetchable (relay has info endpoint)
+        - NIP-66 RTT open test succeeds (relay accepts WebSocket connections)
 
-        Returns True if the relay responds with EOSE (valid Nostr relay), False otherwise.
+        This is more thorough than just opening a WebSocket - it verifies
+        the relay actually speaks Nostr protocol.
+
+        Returns True if NIP-11 or RTT test succeeds, False otherwise.
         """
+        from nostr_sdk import EventBuilder, Filter  # noqa: PLC0415
+
+        from models import Nip11, Nip66  # noqa: PLC0415
+
         try:
-            # Detect network type from URL
-            network = self._detect_network(url)
+            # Create temporary Relay object from URL (auto-detects network)
+            relay = Relay(url)
 
             # Skip overlay network relays if proxy is not enabled
             overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-            if network in overlay_networks:
-                if not self._config.proxy.is_network_enabled(network):
+            if relay.network in overlay_networks:
+                if not self._config.proxy.is_network_enabled(relay.network):
                     return False
 
-            # Build client options
-            opts = ClientOptions().connection_timeout(
-                timedelta(seconds=self._config.connection_timeout)
-            )
+            # Get proxy URL for overlay networks
+            proxy_url = self._config.proxy.get_proxy_url(relay.network)
+            timeout = self._config.connection_timeout
 
-            # Set proxy for overlay networks
-            proxy_url = self._config.proxy.get_proxy_url(network)
-            if proxy_url:
-                opts = opts.proxy(proxy_url)
-
-            # Build client with signer if keys available (enables NIP-42 auth)
-            builder = ClientBuilder().opts(opts)
-            if keys:
-                builder = builder.signer(keys)
-
-            client = builder.build()
-
+            # Test 1: Try to fetch NIP-11
+            nip11: Nip11 | None = None
             try:
-                await client.add_relay(url)
-                await client.connect()
-
-                # Verify Nostr protocol: send REQ and expect EOSE
-                # A real Nostr relay must respond with EOSE even for empty results
-                # This filters out non-Nostr WebSocket servers
-                f = Filter().limit(1)
-                await client.fetch_events([f], timedelta(seconds=self._config.connection_timeout))
-
-                # If fetch_events completes, relay sent EOSE (valid Nostr relay)
-                await client.disconnect()
-                return True
-
+                nip11 = await Nip11.fetch(relay, timeout=timeout, proxy_url=proxy_url)
             except Exception:
-                return False
-            finally:
-                try:
-                    await client.shutdown()
-                except Exception:
-                    pass
+                pass
+
+            # Test 2: Try NIP-66 RTT test (open connection)
+            nip66: Nip66 | None = None
+            try:
+                # Create minimal event builder and filter for RTT test
+                event_builder = EventBuilder.text_note("bigbrotr validation test")
+                read_filter = Filter().limit(1)
+
+                nip66 = await Nip66.test(
+                    relay=relay,
+                    timeout=timeout,
+                    keys=keys,
+                    event_builder=event_builder,
+                    read_filter=read_filter,
+                    proxy_url=proxy_url,
+                    # Only run RTT test, skip others for validation
+                    run_rtt=True,
+                    run_ssl=False,
+                    run_geo=False,
+                    run_dns=False,
+                    run_http=False,
+                )
+            except Exception:
+                pass
+
+            # Relay is valid if NIP-11 or RTT open succeeded
+            nip11_valid = nip11 is not None
+            rtt_valid = nip66 is not None and nip66.rtt_open is not None
+
+            return nip11_valid or rtt_valid
 
         except Exception:
             return False

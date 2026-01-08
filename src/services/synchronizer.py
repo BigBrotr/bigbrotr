@@ -33,8 +33,6 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import aiomultiprocess
 from nostr_sdk import (
     Alphabet,
-    ClientBuilder,
-    ClientOptions,
     Filter,
     Keys,
     Kind,
@@ -44,21 +42,19 @@ from nostr_sdk import (
 from nostr_sdk import (
     Event as NostrEvent,
 )
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 from core.base_service import BaseService
 from core.brotr import Brotr
 from models import Event, EventRelay, Relay
 from models.relay import NetworkType
-from utils.keys import load_keys_from_env
+from utils.keys import KeysConfig
+from utils.proxy import ProxyConfig
 
 
 # =============================================================================
 # Constants
 # =============================================================================
-
-# Environment variable for private key
-ENV_PRIVATE_KEY = "PRIVATE_KEY"  # pragma: allowlist secret
 
 # Nostr protocol constants
 HEX_STRING_LENGTH = 64
@@ -146,100 +142,6 @@ def _worker_log(level: str, message: str, **kwargs: Any) -> None:
 # =============================================================================
 # Configuration
 # =============================================================================
-
-
-class NetworkProxyConfig(BaseModel):
-    """Configuration for a single overlay network proxy."""
-
-    enabled: bool = Field(default=False, description="Enable this proxy")
-    url: str = Field(default="", description="SOCKS5 proxy URL (e.g., socks5://host:port)")
-
-
-class ProxyConfig(BaseModel):
-    """Overlay network proxy configuration for hidden relay support.
-
-    Supports Tor (.onion), I2P (.i2p), and Lokinet (.loki) networks.
-    Each network requires its own SOCKS5 proxy for connectivity.
-    """
-
-    tor: NetworkProxyConfig = Field(
-        default_factory=lambda: NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:9050"),
-        description="Tor proxy for .onion relays",
-    )
-    i2p: NetworkProxyConfig = Field(
-        default_factory=lambda: NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:4447"),
-        description="I2P proxy for .i2p relays",
-    )
-    loki: NetworkProxyConfig = Field(
-        default_factory=lambda: NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:1080"),
-        description="Lokinet proxy for .loki relays",
-    )
-
-    def get_proxy_url(self, network: str | NetworkType) -> str | None:
-        """Get proxy URL for a given network type.
-
-        Args:
-            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-
-        Returns:
-            Proxy URL if network is supported and enabled, None otherwise.
-        """
-        # Ensure network is NetworkType for dict lookup
-        if isinstance(network, str):
-            try:
-                network = NetworkType(network)
-            except ValueError:
-                return None
-        config_map = {
-            NetworkType.TOR: self.tor,
-            NetworkType.I2P: self.i2p,
-            NetworkType.LOKI: self.loki,
-        }
-        config = config_map.get(network)
-        if config and config.enabled and config.url:
-            return config.url
-        return None
-
-    def is_network_enabled(self, network: str | NetworkType) -> bool:
-        """Check if a network proxy is enabled.
-
-        Args:
-            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-
-        Returns:
-            True if network proxy is enabled, False otherwise.
-        """
-        # Ensure network is NetworkType for dict lookup
-        if isinstance(network, str):
-            try:
-                network = NetworkType(network)
-            except ValueError:
-                return False
-        config_map = {
-            NetworkType.TOR: self.tor,
-            NetworkType.I2P: self.i2p,
-            NetworkType.LOKI: self.loki,
-        }
-        config = config_map.get(network)
-        return config.enabled if config else False
-
-
-class KeysConfig(BaseModel):
-    """Nostr keys configuration for NIP-42 authentication."""
-
-    model_config = {"arbitrary_types_allowed": True}
-
-    keys: Keys | None = Field(
-        default=None,
-        description="Keys loaded from PRIVATE_KEY env",
-    )
-
-    @model_validator(mode="before")
-    @classmethod
-    def _load_keys_from_env(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "keys" not in data:
-            data["keys"] = load_keys_from_env(ENV_PRIVATE_KEY)
-        return data
 
 
 # =============================================================================
@@ -781,7 +683,7 @@ async def _sync_relay_events(
     proxy_config: ProxyConfig,
     request_timeout: float,
     brotr: Brotr,
-    keys: Keys | None = None,
+    keys: Keys,
 ) -> tuple[int, int, int]:
     """
     Core sync algorithm for a single relay using nostr-sdk.
@@ -794,39 +696,31 @@ async def _sync_relay_events(
         proxy_config: Overlay network proxy configuration (Tor, I2P, Loki)
         request_timeout: Request timeout in seconds
         brotr: Database interface
-        keys: Optional Nostr keys for NIP-42 authentication
+        keys: Nostr keys for NIP-42 authentication
 
     Returns:
         tuple[int, int, int]: (events_synchronized, invalid_events, skipped_events)
     """
+    from core.transport import create_client
+
     events_synced = 0
     invalid_events = 0
     skipped_events = 0
 
-    # Build client options
-    opts = ClientOptions().connection_timeout(timedelta(seconds=request_timeout))
-
-    # Set proxy for overlay networks (Tor, I2P, Loki)
+    # Get proxy URL for overlay networks
     proxy_url = proxy_config.get_proxy_url(relay.network)
-    if proxy_url:
-        opts = opts.proxy(proxy_url)
 
-    # Create client with signer if keys available (enables NIP-42 auth)
-    builder = ClientBuilder().opts(opts)
-    if keys:
-        builder = builder.signer(keys)
-
-    client = builder.build()
+    # Create client using transport utility
+    client = await create_client(relay, keys, proxy_url)
 
     try:
-        await client.add_relay(relay.url)
         await client.connect()
 
         # Create filter for time range
         f = _create_filter(start_time, end_time, filter_config)
 
         # Fetch events
-        events = await client.fetch_events([f], timedelta(seconds=request_timeout))
+        events = await client.fetch_events(f, timedelta(seconds=request_timeout))
         event_list = events.to_vec()
 
         if event_list:
@@ -1127,29 +1021,23 @@ class Synchronizer(BaseService[SynchronizerConfig]):
             await self._brotr.upsert_service_data(cursor_updates)
 
     async def _fetch_relays(self) -> list[Relay]:
-        """Fetch relays to sync from database using the latest metadata view."""
+        """Fetch relays to sync from the relays table."""
         relays: list[Relay] = []
 
         if not self._config.source.from_database:
             return relays
 
-        threshold = int(time.time()) - self._config.source.max_metadata_age
-
-        # Use the dedicated view for efficient latest metadata retrieval
-        # All validated relays are syncable - filter by metadata age and readability
+        # Fetch all validated relays from the relays table
         query = """
-            SELECT relay_url, network, discovered_at
-            FROM relay_metadata_latest
-            WHERE nip66_rtt_at > $1
+            SELECT url, network, discovered_at
+            FROM relays
+            ORDER BY discovered_at ASC
         """
 
-        if self._config.source.require_readable:
-            query += " AND is_readable = TRUE"
-
-        rows = await self._brotr.pool.fetch(query, threshold)
+        rows = await self._brotr.pool.fetch(query)
 
         for row in rows:
-            url_str = row["relay_url"].strip()
+            url_str = row["url"].strip()
             try:
                 relay = Relay(url_str, discovered_at=row["discovered_at"])
                 relays.append(relay)
