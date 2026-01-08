@@ -35,22 +35,16 @@ from nostr_sdk import (
     ClientBuilder,
     ClientOptions,
     EventBuilder,
+    Keys,
     Kind,
     Tag,
 )
 from pydantic import BaseModel, Field, model_validator
 
 from core.base_service import BaseService
-from models import (
-    Keys as ModelKeys,
-)
-from models import (
-    Nip11,
-    Nip66,
-    Relay,
-    RelayMetadata,
-)
+from models import Nip11, Nip66, Relay, RelayMetadata
 from models.relay import NetworkType
+from utils.keys import load_keys_from_env
 
 
 if TYPE_CHECKING:
@@ -165,16 +159,16 @@ class KeysConfig(BaseModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
-    keys: ModelKeys | None = Field(
+    keys: Keys | None = Field(
         default=None,
         description="Keys loaded from PRIVATE_KEY env",
     )
 
     @model_validator(mode="before")
     @classmethod
-    def load_keys_from_env(cls, data: Any) -> Any:
+    def _load_keys_from_env(cls, data: Any) -> Any:
         if isinstance(data, dict) and "keys" not in data:
-            data["keys"] = ModelKeys.from_env(ENV_PRIVATE_KEY)
+            data["keys"] = load_keys_from_env(ENV_PRIVATE_KEY)
         return data
 
 
@@ -504,8 +498,8 @@ class Monitor(BaseService[MonitorConfig]):
         super().__init__(brotr=brotr, config=config)
         self._config: MonitorConfig
 
-        # Keys for signing events and NIP-66 tests (models.Keys extends nostr_sdk.Keys)
-        self._keys: ModelKeys | None = self._config.keys.keys
+        # Keys for signing events and NIP-66 tests
+        self._keys: Keys | None = self._config.keys.keys
 
         # GeoIP reader (lazy loaded)
         self._geo_reader: geoip2.database.Reader | None = None

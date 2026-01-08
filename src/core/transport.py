@@ -22,7 +22,8 @@ from nostr_sdk import (
 
 
 if TYPE_CHECKING:
-    from models.keys import Keys
+    from nostr_sdk import Keys
+
     from models.relay import Relay
 
 
@@ -150,7 +151,7 @@ async def create_client(
     """
     from models.relay import NetworkType  # noqa: PLC0415
 
-    signer = NostrSigner.keys(keys._inner)
+    signer = NostrSigner.keys(keys)
     relay_url = RelayUrl.parse(relay.url)
 
     overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)

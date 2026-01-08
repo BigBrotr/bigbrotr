@@ -125,7 +125,8 @@ from .utils import parse_typed_dict
 
 
 if TYPE_CHECKING:
-    from .keys import Keys
+    from nostr_sdk import Keys
+
     from .relay_metadata import RelayMetadata
 
 
