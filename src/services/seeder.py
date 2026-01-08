@@ -40,6 +40,10 @@ class SeedConfig(BaseModel):
     """Seed data configuration."""
 
     file_path: str = Field(default="seed_relays.txt", description="Seed file path")
+    to_validate: bool = Field(
+        default=True,
+        description="If True, add as validation candidates. If False, insert directly into relays table.",
+    )
 
 
 class SeederConfig(BaseModel):
@@ -80,7 +84,7 @@ class Seeder(BaseService[SeederConfig]):
         self._logger.info("run_started")
         start_time = time.time()
 
-        await self._seed_relays()
+        await self._seed()
 
         duration = time.time() - start_time
 
@@ -119,14 +123,8 @@ class Seeder(BaseService[SeederConfig]):
 
         return relays
 
-    async def _seed_relays(self) -> None:
-        """
-        Load and insert seed relay data as candidates for validation.
-
-        Only adds relays that are not already in the relays table and not
-        already candidates in service_data. Filtering is done server-side
-        for efficiency. Batch inserts with granular retry.
-        """
+    async def _seed(self) -> None:
+        """Load and insert seed relay data."""
         path = Path(self._config.seed.file_path)
 
         if not path.exists():
@@ -139,7 +137,17 @@ class Seeder(BaseService[SeederConfig]):
             self._logger.info("seed_no_valid_relays")
             return
 
-        # Filter server-side: exclude URLs already in relays or service_data
+        if self._config.seed.to_validate:
+            await self._seed_as_candidates(relays)
+        else:
+            await self._seed_as_relays(relays)
+
+    async def _seed_as_candidates(self, relays: list[Relay]) -> None:
+        """
+        Add relays as validation candidates.
+
+        Filters against both relays table and existing candidates in service_data.
+        """
         all_urls = [relay.url for relay in relays]
 
         new_urls_rows = await self._brotr.pool.fetch(
@@ -147,7 +155,7 @@ class Seeder(BaseService[SeederConfig]):
             SELECT url FROM unnest($1::text[]) AS url
             WHERE url NOT IN (SELECT r.url FROM relays r)
               AND url NOT IN (
-                  SELECT key FROM service_data
+                  SELECT data_key FROM service_data
                   WHERE service_name = 'validator' AND data_type = 'candidate'
               )
             """,
@@ -169,13 +177,70 @@ class Seeder(BaseService[SeederConfig]):
             self._logger.info("seed_all_relays_exist")
             return
 
-        # Build records for new URLs only
         records = [("validator", "candidate", url, {"failed_attempts": 0}) for url in new_urls]
-
-        # Batch insert
         batch_size = self._brotr.config.batch.max_batch_size
+
         for i in range(0, len(records), batch_size):
             batch = records[i : i + batch_size]
             await self._brotr.upsert_service_data(batch)
 
-        self._logger.info("seed_completed", count=len(new_urls))
+        self._logger.info("seed_completed", count=len(new_urls), to_validate=True)
+
+    async def _seed_as_relays(self, relays: list[Relay]) -> None:
+        """
+        Insert relays directly into relays table.
+
+        Filters only against relays table (skips validation).
+        Also removes these URLs from validation candidates if present.
+        """
+        all_urls = [relay.url for relay in relays]
+
+        new_urls_rows = await self._brotr.pool.fetch(
+            """
+            SELECT url FROM unnest($1::text[]) AS url
+            WHERE url NOT IN (SELECT r.url FROM relays r)
+            """,
+            all_urls,
+            timeout=self._brotr.config.timeouts.query,
+        )
+        new_urls = {row["url"] for row in new_urls_rows}
+
+        skipped_count = len(relays) - len(new_urls)
+        if skipped_count > 0:
+            self._logger.info(
+                "seed_skipped_existing",
+                total=len(relays),
+                skipped=skipped_count,
+                new=len(new_urls),
+            )
+
+        if not new_urls:
+            self._logger.info("seed_all_relays_exist")
+            return
+
+        new_relays = [relay for relay in relays if relay.url in new_urls]
+        batch_size = self._brotr.config.batch.max_batch_size
+
+        for i in range(0, len(new_relays), batch_size):
+            batch = new_relays[i : i + batch_size]
+            await self._brotr.insert_relays(batch)
+
+        # Remove from validation candidates if present
+        deleted = await self._brotr.pool.fetchval(
+            """
+            WITH deleted AS (
+                DELETE FROM service_data
+                WHERE service_name = 'validator'
+                  AND data_type = 'candidate'
+                  AND data_key = ANY($1::text[])
+                RETURNING 1
+            )
+            SELECT COUNT(*) FROM deleted
+            """,
+            list(new_urls),
+            timeout=self._brotr.config.timeouts.query,
+        )
+        if deleted > 0:
+            self._logger.info("seed_removed_candidates", count=deleted)
+
+        self._logger.info("seed_completed", count=len(new_relays), to_validate=False)
