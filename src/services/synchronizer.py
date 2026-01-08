@@ -48,6 +48,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from core.base_service import BaseService
 from core.brotr import Brotr
 from models import Event, EventRelay, Keys, Relay
+from models.relay import NetworkType
 
 
 # =============================================================================
@@ -172,38 +173,50 @@ class ProxyConfig(BaseModel):
         description="Lokinet proxy for .loki relays",
     )
 
-    def get_proxy_url(self, network: str) -> str | None:
+    def get_proxy_url(self, network: str | NetworkType) -> str | None:
         """Get proxy URL for a given network type.
 
         Args:
-            network: Network type ('tor', 'i2p', 'loki', 'clearnet', etc.)
+            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
 
         Returns:
             Proxy URL if network is supported and enabled, None otherwise.
         """
+        # Ensure network is NetworkType for dict lookup
+        if isinstance(network, str):
+            try:
+                network = NetworkType(network)
+            except ValueError:
+                return None
         config_map = {
-            "tor": self.tor,
-            "i2p": self.i2p,
-            "loki": self.loki,
+            NetworkType.TOR: self.tor,
+            NetworkType.I2P: self.i2p,
+            NetworkType.LOKI: self.loki,
         }
         config = config_map.get(network)
         if config and config.enabled and config.url:
             return config.url
         return None
 
-    def is_network_enabled(self, network: str) -> bool:
+    def is_network_enabled(self, network: str | NetworkType) -> bool:
         """Check if a network proxy is enabled.
 
         Args:
-            network: Network type ('tor', 'i2p', 'loki')
+            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
 
         Returns:
             True if network proxy is enabled, False otherwise.
         """
+        # Ensure network is NetworkType for dict lookup
+        if isinstance(network, str):
+            try:
+                network = NetworkType(network)
+            except ValueError:
+                return False
         config_map = {
-            "tor": self.tor,
-            "i2p": self.i2p,
-            "loki": self.loki,
+            NetworkType.TOR: self.tor,
+            NetworkType.I2P: self.i2p,
+            NetworkType.LOKI: self.loki,
         }
         config = config_map.get(network)
         return config.enabled if config else False
@@ -566,7 +579,7 @@ async def sync_relay_task(
 
         # Determine network config
         net_config = config.timeouts.clearnet
-        if relay.network == "tor":
+        if relay.network == NetworkType.TOR:
             net_config = config.timeouts.tor
 
         # Apply override if exists
@@ -956,7 +969,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
             async with semaphore:
                 # Determine network config
                 net_config = self._config.timeouts.clearnet
-                if relay.network == "tor":
+                if relay.network == NetworkType.TOR:
                     net_config = self._config.timeouts.tor
 
                 # Apply override

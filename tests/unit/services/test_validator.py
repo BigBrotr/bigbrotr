@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from core.brotr import Brotr, BrotrConfig
+from models.relay import NetworkType
 from services.validator import (
     ConcurrencyConfig,
     NetworkProxyConfig,
@@ -596,8 +597,8 @@ class TestValidateCandidateAndTestConnection:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         # Verify proxy URL is correctly configured
-        assert validator._config.proxy.get_proxy_url("tor") == "socks5://127.0.0.1:9050"
-        assert validator._config.proxy.is_network_enabled("tor") is True
+        assert validator._config.proxy.get_proxy_url(NetworkType.TOR) == "socks5://127.0.0.1:9050"
+        assert validator._config.proxy.is_network_enabled(NetworkType.TOR) is True
 
     @pytest.mark.asyncio
     async def test_connection_timeout_value_respected(self, mock_validator_brotr: Brotr) -> None:

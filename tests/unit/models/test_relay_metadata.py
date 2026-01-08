@@ -15,6 +15,7 @@ from time import time
 import pytest
 
 from models import Metadata, Relay, RelayMetadata
+from models.relay import NetworkType
 from models.relay_metadata import MetadataType
 
 
@@ -131,7 +132,7 @@ class TestFromDbParams:
             metadata_data='{"name": "Test"}',
         )
         assert rm.relay.url == "wss://relay.example.com"
-        assert rm.relay.network == "clearnet"
+        assert rm.relay.network == NetworkType.CLEARNET
         assert rm.generated_at == 9999999999
         assert rm.metadata_type == "nip11"
         assert rm.metadata.data == {"name": "Test"}

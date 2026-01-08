@@ -16,6 +16,7 @@ import pytest
 
 from core.brotr import Brotr
 from models import Nip11, Nip66, Relay, RelayMetadata
+from models.relay import NetworkType
 from services.monitor import (
     ChecksConfig,
     ConcurrencyConfig,
@@ -44,12 +45,12 @@ class TestRelayType:
     def test_network_clearnet(self) -> None:
         """Test clearnet relay detection."""
         relay = Relay("wss://relay.example.com")
-        assert relay.network == "clearnet"
+        assert relay.network == NetworkType.CLEARNET
 
     def test_network_tor(self) -> None:
         """Test tor relay detection."""
         relay = Relay("ws://xyz.onion:80")
-        assert relay.network == "tor"
+        assert relay.network == NetworkType.TOR
 
 
 # ============================================================================
@@ -91,25 +92,25 @@ class TestProxyConfig:
         """Test get_proxy_url method."""
         config = ProxyConfig()
 
-        assert config.get_proxy_url("tor") == "socks5://127.0.0.1:9050"
-        assert config.get_proxy_url("i2p") is None  # disabled
-        assert config.get_proxy_url("loki") is None  # disabled
-        assert config.get_proxy_url("clearnet") is None
+        assert config.get_proxy_url(NetworkType.TOR) == "socks5://127.0.0.1:9050"
+        assert config.get_proxy_url(NetworkType.I2P) is None  # disabled
+        assert config.get_proxy_url(NetworkType.LOKI) is None  # disabled
+        assert config.get_proxy_url(NetworkType.CLEARNET) is None
 
     def test_get_proxy_url_with_enabled(self) -> None:
         """Test get_proxy_url returns URL when network is enabled."""
         config = ProxyConfig(i2p=NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:4447"))
 
-        assert config.get_proxy_url("i2p") == "socks5://127.0.0.1:4447"
+        assert config.get_proxy_url(NetworkType.I2P) == "socks5://127.0.0.1:4447"
 
     def test_is_network_enabled(self) -> None:
         """Test is_network_enabled method."""
         config = ProxyConfig()
 
-        assert config.is_network_enabled("tor") is True
-        assert config.is_network_enabled("i2p") is False
-        assert config.is_network_enabled("loki") is False
-        assert config.is_network_enabled("clearnet") is False
+        assert config.is_network_enabled(NetworkType.TOR) is True
+        assert config.is_network_enabled(NetworkType.I2P) is False
+        assert config.is_network_enabled(NetworkType.LOKI) is False
+        assert config.is_network_enabled(NetworkType.CLEARNET) is False
 
 
 # ============================================================================
@@ -600,7 +601,7 @@ class TestRelayMetadataType:
         )
 
         assert "relay.example.com" in rm.relay.url
-        assert rm.relay.network == "clearnet"
+        assert rm.relay.network == NetworkType.CLEARNET
         assert rm.metadata_type == "nip11"
         assert rm.metadata.data == {"name": "Test"}
         assert rm.generated_at == 1700000001

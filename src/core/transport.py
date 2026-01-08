@@ -148,10 +148,13 @@ async def create_client(
     Raises:
         ValueError: If overlay network relay is provided without proxy_url
     """
+    from models.relay import NetworkType  # noqa: PLC0415
+
     signer = NostrSigner.keys(keys._inner)
     relay_url = RelayUrl.parse(relay.url)
 
-    if relay.network in ("tor", "i2p", "loki"):
+    overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
+    if relay.network in overlay_networks:
         if proxy_url is None:
             raise ValueError(f"Overlay network relay ({relay.network}) requires proxy_url")
 
@@ -161,9 +164,9 @@ async def create_client(
 
         # Map network to connection target
         target_map = {
-            "tor": ConnectionTarget.ONION,
-            "i2p": ConnectionTarget.ONION,  # I2P uses same target
-            "loki": ConnectionTarget.ONION,  # Loki uses same target
+            NetworkType.TOR: ConnectionTarget.ONION,
+            NetworkType.I2P: ConnectionTarget.ONION,  # I2P uses same target
+            NetworkType.LOKI: ConnectionTarget.ONION,  # Loki uses same target
         }
         target = target_map.get(relay.network, ConnectionTarget.ONION)
 

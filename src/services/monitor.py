@@ -50,6 +50,7 @@ from models import (
     Relay,
     RelayMetadata,
 )
+from models.relay import NetworkType
 
 
 if TYPE_CHECKING:
@@ -110,38 +111,50 @@ class ProxyConfig(BaseModel):
         description="Lokinet proxy for .loki relays",
     )
 
-    def get_proxy_url(self, network: str) -> str | None:
+    def get_proxy_url(self, network: str | NetworkType) -> str | None:
         """Get proxy URL for a given network type.
 
         Args:
-            network: Network type ('tor', 'i2p', 'loki', 'clearnet', etc.)
+            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
 
         Returns:
             Proxy URL if network is supported and enabled, None otherwise.
         """
+        # Ensure network is NetworkType for dict lookup
+        if isinstance(network, str):
+            try:
+                network = NetworkType(network)
+            except ValueError:
+                return None
         config_map = {
-            "tor": self.tor,
-            "i2p": self.i2p,
-            "loki": self.loki,
+            NetworkType.TOR: self.tor,
+            NetworkType.I2P: self.i2p,
+            NetworkType.LOKI: self.loki,
         }
         config = config_map.get(network)
         if config and config.enabled and config.url:
             return config.url
         return None
 
-    def is_network_enabled(self, network: str) -> bool:
+    def is_network_enabled(self, network: str | NetworkType) -> bool:
         """Check if a network proxy is enabled.
 
         Args:
-            network: Network type ('tor', 'i2p', 'loki')
+            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
 
         Returns:
             True if network proxy is enabled, False otherwise.
         """
+        # Ensure network is NetworkType for dict lookup
+        if isinstance(network, str):
+            try:
+                network = NetworkType(network)
+            except ValueError:
+                return False
         config_map = {
-            "tor": self.tor,
-            "i2p": self.i2p,
-            "loki": self.loki,
+            NetworkType.TOR: self.tor,
+            NetworkType.I2P: self.i2p,
+            NetworkType.LOKI: self.loki,
         }
         config = config_map.get(network)
         return config.enabled if config else False
@@ -666,7 +679,8 @@ class Monitor(BaseService[MonitorConfig]):
             try:
                 relay = Relay(url_str, discovered_at=row["discovered_at"])
                 # Filter overlay network relays if proxy disabled
-                if relay.network in ("tor", "i2p", "loki"):
+                overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
+                if relay.network in overlay_networks:
                     if not self._config.proxy.is_network_enabled(relay.network):
                         skipped_overlay[relay.network] = skipped_overlay.get(relay.network, 0) + 1
                         continue
@@ -690,7 +704,8 @@ class Monitor(BaseService[MonitorConfig]):
                 self._checked_relays += 1
 
             # Use longer timeout for overlay networks (Tor, I2P, Loki)
-            is_overlay = relay.network in ("tor", "i2p", "loki")
+            overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
+            is_overlay = relay.network in overlay_networks
             timeout = self._config.timeouts.tor if is_overlay else self._config.timeouts.clearnet
 
             nip11: Nip11 | None = None
