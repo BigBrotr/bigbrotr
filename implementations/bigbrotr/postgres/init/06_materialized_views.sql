@@ -9,102 +9,41 @@
 -- ============================================================================
 -- MATERIALIZED VIEW: relay_metadata_latest
 -- ============================================================================
--- Description: Latest NIP-11 and NIP-66 data per relay
--- Refresh: Once daily via cron or manual call to refresh_relay_metadata_latest()
--- Performance: O(1) lookup after refresh via unique index
+-- Description: Latest metadata record per relay and type (unpivoted)
+-- Refresh: Once daily via cron or manual call to relay_metadata_latest_refresh()
+-- Performance: Uses DISTINCT ON for efficient latest-per-group selection
+--
+-- Structure: One row per (relay_url, type) combination
+-- Columns: relay_url, type, generated_at, metadata_id, data
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS relay_metadata_latest AS
-WITH latest AS (
-    SELECT DISTINCT ON (rm.relay_url, rm.type)
-        rm.relay_url,
-        rm.type,
-        rm.metadata_id,
-        rm.generated_at,
-        m.data
-    FROM relay_metadata AS rm
-    INNER JOIN metadata AS m ON rm.metadata_id = m.id
-    ORDER BY rm.relay_url ASC, rm.type ASC, rm.generated_at DESC
-)
-
-SELECT
-    r.url AS relay_url,
-    r.network,
-    r.discovered_at,
-
-    -- NIP-11 latest
-    (MAX(l.data) FILTER (WHERE l.type = 'nip66_rtt') ->> 'rtt_open')::INTEGER
-        AS rtt_open,
-    (MAX(l.data) FILTER (WHERE l.type = 'nip66_rtt') ->> 'rtt_read')::INTEGER
-        AS rtt_read,
-    (MAX(l.data) FILTER (WHERE l.type = 'nip66_rtt') ->> 'rtt_write')::INTEGER
-        AS rtt_write,
-
-    -- NIP-66 RTT latest (round-trip times, network)
-    (MAX(l.data) FILTER (WHERE l.type = 'nip66_ssl') ->> 'ssl_valid')::BOOLEAN
-        AS ssl_valid,
-    (
-        MAX(l.data) FILTER (WHERE l.type = 'nip66_ssl') ->> 'ssl_expires'
-    )::BIGINT AS ssl_expires,
-    MAX(l.generated_at) FILTER (WHERE l.type = 'nip11') AS nip11_at,
-
-    -- NIP-66 SSL latest (SSL/TLS certificate data)
-    MAX(l.metadata_id) FILTER (WHERE l.type = 'nip11') AS nip11_id,
-    MAX(l.data) FILTER (WHERE l.type = 'nip11') AS nip11_data,
-    MAX(l.generated_at) FILTER (WHERE l.type = 'nip66_rtt') AS nip66_rtt_at,
-
-    -- NIP-66 GEO latest (geolocation)
-    MAX(l.metadata_id) FILTER (WHERE l.type = 'nip66_rtt') AS nip66_rtt_id,
-    MAX(l.data) FILTER (WHERE l.type = 'nip66_rtt') AS nip66_rtt_data,
-    MAX(l.generated_at) FILTER (WHERE l.type = 'nip66_ssl') AS nip66_ssl_at,
-
-    -- Extracted NIP-66 RTT fields for quick filtering (cast to proper types)
-    MAX(l.metadata_id) FILTER (WHERE l.type = 'nip66_ssl') AS nip66_ssl_id,
-    MAX(l.data) FILTER (WHERE l.type = 'nip66_ssl') AS nip66_ssl_data,
-    MAX(l.generated_at) FILTER (WHERE l.type = 'nip66_geo') AS nip66_geo_at,
-    MAX(l.metadata_id) FILTER (WHERE l.type = 'nip66_geo') AS nip66_geo_id,
-    MAX(l.data) FILTER (WHERE l.type = 'nip66_geo') AS nip66_geo_data,
-    (
-        MAX(l.data) FILTER (WHERE l.type = 'nip66_rtt') ->> 'rtt_open'
-    ) IS NOT NULL AS is_openable,
-
-    -- Extracted NIP-66 SSL fields for quick filtering
-    (
-        MAX(l.data) FILTER (WHERE l.type = 'nip66_rtt') ->> 'rtt_read'
-    ) IS NOT NULL AS is_readable,
-    (
-        MAX(l.data) FILTER (WHERE l.type = 'nip66_rtt') ->> 'rtt_write'
-    ) IS NOT NULL AS is_writable,
-    MAX(l.data) FILTER (WHERE l.type = 'nip66_ssl')
-    ->> 'ssl_issuer' AS ssl_issuer,
-
-    -- Extracted NIP-66 GEO fields for quick filtering
-    MAX(l.data) FILTER (WHERE l.type = 'nip66_geo') ->> 'geohash' AS geohash,
-    MAX(l.data) FILTER (WHERE l.type = 'nip66_geo')
-    ->> 'geo_country' AS geo_country,
-
-    -- Extracted NIP-11 fields for quick filtering
-    MAX(l.data) FILTER (WHERE l.type = 'nip11') ->> 'name' AS nip11_name,
-    MAX(l.data) FILTER (WHERE l.type = 'nip11')
-    ->> 'description' AS nip11_description,
-    MAX(l.data) FILTER (WHERE l.type = 'nip11')
-    -> 'supported_nips' AS nip11_supported_nips,
-    MAX(l.data) FILTER (WHERE l.type = 'nip11')
-    -> 'limitation' AS nip11_limitation
-
-FROM relays AS r
-LEFT JOIN latest AS l ON r.url = l.relay_url
-GROUP BY r.url, r.network, r.discovered_at;
+SELECT DISTINCT ON (rm.relay_url, rm.type)
+    rm.relay_url,
+    rm.type,
+    rm.generated_at,
+    rm.metadata_id,
+    m.data
+FROM relay_metadata AS rm
+INNER JOIN metadata AS m ON rm.metadata_id = m.id
+ORDER BY rm.relay_url ASC, rm.type ASC, rm.generated_at DESC;
 
 COMMENT ON MATERIALIZED VIEW relay_metadata_latest IS
-'Latest NIP-11 and NIP-66 data per relay. Refresh daily via refresh_relay_metadata_latest().';
+'Latest metadata per relay and type. One row per (relay_url, type). Refresh via relay_metadata_latest_refresh().';
 
 -- ============================================================================
 -- MATERIALIZED VIEW: events_statistics
 -- ============================================================================
 -- Description: Global statistics about events in the database
--- Purpose: Provides key metrics about events without content/tags analysis
--- Refresh: Periodically via refresh_events_statistics()
+-- Purpose: Provides key metrics about events with correct NIP-01 categories
+-- Refresh: Periodically via events_statistics_refresh()
 -- Performance: Fast lookups, single-row result
+--
+-- NIP-01 Event Categories:
+--   Regular:      kind 1, 2, 4-44, 1000-9999 (stored, not replaced)
+--   Replaceable:  kind 0, 3, 10000-19999 (latest only per pubkey)
+--   Ephemeral:    kind 20000-29999 (not stored by relays)
+--   Addressable:  kind 30000-39999 (latest only per pubkey+d-tag)
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS events_statistics AS
 SELECT
     1 AS id,  -- Dummy unique key for REFRESH CONCURRENTLY
@@ -114,30 +53,29 @@ SELECT
     MIN(created_at) AS earliest_event_timestamp,
     MAX(created_at) AS latest_event_timestamp,
 
-    -- Event category counts according to NIP-01 specifications
+    -- Regular events: kind 1, 2, 4-44, 1000-9999
     COUNT(*) FILTER (
-        WHERE
-        (kind >= 1000 AND kind < 10000)
-        OR (kind >= 4 AND kind < 45)
-        OR kind = 1
+        WHERE kind = 1
         OR kind = 2
+        OR (kind >= 4 AND kind <= 44)
+        OR (kind >= 1000 AND kind <= 9999)
     ) AS regular_events,
 
+    -- Replaceable events: kind 0, 3, 10000-19999
     COUNT(*) FILTER (
-        WHERE
-        (kind >= 10000 AND kind < 20000)
-        OR kind = 0
+        WHERE kind = 0
         OR kind = 3
+        OR (kind >= 10000 AND kind <= 19999)
     ) AS replaceable_events,
 
+    -- Ephemeral events: kind 20000-29999
     COUNT(*) FILTER (
-        WHERE
-        kind >= 20000 AND kind < 30000
+        WHERE kind >= 20000 AND kind <= 29999
     ) AS ephemeral_events,
 
+    -- Addressable events: kind 30000-39999
     COUNT(*) FILTER (
-        WHERE
-        kind >= 30000 AND kind < 40000
+        WHERE kind >= 30000 AND kind <= 39999
     ) AS addressable_events,
 
     -- Time-based metrics
@@ -156,17 +94,19 @@ SELECT
 
 FROM events;
 
-COMMENT ON MATERIALIZED VIEW events_statistics IS 'Global event statistics with NIP-01 event categories. Refresh via refresh_events_statistics().';
+COMMENT ON MATERIALIZED VIEW events_statistics IS
+'Global event statistics with correct NIP-01 event categories. Refresh via events_statistics_refresh().';
 
 -- ============================================================================
 -- MATERIALIZED VIEW: relays_statistics
 -- ============================================================================
 -- Description: Per-relay statistics with event counts and performance metrics
 -- Purpose: Provides detailed metrics for each relay
--- Refresh: Periodically via refresh_relays_statistics()
--- Performance: Fast lookups with relay_url index
+-- Refresh: Periodically via relays_statistics_refresh()
+-- Performance: Optimized with LATERAL joins for recent RTT measurements
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS relays_statistics AS
-WITH relay_event_stats AS (
+WITH res AS (
     SELECT
         er.relay_url,
         COUNT(DISTINCT er.event_id) AS event_count,
@@ -176,30 +116,6 @@ WITH relay_event_stats AS (
     FROM events_relays AS er
     LEFT JOIN events AS e ON er.event_id = e.id
     GROUP BY er.relay_url
-),
-
-relay_performance AS (
-    -- Get last 10 RTT measurements per relay and calculate averages
-    SELECT
-        relay_url,
-        AVG(rtt_open) FILTER (WHERE rtt_open IS NOT NULL) AS avg_rtt_open,
-        AVG(rtt_read) FILTER (WHERE rtt_read IS NOT NULL) AS avg_rtt_read,
-        AVG(rtt_write) FILTER (WHERE rtt_write IS NOT NULL) AS avg_rtt_write
-    FROM (
-        SELECT
-            rm.relay_url,
-            (m.data ->> 'rtt_open')::INTEGER AS rtt_open,
-            (m.data ->> 'rtt_read')::INTEGER AS rtt_read,
-            (m.data ->> 'rtt_write')::INTEGER AS rtt_write,
-            ROW_NUMBER()
-                OVER (PARTITION BY rm.relay_url ORDER BY rm.generated_at DESC)
-                AS rn
-        FROM relay_metadata AS rm
-        INNER JOIN metadata AS m ON rm.metadata_id = m.id
-        WHERE rm.type = 'nip66_rtt'
-    ) AS recent_measurements
-    WHERE rn <= 10  -- Only consider last 10 measurements
-    GROUP BY relay_url
 )
 
 SELECT
@@ -208,25 +124,46 @@ SELECT
     r.discovered_at,
     res.first_event_timestamp,
     res.last_event_timestamp,
+    rp.avg_rtt_open,
+    rp.avg_rtt_read,
+    rp.avg_rtt_write,
     COALESCE(res.event_count, 0) AS event_count,
-    COALESCE(res.unique_pubkeys, 0) AS unique_pubkeys,
-    ROUND(rp.avg_rtt_open::NUMERIC, 2) AS avg_rtt_open,
-    ROUND(rp.avg_rtt_read::NUMERIC, 2) AS avg_rtt_read,
-    ROUND(rp.avg_rtt_write::NUMERIC, 2) AS avg_rtt_write
+    COALESCE(res.unique_pubkeys, 0) AS unique_pubkeys
+
 FROM relays AS r
-LEFT JOIN relay_event_stats AS res ON r.url = res.relay_url
-LEFT JOIN relay_performance AS rp ON r.url = rp.relay_url
+
+-- Event statistics per relay
+LEFT JOIN res ON r.url = res.relay_url
+
+-- Performance metrics: average of last 10 RTT measurements
+LEFT JOIN LATERAL (
+    SELECT
+        ROUND(AVG((m.data ->> 'rtt_open')::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
+        ROUND(AVG((m.data ->> 'rtt_read')::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
+        ROUND(AVG((m.data ->> 'rtt_write')::INTEGER)::NUMERIC, 2) AS avg_rtt_write
+    FROM (
+        SELECT rm.metadata_id
+        FROM relay_metadata AS rm
+        WHERE rm.relay_url = r.url AND rm.type = 'nip66_rtt'
+        ORDER BY rm.generated_at DESC
+        LIMIT 10
+    ) AS recent
+    INNER JOIN metadata AS m ON recent.metadata_id = m.id
+) AS rp ON TRUE
+
 ORDER BY r.url;
 
-COMMENT ON MATERIALIZED VIEW relays_statistics IS 'Per-relay statistics including event counts and performance metrics. Refresh via refresh_relays_statistics().';
+COMMENT ON MATERIALIZED VIEW relays_statistics IS
+'Per-relay statistics including event counts and avg RTT from last 10 checks. Refresh via relays_statistics_refresh().';
 
 -- ============================================================================
 -- MATERIALIZED VIEW: kind_counts_total
 -- ============================================================================
 -- Description: Aggregated count of events by kind across all relays
 -- Purpose: Quick overview of event type distribution
--- Refresh: Periodically via refresh_kind_counts_total()
+-- Refresh: Periodically via kind_counts_total_refresh()
 -- Performance: Fast lookups with kind index
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS kind_counts_total AS
 SELECT
     kind,
@@ -236,15 +173,17 @@ FROM events
 GROUP BY kind
 ORDER BY event_count DESC;
 
-COMMENT ON MATERIALIZED VIEW kind_counts_total IS 'Total event counts by kind across all relays. Refresh via refresh_kind_counts_total().';
+COMMENT ON MATERIALIZED VIEW kind_counts_total IS
+'Total event counts by kind across all relays. Refresh via kind_counts_total_refresh().';
 
 -- ============================================================================
 -- MATERIALIZED VIEW: kind_counts_by_relay
 -- ============================================================================
 -- Description: Detailed count of events by kind and relay
 -- Purpose: Analyze event type distribution per relay
--- Refresh: Periodically via refresh_kind_counts_by_relay()
+-- Refresh: Periodically via kind_counts_by_relay_refresh()
 -- Performance: Fast lookups with (kind, relay_url) composite index
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS kind_counts_by_relay AS
 SELECT
     e.kind,
@@ -256,15 +195,17 @@ INNER JOIN events_relays AS er ON e.id = er.event_id
 GROUP BY e.kind, er.relay_url
 ORDER BY e.kind ASC, event_count DESC;
 
-COMMENT ON MATERIALIZED VIEW kind_counts_by_relay IS 'Event counts by kind for each relay. Refresh via refresh_kind_counts_by_relay().';
+COMMENT ON MATERIALIZED VIEW kind_counts_by_relay IS
+'Event counts by kind for each relay. Refresh via kind_counts_by_relay_refresh().';
 
 -- ============================================================================
 -- MATERIALIZED VIEW: pubkey_counts_total
 -- ============================================================================
 -- Description: Aggregated count of events by pubkey across all relays
 -- Purpose: Quick overview of author activity
--- Refresh: Periodically via refresh_pubkey_counts_total()
+-- Refresh: Periodically via pubkey_counts_total_refresh()
 -- Performance: Fast lookups with pubkey_hex index
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS pubkey_counts_total AS
 SELECT
     ENCODE(pubkey, 'hex') AS pubkey_hex,
@@ -276,15 +217,18 @@ FROM events
 GROUP BY pubkey
 ORDER BY event_count DESC;
 
-COMMENT ON MATERIALIZED VIEW pubkey_counts_total IS 'Total event counts by public key across all relays. Refresh via refresh_pubkey_counts_total().';
+COMMENT ON MATERIALIZED VIEW pubkey_counts_total IS
+'Total event counts by public key across all relays. Refresh via pubkey_counts_total_refresh().';
 
 -- ============================================================================
 -- MATERIALIZED VIEW: pubkey_counts_by_relay
 -- ============================================================================
 -- Description: Detailed count of events by pubkey and relay
 -- Purpose: Analyze author activity distribution per relay
--- Refresh: Periodically via refresh_pubkey_counts_by_relay()
+-- Refresh: Periodically via pubkey_counts_by_relay_refresh()
 -- Performance: Fast lookups with (pubkey_hex, relay_url) composite index
+-- Note: Removed ARRAY_AGG(kinds_used) for performance - query events table if needed
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS pubkey_counts_by_relay AS
 SELECT
     er.relay_url,
@@ -292,14 +236,14 @@ SELECT
     COUNT(*) AS event_count,
     COUNT(DISTINCT e.kind) AS unique_kinds,
     MIN(e.created_at) AS first_event_timestamp,
-    MAX(e.created_at) AS last_event_timestamp,
-    ARRAY_AGG(DISTINCT e.kind ORDER BY e.kind) AS kinds_used
+    MAX(e.created_at) AS last_event_timestamp
 FROM events AS e
 INNER JOIN events_relays AS er ON e.id = er.event_id
 GROUP BY e.pubkey, er.relay_url
 ORDER BY e.pubkey ASC, event_count DESC;
 
-COMMENT ON MATERIALIZED VIEW pubkey_counts_by_relay IS 'Event counts by public key for each relay. Refresh via refresh_pubkey_counts_by_relay().';
+COMMENT ON MATERIALIZED VIEW pubkey_counts_by_relay IS
+'Event counts by public key for each relay. Refresh via pubkey_counts_by_relay_refresh().';
 
 -- ============================================================================
 -- MATERIALIZED VIEWS CREATED
