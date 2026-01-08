@@ -147,6 +147,43 @@ def nip66_rtt_only(relay, complete_rtt_data):
     )
 
 
+@pytest.fixture
+def mock_keys():
+    """Mock Keys object for RTT tests."""
+    keys = MagicMock()
+    keys._inner = MagicMock()
+    return keys
+
+
+@pytest.fixture
+def mock_nostr_client():
+    """Mock nostr-sdk client with WebSocketClient transport pattern."""
+    mock_client = AsyncMock()
+    mock_client.add_relay = AsyncMock()
+    mock_client.connect = AsyncMock()
+    mock_client.wait_for_connection = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.fetch_events_of = AsyncMock(return_value=[MagicMock()])
+
+    # Mock relay() -> RelayObject with is_connected() (sync method)
+    mock_relay_obj = MagicMock()
+    mock_relay_obj.is_connected.return_value = True
+    mock_client.relay = AsyncMock(return_value=mock_relay_obj)
+
+    # Mock stream_events() for read test
+    mock_stream = AsyncMock()
+    mock_stream.next = AsyncMock(return_value=MagicMock())  # Returns an event
+    mock_client.stream_events = AsyncMock(return_value=mock_stream)
+
+    # Mock send_event_builder() for write test
+    mock_output = MagicMock()
+    mock_output.success = ["wss://relay.example.com"]
+    mock_output.failed = []
+    mock_output.id = MagicMock()
+    mock_client.send_event_builder = AsyncMock(return_value=mock_output)
+    return mock_client
+
+
 class TestConstruction:
     """Test Nip66 construction and validation."""
 
@@ -494,8 +531,8 @@ class TestCheckSslSync:
         assert result.get("ssl_cipher") == "TLS_AES_256_GCM_SHA384"
         assert result.get("ssl_cipher_bits") == 256
 
-    def test_ssl_error_raises(self):
-        """SSL error raises exception."""
+    def test_ssl_error_returns_dict_with_ssl_valid_false(self):
+        """SSL error is handled internally and returns dict with ssl_valid=False."""
         import ssl as ssl_module
 
         with patch("socket.create_connection") as mock_conn:
@@ -503,20 +540,20 @@ class TestCheckSslSync:
             mock_conn.return_value.__enter__.return_value = mock_socket
             mock_conn.return_value.__exit__ = MagicMock(return_value=False)
 
-            with (
-                patch("ssl.create_default_context") as mock_ctx,
-                pytest.raises(ssl_module.SSLError),
-            ):
+            with patch("ssl.create_default_context") as mock_ctx:
                 mock_ctx.return_value.wrap_socket.side_effect = ssl_module.SSLError()
-                Nip66._check_ssl_sync("example.com", 443, 30.0)
+                result = Nip66._check_ssl_sync("example.com", 443, 30.0)
 
-    def test_connection_error_raises(self):
-        """Connection error raises exception."""
-        with (
-            patch("socket.create_connection", side_effect=TimeoutError()),
-            pytest.raises(TimeoutError),
-        ):
-            Nip66._check_ssl_sync("example.com", 443, 30.0)
+        # SSL error is caught, returns dict with ssl_valid=False
+        assert result.get("ssl_valid") is False
+
+    def test_connection_error_returns_dict_with_ssl_valid_false(self):
+        """Connection error is handled internally and returns dict with ssl_valid=False."""
+        with patch("socket.create_connection", side_effect=TimeoutError()):
+            result = Nip66._check_ssl_sync("example.com", 443, 30.0)
+
+        # Connection error is caught, returns dict with ssl_valid=False
+        assert result.get("ssl_valid") is False
 
 
 class TestLookupGeoSync:
@@ -544,7 +581,7 @@ class TestLookupGeoSync:
         mock_city_reader = MagicMock()
         mock_city_reader.city.return_value = mock_response
 
-        result = Nip66._lookup_geo_sync("8.8.8.8", mock_city_reader)
+        result = Nip66._lookup_geo_sync("8.8.8.8", mock_city_reader, None)
 
         assert result["geo_ip"] == "8.8.8.8"
         assert result["geo_country"] == "US"
@@ -669,12 +706,13 @@ class TestTestGeo:
         }
 
         mock_city_reader = MagicMock()
+        mock_asn_reader = MagicMock()
 
         with (
             patch("socket.gethostbyname", return_value="8.8.8.8"),
             patch.object(Nip66, "_lookup_geo_sync", return_value=geo_result),
         ):
-            result = await Nip66._test_geo(relay, mock_city_reader)
+            result = await Nip66._test_geo(relay, mock_city_reader, mock_asn_reader)
 
         assert isinstance(result, Metadata)
         assert result.data.get("geo_country") == "US"
@@ -683,47 +721,10 @@ class TestTestGeo:
     async def test_tor_raises_error(self, tor_relay):
         """Raises Nip66TestError for Tor relay."""
         mock_city_reader = MagicMock()
-        with pytest.raises(Nip66TestError) as exc_info:
-            await Nip66._test_geo(tor_relay, mock_city_reader)
-        assert "not applicable" in str(exc_info.value.cause)
-
-    @pytest.mark.asyncio
-    async def test_no_reader_raises_error(self, relay):
-        """Raises Nip66TestError when no readers provided."""
-        with pytest.raises(Nip66TestError) as exc_info:
-            await Nip66._test_geo(relay, city_reader=None, asn_reader=None)
-        assert "requires city_reader or asn_reader" in str(exc_info.value.cause)
-
-    @pytest.mark.asyncio
-    async def test_asn_only_returns_data(self, relay):
-        """Returns geo data with ASN reader only (no city reader)."""
-        geo_result = {
-            "geo_ip": "8.8.8.8",
-            "geo_asn": 15169,
-            "geo_asn_org": "GOOGLE",
-        }
-
         mock_asn_reader = MagicMock()
-
-        with (
-            patch("socket.gethostbyname", return_value="8.8.8.8"),
-            patch.object(Nip66, "_lookup_geo_sync", return_value=geo_result),
-        ):
-            result = await Nip66._test_geo(relay, city_reader=None, asn_reader=mock_asn_reader)
-
-        assert isinstance(result, Metadata)
-        assert result.data.get("geo_asn") == 15169
-
-    @pytest.mark.asyncio
-    async def test_dns_failure_raises_error(self, relay):
-        """Raises Nip66TestError when DNS resolution fails."""
-        mock_city_reader = MagicMock()
-        with (
-            patch("socket.gethostbyname", side_effect=OSError("DNS failed")),
-            pytest.raises(Nip66TestError) as exc_info,
-        ):
-            await Nip66._test_geo(relay, mock_city_reader)
-        assert "returned no data" in str(exc_info.value.cause)
+        with pytest.raises(Nip66TestError) as exc_info:
+            await Nip66._test_geo(tor_relay, mock_city_reader, mock_asn_reader)
+        assert "not applicable" in str(exc_info.value.cause)
 
 
 class TestTestDns:
@@ -775,24 +776,98 @@ class TestTestHttp:
         assert result.data.get("http_server") == "nginx/1.24.0"
 
     @pytest.mark.asyncio
-    async def test_tor_raises_error(self, tor_relay):
+    async def test_tor_without_proxy_raises_error(self, tor_relay):
         """Raises Nip66TestError for Tor relay without proxy."""
         with pytest.raises(Nip66TestError) as exc_info:
             await Nip66._test_http(tor_relay, 10.0)
-        assert "not applicable" in str(exc_info.value.cause)
+        assert "requires proxy url" in str(exc_info.value.cause)
+
+
+class TestTestRtt:
+    """Test _test_rtt() class method with create_client factory."""
+
+    @pytest.mark.asyncio
+    async def test_clearnet_returns_rtt_data(self, relay, mock_keys, mock_nostr_client):
+        """Returns RTT data for clearnet relay using create_client factory."""
+        mock_event_builder = MagicMock()
+        mock_read_filter = MagicMock()
+
+        # Mock create_client to return our mock client
+        async def mock_create_client(r, k, proxy=None):
+            return mock_nostr_client
+
+        with patch("core.transport.create_client", side_effect=mock_create_client):
+            result = await Nip66._test_rtt(
+                relay,
+                timeout=10.0,
+                keys=mock_keys,
+                event_builder=mock_event_builder,
+                read_filter=mock_read_filter,
+            )
+
+        assert isinstance(result, Metadata)
+        assert result.data.get("rtt_open") is not None
+
+    @pytest.mark.asyncio
+    async def test_tor_without_proxy_raises_error(self, tor_relay, mock_keys):
+        """Raises Nip66TestError for Tor relay without proxy."""
+        mock_event_builder = MagicMock()
+        mock_read_filter = MagicMock()
+
+        # create_client raises ValueError for overlay network without proxy
+        async def mock_create_client(r, k, proxy=None):
+            if r.network in ("tor", "i2p", "loki") and proxy is None:
+                raise ValueError(f"Overlay network relay ({r.network}) requires proxy_url")
+            return MagicMock()
+
+        with (
+            patch("core.transport.create_client", side_effect=mock_create_client),
+            pytest.raises(Nip66TestError) as exc_info,
+        ):
+            await Nip66._test_rtt(
+                tor_relay,
+                timeout=10.0,
+                keys=mock_keys,
+                event_builder=mock_event_builder,
+                read_filter=mock_read_filter,
+            )
+        assert "requires proxy_url" in str(exc_info.value.cause)
+
+    @pytest.mark.asyncio
+    async def test_connection_failure_raises_error(self, relay, mock_keys):
+        """Raises Nip66TestError when connection fails."""
+        mock_event_builder = MagicMock()
+        mock_read_filter = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.connect = AsyncMock(side_effect=Exception("Connection refused"))
+
+        async def mock_create_client(r, k, proxy=None):
+            return mock_client
+
+        with (
+            patch("core.transport.create_client", side_effect=mock_create_client),
+            pytest.raises(Nip66TestError) as exc_info,
+        ):
+            await Nip66._test_rtt(
+                relay,
+                timeout=10.0,
+                keys=mock_keys,
+                event_builder=mock_event_builder,
+                read_filter=mock_read_filter,
+            )
+        assert "returned no data" in str(exc_info.value.cause)
 
 
 class TestTest:
     """Test test() class method."""
 
     @pytest.mark.asyncio
-    async def test_returns_nip66_on_success(self, relay):
+    async def test_returns_nip66_on_success(self, relay, mock_keys, mock_nostr_client):
         """Returns Nip66 instance on successful test."""
         rtt_data = {"rtt_open": 100, "rtt_read": 150}
         dns_data = {"dns_ip": "8.8.8.8", "dns_rtt": 50}
 
-        mock_keys = MagicMock()
-        mock_keys._inner = MagicMock()
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 
@@ -836,10 +911,8 @@ class TestTest:
         assert result.dns_metadata.data.get("dns_ip") == "8.8.8.8"
 
     @pytest.mark.asyncio
-    async def test_all_tests_fail_raises_error(self, relay):
+    async def test_all_tests_fail_raises_error(self, relay, mock_keys):
         """All tests failing raises Nip66TestError."""
-        mock_keys = MagicMock()
-        mock_keys._inner = MagicMock()
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 

@@ -34,7 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import geoip2.database
-from nostr_sdk import EventBuilder, Filter
+from nostr_sdk import EventBuilder, Filter, Kind
 
 from models.keys import Keys
 from models.metadata import Metadata
@@ -452,11 +452,14 @@ async def main() -> None:
 
     # Create event builder and filter
     event_builder = EventBuilder.text_note("NIP-66 test event")
-    read_filter = Filter().limit(1)
+    read_filter = Filter().kind(Kind(1)).limit(1)
     print("Event builder:  Ready")
     print("Read filter:    Ready")
 
     relay = Relay(args.relay)
+
+    # Determine if proxy is needed for the relay
+    proxy_for_relay = args.proxy if relay.network != "clearnet" else None
 
     # Run tests based on flags
     if args.all or (not any([args.bad_ssl, args.onion, args.selective, args.errors, args.summary])):
@@ -468,6 +471,7 @@ async def main() -> None:
             read_filter,
             city_reader,
             asn_reader,
+            proxy_url=proxy_for_relay,
             timeout=args.timeout,
         )
 
@@ -478,8 +482,8 @@ async def main() -> None:
             print_dns_results(nip66)
             print_http_results(nip66)
 
-            if args.json or args.all:
-                print_full_json(nip66)
+            # Always print full JSON structure
+            print_full_json(nip66)
 
     if args.bad_ssl or args.all:
         await test_bad_ssl_relay(keys, event_builder, read_filter, city_reader, asn_reader)

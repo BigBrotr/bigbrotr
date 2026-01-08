@@ -117,14 +117,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 import dns.resolver  # type: ignore[import-not-found]
 import geohash2
 import geoip2.database  # noqa: TC002 - used at runtime in _lookup_geo_sync
-from nostr_sdk import (
-    ClientBuilder,
-    ClientOptions,
-    EventBuilder,
-    Filter,
-)
-
-from core.transport import WebSocketClient
+from nostr_sdk import EventBuilder, Filter
 
 from .metadata import Metadata
 from .relay import Relay
@@ -382,46 +375,47 @@ class Nip66:
         Raises:
             Nip66TestError: If test fails or proxy url is missing for overlay networks
         """
-        logger.debug("_test_rtt: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url)
+        from nostr_sdk import RelayUrl
 
-        if proxy_url is None and relay.network in ("tor", "i2p", "loki"):
-            logger.warning("_test_rtt: missing proxy url relay=%s", relay.url)
-            raise Nip66TestError(
-                relay, ValueError("RTT test requires proxy url for overlay networks")
-            )
+        from core.transport import create_client
+
+        logger.debug("_test_rtt: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url)
 
         data: dict[str, Any] = {}
 
-        opts = ClientOptions()
-
-        # Set proxy for overlay networks (Tor, I2P, Loki)
-        if proxy_url:
-            opts = opts.proxy(proxy_url)
-
-        client = ClientBuilder().signer(keys).websocket_transport(WebSocketClient()).build()
-        await client.add_relay(relay.url)
+        try:
+            client = await create_client(relay, keys, proxy_url)
+        except ValueError as e:
+            logger.warning("_test_rtt: %s relay=%s", e, relay.url)
+            raise Nip66TestError(relay, e) from e
 
         try:
             # Test open: measure connection time
+            # connect() spawns background tasks, wait_for_connection() waits for actual connection
             logger.debug("_test_rtt: connecting relay=%s", relay.url)
             start = perf_counter()
-            await client.connect(timeout=timedelta(seconds=timeout))
+            await client.connect()
+            await client.wait_for_connection(timedelta(seconds=timeout))
             rtt_open = int((perf_counter() - start) * 1000)
+
+            # Verify connection was actually established (wait_for_connection doesn't raise on timeout)
+            relay_obj = await client.relay(RelayUrl.parse(relay.url))
+            if not relay_obj.is_connected():
+                logger.debug("_test_rtt: connection not established relay=%s", relay.url)
+                raise TimeoutError("Connection timeout")
+
             data["rtt_open"] = rtt_open
             logger.debug("_test_rtt: open succeeded relay=%s rtt_open=%dms", relay.url, rtt_open)
 
-            # Test read: fetch_events_of() to measure time to first event
-            read_success = False
+            # Test read: stream_events to measure time to first event
             try:
                 logger.debug("_test_rtt: reading relay=%s", relay.url)
                 start = perf_counter()
-                events = await client.fetch_events_of(
-                    [read_filter], timeout=timedelta(seconds=timeout)
-                )
-                if events:
+                stream = await client.stream_events(read_filter, timeout=timedelta(seconds=timeout))
+                first_event = await stream.next()
+                if first_event is not None:
                     rtt_read = int((perf_counter() - start) * 1000)
                     data["rtt_read"] = rtt_read
-                    read_success = True
                     logger.debug(
                         "_test_rtt: read event relay=%s rtt_read=%dms", relay.url, rtt_read
                     )
@@ -430,42 +424,46 @@ class Nip66:
             except Exception as e:
                 logger.debug("_test_rtt: read failed relay=%s error=%s", relay.url, e)
 
-            # Test write: send event and verify acceptance
+            # Test write: send event and verify by reading it back
             try:
                 logger.debug("_test_rtt: writing relay=%s", relay.url)
                 start = perf_counter()
-                output = await client.send_event_builder(event_builder)
+                output = await asyncio.wait_for(
+                    client.send_event_builder(event_builder), timeout=timeout
+                )
                 rtt_write = int((perf_counter() - start) * 1000)
                 if output and relay.url in [str(u) for u in output.success]:
-                    logger.debug("_test_rtt: write accepted relay=%s", relay.url)
-                    print(output.success)  #######################################################
-                    if read_success:
-                        # Verify by querying back
-                        event_id = output.id
-                        verify_filter = Filter().id(event_id).limit(1)
-                        logger.debug(
-                            "_test_rtt: verifying write relay=%s event_id=%s", relay.url, event_id
+                    logger.debug(
+                        "_test_rtt: write accepted relay=%s rtt_write=%dms", relay.url, rtt_write
+                    )
+                    # Verify by reading back the event
+                    event_id = output.id
+                    verify_filter = Filter().id(event_id).limit(1)
+                    logger.debug(
+                        "_test_rtt: verifying write relay=%s event_id=%s", relay.url, event_id
+                    )
+                    try:
+                        stream = await client.stream_events(
+                            verify_filter, timeout=timedelta(seconds=timeout)
                         )
-                        events = await client.fetch_events_of(
-                            [verify_filter], timeout=timedelta(seconds=timeout)
-                        )
-                        if events and len(events) > 0:
+                        verify_event = await stream.next()
+                        if verify_event is not None:
+                            # Event found: write confirmed
                             data["rtt_write"] = rtt_write
-                            logger.debug(
-                                "_test_rtt: write verified relay=%s rtt_write=%dms",
-                                relay.url,
-                                rtt_write,
-                            )
+                            logger.debug("_test_rtt: write verified relay=%s", relay.url)
                         else:
+                            # Event not found but read succeeded: relay lied, don't save rtt_write
                             logger.debug(
-                                "_test_rtt: write verify failed relay=%s (event not found)",
+                                "_test_rtt: write not verified relay=%s (event not found)",
                                 relay.url,
                             )
-                    else:
-                        # Trust the OK response
+                    except Exception as e:
+                        # Read failed: trust relay's OK response in good faith
                         data["rtt_write"] = rtt_write
                         logger.debug(
-                            "_test_rtt: write trusted relay=%s rtt_write=%dms", relay.url, rtt_write
+                            "_test_rtt: write trusted (verify error) relay=%s error=%s",
+                            relay.url,
+                            e,
                         )
                 else:
                     failed = [str(u) for u in output.failed] if output else []
@@ -475,6 +473,13 @@ class Nip66:
 
         except Exception as e:
             logger.debug("_test_rtt: connection error relay=%s error=%s", relay.url, e)
+
+        finally:
+            # Cleanup: disconnect client
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
 
         if not data:
             logger.warning("_test_rtt: no data relay=%s", relay.url)
