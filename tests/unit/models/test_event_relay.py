@@ -15,6 +15,7 @@ import pytest
 
 from models import Event, EventRelay, Relay
 from models.event import EventDbParams
+from models.relay import NetworkType
 
 
 @pytest.fixture
@@ -145,7 +146,7 @@ class TestFromDbParams:
             seen_at=9999999999,
         )
         assert er.relay.url == "wss://relay.example.com"
-        assert er.relay.network == "clearnet"
+        assert er.relay.network == NetworkType.CLEARNET
         assert er.seen_at == 9999999999
 
     def test_to_db_params_structure(self, mock_event, relay):

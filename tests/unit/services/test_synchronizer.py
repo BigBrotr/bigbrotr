@@ -17,6 +17,7 @@ import pytest
 
 from core.brotr import Brotr, BrotrConfig
 from models import Relay
+from models.relay import NetworkType
 from services.synchronizer import (
     ConcurrencyConfig,
     EventBatch,
@@ -60,17 +61,17 @@ class TestRelayType:
     def test_network_clearnet_wss(self) -> None:
         """Test clearnet relay detection with wss://."""
         relay = Relay("wss://relay.example.com")
-        assert relay.network == "clearnet"
+        assert relay.network == NetworkType.CLEARNET
 
     def test_network_clearnet_ws(self) -> None:
         """Test clearnet relay detection with ws://."""
         relay = Relay("ws://relay.example.com")
-        assert relay.network == "clearnet"
+        assert relay.network == NetworkType.CLEARNET
 
     def test_network_tor(self) -> None:
         """Test tor relay detection."""
         relay = Relay("ws://xyz.onion:80")
-        assert relay.network == "tor"
+        assert relay.network == NetworkType.TOR
 
     def test_relay_url_parsing(self) -> None:
         """Test relay URL parsing and string representation."""
@@ -115,18 +116,18 @@ class TestSyncProxyConfig:
         """Test get_proxy_url method."""
         config = ProxyConfig()
 
-        assert config.get_proxy_url("tor") == "socks5://127.0.0.1:9050"
-        assert config.get_proxy_url("i2p") is None  # disabled
-        assert config.get_proxy_url("loki") is None  # disabled
-        assert config.get_proxy_url("clearnet") is None
+        assert config.get_proxy_url(NetworkType.TOR) == "socks5://127.0.0.1:9050"
+        assert config.get_proxy_url(NetworkType.I2P) is None  # disabled
+        assert config.get_proxy_url(NetworkType.LOKI) is None  # disabled
+        assert config.get_proxy_url(NetworkType.CLEARNET) is None
 
     def test_is_network_enabled(self) -> None:
         """Test is_network_enabled method."""
         config = ProxyConfig()
 
-        assert config.is_network_enabled("tor") is True
-        assert config.is_network_enabled("i2p") is False
-        assert config.is_network_enabled("loki") is False
+        assert config.is_network_enabled(NetworkType.TOR) is True
+        assert config.is_network_enabled(NetworkType.I2P) is False
+        assert config.is_network_enabled(NetworkType.LOKI) is False
 
 
 # ============================================================================

@@ -15,6 +15,7 @@ import pytest
 
 from models import Metadata, Nip66, Relay, RelayMetadata
 from models.nip66 import Nip66TestError
+from models.relay import NetworkType
 from models.relay_metadata import MetadataType
 
 
@@ -816,7 +817,8 @@ class TestTestRtt:
 
         # create_client raises ValueError for overlay network without proxy
         async def mock_create_client(r, k, proxy=None):
-            if r.network in ("tor", "i2p", "loki") and proxy is None:
+            overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
+            if r.network in overlay_networks and proxy is None:
                 raise ValueError(f"Overlay network relay ({r.network}) requires proxy_url")
             return MagicMock()
 

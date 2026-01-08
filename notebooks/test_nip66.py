@@ -39,7 +39,7 @@ from nostr_sdk import EventBuilder, Filter, Kind
 from models.keys import Keys
 from models.metadata import Metadata
 from models.nip66 import Nip66, Nip66TestError
-from models.relay import Relay
+from models.relay import NetworkType, Relay
 
 
 # -----------------------------------------------------------------------------
@@ -459,7 +459,7 @@ async def main() -> None:
     relay = Relay(args.relay)
 
     # Determine if proxy is needed for the relay
-    proxy_for_relay = args.proxy if relay.network != "clearnet" else None
+    proxy_for_relay = args.proxy if relay.network != NetworkType.CLEARNET else None
 
     # Run tests based on flags
     if args.all or (not any([args.bad_ssl, args.onion, args.selective, args.errors, args.summary])):

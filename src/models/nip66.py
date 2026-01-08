@@ -120,7 +120,7 @@ import geoip2.database  # noqa: TC002 - used at runtime in _lookup_geo_sync
 from nostr_sdk import EventBuilder, Filter
 
 from .metadata import Metadata
-from .relay import Relay
+from .relay import NetworkType, Relay
 from .utils import parse_typed_dict
 
 
@@ -504,7 +504,7 @@ class Nip66:
         """
         logger.debug("_test_ssl: relay=%s timeout=%.1fs", relay.url, timeout)
 
-        if relay.network != "clearnet":
+        if relay.network != NetworkType.CLEARNET:
             logger.debug("_test_ssl: skipped (non-clearnet) relay=%s", relay.url)
             raise Nip66TestError(relay, ValueError("SSL test not applicable (non-clearnet)"))
 
@@ -652,7 +652,7 @@ class Nip66:
             asn_reader is not None,
         )
 
-        if relay.network != "clearnet":
+        if relay.network != NetworkType.CLEARNET:
             logger.debug("_test_geo: skipped (non-clearnet) relay=%s", relay.url)
             raise Nip66TestError(relay, ValueError("Geo test not applicable (non-clearnet)"))
 
@@ -781,7 +781,7 @@ class Nip66:
         """
         logger.debug("_test_dns: relay=%s timeout=%.1fs", relay.url, timeout)
 
-        if relay.network != "clearnet":
+        if relay.network != NetworkType.CLEARNET:
             logger.debug("_test_dns: skipped (non-clearnet) relay=%s", relay.url)
             raise Nip66TestError(relay, ValueError("DNS test not applicable (non-clearnet)"))
 
@@ -891,7 +891,8 @@ class Nip66:
         logger.debug("_test_http: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url)
 
         # Non-clearnet relays require proxy
-        if proxy_url is None and relay.network in ("tor", "i2p", "loki"):
+        overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
+        if proxy_url is None and relay.network in overlay_networks:
             logger.warning("_test_http: missing proxy url relay=%s", relay.url)
             raise Nip66TestError(
                 relay, ValueError("HTTP test requires proxy url for overlay networks")

@@ -34,6 +34,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from core.base_service import BaseService
 from models import Keys, Relay
+from models.relay import NetworkType
 
 
 if TYPE_CHECKING:
@@ -80,38 +81,50 @@ class ProxyConfig(BaseModel):
         description="Lokinet proxy for .loki relays",
     )
 
-    def get_proxy_url(self, network: str) -> str | None:
+    def get_proxy_url(self, network: str | NetworkType) -> str | None:
         """Get proxy URL for a given network type.
 
         Args:
-            network: Network type ('tor', 'i2p', 'loki', 'clearnet', etc.)
+            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
 
         Returns:
             Proxy URL if network is supported and enabled, None otherwise.
         """
+        # Ensure network is NetworkType for dict lookup
+        if isinstance(network, str):
+            try:
+                network = NetworkType(network)
+            except ValueError:
+                return None
         config_map = {
-            "tor": self.tor,
-            "i2p": self.i2p,
-            "loki": self.loki,
+            NetworkType.TOR: self.tor,
+            NetworkType.I2P: self.i2p,
+            NetworkType.LOKI: self.loki,
         }
         config = config_map.get(network)
         if config and config.enabled and config.url:
             return config.url
         return None
 
-    def is_network_enabled(self, network: str) -> bool:
+    def is_network_enabled(self, network: str | NetworkType) -> bool:
         """Check if a network proxy is enabled.
 
         Args:
-            network: Network type ('tor', 'i2p', 'loki')
+            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
 
         Returns:
             True if network proxy is enabled, False otherwise.
         """
+        # Ensure network is NetworkType for dict lookup
+        if isinstance(network, str):
+            try:
+                network = NetworkType(network)
+            except ValueError:
+                return False
         config_map = {
-            "tor": self.tor,
-            "i2p": self.i2p,
-            "loki": self.loki,
+            NetworkType.TOR: self.tor,
+            NetworkType.I2P: self.i2p,
+            NetworkType.LOKI: self.loki,
         }
         config = config_map.get(network)
         return config.enabled if config else False
@@ -416,7 +429,8 @@ class Validator(BaseService[ValidatorConfig]):
             network = self._detect_network(url)
 
             # Skip overlay network relays if proxy is not enabled
-            if network in ("tor", "i2p", "loki"):
+            overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
+            if network in overlay_networks:
                 if not self._config.proxy.is_network_enabled(network):
                     return False
 
@@ -463,24 +477,24 @@ class Validator(BaseService[ValidatorConfig]):
             return False
 
     @staticmethod
-    def _detect_network(url: str) -> str:
+    def _detect_network(url: str) -> NetworkType:
         """Detect network type from URL.
 
         Args:
             url: Relay URL (e.g., wss://relay.example.com, ws://abc.onion)
 
         Returns:
-            Network type: 'tor', 'i2p', 'loki', or 'clearnet'
+            Network type: NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI, or NetworkType.CLEARNET
         """
         # Extract host from URL
         url_lower = url.lower()
 
         # Check for overlay network TLDs
         if ".onion" in url_lower:
-            return "tor"
+            return NetworkType.TOR
         elif ".i2p" in url_lower:
-            return "i2p"
+            return NetworkType.I2P
         elif ".loki" in url_lower:
-            return "loki"
+            return NetworkType.LOKI
         else:
-            return "clearnet"
+            return NetworkType.CLEARNET

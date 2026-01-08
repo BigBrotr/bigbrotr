@@ -24,7 +24,7 @@ class TestParsing:
         assert r.url == "wss://relay.example.com"
         assert r.scheme == "wss"
         assert r.host == "relay.example.com"
-        assert r.network == "clearnet"
+        assert r.network == NetworkType.CLEARNET
         assert r.port is None
         assert r.path is None
 
@@ -68,11 +68,11 @@ class TestParsing:
 
     def test_ipv4(self):
         r = Relay("wss://8.8.8.8")
-        assert r.network == "clearnet"
+        assert r.network == NetworkType.CLEARNET
 
     def test_ipv6(self):
         r = Relay("wss://[2001:4860:4860::8888]")
-        assert r.network == "clearnet"
+        assert r.network == NetworkType.CLEARNET
 
 
 class TestNetworkTypeEnum:
@@ -250,7 +250,7 @@ class TestFromDbParams:
     def test_simple_relay(self):
         r = Relay.from_db_params("wss://relay.example.com", "clearnet", 1234567890)
         assert r.url == "wss://relay.example.com"
-        assert r.network == "clearnet"
+        assert r.network == NetworkType.CLEARNET
         assert r.discovered_at == 1234567890
         assert r.host == "relay.example.com"
         assert r.port is None
@@ -282,7 +282,7 @@ class TestFromDbParams:
 
     def test_tor_network(self):
         r = Relay.from_db_params("ws://abc123.onion", "tor", 1234567890)
-        assert r.network == "tor"
+        assert r.network == NetworkType.TOR
         assert r.scheme == "ws"
 
     def test_roundtrip(self):
