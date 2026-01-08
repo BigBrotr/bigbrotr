@@ -479,10 +479,12 @@ Convert to list of RelayMetadata (up to 3):
 ### Examples
 
 ```python
-from models import Nip66, Relay, Keys
+from nostr_sdk import Keys
+from models import Nip66, Relay
+from utils.keys import load_keys_from_env
 
 relay = Relay("wss://relay.example.com")
-keys = Keys.from_env()  # Optional, for write test
+keys = load_keys_from_env("PRIVATE_KEY")  # Optional, for write test
 
 nip66 = await Nip66.test(
     relay,
@@ -505,29 +507,28 @@ await brotr.insert_relay_metadata(metadata_records)
 
 ---
 
-## Keys - Nostr Key Management
+## Key Loading Utility
 
-**Location**: `src/models/keys.py`
+**Location**: `src/utils/keys.py`
 
-Extended nostr_sdk.Keys with environment variable loading.
+Simple utility function for loading Nostr keys from environment variables.
 
-### Factory Method
+### Function
 
 ```python
-@classmethod
-def from_env(cls, env_var: str = "PRIVATE_KEY") -> Optional["Keys"]
+def load_keys_from_env(env_var: str) -> Keys | None
 ```
 
 Load keys from environment variable.
 
 **Parameters**:
-- `env_var`: Environment variable name (default: `PRIVATE_KEY`)
+- `env_var`: Environment variable name
 
 **Returns**:
-- Keys instance or None if not set
+- nostr_sdk.Keys instance or None if not set
 
 **Raises**:
-- ValueError: If key is invalid
+- Exception: If key format is invalid
 
 **Supported Formats**:
 - Hex string (64 characters)
@@ -536,11 +537,12 @@ Load keys from environment variable.
 ### Examples
 
 ```python
-from models import Keys
+from nostr_sdk import Keys
+from utils.keys import load_keys_from_env
 
 # Load from environment
-keys = Keys.from_env()  # Uses PRIVATE_KEY env var
-keys = Keys.from_env("CUSTOM_KEY")
+keys = load_keys_from_env("PRIVATE_KEY")
+keys = load_keys_from_env("CUSTOM_KEY")
 
 if keys:
     pubkey = keys.public_key()
@@ -549,11 +551,9 @@ if keys:
 else:
     print("No keys configured")
 
-# Use for signing
-from nostr_sdk import EventBuilder, Kind
-
-builder = EventBuilder(Kind(1), "Hello Nostr")
-event = builder.to_event(keys)
+# Use nostr_sdk.Keys directly for other operations
+keys = Keys.generate()  # Generate new keys
+keys = Keys.parse("nsec1...")  # Parse from string
 ```
 
 ---
