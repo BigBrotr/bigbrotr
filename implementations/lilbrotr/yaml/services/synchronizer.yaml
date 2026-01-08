@@ -11,13 +11,13 @@
 proxy:
   tor:
     enabled: false
-    url: "socks5://tor:9050"
+    proxy_url: "socks5://tor:9050"
   i2p:
     enabled: false
-    url: "socks5://i2p:4447"
+    proxy_url: "socks5://i2p:4447"
   loki:
     enabled: false
-    url: "socks5://lokinet:1080"
+    proxy_url: "socks5://lokinet:1080"
 
 # Reduced concurrency for lighter resource usage
 concurrency:

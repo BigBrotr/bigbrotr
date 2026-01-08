@@ -15,3 +15,4 @@
 # Note: Batch size is controlled by Brotr's max_batch_size in brotr.yaml
 seed:
   file_path: static/seed_relays.txt  # Path to seed file
+  to_validate: true  # If true, add as validation candidates; if false, insert directly into relays table

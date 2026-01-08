@@ -22,10 +22,10 @@ concurrency:
 proxy:
   tor:
     enabled: true
-    url: "socks5://tor:9050"
+    proxy_url: "socks5://tor:9050"
   i2p:
     enabled: true
-    url: "socks5://i2p:4447"
+    proxy_url: "socks5://i2p:4447"
   loki:
     enabled: false           # Enable only on Linux with --profile linux-only
-    url: "socks5://lokinet:1080"
+    proxy_url: "socks5://lokinet:1080"
