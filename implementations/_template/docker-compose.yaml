@@ -8,8 +8,7 @@
 # CUSTOMIZE:
 #   1. Replace "myimpl" with your implementation name throughout
 #   2. Update port numbers to avoid conflicts with other implementations
-#   3. Adjust resource limits based on your environment
-#   4. Remove Tor service and dependencies if not needed
+#   3. Remove Tor service and dependencies if not needed
 #
 # ============================================================================
 
@@ -52,15 +51,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 2G
-        reservations:
-          cpus: '1.0'
-          memory: 1G
 
     logging:
       driver: "json-file"
@@ -192,8 +182,6 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      seeder:
-        condition: service_completed_successfully
 
     command: ["python", "-m", "services", "finder"]
 
@@ -209,15 +197,6 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
-
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
 
   # --------------------------------------------------------------------------
   # Validator Service (Continuous)
@@ -242,10 +221,6 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      seeder:
-        condition: service_completed_successfully
-      finder:
-        condition: service_healthy
       tor:
         condition: service_healthy            # Remove if not using Tor
 
@@ -263,15 +238,6 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
-
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
 
   # --------------------------------------------------------------------------
   # Monitor Service (Continuous)
@@ -297,10 +263,6 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      seeder:
-        condition: service_completed_successfully
-      validator:
-        condition: service_healthy
       tor:
         condition: service_healthy            # Remove if not using Tor
 
@@ -318,15 +280,6 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
-
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
 
   # --------------------------------------------------------------------------
   # Synchronizer Service (Continuous)
@@ -351,10 +304,6 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      seeder:
-        condition: service_completed_successfully
-      monitor:
-        condition: service_healthy
       tor:
         condition: service_healthy            # Remove if not using Tor
 
@@ -372,15 +321,6 @@ services:
       options:
         max-size: "100m"
         max-file: "5"
-
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
 
 # ----------------------------------------------------------------------------
 # Networks
