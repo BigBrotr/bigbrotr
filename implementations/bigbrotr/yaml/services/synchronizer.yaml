@@ -17,17 +17,17 @@ proxy:
   # Tor proxy for .onion relays
   tor:
     enabled: true
-    url: "socks5://tor:9050"
+    proxy_url: "socks5://tor:9050"
 
   # I2P proxy for .i2p relays
   i2p:
     enabled: true
-    url: "socks5://i2p:4447"
+    proxy_url: "socks5://i2p:4447"
 
   # Lokinet proxy for .loki relays (Linux only - requires TUN device)
   loki:
     enabled: false           # Enable only on Linux with --profile linux-only
-    url: "socks5://lokinet:1080"
+    proxy_url: "socks5://lokinet:1080"
 
 # Event filter settings
 # Set to null to accept all values for that field
