@@ -132,25 +132,18 @@ ON service_data USING btree (service_name, data_type);
 -- Purpose: Optimize materialized view queries
 -- ============================================================================
 
--- Index: idx_relay_metadata_latest_url (CRITICAL FOR REFRESH CONCURRENTLY)
+-- Index: idx_relay_metadata_latest_pk (CRITICAL FOR REFRESH CONCURRENTLY)
 -- Purpose: Unique index required for REFRESH MATERIALIZED VIEW CONCURRENTLY
 -- Usage: REFRESH MATERIALIZED VIEW CONCURRENTLY relay_metadata_latest
--- Note: Must be unique for concurrent refresh to work
-CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_metadata_latest_url
-ON relay_metadata_latest USING btree (relay_url);
+-- Note: Composite unique on (relay_url, type) matching view structure
+CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_metadata_latest_pk
+ON relay_metadata_latest USING btree (relay_url, type);
 
--- Index: idx_relay_metadata_latest_network
--- Purpose: Fast filtering by network type (clearnet/tor)
--- Usage: WHERE network = ? (filter relays by network)
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_latest_network
-ON relay_metadata_latest USING btree (network);
-
--- Index: idx_relay_metadata_latest_openable
--- Purpose: Fast lookup of openable relays
--- Usage: WHERE is_openable = TRUE (find working relays)
--- Note: Partial index only on TRUE values for efficiency
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_latest_openable
-ON relay_metadata_latest USING btree (is_openable) WHERE is_openable = TRUE;
+-- Index: idx_relay_metadata_latest_type
+-- Purpose: Fast filtering by metadata type
+-- Usage: WHERE type = 'nip11' or WHERE type = 'nip66_rtt'
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_latest_type
+ON relay_metadata_latest USING btree (type);
 
 -- ============================================================================
 -- MATERIALIZED VIEW INDEXES: events_statistics
