@@ -29,12 +29,13 @@ import time
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from nostr_sdk import ClientBuilder, ClientOptions, Filter
+from nostr_sdk import ClientBuilder, ClientOptions, Filter, Keys
 from pydantic import BaseModel, Field, model_validator
 
 from core.base_service import BaseService
-from models import Keys, Relay
+from models import Relay
 from models.relay import NetworkType
+from utils.keys import load_keys_from_env
 
 
 if TYPE_CHECKING:
@@ -142,9 +143,9 @@ class KeysConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def load_keys_from_env(cls, data: Any) -> Any:
+    def _load_keys_from_env(cls, data: Any) -> Any:
         if isinstance(data, dict) and "keys" not in data:
-            data["keys"] = Keys.from_env(ENV_PRIVATE_KEY)
+            data["keys"] = load_keys_from_env(ENV_PRIVATE_KEY)
         return data
 
 

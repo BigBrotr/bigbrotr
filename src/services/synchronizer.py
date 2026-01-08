@@ -36,6 +36,7 @@ from nostr_sdk import (
     ClientBuilder,
     ClientOptions,
     Filter,
+    Keys,
     Kind,
     SingleLetterTag,
     Timestamp,
@@ -47,8 +48,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from core.base_service import BaseService
 from core.brotr import Brotr
-from models import Event, EventRelay, Keys, Relay
+from models import Event, EventRelay, Relay
 from models.relay import NetworkType
+from utils.keys import load_keys_from_env
 
 
 # =============================================================================
@@ -234,9 +236,9 @@ class KeysConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def load_keys_from_env(cls, data: Any) -> Any:
+    def _load_keys_from_env(cls, data: Any) -> Any:
         if isinstance(data, dict) and "keys" not in data:
-            data["keys"] = Keys.from_env(ENV_PRIVATE_KEY)
+            data["keys"] = load_keys_from_env(ENV_PRIVATE_KEY)
         return data
 
 
