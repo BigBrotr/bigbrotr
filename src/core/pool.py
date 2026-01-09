@@ -21,7 +21,7 @@ import asyncpg
 from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator
 
 from .logger import Logger
-from .utils import load_yaml
+from utils.yaml import load_yaml
 
 
 # ============================================================================

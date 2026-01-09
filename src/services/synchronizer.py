@@ -701,7 +701,9 @@ async def _sync_relay_events(
     Returns:
         tuple[int, int, int]: (events_synchronized, invalid_events, skipped_events)
     """
-    from core.transport import create_client
+    from nostr_sdk import RelayUrl
+
+    from utils.transport import create_client
 
     events_synced = 0
     invalid_events = 0
@@ -711,7 +713,8 @@ async def _sync_relay_events(
     proxy_url = proxy_config.get_proxy_url(relay.network)
 
     # Create client using transport utility
-    client = await create_client(relay, keys, proxy_url)
+    client = create_client(keys, proxy_url)
+    await client.add_relay(RelayUrl.parse(relay.url))
 
     try:
         await client.connect()

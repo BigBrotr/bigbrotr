@@ -96,7 +96,7 @@ import aiohttp
 from aiohttp_socks import ProxyConnector
 
 from .metadata import Metadata
-from .utils import parse_typed_dict
+from utils.parsing import parse_typed_dict
 
 
 if TYPE_CHECKING:

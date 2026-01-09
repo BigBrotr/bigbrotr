@@ -685,7 +685,9 @@ class Monitor(BaseService[MonitorConfig]):
         if not self._keys:
             return
 
-        from core.transport import create_client, create_publish_client  # noqa: PLC0415
+        from nostr_sdk import RelayUrl  # noqa: PLC0415
+
+        from utils.transport import create_client  # noqa: PLC0415
 
         try:
             # Build event content (NIP-11 JSON if available)
@@ -703,7 +705,8 @@ class Monitor(BaseService[MonitorConfig]):
             if self._config.publishing.destination == "monitored_relay":
                 # Publish to the relay being monitored
                 proxy_url = self._config.proxy.get_proxy_url(relay.network)
-                client = await create_client(relay, self._keys, proxy_url)
+                client = create_client(self._keys, proxy_url)
+                await client.add_relay(RelayUrl.parse(relay.url))
                 try:
                     await client.connect()
                     await client.send_event_builder(builder)
@@ -712,7 +715,12 @@ class Monitor(BaseService[MonitorConfig]):
 
             elif self._config.publishing.destination == "configured_relays":
                 # Publish to configured relay list
-                client = await create_publish_client(self._config.publishing.relays, self._keys)
+                client = create_client(self._keys)
+                for url in self._config.publishing.relays:
+                    try:
+                        await client.add_relay(RelayUrl.parse(url))
+                    except Exception:
+                        pass
                 try:
                     await client.connect()
                     await client.send_event_builder(builder)
@@ -727,7 +735,9 @@ class Monitor(BaseService[MonitorConfig]):
         if not self._keys:
             return
 
-        from core.transport import create_publish_client  # noqa: PLC0415
+        from nostr_sdk import RelayUrl  # noqa: PLC0415
+
+        from utils.transport import create_client  # noqa: PLC0415
 
         try:
             # Build tags
@@ -738,7 +748,12 @@ class Monitor(BaseService[MonitorConfig]):
 
             # Publish to configured relays
             if self._config.publishing.relays:
-                client = await create_publish_client(self._config.publishing.relays, self._keys)
+                client = create_client(self._keys)
+                for url in self._config.publishing.relays:
+                    try:
+                        await client.add_relay(RelayUrl.parse(url))
+                    except Exception:
+                        pass
                 try:
                     await client.connect()
                     await client.send_event_builder(builder)

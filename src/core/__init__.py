@@ -18,6 +18,8 @@ Example:
         result = await brotr.insert_relays([...])
 """
 
+from utils.yaml import load_yaml
+
 from .base_service import (
     BaseService,
     ConfigT,
@@ -44,7 +46,6 @@ from .pool import (
 from .pool import (
     TimeoutsConfig as PoolTimeoutsConfig,
 )
-from .utils import load_yaml
 
 
 __all__ = [
