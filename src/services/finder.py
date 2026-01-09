@@ -161,100 +161,117 @@ class Finder(BaseService[FinderConfig]):
 
     async def _find_from_events(self) -> None:
         """
-        Discover relay URLs from database events using cursor-based pagination.
+        Discover relay URLs from database events using per-relay cursor-based pagination.
+
+        For each relay in the relays table, scans events from events_relays using
+        a cursor based on seen_at timestamp. This ensures that when Synchronizer
+        inserts historical events, Finder will still process them since each relay
+        has its own independent cursor.
 
         Scans events for relay URLs in:
         - Kind 2: content field contains relay URL (deprecated)
         - Kind 3: content field may contain JSON with relay URLs
         - Kind 10002: r-tags contain relay URLs (NIP-65)
         - Any event: r-tags may contain relay URLs
-
-        Uses a cursor stored in the services table to track progress.
-        Processes events in chunks ordered by (created_at, id) ASC.
         """
         total_events_scanned = 0
         total_relays_found = 0
-        chunks_processed = 0
+        relays_processed = 0
 
-        # Load cursor from services table
-        cursor = await self._load_event_cursor()
-        last_timestamp = cursor.get("last_timestamp", 0)
-        last_id = cursor.get("last_id", b"\x00" * 32)  # Minimum bytea value
+        # Fetch all relays from database
+        try:
+            relay_rows = await self._brotr.pool.fetch("SELECT url FROM relays ORDER BY url")
+        except Exception as e:
+            self._logger.warning("fetch_relays_failed", error=str(e), error_type=type(e).__name__)
+            return
 
-        # Convert hex string back to bytes if needed
-        if isinstance(last_id, str):
-            last_id = bytes.fromhex(last_id)
+        if not relay_rows:
+            self._logger.debug("no_relays_to_scan")
+            return
 
-        self._logger.debug(
-            "events_cursor_loaded",
-            last_timestamp=last_timestamp,
-            last_id=last_id.hex() if last_id else None,
+        self._logger.debug("events_scan_started", relay_count=len(relay_rows))
+
+        for relay_row in relay_rows:
+            if not self.is_running:
+                break
+
+            relay_url = relay_row["url"]
+            relay_events, relay_relays = await self._scan_relay_events(relay_url)
+            total_events_scanned += relay_events
+            total_relays_found += relay_relays
+            relays_processed += 1
+
+        self._found_relays += total_relays_found
+        self._logger.info(
+            "events_completed",
+            scanned=total_events_scanned,
+            relays_found=total_relays_found,
+            relays_processed=relays_processed,
         )
 
-        # Process events in chunks until no more events or batch limit reached
+    async def _scan_relay_events(self, relay_url: str) -> tuple[int, int]:
+        """
+        Scan events from a single relay using cursor-based pagination.
+
+        Args:
+            relay_url: The relay URL to scan events from
+
+        Returns:
+            Tuple of (events_scanned, relays_found)
+        """
+        events_scanned = 0
+        relays_found = 0
+
+        # Load cursor for this relay
+        cursor = await self._load_relay_cursor(relay_url)
+        last_seen_at = cursor.get("last_seen_at", 0)
+
+        # Query events from this relay after cursor position
+        # Uses events_relays.seen_at for cursor to handle historical events correctly
+        query = """
+            SELECT e.id, e.created_at, e.kind, e.tags, e.content, er.seen_at
+            FROM events e
+            INNER JOIN events_relays er ON e.id = er.event_id
+            WHERE er.relay_url = $1
+              AND er.seen_at > $2
+              AND (e.kind = ANY($3) OR e.tagvalues @> ARRAY['r'])
+            ORDER BY er.seen_at ASC
+            LIMIT $4
+        """
+
         while self.is_running:
             relays: set[str] = set()
             chunk_events = 0
-
-            # Query events after cursor position using UNION for index optimization (H9)
-            # Split OR into two queries to allow PostgreSQL to use indexes efficiently
-            # UNION (not UNION ALL) handles deduplication in the database
-            # Order by (created_at, id) ASC to ensure deterministic pagination
-            query = """
-                (
-                    SELECT id, created_at, kind, tags, content
-                    FROM events
-                    WHERE kind = ANY($1)
-                      AND (created_at > $2 OR (created_at = $2 AND id > $3))
-                    ORDER BY created_at ASC, id ASC
-                    LIMIT $4
-                )
-                UNION
-                (
-                    SELECT id, created_at, kind, tags, content
-                    FROM events
-                    WHERE tagvalues @> ARRAY['r']
-                      AND (created_at > $2 OR (created_at = $2 AND id > $3))
-                    ORDER BY created_at ASC, id ASC
-                    LIMIT $4
-                )
-                ORDER BY created_at ASC, id ASC
-                LIMIT $4
-            """
+            chunk_last_seen_at = None
 
             try:
                 rows = await self._brotr.pool.fetch(
                     query,
+                    relay_url,
+                    last_seen_at,
                     self._config.events.kinds,
-                    last_timestamp,
-                    last_id,
                     self._config.events.batch_size,
                 )
             except Exception as e:
                 self._logger.warning(
-                    "event_query_failed", error=str(e), error_type=type(e).__name__
+                    "relay_event_query_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    relay=relay_url,
                 )
                 break
 
             if not rows:
-                # No more events to process
                 break
-
-            # Track the last event's timestamp and id for cursor
-            chunk_last_timestamp = None
-            chunk_last_id = None
 
             for row in rows:
                 chunk_events += 1
-                event_id = row["id"]
-                created_at = row["created_at"]
                 kind = row["kind"]
                 tags = row["tags"]
                 content = row["content"]
+                seen_at = row["seen_at"]
 
-                # Track last processed event
-                chunk_last_timestamp = created_at
-                chunk_last_id = event_id
+                chunk_last_seen_at = seen_at
 
                 # Extract relay URLs from tags (r-tags)
                 if tags:
@@ -274,7 +291,6 @@ class Finder(BaseService[FinderConfig]):
                         relays.add(validated)
 
                 # Kind 3: content may be JSON with relay URLs as keys
-                # Format: {"wss://relay.example.com": {"read": true, "write": true}, ...}
                 if kind == 3 and content:
                     try:
                         relay_data = json.loads(content)
@@ -284,18 +300,16 @@ class Finder(BaseService[FinderConfig]):
                                 if validated:
                                     relays.add(validated)
                     except (json.JSONDecodeError, TypeError):
-                        # Content is not JSON or not a dict, skip
                         pass
 
-            # Insert discovered relays as candidates for validation
-            # service_name='validator' so Validator service picks them up
+            # Insert discovered relays as candidates
             if relays:
                 try:
                     records: list[tuple[str, str, str, dict[str, Any]]] = [
                         ("validator", "candidate", url, {"failed_attempts": 0}) for url in relays
                     ]
                     await self._brotr.upsert_service_data(records)
-                    total_relays_found += len(relays)
+                    relays_found += len(relays)
                 except Exception as e:
                     self._logger.error(
                         "insert_candidates_failed",
@@ -304,63 +318,45 @@ class Finder(BaseService[FinderConfig]):
                         count=len(relays),
                     )
 
-            total_events_scanned += chunk_events
-            chunks_processed += 1
+            events_scanned += chunk_events
 
-            # Update cursor for next iteration
-            # Using composite key (created_at, id) ensures we don't miss events
-            # or re-process them, even if multiple events share the same timestamp.
-            # The query uses: created_at > cursor_ts OR (created_at = cursor_ts AND id > cursor_id)
-            # This guarantees deterministic pagination regardless of timestamp collisions.
-            if chunk_last_timestamp is not None and chunk_last_id is not None:
-                last_timestamp = chunk_last_timestamp
-                last_id = chunk_last_id
-                await self._save_event_cursor(last_timestamp, last_id)
+            # Update cursor for this relay
+            if chunk_last_seen_at is not None:
+                last_seen_at = chunk_last_seen_at
+                await self._save_relay_cursor(relay_url, last_seen_at)
 
-            self._logger.debug(
-                "events_chunk_processed",
-                chunk=chunks_processed,
-                events=chunk_events,
-                relays=len(relays),
-            )
-
-            # Stop if chunk wasn't full (no more events)
+            # Stop if chunk wasn't full
             if chunk_events < self._config.events.batch_size:
                 break
 
-        self._found_relays += total_relays_found
-        self._logger.info(
-            "events_completed",
-            scanned=total_events_scanned,
-            relays=total_relays_found,
-            chunks=chunks_processed,
-        )
+        return events_scanned, relays_found
 
-    async def _load_event_cursor(self) -> dict[str, Any]:
-        """Load the event scanning cursor from services table."""
+    async def _load_relay_cursor(self, relay_url: str) -> dict[str, Any]:
+        """Load the event scanning cursor for a specific relay."""
         try:
             results = await self._brotr.get_service_data(
                 service_name="finder",
                 data_type="cursor",
-                key="events",
+                key=relay_url,
             )
             if results:
                 value: dict[str, Any] = results[0].get("value", {})
                 return value
         except Exception as e:
-            self._logger.warning("cursor_load_failed", error=str(e), error_type=type(e).__name__)
+            self._logger.warning(
+                "cursor_load_failed", error=str(e), error_type=type(e).__name__, relay=relay_url
+            )
         return {}
 
-    async def _save_event_cursor(self, timestamp: int, event_id: bytes) -> None:
-        """Save the event scanning cursor to services table."""
+    async def _save_relay_cursor(self, relay_url: str, seen_at: int) -> None:
+        """Save the event scanning cursor for a specific relay."""
         try:
-            cursor_data = {
-                "last_timestamp": timestamp,
-                "last_id": event_id.hex(),  # Store as hex string for JSON
-            }
-            await self._brotr.upsert_service_data([("finder", "cursor", "events", cursor_data)])
+            cursor_data = {"last_seen_at": seen_at}
+            await self._brotr.upsert_service_data([("finder", "cursor", relay_url, cursor_data)])
         except Exception as e:
-            self._logger.warning("cursor_save_failed", error=str(e), error_type=type(e).__name__)
+            self._logger.warning(
+                "cursor_save_failed", error=str(e), error_type=type(e).__name__, relay=relay_url
+            )
 
     def _validate_relay_url(self, url: str) -> str | None:
         """
