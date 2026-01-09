@@ -15,7 +15,6 @@ import pytest
 
 from models import Metadata, Nip66, Relay, RelayMetadata
 from models.nip66 import Nip66TestError
-from models.relay import NetworkType
 from models.relay_metadata import MetadataType
 
 

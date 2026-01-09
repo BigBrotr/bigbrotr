@@ -119,9 +119,10 @@ import geohash2
 import geoip2.database  # noqa: TC002 - used at runtime in _lookup_geo_sync
 from nostr_sdk import EventBuilder, Filter
 
+from utils.parsing import parse_typed_dict
+
 from .metadata import Metadata
 from .relay import NetworkType, Relay
-from utils.parsing import parse_typed_dict
 
 
 if TYPE_CHECKING:

@@ -1,10 +1,10 @@
 """BigBrotr utility functions."""
 
-from utils.yaml import load_yaml
 from utils.keys import KeysConfig, load_keys_from_env
 from utils.parsing import parse_typed_dict
 from utils.proxy import NetworkProxyConfig, ProxyConfig
 from utils.transport import create_client
+from utils.yaml import load_yaml
 
 
 __all__ = [
