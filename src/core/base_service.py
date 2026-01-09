@@ -17,9 +17,10 @@ from typing import Any, ClassVar, Generic, TypeVar, cast
 
 from pydantic import BaseModel
 
+from utils.yaml import load_yaml
+
 from .brotr import Brotr
 from .logger import Logger
-from .utils import load_yaml
 
 
 # Type variable for service configuration

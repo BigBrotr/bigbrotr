@@ -25,10 +25,10 @@ from pydantic import BaseModel, Field, field_validator
 
 from models import Event, EventRelay, Metadata, Relay, RelayMetadata
 from models.event_relay import EventRelayDbParams
+from utils.yaml import load_yaml
 
 from .logger import Logger
 from .pool import Pool
-from .utils import load_yaml
 
 
 if TYPE_CHECKING:

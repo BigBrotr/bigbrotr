@@ -121,7 +121,7 @@ from nostr_sdk import EventBuilder, Filter
 
 from .metadata import Metadata
 from .relay import NetworkType, Relay
-from .utils import parse_typed_dict
+from utils.parsing import parse_typed_dict
 
 
 if TYPE_CHECKING:
@@ -378,17 +378,15 @@ class Nip66:
         """
         from nostr_sdk import RelayUrl
 
-        from core.transport import create_client
+        from utils.transport import create_client
 
         logger.debug("_test_rtt: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url)
 
         data: dict[str, Any] = {}
+        relay_url = RelayUrl.parse(relay.url)
 
-        try:
-            client = await create_client(relay, keys, proxy_url)
-        except ValueError as e:
-            logger.warning("_test_rtt: %s relay=%s", e, relay.url)
-            raise Nip66TestError(relay, e) from e
+        client = create_client(keys, proxy_url)
+        await client.add_relay(relay_url)
 
         try:
             # Test open: measure connection time
@@ -400,7 +398,7 @@ class Nip66:
             rtt_open = int((perf_counter() - start) * 1000)
 
             # Verify connection was actually established (wait_for_connection doesn't raise on timeout)
-            relay_obj = await client.relay(RelayUrl.parse(relay.url))
+            relay_obj = await client.relay(relay_url)
             if not relay_obj.is_connected():
                 logger.debug("_test_rtt: connection not established relay=%s", relay.url)
                 raise TimeoutError("Connection timeout")
@@ -433,7 +431,7 @@ class Nip66:
                     client.send_event_builder(event_builder), timeout=timeout
                 )
                 rtt_write = int((perf_counter() - start) * 1000)
-                if output and relay.url in [str(u) for u in output.success]:
+                if output and relay_obj in output.success:
                     logger.debug(
                         "_test_rtt: write accepted relay=%s rtt_write=%dms", relay.url, rtt_write
                     )

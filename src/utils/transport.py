@@ -2,19 +2,13 @@ from __future__ import annotations
 
 import ssl
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
 
 from aiohttp import ClientSession, ClientWebSocketResponse, ClientWSTimeout, WSMsgType
 from nostr_sdk import (
     Client,
     ClientBuilder,
-    ClientOptions,
-    Connection,
-    ConnectionMode,
-    ConnectionTarget,
     CustomWebSocketTransport,
     NostrSigner,
-    RelayUrl,
     WebSocketAdapter,
     WebSocketAdapterWrapper,
     WebSocketMessage,
@@ -23,8 +17,6 @@ from nostr_sdk import (
 
 if TYPE_CHECKING:
     from nostr_sdk import Keys
-
-    from models.relay import Relay
 
 
 class Adapter(WebSocketAdapter):
@@ -68,13 +60,16 @@ class Adapter(WebSocketAdapter):
 class WebSocketClient(CustomWebSocketTransport):
     """Custom WebSocket transport with optional SOCKS5 proxy support."""
 
-    def __init__(self, proxy_url: str | None = None):
+    def __init__(self, proxy_url: str | None = None, verify_ssl: bool = False):
         """Initialize transport with optional proxy.
 
         Args:
             proxy_url: Optional SOCKS5 proxy URL (e.g., "socks5://127.0.0.1:9050")
+            verify_ssl: If True, enforce SSL certificate verification.
+                If False (default), retry with SSL verification disabled on errors.
         """
         self.proxy_url = proxy_url
+        self.verify_ssl = verify_ssl
 
     def support_ping(self) -> bool:
         return False
@@ -92,6 +87,8 @@ class WebSocketClient(CustomWebSocketTransport):
             return wrapper
         except Exception:
             await session.close()
+            if self.verify_ssl:
+                raise
             return await self._connect_insecure(url, mode, timeout)
 
     async def _create_session(self, ssl_context: ssl.SSLContext | None = None) -> ClientSession:
@@ -124,60 +121,29 @@ class WebSocketClient(CustomWebSocketTransport):
             raise e
 
 
-async def create_client(
-    relay: Relay,
-    keys: Keys,
+def create_client(
+    keys: Keys | None = None,
     proxy_url: str | None = None,
+    verify_ssl: bool = False,
 ) -> Client:
-    """Create a Nostr client configured for the given relay.
-
-    For overlay networks (tor/i2p/loki):
-        Uses standard nostr-sdk client with SOCKS5 proxy configuration.
-        Requires proxy_url to be provided.
-
-    For clearnet relays:
-        Uses standard nostr-sdk client (no custom transport needed).
+    """Create a Nostr client.
 
     Args:
-        relay: The relay to connect to
-        keys: Keys for signing events
-        proxy_url: SOCKS5 proxy URL for overlay networks (e.g., "socks5://127.0.0.1:9050")
+        keys: Optional keys for signing events. If None, client will be read-only.
+        proxy_url: Optional SOCKS5 proxy URL (e.g., "socks5://127.0.0.1:9050")
+        verify_ssl: If True, enforce SSL certificate verification.
+            If False (default), retry with SSL verification disabled on errors.
 
     Returns:
-        Configured Client instance with relay added (but not connected)
-
-    Raises:
-        ValueError: If overlay network relay is provided without proxy_url
+        Configured Client instance (no relays added)
     """
-    from models.relay import NetworkType  # noqa: PLC0415
+    builder = ClientBuilder()
 
-    signer = NostrSigner.keys(keys)
-    relay_url = RelayUrl.parse(relay.url)
+    if keys is not None:
+        signer = NostrSigner.keys(keys)
+        builder = builder.signer(signer)
 
-    overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-    if relay.network in overlay_networks:
-        if proxy_url is None:
-            raise ValueError(f"Overlay network relay ({relay.network}) requires proxy_url")
+    transport = WebSocketClient(proxy_url=proxy_url, verify_ssl=verify_ssl)
+    builder = builder.custom_websocket_transport(transport)
 
-        parsed = urlparse(proxy_url)
-        proxy_host = parsed.hostname or "127.0.0.1"
-        proxy_port = parsed.port or 9050
-
-        # Map network to connection target
-        target_map = {
-            NetworkType.TOR: ConnectionTarget.ONION,
-            NetworkType.I2P: ConnectionTarget.ONION,  # I2P uses same target
-            NetworkType.LOKI: ConnectionTarget.ONION,  # Loki uses same target
-        }
-        target = target_map.get(relay.network, ConnectionTarget.ONION)
-
-        proxy_mode = ConnectionMode.PROXY(proxy_host, proxy_port)
-        conn = Connection().mode(proxy_mode).target(target)
-        opts = ClientOptions().connection(conn)
-        client = ClientBuilder().signer(signer).opts(opts).build()
-    else:
-        # Clearnet: use standard nostr-sdk client
-        client = ClientBuilder().signer(signer).build()
-
-    await client.add_relay(relay_url)
-    return client
+    return builder.build()

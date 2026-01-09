@@ -159,8 +159,8 @@ def mock_keys():
 @pytest.fixture
 def mock_nostr_client():
     """Mock nostr-sdk client with WebSocketClient transport pattern."""
-    mock_client = AsyncMock()
-    mock_client.add_relay = AsyncMock()
+    mock_client = MagicMock()  # Sync mock since create_client is now sync
+    mock_client.add_relay = AsyncMock()  # add_relay is still async
     mock_client.connect = AsyncMock()
     mock_client.wait_for_connection = AsyncMock()
     mock_client.disconnect = AsyncMock()
@@ -793,11 +793,11 @@ class TestTestRtt:
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 
-        # Mock create_client to return our mock client
-        async def mock_create_client(r, k, proxy=None):
+        # Mock create_client to return our mock client (now sync, no relay param)
+        def mock_create_client(keys=None, proxy_url=None):
             return mock_nostr_client
 
-        with patch("core.transport.create_client", side_effect=mock_create_client):
+        with patch("utils.transport.create_client", side_effect=mock_create_client):
             result = await Nip66._test_rtt(
                 relay,
                 timeout=10.0,
@@ -810,45 +810,20 @@ class TestTestRtt:
         assert result.data.get("rtt_open") is not None
 
     @pytest.mark.asyncio
-    async def test_tor_without_proxy_raises_error(self, tor_relay, mock_keys):
-        """Raises Nip66TestError for Tor relay without proxy."""
-        mock_event_builder = MagicMock()
-        mock_read_filter = MagicMock()
-
-        # create_client raises ValueError for overlay network without proxy
-        async def mock_create_client(r, k, proxy=None):
-            overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-            if r.network in overlay_networks and proxy is None:
-                raise ValueError(f"Overlay network relay ({r.network}) requires proxy_url")
-            return MagicMock()
-
-        with (
-            patch("core.transport.create_client", side_effect=mock_create_client),
-            pytest.raises(Nip66TestError) as exc_info,
-        ):
-            await Nip66._test_rtt(
-                tor_relay,
-                timeout=10.0,
-                keys=mock_keys,
-                event_builder=mock_event_builder,
-                read_filter=mock_read_filter,
-            )
-        assert "requires proxy_url" in str(exc_info.value.cause)
-
-    @pytest.mark.asyncio
     async def test_connection_failure_raises_error(self, relay, mock_keys):
         """Raises Nip66TestError when connection fails."""
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 
         mock_client = AsyncMock()
+        mock_client.add_relay = AsyncMock()
         mock_client.connect = AsyncMock(side_effect=Exception("Connection refused"))
 
-        async def mock_create_client(r, k, proxy=None):
+        def mock_create_client(keys=None, proxy_url=None):
             return mock_client
 
         with (
-            patch("core.transport.create_client", side_effect=mock_create_client),
+            patch("utils.transport.create_client", side_effect=mock_create_client),
             pytest.raises(Nip66TestError) as exc_info,
         ):
             await Nip66._test_rtt(
