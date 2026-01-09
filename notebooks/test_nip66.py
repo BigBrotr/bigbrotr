@@ -307,7 +307,7 @@ async def test_onion_relay(
 
     except Nip66TestError as e:
         print(f"\nTest failed: {e}")
-        print(f"Error: {e.error}")
+        print(f"Cause: {e.cause}")
         print("\nMake sure Tor proxy is running:")
         print("  docker run -d -p 9050:9050 dperson/torproxy")
 

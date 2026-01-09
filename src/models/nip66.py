@@ -432,7 +432,12 @@ class Nip66:
                     client.send_event_builder(event_builder), timeout=timeout
                 )
                 rtt_write = int((perf_counter() - start) * 1000)
-                if output and relay_obj in output.success:
+
+                # Check if relay rejected the event
+                if output and relay_url in output.failed:
+                    reason = output.failed.get(relay_url, "unknown")
+                    logger.debug("_test_rtt: write rejected relay=%s reason=%s", relay.url, reason)
+                elif output and relay_url in output.success:
                     logger.debug(
                         "_test_rtt: write accepted relay=%s rtt_write=%dms", relay.url, rtt_write
                     )
@@ -452,24 +457,24 @@ class Nip66:
                             data["rtt_write"] = rtt_write
                             logger.debug("_test_rtt: write verified relay=%s", relay.url)
                         else:
-                            # Event not found but read succeeded: relay lied, don't save rtt_write
+                            # Relay responded OK=true but event not retrievable
+                            # This happens with indexing relays that accept but filter events
                             logger.debug(
-                                "_test_rtt: write not verified relay=%s (event not found)",
+                                "_test_rtt: write unverified relay=%s (relay said OK but event not retrievable)",
                                 relay.url,
                             )
                     except Exception as e:
-                        # Read failed: trust relay's OK response in good faith
-                        data["rtt_write"] = rtt_write
+                        # Verify failed - cannot confirm write without verification
                         logger.debug(
-                            "_test_rtt: write trusted (verify error) relay=%s error=%s",
+                            "_test_rtt: write unverified relay=%s (verify failed: %s)",
                             relay.url,
                             e,
                         )
                 else:
-                    failed = [str(u) for u in output.failed] if output else []
-                    logger.debug("_test_rtt: write rejected relay=%s failed=%s", relay.url, failed)
+                    # No response for this relay
+                    logger.debug("_test_rtt: write no response relay=%s", relay.url)
             except Exception as e:
-                logger.debug("_test_rtt: write failed relay=%s error=%s", relay.url, e)
+                logger.debug("_test_rtt: write error relay=%s error=%s", relay.url, e)
 
         except Exception as e:
             logger.debug("_test_rtt: connection error relay=%s error=%s", relay.url, e)
