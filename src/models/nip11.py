@@ -95,8 +95,9 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypedDict, get_type_hints
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
-from .metadata import Metadata
 from utils.parsing import parse_typed_dict
+
+from .metadata import Metadata
 
 
 if TYPE_CHECKING:
