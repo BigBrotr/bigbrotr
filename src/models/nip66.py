@@ -363,6 +363,7 @@ class Nip66:
         event_builder: EventBuilder,
         read_filter: Filter,
         proxy_url: str | None = None,
+        allow_insecure: bool = True,
     ) -> Metadata:
         """Test relay RTT (round-trip times) and capabilities.
 
@@ -373,40 +374,30 @@ class Nip66:
             event_builder: EventBuilder for write test (required)
             read_filter: Filter for read test (required)
             proxy_url: Optional SOCKS5 proxy URL for overlay networks
+            allow_insecure: If True (default), fallback to insecure transport for
+                clearnet relays with invalid SSL certificates.
 
         Raises:
             Nip66TestError: If test fails or proxy url is missing for overlay networks
         """
         from nostr_sdk import RelayUrl
 
-        from utils.transport import create_client
+        from utils.transport import connect_relay
 
         logger.debug("_test_rtt: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url)
 
         data: dict[str, Any] = {}
         relay_url = RelayUrl.parse(relay.url)
 
-        client = create_client(keys, proxy_url)
-        await client.add_relay(relay_url)
+        # Test open: measure connection time (includes SSL fallback for clearnet)
+        logger.debug("_test_rtt: connecting relay=%s", relay.url)
+        start = perf_counter()
+        client = await connect_relay(relay, keys, proxy_url, timeout, allow_insecure)
+        rtt_open = int((perf_counter() - start) * 1000)
+        data["rtt_open"] = rtt_open
+        logger.debug("_test_rtt: open succeeded relay=%s rtt_open=%dms", relay.url, rtt_open)
 
         try:
-            # Test open: measure connection time
-            # connect() spawns background tasks, wait_for_connection() waits for actual connection
-            logger.debug("_test_rtt: connecting relay=%s", relay.url)
-            start = perf_counter()
-            await client.connect()
-            await client.wait_for_connection(timedelta(seconds=timeout))
-            rtt_open = int((perf_counter() - start) * 1000)
-
-            # Verify connection was actually established (wait_for_connection doesn't raise on timeout)
-            relay_obj = await client.relay(relay_url)
-            if not relay_obj.is_connected():
-                logger.debug("_test_rtt: connection not established relay=%s", relay.url)
-                raise TimeoutError("Connection timeout")
-
-            data["rtt_open"] = rtt_open
-            logger.debug("_test_rtt: open succeeded relay=%s rtt_open=%dms", relay.url, rtt_open)
-
             # Test read: stream_events to measure time to first event
             try:
                 logger.debug("_test_rtt: reading relay=%s", relay.url)
@@ -475,9 +466,6 @@ class Nip66:
                     logger.debug("_test_rtt: write no response relay=%s", relay.url)
             except Exception as e:
                 logger.debug("_test_rtt: write error relay=%s error=%s", relay.url, e)
-
-        except Exception as e:
-            logger.debug("_test_rtt: connection error relay=%s error=%s", relay.url, e)
 
         finally:
             # Cleanup: disconnect client
@@ -1038,6 +1026,7 @@ class Nip66:
         run_dns: bool = True,
         run_http: bool = True,
         proxy_url: str | None = None,
+        allow_insecure: bool = True,
     ) -> Nip66:
         """
         Test relay and collect NIP-66 monitoring data.
@@ -1059,6 +1048,8 @@ class Nip66:
             run_dns: Run DNS resolution test (clearnet only)
             run_http: Run HTTP headers test (clearnet only, or via proxy for overlay)
             proxy_url: Optional SOCKS5 proxy URL for overlay networks (Tor, I2P, Loki)
+            allow_insecure: If True (default), fallback to insecure transport for
+                clearnet relays with invalid SSL certificates.
 
         Returns:
             Nip66 instance with test results
@@ -1077,7 +1068,11 @@ class Nip66:
             tasks.append(cls._test_dns(relay, timeout))
             task_names.append("dns")
         if run_rtt and keys is not None and event_builder is not None and read_filter is not None:
-            tasks.append(cls._test_rtt(relay, timeout, keys, event_builder, read_filter, proxy_url))
+            tasks.append(
+                cls._test_rtt(
+                    relay, timeout, keys, event_builder, read_filter, proxy_url, allow_insecure
+                )
+            )
             task_names.append("rtt")
         if run_ssl:
             tasks.append(cls._test_ssl(relay, timeout))
