@@ -87,6 +87,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import ssl
 from dataclasses import dataclass, field
 from time import time
@@ -98,11 +99,15 @@ from aiohttp_socks import ProxyConnector
 from utils.parsing import parse_typed_dict
 
 from .metadata import Metadata
+from .relay import NetworkType
 
 
 if TYPE_CHECKING:
     from .relay import Relay
     from .relay_metadata import RelayMetadata
+
+
+logger = logging.getLogger(__name__)
 
 
 # --- TypedDicts for NIP-11 structure ---
@@ -438,47 +443,16 @@ class Nip11:
     # --- Fetch ---
 
     @classmethod
-    async def _fetch(
+    async def _do_fetch(
         cls,
-        relay: Relay,
+        http_url: str,
+        headers: dict[str, str],
         timeout: float,
         max_size: int,
+        ssl_context: ssl.SSLContext | bool,
         proxy_url: str | None = None,
     ) -> Metadata:
-        """
-        Internal fetch returning raw Metadata or raising exception.
-
-        Args:
-            relay: Relay object to fetch NIP-11 from
-            timeout: Request timeout in seconds
-            max_size: Maximum response size in bytes
-            proxy_url: Optional SOCKS5 proxy URL
-
-        Returns:
-            Metadata with raw NIP-11 data (parsing happens in __post_init__)
-
-        Raises:
-            aiohttp.ClientError: Connection or HTTP errors
-            asyncio.TimeoutError: Request timeout
-            ValueError: Invalid response (status, content-type, size, JSON)
-        """
-        # Build HTTP URL from relay components
-        protocol = "https" if relay.scheme == "wss" else "http"
-        # Format host for URL (add brackets for IPv6)
-        formatted_host = f"[{relay.host}]" if ":" in relay.host else relay.host
-        # Include port only if non-default
-        default_port = 443 if protocol == "https" else 80
-        port_suffix = f":{relay.port}" if relay.port and relay.port != default_port else ""
-        path_suffix = relay.path or ""
-        http_url = f"{protocol}://{formatted_host}{port_suffix}{path_suffix}"
-
-        headers = {"Accept": "application/nostr+json"}
-
-        # SSL verification disabled (SSL check is NIP-66's job)
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-
+        """Execute the actual HTTP fetch with given SSL context."""
         connector: aiohttp.BaseConnector
         if proxy_url:
             connector = ProxyConnector.from_url(proxy_url, ssl=ssl_context)
@@ -516,25 +490,110 @@ class Nip11:
             return Metadata(data)
 
     @classmethod
+    async def _fetch(
+        cls,
+        relay: Relay,
+        timeout: float,
+        max_size: int,
+        proxy_url: str | None = None,
+        allow_insecure: bool = True,
+    ) -> Metadata:
+        """
+        Internal fetch returning raw Metadata or raising exception.
+
+        Args:
+            relay: Relay object to fetch NIP-11 from
+            timeout: Request timeout in seconds
+            max_size: Maximum response size in bytes
+            proxy_url: Optional SOCKS5 proxy URL
+            allow_insecure: If True, fallback to insecure for invalid certs
+
+        Returns:
+            Metadata with raw NIP-11 data (parsing happens in __post_init__)
+
+        Raises:
+            aiohttp.ClientError: Connection or HTTP errors
+            asyncio.TimeoutError: Request timeout
+            ValueError: Invalid response (status, content-type, size, JSON)
+            ssl.SSLCertVerificationError: If cert invalid and allow_insecure=False
+        """
+        # Build HTTP URL from relay components
+        protocol = "https" if relay.scheme == "wss" else "http"
+        # Format host for URL (add brackets for IPv6)
+        formatted_host = f"[{relay.host}]" if ":" in relay.host else relay.host
+        # Include port only if non-default
+        default_port = 443 if protocol == "https" else 80
+        port_suffix = f":{relay.port}" if relay.port and relay.port != default_port else ""
+        path_suffix = relay.path or ""
+        http_url = f"{protocol}://{formatted_host}{port_suffix}{path_suffix}"
+
+        headers = {"Accept": "application/nostr+json"}
+
+        # Determine SSL handling based on network type
+        is_overlay = relay.network in (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
+
+        if is_overlay:
+            # Overlay networks: always disable SSL verification (encryption via overlay)
+            insecure_ctx = ssl.create_default_context()
+            insecure_ctx.check_hostname = False
+            insecure_ctx.verify_mode = ssl.CERT_NONE
+            logger.debug("_fetch: overlay network, using insecure SSL relay=%s", relay.url)
+            return await cls._do_fetch(
+                http_url, headers, timeout, max_size, insecure_ctx, proxy_url
+            )
+
+        if protocol == "http":
+            # Plain HTTP (ws://): no SSL
+            logger.debug("_fetch: HTTP (no SSL) relay=%s", relay.url)
+            return await cls._do_fetch(http_url, headers, timeout, max_size, False, proxy_url)
+
+        # HTTPS clearnet: try with SSL verification first
+        try:
+            logger.debug("_fetch: trying verified SSL relay=%s", relay.url)
+            return await cls._do_fetch(http_url, headers, timeout, max_size, True, proxy_url)
+        except aiohttp.ClientConnectorCertificateError as e:
+            # SSL certificate error - fallback if allowed
+            if not allow_insecure:
+                raise ssl.SSLCertVerificationError(
+                    f"SSL certificate verification failed for {relay.url} and allow_insecure=False"
+                ) from e
+
+            logger.warning("_fetch: SSL certificate invalid, using insecure fallback relay=%s", relay.url)
+            insecure_ctx = ssl.create_default_context()
+            insecure_ctx.check_hostname = False
+            insecure_ctx.verify_mode = ssl.CERT_NONE
+            return await cls._do_fetch(
+                http_url, headers, timeout, max_size, insecure_ctx, proxy_url
+            )
+
+    @classmethod
     async def fetch(
         cls,
         relay: Relay,
         timeout: float | None = None,
         max_size: int | None = None,
         proxy_url: str | None = None,
+        allow_insecure: bool = True,
     ) -> Nip11:
         """
         Fetch NIP-11 document from relay.
 
         Connects via HTTP(S) with Accept: application/nostr+json header,
         validates the response, and parses into a validated Nip11 instance.
-        SSL verification is disabled (SSL check is NIP-66's job).
+
+        SSL verification strategy:
+            - Clearnet (HTTPS): Verify SSL first, fallback to insecure if
+              allow_insecure=True and certificate is invalid
+            - Overlay (Tor/I2P/Loki): Always insecure (encryption via overlay network)
 
         Args:
             relay: Relay object to fetch NIP-11 from
             timeout: Request timeout in seconds (default: _FETCH_TIMEOUT)
             max_size: Maximum response size in bytes (default: _FETCH_MAX_SIZE)
             proxy_url: Optional SOCKS5 proxy URL for Tor/I2P/Loki
+            allow_insecure: If True (default), fallback to insecure transport for
+                clearnet relays with invalid SSL certificates. If False, raise
+                ssl.SSLCertVerificationError for invalid certificates.
 
         Returns:
             Nip11 instance with parsed data
@@ -546,9 +605,12 @@ class Nip11:
             SystemExit: If system exit requested
 
         Example:
-            # Basic fetch
+            # Basic fetch (with SSL fallback)
             nip11 = await Nip11.fetch(relay)
             print(f"Name: {nip11.metadata.data['name']}")
+
+            # Strict SSL (no fallback)
+            nip11 = await Nip11.fetch(relay, allow_insecure=False)
 
             # With proxy for onion relay
             nip11 = await Nip11.fetch(relay, proxy_url="socks5://localhost:9050")
@@ -556,10 +618,14 @@ class Nip11:
         timeout = timeout if timeout is not None else cls._FETCH_TIMEOUT
         max_size = max_size if max_size is not None else cls._FETCH_MAX_SIZE
 
+        logger.debug("fetch: relay=%s timeout=%.1fs", relay.url, timeout)
+
         try:
-            metadata = await cls._fetch(relay, timeout, max_size, proxy_url)
+            metadata = await cls._fetch(relay, timeout, max_size, proxy_url, allow_insecure)
+            logger.info("fetch: completed relay=%s name=%s", relay.url, metadata.data.get("name"))
             return cls(relay=relay, metadata=metadata)
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except Exception as e:
+            logger.warning("fetch: failed relay=%s error=%s", relay.url, e)
             raise Nip11FetchError(relay, e) from e
