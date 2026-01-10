@@ -112,7 +112,7 @@ class EventRelay:
             tags_json: JSON string of tags array
             content: Event content
             sig: Signature as bytes
-            relay_url: Relay URL without scheme
+            relay_url: Relay URL with scheme (e.g., "wss://relay.example.com")
             relay_network: Relay network type
             relay_discovered_at: Relay discovery timestamp
             seen_at: When event was seen on relay

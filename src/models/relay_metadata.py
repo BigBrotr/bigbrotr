@@ -8,7 +8,7 @@ deduplication (metadata hash computed by PostgreSQL during insertion).
 Database mapping:
     - relay_url -> relays.url (FK)
     - generated_at -> relay_metadata.generated_at timestamp
-    - type -> 'nip11', 'nip66_rtt', 'nip66_ssl', or 'nip66_geo'
+    - type -> MetadataType enum value (nip11, nip66_rtt, nip66_ssl, nip66_geo, nip66_dns, nip66_http)
     - metadata_id -> metadata.id (FK, computed from content hash)
 
 Example:
@@ -62,7 +62,7 @@ class RelayMetadata:
     Represents a row in the `relay_metadata` table:
     - relay_url: Foreign key to relays.url
     - generated_at: Unix timestamp when metadata was collected
-    - type: Metadata type ('nip11', 'nip66_rtt', 'nip66_geo')
+    - type: Metadata type (see MetadataType enum)
     - metadata_id: Foreign key to metadata.id
 
     Links a Relay to a Metadata object with timestamp and type context.
@@ -107,11 +107,11 @@ class RelayMetadata:
         Create RelayMetadata from database parameters.
 
         Args:
-            relay_url: Relay URL without scheme
+            relay_url: Relay URL with scheme (e.g., "wss://relay.example.com")
             relay_network: Relay network type
             relay_discovered_at: Relay discovery timestamp
             metadata_data: JSON string of metadata
-            metadata_type: Type of metadata ('nip11', 'nip66_rtt', etc.)
+            metadata_type: MetadataType enum value
             generated_at: When metadata was collected
 
         Returns:

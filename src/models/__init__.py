@@ -4,14 +4,13 @@ BigBrotr Data Models.
 First-class types for working with Nostr relays, events, and metadata.
 
 Models:
-    - Client: Nostr client wrapper with SSL fallback and proxy support
     - Event: Immutable wrapper for nostr_sdk.Event
     - EventRelay: Junction model linking Event to Relay with seen_at timestamp
     - Relay: Validated Nostr relay URL with network detection
     - Metadata: Content-addressed metadata payload (NIP-11/NIP-66 data)
     - RelayMetadata: Junction linking Relay to Metadata with type and timestamp
     - Nip11: NIP-11 relay information document
-    - Nip66: NIP-66 relay monitoring data (RTT, SSL, geo)
+    - Nip66: NIP-66 relay monitoring data (RTT, SSL, GEO, DNS, HTTP)
 """
 
 from .event import Event
