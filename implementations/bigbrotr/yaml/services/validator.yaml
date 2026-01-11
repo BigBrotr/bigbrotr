@@ -7,26 +7,38 @@
 # Notes: Uses overlay network proxies for hidden relay validation (.onion, .i2p, .loki)
 # ============================================================================
 
-# Cycle interval (seconds between validation runs)
-# Range: >= 60.0
-interval: 300.0
+# Validation settings
+validation:
+  # Cycle interval (seconds between validation runs)
+  # Range: >= 60.0
+  interval: 300.0
 
-# WebSocket connection timeout (seconds)
-# Range: 1.0 - 60.0
-connection_timeout: 10.0
+  # WebSocket connection timeout (seconds)
+  # Range: 1.0 - 60.0
+  connection_timeout: 10.0
 
-# Maximum candidates to validate per cycle (null = unlimited)
-# When set, candidates are selected probabilistically based on retry count
-# (candidates with more failed attempts have lower probability of selection)
-# max_candidates_per_run: 100
+  # Maximum candidates to validate per cycle (null = unlimited)
+  # When set, candidates are selected probabilistically based on retry count
+  # (candidates with more failed attempts have lower probability of selection)
+  # max_candidates_per_run: 100
 
 # Concurrency settings
 concurrency:
-  max_parallel: 10           # Maximum concurrent relay validations (Range: 1 - 100)
+  max_processes: 1           # Number of worker processes (Range: 1 - 32)
+  tasks_per_process: 10      # Maximum concurrent tasks per process (Range: 1 - 100)
+
+# Cleanup settings for failed candidates
+cleanup:
+  enabled: false             # Enable automatic cleanup of max-attempt candidates
+  max_attempts: 10           # Delete candidates after this many failures
 
 # Overlay network proxy configuration
 # Each network requires its own SOCKS5 proxy for connectivity
-proxy:
+network:
+  # Clearnet (regular internet) relays
+  clearnet:
+    enabled: true
+
   # Tor proxy for .onion relays
   tor:
     enabled: true

@@ -5,21 +5,26 @@
 # See: implementations/bigbrotr/yaml/services/validator.yaml for full config
 # ============================================================================
 
-# Cycle interval (seconds between validation runs)
-interval: 300.0
-
-# WebSocket connection timeout (seconds)
-connection_timeout: 10.0
-
-# Maximum candidates to validate per cycle (null = unlimited)
-# max_candidates_per_run: 100
+# Validation settings
+validation:
+  interval: 300.0
+  connection_timeout: 10.0
+  # max_candidates_per_run: 100
 
 # Concurrency settings
 concurrency:
-  max_parallel: 10           # Maximum concurrent relay validations
+  max_processes: 1           # Number of worker processes
+  tasks_per_process: 10      # Maximum concurrent tasks per process
+
+# Cleanup settings for failed candidates
+cleanup:
+  enabled: false
+  max_attempts: 10
 
 # Overlay network proxy configuration
-proxy:
+network:
+  clearnet:
+    enabled: true
   tor:
     enabled: true
     proxy_url: "socks5://tor:9050"

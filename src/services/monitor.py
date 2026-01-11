@@ -42,7 +42,7 @@ from core.base_service import BaseService
 from models import Nip11, Nip66, Relay, RelayMetadata
 from models.relay import NetworkType
 from utils.keys import KeysConfig
-from utils.proxy import ProxyConfig
+from utils.network import NetworkConfig
 
 
 if TYPE_CHECKING:
@@ -161,7 +161,7 @@ class MonitorConfig(BaseModel):
     """Monitor configuration."""
 
     interval: float = Field(default=3600.0, ge=60.0, description="Seconds between monitor cycles")
-    proxy: ProxyConfig = Field(default_factory=ProxyConfig)
+    network: NetworkConfig = Field(default_factory=NetworkConfig)
     keys: KeysConfig = Field(default_factory=KeysConfig)
     publishing: PublishingConfig = Field(default_factory=PublishingConfig)
     checks: ChecksConfig = Field(default_factory=ChecksConfig)
@@ -200,7 +200,7 @@ class MonitorConfig(BaseModel):
 
 
 async def fetch_nip11(
-    relay: Relay, timeout: float, max_size: int, proxy_config: ProxyConfig
+    relay: Relay, timeout: float, max_size: int, network_config: NetworkConfig
 ) -> Nip11 | None:
     """Fetch NIP-11 relay information document via HTTP.
 
@@ -208,12 +208,12 @@ async def fetch_nip11(
         relay: Relay to fetch NIP-11 from
         timeout: Request timeout in seconds
         max_size: Maximum response size in bytes
-        proxy_config: Proxy configuration for overlay networks (Tor, I2P, Loki)
+        network_config: Network configuration for overlay networks (Tor, I2P, Loki)
 
     Returns:
         Nip11 instance if successful, None otherwise
     """
-    proxy_url = proxy_config.get_proxy_url(relay.network)
+    proxy_url = network_config.get_proxy_url(relay.network)
     return await Nip11.fetch(relay, timeout=timeout, max_size=max_size, proxy_url=proxy_url)
 
 
@@ -573,7 +573,7 @@ class Monitor(BaseService[MonitorConfig]):
                 # Filter overlay network relays if proxy disabled
                 overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
                 if relay.network in overlay_networks:
-                    if not self._config.proxy.is_network_enabled(relay.network):
+                    if not self._config.network.is_network_enabled(relay.network):
                         skipped_overlay[relay.network] = skipped_overlay.get(relay.network, 0) + 1
                         continue
                 relays.append(relay)
@@ -608,7 +608,7 @@ class Monitor(BaseService[MonitorConfig]):
                 # NIP-11 check
                 if self._config.checks.nip11:
                     nip11 = await fetch_nip11(
-                        relay, timeout, self._config.checks.nip11_max_size, self._config.proxy
+                        relay, timeout, self._config.checks.nip11_max_size, self._config.network
                     )
                     if nip11:
                         metadata_records.append(nip11.to_relay_metadata())
@@ -618,7 +618,7 @@ class Monitor(BaseService[MonitorConfig]):
                 keys = self._keys if self._config.checks.write else None
 
                 # Get proxy URL for overlay networks
-                proxy_url = self._config.proxy.get_proxy_url(relay.network)
+                proxy_url = self._config.network.get_proxy_url(relay.network)
 
                 # Run all NIP-66 tests via Nip66.test()
                 nip66 = await Nip66.test(
@@ -704,7 +704,7 @@ class Monitor(BaseService[MonitorConfig]):
             # Determine destination
             if self._config.publishing.destination == "monitored_relay":
                 # Publish to the relay being monitored
-                proxy_url = self._config.proxy.get_proxy_url(relay.network)
+                proxy_url = self._config.network.get_proxy_url(relay.network)
                 client = create_client(self._keys, proxy_url)
                 await client.add_relay(RelayUrl.parse(relay.url))
                 try:

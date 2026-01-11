@@ -1,4 +1,4 @@
-"""Proxy configuration for overlay networks."""
+"""Network configuration for relay connectivity."""
 
 from __future__ import annotations
 
@@ -7,34 +7,40 @@ from pydantic import BaseModel, Field
 from models.relay import NetworkType
 
 
-class NetworkProxyConfig(BaseModel):
-    """Configuration for a single overlay network proxy."""
+class NetworkTypeConfig(BaseModel):
+    """Configuration for a single network type."""
 
-    enabled: bool = Field(default=False, description="Enable this proxy")
-    proxy_url: str = Field(default="", description="SOCKS5 proxy URL (e.g., socks5://host:port)")
+    enabled: bool = Field(default=True, description="Enable this network")
+    proxy_url: str | None = Field(
+        default=None, description="SOCKS5 proxy URL (for overlay networks)"
+    )
 
 
-class ProxyConfig(BaseModel):
-    """Overlay network proxy configuration for hidden relay support.
+class NetworkConfig(BaseModel):
+    """Network configuration for relay connectivity.
 
-    Supports Tor (.onion), I2P (.i2p), and Lokinet (.loki) networks.
-    Each network requires its own SOCKS5 proxy for connectivity.
+    Controls which network types are enabled and their proxy settings.
+    Supports clearnet, Tor (.onion), I2P (.i2p), and Lokinet (.loki) networks.
     """
 
-    tor: NetworkProxyConfig = Field(
-        default_factory=lambda: NetworkProxyConfig(
+    clearnet: NetworkTypeConfig = Field(
+        default_factory=NetworkTypeConfig,
+        description="Clearnet (regular internet) relays",
+    )
+    tor: NetworkTypeConfig = Field(
+        default_factory=lambda: NetworkTypeConfig(
             enabled=True, proxy_url="socks5://127.0.0.1:9050"
         ),
         description="Tor proxy for .onion relays",
     )
-    i2p: NetworkProxyConfig = Field(
-        default_factory=lambda: NetworkProxyConfig(
+    i2p: NetworkTypeConfig = Field(
+        default_factory=lambda: NetworkTypeConfig(
             enabled=False, proxy_url="socks5://127.0.0.1:4447"
         ),
         description="I2P proxy for .i2p relays",
     )
-    loki: NetworkProxyConfig = Field(
-        default_factory=lambda: NetworkProxyConfig(
+    loki: NetworkTypeConfig = Field(
+        default_factory=lambda: NetworkTypeConfig(
             enabled=False, proxy_url="socks5://127.0.0.1:1080"
         ),
         description="Lokinet proxy for .loki relays",
@@ -44,17 +50,19 @@ class ProxyConfig(BaseModel):
         """Get proxy URL for a given network type.
 
         Args:
-            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
+            network: Network type (NetworkType enum or string)
 
         Returns:
-            Proxy URL if network is supported and enabled, None otherwise.
+            Proxy URL if network requires proxy and is enabled, None otherwise.
         """
         if isinstance(network, str):
             try:
                 network = NetworkType(network)
             except ValueError:
                 return None
+
         config_map = {
+            NetworkType.CLEARNET: self.clearnet,
             NetworkType.TOR: self.tor,
             NetworkType.I2P: self.i2p,
             NetworkType.LOKI: self.loki,
@@ -65,20 +73,22 @@ class ProxyConfig(BaseModel):
         return None
 
     def is_network_enabled(self, network: str | NetworkType) -> bool:
-        """Check if a network proxy is enabled.
+        """Check if a network is enabled.
 
         Args:
-            network: Network type (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
+            network: Network type (NetworkType enum or string)
 
         Returns:
-            True if network proxy is enabled, False otherwise.
+            True if network is enabled, False otherwise.
         """
         if isinstance(network, str):
             try:
                 network = NetworkType(network)
             except ValueError:
                 return False
+
         config_map = {
+            NetworkType.CLEARNET: self.clearnet,
             NetworkType.TOR: self.tor,
             NetworkType.I2P: self.i2p,
             NetworkType.LOKI: self.loki,

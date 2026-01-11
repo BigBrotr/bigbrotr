@@ -190,57 +190,13 @@ class Seeder(BaseService[SeederConfig]):
         """
         Insert relays directly into relays table.
 
-        Filters only against relays table (skips validation).
-        Also removes these URLs from validation candidates if present.
+        Uses ON CONFLICT DO NOTHING, so duplicates are silently skipped.
         """
-        all_urls = [relay.url for relay in relays]
-
-        new_urls_rows = await self._brotr.pool.fetch(
-            """
-            SELECT url FROM unnest($1::text[]) AS url
-            WHERE url NOT IN (SELECT r.url FROM relays r)
-            """,
-            all_urls,
-            timeout=self._brotr.config.timeouts.query,
-        )
-        new_urls = {row["url"] for row in new_urls_rows}
-
-        skipped_count = len(relays) - len(new_urls)
-        if skipped_count > 0:
-            self._logger.info(
-                "seed_skipped_existing",
-                total=len(relays),
-                skipped=skipped_count,
-                new=len(new_urls),
-            )
-
-        if not new_urls:
-            self._logger.info("seed_all_relays_exist")
-            return
-
-        new_relays = [relay for relay in relays if relay.url in new_urls]
         batch_size = self._brotr.config.batch.max_batch_size
+        inserted = 0
 
-        for i in range(0, len(new_relays), batch_size):
-            batch = new_relays[i : i + batch_size]
-            await self._brotr.insert_relays(batch)
+        for i in range(0, len(relays), batch_size):
+            batch = relays[i : i + batch_size]
+            inserted += await self._brotr.insert_relays(batch)
 
-        # Remove from validation candidates if present
-        deleted = await self._brotr.pool.fetchval(
-            """
-            WITH deleted AS (
-                DELETE FROM service_data
-                WHERE service_name = 'validator'
-                  AND data_type = 'candidate'
-                  AND data_key = ANY($1::text[])
-                RETURNING 1
-            )
-            SELECT COUNT(*) FROM deleted
-            """,
-            list(new_urls),
-            timeout=self._brotr.config.timeouts.query,
-        )
-        if deleted > 0:
-            self._logger.info("seed_removed_candidates", count=deleted)
-
-        self._logger.info("seed_completed", count=len(new_relays), to_validate=False)
+        self._logger.info("seed_completed", total=len(relays), inserted=inserted, to_validate=False)

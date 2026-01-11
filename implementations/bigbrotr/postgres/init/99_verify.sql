@@ -31,7 +31,7 @@ BEGIN
     RAISE NOTICE '  events_relays_insert_cascade, relay_metadata_insert_cascade';
     RAISE NOTICE '';
     RAISE NOTICE 'Cleanup Functions:';
-    RAISE NOTICE '  orphan_metadata_delete, orphan_events_delete, failed_candidates_delete';
+    RAISE NOTICE '  orphan_metadata_delete, orphan_events_delete';
     RAISE NOTICE '';
     RAISE NOTICE 'Views:';
     RAISE NOTICE '  (none)';

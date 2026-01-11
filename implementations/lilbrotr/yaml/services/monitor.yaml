@@ -9,7 +9,7 @@
 
 # Overlay network proxy configuration
 # Disabled for lilbrotr (clearnet only by default)
-proxy:
+network:
   tor:
     enabled: false
     proxy_url: "socks5://tor:9050"

@@ -49,7 +49,7 @@ from core.brotr import Brotr
 from models import Event, EventRelay, Relay
 from models.relay import NetworkType
 from utils.keys import KeysConfig
-from utils.proxy import ProxyConfig
+from utils.network import NetworkConfig
 
 
 # =============================================================================
@@ -337,7 +337,7 @@ class SynchronizerConfig(BaseModel):
     """Synchronizer configuration."""
 
     interval: float = Field(default=900.0, ge=60.0, description="Seconds between sync cycles")
-    proxy: ProxyConfig = Field(default_factory=ProxyConfig)
+    network: NetworkConfig = Field(default_factory=NetworkConfig)
     keys: KeysConfig = Field(default_factory=KeysConfig)
     filter: FilterConfig = Field(default_factory=FilterConfig)
     time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
@@ -518,7 +518,7 @@ async def sync_relay_task(
                 start_time=start_time,
                 end_time=end_time,
                 filter_config=config.filter,
-                proxy_config=config.proxy,
+                network_config=config.network,
                 request_timeout=request_timeout,
                 brotr=brotr,
                 keys=keys,
@@ -680,7 +680,7 @@ async def _sync_relay_events(
     start_time: int,
     end_time: int,
     filter_config: FilterConfig,
-    proxy_config: ProxyConfig,
+    network_config: NetworkConfig,
     request_timeout: float,
     brotr: Brotr,
     keys: Keys,
@@ -693,7 +693,7 @@ async def _sync_relay_events(
         start_time: Start timestamp (since)
         end_time: End timestamp (until)
         filter_config: Event filter configuration
-        proxy_config: Overlay network proxy configuration (Tor, I2P, Loki)
+        network_config: Network configuration for overlay networks (Tor, I2P, Loki)
         request_timeout: Request timeout in seconds
         brotr: Database interface
         keys: Nostr keys for NIP-42 authentication
@@ -710,7 +710,7 @@ async def _sync_relay_events(
     skipped_events = 0
 
     # Get proxy URL for overlay networks
-    proxy_url = proxy_config.get_proxy_url(relay.network)
+    proxy_url = network_config.get_proxy_url(relay.network)
 
     # Create client using transport utility
     client = create_client(keys, proxy_url)
@@ -895,7 +895,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                         start_time=start,
                         end_time=end_time,
                         filter_config=self._config.filter,
-                        proxy_config=self._config.proxy,
+                        network_config=self._config.network,
                         request_timeout=request_timeout,
                         brotr=self._brotr,
                         keys=self._keys,

@@ -36,7 +36,6 @@ BEGIN
     RAISE NOTICE '  - service_data_delete()';
     RAISE NOTICE '  - orphan_metadata_delete()';
     RAISE NOTICE '  - orphan_events_delete()';
-    RAISE NOTICE '  - failed_candidates_delete()';
     RAISE NOTICE '';
     RAISE NOTICE 'Note: LilBrotr stores tagvalues (computed) but discards tags/content/sig.';
     RAISE NOTICE '============================================================================';

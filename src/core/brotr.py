@@ -570,25 +570,6 @@ class Brotr:
         )
         return result
 
-    async def delete_failed_candidates(self, max_attempts: int) -> int:
-        """
-        Delete validator candidates that exceeded max failed attempts.
-
-        Args:
-            max_attempts: Threshold for deletion. Candidates with
-                         failed_attempts >= max_attempts will be deleted.
-
-        Returns:
-            Number of deleted candidates.
-        """
-        result: int = await self._call_procedure(
-            "failed_candidates_delete",
-            max_attempts,
-            fetch_result=True,
-            timeout=self._config.timeouts.cleanup,
-        )
-        return result
-
     # -------------------------------------------------------------------------
     # Service Data Operations
     # -------------------------------------------------------------------------
