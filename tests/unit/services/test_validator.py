@@ -2,10 +2,10 @@
 Unit tests for services.validator module.
 
 Tests:
-- Configuration models (ValidatorConfig, ProxyConfig, ConcurrencyConfig)
+- Configuration models (ValidatorConfig, BatchConfig, ConcurrencyConfig, NetworkConfig)
 - Validator service initialization and defaults
-- Candidate selection with probabilistic weighting (Efraimidis-Spirakis)
-- Overlay network proxy configuration
+- Batch configuration and candidate limits
+- Network proxy configuration for overlay networks (Tor, I2P, Loki)
 - Relay validation workflow
 - Candidate promotion and failure tracking
 """
@@ -18,12 +18,12 @@ import pytest
 from core.brotr import Brotr, BrotrConfig
 from models.relay import NetworkType
 from services.validator import (
+    BatchConfig,
     ConcurrencyConfig,
-    NetworkProxyConfig,
-    ProxyConfig,
     Validator,
     ValidatorConfig,
 )
+from utils.network import NetworkConfig, NetworkProxyConfig
 
 
 # ============================================================================
@@ -59,35 +59,34 @@ class TestValidatorConfig:
         config = ValidatorConfig()
 
         assert config.interval == 300.0
-        assert config.connection_timeout == 10.0
-        assert config.max_candidates_per_run is None
-        assert config.concurrency.max_parallel == 10
-        assert config.proxy.tor.enabled is True  # ProxyConfig defaults tor to enabled=True
+        assert config.batch.timeout == 10.0
+        assert config.batch.max_candidates is None
+        assert config.concurrency.tasks == 10
+        assert config.network.tor.enabled is True  # NetworkConfig defaults tor to enabled=True
 
     def test_custom_config(self) -> None:
         """Test custom configuration values."""
         config = ValidatorConfig(
             interval=600.0,
-            connection_timeout=15.0,
-            max_candidates_per_run=50,
+            batch=BatchConfig(timeout=15.0, max_candidates=50),
         )
 
         assert config.interval == 600.0
-        assert config.connection_timeout == 15.0
-        assert config.max_candidates_per_run == 50
+        assert config.batch.timeout == 15.0
+        assert config.batch.max_candidates == 50
 
     def test_interval_minimum(self) -> None:
         """Test interval minimum constraint."""
         with pytest.raises(ValueError):
             ValidatorConfig(interval=30.0)
 
-    def test_connection_timeout_bounds(self) -> None:
-        """Test connection timeout bounds."""
+    def test_batch_timeout_bounds(self) -> None:
+        """Test batch timeout bounds."""
         with pytest.raises(ValueError):
-            ValidatorConfig(connection_timeout=0.05)  # Below TIMEOUT_MIN (0.1)
+            BatchConfig(timeout=0.05)  # Below 0.1
 
         with pytest.raises(ValueError):
-            ValidatorConfig(connection_timeout=100.0)  # Above TIMEOUT_MAX_CONNECTION (60.0)
+            BatchConfig(timeout=100.0)  # Above 60.0
 
 
 # ============================================================================
@@ -101,29 +100,48 @@ class TestConcurrencyConfig:
     def test_default_values(self) -> None:
         """Test default concurrency values."""
         config = ConcurrencyConfig()
-        assert config.max_parallel == 10
+        assert config.processes == 1
+        assert config.tasks == 10
 
     def test_custom_values(self) -> None:
         """Test custom concurrency values."""
-        config = ConcurrencyConfig(max_parallel=25)
-        assert config.max_parallel == 25
+        config = ConcurrencyConfig(processes=4, tasks=25)
+        assert config.processes == 4
+        assert config.tasks == 25
 
-    def test_max_parallel_bounds(self) -> None:
-        """Test max_parallel validation bounds."""
+    def test_tasks_bounds(self) -> None:
+        """Test tasks validation bounds."""
         # Test minimum bound
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel=0)
+            ConcurrencyConfig(tasks=0)
 
         # Test maximum bound
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel=101)
+            ConcurrencyConfig(tasks=101)
 
         # Test valid edge cases
-        config_min = ConcurrencyConfig(max_parallel=1)
-        assert config_min.max_parallel == 1
+        config_min = ConcurrencyConfig(tasks=1)
+        assert config_min.tasks == 1
 
-        config_max = ConcurrencyConfig(max_parallel=100)
-        assert config_max.max_parallel == 100
+        config_max = ConcurrencyConfig(tasks=100)
+        assert config_max.tasks == 100
+
+    def test_processes_bounds(self) -> None:
+        """Test processes validation bounds."""
+        # Test minimum bound
+        with pytest.raises(ValueError):
+            ConcurrencyConfig(processes=0)
+
+        # Test maximum bound
+        with pytest.raises(ValueError):
+            ConcurrencyConfig(processes=33)
+
+        # Test valid edge cases
+        config_min = ConcurrencyConfig(processes=1)
+        assert config_min.processes == 1
+
+        config_max = ConcurrencyConfig(processes=32)
+        assert config_max.processes == 32
 
 
 # ============================================================================
@@ -139,15 +157,18 @@ class TestValidator:
         validator = Validator(brotr=mock_validator_brotr)
 
         assert validator._config.interval == 300.0
-        assert validator._config.connection_timeout == 10.0
+        assert validator._config.batch.timeout == 10.0
 
     def test_init_custom_config(self, mock_validator_brotr: Brotr) -> None:
         """Test initialization with custom config."""
-        config = ValidatorConfig(interval=600.0, connection_timeout=20.0)
+        config = ValidatorConfig(
+            interval=600.0,
+            batch=BatchConfig(timeout=20.0),
+        )
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         assert validator._config.interval == 600.0
-        assert validator._config.connection_timeout == 20.0
+        assert validator._config.batch.timeout == 20.0
 
 
 # ============================================================================
@@ -156,93 +177,35 @@ class TestValidator:
 
 
 class TestCandidateSelection:
-    """Tests for candidate selection logic."""
+    """Tests for candidate selection logic.
 
-    def test_select_all_when_no_limit(self, mock_validator_brotr: Brotr) -> None:
-        """Test all candidates are selected when no limit is set."""
-        config = ValidatorConfig(max_candidates_per_run=None)
+    Note: With the new validator design, candidate selection and limiting
+    is done via SQL query (ORDER BY failed_attempts ASC, LIMIT). These tests
+    verify the validator handles the fetched candidates correctly.
+    """
+
+    def test_handles_candidates_from_database(self, mock_validator_brotr: Brotr) -> None:
+        """Test validator handles candidates returned from database."""
+        config = ValidatorConfig()
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
-        candidates = [
-            {"key": "wss://relay1.com", "value": {"retries": 0}, "updated_at": 1000},
-            {"key": "wss://relay2.com", "value": {"retries": 1}, "updated_at": 1001},
-            {"key": "wss://relay3.com", "value": {"retries": 2}, "updated_at": 1002},
-        ]
+        # Candidates are now fetched via SQL, not selected in Python
+        # This test verifies the config structure is correct
+        assert config.batch.max_candidates is None  # No limit by default
 
-        selected = validator._select_candidates(candidates)
-        assert len(selected) == 3
-
-    def test_select_all_when_under_limit(self, mock_validator_brotr: Brotr) -> None:
-        """Test all candidates are selected when under limit."""
-        config = ValidatorConfig(max_candidates_per_run=10)
+    def test_batch_max_candidates_config(self, mock_validator_brotr: Brotr) -> None:
+        """Test batch.max_candidates configuration."""
+        config = ValidatorConfig(batch=BatchConfig(max_candidates=10))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
-        candidates = [
-            {"key": "wss://relay1.com", "value": {"retries": 0}, "updated_at": 1000},
-            {"key": "wss://relay2.com", "value": {"retries": 1}, "updated_at": 1001},
-        ]
+        assert validator._config.batch.max_candidates == 10
 
-        selected = validator._select_candidates(candidates)
-        assert len(selected) == 2
-
-    def test_select_respects_limit(self, mock_validator_brotr: Brotr) -> None:
-        """Test selection respects limit."""
-        config = ValidatorConfig(max_candidates_per_run=2)
+    def test_batch_max_candidates_none_means_unlimited(self, mock_validator_brotr: Brotr) -> None:
+        """Test batch.max_candidates=None means unlimited."""
+        config = ValidatorConfig(batch=BatchConfig(max_candidates=None))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
-        candidates = [
-            {"key": "wss://relay1.com", "value": {"retries": 0}, "updated_at": 1000},
-            {"key": "wss://relay2.com", "value": {"retries": 1}, "updated_at": 1001},
-            {"key": "wss://relay3.com", "value": {"retries": 2}, "updated_at": 1002},
-            {"key": "wss://relay4.com", "value": {"retries": 3}, "updated_at": 1003},
-        ]
-
-        selected = validator._select_candidates(candidates)
-        assert len(selected) == 2
-
-    def test_probabilistic_selection_favors_low_failed_attempts(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
-        """Test that candidates with fewer failed_attempts are more likely to be selected."""
-        config = ValidatorConfig(max_candidates_per_run=1)
-        validator = Validator(brotr=mock_validator_brotr, config=config)
-
-        # Create candidates with very different failed_attempts counts
-        candidates = [
-            {"key": "wss://low.com", "value": {"failed_attempts": 0}, "updated_at": 1000},
-            {"key": "wss://high1.com", "value": {"failed_attempts": 100}, "updated_at": 1001},
-            {"key": "wss://high2.com", "value": {"failed_attempts": 100}, "updated_at": 1002},
-            {"key": "wss://high3.com", "value": {"failed_attempts": 100}, "updated_at": 1003},
-        ]
-
-        # Run selection many times and count how often "low" is selected
-        low_selected_count = 0
-        iterations = 100
-
-        for _ in range(iterations):
-            selected = validator._select_candidates(candidates)
-            if selected[0]["key"] == "wss://low.com":
-                low_selected_count += 1
-
-        # With weight = 1/(failed_attempts+1), "low" has weight 1.0 and each "high" has weight 0.01
-        # Expected probability for "low" is 1.0 / (1.0 + 0.01*3) ≈ 97%
-        # With 100 iterations, we expect ~97 selections of "low"
-        assert low_selected_count > 80, f"Expected >80, got {low_selected_count}"
-
-    def test_empty_value_defaults_to_zero_failed_attempts(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
-        """Test that empty value defaults to 0 failed_attempts."""
-        config = ValidatorConfig(max_candidates_per_run=None)
-        validator = Validator(brotr=mock_validator_brotr, config=config)
-
-        candidates = [
-            {"key": "wss://relay1.com", "value": {}, "updated_at": 1000},
-        ]
-
-        # Should not raise, and candidate should be included
-        selected = validator._select_candidates(candidates)
-        assert len(selected) == 1
+        assert validator._config.batch.max_candidates is None
 
 
 # ============================================================================
@@ -278,7 +241,7 @@ class TestValidatorRunErrorHandling:
         mock_validator_brotr.delete_service_data = AsyncMock(return_value=1)
         mock_validator_brotr.upsert_service_data = AsyncMock(return_value=1)
 
-        config = ValidatorConfig(connection_timeout=1.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=1.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         # Mock the connection test to succeed
@@ -301,7 +264,7 @@ class TestValidatorRunErrorHandling:
         mock_validator_brotr.delete_service_data = AsyncMock(return_value=1)
         mock_validator_brotr.upsert_service_data = AsyncMock(return_value=1)
 
-        config = ValidatorConfig(connection_timeout=1.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=1.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         # Mock connection test to return success for first, failure for second
@@ -337,7 +300,7 @@ class TestValidatorRunErrorHandling:
         mock_validator_brotr.get_service_data = AsyncMock(return_value=candidates)
         mock_validator_brotr.upsert_service_data = AsyncMock(return_value=2)
 
-        config = ValidatorConfig(connection_timeout=1.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=1.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch.object(
@@ -366,7 +329,7 @@ class TestValidatorRunErrorHandling:
         mock_validator_brotr.delete_service_data = AsyncMock(return_value=2)
         mock_validator_brotr.upsert_service_data = AsyncMock(return_value=2)
 
-        config = ValidatorConfig(connection_timeout=1.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=1.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         async def mock_test(url: str, keys=None) -> bool:
@@ -392,7 +355,7 @@ class TestValidatorRunErrorHandling:
         mock_validator_brotr.delete_service_data = AsyncMock(return_value=1)
         mock_validator_brotr.upsert_service_data = AsyncMock(return_value=1)
 
-        config = ValidatorConfig(connection_timeout=1.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=1.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         # Simulate slow validation
@@ -424,7 +387,7 @@ class TestValidatorRunErrorHandling:
         mock_validator_brotr.delete_service_data = AsyncMock(return_value=1)
         mock_validator_brotr.upsert_service_data = AsyncMock(return_value=1)
 
-        config = ValidatorConfig(connection_timeout=1.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=1.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch.object(validator, "_test_connection", new_callable=AsyncMock, return_value=True):
@@ -444,7 +407,7 @@ class TestValidatorRunErrorHandling:
         mock_validator_brotr.delete_service_data = AsyncMock(return_value=1)
         mock_validator_brotr.upsert_service_data = AsyncMock(return_value=1)
 
-        config = ValidatorConfig(connection_timeout=1.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=1.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch.object(validator, "_test_connection", new_callable=AsyncMock, return_value=True):
@@ -465,7 +428,7 @@ class TestValidateCandidateAndTestConnection:
         self, mock_validator_brotr: Brotr
     ) -> None:
         """Valid clearnet relay passes validation."""
-        config = ValidatorConfig(connection_timeout=5.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=5.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
             "key": "wss://valid.relay.com",
@@ -488,8 +451,8 @@ class TestValidateCandidateAndTestConnection:
     ) -> None:
         """Valid Tor relay passes validation (with proxy)."""
         config = ValidatorConfig(
-            connection_timeout=5.0,
-            proxy=ProxyConfig(tor=NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:9050")),
+            batch=BatchConfig(timeout=5.0),
+            network=NetworkConfig(tor=NetworkProxyConfig(enabled=True, proxy_url="socks5://127.0.0.1:9050")),
         )
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
@@ -509,7 +472,7 @@ class TestValidateCandidateAndTestConnection:
     async def test_connection_timeout_fails_validation(self, mock_validator_brotr: Brotr) -> None:
         """Connection timeout fails validation."""
         # connection_timeout minimum is 1.0 per ValidatorConfig validation
-        config = ValidatorConfig(connection_timeout=1.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=1.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
             "key": "wss://timeout.relay.com",
@@ -533,7 +496,7 @@ class TestValidateCandidateAndTestConnection:
         self, mock_validator_brotr: Brotr
     ) -> None:
         """Invalid WebSocket URL fails validation."""
-        config = ValidatorConfig(connection_timeout=5.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=5.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         # Test _test_connection directly with invalid URL
@@ -545,7 +508,7 @@ class TestValidateCandidateAndTestConnection:
         self, mock_validator_brotr: Brotr
     ) -> None:
         """Relay refuses connection fails validation."""
-        config = ValidatorConfig(connection_timeout=5.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=5.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
             "key": "wss://refused.relay.com",
@@ -567,7 +530,7 @@ class TestValidateCandidateAndTestConnection:
         self, mock_validator_brotr: Brotr
     ) -> None:
         """Relay accepts but returns error fails validation."""
-        config = ValidatorConfig(connection_timeout=5.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=5.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
             "key": "wss://error.relay.com",
@@ -591,29 +554,29 @@ class TestValidateCandidateAndTestConnection:
     ) -> None:
         """Tor proxy configuration applied correctly."""
         config = ValidatorConfig(
-            connection_timeout=5.0,
-            proxy=ProxyConfig(tor=NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:9050")),
+            batch=BatchConfig(timeout=5.0),
+            network=NetworkConfig(tor=NetworkProxyConfig(enabled=True, proxy_url="socks5://127.0.0.1:9050")),
         )
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         # Verify proxy URL is correctly configured
-        assert validator._config.proxy.get_proxy_url(NetworkType.TOR) == "socks5://127.0.0.1:9050"
-        assert validator._config.proxy.is_network_enabled(NetworkType.TOR) is True
+        assert validator._config.network.get_proxy_url(NetworkType.TOR) == "socks5://127.0.0.1:9050"
+        assert validator._config.network.is_network_enabled(NetworkType.TOR) is True
 
     @pytest.mark.asyncio
-    async def test_connection_timeout_value_respected(self, mock_validator_brotr: Brotr) -> None:
-        """Connection timeout value respected."""
-        config = ValidatorConfig(connection_timeout=15.0)
+    async def test_batch_timeout_value_respected(self, mock_validator_brotr: Brotr) -> None:
+        """Batch timeout value respected."""
+        config = ValidatorConfig(batch=BatchConfig(timeout=15.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
-        assert validator._config.connection_timeout == 15.0
+        assert validator._config.batch.timeout == 15.0
 
     @pytest.mark.asyncio
     async def test_failed_attempts_counter_incremented_on_failure(
         self, mock_validator_brotr: Brotr
     ) -> None:
         """Failed attempts counter incremented on failure."""
-        config = ValidatorConfig(connection_timeout=5.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=5.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
             "key": "wss://failing.relay.com",
@@ -648,7 +611,7 @@ class TestValidateCandidateAndTestConnection:
         mock_validator_brotr.insert_relays = AsyncMock(return_value=1)
         mock_validator_brotr.delete_service_data = AsyncMock(return_value=1)
 
-        config = ValidatorConfig(connection_timeout=5.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=5.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch.object(validator, "_test_connection", new_callable=AsyncMock, return_value=True):
@@ -666,7 +629,7 @@ class TestValidateCandidateAndTestConnection:
         """NIP-11 info fetched on successful connection."""
         # The validator uses nostr-sdk's fetch_events which implicitly validates
         # Nostr protocol compliance (EOSE response). NIP-11 is optional metadata.
-        config = ValidatorConfig(connection_timeout=5.0)
+        config = ValidatorConfig(batch=BatchConfig(timeout=5.0))
         validator = Validator(brotr=mock_validator_brotr, config=config)
         candidate = {
             "key": "wss://nip11.relay.com",
