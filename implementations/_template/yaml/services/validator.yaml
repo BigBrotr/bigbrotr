@@ -3,49 +3,47 @@
 # ============================================================================
 # Description: Validate candidate relay URLs before adding to relays table
 # Used by: src/services/validator.py
-# Run mode: Continuous (runs every interval)
+# Run mode: Continuous (runs every interval) or one-shot (--once flag)
 # Dependencies: Seeder/Finder write candidates to service_data
 # ============================================================================
 #
 # PURPOSE:
 # The Validator service processes candidate relay URLs by:
 # 1. Attempting WebSocket connection
-# 2. Verifying relay protocol compliance
-# 3. Handling NIP-42 authentication (if PRIVATE_KEY set)
-# 4. Adding valid relays to the relays table
-# 5. Tracking failed attempts for cleanup
+# 2. Verifying relay protocol compliance (REQ/response test)
+# 3. Adding valid relays to the relays table
+# 4. Tracking failed attempts for retry/cleanup
 #
 # ============================================================================
 
-# Validation settings
-validation:
-  # Cycle interval (seconds between validation runs)
-  # Range: >= 60.0
-  # Recommendation: 300-600 for production (5-10 minutes)
-  interval: 300.0
+# Cycle interval (seconds between validation runs)
+# Range: >= 60.0
+# Recommendation: 300-600 for production (5-10 minutes)
+interval: 300.0
 
+# Batch processing settings
+batch:
   # WebSocket connection timeout (seconds)
-  # Range: 1.0 - 60.0
+  # Range: 0.1 - 60.0
   # Note: Tor relays may need longer timeouts
-  connection_timeout: 10.0
+  timeout: 10.0
 
   # Maximum candidates to validate per cycle (optional)
-  # When set, candidates are selected probabilistically based on retry count
-  # (candidates with more failed attempts have lower selection probability)
+  # Candidates with fewer failed attempts are prioritized
   # Uncomment to limit validation rate:
-  # max_candidates_per_run: 100
+  # max_candidates: 100
 
 # Concurrency settings
 concurrency:
   # Number of worker processes for parallel validation
   # Range: 1 - 32
   # Use 1 for single-process mode (asyncio only)
-  max_processes: 1
+  processes: 1
 
-  # Maximum concurrent tasks per process
+  # Concurrent tasks per process
   # Range: 1 - 100
   # Higher = faster validation but more memory and connections
-  tasks_per_process: 10
+  tasks: 10
 
 # Cleanup settings for failed candidates
 cleanup:
@@ -84,16 +82,16 @@ network:
 #
 # MINIMAL RESOURCES:
 #   interval: 600.0
-#   connection_timeout: 5.0
-#   concurrency.tasks_per_process: 5
-#   max_candidates_per_run: 50
+#   batch.timeout: 5.0
+#   concurrency.tasks: 5
+#   batch.max_candidates: 50
 #
 # AGGRESSIVE VALIDATION:
 #   interval: 120.0
-#   concurrency.max_processes: 4
-#   concurrency.tasks_per_process: 25
+#   concurrency.processes: 4
+#   concurrency.tasks: 25
 #
 # SLOW NETWORK:
-#   connection_timeout: 30.0
+#   batch.timeout: 30.0
 #
 # ============================================================================
