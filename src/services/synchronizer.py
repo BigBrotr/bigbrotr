@@ -44,7 +44,7 @@ from nostr_sdk import (
 )
 from pydantic import BaseModel, Field, field_validator
 
-from core.base_service import BaseService
+from core.base_service import BaseService, BaseServiceConfig
 from core.brotr import Brotr
 from models import Event, EventRelay, Relay
 from models.relay import NetworkType
@@ -333,10 +333,9 @@ class RelayOverride(BaseModel):
     timeouts: RelayOverrideTimeouts = Field(default_factory=RelayOverrideTimeouts)
 
 
-class SynchronizerConfig(BaseModel):
+class SynchronizerConfig(BaseServiceConfig):
     """Synchronizer configuration."""
 
-    interval: float = Field(default=900.0, ge=60.0, description="Seconds between sync cycles")
     network: NetworkConfig = Field(default_factory=NetworkConfig)
     keys: KeysConfig = Field(default_factory=KeysConfig)
     filter: FilterConfig = Field(default_factory=FilterConfig)

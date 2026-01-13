@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from pydantic import BaseModel, Field
 
-from core.base_service import BaseService
+from core.base_service import BaseService, BaseServiceConfig
 from models import Relay
 
 
@@ -39,14 +39,14 @@ if TYPE_CHECKING:
 class SeedConfig(BaseModel):
     """Seed data configuration."""
 
-    file_path: str = Field(default="seed_relays.txt", description="Seed file path")
+    file_path: str = Field(default="static/seed_relays.txt", description="Seed file path")
     to_validate: bool = Field(
         default=True,
         description="If True, add as validation candidates. If False, insert directly into relays table.",
     )
 
 
-class SeederConfig(BaseModel):
+class SeederConfig(BaseServiceConfig):
     """Seeder configuration."""
 
     seed: SeedConfig = Field(default_factory=SeedConfig)

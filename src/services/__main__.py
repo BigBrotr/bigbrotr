@@ -35,13 +35,13 @@ from .validator import Validator
 YAML_BASE = Path("yaml")
 CORE_CONFIG = YAML_BASE / "core" / "brotr.yaml"
 
-# Service registry: name -> (class, config_path, is_oneshot)
-SERVICE_REGISTRY: dict[str, tuple[type[BaseService[Any]], Path, bool]] = {
-    "seeder": (Seeder, YAML_BASE / "services" / "seeder.yaml", True),
-    "finder": (Finder, YAML_BASE / "services" / "finder.yaml", False),
-    "validator": (Validator, YAML_BASE / "services" / "validator.yaml", False),
-    "monitor": (Monitor, YAML_BASE / "services" / "monitor.yaml", False),
-    "synchronizer": (Synchronizer, YAML_BASE / "services" / "synchronizer.yaml", False),
+# Service registry: name -> (class, config_path)
+SERVICE_REGISTRY: dict[str, tuple[type[BaseService[Any]], Path]] = {
+    "seeder": (Seeder, YAML_BASE / "services" / "seeder.yaml"),
+    "finder": (Finder, YAML_BASE / "services" / "finder.yaml"),
+    "validator": (Validator, YAML_BASE / "services" / "validator.yaml"),
+    "monitor": (Monitor, YAML_BASE / "services" / "monitor.yaml"),
+    "synchronizer": (Synchronizer, YAML_BASE / "services" / "synchronizer.yaml"),
 }
 
 logger = Logger("cli")
@@ -57,7 +57,7 @@ async def run_service(
     service_class: type[BaseService[Any]],
     brotr: Brotr,
     config_path: Path,
-    is_oneshot: bool,
+    once: bool,
 ) -> int:
     """
     Generic service runner.
@@ -67,7 +67,7 @@ async def run_service(
         service_class: Service class to instantiate
         brotr: Brotr instance
         config_path: Path to service config file
-        is_oneshot: If True, run once; if False, run continuously
+        once: If True, run once and exit; if False, run continuously
 
     Returns:
         Exit code (0 for success, 1 for failure)
@@ -79,8 +79,8 @@ async def run_service(
         logger.warning("config_not_found", path=str(config_path))
         service = service_class(brotr=brotr)
 
-    # One-shot services (like seeder) run once and exit
-    if is_oneshot:
+    # One-shot mode: run once and exit
+    if once:
         try:
             await service.run()
             logger.info(f"{service_name}_completed")
@@ -89,7 +89,7 @@ async def run_service(
             logger.error(f"{service_name}_failed", error=str(e))
             return 1
 
-    # Continuous services need signal handling
+    # Continuous mode: run forever with signal handling
     def handle_signal(sig: int, _frame: object) -> None:
         sig_name = signal.Signals(sig).name
         logger.info("shutdown_signal", signal=sig_name)
@@ -100,9 +100,7 @@ async def run_service(
 
     try:
         async with service:
-            if service.config is None:
-                raise ValueError("Service configuration not set")
-            await service.run_forever(interval=service.config.interval)
+            await service.run_forever()
         return 0
     except Exception as e:
         logger.error(f"{service_name}_failed", error=str(e))
@@ -147,6 +145,12 @@ def parse_args() -> argparse.Namespace:
         help="Log level (default: INFO)",
     )
 
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run once and exit (default: run continuously)",
+    )
+
     return parser.parse_args()
 
 
@@ -174,7 +178,7 @@ async def main() -> int:
     setup_logging(args.log_level)
 
     # Get service info from registry
-    service_class, default_config_path, is_oneshot = SERVICE_REGISTRY[args.service]
+    service_class, default_config_path = SERVICE_REGISTRY[args.service]
     config_path = args.config if args.config else default_config_path
 
     # Load brotr
@@ -188,7 +192,7 @@ async def main() -> int:
                 service_class=service_class,
                 brotr=brotr,
                 config_path=config_path,
-                is_oneshot=is_oneshot,
+                once=args.once,
             )
     except ConnectionError as e:
         logger.error("connection_failed", error=str(e))

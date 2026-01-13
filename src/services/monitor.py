@@ -38,7 +38,7 @@ from nostr_sdk import (
 )
 from pydantic import BaseModel, Field, model_validator
 
-from core.base_service import BaseService
+from core.base_service import BaseService, BaseServiceConfig
 from models import Nip11, Nip66, Relay, RelayMetadata
 from models.relay import NetworkType
 from utils.keys import KeysConfig
@@ -157,10 +157,9 @@ class SelectionConfig(BaseModel):
     )
 
 
-class MonitorConfig(BaseModel):
+class MonitorConfig(BaseServiceConfig):
     """Monitor configuration."""
 
-    interval: float = Field(default=3600.0, ge=60.0, description="Seconds between monitor cycles")
     network: NetworkConfig = Field(default_factory=NetworkConfig)
     keys: KeysConfig = Field(default_factory=KeysConfig)
     publishing: PublishingConfig = Field(default_factory=PublishingConfig)

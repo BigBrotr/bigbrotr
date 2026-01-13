@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import aiomultiprocess
 from pydantic import BaseModel, Field
 
-from core.base_service import BaseService
+from core.base_service import BaseService, BaseServiceConfig
 from models import Relay
 from utils.network import NetworkConfig
 
@@ -44,14 +44,13 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
-class ValidationConfig(BaseModel):
-    """Validation settings."""
+class BatchConfig(BaseModel):
+    """Batch processing settings."""
 
-    interval: float = Field(default=300.0, ge=60.0, description="Seconds between validation cycles")
-    connection_timeout: float = Field(
+    timeout: float = Field(
         default=10.0, ge=0.1, le=60.0, description="WebSocket connection timeout"
     )
-    max_candidates_per_run: int | None = Field(
+    max_candidates: int | None = Field(
         default=None, ge=1, description="Max candidates to validate per cycle (None = unlimited)"
     )
 
@@ -59,10 +58,8 @@ class ValidationConfig(BaseModel):
 class ConcurrencyConfig(BaseModel):
     """Concurrency configuration for parallel validation."""
 
-    max_processes: int = Field(default=1, ge=1, le=32, description="Number of worker processes")
-    tasks_per_process: int = Field(
-        default=10, ge=1, le=100, description="Maximum concurrent tasks per process"
-    )
+    processes: int = Field(default=1, ge=1, le=32, description="Number of worker processes")
+    tasks: int = Field(default=10, ge=1, le=100, description="Concurrent tasks per process")
 
 
 class CleanupConfig(BaseModel):
@@ -80,10 +77,10 @@ class CleanupConfig(BaseModel):
     )
 
 
-class ValidatorConfig(BaseModel):
+class ValidatorConfig(BaseServiceConfig):
     """Validator configuration."""
 
-    validation: ValidationConfig = Field(default_factory=ValidationConfig)
+    batch: BatchConfig = Field(default_factory=BatchConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     cleanup: CleanupConfig = Field(default_factory=CleanupConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
@@ -122,7 +119,7 @@ async def validate_relay_task(
 
     # Reconstruct config
     network_config = NetworkConfig.model_validate(config_dump["network"])
-    connection_timeout = config_dump["validation"]["connection_timeout"]
+    connection_timeout = config_dump["batch"]["timeout"]
 
     # Get proxy URL for overlay networks
     proxy_url = network_config.get_proxy_url(network)
@@ -234,7 +231,7 @@ class Validator(BaseService[ValidatorConfig]):
             return
 
         # Run validation (single or multiprocess)
-        if self._config.concurrency.max_processes > 1:
+        if self._config.concurrency.processes > 1:
             results = await self._run_multiprocess(relays_to_validate)
         else:
             results = await self._run_single_process(relays_to_validate)
@@ -319,7 +316,7 @@ class Validator(BaseService[ValidatorConfig]):
         self, relays: list[tuple[Relay, int]]
     ) -> list[tuple[str, bool, int]]:
         """Run validation in single process using asyncio concurrency."""
-        semaphore = asyncio.Semaphore(self._config.concurrency.tasks_per_process)
+        semaphore = asyncio.Semaphore(self._config.concurrency.tasks)
         tasks = [
             self._validate_relay(relay, failed_attempts, semaphore)
             for relay, failed_attempts in relays
@@ -348,8 +345,8 @@ class Validator(BaseService[ValidatorConfig]):
         ]
 
         async with aiomultiprocess.Pool(
-            processes=self._config.concurrency.max_processes,
-            childconcurrency=self._config.concurrency.tasks_per_process,
+            processes=self._config.concurrency.processes,
+            childconcurrency=self._config.concurrency.tasks,
         ) as pool:
             results = await pool.starmap(validate_relay_task, tasks)
 
@@ -430,7 +427,7 @@ class Validator(BaseService[ValidatorConfig]):
 
         Returns list of candidate records with keys: key, value, updated_at.
         """
-        limit = self._config.validation.max_candidates_per_run
+        limit = self._config.batch.max_candidates
 
         # Build WHERE conditions for enabled networks
         # Overlay networks are identified by suffix, clearnet is everything else
@@ -495,7 +492,7 @@ class Validator(BaseService[ValidatorConfig]):
         try:
             # Get proxy URL for overlay networks (clearnet returns None)
             proxy_url = self._config.network.get_proxy_url(relay.network)
-            timeout = self._config.validation.connection_timeout
+            timeout = self._config.batch.timeout
 
             # Connect to relay using transport helper
             client = await connect_relay(

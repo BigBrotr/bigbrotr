@@ -15,7 +15,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Generic, TypeVar, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from utils.yaml import load_yaml
 
@@ -23,8 +23,32 @@ from .brotr import Brotr
 from .logger import Logger
 
 
-# Type variable for service configuration
-ConfigT = TypeVar("ConfigT", bound=BaseModel)
+# =============================================================================
+# Base Configuration
+# =============================================================================
+
+
+class BaseServiceConfig(BaseModel):
+    """
+    Base configuration for all continuous services.
+
+    All services that run in a loop (via run_forever) should inherit from this.
+    """
+
+    interval: float = Field(
+        default=300.0,
+        ge=60.0,
+        description="Seconds between run cycles",
+    )
+    max_consecutive_failures: int = Field(
+        default=5,
+        ge=0,
+        description="Stop after this many consecutive errors (0 = unlimited)",
+    )
+
+
+# Type variable for service configuration (bound to BaseServiceConfig for type safety)
+ConfigT = TypeVar("ConfigT", bound=BaseServiceConfig)
 
 
 class BaseService(ABC, Generic[ConfigT]):
@@ -42,7 +66,6 @@ class BaseService(ABC, Generic[ConfigT]):
     Class Attributes:
         SERVICE_NAME: Unique identifier for the service (used in logging)
         CONFIG_CLASS: Pydantic model class for configuration parsing
-        _DEFAULT_MAX_CONSECUTIVE_FAILURES: Default limit before run_forever stops
 
     Instance Attributes:
         _brotr: Database interface (access pool via _brotr.pool)
@@ -55,7 +78,6 @@ class BaseService(ABC, Generic[ConfigT]):
 
     SERVICE_NAME: ClassVar[str] = "base_service"
     CONFIG_CLASS: ClassVar[type[BaseModel]]
-    _DEFAULT_MAX_CONSECUTIVE_FAILURES: ClassVar[int] = 5
 
     def __init__(self, brotr: Brotr, config: ConfigT | None = None) -> None:
         self._brotr = brotr
@@ -108,34 +130,29 @@ class BaseService(ABC, Generic[ConfigT]):
         except asyncio.TimeoutError:
             return False
 
-    async def run_forever(
-        self,
-        interval: float,
-        max_consecutive_failures: int | None = None,
-    ) -> None:
+    async def run_forever(self) -> None:
         """
         Run service continuously with interval between cycles.
 
         Calls run() repeatedly until shutdown is requested or max consecutive
         failures is reached. Each cycle is followed by an interruptible wait.
 
-        Args:
-            interval: Seconds to wait between run() cycles
-            max_consecutive_failures: Stop after this many consecutive errors
-                                      (0 = unlimited, None = use class default)
+        Reads from config:
+            - interval: Seconds to wait between run() cycles
+            - max_consecutive_failures: Stop after this many consecutive errors (0 = unlimited)
 
         Example:
             >>> async with MyService(brotr, config) as service:
-            ...     # Run every 5 minutes, stop after 3 consecutive failures
-            ...     await service.run_forever(interval=300, max_consecutive_failures=3)
+            ...     await service.run_forever()
 
         Note:
             - Use request_shutdown() to stop gracefully from signal handlers
             - Consecutive failure counter resets after each successful run()
             - CancelledError, KeyboardInterrupt, SystemExit propagate immediately
         """
-        if max_consecutive_failures is None:
-            max_consecutive_failures = self._DEFAULT_MAX_CONSECUTIVE_FAILURES
+        # Read from config (with fallback defaults for non-BaseServiceConfig)
+        interval = getattr(self._config, "interval", 300.0)
+        max_consecutive_failures = getattr(self._config, "max_consecutive_failures", 5)
 
         self._logger.info(
             "run_forever_started",

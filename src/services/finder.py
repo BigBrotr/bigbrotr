@@ -28,7 +28,7 @@ import aiohttp
 from nostr_sdk import RelayUrl
 from pydantic import BaseModel, Field
 
-from core.base_service import BaseService
+from core.base_service import BaseService, BaseServiceConfig
 
 
 if TYPE_CHECKING:
@@ -96,10 +96,9 @@ class ApiConfig(BaseModel):
     )
 
 
-class FinderConfig(BaseModel):
+class FinderConfig(BaseServiceConfig):
     """Finder configuration."""
 
-    interval: float = Field(default=3600.0, ge=60.0, description="Seconds between discovery cycles")
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     events: EventsConfig = Field(default_factory=EventsConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)

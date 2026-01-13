@@ -22,6 +22,7 @@ from utils.yaml import load_yaml
 
 from .base_service import (
     BaseService,
+    BaseServiceConfig,
     ConfigT,
 )
 from .brotr import (
@@ -50,6 +51,7 @@ from .pool import (
 
 __all__ = [
     "BaseService",
+    "BaseServiceConfig",
     "BatchConfig",
     "Brotr",
     "BrotrConfig",
