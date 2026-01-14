@@ -29,6 +29,7 @@ from nostr_sdk import RelayUrl
 from pydantic import BaseModel, Field
 
 from core.base_service import BaseService, BaseServiceConfig
+from models import Relay
 
 
 if TYPE_CHECKING:
@@ -239,7 +240,7 @@ class Finder(BaseService[FinderConfig]):
         """
 
         while self.is_running:
-            relays: set[str] = set()
+            relays: dict[str, Relay] = {}  # url -> Relay for deduplication
             chunk_events = 0
             chunk_last_seen_at = None
 
@@ -281,13 +282,13 @@ class Finder(BaseService[FinderConfig]):
                                 url = tag[1]
                                 validated = self._validate_relay_url(url)
                                 if validated:
-                                    relays.add(validated)
+                                    relays[validated.url] = validated
 
                 # Kind 2: content is the relay URL (deprecated NIP)
                 if kind == 2 and content:
                     validated = self._validate_relay_url(content.strip())
                     if validated:
-                        relays.add(validated)
+                        relays[validated.url] = validated
 
                 # Kind 3: content may be JSON with relay URLs as keys
                 if kind == 3 and content:
@@ -297,15 +298,22 @@ class Finder(BaseService[FinderConfig]):
                             for url in relay_data:
                                 validated = self._validate_relay_url(url)
                                 if validated:
-                                    relays.add(validated)
+                                    relays[validated.url] = validated
                     except (json.JSONDecodeError, TypeError):
                         pass
 
             # Insert discovered relays as candidates
             if relays:
                 try:
+                    now = int(time.time())
                     records: list[tuple[str, str, str, dict[str, Any]]] = [
-                        ("validator", "candidate", url, {"failed_attempts": 0}) for url in relays
+                        (
+                            "validator",
+                            "candidate",
+                            relay.url,
+                            {"failed_attempts": 0, "network": relay.network.value, "inserted_at": now},
+                        )
+                        for relay in relays.values()
                     ]
                     await self._brotr.upsert_service_data(records)
                     relays_found += len(relays)
@@ -357,7 +365,7 @@ class Finder(BaseService[FinderConfig]):
                 "cursor_save_failed", error=str(e), error_type=type(e).__name__, relay=relay_url
             )
 
-    def _validate_relay_url(self, url: str) -> str | None:
+    def _validate_relay_url(self, url: str) -> Relay | None:
         """
         Validate and normalize a relay URL.
 
@@ -365,7 +373,7 @@ class Finder(BaseService[FinderConfig]):
             url: Potential relay URL string
 
         Returns:
-            Normalized URL string if valid, None otherwise
+            Relay object if valid, None otherwise
         """
         if not url or not isinstance(url, str):
             return None
@@ -375,15 +383,14 @@ class Finder(BaseService[FinderConfig]):
             return None
 
         try:
-            relay_url = RelayUrl.parse(url)
-            return str(relay_url)
+            return Relay(url)
         except Exception:
             return None
 
     async def _find_from_api(self) -> None:
         """Discover relay URLs from external APIs."""
-        # Set of unique relay URLs discovered
-        relays: set[str] = set()
+        # Dict of unique relay URLs discovered (url -> Relay for deduplication)
+        relays: dict[str, Relay] = {}
         sources_checked = 0
 
         # Create SSL context based on configuration
@@ -409,7 +416,9 @@ class Finder(BaseService[FinderConfig]):
                 try:
                     source_relays = await self._fetch_single_api(session, source)
                     for relay_url in source_relays:
-                        relays.add(str(relay_url))
+                        validated = self._validate_relay_url(str(relay_url))
+                        if validated:
+                            relays[validated.url] = validated
                     sources_checked += 1
 
                     self._logger.debug("api_fetched", url=source.url, count=len(source_relays))
@@ -430,8 +439,15 @@ class Finder(BaseService[FinderConfig]):
         # service_name='validator' so Validator service picks them up
         if relays:
             try:
+                now = int(time.time())
                 records: list[tuple[str, str, str, dict[str, Any]]] = [
-                    ("validator", "candidate", url, {"failed_attempts": 0}) for url in relays
+                    (
+                        "validator",
+                        "candidate",
+                        relay.url,
+                        {"failed_attempts": 0, "network": relay.network.value, "inserted_at": now},
+                    )
+                    for relay in relays.values()
                 ]
                 await self._brotr.upsert_service_data(records)
                 self._found_relays += len(relays)

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -177,7 +177,17 @@ class Seeder(BaseService[SeederConfig]):
             self._logger.info("seed_all_relays_exist")
             return
 
-        records = [("validator", "candidate", url, {"failed_attempts": 0}) for url in new_urls]
+        now = int(time.time())
+        records: list[tuple[str, str, str, dict[str, Any]]] = [
+            (
+                "validator",
+                "candidate",
+                relay.url,
+                {"failed_attempts": 0, "network": relay.network.value, "inserted_at": now},
+            )
+            for relay in relays
+            if relay.url in new_urls
+        ]
         batch_size = self._brotr.config.batch.max_batch_size
 
         for i in range(0, len(records), batch_size):
