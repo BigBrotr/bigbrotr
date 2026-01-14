@@ -279,20 +279,35 @@ class TimeRangeConfig(BaseModel):
     )
 
 
-class NetworkTimeoutsConfig(BaseModel):
-    """Timeout settings for a specific network type."""
+class SyncTimeoutsConfig(BaseModel):
+    """Per-relay sync timeout configuration.
 
-    request: float = Field(default=30.0, ge=5.0, le=120.0, description="WebSocket request timeout")
-    relay: float = Field(default=1800.0, ge=60.0, le=14400.0, description="Max time per relay sync")
+    The request timeout (WebSocket) comes from NetworkConfig.
+    This adds relay-level sync timeout (max time per relay).
+    """
 
-
-class TimeoutsConfig(BaseModel):
-    """Timeout configuration for sync operations."""
-
-    clearnet: NetworkTimeoutsConfig = Field(default_factory=NetworkTimeoutsConfig)
-    tor: NetworkTimeoutsConfig = Field(
-        default_factory=lambda: NetworkTimeoutsConfig(request=60.0, relay=3600.0)
+    relay_clearnet: float = Field(
+        default=1800.0, ge=60.0, le=14400.0, description="Max time per clearnet relay sync"
     )
+    relay_tor: float = Field(
+        default=3600.0, ge=60.0, le=14400.0, description="Max time per Tor relay sync"
+    )
+    relay_i2p: float = Field(
+        default=3600.0, ge=60.0, le=14400.0, description="Max time per I2P relay sync"
+    )
+    relay_loki: float = Field(
+        default=3600.0, ge=60.0, le=14400.0, description="Max time per Loki relay sync"
+    )
+
+    def get_relay_timeout(self, network: NetworkType) -> float:
+        """Get relay sync timeout for a network type."""
+        if network == NetworkType.TOR:
+            return self.relay_tor
+        if network == NetworkType.I2P:
+            return self.relay_i2p
+        if network == NetworkType.LOKI:
+            return self.relay_loki
+        return self.relay_clearnet
 
 
 class ConcurrencyConfig(BaseModel):
@@ -336,11 +351,11 @@ class RelayOverride(BaseModel):
 class SynchronizerConfig(BaseServiceConfig):
     """Synchronizer configuration."""
 
-    network: NetworkConfig = Field(default_factory=NetworkConfig)
+    networks: NetworkConfig = Field(default_factory=NetworkConfig)
     keys: KeysConfig = Field(default_factory=KeysConfig)
     filter: FilterConfig = Field(default_factory=FilterConfig)
     time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
-    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
+    sync_timeouts: SyncTimeoutsConfig = Field(default_factory=SyncTimeoutsConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     source: SourceConfig = Field(default_factory=SourceConfig)
     overrides: list[RelayOverride] = Field(default_factory=list)
@@ -480,15 +495,12 @@ async def sync_relay_task(
         # Get keys for NIP-42 auth (already loaded from env by KeysConfig)
         keys: Keys | None = config.keys.keys
 
-        # Determine network config
-        net_config = config.timeouts.clearnet
-        if relay.network == NetworkType.TOR:
-            net_config = config.timeouts.tor
+        # Get timeouts from unified network config
+        network_type_config = config.networks.get(relay.network)
+        request_timeout = network_type_config.timeout
+        relay_timeout = config.sync_timeouts.get_relay_timeout(relay.network)
 
         # Apply override if exists
-        relay_timeout = net_config.relay
-        request_timeout = net_config.request
-
         for override in config.overrides:
             if override.url == str(relay.url):
                 if override.timeouts.relay is not None:
@@ -517,7 +529,7 @@ async def sync_relay_task(
                 start_time=start_time,
                 end_time=end_time,
                 filter_config=config.filter,
-                network_config=config.network,
+                network_config=config.networks,
                 request_timeout=request_timeout,
                 brotr=brotr,
                 keys=keys,
@@ -865,15 +877,12 @@ class Synchronizer(BaseService[SynchronizerConfig]):
 
         async def worker(relay: Relay) -> None:
             async with semaphore:
-                # Determine network config
-                net_config = self._config.timeouts.clearnet
-                if relay.network == NetworkType.TOR:
-                    net_config = self._config.timeouts.tor
+                # Get timeouts from unified network config
+                network_type_config = self._config.networks.get(relay.network)
+                request_timeout = network_type_config.timeout
+                relay_timeout = self._config.sync_timeouts.get_relay_timeout(relay.network)
 
                 # Apply override
-                relay_timeout = net_config.relay
-                request_timeout = net_config.request
-
                 for override in self._config.overrides:
                     if override.url == str(relay.url):
                         if override.timeouts.relay is not None:
@@ -894,7 +903,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                         start_time=start,
                         end_time=end_time,
                         filter_config=self._config.filter,
-                        network_config=self._config.network,
+                        network_config=self._config.networks,
                         request_timeout=request_timeout,
                         brotr=self._brotr,
                         keys=self._keys,
