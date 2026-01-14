@@ -12,15 +12,32 @@ Manages database connections with:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, ClassVar
 
 import asyncpg
-from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator, model_validator
 
 from .logger import Logger
+
+
+async def _init_connection(conn: asyncpg.Connection[asyncpg.Record]) -> None:
+    """Initialize connection with JSON codecs for JSONB support."""
+    await conn.set_type_codec(
+        "jsonb",
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
+    await conn.set_type_codec(
+        "json",
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
 from utils.yaml import load_yaml
 
 
@@ -36,21 +53,22 @@ class DatabaseConfig(BaseModel):
     port: int = Field(default=5432, ge=1, le=65535, description="Database port")
     database: str = Field(default="bigbrotr", min_length=1, description="Database name")
     user: str = Field(default="admin", min_length=1, description="Database user")
-    password: SecretStr | None = Field(
-        default=None,
+    password: SecretStr = Field(
+        default=None,  # type: ignore[assignment]
         description="Database password (from DB_PASSWORD env if not provided)",
     )
 
-    @field_validator("password", mode="after")
-    @classmethod
-    def resolve_password(cls, v: SecretStr | None) -> SecretStr:
+    @model_validator(mode="after")
+    def resolve_password(self) -> DatabaseConfig:
         """Load password from DB_PASSWORD environment variable if not provided."""
-        if v is not None:
-            return v
+        if self.password is not None:
+            return self
         value = os.getenv("DB_PASSWORD")  # pragma: allowlist secret
         if not value:
             raise ValueError("DB_PASSWORD environment variable not set")
-        return SecretStr(value)
+        # Use object.__setattr__ to bypass Pydantic's frozen model protection
+        object.__setattr__(self, "password", SecretStr(value))
+        return self
 
 
 class LimitsConfig(BaseModel):
@@ -225,6 +243,7 @@ class Pool:
                         max_queries=self._config.limits.max_queries,
                         max_inactive_connection_lifetime=self._config.limits.max_inactive_connection_lifetime,
                         timeout=self._config.timeouts.acquisition,
+                        init=_init_connection,
                         server_settings={
                             "application_name": self._config.server_settings.application_name,
                             "timezone": self._config.server_settings.timezone,

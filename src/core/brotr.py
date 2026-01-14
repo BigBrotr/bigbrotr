@@ -599,33 +599,19 @@ class Brotr:
         service_names: list[str] = []
         data_types: list[str] = []
         keys: list[str] = []
-        values: list[str] = []
+        values: list[dict[str, Any]] = []
         updated_ats: list[int] = []
 
         for service_name, data_type, key, value in records:
-            try:
-                value_json = json.dumps(value)
-            except (TypeError, ValueError) as e:
-                # Handle circular references or non-serializable objects
-                self._logger.warning(
-                    "service_data_json_error",
-                    service=service_name,
-                    data_type=data_type,
-                    key=key,
-                    error=str(e),
-                )
-                # Attempt fallback with default serialization
-                value_json = json.dumps(value, default=str)
-
             service_names.append(service_name)
             data_types.append(data_type)
             keys.append(key)
-            values.append(value_json)
+            values.append(value)  # Pass dict directly, asyncpg JSON codec handles encoding
             updated_ats.append(now)
 
         async with self.pool.transaction() as conn:
             await conn.execute(
-                "SELECT service_data_upsert($1, $2, $3, $4, $5)",
+                "SELECT service_data_upsert($1, $2, $3, $4::jsonb[], $5)",
                 service_names,
                 data_types,
                 keys,
