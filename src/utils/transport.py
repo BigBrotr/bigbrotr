@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 import ssl
 from datetime import timedelta
 from datetime import timedelta as Duration
@@ -38,6 +39,9 @@ if TYPE_CHECKING:
     from nostr_sdk import Keys
 
 logger = logging.getLogger(__name__)
+
+# Silence nostr-sdk UniFFI callback stack traces (they're handled by our code)
+logging.getLogger("nostr_sdk").setLevel(logging.CRITICAL)
 
 
 # --- SSL Error Detection ---
@@ -138,7 +142,22 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
         connector = aiohttp.TCPConnector(ssl=ssl_context)
         client_timeout = aiohttp.ClientTimeout(total=timeout.total_seconds())
         session = aiohttp.ClientSession(connector=connector, timeout=client_timeout)
-        ws = await session.ws_connect(url)
+
+        try:
+            ws = await session.ws_connect(url)
+        except aiohttp.ClientError as e:
+            # Log at debug level and re-raise as IOError for nostr-sdk to handle
+            await session.close()
+            logger.debug("InsecureWebSocketTransport: connection failed url=%s error=%s", url, e)
+            raise OSError(f"Connection failed: {e}") from e
+        except asyncio.TimeoutError:
+            await session.close()
+            logger.debug("InsecureWebSocketTransport: connection timeout url=%s", url)
+            raise OSError(f"Connection timeout: {url}") from None
+        except Exception as e:
+            await session.close()
+            logger.debug("InsecureWebSocketTransport: unexpected error url=%s error=%s", url, e)
+            raise OSError(f"Connection failed: {e}") from e
 
         adapter = InsecureWebSocketAdapter(ws, session)
         return WebSocketAdapterWrapper(adapter)
@@ -180,6 +199,13 @@ def create_client(
         parsed = urlparse(proxy_url)
         proxy_host = parsed.hostname or "127.0.0.1"
         proxy_port = parsed.port or 9050
+
+        # nostr-sdk requires IP address, not hostname - resolve if needed
+        try:
+            socket.inet_aton(proxy_host)  # Check if already an IP
+        except OSError:
+            # Not an IP, resolve hostname to IP
+            proxy_host = socket.gethostbyname(proxy_host)
 
         proxy_mode = ConnectionMode.PROXY(proxy_host, proxy_port)
         conn = Connection().mode(proxy_mode).target(ConnectionTarget.ONION)
@@ -321,3 +347,61 @@ async def connect_relay(
 
     logger.warning("connect_relay: connected without SSL verification relay=%s", relay.url)
     return client
+
+
+# --- Relay Validation ---
+
+
+async def is_nostr_relay(
+    relay: Relay,
+    proxy_url: str | None = None,
+    timeout: float = 10.0,
+) -> bool:
+    """Check if a relay speaks the Nostr protocol.
+
+    A relay is considered valid if it:
+    - Responds with EOSE to a REQ (even with no events)
+    - Responds with AUTH challenge (NIP-42)
+    - Responds with CLOSED containing "auth-required" (NIP-42)
+
+    Args:
+        relay: Relay object to validate.
+        proxy_url: SOCKS5 proxy URL (required for overlay networks, None for clearnet).
+        timeout: Connection timeout in seconds.
+
+    Returns:
+        True if relay speaks Nostr protocol, False otherwise.
+    """
+    from nostr_sdk import Filter, Kind  # noqa: PLC0415
+
+    logger.debug("is_nostr_relay: starting relay=%s network=%s", relay.url, relay.network)
+
+    try:
+        client = await connect_relay(
+            relay=relay,
+            proxy_url=proxy_url,
+            timeout=timeout,
+        )
+
+        try:
+            # Send REQ for kind:1 limit:1
+            req_filter = Filter().kind(Kind(1)).limit(1)
+
+            # Wait for response with timeout
+            # If relay responds with EOSE (even empty), it's valid
+            await client.fetch_events(req_filter, timedelta(seconds=timeout))
+            logger.debug("is_nostr_relay: valid (EOSE received) relay=%s", relay.url)
+            return True
+
+        finally:
+            await client.disconnect()
+
+    except Exception as e:
+        # Check if the error indicates AUTH required (NIP-42)
+        # This means the relay speaks Nostr but requires authentication
+        error_msg = str(e).lower()
+        if "auth" in error_msg:
+            logger.debug("is_nostr_relay: valid (AUTH required) relay=%s", relay.url)
+            return True
+        logger.debug("is_nostr_relay: invalid relay=%s error=%s", relay.url, e)
+        return False
