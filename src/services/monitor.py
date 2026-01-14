@@ -123,23 +123,9 @@ class GeoConfig(BaseModel):
     )
 
 
-class TimeoutsConfig(BaseModel):
-    """Timeout configuration for relay checks."""
-
-    clearnet: float = Field(
-        default=30.0, ge=5.0, le=120.0, description="Timeout for clearnet relay checks in seconds"
-    )
-    tor: float = Field(
-        default=60.0, ge=10.0, le=180.0, description="Timeout for Tor relay checks in seconds"
-    )
-
-
 class ConcurrencyConfig(BaseModel):
     """Concurrency configuration for parallel relay checking."""
 
-    max_parallel: int = Field(
-        default=50, ge=1, le=500, description="Maximum concurrent relay checks per process"
-    )
     max_processes: int = Field(default=1, ge=1, le=32, description="Number of worker processes")
     batch_size: int = Field(
         default=50,
@@ -160,12 +146,11 @@ class SelectionConfig(BaseModel):
 class MonitorConfig(BaseServiceConfig):
     """Monitor configuration."""
 
-    network: NetworkConfig = Field(default_factory=NetworkConfig)
+    networks: NetworkConfig = Field(default_factory=NetworkConfig)
     keys: KeysConfig = Field(default_factory=KeysConfig)
     publishing: PublishingConfig = Field(default_factory=PublishingConfig)
     checks: ChecksConfig = Field(default_factory=ChecksConfig)
     geo: GeoConfig = Field(default_factory=GeoConfig)
-    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     selection: SelectionConfig = Field(default_factory=SelectionConfig)
 
@@ -338,11 +323,12 @@ def build_kind_10166_tags(config: MonitorConfig) -> list[Tag]:
     - Index 1: test type (open, read, write, nip11)
     - Index 2: timeout value in milliseconds
     """
+    clearnet_timeout_ms = int(config.networks.clearnet.timeout * 1000)
     tags = [
         Tag.parse(["frequency", str(int(config.interval))]),
-        Tag.parse(["timeout", "open", str(int(config.timeouts.clearnet * 1000))]),
-        Tag.parse(["timeout", "read", str(int(config.timeouts.clearnet * 1000))]),
-        Tag.parse(["timeout", "write", str(int(config.timeouts.clearnet * 1000))]),
+        Tag.parse(["timeout", "open", str(clearnet_timeout_ms)]),
+        Tag.parse(["timeout", "read", str(clearnet_timeout_ms)]),
+        Tag.parse(["timeout", "write", str(clearnet_timeout_ms)]),
     ]
 
     # Add checks being performed
@@ -572,7 +558,7 @@ class Monitor(BaseService[MonitorConfig]):
                 # Filter overlay network relays if proxy disabled
                 overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
                 if relay.network in overlay_networks:
-                    if not self._config.network.is_network_enabled(relay.network):
+                    if not self._config.networks.is_enabled(relay.network):
                         skipped_overlay[relay.network] = skipped_overlay.get(relay.network, 0) + 1
                         continue
                 relays.append(relay)
@@ -594,10 +580,8 @@ class Monitor(BaseService[MonitorConfig]):
             async with self._metrics_lock:
                 self._checked_relays += 1
 
-            # Use longer timeout for overlay networks (Tor, I2P, Loki)
-            overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-            is_overlay = relay.network in overlay_networks
-            timeout = self._config.timeouts.tor if is_overlay else self._config.timeouts.clearnet
+            # Get timeout from unified network config
+            timeout = self._config.networks.get(relay.network).timeout
 
             nip11: Nip11 | None = None
             nip66: Nip66 | None = None
@@ -607,7 +591,7 @@ class Monitor(BaseService[MonitorConfig]):
                 # NIP-11 check
                 if self._config.checks.nip11:
                     nip11 = await fetch_nip11(
-                        relay, timeout, self._config.checks.nip11_max_size, self._config.network
+                        relay, timeout, self._config.checks.nip11_max_size, self._config.networks
                     )
                     if nip11:
                         metadata_records.append(nip11.to_relay_metadata())
@@ -617,7 +601,7 @@ class Monitor(BaseService[MonitorConfig]):
                 keys = self._keys if self._config.checks.write else None
 
                 # Get proxy URL for overlay networks
-                proxy_url = self._config.network.get_proxy_url(relay.network)
+                proxy_url = self._config.networks.get_proxy_url(relay.network)
 
                 # Run all NIP-66 tests via Nip66.test()
                 nip66 = await Nip66.test(
@@ -703,7 +687,7 @@ class Monitor(BaseService[MonitorConfig]):
             # Determine destination
             if self._config.publishing.destination == "monitored_relay":
                 # Publish to the relay being monitored
-                proxy_url = self._config.network.get_proxy_url(relay.network)
+                proxy_url = self._config.networks.get_proxy_url(relay.network)
                 client = create_client(self._keys, proxy_url)
                 await client.add_relay(RelayUrl.parse(relay.url))
                 try:
