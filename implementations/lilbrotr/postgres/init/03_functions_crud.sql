@@ -294,7 +294,8 @@ COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT[], TEXT[], BIGINT[], JSON
 -- ----------------------------------------------------------------------------
 -- Description: Bulk upsert service data records (for candidates, cursors, state, etc.)
 -- Parameters: Arrays of service_name, data_type, data_key, data (JSONB), updated_at
--- Returns: VOID (upsert always succeeds)
+-- Returns: VOID
+-- Note: Uses merge (||) so new fields override existing, but unspecified fields are preserved
 CREATE OR REPLACE FUNCTION service_data_upsert(
     p_service_names TEXT[],
     p_data_types TEXT[],
@@ -316,13 +317,13 @@ BEGIN
     )
     ON CONFLICT (service_name, data_type, data_key)
     DO UPDATE SET
-        data = EXCLUDED.data,
+        data = service_data.data || EXCLUDED.data,
         updated_at = EXCLUDED.updated_at;
 END;
 $$;
 
 COMMENT ON FUNCTION service_data_upsert(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[]) IS
-'Bulk upsert service data records (candidates, cursors, state)';
+'Bulk upsert service data records with merge (new fields override, existing preserved)';
 
 
 -- ----------------------------------------------------------------------------
