@@ -1,10 +1,16 @@
 # ============================================================================
 # LilBrotr Docker Compose Configuration
 # ============================================================================
-# Description: Complete containerized deployment for LilBrotr
-# Components: PostgreSQL, PGBouncer, Tor (overlay network proxy)
+# Description: Lightweight containerized deployment for LilBrotr
+# Components: PostgreSQL, PGBouncer (clearnet only by default)
 # Note: LilBrotr stores lightweight events (tagvalues only, no tags/content/sig)
 # Usage: docker-compose up -d
+#
+# To enable Tor/I2P/Lokinet support:
+#   1. Uncomment the tor/i2p/lokinet service definition
+#   2. Uncomment the corresponding volume (if needed)
+#   3. Uncomment the depends_on entries in validator/monitor/synchronizer
+#   4. Enable the network in yaml/services/*.yaml (set enabled: true)
 # ============================================================================
 
 services:
@@ -24,13 +30,8 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
 
     volumes:
-      # Persistent data storage (local bind mount for development visibility)
-      - ./data/postgres:/var/lib/postgresql/data
-
-      # SQL initialization scripts (applied in alphabetical order by filename)
-      - ./postgres/init:/docker-entrypoint-initdb.d:ro
-
-      # PostgreSQL configuration file
+      - ./data/postgres:/var/lib/postgresql/data                # Persistent data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro          # Init scripts
       - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
 
     ports:
@@ -52,15 +53,11 @@ services:
         max-size: "100m"
         max-file: "5"
 
-    # Load configuration from file
     command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
 
   # --------------------------------------------------------------------------
   # PGBouncer (Connection Pooler)
   # --------------------------------------------------------------------------
-  # Services connect to pgbouncer:6432 instead of postgres:5432
-  # Requires: yaml/core/brotr.pgbouncer.yaml configuration
-
   pgbouncer:
     image: edoburu/pgbouncer:v1.25.1-p0
     container_name: lilbrotr-pgbouncer
@@ -96,39 +93,105 @@ services:
         max-file: "3"
 
   # --------------------------------------------------------------------------
-  # Tor Proxy (SOCKS5)
+  # Tor Proxy (SOCKS5) - .onion relay support [DISABLED]
   # --------------------------------------------------------------------------
-  # Provides SOCKS5 proxy for .onion relay support
+  # tor:
+  #   image: osminogin/tor-simple:0.4.8.10
+  #   container_name: lilbrotr-tor
+  #   restart: unless-stopped
+  #
+  #   ports:
+  #     - "127.0.0.1:9051:9050"
+  #
+  #   networks:
+  #     - lilbrotr-network
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 || exit 1"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 60s
+  #
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "50m"
+  #       max-file: "3"
 
-  tor:
-    image: osminogin/tor-simple:0.4.8.10
-    container_name: lilbrotr-tor
-    restart: unless-stopped
+  # --------------------------------------------------------------------------
+  # I2P Proxy (SOCKS5) - .i2p relay support [DISABLED]
+  # --------------------------------------------------------------------------
+  # i2p:
+  #   image: geti2p/i2p:2.7.0
+  #   container_name: lilbrotr-i2p
+  #   restart: unless-stopped
+  #
+  #   environment:
+  #     JVM_XMX: 512m
+  #
+  #   ports:
+  #     - "127.0.0.1:4445:4444"   # HTTP proxy
+  #     - "127.0.0.1:4448:4447"   # SOCKS5 proxy
+  #     - "127.0.0.1:7658:7657"   # Web console
+  #
+  #   volumes:
+  #     - i2p-data:/i2p/.i2p
+  #
+  #   networks:
+  #     - lilbrotr-network
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "nc -z 127.0.0.1 4447 || exit 1"]
+  #     interval: 60s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 120s
+  #
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "50m"
+  #       max-file: "3"
 
-    ports:
-      - "127.0.0.1:9051:9050"
-
-    networks:
-      - lilbrotr-network
-
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "3"
+  # --------------------------------------------------------------------------
+  # Lokinet Proxy (SOCKS5) - .loki relay support [DISABLED]
+  # --------------------------------------------------------------------------
+  # Note: Requires Linux host with NET_ADMIN capability
+  #
+  # lokinet:
+  #   image: lokinet/lokinet:latest
+  #   container_name: lilbrotr-lokinet
+  #   restart: unless-stopped
+  #
+  #   cap_add:
+  #     - NET_ADMIN
+  #
+  #   ports:
+  #     - "127.0.0.1:1081:1080"   # SOCKS5 proxy
+  #
+  #   volumes:
+  #     - lokinet-data:/var/lib/lokinet
+  #
+  #   networks:
+  #     - lilbrotr-network
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "nc -z 127.0.0.1 1080 || exit 1"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 60s
+  #
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "50m"
+  #       max-file: "3"
 
   # --------------------------------------------------------------------------
   # LilBrotr Seeder Service
   # --------------------------------------------------------------------------
-  # Runs once to seed initial relay data for validation
-
   seeder:
     build:
       context: ../../
@@ -161,8 +224,6 @@ services:
   # --------------------------------------------------------------------------
   # LilBrotr Finder Service
   # --------------------------------------------------------------------------
-  # Discovers relay URLs from database events and external APIs
-
   finder:
     build:
       context: ../../
@@ -201,9 +262,6 @@ services:
   # --------------------------------------------------------------------------
   # LilBrotr Validator Service
   # --------------------------------------------------------------------------
-  # Validates candidate relay URLs before adding to relays table
-  # Uses Tor proxy for .onion relay connectivity
-
   validator:
     build:
       context: ../../
@@ -224,8 +282,12 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      tor:
-        condition: service_healthy
+      # tor:
+      #   condition: service_healthy
+      # i2p:
+      #   condition: service_healthy
+      # lokinet:
+      #   condition: service_healthy
 
     command: ["python", "-m", "services", "validator"]
 
@@ -245,9 +307,6 @@ services:
   # --------------------------------------------------------------------------
   # LilBrotr Monitor Service
   # --------------------------------------------------------------------------
-  # Checks relay health and capabilities (NIP-11, NIP-66)
-  # Uses Tor proxy for .onion relay connectivity
-
   monitor:
     build:
       context: ../../
@@ -269,8 +328,12 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      tor:
-        condition: service_healthy
+      # tor:
+      #   condition: service_healthy
+      # i2p:
+      #   condition: service_healthy
+      # lokinet:
+      #   condition: service_healthy
 
     command: ["python", "-m", "services", "monitor"]
 
@@ -290,9 +353,6 @@ services:
   # --------------------------------------------------------------------------
   # LilBrotr Synchronizer Service
   # --------------------------------------------------------------------------
-  # Synchronizes Nostr events from relays (lightweight config)
-  # Uses Tor proxy for .onion relay connectivity
-
   synchronizer:
     build:
       context: ../../
@@ -313,8 +373,12 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      tor:
-        condition: service_healthy
+      # tor:
+      #   condition: service_healthy
+      # i2p:
+      #   condition: service_healthy
+      # lokinet:
+      #   condition: service_healthy
 
     command: ["python", "-m", "services", "synchronizer"]
 
@@ -332,6 +396,17 @@ services:
         max-file: "5"
 
 # ----------------------------------------------------------------------------
+# Volumes
+# ----------------------------------------------------------------------------
+# Uncomment when enabling I2P or Lokinet:
+#
+# volumes:
+#   i2p-data:
+#     name: lilbrotr-i2p-data
+#   lokinet-data:
+#     name: lilbrotr-lokinet-data
+
+# ----------------------------------------------------------------------------
 # Networks
 # ----------------------------------------------------------------------------
 networks:
@@ -344,23 +419,22 @@ networks:
 # ============================================================================
 #
 # 1. Setup:
-#    cp .env.example .env && nano .env  # Set DB_PASSWORD
-#    cp pgbouncer/userlist.txt.template pgbouncer/userlist.txt
-#    # Edit userlist.txt with MD5 hash: echo -n "md5$(echo -n 'YOUR_PASSWORDadmin' | md5sum | cut -d' ' -f1)"
+#    cp .env.example .env && nano .env  # Set DB_PASSWORD, PRIVATE_KEY
 #
 # 2. Start:
 #    docker-compose up -d
 #
 # 3. Verify:
+#    docker-compose ps
 #    docker-compose exec postgres psql -U admin -d lilbrotr -c "\dt"
 #
 # 4. Logs:
-#    docker-compose logs -f
+#    docker-compose logs -f [service]
 #
 # 5. Stop:
 #    docker-compose down
 #
-# 6. Reset (WARNING: deletes data):
+# 6. Reset (WARNING: deletes all data):
 #    docker-compose down && rm -rf data/postgres
 #
 # ============================================================================
