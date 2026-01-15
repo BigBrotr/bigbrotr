@@ -12,23 +12,31 @@
 # Range: >= 60.0
 interval: 3600.0
 
-# Overlay network proxy configuration
-# Each network requires its own SOCKS5 proxy for connectivity
-network:
-  # Tor proxy for .onion relays
+# Unified network configuration
+# Each network type has: enabled, proxy_url, max_tasks, timeout
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 50              # High concurrency for fast clearnet relays
+    timeout: 30.0              # Timeout for relay checks
+
   tor:
     enabled: true
     proxy_url: "socks5://tor:9050"
+    max_tasks: 10              # Lower concurrency (Tor is slower)
+    timeout: 60.0              # Longer timeout for Tor latency
 
-  # I2P proxy for .i2p relays
   i2p:
     enabled: true
     proxy_url: "socks5://i2p:4447"
+    max_tasks: 5               # Even lower (I2P is slowest)
+    timeout: 90.0              # Longest timeout for I2P
 
-  # Lokinet proxy for .loki relays (Linux only - requires TUN device)
   loki:
-    enabled: false           # Enable only on Linux with --profile linux-only
+    enabled: false             # Enable only on Linux with --profile linux-only
     proxy_url: "socks5://lokinet:1080"
+    max_tasks: 5
+    timeout: 60.0
 
 # Nostr keys for NIP-66 events
 # Private key is loaded from PRIVATE_KEY environment variable
@@ -66,14 +74,8 @@ geo:
   # Update frequency: "monthly", "weekly", "none" (none = never auto-update)
   update_frequency: "monthly"
 
-# Timeouts for relay checks (seconds)
-timeouts:
-  clearnet: 30.0             # Timeout for clearnet relays (Range: 5.0 - 120.0)
-  tor: 60.0                  # Timeout for Tor relays (Range: 10.0 - 180.0)
-
 # Concurrency settings
 concurrency:
-  max_parallel: 50           # Maximum concurrent relay checks per process (Range: 1 - 500)
   max_processes: 1           # Number of worker processes (Range: 1 - 32)
   batch_size: 50             # Relays to process before pushing to database (Range: 1 - 500)
 
