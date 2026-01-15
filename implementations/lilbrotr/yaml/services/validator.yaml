@@ -8,31 +8,38 @@
 # Cycle interval (seconds between validation runs)
 interval: 300.0
 
-# Batch processing settings
-batch:
-  timeout: 10.0
-  # max_candidates: 100
+# Network configuration with per-network concurrency control
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 50
+    timeout: 10.0
 
-# Concurrency settings
-concurrency:
-  processes: 1
-  tasks: 10
+  tor:
+    enabled: true
+    proxy_url: "socks5://tor:9050"
+    max_tasks: 10
+    timeout: 30.0
+
+  i2p:
+    enabled: true
+    proxy_url: "socks5://i2p:4447"
+    max_tasks: 5
+    timeout: 45.0
+
+  loki:
+    enabled: false
+    proxy_url: "socks5://lokinet:1080"
+    max_tasks: 5
+    timeout: 30.0
+
+# Batch sizes for DB operations
+batch:
+  fetch_size: 500
+  max_pending: 500
+  write_size: 100
 
 # Cleanup settings
 cleanup:
   enabled: false
   max_attempts: 10
-
-# Network configuration
-network:
-  clearnet:
-    enabled: true
-  tor:
-    enabled: true
-    proxy_url: "socks5://tor:9050"
-  i2p:
-    enabled: true
-    proxy_url: "socks5://i2p:4447"
-  loki:
-    enabled: false
-    proxy_url: "socks5://lokinet:1080"
