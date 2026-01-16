@@ -311,7 +311,11 @@ class Finder(BaseService[FinderConfig]):
                             "validator",
                             "candidate",
                             relay.url,
-                            {"failed_attempts": 0, "network": relay.network.value, "inserted_at": now},
+                            {
+                                "failed_attempts": 0,
+                                "network": relay.network.value,
+                                "inserted_at": now,
+                            },
                         )
                         for relay in relays.values()
                     ]

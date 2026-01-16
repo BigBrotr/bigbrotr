@@ -162,9 +162,7 @@ class TestSeedRelays:
         mock_seeder_brotr.upsert_service_data.assert_called()
 
     @pytest.mark.asyncio
-    async def test_seed_success_as_relays(
-        self, mock_seeder_brotr: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_seed_success_as_relays(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test successful relay seeding directly into relays table."""
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay1.example.com\nwss://relay2.example.com\n")
@@ -199,9 +197,7 @@ class TestSeedRelays:
         await seeder._seed()
 
     @pytest.mark.asyncio
-    async def test_seed_skips_invalid_urls(
-        self, mock_seeder_brotr: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_seed_skips_invalid_urls(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test seeding skips invalid relay URLs."""
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("invalid-url\nwss://valid.relay.com\nnot-a-relay\n")

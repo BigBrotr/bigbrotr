@@ -400,7 +400,10 @@ class TestAcquireHealthyRetryExhaustion:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        with patch("core.pool.asyncio.sleep", AsyncMock()), pytest.raises(ConnectionError) as exc_info:
+        with (
+            patch("core.pool.asyncio.sleep", AsyncMock()),
+            pytest.raises(ConnectionError) as exc_info,
+        ):
             async with pool.acquire_healthy(max_retries=3):
                 pass
 
@@ -426,7 +429,10 @@ class TestAcquireHealthyRetryExhaustion:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        with patch("core.pool.asyncio.sleep", AsyncMock()), pytest.raises(ConnectionError) as exc_info:
+        with (
+            patch("core.pool.asyncio.sleep", AsyncMock()),
+            pytest.raises(ConnectionError) as exc_info,
+        ):
             async with pool.acquire_healthy(max_retries=5):
                 pass
 

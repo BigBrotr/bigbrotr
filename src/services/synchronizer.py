@@ -551,7 +551,7 @@ async def sync_relay_task(
                 )
             return relay.url, events_synced, invalid_events, skipped_events, end_time, True
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _worker_log("WARNING", "sync_timeout", relay=relay.url)
             return relay.url, events_synced, invalid_events, skipped_events, start_time, False
         except Exception as e:

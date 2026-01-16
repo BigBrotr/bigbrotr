@@ -48,9 +48,7 @@ def make_candidate(
 
 def make_candidates(urls: list[str], network: str = "clearnet") -> list[dict]:
     """Create multiple mock candidate rows."""
-    return [
-        make_candidate(url, network, score=float(i)) for i, url in enumerate(urls)
-    ]
+    return [make_candidate(url, network, score=float(i)) for i, url in enumerate(urls)]
 
 
 # ============================================================================
@@ -97,10 +95,7 @@ class TestRunStats:
         assert stats.failed == 0
         assert stats.total_candidates == 0
         assert stats.start_time > 0
-        assert all(
-            stats.by_network[net] == {"validated": 0, "failed": 0}
-            for net in NetworkType
-        )
+        assert all(stats.by_network[net] == {"validated": 0, "failed": 0} for net in NetworkType)
 
     def test_record_valid_result(self) -> None:
         """Test recording a valid result."""
@@ -210,9 +205,7 @@ class TestValidatorConfig:
         """Test custom configuration values."""
         config = ValidatorConfig(
             interval=600.0,
-            networks=NetworkConfig(
-                clearnet=NetworkTypeConfig(max_tasks=100, timeout=15.0)
-            ),
+            networks=NetworkConfig(clearnet=NetworkTypeConfig(max_tasks=100, timeout=15.0)),
             batch=BatchConfig(fetch_size=1000, write_size=200),
         )
 
@@ -248,9 +241,7 @@ class TestValidator:
         """Test initialization with custom config."""
         config = ValidatorConfig(
             interval=600.0,
-            networks=NetworkConfig(
-                clearnet=NetworkTypeConfig(max_tasks=100, timeout=20.0)
-            ),
+            networks=NetworkConfig(clearnet=NetworkTypeConfig(max_tasks=100, timeout=20.0)),
         )
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
@@ -277,9 +268,7 @@ class TestValidatorRun:
         assert validator._stats.failed == 0
 
     @pytest.mark.asyncio
-    async def test_cleanup_promoted_candidates_called(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    async def test_cleanup_promoted_candidates_called(self, mock_validator_brotr: Brotr) -> None:
         """Test cleanup of promoted candidates is called."""
         mock_validator_brotr.pool.execute = AsyncMock(return_value="DELETE 5")
 
@@ -309,9 +298,7 @@ class TestValidatorRun:
         async def mock_is_nostr_relay(relay, proxy_url, timeout):
             return "relay1" in relay.url
 
-        with patch(
-            "services.validator.is_nostr_relay", side_effect=mock_is_nostr_relay
-        ):
+        with patch("services.validator.is_nostr_relay", side_effect=mock_is_nostr_relay):
             await validator.run()
 
         assert validator._stats.validated == 1
@@ -331,12 +318,9 @@ class TestValidatorArchitecture:
         """Test producer fetches candidates in pages."""
         mock_validator_brotr.pool.fetch = AsyncMock(
             side_effect=[
+                [make_candidate(f"wss://relay{i}.com", score=float(i)) for i in range(100)],
                 [
-                    make_candidate(f"wss://relay{i}.com", score=float(i))
-                    for i in range(100)
-                ],
-                [
-                    make_candidate(f"wss://relay{i+100}.com", score=float(i + 100))
+                    make_candidate(f"wss://relay{i + 100}.com", score=float(i + 100))
                     for i in range(50)
                 ],
                 [],
@@ -358,16 +342,11 @@ class TestValidatorArchitecture:
         assert validator._stats.validated == 150
 
     @pytest.mark.asyncio
-    async def test_consumer_flushes_at_write_size(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    async def test_consumer_flushes_at_write_size(self, mock_validator_brotr: Brotr) -> None:
         """Test consumer flushes batches at write_size threshold."""
         mock_validator_brotr.pool.fetch = AsyncMock(
             side_effect=[
-                [
-                    make_candidate(f"wss://relay{i}.com", score=float(i))
-                    for i in range(250)
-                ],
+                [make_candidate(f"wss://relay{i}.com", score=float(i)) for i in range(250)],
                 [],
             ]
         )
@@ -387,16 +366,11 @@ class TestValidatorArchitecture:
         assert mock_validator_brotr.insert_relays.call_count >= 2
 
     @pytest.mark.asyncio
-    async def test_backpressure_with_bounded_pending(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    async def test_backpressure_with_bounded_pending(self, mock_validator_brotr: Brotr) -> None:
         """Test backpressure works with bounded pending tasks."""
         mock_validator_brotr.pool.fetch = AsyncMock(
             side_effect=[
-                [
-                    make_candidate(f"wss://relay{i}.com", score=float(i))
-                    for i in range(300)
-                ],
+                [make_candidate(f"wss://relay{i}.com", score=float(i)) for i in range(300)],
                 [],
             ]
         )
@@ -425,9 +399,7 @@ class TestNetworkAwareValidation:
     """Tests for network-aware concurrency and timeouts."""
 
     @pytest.mark.asyncio
-    async def test_clearnet_uses_clearnet_timeout(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    async def test_clearnet_uses_clearnet_timeout(self, mock_validator_brotr: Brotr) -> None:
         """Test clearnet relays use clearnet timeout."""
         mock_validator_brotr.pool.fetch = AsyncMock(
             side_effect=[
@@ -439,9 +411,7 @@ class TestNetworkAwareValidation:
         config = ValidatorConfig(
             networks=NetworkConfig(
                 clearnet=NetworkTypeConfig(max_tasks=50, timeout=10.0),
-                tor=NetworkTypeConfig(
-                    proxy_url="socks5://tor:9050", max_tasks=10, timeout=30.0
-                ),
+                tor=NetworkTypeConfig(proxy_url="socks5://tor:9050", max_tasks=10, timeout=30.0),
             ),
         )
         validator = Validator(brotr=mock_validator_brotr, config=config)
@@ -561,9 +531,7 @@ class TestValidatorErrorHandling:
     """Tests for Validator error handling."""
 
     @pytest.mark.asyncio
-    async def test_validation_exception_handled(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    async def test_validation_exception_handled(self, mock_validator_brotr: Brotr) -> None:
         """Test validation exceptions are handled gracefully."""
         mock_validator_brotr.pool.fetch = AsyncMock(
             side_effect=[
@@ -583,9 +551,7 @@ class TestValidatorErrorHandling:
         assert validator._stats.failed == 1
 
     @pytest.mark.asyncio
-    async def test_database_error_during_flush_logged(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    async def test_database_error_during_flush_logged(self, mock_validator_brotr: Brotr) -> None:
         """Test database errors during flush are logged but don't crash."""
         mock_validator_brotr.pool.fetch = AsyncMock(
             side_effect=[
@@ -605,9 +571,7 @@ class TestValidatorErrorHandling:
             await validator.run()
 
     @pytest.mark.asyncio
-    async def test_all_candidates_fail_validation(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    async def test_all_candidates_fail_validation(self, mock_validator_brotr: Brotr) -> None:
         """Test all candidates failing validation."""
         mock_validator_brotr.pool.fetch = AsyncMock(
             side_effect=[
@@ -637,10 +601,7 @@ class TestValidatorErrorHandling:
         """Test graceful shutdown during validation."""
         mock_validator_brotr.pool.fetch = AsyncMock(
             side_effect=[
-                [
-                    make_candidate(f"wss://relay{i}.com", score=float(i))
-                    for i in range(100)
-                ],
+                [make_candidate(f"wss://relay{i}.com", score=float(i)) for i in range(100)],
                 [],
             ]
         )
@@ -691,17 +652,11 @@ class TestPersistence:
         mock_validator_brotr.delete_service_data.assert_called()
 
     @pytest.mark.asyncio
-    async def test_failed_attempts_incremented(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    async def test_failed_attempts_incremented(self, mock_validator_brotr: Brotr) -> None:
         """Test failed attempts are incremented for failed validations."""
         mock_validator_brotr.pool.fetch = AsyncMock(
             side_effect=[
-                [
-                    make_candidate(
-                        "wss://failing.relay.com", failed_attempts=3, score=30.0
-                    )
-                ],
+                [make_candidate("wss://failing.relay.com", failed_attempts=3, score=30.0)],
                 [],
             ]
         )
@@ -729,9 +684,7 @@ class TestValidatorCleanup:
     """Tests for cleanup methods."""
 
     @pytest.mark.asyncio
-    async def test_cleanup_promoted_candidates(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    async def test_cleanup_promoted_candidates(self, mock_validator_brotr: Brotr) -> None:
         """Test cleanup of candidates already in relays table."""
         mock_validator_brotr.pool.execute = AsyncMock(return_value="DELETE 5")
 

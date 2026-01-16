@@ -70,9 +70,7 @@ class RunStats:
 
     def __post_init__(self) -> None:
         if not self.by_network:
-            self.by_network = {
-                net: {"validated": 0, "failed": 0} for net in NetworkType
-            }
+            self.by_network = {net: {"validated": 0, "failed": 0} for net in NetworkType}
 
     @property
     def elapsed(self) -> float:
@@ -280,9 +278,7 @@ class Validator(BaseService[ValidatorConfig]):
     def _init_semaphores(self) -> None:
         """Create per-network semaphores from config."""
         self._semaphores = {
-            NetworkType.CLEARNET: asyncio.Semaphore(
-                self._config.networks.clearnet.max_tasks
-            ),
+            NetworkType.CLEARNET: asyncio.Semaphore(self._config.networks.clearnet.max_tasks),
             NetworkType.TOR: asyncio.Semaphore(self._config.networks.tor.max_tasks),
             NetworkType.I2P: asyncio.Semaphore(self._config.networks.i2p.max_tasks),
             NetworkType.LOKI: asyncio.Semaphore(self._config.networks.loki.max_tasks),
@@ -356,9 +352,7 @@ class Validator(BaseService[ValidatorConfig]):
         async for relay, failed_attempts in self._stream_candidates(cycle_start_ts):
             # Check stop conditions
             if not self.is_running:
-                self._logger.info(
-                    "cycle.interrupted", reason="shutdown", pending=len(pending)
-                )
+                self._logger.info("cycle.interrupted", reason="shutdown", pending=len(pending))
                 break
 
             if self._reached_max_candidates():
@@ -379,9 +373,7 @@ class Validator(BaseService[ValidatorConfig]):
 
             # Create validation task
             self._stats.total_candidates += 1
-            task = asyncio.create_task(
-                self._process_candidate(relay, failed_attempts)
-            )
+            task = asyncio.create_task(self._process_candidate(relay, failed_attempts))
             pending.add(task)
 
         # Drain remaining tasks
@@ -390,20 +382,13 @@ class Validator(BaseService[ValidatorConfig]):
     def _reached_max_candidates(self) -> bool:
         """Check if max candidates limit is reached."""
         max_candidates = self._config.batch.max_candidates
-        return (
-            max_candidates is not None
-            and self._stats.total_candidates >= max_candidates
-        )
+        return max_candidates is not None and self._stats.total_candidates >= max_candidates
 
-    async def _wait_for_capacity(
-        self, pending: set[asyncio.Task[None]]
-    ) -> set[asyncio.Task[None]]:
+    async def _wait_for_capacity(self, pending: set[asyncio.Task[None]]) -> set[asyncio.Task[None]]:
         """Wait until pending set has capacity (backpressure)."""
         max_pending = self._config.batch.max_pending
         while len(pending) >= max_pending:
-            done, pending = await asyncio.wait(
-                pending, return_when=asyncio.FIRST_COMPLETED
-            )
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             self._log_task_errors(done)
         return pending
 
@@ -421,9 +406,7 @@ class Validator(BaseService[ValidatorConfig]):
         else:
             # Normal drain: wait for completion
             while pending:
-                done, pending = await asyncio.wait(
-                    pending, return_when=asyncio.FIRST_COMPLETED
-                )
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                 self._log_task_errors(done)
 
     def _log_task_errors(self, done: set[asyncio.Task[None]]) -> None:
@@ -444,9 +427,7 @@ class Validator(BaseService[ValidatorConfig]):
     # Candidate Streaming (DB Pagination)
     # -------------------------------------------------------------------------
 
-    async def _stream_candidates(
-        self, before_ts: int
-    ) -> AsyncIterator[tuple[Relay, int]]:
+    async def _stream_candidates(self, before_ts: int) -> AsyncIterator[tuple[Relay, int]]:
         """
         Stream candidates from DB with cursor-based pagination.
 
@@ -552,9 +533,7 @@ class Validator(BaseService[ValidatorConfig]):
     # Result Collection (Batching)
     # -------------------------------------------------------------------------
 
-    async def _collect_result(
-        self, relay: Relay, failed_attempts: int, is_valid: bool
-    ) -> None:
+    async def _collect_result(self, relay: Relay, failed_attempts: int, is_valid: bool) -> None:
         """Collect validation result and auto-flush when batch is full."""
         async with self._batch_lock:
             if is_valid:
@@ -605,9 +584,7 @@ class Validator(BaseService[ValidatorConfig]):
             await self._brotr.insert_relays(relays)
 
             # Delete from candidates only after successful insert
-            delete_records = [
-                ("validator", "candidate", relay.url) for relay in relays
-            ]
+            delete_records = [("validator", "candidate", relay.url) for relay in relays]
             await self._brotr.delete_service_data(delete_records)
 
             self._logger.debug("flush.valid_persisted", count=len(relays))

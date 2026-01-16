@@ -603,9 +603,7 @@ class TestBuildKind10166Tags:
 
         config = MonitorConfig(
             interval=3600,
-            networks=NetworkConfig(
-                clearnet=NetworkTypeConfig(enabled=True, timeout=30.0)
-            ),
+            networks=NetworkConfig(clearnet=NetworkTypeConfig(enabled=True, timeout=30.0)),
             publishing=PublishingConfig(destination="database_only"),
             checks=ChecksConfig(geo=False),
         )

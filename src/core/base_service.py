@@ -127,7 +127,7 @@ class BaseService(ABC, Generic[ConfigT]):
         try:
             await asyncio.wait_for(self._shutdown_event.wait(), timeout=timeout)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
     async def run_forever(self) -> None:

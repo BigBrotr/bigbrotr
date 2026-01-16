@@ -68,7 +68,9 @@ class TestIsSslError:
         assert _is_ssl_error("") is False
 
     def test_ssl_in_context(self):
-        assert _is_ssl_error("Error: ssl.SSLCertVerificationError: certificate verify failed") is True
+        assert (
+            _is_ssl_error("Error: ssl.SSLCertVerificationError: certificate verify failed") is True
+        )
 
 
 # =============================================================================

@@ -558,7 +558,9 @@ class Nip11:
                     f"SSL certificate verification failed for {relay.url} and allow_insecure=False"
                 ) from e
 
-            logger.warning("_fetch: SSL certificate invalid, using insecure fallback relay=%s", relay.url)
+            logger.warning(
+                "_fetch: SSL certificate invalid, using insecure fallback relay=%s", relay.url
+            )
             insecure_ctx = ssl.create_default_context()
             insecure_ctx.check_hostname = False
             insecure_ctx.verify_mode = ssl.CERT_NONE

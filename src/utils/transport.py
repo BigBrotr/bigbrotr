@@ -150,7 +150,7 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
             await session.close()
             logger.debug("InsecureWebSocketTransport: connection failed url=%s error=%s", url, e)
             raise OSError(f"Connection failed: {e}") from e
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await session.close()
             logger.debug("InsecureWebSocketTransport: connection timeout url=%s", url)
             raise OSError(f"Connection timeout: {url}") from None

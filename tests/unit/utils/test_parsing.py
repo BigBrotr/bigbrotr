@@ -187,9 +187,7 @@ class TestParseTypedDictNestedTypedDict:
 
     def test_nested_typeddict_is_none(self):
         # Nested TypedDict fields are set to None for caller to handle
-        result = parse_typed_dict(
-            {"info": {"name": "test", "count": 10}}, NestedSchema
-        )
+        result = parse_typed_dict({"info": {"name": "test", "count": 10}}, NestedSchema)
         assert result["info"] is None
 
     def test_list_of_typeddict_is_none(self):

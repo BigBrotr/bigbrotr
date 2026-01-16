@@ -152,8 +152,4 @@ class NetworkConfig(BaseModel):
 
     def get_enabled_networks(self) -> list[str]:
         """Get list of enabled network names."""
-        return [
-            name
-            for name in ["clearnet", "tor", "i2p", "loki"]
-            if getattr(self, name).enabled
-        ]
+        return [name for name in ["clearnet", "tor", "i2p", "loki"] if getattr(self, name).enabled]

@@ -150,9 +150,7 @@ class TestNetworkConfigCustomValues:
     """NetworkConfig with custom values."""
 
     def test_custom_clearnet(self):
-        config = NetworkConfig(
-            clearnet=NetworkTypeConfig(max_tasks=100, timeout=5.0)
-        )
+        config = NetworkConfig(clearnet=NetworkTypeConfig(max_tasks=100, timeout=5.0))
         assert config.clearnet.max_tasks == 100
         assert config.clearnet.timeout == 5.0
         # Other networks keep defaults
@@ -208,9 +206,7 @@ class TestNetworkConfigGet:
         assert result == config.loki
 
     def test_get_returns_correct_custom_config(self):
-        config = NetworkConfig(
-            tor=NetworkTypeConfig(max_tasks=99, timeout=99.0)
-        )
+        config = NetworkConfig(tor=NetworkTypeConfig(max_tasks=99, timeout=99.0))
         result = config.get(NetworkType.TOR)
         assert result.max_tasks == 99
         assert result.timeout == 99.0
@@ -228,21 +224,15 @@ class TestNetworkConfigGetProxyUrl:
         assert config.get_proxy_url("clearnet") is None
 
     def test_tor_enabled_returns_proxy(self):
-        config = NetworkConfig(
-            tor=NetworkTypeConfig(enabled=True, proxy_url="socks5://tor:9050")
-        )
+        config = NetworkConfig(tor=NetworkTypeConfig(enabled=True, proxy_url="socks5://tor:9050"))
         assert config.get_proxy_url(NetworkType.TOR) == "socks5://tor:9050"
 
     def test_tor_disabled_returns_none(self):
-        config = NetworkConfig(
-            tor=NetworkTypeConfig(enabled=False, proxy_url="socks5://tor:9050")
-        )
+        config = NetworkConfig(tor=NetworkTypeConfig(enabled=False, proxy_url="socks5://tor:9050"))
         assert config.get_proxy_url(NetworkType.TOR) is None
 
     def test_accepts_string_network(self):
-        config = NetworkConfig(
-            tor=NetworkTypeConfig(enabled=True, proxy_url="socks5://tor:9050")
-        )
+        config = NetworkConfig(tor=NetworkTypeConfig(enabled=True, proxy_url="socks5://tor:9050"))
         assert config.get_proxy_url("tor") == "socks5://tor:9050"
 
     def test_invalid_string_network_returns_none(self):
@@ -250,9 +240,7 @@ class TestNetworkConfigGetProxyUrl:
         assert config.get_proxy_url("invalid_network") is None
 
     def test_i2p_enabled_returns_proxy(self):
-        config = NetworkConfig(
-            i2p=NetworkTypeConfig(enabled=True, proxy_url="socks5://i2p:4447")
-        )
+        config = NetworkConfig(i2p=NetworkTypeConfig(enabled=True, proxy_url="socks5://i2p:4447"))
         assert config.get_proxy_url(NetworkType.I2P) == "socks5://i2p:4447"
 
     def test_loki_enabled_returns_proxy(self):

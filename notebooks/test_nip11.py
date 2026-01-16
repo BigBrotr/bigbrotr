@@ -259,7 +259,7 @@ async def test_onion_relay(proxy_url: str, timeout: float = 30.0) -> None:
     try:
         nip11 = await Nip11.fetch(relay, timeout=timeout, proxy_url=proxy_url)
         data = nip11.metadata.data
-        print(f"\nFetch successful!")
+        print("\nFetch successful!")
         print(f"name: {data.get('name')}")
         print(f"software: {data.get('software')}")
         print(f"version: {data.get('version')}")
@@ -348,7 +348,7 @@ async def test_error_handling() -> None:
     try:
         await Nip11.fetch(invalid_relay, timeout=3.0)
     except Nip11FetchError as e:
-        print(f"Correctly raised: Nip11FetchError")
+        print("Correctly raised: Nip11FetchError")
         print(f"relay: {e.relay.url}")
         print(f"cause: {type(e.cause).__name__}")
 
@@ -357,7 +357,7 @@ async def test_error_handling() -> None:
     try:
         Nip11(relay=test_relay, metadata=Metadata({}))
     except ValueError as e:
-        print(f"Correctly raised: ValueError")
+        print("Correctly raised: ValueError")
         print(f"message: {e}")
 
 
@@ -435,14 +435,16 @@ async def main() -> None:
     proxy_for_relay = args.proxy if relay.network != NetworkType.CLEARNET else None
 
     # Run tests based on flags
-    run_default = not any([
-        args.multiple,
-        args.onion,
-        args.synthetic,
-        args.edge_cases,
-        args.errors,
-        args.summary,
-    ])
+    run_default = not any(
+        [
+            args.multiple,
+            args.onion,
+            args.synthetic,
+            args.edge_cases,
+            args.errors,
+            args.summary,
+        ]
+    )
 
     if args.all or run_default:
         # Default: fetch from specified relay

@@ -793,7 +793,9 @@ class TestTestRtt:
         mock_read_filter = MagicMock()
 
         # Mock connect_relay to return our mock client
-        async def mock_connect_relay(relay, keys=None, proxy_url=None, timeout=10.0, allow_insecure=True):
+        async def mock_connect_relay(
+            relay, keys=None, proxy_url=None, timeout=10.0, allow_insecure=True
+        ):
             return mock_nostr_client
 
         with patch("utils.transport.connect_relay", side_effect=mock_connect_relay):
@@ -815,7 +817,9 @@ class TestTestRtt:
         mock_read_filter = MagicMock()
 
         # Mock connect_relay to raise an exception
-        async def mock_connect_relay(relay, keys=None, proxy_url=None, timeout=10.0, allow_insecure=True):
+        async def mock_connect_relay(
+            relay, keys=None, proxy_url=None, timeout=10.0, allow_insecure=True
+        ):
             raise TimeoutError("Connection refused")
 
         with (
