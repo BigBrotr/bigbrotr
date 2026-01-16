@@ -784,19 +784,19 @@ class TestTestHttp:
 
 
 class TestTestRtt:
-    """Test _test_rtt() class method with create_client factory."""
+    """Test _test_rtt() class method with connect_relay factory."""
 
     @pytest.mark.asyncio
     async def test_clearnet_returns_rtt_data(self, relay, mock_keys, mock_nostr_client):
-        """Returns RTT data for clearnet relay using create_client factory."""
+        """Returns RTT data for clearnet relay using connect_relay factory."""
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 
-        # Mock create_client to return our mock client (now sync, no relay param)
-        def mock_create_client(keys=None, proxy_url=None):
+        # Mock connect_relay to return our mock client
+        async def mock_connect_relay(relay, keys=None, proxy_url=None, timeout=10.0, allow_insecure=True):
             return mock_nostr_client
 
-        with patch("utils.transport.create_client", side_effect=mock_create_client):
+        with patch("utils.transport.connect_relay", side_effect=mock_connect_relay):
             result = await Nip66._test_rtt(
                 relay,
                 timeout=10.0,
@@ -810,20 +810,17 @@ class TestTestRtt:
 
     @pytest.mark.asyncio
     async def test_connection_failure_raises_error(self, relay, mock_keys):
-        """Raises Nip66TestError when connection fails."""
+        """Raises TimeoutError when connection fails (error propagates)."""
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 
-        mock_client = AsyncMock()
-        mock_client.add_relay = AsyncMock()
-        mock_client.connect = AsyncMock(side_effect=Exception("Connection refused"))
-
-        def mock_create_client(keys=None, proxy_url=None):
-            return mock_client
+        # Mock connect_relay to raise an exception
+        async def mock_connect_relay(relay, keys=None, proxy_url=None, timeout=10.0, allow_insecure=True):
+            raise TimeoutError("Connection refused")
 
         with (
-            patch("utils.transport.create_client", side_effect=mock_create_client),
-            pytest.raises(Nip66TestError) as exc_info,
+            patch("utils.transport.connect_relay", side_effect=mock_connect_relay),
+            pytest.raises(TimeoutError) as exc_info,
         ):
             await Nip66._test_rtt(
                 relay,
@@ -832,7 +829,7 @@ class TestTestRtt:
                 event_builder=mock_event_builder,
                 read_filter=mock_read_filter,
             )
-        assert "returned no data" in str(exc_info.value.cause)
+        assert "Connection refused" in str(exc_info.value)
 
 
 class TestTest:
