@@ -19,10 +19,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import ssl
 import sys
-import tempfile
 from pathlib import Path
+
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -30,9 +29,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from models.relay import Relay
 from utils.transport import (
     connect_relay,
-    create_client,
     create_insecure_client,
 )
+
 
 # Configure logging
 logging.basicConfig(
@@ -168,7 +167,6 @@ async def test_direct_insecure_client(relay_url: str = VALID_SSL_RELAY) -> bool:
     print_header(f"Test: Direct Insecure Client\nRelay: {relay_url}")
 
     from datetime import timedelta
-
     from nostr_sdk import RelayUrl, uniffi_set_event_loop
 
     try:
@@ -276,7 +274,9 @@ async def test_with_mock_ssl_error() -> bool:
         if detected_as_ssl == should_be_ssl_error:
             print(f"  ✓ '{error_msg}' -> SSL error: {detected_as_ssl}")
         else:
-            print(f"  ✗ '{error_msg}' -> SSL error: {detected_as_ssl} (expected: {should_be_ssl_error})")
+            print(
+                f"  ✗ '{error_msg}' -> SSL error: {detected_as_ssl} (expected: {should_be_ssl_error})"
+            )
             all_passed = False
 
     print_result("SSL error detection", all_passed)

@@ -260,6 +260,18 @@ ignore = [
     "RUF043",  # raw string patterns in pytest.raises
     "RUF059",  # unused unpacked variables (common in test assertions)
 ]
+# Notebooks are demo/test scripts with different requirements
+"notebooks/*" = [
+    "E402",    # module-level import not at top (sys.path manipulation)
+    "I001",    # import block sorting (split by sys.path.insert)
+    "PLC0415", # import outside top-level (deferred imports)
+    "ERA001",  # commented-out code (examples and demos)
+    "F541",    # f-string without placeholders
+    "W293",    # blank line contains whitespace
+    "SIM115",  # context manager for opening files
+    "PTH108",  # os.unlink vs Path.unlink
+    "PGH003",  # type: ignore without code
+]
 # TC001/TC002/TC003: These imports are used at runtime, not just for type hints
 "src/core/brotr.py" = ["TC001", "TC002"]
 "src/core/pool.py" = ["TC003"]

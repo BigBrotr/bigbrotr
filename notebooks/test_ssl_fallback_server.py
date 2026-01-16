@@ -19,6 +19,7 @@ The server responds to basic Nostr messages:
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import ssl
@@ -32,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import aiohttp
 from aiohttp import web
+
 
 # Configure logging
 logging.basicConfig(
@@ -67,13 +69,15 @@ def generate_self_signed_cert() -> tuple[str, str]:
     )
 
     # Generate certificate
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Test"),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, "Test"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Test Relay"),
-        x509.NameAttribute(NameOID.COMMON_NAME, SERVER_HOST),
-    ])
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Test"),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, "Test"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Test Relay"),
+            x509.NameAttribute(NameOID.COMMON_NAME, SERVER_HOST),
+        ]
+    )
 
     cert = (
         x509.CertificateBuilder()
@@ -84,10 +88,12 @@ def generate_self_signed_cert() -> tuple[str, str]:
         .not_valid_before(datetime.utcnow())
         .not_valid_after(datetime(2099, 12, 31))
         .add_extension(
-            x509.SubjectAlternativeName([
-                x509.DNSName(SERVER_HOST),
-                x509.IPAddress(ipaddress.ip_address(SERVER_HOST)),
-            ]),
+            x509.SubjectAlternativeName(
+                [
+                    x509.DNSName(SERVER_HOST),
+                    x509.IPAddress(ipaddress.ip_address(SERVER_HOST)),
+                ]
+            ),
             critical=False,
         )
         .sign(key, hashes.SHA256(), default_backend())
@@ -99,17 +105,16 @@ def generate_self_signed_cert() -> tuple[str, str]:
     cert_file.close()
 
     key_file = tempfile.NamedTemporaryFile(mode="wb", suffix=".pem", delete=False)
-    key_file.write(key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    ))
+    key_file.write(
+        key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+    )
     key_file.close()
 
     return cert_file.name, key_file.name
-
-
-import ipaddress
 
 
 async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
@@ -181,7 +186,6 @@ async def run_server(cert_path: str, key_path: str) -> web.AppRunner:
 
 async def test_ssl_fallback() -> bool:
     """Test connect_relay() with the self-signed cert server."""
-    from models.relay import Relay
     from utils.transport import connect_relay
 
     print(f"\nTesting connect_relay() to {SERVER_URL}")
@@ -219,9 +223,7 @@ async def test_ssl_fallback() -> bool:
 async def test_direct_insecure_connection() -> bool:
     """Test direct connection with insecure client."""
     from datetime import timedelta
-
     from nostr_sdk import RelayUrl, uniffi_set_event_loop
-
     from utils.transport import create_insecure_client
 
     print(f"\nTesting create_insecure_client() to {SERVER_URL}")
@@ -255,9 +257,7 @@ async def test_direct_insecure_connection() -> bool:
 async def test_normal_ssl_fails() -> bool:
     """Test that normal SSL connection fails (as expected)."""
     from datetime import timedelta
-
     from nostr_sdk import RelayUrl
-
     from utils.transport import create_client
 
     print(f"\nTesting create_client() (normal SSL) to {SERVER_URL}")
@@ -347,6 +347,7 @@ async def main() -> None:
 
         # Remove temp files
         import os
+
         os.unlink(cert_path)
         os.unlink(key_path)
         print("   Cleanup complete!")
