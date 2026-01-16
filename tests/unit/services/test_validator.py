@@ -2,14 +2,15 @@
 Unit tests for services.validator module.
 
 Tests:
-- Configuration models (ValidatorConfig, NetworkConfig, NetworkTypeConfig, BatchConfig)
-- Unified network settings (enabled, proxy_url, max_tasks, timeout)
+- Configuration models (ValidatorConfig, BatchConfig, CleanupConfig)
 - Validator service initialization and defaults
 - Streaming architecture (Producer/Consumer/Workers)
 - Batch processing and checkpoints
 - Relay validation workflow
 - Candidate promotion and failure tracking
 - RunStats dataclass
+
+Note: NetworkConfig and NetworkTypeConfig tests are in tests/unit/utils/test_network.py
 """
 
 import asyncio
@@ -18,7 +19,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from core.brotr import Brotr, BrotrConfig
-from models import Relay
 from models.relay import NetworkType
 from services.validator import (
     BatchConfig,
@@ -138,146 +138,6 @@ class TestRunStats:
         # elapsed should be very small but positive
         assert stats.elapsed >= 0
         assert stats.elapsed < 1.0
-
-
-# ============================================================================
-# NetworkTypeConfig Tests
-# ============================================================================
-
-
-class TestNetworkTypeConfig:
-    """Tests for NetworkTypeConfig."""
-
-    def test_default_values(self) -> None:
-        """Test default values."""
-        settings = NetworkTypeConfig()
-        assert settings.enabled is True
-        assert settings.proxy_url is None
-        assert settings.max_tasks == 10
-        assert settings.timeout == 10.0
-
-    def test_custom_values(self) -> None:
-        """Test custom values."""
-        settings = NetworkTypeConfig(
-            enabled=True,
-            proxy_url="socks5://127.0.0.1:9050",
-            max_tasks=50,
-            timeout=30.0,
-        )
-        assert settings.enabled is True
-        assert settings.proxy_url == "socks5://127.0.0.1:9050"
-        assert settings.max_tasks == 50
-        assert settings.timeout == 30.0
-
-    def test_max_tasks_bounds(self) -> None:
-        """Test max_tasks validation bounds."""
-        with pytest.raises(ValueError):
-            NetworkTypeConfig(max_tasks=0)
-
-        with pytest.raises(ValueError):
-            NetworkTypeConfig(max_tasks=201)
-
-        # Valid edge cases
-        assert NetworkTypeConfig(max_tasks=1).max_tasks == 1
-        assert NetworkTypeConfig(max_tasks=200).max_tasks == 200
-
-    def test_timeout_bounds(self) -> None:
-        """Test timeout validation bounds."""
-        with pytest.raises(ValueError):
-            NetworkTypeConfig(timeout=0.5)
-
-        with pytest.raises(ValueError):
-            NetworkTypeConfig(timeout=121.0)
-
-        # Valid edge cases
-        assert NetworkTypeConfig(timeout=1.0).timeout == 1.0
-        assert NetworkTypeConfig(timeout=120.0).timeout == 120.0
-
-
-# ============================================================================
-# NetworkConfig Tests
-# ============================================================================
-
-
-class TestNetworkConfig:
-    """Tests for NetworkConfig."""
-
-    def test_default_values(self) -> None:
-        """Test default network-aware settings."""
-        config = NetworkConfig()
-
-        # Clearnet: high concurrency, short timeout, no proxy
-        assert config.clearnet.enabled is True
-        assert config.clearnet.proxy_url is None
-        assert config.clearnet.max_tasks == 50
-        assert config.clearnet.timeout == 10.0
-
-        # Tor: lower concurrency, longer timeout, proxy
-        assert config.tor.enabled is True
-        assert config.tor.proxy_url == "socks5://tor:9050"
-        assert config.tor.max_tasks == 10
-        assert config.tor.timeout == 30.0
-
-        # I2P: lowest concurrency, longest timeout, proxy
-        assert config.i2p.enabled is True
-        assert config.i2p.proxy_url == "socks5://i2p:4447"
-        assert config.i2p.max_tasks == 5
-        assert config.i2p.timeout == 45.0
-
-        # Loki: disabled by default
-        assert config.loki.enabled is False
-        assert config.loki.proxy_url == "socks5://lokinet:1080"
-
-    def test_custom_values(self) -> None:
-        """Test custom network settings."""
-        config = NetworkConfig(
-            clearnet=NetworkTypeConfig(max_tasks=100, timeout=5.0),
-            tor=NetworkTypeConfig(
-                enabled=True,
-                proxy_url="socks5://custom:9050",
-                max_tasks=20,
-                timeout=60.0,
-            ),
-        )
-        assert config.clearnet.max_tasks == 100
-        assert config.clearnet.timeout == 5.0
-        assert config.tor.proxy_url == "socks5://custom:9050"
-        assert config.tor.max_tasks == 20
-        assert config.tor.timeout == 60.0
-
-    def test_get_settings_for_network(self) -> None:
-        """Test get method returns correct settings for network type."""
-        config = NetworkConfig(
-            clearnet=NetworkTypeConfig(max_tasks=50, timeout=10.0),
-            tor=NetworkTypeConfig(
-                proxy_url="socks5://tor:9050",
-                max_tasks=10,
-                timeout=30.0,
-            ),
-        )
-
-        clearnet = config.get(NetworkType.CLEARNET)
-        assert clearnet.max_tasks == 50
-        assert clearnet.timeout == 10.0
-
-        tor = config.get(NetworkType.TOR)
-        assert tor.max_tasks == 10
-        assert tor.timeout == 30.0
-
-    def test_get_enabled_networks(self) -> None:
-        """Test get_enabled_networks method."""
-        config = NetworkConfig(
-            clearnet=NetworkTypeConfig(enabled=True),
-            tor=NetworkTypeConfig(enabled=True),
-            i2p=NetworkTypeConfig(enabled=False),
-            loki=NetworkTypeConfig(enabled=False),
-        )
-
-        enabled = config.get_enabled_networks()
-        assert "clearnet" in enabled
-        assert "tor" in enabled
-        assert "i2p" not in enabled
-        assert "loki" not in enabled
 
 
 # ============================================================================

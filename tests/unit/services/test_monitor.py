@@ -33,140 +33,6 @@ from utils.network import NetworkConfig, NetworkTypeConfig
 
 
 # ============================================================================
-# Relay Type Tests
-# ============================================================================
-
-
-class TestRelayType:
-    """Tests for Relay dataclass."""
-
-    def test_network_clearnet(self) -> None:
-        """Test clearnet relay detection."""
-        relay = Relay("wss://relay.example.com")
-        assert relay.network == NetworkType.CLEARNET
-
-    def test_network_tor(self) -> None:
-        """Test tor relay detection."""
-        relay = Relay("ws://xyz.onion:80")
-        assert relay.network == NetworkType.TOR
-
-
-# ============================================================================
-# NetworkConfig Tests
-# ============================================================================
-
-
-class TestNetworkTypeConfig:
-    """Tests for NetworkTypeConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        """Test default network type config."""
-        config = NetworkTypeConfig()
-
-        assert config.enabled is True
-        assert config.proxy_url is None
-        assert config.max_tasks == 10
-        assert config.timeout == 10.0
-
-    def test_custom_values(self) -> None:
-        """Test custom network type config."""
-        config = NetworkTypeConfig(
-            enabled=True,
-            proxy_url="socks5://127.0.0.1:9050",
-            max_tasks=20,
-            timeout=30.0,
-        )
-
-        assert config.enabled is True
-        assert config.proxy_url == "socks5://127.0.0.1:9050"
-        assert config.max_tasks == 20
-        assert config.timeout == 30.0
-
-
-class TestNetworkConfig:
-    """Tests for NetworkConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        """Test default network config (only clearnet enabled by default)."""
-        config = NetworkConfig()
-
-        # Clearnet defaults (only network enabled by default)
-        assert config.clearnet.enabled is True
-        assert config.clearnet.proxy_url is None
-        assert config.clearnet.max_tasks == 50
-        assert config.clearnet.timeout == 10.0
-
-        # Tor defaults (disabled by default)
-        assert config.tor.enabled is False
-        assert config.tor.proxy_url == "socks5://tor:9050"
-        assert config.tor.max_tasks == 10
-        assert config.tor.timeout == 30.0
-
-        # I2P defaults (disabled by default)
-        assert config.i2p.enabled is False
-
-        # Loki defaults (disabled by default)
-        assert config.loki.enabled is False
-
-    def test_get_proxy_url(self) -> None:
-        """Test get_proxy_url method (returns None for disabled networks)."""
-        config = NetworkConfig()
-
-        # All overlay networks disabled by default, so return None
-        assert config.get_proxy_url(NetworkType.TOR) is None
-        assert config.get_proxy_url(NetworkType.I2P) is None
-        assert config.get_proxy_url(NetworkType.LOKI) is None
-        assert config.get_proxy_url(NetworkType.CLEARNET) is None
-
-    def test_get_proxy_url_when_enabled(self) -> None:
-        """Test get_proxy_url returns URL when network is enabled."""
-        config = NetworkConfig(
-            tor=NetworkTypeConfig(enabled=True, proxy_url="socks5://tor:9050"),
-            i2p=NetworkTypeConfig(enabled=True, proxy_url="socks5://i2p:4447"),
-        )
-
-        assert config.get_proxy_url(NetworkType.TOR) == "socks5://tor:9050"
-        assert config.get_proxy_url(NetworkType.I2P) == "socks5://i2p:4447"
-
-    def test_get_proxy_url_with_disabled(self) -> None:
-        """Test get_proxy_url returns None when network is disabled."""
-        config = NetworkConfig(
-            tor=NetworkTypeConfig(enabled=False, proxy_url="socks5://127.0.0.1:9050")
-        )
-
-        assert config.get_proxy_url(NetworkType.TOR) is None
-
-    def test_is_enabled(self) -> None:
-        """Test is_enabled method (only clearnet enabled by default)."""
-        config = NetworkConfig()
-
-        assert config.is_enabled(NetworkType.CLEARNET) is True
-        assert config.is_enabled(NetworkType.TOR) is False
-        assert config.is_enabled(NetworkType.I2P) is False
-        assert config.is_enabled(NetworkType.LOKI) is False
-
-    def test_get_enabled_networks(self) -> None:
-        """Test get_enabled_networks method (only clearnet by default)."""
-        config = NetworkConfig()
-
-        enabled = config.get_enabled_networks()
-        assert enabled == ["clearnet"]
-
-    def test_get_enabled_networks_with_overlay(self) -> None:
-        """Test get_enabled_networks with overlay networks enabled."""
-        config = NetworkConfig(
-            tor=NetworkTypeConfig(enabled=True),
-            i2p=NetworkTypeConfig(enabled=True),
-        )
-
-        enabled = config.get_enabled_networks()
-        assert "clearnet" in enabled
-        assert "tor" in enabled
-        assert "i2p" in enabled
-        assert "loki" not in enabled
-
-
-# ============================================================================
 # KeysConfig Tests
 # ============================================================================
 
@@ -422,6 +288,8 @@ def _create_nip66(
     rtt_data: dict | None = None,
     ssl_data: dict | None = None,
     geo_data: dict | None = None,
+    dns_data: dict | None = None,
+    http_data: dict | None = None,
     generated_at: int = 1700000001,
 ) -> Nip66:
     """Create a Nip66 instance using object.__new__ pattern."""
@@ -432,12 +300,16 @@ def _create_nip66(
     rtt_metadata = Metadata(rtt_data)
     ssl_metadata = Metadata(ssl_data) if ssl_data else None
     geo_metadata = Metadata(geo_data) if geo_data else None
+    dns_metadata = Metadata(dns_data) if dns_data else None
+    http_metadata = Metadata(http_data) if http_data else None
 
     instance = object.__new__(Nip66)
     object.__setattr__(instance, "relay", relay)
     object.__setattr__(instance, "rtt_metadata", rtt_metadata)
     object.__setattr__(instance, "ssl_metadata", ssl_metadata)
     object.__setattr__(instance, "geo_metadata", geo_metadata)
+    object.__setattr__(instance, "dns_metadata", dns_metadata)
+    object.__setattr__(instance, "http_metadata", http_metadata)
     object.__setattr__(instance, "generated_at", generated_at)
     return instance
 
@@ -487,9 +359,9 @@ class TestNip66:
         data = _create_nip66(relay, {})
 
         assert data.is_openable is False
-        assert data.is_readable is False
-        assert data.is_writable is False
         assert data.rtt_open is None
+        assert data.rtt_read is None
+        assert data.rtt_write is None
 
     def test_properties(self) -> None:
         """Test NIP-66 property access."""
@@ -497,17 +369,16 @@ class TestNip66:
         data = _create_nip66(relay, rtt_data={"rtt_open": 100, "rtt_read": 50})
 
         assert data.is_openable is True
-        assert data.is_readable is True
-        assert data.is_writable is False
         assert data.rtt_open == 100
         assert data.rtt_read == 50
+        assert data.rtt_write is None
 
     def test_to_relay_metadata_rtt_only(self) -> None:
         """Test NIP-66 to_relay_metadata factory with RTT data only."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(relay, rtt_data={"rtt_open": 100})
 
-        rtt, ssl, geo = nip66.to_relay_metadata()
+        rtt, ssl, geo, dns, http = nip66.to_relay_metadata()
 
         assert rtt is not None
         assert rtt.metadata_type == "nip66_rtt"
@@ -515,6 +386,8 @@ class TestNip66:
         assert rtt.metadata.data == {"rtt_open": 100}
         assert ssl is None
         assert geo is None
+        assert dns is None
+        assert http is None
 
     def test_to_relay_metadata_with_geo(self) -> None:
         """Test NIP-66 to_relay_metadata factory with RTT and geo data."""
@@ -525,7 +398,7 @@ class TestNip66:
             geo_data={"geohash": "abc123", "geo_country": "US"},
         )
 
-        rtt, ssl, geo = nip66.to_relay_metadata()
+        rtt, ssl, geo, dns, http = nip66.to_relay_metadata()
 
         assert rtt is not None
         assert rtt.metadata_type == "nip66_rtt"
@@ -534,6 +407,8 @@ class TestNip66:
         assert geo is not None
         assert geo.metadata_type == "nip66_geo"
         assert geo.metadata.data == {"geohash": "abc123", "geo_country": "US"}
+        assert dns is None
+        assert http is None
 
     def test_to_relay_metadata_with_ssl(self) -> None:
         """Test NIP-66 to_relay_metadata factory with RTT and SSL data."""
@@ -544,7 +419,7 @@ class TestNip66:
             ssl_data={"ssl_valid": True, "ssl_issuer": "Let's Encrypt"},
         )
 
-        rtt, ssl, geo = nip66.to_relay_metadata()
+        rtt, ssl, geo, dns, http = nip66.to_relay_metadata()
 
         assert rtt is not None
         assert rtt.metadata_type == "nip66_rtt"
@@ -553,6 +428,8 @@ class TestNip66:
         assert ssl.metadata_type == "nip66_ssl"
         assert ssl.metadata.data == {"ssl_valid": True, "ssl_issuer": "Let's Encrypt"}
         assert geo is None
+        assert dns is None
+        assert http is None
 
     def test_to_relay_metadata_with_all(self) -> None:
         """Test NIP-66 to_relay_metadata factory with RTT, SSL, and geo data."""
@@ -564,7 +441,7 @@ class TestNip66:
             geo_data={"geohash": "abc123", "geo_country": "US"},
         )
 
-        rtt, ssl, geo = nip66.to_relay_metadata()
+        rtt, ssl, geo, dns, http = nip66.to_relay_metadata()
 
         assert rtt is not None
         assert rtt.metadata_type == "nip66_rtt"
@@ -575,9 +452,12 @@ class TestNip66:
         assert geo is not None
         assert geo.metadata_type == "nip66_geo"
         assert geo.metadata.data == {"geohash": "abc123", "geo_country": "US"}
+        # DNS and HTTP are optional
+        assert dns is None
+        assert http is None
 
-    def test_ssl_properties(self) -> None:
-        """Test NIP-66 SSL property access."""
+    def test_ssl_metadata_access(self) -> None:
+        """Test NIP-66 SSL metadata access."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(
             relay,
@@ -585,20 +465,17 @@ class TestNip66:
             ssl_data={"ssl_valid": True, "ssl_issuer": "Let's Encrypt", "ssl_expires": 1700000000},
         )
 
-        assert nip66.has_ssl is True
-        assert nip66.ssl_valid is True
-        assert nip66.ssl_issuer == "Let's Encrypt"
-        assert nip66.ssl_expires == 1700000000
+        assert nip66.ssl_metadata is not None
+        assert nip66.ssl_metadata.data["ssl_valid"] is True
+        assert nip66.ssl_metadata.data["ssl_issuer"] == "Let's Encrypt"
+        assert nip66.ssl_metadata.data["ssl_expires"] == 1700000000
 
-    def test_ssl_properties_no_ssl(self) -> None:
-        """Test NIP-66 SSL properties when SSL metadata is None."""
+    def test_ssl_metadata_none(self) -> None:
+        """Test NIP-66 SSL metadata when not provided."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(relay, rtt_data={"rtt_open": 100})
 
-        assert nip66.has_ssl is False
-        assert nip66.ssl_valid is None
-        assert nip66.ssl_issuer is None
-        assert nip66.ssl_expires is None
+        assert nip66.ssl_metadata is None
 
 
 class TestRelayMetadataType:

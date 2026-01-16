@@ -17,10 +17,30 @@ from core.brotr import Brotr
 from services.finder import (
     ApiConfig,
     ApiSourceConfig,
+    ConcurrencyConfig,
     EventsConfig,
     Finder,
     FinderConfig,
 )
+
+
+# ============================================================================
+# ConcurrencyConfig Tests
+# ============================================================================
+
+
+class TestConcurrencyConfig:
+    """Tests for ConcurrencyConfig Pydantic model."""
+
+    def test_default_values(self) -> None:
+        """Test default concurrency configuration."""
+        config = ConcurrencyConfig()
+        assert config.max_parallel == 5
+
+    def test_custom_values(self) -> None:
+        """Test custom concurrency configuration."""
+        config = ConcurrencyConfig(max_parallel=10)
+        assert config.max_parallel == 10
 
 
 # ============================================================================
@@ -35,11 +55,18 @@ class TestEventsConfig:
         """Test default events configuration."""
         config = EventsConfig()
         assert config.enabled is True
+        assert config.batch_size == 1000
+        assert config.kinds == [2, 3, 10002]
 
     def test_disabled(self) -> None:
         """Test can disable events scanning."""
         config = EventsConfig(enabled=False)
         assert config.enabled is False
+
+    def test_custom_kinds(self) -> None:
+        """Test custom event kinds."""
+        config = EventsConfig(kinds=[30303])
+        assert config.kinds == [30303]
 
 
 # ============================================================================
@@ -86,6 +113,7 @@ class TestApiConfig:
         assert config.enabled is True
         assert len(config.sources) == 2
         assert config.delay_between_requests == 1.0
+        assert config.verify_ssl is True
 
     def test_default_sources(self) -> None:
         """Test default API sources include nostr.watch."""
@@ -117,10 +145,11 @@ class TestFinderConfig:
     """Tests for FinderConfig Pydantic model."""
 
     def test_default_values(self) -> None:
-        """Test default configuration."""
+        """Test default configuration (inherits from BaseServiceConfig)."""
         config = FinderConfig()
 
-        assert config.interval == 3600.0
+        assert config.interval == 300.0  # BaseServiceConfig default
+        assert config.max_consecutive_failures == 5  # BaseServiceConfig default
         assert config.events.enabled is True
         assert config.api.enabled is True
 
@@ -242,7 +271,7 @@ class TestFinderFindFromApi:
     @pytest.mark.asyncio
     async def test_find_from_api_success(self, mock_brotr: Brotr) -> None:
         """Test successful API fetch."""
-        mock_brotr.insert_relays = AsyncMock(return_value=2)  # type: ignore[attr-defined]
+        mock_brotr.upsert_service_data = AsyncMock(return_value=2)  # type: ignore[method-assign]
 
         config = FinderConfig(
             api=ApiConfig(
@@ -380,9 +409,8 @@ class TestFinderFindFromEvents:
 
     @pytest.mark.asyncio
     async def test_empty_database_returns_no_urls(self, mock_brotr: Brotr) -> None:
-        """Empty database returns no URLs."""
+        """Empty database (no relays) returns no URLs."""
         mock_brotr.pool.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
         finder = Finder(brotr=mock_brotr)
         await finder._find_from_events()
@@ -392,6 +420,7 @@ class TestFinderFindFromEvents:
     @pytest.mark.asyncio
     async def test_valid_relay_urls_extracted_from_kind_2(self, mock_brotr: Brotr) -> None:
         """Valid relay URLs extracted from kind 2 events."""
+        relay_row = {"url": "wss://source.relay.com"}
         mock_event = MagicMock()
         mock_event.__getitem__ = lambda _, key: {
             "id": b"\x01" * 32,
@@ -399,9 +428,11 @@ class TestFinderFindFromEvents:
             "kind": 2,
             "tags": None,
             "content": "wss://relay.example.com",
+            "seen_at": 1700000001,
         }[key]
 
-        mock_brotr.pool.fetch = AsyncMock(return_value=[mock_event])  # type: ignore[method-assign]
+        # First call for relays, second for events per relay, third returns empty
+        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
         mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
         mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
@@ -422,6 +453,7 @@ class TestFinderFindFromEvents:
     @pytest.mark.asyncio
     async def test_valid_relay_urls_extracted_from_kind_10002(self, mock_brotr: Brotr) -> None:
         """Valid relay URLs extracted from kind 10002 events."""
+        relay_row = {"url": "wss://source.relay.com"}
         mock_event = MagicMock()
         mock_event.__getitem__ = lambda _, key: {
             "id": b"\x02" * 32,
@@ -429,9 +461,10 @@ class TestFinderFindFromEvents:
             "kind": 10002,
             "tags": [["r", "wss://relay1.example.com"], ["r", "wss://relay2.example.com"]],
             "content": "",
+            "seen_at": 1700000001,
         }[key]
 
-        mock_brotr.pool.fetch = AsyncMock(return_value=[mock_event])  # type: ignore[method-assign]
+        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
         mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
         mock_brotr.upsert_service_data = AsyncMock(return_value=2)  # type: ignore[method-assign]
 
@@ -451,30 +484,9 @@ class TestFinderFindFromEvents:
         assert any("relay2.example.com" in url for url in all_urls)
 
     @pytest.mark.asyncio
-    async def test_valid_relay_urls_extracted_from_kind_30303(self, mock_brotr: Brotr) -> None:
-        """Valid relay URLs extracted from kind 30303 events."""
-        config = FinderConfig(events=EventsConfig(kinds=[30303]))
-        mock_event = MagicMock()
-        mock_event.__getitem__ = lambda _, key: {
-            "id": b"\x03" * 32,
-            "created_at": 1700000000,
-            "kind": 30303,
-            "tags": [["r", "wss://relay.test.com"]],
-            "content": "",
-        }[key]
-
-        mock_brotr.pool.fetch = AsyncMock(return_value=[mock_event])  # type: ignore[method-assign]
-        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
-
-        finder = Finder(brotr=mock_brotr, config=config)
-        await finder._find_from_events()
-
-        mock_brotr.upsert_service_data.assert_called()
-
-    @pytest.mark.asyncio
     async def test_urls_extracted_from_r_tags(self, mock_brotr: Brotr) -> None:
         """URLs extracted from r tags in event content."""
+        relay_row = {"url": "wss://source.relay.com"}
         mock_event = MagicMock()
         mock_event.__getitem__ = lambda _, key: {
             "id": b"\x04" * 32,
@@ -482,9 +494,10 @@ class TestFinderFindFromEvents:
             "kind": 10002,
             "tags": [["r", "wss://rtag-relay.com"], ["e", "someid"]],
             "content": "",
+            "seen_at": 1700000001,
         }[key]
 
-        mock_brotr.pool.fetch = AsyncMock(return_value=[mock_event])  # type: ignore[method-assign]
+        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
         mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
         mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
@@ -504,6 +517,7 @@ class TestFinderFindFromEvents:
     @pytest.mark.asyncio
     async def test_invalid_malformed_urls_filtered_out(self, mock_brotr: Brotr) -> None:
         """Invalid/malformed URLs filtered out."""
+        relay_row = {"url": "wss://source.relay.com"}
         mock_event = MagicMock()
         mock_event.__getitem__ = lambda _, key: {
             "id": b"\x05" * 32,
@@ -511,9 +525,10 @@ class TestFinderFindFromEvents:
             "kind": 2,
             "tags": [["r", "not-a-valid-url"], ["r", "http://wrong-scheme.com"]],
             "content": "also-not-valid",
+            "seen_at": 1700000001,
         }[key]
 
-        mock_brotr.pool.fetch = AsyncMock(return_value=[mock_event])  # type: ignore[method-assign]
+        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
         mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
         mock_brotr.upsert_service_data = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
@@ -526,6 +541,7 @@ class TestFinderFindFromEvents:
     @pytest.mark.asyncio
     async def test_duplicate_urls_deduplicated(self, mock_brotr: Brotr) -> None:
         """Duplicate URLs deduplicated."""
+        relay_row = {"url": "wss://source.relay.com"}
         mock_event = MagicMock()
         mock_event.__getitem__ = lambda _, key: {
             "id": b"\x06" * 32,
@@ -537,23 +553,34 @@ class TestFinderFindFromEvents:
                 ["r", "wss://duplicate.relay.com"],
             ],
             "content": "",
+            "seen_at": 1700000001,
         }[key]
 
-        mock_brotr.pool.fetch = AsyncMock(return_value=[mock_event])  # type: ignore[method-assign]
+        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
         mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
         mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
         finder = Finder(brotr=mock_brotr)
         await finder._find_from_events()
 
-        # Only one unique URL should be inserted
-        mock_brotr.upsert_service_data.assert_called()
-        call_args = mock_brotr.upsert_service_data.call_args[0][0]
-        assert len(call_args) == 1
+        # Only one unique URL should be inserted (plus cursor save)
+        # Find calls with candidates - check first record's data_type
+        candidate_calls = [
+            call
+            for call in mock_brotr.upsert_service_data.call_args_list
+            if call[0][0] and call[0][0][0][1] == "candidate"  # First record's data_type
+        ]
+        assert len(candidate_calls) == 1
+        # Records list should have exactly one record (the deduplicated URL)
+        records = candidate_calls[0][0][0]
+        assert len(records) == 1  # One record (deduplicated from 3 duplicates)
+        assert len(records[0]) == 4  # Record is a 4-tuple: (service, type, key, value)
+        assert records[0][2] == "wss://duplicate.relay.com"  # The deduplicated URL
 
     @pytest.mark.asyncio
     async def test_cursor_position_updated_after_scan(self, mock_brotr: Brotr) -> None:
         """Cursor position updated after scan."""
+        relay_row = {"url": "wss://source.relay.com"}
         mock_event = MagicMock()
         mock_event.__getitem__ = lambda _, key: {
             "id": b"\x07" * 32,
@@ -561,9 +588,10 @@ class TestFinderFindFromEvents:
             "kind": 2,
             "tags": None,
             "content": "wss://relay.example.com",
+            "seen_at": 1700000200,
         }[key]
 
-        mock_brotr.pool.fetch = AsyncMock(return_value=[mock_event])  # type: ignore[method-assign]
+        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
         mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
         mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
@@ -573,45 +601,15 @@ class TestFinderFindFromEvents:
         # Verify cursor was saved (upsert called for both candidate and cursor)
         upsert_calls = mock_brotr.upsert_service_data.call_args_list
         cursor_saved = any(
-            call[0][0][0][0] == "finder" and call[0][0][0][1] == "cursor" for call in upsert_calls
+            call[0][0] and call[0][0][0][0] == "finder" and call[0][0][0][1] == "cursor"
+            for call in upsert_calls
         )
         assert cursor_saved
-
-    @pytest.mark.asyncio
-    async def test_batch_size_limit_respected(self, mock_brotr: Brotr) -> None:
-        """Batch size limit respected."""
-        config = FinderConfig(events=EventsConfig(batch_size=100))
-
-        # Create events that fill exactly one batch
-        mock_events = []
-        for i in range(100):
-            mock_event = MagicMock()
-            mock_event.__getitem__ = lambda _, key, i=i: {
-                "id": bytes([i]) * 32,
-                "created_at": 1700000000 + i,
-                "kind": 2,
-                "tags": None,
-                "content": f"wss://relay{i}.com",
-            }[key]
-            mock_events.append(mock_event)
-
-        # Return 100 events first, then empty (simulating batch limit)
-        mock_brotr.pool.fetch = AsyncMock(side_effect=[mock_events, []])  # type: ignore[method-assign]
-        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        mock_brotr.upsert_service_data = AsyncMock(return_value=100)  # type: ignore[method-assign]
-
-        finder = Finder(brotr=mock_brotr, config=config)
-        await finder._find_from_events()
-
-        # Verify batch_size was passed to query
-        fetch_calls = mock_brotr.pool.fetch.call_args_list
-        assert len(fetch_calls) >= 1
 
     @pytest.mark.asyncio
     async def test_exception_handling_during_database_query(self, mock_brotr: Brotr) -> None:
         """Exception handling during database query."""
         mock_brotr.pool.fetch = AsyncMock(side_effect=Exception("Database connection error"))  # type: ignore[method-assign]
-        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
         finder = Finder(brotr=mock_brotr)
         # Should not raise, should handle gracefully
@@ -622,6 +620,7 @@ class TestFinderFindFromEvents:
     @pytest.mark.asyncio
     async def test_network_type_detected_clearnet_vs_tor(self, mock_brotr: Brotr) -> None:
         """Network type correctly detected (clearnet vs tor)."""
+        relay_row = {"url": "wss://source.relay.com"}
         mock_event = MagicMock()
         mock_event.__getitem__ = lambda _, key: {
             "id": b"\x08" * 32,
@@ -632,9 +631,10 @@ class TestFinderFindFromEvents:
                 ["r", "ws://tortest.onion"],
             ],
             "content": "",
+            "seen_at": 1700000001,
         }[key]
 
-        mock_brotr.pool.fetch = AsyncMock(return_value=[mock_event])  # type: ignore[method-assign]
+        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
         mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
         mock_brotr.upsert_service_data = AsyncMock(return_value=2)  # type: ignore[method-assign]
 
@@ -657,44 +657,41 @@ class TestFinderCursorPersistence:
     async def test_load_cursor_returns_default_when_no_cursor_exists(
         self, mock_brotr: Brotr
     ) -> None:
-        """_load_cursor() returns default when no cursor exists."""
+        """_load_relay_cursor() returns default when no cursor exists."""
         mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
         finder = Finder(brotr=mock_brotr)
-        cursor = await finder._load_event_cursor()
+        cursor = await finder._load_relay_cursor("wss://test.relay.com")
 
         assert cursor == {}
 
     @pytest.mark.asyncio
     async def test_load_cursor_returns_saved_cursor_when_exists(self, mock_brotr: Brotr) -> None:
-        """_load_cursor() returns saved cursor when exists."""
-        saved_cursor = {
-            "last_timestamp": 1700000000,
-            "last_id": "aa" * 32,
-        }
+        """_load_relay_cursor() returns saved cursor when exists."""
+        saved_cursor = {"last_seen_at": 1700000000}
         mock_brotr.get_service_data = AsyncMock(  # type: ignore[method-assign]
             return_value=[{"value": saved_cursor}]
         )
 
         finder = Finder(brotr=mock_brotr)
-        cursor = await finder._load_event_cursor()
+        cursor = await finder._load_relay_cursor("wss://test.relay.com")
 
-        assert cursor["last_timestamp"] == 1700000000
-        assert cursor["last_id"] == "aa" * 32
+        assert cursor["last_seen_at"] == 1700000000
 
     @pytest.mark.asyncio
     async def test_save_cursor_persists_cursor_to_database(self, mock_brotr: Brotr) -> None:
-        """_save_cursor() persists cursor to database."""
+        """_save_relay_cursor() persists cursor to database."""
         mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
         finder = Finder(brotr=mock_brotr)
-        await finder._save_event_cursor(1700000000, b"\xaa" * 32)
+        await finder._save_relay_cursor("wss://test.relay.com", 1700000000)
 
         mock_brotr.upsert_service_data.assert_called_once()
         call_args = mock_brotr.upsert_service_data.call_args[0][0]
         assert call_args[0][0] == "finder"
         assert call_args[0][1] == "cursor"
-        assert call_args[0][2] == "events"
+        assert call_args[0][2] == "wss://test.relay.com"  # relay URL as key
+        assert call_args[0][3] == {"last_seen_at": 1700000000}
 
     @pytest.mark.asyncio
     async def test_cursor_survives_service_restart(self, mock_brotr: Brotr) -> None:
@@ -713,14 +710,13 @@ class TestFinderCursorPersistence:
         mock_brotr.get_service_data = mock_get  # type: ignore[method-assign]
 
         finder1 = Finder(brotr=mock_brotr)
-        await finder1._save_event_cursor(1700000500, b"\xbb" * 32)
+        await finder1._save_relay_cursor("wss://test.relay.com", 1700000500)
 
         # Simulate restart with new finder instance
         finder2 = Finder(brotr=mock_brotr)
-        cursor = await finder2._load_event_cursor()
+        cursor = await finder2._load_relay_cursor("wss://test.relay.com")
 
-        assert cursor["last_timestamp"] == 1700000500
-        assert cursor["last_id"] == "bb" * 32
+        assert cursor["last_seen_at"] == 1700000500
 
     @pytest.mark.asyncio
     async def test_invalid_cursor_data_handled_gracefully(self, mock_brotr: Brotr) -> None:
@@ -728,23 +724,7 @@ class TestFinderCursorPersistence:
         mock_brotr.get_service_data = AsyncMock(side_effect=Exception("DB Error"))  # type: ignore[method-assign]
 
         finder = Finder(brotr=mock_brotr)
-        cursor = await finder._load_event_cursor()
+        cursor = await finder._load_relay_cursor("wss://test.relay.com")
 
         # Should return empty dict on error
         assert cursor == {}
-
-    @pytest.mark.asyncio
-    async def test_cursor_with_missing_fields_uses_defaults(self, mock_brotr: Brotr) -> None:
-        """Cursor with missing fields uses defaults."""
-        # Cursor with only timestamp, missing last_id
-        incomplete_cursor = {"last_timestamp": 1700000000}
-        mock_brotr.get_service_data = AsyncMock(  # type: ignore[method-assign]
-            return_value=[{"value": incomplete_cursor}]
-        )
-
-        finder = Finder(brotr=mock_brotr)
-        cursor = await finder._load_event_cursor()
-
-        # Should have timestamp but no last_id
-        assert cursor.get("last_timestamp") == 1700000000
-        assert cursor.get("last_id") is None

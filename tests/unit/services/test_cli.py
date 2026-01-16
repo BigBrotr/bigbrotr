@@ -71,20 +71,9 @@ class TestServiceRegistry:
         expected = {"seeder", "finder", "validator", "monitor", "synchronizer"}
         assert set(SERVICE_REGISTRY.keys()) == expected
 
-    def test_seeder_is_oneshot(self) -> None:
-        """Test seeder is marked as oneshot."""
-        _, _, is_oneshot = SERVICE_REGISTRY["seeder"]
-        assert is_oneshot is True
-
-    def test_continuous_services_not_oneshot(self) -> None:
-        """Test continuous services are not oneshot."""
-        for name in ["finder", "validator", "monitor", "synchronizer"]:
-            _, _, is_oneshot = SERVICE_REGISTRY[name]
-            assert is_oneshot is False, f"{name} should not be oneshot"
-
     def test_service_config_paths(self) -> None:
         """Test each service has correct config path."""
-        for name, (_, config_path, _) in SERVICE_REGISTRY.items():
+        for name, (_, config_path) in SERVICE_REGISTRY.items():
             expected = YAML_BASE / "services" / f"{name}.yaml"
             assert config_path == expected, f"{name} config path mismatch"
 
@@ -100,8 +89,13 @@ class TestServiceRegistry:
             "synchronizer": Synchronizer,
         }
 
-        for name, (service_class, _, _) in SERVICE_REGISTRY.items():
+        for name, (service_class, _) in SERVICE_REGISTRY.items():
             assert service_class == expected_classes[name]
+
+    def test_registry_is_two_tuple(self) -> None:
+        """Test registry entries are 2-tuples (class, config_path)."""
+        for name, entry in SERVICE_REGISTRY.items():
+            assert len(entry) == 2, f"{name} should be 2-tuple (class, config_path)"
 
 
 # ============================================================================
@@ -173,6 +167,18 @@ class TestParseArgs:
             pytest.raises(SystemExit),
         ):
             parse_args()
+
+    def test_once_flag_default(self) -> None:
+        """Test --once flag defaults to False."""
+        with patch("sys.argv", ["prog", "finder"]):
+            args = parse_args()
+            assert args.once is False
+
+    def test_once_flag_enabled(self) -> None:
+        """Test --once flag when provided."""
+        with patch("sys.argv", ["prog", "finder", "--once"]):
+            args = parse_args()
+            assert args.once is True
 
 
 # ============================================================================
@@ -283,7 +289,7 @@ seed:
             service_class=Seeder,
             brotr=mock_brotr_for_cli,
             config_path=config_file,
-            is_oneshot=True,
+            once=True,
         )
 
         assert result == 0
@@ -302,7 +308,7 @@ seed:
             service_class=Seeder,
             brotr=mock_brotr_for_cli,
             config_path=config_file,
-            is_oneshot=True,
+            once=True,
         )
 
         assert result == 0
@@ -325,10 +331,37 @@ seed:
                 service_class=Seeder,
                 brotr=mock_brotr_for_cli,
                 config_path=config_file,
-                is_oneshot=True,
+                once=True,
             )
 
         assert result == 1
+
+    @pytest.mark.asyncio
+    async def test_continuous_service_success(
+        self, mock_brotr_for_cli: Brotr, tmp_path: Path
+    ) -> None:
+        """Test continuous service with once=False runs via run_forever."""
+        from services.finder import Finder
+
+        config_file = tmp_path / "finder.yaml"
+        config_file.write_text("""
+interval: 60.0
+max_consecutive_failures: 5
+discovery:
+  enabled_sources: []
+""")
+
+        # Mock run_forever to immediately return
+        with patch.object(Finder, "run_forever", AsyncMock()):
+            result = await run_service(
+                service_name="finder",
+                service_class=Finder,
+                brotr=mock_brotr_for_cli,
+                config_path=config_file,
+                once=False,
+            )
+
+        assert result == 0
 
 
 # ============================================================================
@@ -369,6 +402,7 @@ pool:
                     str(config_file),
                     "--brotr-config",
                     str(brotr_config),
+                    "--once",
                 ],
             ),
             patch("services.__main__.load_brotr", return_value=mock_brotr_for_cli),
