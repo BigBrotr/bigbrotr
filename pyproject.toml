@@ -38,6 +38,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Database",
     "Topic :: Internet",
     "Topic :: System :: Archiving",
@@ -344,6 +345,7 @@ module = [
     "rfc3986.*",
     "geohash2.*",
     "geoip2.*",
+    "dns.*",
 ]
 ignore_missing_imports = true
 

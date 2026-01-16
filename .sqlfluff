@@ -2,11 +2,12 @@
 dialect = postgres
 templater = raw
 max_line_length = 120
-exclude_rules = LT05, LT01, RF06, RF04
+exclude_rules = LT05, LT01, RF06, RF04, ST05
 # LT05: Line too long - SQL often has long lines for readability
 # LT01: Spacing issues - alignment in SQL is often intentional
 # RF06: Unnecessary quoted identifiers - sometimes needed for clarity
 # RF04: Keywords as identifiers - PostgreSQL allows this
+# ST05: Subqueries in select - sometimes clearer than CTEs for simple cases
 
 [sqlfluff:indentation]
 indent_unit = space
