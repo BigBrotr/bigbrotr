@@ -2,7 +2,7 @@
 Unit tests for services.monitor module.
 
 Tests:
-- Configuration models (ProxyConfig, KeysConfig, TimeoutsConfig, etc.)
+- Configuration models (NetworkConfig, KeysConfig, ChecksConfig, etc.)
 - Monitor service initialization
 - Relay selection logic
 - Metadata batch insertion
@@ -21,17 +21,15 @@ from services.monitor import (
     ChecksConfig,
     ConcurrencyConfig,
     GeoConfig,
-    KeysConfig,
     Monitor,
     MonitorConfig,
-    NetworkProxyConfig,
-    ProxyConfig,
     PublishingConfig,
     SelectionConfig,
-    TimeoutsConfig,
     build_kind_10166_tags,
     build_kind_30166_tags,
 )
+from utils.keys import KeysConfig
+from utils.network import NetworkConfig, NetworkTypeConfig
 
 
 # ============================================================================
@@ -54,63 +52,118 @@ class TestRelayType:
 
 
 # ============================================================================
-# ProxyConfig Tests
+# NetworkConfig Tests
 # ============================================================================
 
 
-class TestNetworkProxyConfig:
-    """Tests for NetworkProxyConfig Pydantic model."""
+class TestNetworkTypeConfig:
+    """Tests for NetworkTypeConfig Pydantic model."""
 
     def test_default_values(self) -> None:
-        """Test default network proxy config."""
-        config = NetworkProxyConfig()
-
-        assert config.enabled is False
-        assert config.url == ""
-
-    def test_custom_values(self) -> None:
-        """Test custom network proxy config."""
-        config = NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:9050")
+        """Test default network type config."""
+        config = NetworkTypeConfig()
 
         assert config.enabled is True
-        assert config.url == "socks5://127.0.0.1:9050"
+        assert config.proxy_url is None
+        assert config.max_tasks == 10
+        assert config.timeout == 10.0
+
+    def test_custom_values(self) -> None:
+        """Test custom network type config."""
+        config = NetworkTypeConfig(
+            enabled=True,
+            proxy_url="socks5://127.0.0.1:9050",
+            max_tasks=20,
+            timeout=30.0,
+        )
+
+        assert config.enabled is True
+        assert config.proxy_url == "socks5://127.0.0.1:9050"
+        assert config.max_tasks == 20
+        assert config.timeout == 30.0
 
 
-class TestProxyConfig:
-    """Tests for ProxyConfig Pydantic model."""
+class TestNetworkConfig:
+    """Tests for NetworkConfig Pydantic model."""
 
     def test_default_values(self) -> None:
-        """Test default proxy config has Tor enabled."""
-        config = ProxyConfig()
+        """Test default network config (only clearnet enabled by default)."""
+        config = NetworkConfig()
 
-        assert config.tor.enabled is True
-        assert config.tor.url == "socks5://127.0.0.1:9050"
+        # Clearnet defaults (only network enabled by default)
+        assert config.clearnet.enabled is True
+        assert config.clearnet.proxy_url is None
+        assert config.clearnet.max_tasks == 50
+        assert config.clearnet.timeout == 10.0
+
+        # Tor defaults (disabled by default)
+        assert config.tor.enabled is False
+        assert config.tor.proxy_url == "socks5://tor:9050"
+        assert config.tor.max_tasks == 10
+        assert config.tor.timeout == 30.0
+
+        # I2P defaults (disabled by default)
         assert config.i2p.enabled is False
+
+        # Loki defaults (disabled by default)
         assert config.loki.enabled is False
 
     def test_get_proxy_url(self) -> None:
-        """Test get_proxy_url method."""
-        config = ProxyConfig()
+        """Test get_proxy_url method (returns None for disabled networks)."""
+        config = NetworkConfig()
 
-        assert config.get_proxy_url(NetworkType.TOR) == "socks5://127.0.0.1:9050"
-        assert config.get_proxy_url(NetworkType.I2P) is None  # disabled
-        assert config.get_proxy_url(NetworkType.LOKI) is None  # disabled
+        # All overlay networks disabled by default, so return None
+        assert config.get_proxy_url(NetworkType.TOR) is None
+        assert config.get_proxy_url(NetworkType.I2P) is None
+        assert config.get_proxy_url(NetworkType.LOKI) is None
         assert config.get_proxy_url(NetworkType.CLEARNET) is None
 
-    def test_get_proxy_url_with_enabled(self) -> None:
+    def test_get_proxy_url_when_enabled(self) -> None:
         """Test get_proxy_url returns URL when network is enabled."""
-        config = ProxyConfig(i2p=NetworkProxyConfig(enabled=True, url="socks5://127.0.0.1:4447"))
+        config = NetworkConfig(
+            tor=NetworkTypeConfig(enabled=True, proxy_url="socks5://tor:9050"),
+            i2p=NetworkTypeConfig(enabled=True, proxy_url="socks5://i2p:4447"),
+        )
 
-        assert config.get_proxy_url(NetworkType.I2P) == "socks5://127.0.0.1:4447"
+        assert config.get_proxy_url(NetworkType.TOR) == "socks5://tor:9050"
+        assert config.get_proxy_url(NetworkType.I2P) == "socks5://i2p:4447"
 
-    def test_is_network_enabled(self) -> None:
-        """Test is_network_enabled method."""
-        config = ProxyConfig()
+    def test_get_proxy_url_with_disabled(self) -> None:
+        """Test get_proxy_url returns None when network is disabled."""
+        config = NetworkConfig(
+            tor=NetworkTypeConfig(enabled=False, proxy_url="socks5://127.0.0.1:9050")
+        )
 
-        assert config.is_network_enabled(NetworkType.TOR) is True
-        assert config.is_network_enabled(NetworkType.I2P) is False
-        assert config.is_network_enabled(NetworkType.LOKI) is False
-        assert config.is_network_enabled(NetworkType.CLEARNET) is False
+        assert config.get_proxy_url(NetworkType.TOR) is None
+
+    def test_is_enabled(self) -> None:
+        """Test is_enabled method (only clearnet enabled by default)."""
+        config = NetworkConfig()
+
+        assert config.is_enabled(NetworkType.CLEARNET) is True
+        assert config.is_enabled(NetworkType.TOR) is False
+        assert config.is_enabled(NetworkType.I2P) is False
+        assert config.is_enabled(NetworkType.LOKI) is False
+
+    def test_get_enabled_networks(self) -> None:
+        """Test get_enabled_networks method (only clearnet by default)."""
+        config = NetworkConfig()
+
+        enabled = config.get_enabled_networks()
+        assert enabled == ["clearnet"]
+
+    def test_get_enabled_networks_with_overlay(self) -> None:
+        """Test get_enabled_networks with overlay networks enabled."""
+        config = NetworkConfig(
+            tor=NetworkTypeConfig(enabled=True),
+            i2p=NetworkTypeConfig(enabled=True),
+        )
+
+        enabled = config.get_enabled_networks()
+        assert "clearnet" in enabled
+        assert "tor" in enabled
+        assert "i2p" in enabled
+        assert "loki" not in enabled
 
 
 # ============================================================================
@@ -228,43 +281,6 @@ class TestGeoConfig:
 
 
 # ============================================================================
-# TimeoutsConfig Tests
-# ============================================================================
-
-
-class TestTimeoutsConfig:
-    """Tests for TimeoutsConfig."""
-
-    def test_default_values(self) -> None:
-        """Test default timeouts config."""
-        config = TimeoutsConfig()
-
-        assert config.clearnet == 30.0
-        assert config.tor == 60.0
-
-    def test_custom_values(self) -> None:
-        """Test custom timeouts values."""
-        config = TimeoutsConfig(clearnet=45.0, tor=90.0)
-
-        assert config.clearnet == 45.0
-        assert config.tor == 90.0
-
-    def test_validation_constraints(self) -> None:
-        """Test validation constraints."""
-        with pytest.raises(ValueError):
-            TimeoutsConfig(clearnet=4.0)  # Too low
-
-        with pytest.raises(ValueError):
-            TimeoutsConfig(clearnet=121.0)  # Too high
-
-        with pytest.raises(ValueError):
-            TimeoutsConfig(tor=9.0)  # Too low
-
-        with pytest.raises(ValueError):
-            TimeoutsConfig(tor=181.0)  # Too high
-
-
-# ============================================================================
 # ConcurrencyConfig Tests
 # ============================================================================
 
@@ -276,23 +292,23 @@ class TestMonitorConcurrencyConfig:
         """Test default concurrency config."""
         config = ConcurrencyConfig()
 
-        assert config.max_parallel == 50
+        assert config.max_processes == 1
         assert config.batch_size == 50
 
     def test_custom_values(self) -> None:
         """Test custom concurrency values."""
-        config = ConcurrencyConfig(max_parallel=100, batch_size=100)
+        config = ConcurrencyConfig(max_processes=2, batch_size=100)
 
-        assert config.max_parallel == 100
+        assert config.max_processes == 2
         assert config.batch_size == 100
 
     def test_validation_constraints(self) -> None:
         """Test validation constraints."""
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel=0)
+            ConcurrencyConfig(max_processes=0)
 
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel=501)
+            ConcurrencyConfig(max_processes=33)
 
         with pytest.raises(ValueError):
             ConcurrencyConfig(batch_size=0)
@@ -341,7 +357,9 @@ class TestMonitorConfig:
             checks=ChecksConfig(geo=False),
         )
 
-        assert config.proxy.tor.enabled is True
+        # Only clearnet enabled by default
+        assert config.networks.clearnet.enabled is True
+        assert config.networks.tor.enabled is False
         assert config.keys.keys is None
         assert config.publishing.destination == "database_only"
 
@@ -702,13 +720,15 @@ class TestBuildKind10166Tags:
         assert tag_dict["frequency"][0] == "3600"
 
     def test_timeout_tags_nip66_format(self, tmp_path: Path) -> None:
-        """Test timeout tags follow NIP-66 format: [timeout, ms, test_type]."""
+        """Test timeout tags follow NIP-66 format: [timeout, test_type, ms]."""
         geo_db = tmp_path / "GeoLite2-City.mmdb"
         geo_db.write_bytes(b"fake")
 
         config = MonitorConfig(
             interval=3600,
-            timeouts=TimeoutsConfig(clearnet=30.0),
+            networks=NetworkConfig(
+                clearnet=NetworkTypeConfig(enabled=True, timeout=30.0)
+            ),
             publishing=PublishingConfig(destination="database_only"),
             checks=ChecksConfig(geo=False),
         )
@@ -761,14 +781,14 @@ class TestMonitorInit:
         geo_db.write_bytes(b"fake")
 
         config = MonitorConfig(
-            proxy=ProxyConfig(tor=NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:9050")),
+            networks=NetworkConfig(tor=NetworkTypeConfig(enabled=False)),
             selection=SelectionConfig(min_age_since_check=7200),
             publishing=PublishingConfig(destination="database_only"),
             checks=ChecksConfig(geo=False),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
 
-        assert monitor.config.proxy.tor.enabled is False
+        assert monitor.config.networks.tor.enabled is False
         assert monitor.config.selection.min_age_since_check == 7200
 
 
@@ -884,7 +904,7 @@ class TestMonitorFetchRelays:
         )
 
         config = MonitorConfig(
-            proxy=ProxyConfig(tor=NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:9050")),
+            networks=NetworkConfig(tor=NetworkTypeConfig(enabled=False)),
             publishing=PublishingConfig(destination="database_only"),
             checks=ChecksConfig(geo=False),
         )
