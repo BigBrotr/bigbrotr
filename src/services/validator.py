@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar
 
@@ -47,7 +46,10 @@ from models.relay import NetworkType
 from utils.network import NetworkConfig
 from utils.transport import is_nostr_relay
 
+
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from core.brotr import Brotr
 
 
@@ -525,7 +527,7 @@ class Validator(BaseService[ValidatorConfig]):
         )
 
     # -------------------------------------------------------------------------
-    # Validation (I/O)
+    # Validation - I/O
     # -------------------------------------------------------------------------
 
     async def _process_candidate(self, relay: Relay, failed_attempts: int) -> None:

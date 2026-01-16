@@ -127,6 +127,12 @@ class ConcurrencyConfig(BaseModel):
     """Concurrency configuration for parallel relay checking."""
 
     max_processes: int = Field(default=1, ge=1, le=32, description="Number of worker processes")
+    max_parallel: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description="Maximum parallel relay checks per process",
+    )
     batch_size: int = Field(
         default=50,
         ge=1,
