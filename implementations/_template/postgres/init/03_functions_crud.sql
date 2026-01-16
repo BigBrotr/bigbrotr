@@ -264,6 +264,7 @@ $$;
 -- ----------------------------------------------------------------------------
 -- service_data_upsert
 -- ----------------------------------------------------------------------------
+-- Note: Uses merge (||) so new fields override existing, but unspecified fields are preserved
 CREATE OR REPLACE FUNCTION service_data_upsert(
     p_service_names TEXT[],
     p_data_types TEXT[],
@@ -285,7 +286,7 @@ BEGIN
     )
     ON CONFLICT (service_name, data_type, data_key)
     DO UPDATE SET
-        data = EXCLUDED.data,
+        data = service_data.data || EXCLUDED.data,
         updated_at = EXCLUDED.updated_at;
 END;
 $$;

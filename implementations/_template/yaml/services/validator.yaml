@@ -5,15 +5,13 @@
 # Used by: src/services/validator.py
 # Run mode: Continuous (runs every interval) or one-shot (--once flag)
 # Dependencies: Seeder/Finder write candidates to service_data
-# ============================================================================
 #
-# PURPOSE:
-# The Validator service processes candidate relay URLs by:
-# 1. Attempting WebSocket connection
-# 2. Verifying relay protocol compliance (REQ/response test)
-# 3. Adding valid relays to the relays table
-# 4. Tracking failed attempts for retry/cleanup
-#
+# Architecture: Stream (DB pages) -> Workers (per-network semaphores) -> Batch Collector
+# Features:
+#   - Pure asyncio (optimal for I/O-bound WebSocket validation)
+#   - Per-network concurrency control (max_tasks per network)
+#   - Network-aware timeouts (Tor/I2P need longer)
+#   - Continuous checkpoints (crash-resilient)
 # ============================================================================
 
 # Cycle interval (seconds between validation runs)
@@ -21,77 +19,62 @@
 # Recommendation: 300-600 for production (5-10 minutes)
 interval: 300.0
 
-# Batch processing settings
-batch:
-  # WebSocket connection timeout (seconds)
-  # Range: 0.1 - 60.0
-  # Note: Tor relays may need longer timeouts
-  timeout: 10.0
-
-  # Maximum candidates to validate per cycle (optional)
-  # Candidates with fewer failed attempts are prioritized
-  # Uncomment to limit validation rate:
-  # max_candidates: 100
-
-# Concurrency settings
-concurrency:
-  # Number of worker processes for parallel validation
-  # Range: 1 - 32
-  # Use 1 for single-process mode (asyncio only)
-  processes: 1
-
-  # Concurrent tasks per process
-  # Range: 1 - 100
-  # Higher = faster validation but more memory and connections
-  tasks: 10
-
-# Cleanup settings for failed candidates
-cleanup:
-  enabled: false              # Enable automatic cleanup of max-attempt candidates
-  max_attempts: 10            # Delete candidates after this many failures
-
-# Network configuration for overlay networks
-# Each network requires its own SOCKS5 proxy for connectivity
-network:
-  # Clearnet (regular internet) relays
+# Network configuration with per-network concurrency control
+# Each network type has: enabled, proxy_url, max_tasks, timeout
+networks:
   clearnet:
     enabled: true
+    max_tasks: 50              # High concurrency for fast clearnet relays
+    timeout: 10.0              # Short timeout (clearnet is fast)
 
-  # Tor proxy for .onion relays
   tor:
     enabled: true
     proxy_url: "socks5://tor:9050"
+    max_tasks: 10              # Lower concurrency (Tor is slower)
+    timeout: 30.0              # Longer timeout for Tor latency
 
-  # I2P proxy for .i2p relays
   i2p:
-    enabled: false
+    enabled: false             # Requires I2P proxy
     proxy_url: "socks5://i2p:4447"
+    max_tasks: 5               # Even lower (I2P is slowest)
+    timeout: 45.0              # Longest timeout for I2P
 
-  # Lokinet proxy for .loki relays
   loki:
-    enabled: false
+    enabled: false             # Requires Lokinet (Linux only)
     proxy_url: "socks5://lokinet:1080"
+    max_tasks: 5
+    timeout: 30.0
+
+# Batch sizes for DB operations
+batch:
+  fetch_size: 500              # Candidates to fetch from DB per page
+  max_pending: 500             # Max tasks in memory (backpressure limit)
+  write_size: 100              # Flush to DB every N validations (checkpoint)
+  # max_candidates: null       # Uncomment to limit candidates per run
+
+# Cleanup settings for failed candidates
+cleanup:
+  enabled: false               # Enable automatic cleanup of max-attempt candidates
+  max_attempts: 10             # Delete candidates after this many failures
 
 # ============================================================================
 # CUSTOMIZATION NOTES
 # ============================================================================
 #
 # NO TOR SUPPORT:
-#   network.tor.enabled: false
+#   networks.tor.enabled: false
 #   (Remove tor dependency from docker-compose.yaml)
 #
 # MINIMAL RESOURCES:
 #   interval: 600.0
-#   batch.timeout: 5.0
-#   concurrency.tasks: 5
-#   batch.max_candidates: 50
+#   networks.clearnet.max_tasks: 20
+#   networks.clearnet.timeout: 5.0
 #
 # AGGRESSIVE VALIDATION:
 #   interval: 120.0
-#   concurrency.processes: 4
-#   concurrency.tasks: 25
+#   networks.clearnet.max_tasks: 100
 #
 # SLOW NETWORK:
-#   batch.timeout: 30.0
+#   networks.clearnet.timeout: 30.0
 #
 # ============================================================================
