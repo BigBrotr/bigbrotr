@@ -2,7 +2,7 @@
 Unit tests for services.synchronizer module.
 
 Tests:
-- Configuration models (ProxyConfig, FilterConfig, TimeoutsConfig, NetworkTimeoutsConfig)
+- Configuration models (NetworkConfig, FilterConfig, SyncTimeoutsConfig)
 - Synchronizer service initialization and defaults
 - Relay fetching and metadata-based filtering
 - Start time determination from cursors
@@ -22,15 +22,13 @@ from services.synchronizer import (
     ConcurrencyConfig,
     EventBatch,
     FilterConfig,
-    NetworkProxyConfig,
-    NetworkTimeoutsConfig,
-    ProxyConfig,
     SourceConfig,
     Synchronizer,
     SynchronizerConfig,
-    TimeoutsConfig,
+    SyncTimeoutsConfig,
     TimeRangeConfig,
 )
+from utils.network import NetworkConfig, NetworkTypeConfig
 
 
 # ============================================================================
@@ -96,38 +94,59 @@ class TestRelayType:
 
 
 # ============================================================================
-# ProxyConfig Tests
+# NetworkConfig Tests
 # ============================================================================
 
 
-class TestSyncProxyConfig:
-    """Tests for ProxyConfig Pydantic model."""
+class TestSyncNetworkConfig:
+    """Tests for NetworkConfig Pydantic model (used by Synchronizer)."""
 
     def test_default_values(self) -> None:
-        """Test default proxy config has Tor enabled."""
-        config = ProxyConfig()
+        """Test default network config (only clearnet enabled by default)."""
+        config = NetworkConfig()
 
-        assert config.tor.enabled is True
-        assert config.tor.url == "socks5://127.0.0.1:9050"
+        # Clearnet enabled by default
+        assert config.clearnet.enabled is True
+
+        # Tor disabled by default (but has proxy configured)
+        assert config.tor.enabled is False
+        assert config.tor.proxy_url == "socks5://tor:9050"
+        assert config.tor.max_tasks == 10
+        assert config.tor.timeout == 30.0
+
+        # I2P disabled by default
         assert config.i2p.enabled is False
+        assert config.i2p.proxy_url == "socks5://i2p:4447"
+
+        # Loki disabled by default
         assert config.loki.enabled is False
 
     def test_get_proxy_url(self) -> None:
-        """Test get_proxy_url method."""
-        config = ProxyConfig()
+        """Test get_proxy_url method (returns None for disabled networks)."""
+        config = NetworkConfig()
 
-        assert config.get_proxy_url(NetworkType.TOR) == "socks5://127.0.0.1:9050"
-        assert config.get_proxy_url(NetworkType.I2P) is None  # disabled
-        assert config.get_proxy_url(NetworkType.LOKI) is None  # disabled
+        # All overlay networks disabled by default
+        assert config.get_proxy_url(NetworkType.TOR) is None
+        assert config.get_proxy_url(NetworkType.I2P) is None
+        assert config.get_proxy_url(NetworkType.LOKI) is None
         assert config.get_proxy_url(NetworkType.CLEARNET) is None
 
-    def test_is_network_enabled(self) -> None:
-        """Test is_network_enabled method."""
-        config = ProxyConfig()
+    def test_get_proxy_url_when_enabled(self) -> None:
+        """Test get_proxy_url returns URL when network is enabled."""
+        config = NetworkConfig(
+            tor=NetworkTypeConfig(enabled=True, proxy_url="socks5://tor:9050"),
+        )
 
-        assert config.is_network_enabled(NetworkType.TOR) is True
-        assert config.is_network_enabled(NetworkType.I2P) is False
-        assert config.is_network_enabled(NetworkType.LOKI) is False
+        assert config.get_proxy_url(NetworkType.TOR) == "socks5://tor:9050"
+
+    def test_is_enabled(self) -> None:
+        """Test is_enabled method (only clearnet enabled by default)."""
+        config = NetworkConfig()
+
+        assert config.is_enabled(NetworkType.CLEARNET) is True
+        assert config.is_enabled(NetworkType.TOR) is False
+        assert config.is_enabled(NetworkType.I2P) is False
+        assert config.is_enabled(NetworkType.LOKI) is False
 
 
 # ============================================================================
@@ -247,34 +266,40 @@ class TestTimeRangeConfig:
 
 
 # ============================================================================
-# NetworkTimeoutsConfig Tests
+# SyncTimeoutsConfig Tests
 # ============================================================================
 
 
-class TestNetworkTimeoutsConfig:
-    """Tests for NetworkTimeoutsConfig Pydantic model."""
+class TestSyncTimeoutsConfig:
+    """Tests for SyncTimeoutsConfig Pydantic model."""
 
-    def test_default_clearnet(self) -> None:
-        """Test default clearnet timeouts."""
-        config = TimeoutsConfig()
+    def test_default_values(self) -> None:
+        """Test default sync timeouts."""
+        config = SyncTimeoutsConfig()
 
-        assert config.clearnet.request == 30.0
-        assert config.clearnet.relay == 1800.0
+        assert config.relay_clearnet == 1800.0
+        assert config.relay_tor == 3600.0
+        assert config.relay_i2p == 3600.0
+        assert config.relay_loki == 3600.0
 
-    def test_default_tor(self) -> None:
-        """Test default tor timeouts."""
-        config = TimeoutsConfig()
+    def test_get_relay_timeout(self) -> None:
+        """Test get_relay_timeout method."""
+        config = SyncTimeoutsConfig()
 
-        assert config.tor.request == 60.0
-        assert config.tor.relay == 3600.0
+        assert config.get_relay_timeout(NetworkType.CLEARNET) == 1800.0
+        assert config.get_relay_timeout(NetworkType.TOR) == 3600.0
+        assert config.get_relay_timeout(NetworkType.I2P) == 3600.0
+        assert config.get_relay_timeout(NetworkType.LOKI) == 3600.0
 
-    def test_validation_constraints(self) -> None:
-        """Test validation constraints."""
-        with pytest.raises(ValueError):
-            NetworkTimeoutsConfig(request=4.0)  # Below minimum
+    def test_custom_values(self) -> None:
+        """Test custom sync timeouts."""
+        config = SyncTimeoutsConfig(
+            relay_clearnet=900.0,
+            relay_tor=1800.0,
+        )
 
-        with pytest.raises(ValueError):
-            NetworkTimeoutsConfig(relay=59.0)  # Below minimum
+        assert config.relay_clearnet == 900.0
+        assert config.relay_tor == 1800.0
 
 
 # ============================================================================
@@ -339,26 +364,28 @@ class TestSynchronizerConfig:
     """Tests for SynchronizerConfig Pydantic model."""
 
     def test_default_values(self) -> None:
-        """Test default configuration values."""
+        """Test default configuration values (only clearnet enabled)."""
         config = SynchronizerConfig()
 
-        assert config.proxy.tor.enabled is True
+        assert config.networks.clearnet.enabled is True
+        assert config.networks.tor.enabled is False  # disabled by default
         assert config.filter.limit == 500
         assert config.time_range.default_start == 0
-        assert config.timeouts.clearnet.request == 30.0
+        assert config.networks.clearnet.timeout == 10.0
+        assert config.sync_timeouts.relay_clearnet == 1800.0
         assert config.concurrency.max_parallel == 10
         assert config.source.from_database is True
-        assert config.interval == 900.0
+        assert config.interval == 300.0
 
     def test_custom_nested_config(self) -> None:
-        """Test custom nested configuration."""
+        """Test custom nested configuration with Tor enabled."""
         config = SynchronizerConfig(
-            proxy=ProxyConfig(tor=NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:9050")),
+            networks=NetworkConfig(tor=NetworkTypeConfig(enabled=True)),
             concurrency=ConcurrencyConfig(max_parallel=5),
             interval=1800.0,
         )
 
-        assert config.proxy.tor.enabled is False
+        assert config.networks.tor.enabled is True
         assert config.concurrency.max_parallel == 5
         assert config.interval == 1800.0
 
@@ -372,33 +399,34 @@ class TestSynchronizerInit:
     """Tests for Synchronizer initialization."""
 
     def test_init_with_defaults(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Test initialization with defaults."""
+        """Test initialization with defaults (only clearnet enabled)."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
         assert sync._brotr is mock_synchronizer_brotr
         assert sync.SERVICE_NAME == "synchronizer"
-        assert sync.config.proxy.tor.enabled is True
+        assert sync.config.networks.clearnet.enabled is True
+        assert sync.config.networks.tor.enabled is False
 
     def test_init_with_custom_config(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Test initialization with custom config."""
+        """Test initialization with custom config (Tor enabled)."""
         config = SynchronizerConfig(
-            proxy=ProxyConfig(tor=NetworkProxyConfig(enabled=False, url="socks5://127.0.0.1:9050")),
+            networks=NetworkConfig(tor=NetworkTypeConfig(enabled=True)),
             concurrency=ConcurrencyConfig(max_parallel=5),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
-        assert sync.config.proxy.tor.enabled is False
+        assert sync.config.networks.tor.enabled is True
         assert sync.config.concurrency.max_parallel == 5
 
     def test_from_dict(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test factory method from_dict."""
         data = {
-            "proxy": {"tor": {"enabled": False, "url": "socks5://127.0.0.1:9050"}},
+            "networks": {"tor": {"enabled": True}},
             "concurrency": {"max_parallel": 5},
         }
         sync = Synchronizer.from_dict(data, brotr=mock_synchronizer_brotr)
 
-        assert sync.config.proxy.tor.enabled is False
+        assert sync.config.networks.tor.enabled is True
         assert sync.config.concurrency.max_parallel == 5
 
 
@@ -435,12 +463,12 @@ class TestSynchronizerFetchRelays:
         mock_synchronizer_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
                 {
-                    "relay_url": "wss://relay1.example.com",
+                    "url": "wss://relay1.example.com",
                     "network": "clearnet",
                     "discovered_at": 1700000000,
                 },
                 {
-                    "relay_url": "wss://relay2.example.com",
+                    "url": "wss://relay2.example.com",
                     "network": "clearnet",
                     "discovered_at": 1700000000,
                 },
@@ -461,11 +489,11 @@ class TestSynchronizerFetchRelays:
         mock_synchronizer_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
                 {
-                    "relay_url": "wss://valid.relay.com",
+                    "url": "wss://valid.relay.com",
                     "network": "clearnet",
                     "discovered_at": 1700000000,
                 },
-                {"relay_url": "invalid-url", "network": "unknown", "discovered_at": 1700000000},
+                {"url": "invalid-url", "network": "unknown", "discovered_at": 1700000000},
             ]
         )
 
