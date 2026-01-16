@@ -21,6 +21,8 @@ from typing import Any, ClassVar
 import asyncpg
 from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator, model_validator
 
+from utils.yaml import load_yaml
+
 from .logger import Logger
 
 
@@ -38,7 +40,6 @@ async def _init_connection(conn: asyncpg.Connection[asyncpg.Record]) -> None:
         decoder=json.loads,
         schema="pg_catalog",
     )
-from utils.yaml import load_yaml
 
 
 # ============================================================================
