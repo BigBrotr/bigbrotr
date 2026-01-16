@@ -222,11 +222,6 @@ class TestBrotrCleanup:
         result = await mock_brotr.delete_orphan_metadata()
         assert result == 1
 
-    @pytest.mark.asyncio
-    async def test_delete_failed_candidates(self, mock_brotr):
-        result = await mock_brotr.delete_failed_candidates(max_attempts=10)
-        assert result == 1
-
 
 class TestBrotrContextManager:
     """Brotr async context manager."""
@@ -259,20 +254,18 @@ class TestUpsertServiceData:
         result = await mock_brotr.upsert_service_data(records)
 
         assert result == 1
-        # Verify execute was called with properly serialized JSON
+        # Verify execute was called with list passed directly (JSON codec handles encoding)
         mock_conn = mock_pool._mock_connection
         call_args = mock_conn.execute.call_args
-        # The 4th argument (index 3) is the values list containing JSON strings
+        # The 4th argument (index 3) is the values list containing Python objects
         values_list = call_args[0][4]
         assert len(values_list) == 1
-        # Verify the list was serialized to JSON string
-        import json
-
-        assert json.loads(values_list[0]) == ["item1", "item2", "item3"]
+        # With JSON codec, values are passed as Python objects directly
+        assert values_list[0] == ["item1", "item2", "item3"]
 
     @pytest.mark.asyncio
     async def test_json_fallback_for_nested_objects(self, mock_brotr, mock_pool):
-        """Test complex nested objects serialize correctly."""
+        """Test complex nested objects are passed correctly."""
         # Complex nested structure with various types
         complex_value = {
             "nested": {
@@ -294,53 +287,38 @@ class TestUpsertServiceData:
         result = await mock_brotr.upsert_service_data(records)
 
         assert result == 1
-        # Verify execute was called with properly serialized JSON
+        # Verify execute was called with Python objects (JSON codec handles encoding)
         mock_conn = mock_pool._mock_connection
         call_args = mock_conn.execute.call_args
         values_list = call_args[0][4]
         assert len(values_list) == 1
-        # Verify the complex structure was serialized correctly
-        import json
-
-        deserialized = json.loads(values_list[0])
-        assert deserialized == complex_value
-        assert deserialized["nested"]["level2"]["level3"] == ["a", "b", "c"]
-        assert deserialized["list_of_dicts"][0]["key1"] == "value1"
-        assert deserialized["mixed"] == [1, "string", True, None, {"inner": "dict"}]
+        # With JSON codec, values are passed as Python objects directly
+        assert values_list[0] == complex_value
+        assert values_list[0]["nested"]["level2"]["level3"] == ["a", "b", "c"]
+        assert values_list[0]["list_of_dicts"][0]["key1"] == "value1"
+        assert values_list[0]["mixed"] == [1, "string", True, None, {"inner": "dict"}]
 
     @pytest.mark.asyncio
-    async def test_json_fallback_for_non_serializable(self, mock_brotr, mock_pool):
-        """Test that non-serializable objects trigger the fallback with default=str."""
-        # Create a non-JSON-serializable object (set is not serializable)
-        # The fallback should convert it using str()
-
-        class CustomObject:
-            def __str__(self):
-                return "custom_object_str"
-
-        non_serializable_value = {
-            "custom": CustomObject(),
-            "normal": "value",
-        }
+    async def test_non_dict_values_passed_directly(self, mock_brotr, mock_pool):
+        """Test that non-dict values are passed directly with JSON codec."""
+        # With JSON codec, all Python objects are passed directly - asyncpg handles encoding
         records = [
-            ("validator", "state", "non_serializable_key", non_serializable_value),
+            ("validator", "state", "list_key", ["a", "b", "c"]),
+            ("validator", "state", "int_key", 42),
+            ("validator", "state", "str_key", "simple string"),
         ]
 
-        # This should trigger the fallback path with json.dumps(value, default=str)
         result = await mock_brotr.upsert_service_data(records)
 
-        assert result == 1
-        # Verify execute was called
+        assert result == 3
         mock_conn = mock_pool._mock_connection
         call_args = mock_conn.execute.call_args
         values_list = call_args[0][4]
-        assert len(values_list) == 1
-        # Verify the fallback serialization worked
-        import json
-
-        deserialized = json.loads(values_list[0])
-        assert deserialized["custom"] == "custom_object_str"
-        assert deserialized["normal"] == "value"
+        assert len(values_list) == 3
+        # Values are passed as Python objects
+        assert values_list[0] == ["a", "b", "c"]
+        assert values_list[1] == 42
+        assert values_list[2] == "simple string"
 
     @pytest.mark.asyncio
     async def test_empty_records(self, mock_brotr):
@@ -362,11 +340,10 @@ class TestUpsertServiceData:
         assert result == 3
         mock_conn = mock_pool._mock_connection
         call_args = mock_conn.execute.call_args
-        # Verify all three values were serialized
+        # Verify all three values were passed (now as dicts due to JSON codec)
         values_list = call_args[0][4]
         assert len(values_list) == 3
-        import json
-
-        assert json.loads(values_list[0]) == {"count": 1}
-        assert json.loads(values_list[1]) == {"count": 2}
-        assert json.loads(values_list[2]) == ["a", "b"]
+        # With JSON codecs, values are passed as Python objects (not JSON strings)
+        assert values_list[0] == {"count": 1}
+        assert values_list[1] == {"count": 2}
+        assert values_list[2] == ["a", "b"]

@@ -13,18 +13,18 @@ Tests:
 """
 
 import asyncio
+from unittest.mock import patch
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-from core.base_service import BaseService
+from core.base_service import BaseService, BaseServiceConfig
 from core.brotr import Brotr
 
 
-class ConcreteServiceConfig(BaseModel):
-    """Test configuration."""
+class ConcreteServiceConfig(BaseServiceConfig):
+    """Test configuration inheriting from BaseServiceConfig."""
 
-    interval: float = Field(default=60.0, ge=1.0)
     max_items: int = Field(default=100, ge=1)
     enabled: bool = Field(default=True)
 
@@ -48,15 +48,26 @@ class ConcreteService(BaseService[ConcreteServiceConfig]):
             raise RuntimeError("Simulated failure")
 
 
-class TestClassAttributes:
-    """BaseService class attributes."""
+class TestBaseServiceConfig:
+    """BaseServiceConfig defaults and validation."""
 
-    def test_max_consecutive_failures_default(self):
-        assert BaseService.MAX_CONSECUTIVE_FAILURES == 5
+    def test_defaults(self):
+        config = BaseServiceConfig()
+        assert config.interval == 300.0
+        assert config.max_consecutive_failures == 5
 
-    def test_inherited(self, mock_brotr):
-        service = ConcreteService(brotr=mock_brotr)
-        assert service.MAX_CONSECUTIVE_FAILURES == 5
+    def test_custom_values(self):
+        config = BaseServiceConfig(interval=120.0, max_consecutive_failures=10)
+        assert config.interval == 120.0
+        assert config.max_consecutive_failures == 10
+
+    def test_interval_minimum(self):
+        with pytest.raises(ValueError):
+            BaseServiceConfig(interval=30.0)  # Below 60.0 minimum
+
+    def test_max_consecutive_failures_zero_allowed(self):
+        config = BaseServiceConfig(max_consecutive_failures=0)
+        assert config.max_consecutive_failures == 0
 
 
 class TestInit:
@@ -70,12 +81,18 @@ class TestInit:
 
     def test_with_defaults(self, mock_brotr):
         service = ConcreteService(brotr=mock_brotr)
-        assert service._config.interval == 60.0
+        assert service._config.interval == 300.0  # BaseServiceConfig default
         assert service._config.max_items == 100
 
     def test_service_name(self, mock_brotr):
         service = ConcreteService(brotr=mock_brotr)
         assert service.SERVICE_NAME == "test_service"
+
+    def test_config_property(self, mock_brotr):
+        config = ConcreteServiceConfig(max_items=75)
+        service = ConcreteService(brotr=mock_brotr, config=config)
+        assert service.config.max_items == 75
+        assert service.config is service._config
 
 
 class TestFactoryMethods:
@@ -89,13 +106,14 @@ class TestFactoryMethods:
 
     def test_from_yaml(self, mock_brotr, tmp_path):
         yaml_content = """
-interval: 45.0
+interval: 120.0
 max_items: 75
 """
         config_file = tmp_path / "test_config.yaml"
         config_file.write_text(yaml_content)
         service = ConcreteService.from_yaml(str(config_file), brotr=mock_brotr)
-        assert service._config.interval == 45.0
+        assert service._config.interval == 120.0
+        assert service._config.max_items == 75
 
     def test_from_yaml_file_not_found(self, mock_brotr):
         with pytest.raises(FileNotFoundError):
@@ -154,42 +172,72 @@ class TestRunForever:
 
     @pytest.mark.asyncio
     async def test_executes_run(self, mock_brotr):
-        service = ConcreteService(brotr=mock_brotr)
+        config = ConcreteServiceConfig(interval=60.0)  # Minimum allowed
+        service = ConcreteService(brotr=mock_brotr, config=config)
 
-        async def stop_after_one_run():
-            await asyncio.sleep(0.05)
-            service.request_shutdown()
+        # Mock wait to return True (shutdown requested) after first run
+        wait_calls = 0
 
-        async with service:
-            task = asyncio.create_task(stop_after_one_run())
-            await service.run_forever(interval=0.01)
-            await task
+        async def mock_wait(timeout):
+            nonlocal wait_calls
+            wait_calls += 1
+            return True  # Simulate shutdown requested
+
+        with patch.object(service, "wait", mock_wait):
+            async with service:
+                await service.run_forever()
         assert service.run_count >= 1
 
     @pytest.mark.asyncio
     async def test_stops_on_max_failures(self, mock_brotr):
-        service = ConcreteService(brotr=mock_brotr)
+        config = ConcreteServiceConfig(interval=60.0, max_consecutive_failures=3)
+        service = ConcreteService(brotr=mock_brotr, config=config)
         service.should_fail = True
 
-        async with service:
-            await service.run_forever(interval=0.01, max_consecutive_failures=3)
+        # Mock wait to return False (timeout, continue loop) instantly
+        async def mock_wait(timeout):
+            return False
+
+        with patch.object(service, "wait", mock_wait):
+            async with service:
+                await service.run_forever()
         assert service.fail_count == 3
 
     @pytest.mark.asyncio
     async def test_unlimited_failures_when_zero(self, mock_brotr):
-        service = ConcreteService(brotr=mock_brotr)
+        config = ConcreteServiceConfig(interval=60.0, max_consecutive_failures=0)
+        service = ConcreteService(brotr=mock_brotr, config=config)
         service.should_fail = True
 
-        async def stop_after_many_fails():
-            while service.fail_count < 10:
-                await asyncio.sleep(0.01)
-            service.request_shutdown()
+        # Mock wait to return True (shutdown) after 10 failures
+        async def mock_wait(timeout):
+            return service.fail_count >= 10  # Stop after 10 failures
 
-        async with service:
-            task = asyncio.create_task(stop_after_many_fails())
-            await service.run_forever(interval=0.001, max_consecutive_failures=0)
-            await task
+        with patch.object(service, "wait", mock_wait):
+            async with service:
+                await service.run_forever()
         assert service.fail_count >= 10
+
+    @pytest.mark.asyncio
+    async def test_reads_interval_from_config(self, mock_brotr):
+        """Verify run_forever uses interval from config."""
+        config = ConcreteServiceConfig(interval=60.0)
+        service = ConcreteService(brotr=mock_brotr, config=config)
+
+        # Track interval passed to wait
+        recorded_interval = None
+
+        async def mock_wait(timeout):
+            nonlocal recorded_interval
+            recorded_interval = timeout
+            return True  # Stop immediately
+
+        with patch.object(service, "wait", mock_wait):
+            async with service:
+                await service.run_forever()
+        # Verify interval from config was used
+        assert recorded_interval == 60.0
+        assert service.run_count >= 1
 
 
 class TestAbstract:
@@ -202,6 +250,7 @@ class TestAbstract:
     def test_must_implement_run(self, mock_brotr):
         class IncompleteService(BaseService):
             SERVICE_NAME = "incomplete"
+            CONFIG_CLASS = BaseServiceConfig
 
         with pytest.raises(TypeError):
             IncompleteService(brotr=mock_brotr)

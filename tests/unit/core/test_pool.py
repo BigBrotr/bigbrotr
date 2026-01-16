@@ -36,11 +36,12 @@ class TestDatabaseConfig:
 
     def test_defaults(self, monkeypatch):
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        config = DatabaseConfig(password=None)
+        config = DatabaseConfig()
         assert config.host == "localhost"
         assert config.port == 5432
         assert config.database == "bigbrotr"
         assert config.user == "admin"
+        assert config.password.get_secret_value() == "test_pass"
 
     def test_custom(self):
         config = DatabaseConfig(
@@ -51,18 +52,19 @@ class TestDatabaseConfig:
 
     def test_password_from_env(self, monkeypatch):
         monkeypatch.setenv("DB_PASSWORD", "env_password")
-        config = DatabaseConfig(password=None)
+        config = DatabaseConfig()
         assert config.password.get_secret_value() == "env_password"
 
     def test_password_missing_raises(self, monkeypatch):
         monkeypatch.delenv("DB_PASSWORD", raising=False)
-        with pytest.raises(ValidationError, match="DB_PASSWORD"):
-            DatabaseConfig(password=None)
+        with pytest.raises(ValueError, match="DB_PASSWORD"):
+            DatabaseConfig()
 
     @pytest.mark.parametrize("port", [0, 70000])
-    def test_invalid_port(self, port):
+    def test_invalid_port(self, port, monkeypatch):
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
         with pytest.raises(ValidationError):
-            DatabaseConfig(port=port, password="test")
+            DatabaseConfig(port=port)
 
 
 class TestLimitsConfig:
@@ -178,7 +180,10 @@ class TestPoolConnect:
                 raise ConnectionError("Fail")
             return MagicMock()
 
-        with patch("asyncpg.create_pool", side_effect=mock_create):
+        with (
+            patch("asyncpg.create_pool", side_effect=mock_create),
+            patch("core.pool.asyncio.sleep", AsyncMock()),
+        ):
             await pool.connect()
         assert call_count == 3
 
@@ -192,6 +197,7 @@ class TestPoolConnect:
             patch(
                 "asyncpg.create_pool", new_callable=AsyncMock, side_effect=ConnectionError("Fail")
             ),
+            patch("core.pool.asyncio.sleep", AsyncMock()),
             pytest.raises(ConnectionError, match="2 attempts"),
         ):
             await pool.connect()
@@ -313,8 +319,9 @@ class TestAcquireHealthy:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        async with pool.acquire_healthy(max_retries=3) as conn:
-            assert conn is healthy_conn
+        with patch("core.pool.asyncio.sleep", AsyncMock()):
+            async with pool.acquire_healthy(max_retries=3) as conn:
+                assert conn is healthy_conn
 
 
 class TestPoolContextManager:
@@ -343,20 +350,20 @@ class TestAcquireHealthyRetryExhaustion:
 
     @pytest.mark.asyncio
     async def test_exponential_backoff_timing_verified(self, monkeypatch):
-        """Exponential backoff timing verified."""
-        import time
-
+        """Exponential backoff timing verified via mocked sleep."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         pool = Pool()
 
         unhealthy_conn = MagicMock()
         unhealthy_conn.fetchval = AsyncMock(side_effect=asyncpg.PostgresConnectionError("Dead"))
 
-        call_times: list[float] = []
+        sleep_delays: list[float] = []
+
+        async def mock_sleep(delay):
+            sleep_delays.append(delay)
 
         @asynccontextmanager
         async def mock_acquire():
-            call_times.append(time.time())
             yield unhealthy_conn
 
         mock_asyncpg_pool = MagicMock()
@@ -364,26 +371,16 @@ class TestAcquireHealthyRetryExhaustion:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        with pytest.raises(ConnectionError):
+        with patch("core.pool.asyncio.sleep", mock_sleep), pytest.raises(ConnectionError):
             async with pool.acquire_healthy(max_retries=4):
                 pass
 
-        # Verify we got 4 attempts
-        assert len(call_times) == 4
+        # Verify we got 3 sleep calls (between 4 attempts)
+        assert len(sleep_delays) == 3
 
-        # Verify exponential backoff: delays should be approximately 0.1s, 0.2s, 0.4s
-        # Between attempt 1 and 2: ~0.1s
-        # Between attempt 2 and 3: ~0.2s
-        # Between attempt 3 and 4: ~0.4s
-        if len(call_times) >= 4:
-            delay1 = call_times[1] - call_times[0]
-            delay2 = call_times[2] - call_times[1]
-            delay3 = call_times[3] - call_times[2]
-
-            # Delays should roughly double (with some tolerance for test execution)
-            assert delay1 >= 0.05, f"First delay too short: {delay1}"
-            assert delay2 >= delay1 * 1.5, f"Second delay should be larger: {delay2} vs {delay1}"
-            assert delay3 >= delay2 * 1.5, f"Third delay should be larger: {delay3} vs {delay2}"
+        # Verify exponential backoff pattern: each delay should roughly double
+        assert sleep_delays[1] >= sleep_delays[0] * 1.5, "Second delay should be larger"
+        assert sleep_delays[2] >= sleep_delays[1] * 1.5, "Third delay should be larger"
 
     @pytest.mark.asyncio
     async def test_max_retries_exhausted_raises_pool_error(self, monkeypatch):
@@ -403,7 +400,7 @@ class TestAcquireHealthyRetryExhaustion:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        with pytest.raises(ConnectionError) as exc_info:
+        with patch("core.pool.asyncio.sleep", AsyncMock()), pytest.raises(ConnectionError) as exc_info:
             async with pool.acquire_healthy(max_retries=3):
                 pass
 
@@ -429,7 +426,7 @@ class TestAcquireHealthyRetryExhaustion:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        with pytest.raises(ConnectionError) as exc_info:
+        with patch("core.pool.asyncio.sleep", AsyncMock()), pytest.raises(ConnectionError) as exc_info:
             async with pool.acquire_healthy(max_retries=5):
                 pass
 
@@ -464,8 +461,9 @@ class TestAcquireHealthyRetryExhaustion:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        async with pool.acquire_healthy(max_retries=5) as conn:
-            assert conn is healthy_conn
+        with patch("core.pool.asyncio.sleep", AsyncMock()):
+            async with pool.acquire_healthy(max_retries=5) as conn:
+                assert conn is healthy_conn
 
         # Should have taken 3 attempts (2 failures + 1 success)
         assert call_count == 3
@@ -502,28 +500,29 @@ class TestAcquireHealthyRetryExhaustion:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        async with pool.acquire_healthy(max_retries=5):
-            # Should succeed on 4th attempt
-            pass
+        with patch("core.pool.asyncio.sleep", AsyncMock()):
+            async with pool.acquire_healthy(max_retries=5):
+                # Should succeed on 4th attempt
+                pass
 
         assert attempt == 3  # 3 failures before success
 
     @pytest.mark.asyncio
     async def test_backoff_delay_increases_exponentially(self, monkeypatch):
-        """Backoff delay increases exponentially."""
-        import time
-
+        """Backoff delay increases exponentially via mocked sleep."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         pool = Pool()
 
         unhealthy_conn = MagicMock()
         unhealthy_conn.fetchval = AsyncMock(side_effect=asyncpg.PostgresConnectionError("Dead"))
 
-        timestamps: list[float] = []
+        sleep_delays: list[float] = []
+
+        async def mock_sleep(delay):
+            sleep_delays.append(delay)
 
         @asynccontextmanager
         async def mock_acquire():
-            timestamps.append(time.time())
             yield unhealthy_conn
 
         mock_asyncpg_pool = MagicMock()
@@ -531,20 +530,15 @@ class TestAcquireHealthyRetryExhaustion:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        with pytest.raises(ConnectionError):
+        with patch("core.pool.asyncio.sleep", mock_sleep), pytest.raises(ConnectionError):
             async with pool.acquire_healthy(max_retries=5):
                 pass
 
-        # Should have 5 timestamps
-        assert len(timestamps) == 5
+        # Should have 4 sleep calls (between 5 attempts)
+        assert len(sleep_delays) == 4
 
-        # Calculate delays between attempts
-        delays = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
-
-        # Verify exponential growth pattern: 0.1s, 0.2s, 0.4s, 0.8s
-        # Each delay should be roughly double the previous (with tolerance)
-        for i in range(1, len(delays)):
-            # Allow some tolerance for test execution overhead
-            ratio = delays[i] / delays[i - 1] if delays[i - 1] > 0.01 else 2.0
-            # Ratio should be approximately 2x (1.5x to 3x acceptable due to timing variance)
+        # Verify exponential growth pattern: each delay should roughly double
+        for i in range(1, len(sleep_delays)):
+            ratio = sleep_delays[i] / sleep_delays[i - 1] if sleep_delays[i - 1] > 0.01 else 2.0
+            # Ratio should be approximately 2x (1.5x to 3x acceptable)
             assert 1.5 <= ratio <= 3.0, f"Delay ratio {ratio} at index {i} not exponential"
