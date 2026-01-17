@@ -395,12 +395,86 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # --------------------------------------------------------------------------
+  # Prometheus (Metrics Collection)
+  # --------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.50.1
+    container_name: lilbrotr-prometheus
+    restart: unless-stopped
+
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+    ports:
+      - "127.0.0.1:9091:9090"
+
+    networks:
+      - lilbrotr-network
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # Grafana (Metrics Visualization)
+  # --------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.1
+    container_name: lilbrotr-grafana
+    restart: unless-stopped
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+
+    ports:
+      - "127.0.0.1:3001:3000"
+
+    networks:
+      - lilbrotr-network
+
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
 # ----------------------------------------------------------------------------
 # Volumes
 # ----------------------------------------------------------------------------
+volumes:
+  prometheus-data:
+    name: lilbrotr-prometheus-data
+  grafana-data:
+    name: lilbrotr-grafana-data
 # Uncomment when enabling I2P or Lokinet:
-#
-# volumes:
 #   i2p-data:
 #     name: lilbrotr-i2p-data
 #   lokinet-data:
