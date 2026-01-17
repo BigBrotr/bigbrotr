@@ -5,10 +5,18 @@
 # Workflow: cleanup → fetch chunk → validate in parallel → persist → repeat
 # ============================================================================
 
-# Only override non-default values
+interval: 28800.0  # 8 hours between cycles
+
 metrics:
-  port: 8002  # Default is 8000, each service needs unique port
+  port: 8002
+
+processing:
+  max_candidates: null  # Process all candidates each cycle
+
+cleanup:
+  enabled: true
+  max_failures: 100  # Remove candidates after 100 failed attempts
 
 networks:
   tor:
-    enabled: true  # Default is false
+    enabled: true

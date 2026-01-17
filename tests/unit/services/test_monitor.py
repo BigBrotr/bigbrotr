@@ -2,7 +2,7 @@
 Unit tests for services.monitor module.
 
 Tests:
-- Configuration models (NetworkConfig, KeysConfig, ChecksConfig, etc.)
+- Configuration models (NetworkConfig, ChecksConfig, etc.)
 - Monitor service initialization
 - Relay selection logic
 - Metadata batch insertion
@@ -28,33 +28,24 @@ from services.monitor import (
     build_kind_10166_tags,
     build_kind_30166_tags,
 )
-from utils.keys import KeysConfig
 from utils.network import NetworkConfig, NetworkTypeConfig
 
 
+# Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
+VALID_HEX_KEY = (
+    "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
+)
+
+
 # ============================================================================
-# KeysConfig Tests
+# Fixtures
 # ============================================================================
 
 
-class TestKeysConfig:
-    """Tests for KeysConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        """Test default keys config (no keys)."""
-        config = KeysConfig()
-
-        assert config.keys is None
-
-    def test_keypair_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test private key loaded from environment."""
-        # Use a valid nostr private key (hex format)
-        test_key = "a" * 64
-        monkeypatch.setenv("PRIVATE_KEY", test_key)
-
-        config = KeysConfig()
-
-        assert config.keys is not None
+@pytest.fixture(autouse=True)
+def set_private_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set PRIVATE_KEY environment variable for all monitor tests."""
+    monkeypatch.setenv("PRIVATE_KEY", VALID_HEX_KEY)
 
 
 # ============================================================================
@@ -226,22 +217,10 @@ class TestMonitorConfig:
         # Only clearnet enabled by default
         assert config.networks.clearnet.enabled is True
         assert config.networks.tor.enabled is False
-        assert config.keys.keys is None
+        # keys is not validated when publishing.destination == "database_only"
         assert config.publishing.destination == "database_only"
 
-    def test_publishing_requires_key_validation(self, tmp_path: Path) -> None:
-        """Test publishing with enabled requires private key."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
-        # Should raise because publishing is enabled but no key
-        with pytest.raises(ValueError, match="PRIVATE_KEY"):
-            MonitorConfig(
-                publishing=PublishingConfig(enabled=True, destination="monitored_relay"),
-                checks=ChecksConfig(geo=False),
-            )
-
-    def test_publishing_database_only_no_key_required(self, tmp_path: Path) -> None:
+    def test_publishing_database_only_works(self, tmp_path: Path) -> None:
         """Test publishing to database_only doesn't require key."""
         geo_db = tmp_path / "GeoLite2-City.mmdb"
         geo_db.write_bytes(b"fake")
@@ -256,7 +235,7 @@ class TestMonitorConfig:
 
     def test_geo_database_validation(self) -> None:
         """Test geo check requires database file to exist."""
-        with pytest.raises(ValueError, match="geo.city_database_path"):
+        with pytest.raises(ValueError, match=r"geo\.city_database_path"):
             MonitorConfig(
                 publishing=PublishingConfig(destination="database_only"),
                 checks=ChecksConfig(geo=True),

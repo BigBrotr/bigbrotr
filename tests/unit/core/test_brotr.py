@@ -130,14 +130,14 @@ class TestBrotrInsertEventsRelays:
 
     @pytest.mark.asyncio
     async def test_single(self, mock_brotr, sample_event):
-        inserted, skipped = await mock_brotr.insert_events_relays([sample_event])
+        inserted, _skipped = await mock_brotr.insert_events_relays([sample_event])
         assert inserted == 1
 
     @pytest.mark.asyncio
     async def test_multiple(self, mock_brotr, mock_pool, sample_events_batch):
         # Configure mock to return the batch size (simulating all records inserted)
         mock_pool._mock_connection.fetchval = AsyncMock(return_value=len(sample_events_batch))
-        inserted, skipped = await mock_brotr.insert_events_relays(sample_events_batch)
+        inserted, _skipped = await mock_brotr.insert_events_relays(sample_events_batch)
         assert inserted == len(sample_events_batch)
 
 

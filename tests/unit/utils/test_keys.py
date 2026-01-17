@@ -27,14 +27,20 @@ VALID_NSEC_KEY = (
 class TestLoadKeysFromEnv:
     """load_keys_from_env() function."""
 
-    def test_returns_none_when_not_set(self):
+    def test_raises_when_not_set(self):
+        """Test that ValueError is raised when env var is not set."""
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop("PRIVATE_KEY", None)
-            assert load_keys_from_env("PRIVATE_KEY") is None
+            with pytest.raises(ValueError, match="PRIVATE_KEY environment variable is required"):
+                load_keys_from_env("PRIVATE_KEY")
 
-    def test_returns_none_when_empty(self):
-        with patch.dict(os.environ, {"PRIVATE_KEY": ""}):  # pragma: allowlist secret
-            assert load_keys_from_env("PRIVATE_KEY") is None
+    def test_raises_when_empty(self):
+        """Test that ValueError is raised when env var is empty."""
+        with (
+            patch.dict(os.environ, {"PRIVATE_KEY": ""}),  # pragma: allowlist secret
+            pytest.raises(ValueError, match="PRIVATE_KEY environment variable is required"),
+        ):
+            load_keys_from_env("PRIVATE_KEY")
 
     def test_with_valid_hex_key(self):
         with patch.dict(os.environ, {"PRIVATE_KEY": VALID_HEX_KEY}):
@@ -90,11 +96,12 @@ class TestLoadKeysFromEnv:
 class TestKeysConfigDefaults:
     """KeysConfig default values."""
 
-    def test_keys_none_when_env_not_set(self):
+    def test_raises_when_env_not_set(self):
+        """Test that ValidationError is raised when PRIVATE_KEY is not set."""
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop(ENV_PRIVATE_KEY, None)
-            config = KeysConfig()
-        assert config.keys is None
+            with pytest.raises(Exception):  # noqa: B017
+                KeysConfig()
 
     def test_env_private_key_constant(self):
         assert ENV_PRIVATE_KEY == "PRIVATE_KEY"  # pragma: allowlist secret
@@ -115,10 +122,13 @@ class TestKeysConfigFromEnv:
         assert config.keys is not None
         assert isinstance(config.keys, Keys)
 
-    def test_empty_env_results_in_none(self):
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: ""}):
-            config = KeysConfig()
-        assert config.keys is None
+    def test_raises_when_env_empty(self):
+        """Test that ValidationError is raised when PRIVATE_KEY is empty."""
+        with (
+            patch.dict(os.environ, {ENV_PRIVATE_KEY: ""}),
+            pytest.raises(Exception),  # noqa: B017
+        ):
+            KeysConfig()
 
 
 class TestKeysConfigExplicitKeys:
@@ -130,12 +140,13 @@ class TestKeysConfigExplicitKeys:
             config = KeysConfig(keys=explicit_keys)
         assert config.keys is explicit_keys
 
-    def test_explicit_none_when_env_set(self):
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig(keys=None)
-        # When keys=None is explicit, env is still loaded (model_validator runs before)
-        # This is the expected behavior
-        assert config.keys is None
+    def test_explicit_keys_without_env(self):
+        """Test that explicit keys work even without env var set."""
+        explicit_keys = Keys.generate()
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop(ENV_PRIVATE_KEY, None)
+            config = KeysConfig(keys=explicit_keys)
+        assert config.keys is explicit_keys
 
 
 class TestKeysConfigModelValidator:

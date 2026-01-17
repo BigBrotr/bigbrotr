@@ -213,7 +213,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 3, "x": 0, "y": 6 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 6 },
       "id": 11,
       "options": {
         "colorMode": "value",
@@ -253,8 +253,8 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 3, "x": 3, "y": 6 },
-      "id": 12,
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 6 },
+      "id": 14,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -296,8 +296,8 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 3, "x": 6, "y": 6 },
-      "id": 13,
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 6 },
+      "id": 15,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -340,8 +340,8 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 3, "x": 9, "y": 6 },
-      "id": 14,
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 6 },
+      "id": 16,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
@@ -374,14 +374,14 @@
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }]
+            "steps": [{ "color": "blue", "value": null }]
           },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 3, "x": 12, "y": 6 },
-      "id": 15,
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 10 },
+      "id": 12,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -399,11 +399,11 @@
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "expr": "service_gauge{service=\"validator\", name=\"candidates\"}",
-          "legendFormat": "Candidates",
+          "legendFormat": "Total",
           "refId": "A"
         }
       ],
-      "title": "Candidates",
+      "title": "Candidates Total",
       "type": "stat"
     },
     {
@@ -411,227 +411,6 @@
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 4, "w": 3, "x": 15, "y": 6 },
-      "id": 16,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.4.1",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"validated\"}",
-          "legendFormat": "Valid",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"invalidated\"}",
-          "legendFormat": "Invalid",
-          "refId": "B"
-        }
-      ],
-      "title": "Last Cycle Results",
-      "type": "stat"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 50 },
-              { "color": "green", "value": 80 }
-            ]
-          },
-          "unit": "percent",
-          "max": 100,
-          "min": 0
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 6 },
-      "id": 17,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.4.1",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "100 * scalar(service_gauge{service=\"validator\", name=\"validated\"}) / (scalar(service_gauge{service=\"validator\", name=\"validated\"}) + scalar(service_gauge{service=\"validator\", name=\"invalidated\"}))",
-          "legendFormat": "Rate",
-          "refId": "A"
-        }
-      ],
-      "title": "Validation Rate",
-      "type": "stat"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }]
-          },
-          "unit": "short"
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "Success" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
-          },
-          {
-            "matcher": { "id": "byName", "options": "Failed" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
-          }
-        ]
-      },
-      "gridPos": { "h": 4, "w": 3, "x": 21, "y": 6 },
-      "id": 18,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.4.1",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_counter_total{service=\"validator\", name=\"cycles_success\"}",
-          "legendFormat": "Success",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_counter_total{service=\"validator\", name=\"cycles_failed\"}",
-          "legendFormat": "Failed",
-          "refId": "B"
-        }
-      ],
-      "title": "Total Cycles",
-      "type": "stat"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 10 },
-      "id": 40,
-      "options": {
-        "legend": { "calcs": ["last", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
-      "pluginVersion": "10.4.1",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"candidates\"}",
-          "legendFormat": "Candidates",
-          "refId": "A"
-        }
-      ],
-      "title": "Candidates Over Time",
-      "type": "timeseries"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -650,11 +429,19 @@
           }
         ]
       },
-      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 10 },
-      "id": 41,
+      "gridPos": { "h": 4, "w": 16, "x": 8, "y": 10 },
+      "id": 13,
       "options": {
-        "legend": { "calcs": ["last", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
       },
       "pluginVersion": "10.4.1",
       "targets": [
@@ -671,67 +458,8 @@
           "refId": "B"
         }
       ],
-      "title": "Validation Results Over Time",
-      "type": "timeseries"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }]
-          },
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 10 },
-      "id": 42,
-      "options": {
-        "legend": { "calcs": ["last", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
-      "pluginVersion": "10.4.1",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "rate(cycle_duration_seconds_sum{service=\"validator\"}[5m]) / rate(cycle_duration_seconds_count{service=\"validator\"}[5m])",
-          "legendFormat": "Avg Duration",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "histogram_quantile(0.95, rate(cycle_duration_seconds_bucket{service=\"validator\"}[5m]))",
-          "legendFormat": "p95 Duration",
-          "refId": "B"
-        }
-      ],
-      "title": "Cycle Duration Over Time",
-      "type": "timeseries"
+      "title": "Cycle Results",
+      "type": "stat"
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -768,93 +496,21 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Clearnet" },
+            "matcher": { "id": "byName", "options": "Total" },
             "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }]
           },
           {
-            "matcher": { "id": "byName", "options": "Tor" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } }]
-          }
-        ]
-      },
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 16 },
-      "id": 50,
-      "options": {
-        "legend": { "calcs": ["last"], "displayMode": "table", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
-      "pluginVersion": "10.4.1",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"candidates_clearnet\"}",
-          "legendFormat": "Clearnet",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"candidates_tor\"}",
-          "legendFormat": "Tor",
-          "refId": "B"
-        }
-      ],
-      "title": "Candidates by Network",
-      "type": "timeseries"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }]
-          },
-          "unit": "short"
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "Valid Clearnet" },
+            "matcher": { "id": "byName", "options": "Valid" },
             "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
           },
           {
-            "matcher": { "id": "byName", "options": "Valid Tor" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "semi-dark-green", "mode": "fixed" } }]
-          },
-          {
-            "matcher": { "id": "byName", "options": "Invalid Clearnet" },
+            "matcher": { "id": "byName", "options": "Invalid" },
             "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
-          },
-          {
-            "matcher": { "id": "byName", "options": "Invalid Tor" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "semi-dark-red", "mode": "fixed" } }]
           }
         ]
       },
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 16 },
-      "id": 51,
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 14 },
+      "id": 40,
       "options": {
         "legend": { "calcs": ["last"], "displayMode": "table", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "multi", "sort": "desc" }
@@ -863,171 +519,29 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"validated_clearnet\"}",
-          "legendFormat": "Valid Clearnet",
+          "expr": "service_gauge{service=\"validator\", name=\"candidates\"}",
+          "legendFormat": "Total",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"validated_tor\"}",
-          "legendFormat": "Valid Tor",
+          "expr": "service_gauge{service=\"validator\", name=\"validated\"}",
+          "legendFormat": "Valid",
           "refId": "B"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"invalidated_clearnet\"}",
-          "legendFormat": "Invalid Clearnet",
+          "expr": "service_gauge{service=\"validator\", name=\"invalidated\"}",
+          "legendFormat": "Invalid",
           "refId": "C"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"invalidated_tor\"}",
-          "legendFormat": "Invalid Tor",
-          "refId": "D"
         }
       ],
-      "title": "Validation by Network",
-      "type": "timeseries"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }]
-          },
-          "unit": "short"
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "Promoted" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
-          },
-          {
-            "matcher": { "id": "byName", "options": "Processed" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }]
-          }
-        ]
-      },
-      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 16 },
-      "id": 52,
-      "options": {
-        "legend": { "calcs": ["last"], "displayMode": "table", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
-      "pluginVersion": "10.4.1",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_counter_total{service=\"validator\", name=\"total_promoted\"}",
-          "legendFormat": "Promoted",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_counter_total{service=\"validator\", name=\"total_processed\"}",
-          "legendFormat": "Processed",
-          "refId": "B"
-        }
-      ],
-      "title": "Cumulative Totals",
-      "type": "timeseries"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }]
-          },
-          "unit": "short"
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "Stale" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
-          },
-          {
-            "matcher": { "id": "byName", "options": "Exhausted" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
-          }
-        ]
-      },
-      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 16 },
-      "id": 53,
-      "options": {
-        "legend": { "calcs": ["last"], "displayMode": "table", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
-      "pluginVersion": "10.4.1",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"stale_removed\"}",
-          "legendFormat": "Stale",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"exhausted_removed\"}",
-          "legendFormat": "Exhausted",
-          "refId": "B"
-        }
-      ],
-      "title": "Cleanup Stats",
+      "title": "Cycle Progress",
       "type": "timeseries"
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 },
       "id": 20,
       "panels": [],
       "title": "Monitor",
@@ -1051,7 +565,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 23 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 21 },
       "id": 21,
       "options": {
         "colorMode": "value",
@@ -1091,7 +605,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 23 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 21 },
       "id": 22,
       "options": {
         "colorMode": "value",
@@ -1134,7 +648,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 23 },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 21 },
       "id": 23,
       "options": {
         "colorMode": "value",
@@ -1178,7 +692,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 23 },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 21 },
       "id": 24,
       "options": {
         "colorMode": "value",
@@ -1206,7 +720,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
       "id": 30,
       "panels": [],
       "title": "Synchronizer",
@@ -1230,7 +744,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 28 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 26 },
       "id": 31,
       "options": {
         "colorMode": "value",
@@ -1270,7 +784,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 28 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 26 },
       "id": 32,
       "options": {
         "colorMode": "value",
@@ -1313,7 +827,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 28 },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 26 },
       "id": 33,
       "options": {
         "colorMode": "value",
@@ -1357,7 +871,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 28 },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 26 },
       "id": 34,
       "options": {
         "colorMode": "value",

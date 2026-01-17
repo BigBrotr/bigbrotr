@@ -31,9 +31,21 @@ from services.synchronizer import (
 from utils.network import NetworkConfig, NetworkTypeConfig
 
 
+# Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
+VALID_HEX_KEY = (
+    "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
+)
+
+
 # ============================================================================
 # Fixtures
 # ============================================================================
+
+
+@pytest.fixture(autouse=True)
+def set_private_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set PRIVATE_KEY environment variable for all synchronizer tests."""
+    monkeypatch.setenv("PRIVATE_KEY", VALID_HEX_KEY)
 
 
 @pytest.fixture

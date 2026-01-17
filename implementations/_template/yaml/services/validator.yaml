@@ -64,8 +64,8 @@ cleanup:
   enabled: false
 
   # Number of failed validation attempts before removal (if enabled)
-  # Range: 1-100
-  max_failures: 10
+  # Range: 1-1000
+  max_failures: 100
 
 # -----------------------------------------------------------------------------
 # Network Configuration
