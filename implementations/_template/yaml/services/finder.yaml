@@ -21,6 +21,15 @@
 # Recommendation: 1800-3600 for production
 interval: 3600.0
 
+# Prometheus metrics and health checks
+metrics:
+  enabled: true
+  port: 8001
+  host: "0.0.0.0"
+  path: "/metrics"
+  health:
+    max_cycle_age_seconds: 7200.0  # Unhealthy if no cycle in 2 hours
+
 # Event scanning - discovers relay URLs from stored events
 # Scans events for relay URLs in tags (e.g., relay lists, relay recommendations)
 events:

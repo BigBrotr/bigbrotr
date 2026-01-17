@@ -1,55 +1,52 @@
 # ============================================================================
-# Validator Service Configuration (BigBrotr)
+# Validator Service Configuration
 # ============================================================================
-# Description: Validate candidate relay URLs before adding to relays table
-# Used by: src/services/validator.py
-# Dependencies: Seeder and Finder write candidates to service_data
-#
-# Architecture: Stream (DB pages) -> Workers (per-network semaphores) -> Batch Collector
-# Features:
-#   - Pure asyncio (optimal for I/O-bound WebSocket validation)
-#   - Per-network concurrency control (max_tasks per network)
-#   - Network-aware timeouts (Tor/I2P need longer)
-#   - Continuous checkpoints (crash-resilient)
+# Validates candidate relay URLs before promoting to relays table.
+# Workflow: cleanup → fetch chunk → validate in parallel → persist → repeat
 # ============================================================================
 
-# Cycle interval (seconds between validation runs)
-interval: 28800.0              # 8 hours
+interval: 300.0  # 5 minutes between runs
 
-# Network configuration with per-network concurrency control
-# Each network type has: enabled, proxy_url, max_tasks, timeout
+# Prometheus metrics and health checks
+metrics:
+  enabled: true
+  port: 8002
+  host: "0.0.0.0"
+  path: "/metrics"
+  health:
+    max_cycle_age_seconds: 900.0   # Unhealthy if no cycle in 15 minutes
+
+# Processing
+processing:
+  chunk_size: 100            # Candidates per chunk
+  max_candidates: 500        # Limit per run
+
+# Cleanup of exhausted candidates
+cleanup:
+  enabled: false             # Remove candidates with too many failures
+  max_failures: 10           # Threshold for removal
+
+# Network configuration (per-network concurrency and timeouts)
 networks:
   clearnet:
     enabled: true
-    max_tasks: 20              # Moderate concurrency to avoid rate limiting
-    timeout: 15.0              # Slightly longer timeout for slower relays
+    max_tasks: 50
+    timeout: 10.0
 
   tor:
     enabled: true
     proxy_url: "socks5://tor:9050"
-    max_tasks: 10              # Lower concurrency (Tor is slower)
-    timeout: 30.0              # Longer timeout for Tor latency
+    max_tasks: 10
+    timeout: 30.0
 
   i2p:
-    enabled: false             # Disabled by default (enable i2p service in docker-compose first)
+    enabled: false
     proxy_url: "socks5://i2p:4447"
-    max_tasks: 5               # Even lower (I2P is slowest)
-    timeout: 45.0              # Longest timeout for I2P
+    max_tasks: 5
+    timeout: 45.0
 
   loki:
-    enabled: false             # Disabled by default (requires Lokinet - Linux only)
+    enabled: false
     proxy_url: "socks5://lokinet:1080"
     max_tasks: 5
     timeout: 30.0
-
-# Batch sizes for DB operations
-batch:
-  fetch_size: 500              # Candidates to fetch from DB per page
-  max_pending: 500             # Max tasks in memory (backpressure limit)
-  write_size: 100              # Flush to DB every N validations (checkpoint)
-  # max_candidates: null       # Uncomment to limit candidates per run
-
-# Cleanup settings for failed candidates
-cleanup:
-  enabled: false               # Enable automatic cleanup of max-attempt candidates
-  max_attempts: 10             # Delete candidates after this many failures

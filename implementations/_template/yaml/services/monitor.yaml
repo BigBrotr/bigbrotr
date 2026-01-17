@@ -26,6 +26,15 @@
 # Recommendation: 3600-7200 for production (1-2 hours)
 interval: 3600.0
 
+# Prometheus metrics and health checks
+metrics:
+  enabled: true
+  port: 8003
+  host: "0.0.0.0"
+  path: "/metrics"
+  health:
+    max_cycle_age_seconds: 7200.0  # Unhealthy if no cycle in 2 hours
+
 # Unified network configuration
 # Each network type has: enabled, proxy_url, max_tasks, timeout
 networks:
