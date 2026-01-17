@@ -153,13 +153,12 @@ class MonitorConfig(BaseServiceConfig):
     """Monitor configuration."""
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
-    keys: KeysConfig = Field(default_factory=KeysConfig)
+    keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
     publishing: PublishingConfig = Field(default_factory=PublishingConfig)
     checks: ChecksConfig = Field(default_factory=ChecksConfig)
     geo: GeoConfig = Field(default_factory=GeoConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     selection: SelectionConfig = Field(default_factory=SelectionConfig)
-
 
     @model_validator(mode="after")
     def validate_geo_database_exists(self) -> MonitorConfig:

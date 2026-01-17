@@ -352,7 +352,7 @@ class SynchronizerConfig(BaseServiceConfig):
     """Synchronizer configuration."""
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
-    keys: KeysConfig = Field(default_factory=KeysConfig)
+    keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
     filter: FilterConfig = Field(default_factory=FilterConfig)
     time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
     sync_timeouts: SyncTimeoutsConfig = Field(default_factory=SyncTimeoutsConfig)
