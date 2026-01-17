@@ -1,42 +1,15 @@
-"""
-Validator Service for BigBrotr.
+"""Validates relay candidates by checking if they speak Nostr protocol.
 
-Validates candidate relay URLs discovered by the Finder service:
-- Streams candidates from services table (with cursor-based pagination)
-- Tests WebSocket connectivity with network-aware timeouts
-- Adds valid relays to the relays table
-- Tracks retry count for failed candidates
-
-Architecture:
-    Stream (DB pages) -> Bounded Pending (backpressure) -> Per-network Semaphores -> Batch Collector
-
-Features:
-    - Pure asyncio (Python 3.11+)
-    - Bounded pending tasks (memory efficient, O(max_pending) not O(N))
-    - Per-network semaphores (50 clearnet vs 10 Tor vs 5 I2P)
-    - Network-aware timeouts (10s clearnet vs 30s Tor vs 45s I2P)
-    - Continuous checkpoints (crash-resilient)
-    - Optional max candidates per run
-    - Graceful shutdown support via BaseService
-
-Usage:
-    from core import Brotr
-    from services import Validator
-
-    brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
-    validator = Validator.from_yaml("yaml/services/validator.yaml", brotr=brotr)
-
-    async with brotr.pool:
-        async with validator:
-            await validator.run_forever()
+Valid candidates are promoted to the relays table. Invalid ones have their
+failure counter incremented and will be retried in future cycles.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, ClassVar
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -48,8 +21,6 @@ from utils.transport import is_nostr_relay
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
     from core.brotr import Brotr
 
 
@@ -59,39 +30,15 @@ if TYPE_CHECKING:
 
 
 @dataclass(slots=True)
-class RunStats:
-    """Statistics for a single validation run."""
+class Candidate:
+    """Relay candidate pending validation."""
 
-    validated: int = 0
-    failed: int = 0
-    total_candidates: int = 0
-    start_time: float = field(default_factory=time.time)
-    by_network: dict[NetworkType, dict[str, int]] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if not self.by_network:
-            self.by_network = {net: {"validated": 0, "failed": 0} for net in NetworkType}
+    relay: Relay
+    data: dict[str, Any]
 
     @property
-    def elapsed(self) -> float:
-        return time.time() - self.start_time
-
-    def record_result(self, network: NetworkType, *, valid: bool) -> None:
-        """Record a validation result."""
-        if valid:
-            self.validated += 1
-            self.by_network[network]["validated"] += 1
-        else:
-            self.failed += 1
-            self.by_network[network]["failed"] += 1
-
-    def get_active_networks(self) -> dict[str, dict[str, int]]:
-        """Get stats only for networks with activity."""
-        return {
-            net.value: stats
-            for net, stats in self.by_network.items()
-            if stats["validated"] > 0 or stats["failed"] > 0
-        }
+    def failed_attempts(self) -> int:
+        return self.data.get("failed_attempts", 0)
 
 
 # =============================================================================
@@ -99,92 +46,25 @@ class RunStats:
 # =============================================================================
 
 
-class BatchConfig(BaseModel):
-    """Batch sizes and limits for validation."""
+class ProcessingConfig(BaseModel):
+    """Chunk processing settings."""
 
-    fetch_size: int = Field(
-        default=500,
-        ge=100,
-        le=5000,
-        description="DB page size for streaming candidates",
-    )
-    max_pending: int = Field(
-        default=500,
-        ge=50,
-        le=5000,
-        description="Max pending tasks (memory limit, enables backpressure)",
-    )
-    write_size: int = Field(
-        default=100,
-        ge=10,
-        le=500,
-        description="Flush results to DB every N validations (checkpoint interval)",
-    )
-    max_candidates: int | None = Field(
-        default=None,
-        ge=1,
-        description="Max candidates to validate per run (None = unlimited)",
-    )
+    chunk_size: int = Field(default=100, ge=10, le=1000, description="Candidates per chunk")
+    max_candidates: int | None = Field(default=None, ge=1, description="Limit per run (None=unlimited)")
 
 
 class CleanupConfig(BaseModel):
-    """Cleanup configuration for failed candidates."""
+    """Exhausted candidate cleanup settings."""
 
-    enabled: bool = Field(
-        default=False,
-        description="Enable automatic cleanup of candidates that exceeded max attempts",
-    )
-    max_attempts: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Delete candidates after this many failed validation attempts",
-    )
+    enabled: bool = Field(default=False, description="Remove candidates with too many failures")
+    max_failures: int = Field(default=10, ge=1, le=100, description="Failure threshold for removal")
 
 
 class ValidatorConfig(BaseServiceConfig):
-    """Validator configuration.
-
-    Concurrency is controlled per-network via networks.*.max_tasks.
-    Memory is bounded by batch.max_pending (backpressure kicks in when reached).
-
-    Example YAML:
-        interval: 300.0
-
-        networks:
-          clearnet:
-            enabled: true
-            max_tasks: 50      # Max concurrent clearnet connections
-            timeout: 10.0
-          tor:
-            enabled: true
-            proxy_url: "socks5://tor:9050"
-            max_tasks: 10      # Max concurrent Tor connections
-            timeout: 30.0
-          i2p:
-            enabled: true
-            proxy_url: "socks5://i2p:4447"
-            max_tasks: 5       # Max concurrent I2P connections
-            timeout: 45.0
-          loki:
-            enabled: false
-            proxy_url: "socks5://lokinet:1080"
-            max_tasks: 5
-            timeout: 30.0
-
-        batch:
-          fetch_size: 500      # DB page size
-          max_pending: 500     # Max tasks in memory (backpressure)
-          write_size: 100      # Checkpoint every N results
-          max_candidates: null # null = unlimited, or set a number
-
-        cleanup:
-          enabled: false
-          max_attempts: 10
-    """
+    """Validator service configuration."""
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
-    batch: BatchConfig = Field(default_factory=BatchConfig)
+    processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
     cleanup: CleanupConfig = Field(default_factory=CleanupConfig)
 
 
@@ -194,107 +74,71 @@ class ValidatorConfig(BaseServiceConfig):
 
 
 class Validator(BaseService[ValidatorConfig]):
-    """
-    Relay validation service with bounded pending architecture.
-
-    Validates candidate relay URLs discovered by the Seeder and Finder services.
-    Tests WebSocket connectivity and adds valid relays to the database.
-
-    Architecture:
-        Stream (DB pages) -> Bounded Pending -> Per-network Semaphores -> Batch Collector
-
-    The bounded pending pool ensures:
-        - Memory is O(max_pending), not O(total_candidates)
-        - Backpressure: producer slows down when max_pending reached
-        - Parallelism is maximized (always max_tasks active per network)
-
-    Workflow:
-        1. Remove promoted candidates (data integrity)
-        2. Remove exhausted candidates (cleanup, if enabled)
-        3. Stream candidates from DB with async generator
-        4. Create tasks with backpressure (wait when max_pending reached)
-        5. Each task uses per-network semaphore for concurrency control
-        6. Collect results with lock, auto-flush every write_size
-
-    Features:
-        - Pure asyncio (Python 3.11+)
-        - Bounded memory via max_pending
-        - Per-network semaphores (50 clearnet vs 10 Tor vs 5 I2P)
-        - Network-aware timeouts (10s clearnet vs 30s Tor vs 45s I2P)
-        - Continuous checkpoints (crash-resilient)
-        - Optional max_candidates limit per run
-        - Graceful shutdown (respects BaseService.is_running)
-    """
+    """Relay validation service."""
 
     SERVICE_NAME: ClassVar[str] = "validator"
     CONFIG_CLASS: ClassVar[type[ValidatorConfig]] = ValidatorConfig
 
-    def __init__(
-        self,
-        brotr: Brotr,
-        config: ValidatorConfig | None = None,
-    ) -> None:
+    def __init__(self, brotr: Brotr, config: ValidatorConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: ValidatorConfig
-
-        # Per-network semaphores (created fresh each run)
         self._semaphores: dict[NetworkType, asyncio.Semaphore] = {}
-
-        # Cycle stats (reset each run)
-        self._stats: RunStats = RunStats()
-
-        # Batch collection
-        self._valid_batch: list[tuple[Relay, int]] = []  # (relay, failed_attempts)
-        self._failed_batch: list[tuple[Relay, int]] = []  # (relay, failed_attempts)
-        self._batch_lock: asyncio.Lock = asyncio.Lock()
-
-    # -------------------------------------------------------------------------
-    # Main Entry Point
-    # -------------------------------------------------------------------------
+        self._run_start: float = 0.0
+        self._cycle_valid: int = 0
+        self._cycle_invalid: int = 0
 
     async def run(self) -> None:
-        """Run a single validation cycle."""
-        self._reset_cycle()
-
-        await self._cleanup_promoted_candidates()
-        await self._cleanup_exhausted_candidates()
-
+        self._run_start = time.time()
+        self._cycle_valid = 0
+        self._cycle_invalid = 0
         self._init_semaphores()
-        await self._process_all_candidates()
-        await self._persist_results()
 
-        self._log_cycle_completed()
+        networks = self._config.networks.get_enabled_networks()
+        self._logger.info(
+            "cycle_started",
+            chunk_size=self._config.processing.chunk_size,
+            max_candidates=self._config.processing.max_candidates,
+            networks=networks,
+        )
 
-    # -------------------------------------------------------------------------
-    # Cycle Setup
-    # -------------------------------------------------------------------------
+        await self._cleanup_promoted()
+        await self._cleanup_exhausted()
+        await self._log_candidate_stats(networks)
+        await self._process(networks)
 
-    def _reset_cycle(self) -> None:
-        """Reset state for a new cycle."""
-        self._stats = RunStats()
-        self._valid_batch = []
-        self._failed_batch = []
+        duration = time.time() - self._run_start
+        self._logger.info(
+            "cycle_completed",
+            valid=self._cycle_valid,
+            invalid=self._cycle_invalid,
+            duration_s=round(duration, 1),
+        )
+
+        self.record_items(success=self._cycle_valid, failed=self._cycle_invalid)
 
     def _init_semaphores(self) -> None:
-        """Create per-network semaphores from config."""
+        """Initialize per-network concurrency semaphores."""
         self._semaphores = {
-            NetworkType.CLEARNET: asyncio.Semaphore(self._config.networks.clearnet.max_tasks),
-            NetworkType.TOR: asyncio.Semaphore(self._config.networks.tor.max_tasks),
-            NetworkType.I2P: asyncio.Semaphore(self._config.networks.i2p.max_tasks),
-            NetworkType.LOKI: asyncio.Semaphore(self._config.networks.loki.max_tasks),
+            network: asyncio.Semaphore(self._config.networks.get(network).max_tasks)
+            for network in NetworkType
         }
 
     # -------------------------------------------------------------------------
-    # Cleanup (Data Integrity + Optional Pruning)
+    # Cleanup
     # -------------------------------------------------------------------------
 
-    async def _cleanup_promoted_candidates(self) -> None:
-        """
-        Remove candidates already promoted to relays table.
+    @staticmethod
+    def _parse_delete_count(result: str | None) -> int:
+        """Extract row count from PostgreSQL DELETE result (format: 'DELETE N')."""
+        if not result:
+            return 0
+        try:
+            return int(result.split()[-1])
+        except (ValueError, IndexError):
+            return 0
 
-        Data integrity operation: ensures consistency when a relay was added
-        by another process (e.g., seeder with to_validate=False).
-        """
+    async def _cleanup_promoted(self) -> None:
+        """Remove stale candidates already present in relays table."""
         result = await self._brotr.pool.execute(
             """
             DELETE FROM service_data
@@ -304,16 +148,12 @@ class Validator(BaseService[ValidatorConfig]):
             """,
             timeout=self._brotr.config.timeouts.query,
         )
-        count = int(result.split()[-1]) if result else 0
+        count = self._parse_delete_count(result)
         if count > 0:
-            self._logger.info("cleanup.promoted_removed", count=count)
+            self._logger.info("stale_candidates_removed", count=count)
 
-    async def _cleanup_exhausted_candidates(self) -> None:
-        """
-        Remove candidates that exceeded max validation attempts.
-
-        Optional pruning operation, controlled by cleanup.enabled config.
-        """
+    async def _cleanup_exhausted(self) -> None:
+        """Remove candidates that exceeded the failure threshold."""
         if not self._config.cleanup.enabled:
             return
 
@@ -324,330 +164,184 @@ class Validator(BaseService[ValidatorConfig]):
               AND data_type = 'candidate'
               AND COALESCE((data->>'failed_attempts')::int, 0) >= $1
             """,
-            self._config.cleanup.max_attempts,
+            self._config.cleanup.max_failures,
             timeout=self._brotr.config.timeouts.query,
         )
-        count = int(result.split()[-1]) if result else 0
+        count = self._parse_delete_count(result)
         if count > 0:
-            self._logger.info("cleanup.exhausted_removed", count=count)
+            self._logger.info(
+                "exhausted_candidates_removed",
+                count=count,
+                threshold=self._config.cleanup.max_failures,
+            )
+
+    async def _log_candidate_stats(self, networks: list[str]) -> None:
+        """Log candidate counts by network before processing."""
+        rows = await self._brotr.pool.fetch(
+            """
+            SELECT data->>'network' AS network, COUNT(*) AS count
+            FROM service_data
+            WHERE service_name = 'validator'
+              AND data_type = 'candidate'
+              AND data->>'network' = ANY($1)
+            GROUP BY data->>'network'
+            """,
+            networks,
+            timeout=self._brotr.config.timeouts.query,
+        )
+
+        stats = {row["network"]: row["count"] for row in rows}
+        total = sum(stats.values())
+
+        self._logger.info("candidates_available", total=total, by_network=stats)
 
     # -------------------------------------------------------------------------
-    # Candidate Processing (Producer Loop)
+    # Processing
     # -------------------------------------------------------------------------
 
-    async def _process_all_candidates(self) -> None:
-        """Process candidates with bounded pending set (backpressure).
-
-        Candidates are excluded from fetch when:
-        - updated_at >= cycle_start: already processed this cycle (failed)
-        - url IN relays: already validated this cycle (promoted)
-
-        Additionally, we track processed URLs in memory to handle the race
-        condition where a page is fetched before the flush updates updated_at.
-        """
-        pending: set[asyncio.Task[None]] = set()
-        processed_urls: set[str] = set()
-        cycle_start_ts = int(self._stats.start_time)
-
-        async for relay, failed_attempts in self._stream_candidates(cycle_start_ts):
-            # Check stop conditions
-            if not self.is_running:
-                self._logger.info("cycle.interrupted", reason="shutdown", pending=len(pending))
-                break
-
-            if self._reached_max_candidates():
-                self._logger.info(
-                    "cycle.interrupted",
-                    reason="max_reached",
-                    limit=self._config.batch.max_candidates,
-                )
-                break
-
-            # Skip if already processed (race condition: fetched before flush)
-            if relay.url in processed_urls:
-                continue
-            processed_urls.add(relay.url)
-
-            # Backpressure: wait if pending set is full
-            pending = await self._wait_for_capacity(pending)
-
-            # Create validation task
-            self._stats.total_candidates += 1
-            task = asyncio.create_task(self._process_candidate(relay, failed_attempts))
-            pending.add(task)
-
-        # Drain remaining tasks
-        await self._drain_pending(pending)
-
-    def _reached_max_candidates(self) -> bool:
-        """Check if max candidates limit is reached."""
-        max_candidates = self._config.batch.max_candidates
-        return max_candidates is not None and self._stats.total_candidates >= max_candidates
-
-    async def _wait_for_capacity(self, pending: set[asyncio.Task[None]]) -> set[asyncio.Task[None]]:
-        """Wait until pending set has capacity (backpressure)."""
-        max_pending = self._config.batch.max_pending
-        while len(pending) >= max_pending:
-            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-            self._log_task_errors(done)
-        return pending
-
-    async def _drain_pending(self, pending: set[asyncio.Task[None]]) -> None:
-        """Wait for all pending tasks to complete or cancel on shutdown."""
-        if not pending:
+    async def _process(self, networks: list[str]) -> None:
+        """Process candidates in chunks until exhausted or limit reached."""
+        if not networks:
+            self._logger.warning("no_networks_enabled")
             return
 
-        if not self.is_running:
-            # Graceful shutdown: cancel all pending
-            self._logger.debug("drain.cancelling", count=len(pending))
-            for task in pending:
-                task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
-        else:
-            # Normal drain: wait for completion
-            while pending:
-                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-                self._log_task_errors(done)
-
-    def _log_task_errors(self, done: set[asyncio.Task[None]]) -> None:
-        """Log exceptions from completed tasks."""
-        for task in done:
-            try:
-                exc = task.exception()
-                if exc is not None:
-                    self._logger.warning(
-                        "validate.task_error",
-                        error=str(exc),
-                        error_type=type(exc).__name__,
-                    )
-            except asyncio.CancelledError:
-                pass
-
-    # -------------------------------------------------------------------------
-    # Candidate Streaming (DB Pagination)
-    # -------------------------------------------------------------------------
-
-    async def _stream_candidates(self, before_ts: int) -> AsyncIterator[tuple[Relay, int]]:
-        """
-        Stream candidates from DB with cursor-based pagination.
-
-        Yields (Relay, failed_attempts) tuples ordered by priority score.
-
-        Priority scoring (lower = higher priority):
-        - failed_attempts * 10 (fewer failures = higher priority)
-        - age_in_days (fresher = higher priority)
-        - network_bonus (-5 for clearnet, faster to validate)
-
-        Args:
-            before_ts: Only fetch candidates with updated_at < this timestamp.
-                       Prevents re-fetching candidates updated during this run.
-        """
-        enabled_networks = self._config.networks.get_enabled_networks()
-        if not enabled_networks:
-            self._logger.info("stream.no_networks_enabled")
-            return
+        chunk_index = 0
+        total_processed = 0
 
         while self.is_running:
-            rows = await self._fetch_candidate_page(enabled_networks, before_ts)
+            # Compute chunk limit respecting max_candidates
+            if self._config.processing.max_candidates is not None:
+                remaining = self._config.processing.max_candidates - total_processed
+                if remaining <= 0:
+                    self._logger.debug("max_candidates_reached", limit=self._config.processing.max_candidates)
+                    break
+                limit = min(self._config.processing.chunk_size, remaining)
+            else:
+                limit = self._config.processing.chunk_size
 
-            if not rows:
+            candidates = await self._fetch_candidates(networks, limit)
+            if not candidates:
+                self._logger.debug("no_more_candidates")
                 break
 
-            self._logger.debug("stream.page_fetched", count=len(rows))
+            chunk_index += 1
 
-            for row in rows:
-                try:
-                    relay = Relay(row["data_key"])
-                    failed_attempts = row["data"].get("failed_attempts", 0)
-                    yield relay, failed_attempts
-                except Exception as e:
-                    self._logger.warning(
-                        "stream.parse_error",
-                        url=row["data_key"],
-                        error=str(e),
-                    )
+            # Validate candidates in parallel (bounded by per-network semaphores)
+            tasks = [self._validate_candidate(c) for c in candidates]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _fetch_candidate_page(
-        self,
-        enabled_networks: list[str],
-        before_ts: int,
-    ) -> list:
-        """Fetch a page of candidates to validate.
+            valid_relays: list[Relay] = []
+            failed_candidates: list[Candidate] = []
 
-        Simple query with two exclusion criteria:
-        - updated_at < before_ts: excludes candidates already processed this cycle
-          (their updated_at gets bumped when failed_attempts is incremented)
-        - NOT IN relays: excludes candidates already promoted (validated but not yet
-          deleted from service_data due to batched flush)
+            for candidate, result in zip(candidates, results, strict=True):
+                if result is True:
+                    self._cycle_valid += 1
+                    valid_relays.append(candidate.relay)
+                else:
+                    self._cycle_invalid += 1
+                    failed_candidates.append(candidate)
 
-        No cursor needed - the same query naturally returns different results as:
-        - Failed candidates get updated_at >= before_ts (excluded)
-        - Validated candidates appear in relays table (excluded)
+            total_processed += len(candidates)
 
-        Ordering: failed_attempts ASC, then updated_at ASC
-        - Candidates with fewer failures are tried first (more likely to succeed)
-        - At equal failures, oldest (not tried for longest) have priority
+            await self._persist_results(valid_relays, failed_candidates)
+
+            self._logger.debug(
+                "chunk_completed",
+                chunk=chunk_index,
+                valid=len(valid_relays),
+                invalid=len(failed_candidates),
+                total=total_processed,
+            )
+
+            # Log progress every 10 chunks
+            if chunk_index % 10 == 0:
+                elapsed = time.time() - self._run_start
+                self._logger.info(
+                    "progress",
+                    chunks=chunk_index,
+                    processed=total_processed,
+                    valid=self._cycle_valid,
+                    invalid=self._cycle_invalid,
+                    elapsed_s=round(elapsed, 1),
+                )
+
+    async def _fetch_candidates(self, networks: list[str], limit: int) -> list[Candidate]:
+        """Fetch candidates prioritized by fewest failures, then oldest.
+
+        Only returns candidates updated before this cycle to prevent
+        re-processing freshly persisted ones within the same run.
         """
-        return await self._brotr.pool.fetch(
+        rows = await self._brotr.pool.fetch(
             """
             SELECT data_key, data
             FROM service_data
             WHERE service_name = 'validator'
               AND data_type = 'candidate'
               AND data->>'network' = ANY($1)
-              AND updated_at < $2
               AND data_key NOT IN (SELECT url FROM relays)
+              AND updated_at < $2
             ORDER BY COALESCE((data->>'failed_attempts')::int, 0) ASC,
                      updated_at ASC
             LIMIT $3
             """,
-            enabled_networks,
-            before_ts,
-            self._config.batch.fetch_size,
+            networks,
+            int(self._run_start),
+            limit,
             timeout=self._brotr.config.timeouts.query,
         )
 
-    # -------------------------------------------------------------------------
-    # Validation - I/O
-    # -------------------------------------------------------------------------
+        candidates = []
+        for row in rows:
+            try:
+                relay = Relay(row["data_key"])
+                candidates.append(Candidate(relay=relay, data=dict(row["data"])))
+            except Exception as e:
+                self._logger.warning("candidate_parse_failed", url=row["data_key"], error=str(e))
 
-    async def _process_candidate(self, relay: Relay, failed_attempts: int) -> None:
-        """Validate a single relay and collect result."""
-        is_valid = await self._validate_relay(relay)
-        await self._collect_result(relay, failed_attempts, is_valid)
+        return candidates
 
-    async def _validate_relay(self, relay: Relay) -> bool:
-        """Test if relay speaks Nostr protocol (I/O operation)."""
-        semaphore = self._semaphores[relay.network]
+    async def _validate_candidate(self, candidate: Candidate) -> bool:
+        """Check if candidate speaks Nostr protocol."""
+        relay = candidate.relay
+        semaphore = self._semaphores.get(relay.network)
+
+        if semaphore is None:
+            self._logger.warning("unknown_network", url=relay.url, network=relay.network)
+            return False
 
         async with semaphore:
-            net_config = self._config.networks.get(relay.network)
+            network_config = self._config.networks.get(relay.network)
             proxy_url = self._config.networks.get_proxy_url(relay.network)
 
             try:
-                return await is_nostr_relay(relay, proxy_url, net_config.timeout)
+                return await is_nostr_relay(relay, proxy_url, network_config.timeout)
             except Exception:
                 return False
 
     # -------------------------------------------------------------------------
-    # Result Collection (Batching)
+    # Persistence
     # -------------------------------------------------------------------------
 
-    async def _collect_result(self, relay: Relay, failed_attempts: int, is_valid: bool) -> None:
-        """Collect validation result and auto-flush when batch is full."""
-        async with self._batch_lock:
-            if is_valid:
-                self._valid_batch.append((relay, failed_attempts))
-            else:
-                self._failed_batch.append((relay, failed_attempts))
-
-            self._stats.record_result(relay.network, valid=is_valid)
-
-            # Auto-flush checkpoint
-            total = len(self._valid_batch) + len(self._failed_batch)
-            if total >= self._config.batch.write_size:
-                await self._persist_results_unlocked()
-
-    # -------------------------------------------------------------------------
-    # Persistence (DB Writes)
-    # -------------------------------------------------------------------------
-
-    async def _persist_results(self) -> None:
-        """Persist all batched results (with lock)."""
-        async with self._batch_lock:
-            await self._persist_results_unlocked()
-
-    async def _persist_results_unlocked(self) -> None:
-        """
-        Write results to DB. Must be called with _batch_lock held.
-
-        Valid relays: insert into relays table, then delete from candidates.
-        Failed relays: increment failed_attempts counter.
-        """
-        await self._persist_valid_batch()
-        await self._persist_failed_batch()
-
-        # Log progress checkpoint
-        self._logger.info(
-            "progress",
-            processed=self._stats.validated + self._stats.failed,
-            validated=self._stats.validated,
-            failed=self._stats.failed,
-            elapsed=round(self._stats.elapsed, 1),
-        )
-
-    async def _persist_valid_batch(self) -> None:
-        """Insert valid relays and remove from candidates."""
-        if not self._valid_batch:
-            return
-
-        try:
-            # Deduplicate by URL (same URL could appear if validated concurrently)
-            seen: set[str] = set()
-            relays: list[Relay] = []
-            for relay, _ in self._valid_batch:
-                if relay.url not in seen:
-                    seen.add(relay.url)
-                    relays.append(relay)
-
-            await self._brotr.insert_relays(relays)
-
-            # Delete from candidates only after successful insert
-            delete_records = [("validator", "candidate", relay.url) for relay in relays]
-            await self._brotr.delete_service_data(delete_records)
-
-            self._logger.debug("flush.valid_persisted", count=len(relays))
-        except Exception as e:
-            self._logger.error(
-                "flush.valid_error",
-                error=str(e),
-                error_type=type(e).__name__,
-                count=len(self._valid_batch),
-            )
-
-        self._valid_batch = []
-
-    async def _persist_failed_batch(self) -> None:
-        """Update failed_attempts counter for failed candidates."""
-        if not self._failed_batch:
-            return
-
-        try:
-            # Deduplicate by URL, keeping highest failed_attempts
-            # (same URL can appear multiple times if validated concurrently)
-            deduplicated: dict[str, int] = {}
-            for relay, attempts in self._failed_batch:
-                current = deduplicated.get(relay.url, -1)
-                deduplicated[relay.url] = max(current, attempts + 1)
-
-            upsert_records = [
-                ("validator", "candidate", url, {"failed_attempts": attempts})
-                for url, attempts in deduplicated.items()
+    async def _persist_results(
+        self, valid_relays: list[Relay], failed_candidates: list[Candidate]
+    ) -> None:
+        """Persist validation results: promote valid, increment failures for invalid."""
+        if failed_candidates:
+            updates = [
+                ("validator", "candidate", c.relay.url, {**c.data, "failed_attempts": c.failed_attempts + 1})
+                for c in failed_candidates
             ]
-            await self._brotr.upsert_service_data(upsert_records)
+            try:
+                await self._brotr.upsert_service_data(updates)
+            except Exception as e:
+                self._logger.error("failures_update_failed", count=len(failed_candidates), error=str(e))
 
-            self._logger.debug("flush.failed_updated", count=len(upsert_records))
-        except Exception as e:
-            self._logger.error(
-                "flush.failed_error",
-                error=str(e),
-                error_type=type(e).__name__,
-                count=len(self._failed_batch),
-            )
-
-        self._failed_batch = []
-
-    # -------------------------------------------------------------------------
-    # Logging
-    # -------------------------------------------------------------------------
-
-    def _log_cycle_completed(self) -> None:
-        """Log cycle completion summary."""
-        self._logger.info(
-            "cycle.completed",
-            candidates=self._stats.total_candidates,
-            validated=self._stats.validated,
-            failed=self._stats.failed,
-            duration=round(self._stats.elapsed, 2),
-            by_network=self._stats.get_active_networks(),
-        )
+        if valid_relays:
+            try:
+                await self._brotr.insert_relays(valid_relays)
+                deletes = [("validator", "candidate", r.url) for r in valid_relays]
+                await self._brotr.delete_service_data(deletes)
+                for relay in valid_relays:
+                    self._logger.info("relay_promoted", url=relay.url, network=relay.network.value)
+            except Exception as e:
+                self._logger.error("promotion_failed", count=len(valid_relays), error=str(e))

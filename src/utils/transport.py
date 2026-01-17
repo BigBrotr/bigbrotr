@@ -137,8 +137,14 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
 
     async def close_connection(self) -> None:
         """Close the WebSocket connection."""
-        await self._ws.close()
-        await self._session.close()
+        try:
+            await self._ws.close()
+        except Exception:
+            pass
+        try:
+            await self._session.close()
+        except Exception:
+            pass
 
 
 class InsecureWebSocketTransport(CustomWebSocketTransport):
@@ -173,7 +179,11 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
             await session.close()
             logger.debug("InsecureWebSocketTransport: connection timeout url=%s", url)
             raise OSError(f"Connection timeout: {url}") from None
-        except Exception as e:
+        except asyncio.CancelledError:
+            await session.close()
+            logger.debug("InsecureWebSocketTransport: cancelled url=%s", url)
+            raise
+        except BaseException as e:
             await session.close()
             logger.debug("InsecureWebSocketTransport: unexpected error url=%s error=%s", url, e)
             raise OSError(f"Connection failed: {e}") from e
@@ -387,7 +397,7 @@ async def is_nostr_relay(
     Args:
         relay: Relay object to validate.
         proxy_url: SOCKS5 proxy URL (required for overlay networks, None for clearnet).
-        timeout: Connection timeout in seconds.
+        timeout: Timeout in seconds for connect and fetch operations.
         suppress_stderr: If True (default), suppress UniFFI traceback noise on stderr.
 
     Returns:
@@ -395,12 +405,12 @@ async def is_nostr_relay(
     """
     from nostr_sdk import Filter, Kind  # noqa: PLC0415
 
-    logger.debug("is_nostr_relay: starting relay=%s network=%s", relay.url, relay.network)
+    logger.debug("is_nostr_relay: starting relay=%s timeout=%s", relay.url, timeout)
 
-    # Use context manager to suppress UniFFI stderr noise (or passthrough if disabled)
     ctx = _suppress_stderr() if suppress_stderr else contextlib.nullcontext()
 
     with ctx:
+        client = None
         try:
             client = await connect_relay(
                 relay=relay,
@@ -408,25 +418,27 @@ async def is_nostr_relay(
                 timeout=timeout,
             )
 
-            try:
-                # Send REQ for kind:1 limit:1
-                req_filter = Filter().kind(Kind(1)).limit(1)
+            req_filter = Filter().kind(Kind(1)).limit(1)
+            await client.fetch_events(req_filter, timedelta(seconds=timeout))
+            logger.debug("is_nostr_relay: valid (EOSE received) relay=%s", relay.url)
+            return True
 
-                # Wait for response with timeout
-                # If relay responds with EOSE (even empty), it's valid
-                await client.fetch_events(req_filter, timedelta(seconds=timeout))
-                logger.debug("is_nostr_relay: valid (EOSE received) relay=%s", relay.url)
-                return True
-
-            finally:
-                await client.disconnect()
+        except TimeoutError:
+            logger.debug("is_nostr_relay: timeout relay=%s", relay.url)
+            return False
 
         except Exception as e:
             # Check if the error indicates AUTH required (NIP-42)
-            # This means the relay speaks Nostr but requires authentication
             error_msg = str(e).lower()
             if "auth" in error_msg:
                 logger.debug("is_nostr_relay: valid (AUTH required) relay=%s", relay.url)
                 return True
             logger.debug("is_nostr_relay: invalid relay=%s error=%s", relay.url, e)
             return False
+
+        finally:
+            if client is not None:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
