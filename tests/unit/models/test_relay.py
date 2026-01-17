@@ -44,10 +44,10 @@ class TestParsing:
         assert r.url == "wss://relay.example.com"
         assert r.port == 443
 
-    def test_default_port_80_omitted(self):
-        """ws:// with port 80 gets upgraded to wss:// (clearnet), port omitted."""
+    def test_non_default_port_80_preserved(self):
+        """ws:// with port 80 gets upgraded to wss://, port 80 kept (not default for wss)."""
         r = Relay("ws://relay.example.com:80")
-        assert r.url == "wss://relay.example.com"
+        assert r.url == "wss://relay.example.com:80"
         assert r.port == 80
 
     def test_path_preserved(self):
