@@ -38,7 +38,13 @@ def ws_relay():
 
 @pytest.fixture
 def complete_rtt_data():
-    """Complete RTT metadata."""
+    """Complete RTT (Round-Trip Time) metadata for NIP-66.
+
+    Contains timing measurements in milliseconds for relay operations:
+    - rtt_open: Time to establish WebSocket connection
+    - rtt_read: Time to receive response to REQ message
+    - rtt_write: Time to receive OK response to EVENT message
+    """
     return {
         "rtt_open": 100,
         "rtt_read": 150,
@@ -48,7 +54,15 @@ def complete_rtt_data():
 
 @pytest.fixture
 def complete_ssl_data():
-    """Complete SSL metadata."""
+    """Complete SSL/TLS certificate metadata for NIP-66.
+
+    Contains certificate details extracted from relay's TLS connection:
+    - Validation: ssl_valid, ssl_expires, ssl_not_before
+    - Subject: ssl_subject_cn, ssl_san (Subject Alternative Names)
+    - Issuer: ssl_issuer, ssl_issuer_cn
+    - Technical: ssl_serial, ssl_version, ssl_fingerprint
+    - Connection: ssl_protocol, ssl_cipher, ssl_cipher_bits
+    """
     return {
         "ssl_valid": True,
         "ssl_subject_cn": "relay.example.com",
@@ -68,7 +82,16 @@ def complete_ssl_data():
 
 @pytest.fixture
 def complete_geo_data():
-    """Complete geo metadata."""
+    """Complete geolocation metadata for NIP-66.
+
+    Contains location data from GeoIP database lookups:
+    - IP: geo_ip
+    - Location: geo_country, geo_country_name, geo_continent, geo_continent_name
+    - Region: geo_region, geo_city, geo_postal
+    - Coordinates: geo_lat, geo_lon, geo_accuracy, geohash
+    - Network: geo_asn, geo_asn_org, geo_network
+    - Metadata: geo_is_eu, geo_tz, geo_geoname_id
+    """
     return {
         "geo_ip": "8.8.8.8",
         "geo_country": "US",
@@ -93,7 +116,14 @@ def complete_geo_data():
 
 @pytest.fixture
 def complete_dns_data():
-    """Complete DNS metadata."""
+    """Complete DNS resolution metadata for NIP-66.
+
+    Contains DNS lookup results for relay hostname:
+    - IPv4: dns_ip (primary), dns_ips (all A records)
+    - IPv6: dns_ipv6 (primary), dns_ips_v6 (all AAAA records)
+    - Records: dns_cname, dns_reverse (PTR), dns_ns
+    - Performance: dns_ttl, dns_rtt (resolution time)
+    """
     return {
         "dns_ip": "8.8.8.8",
         "dns_ipv6": "2001:4860:4860::8888",
@@ -109,7 +139,12 @@ def complete_dns_data():
 
 @pytest.fixture
 def complete_http_data():
-    """Complete HTTP metadata."""
+    """Complete HTTP header metadata for NIP-66.
+
+    Contains server identification from HTTP response headers:
+    - http_server: Server header (e.g., 'nginx/1.24.0')
+    - http_powered_by: X-Powered-By header (e.g., 'Strfry')
+    """
     return {
         "http_server": "nginx/1.24.0",
         "http_powered_by": "Strfry",
@@ -125,7 +160,11 @@ def nip66_full(
     complete_dns_data,
     complete_http_data,
 ):
-    """Nip66 with all metadata types."""
+    """Nip66 instance with all five metadata types populated.
+
+    Used for testing to_relay_metadata() which generates up to 5 RelayMetadata
+    records (one for each metadata type: rtt, ssl, geo, dns, http).
+    """
     return Nip66(
         relay=relay,
         rtt_metadata=complete_rtt_data,
@@ -139,7 +178,11 @@ def nip66_full(
 
 @pytest.fixture
 def nip66_rtt_only(relay, complete_rtt_data):
-    """Nip66 with RTT metadata only."""
+    """Nip66 instance with only RTT metadata (ssl, geo, dns, http are None).
+
+    Used for testing partial metadata scenarios where only connection
+    timing data is available (e.g., overlay networks without SSL/geo).
+    """
     return Nip66(
         relay=relay,
         rtt_metadata=complete_rtt_data,
@@ -149,7 +192,11 @@ def nip66_rtt_only(relay, complete_rtt_data):
 
 @pytest.fixture
 def mock_keys():
-    """Mock Keys object for RTT tests."""
+    """Mock nostr_sdk.Keys object for RTT tests.
+
+    RTT tests require keys to sign test events for write latency measurement.
+    Uses MagicMock to avoid actual key generation overhead in unit tests.
+    """
     keys = MagicMock()
     keys._inner = MagicMock()
     return keys
@@ -157,7 +204,14 @@ def mock_keys():
 
 @pytest.fixture
 def mock_nostr_client():
-    """Mock nostr-sdk client with WebSocketClient transport pattern."""
+    """Mock nostr-sdk Client for RTT connection tests.
+
+    Configures all async methods needed for RTT measurement workflow:
+    - add_relay(), connect(), wait_for_connection(), disconnect()
+    - relay() -> mock relay object with is_connected()
+    - stream_events() -> mock stream for read latency
+    - send_event_builder() -> mock output for write latency
+    """
     mock_client = MagicMock()  # Sync mock since create_client is now sync
     mock_client.add_relay = AsyncMock()  # add_relay is still async
     mock_client.connect = AsyncMock()

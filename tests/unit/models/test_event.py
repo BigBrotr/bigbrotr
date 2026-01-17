@@ -45,7 +45,17 @@ class TestToDbParams:
 
     @pytest.fixture
     def mock_nostr_event(self):
-        """Create a mock nostr_sdk Event with proper method chains."""
+        """Create a mock nostr_sdk Event with proper method chains.
+
+        Configures all required method chains for Event.to_db_params():
+        - id() -> to_hex() -> 64-char hex string
+        - author() -> to_hex() -> 64-char hex string
+        - created_at() -> as_secs() -> int timestamp
+        - kind() -> as_u16() -> int event kind
+        - tags() -> to_vec() -> list of mock tags with as_vec()
+        - content() -> string
+        - signature() -> 128-char hex string
+        """
         mock = MagicMock()
 
         # Mock id() -> returns object with to_hex()

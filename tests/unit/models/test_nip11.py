@@ -26,7 +26,16 @@ def relay():
 
 @pytest.fixture
 def complete_nip11_data():
-    """Complete NIP-11 data with all fields."""
+    """Complete NIP-11 data with all standard fields.
+
+    Includes all fields defined in NIP-11 specification:
+    - Basic info: name, description, banner, icon, pubkey, self, contact
+    - Software: software, version
+    - Policies: privacy_policy, terms_of_service, posting_policy, payments_url
+    - Technical: supported_nips, limitation, retention
+    - Geographic: relay_countries, language_tags, tags
+    - Payment: fees (admission, subscription, publication)
+    """
     return {
         "name": "Test Relay",
         "description": "A test relay for unit tests",
