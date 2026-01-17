@@ -213,7 +213,7 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["python", "-m", "services", "seeder"]
+    command: ["python", "-m", "services", "seeder", "--once"]
 
     logging:
       driver: "json-file"

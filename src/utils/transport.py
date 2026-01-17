@@ -7,9 +7,12 @@ configuration for clearnet and overlay networks (Tor, I2P, Loki).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import os
 import socket
 import ssl
+import sys
 from datetime import timedelta
 from datetime import timedelta as Duration
 from typing import TYPE_CHECKING
@@ -42,6 +45,22 @@ logger = logging.getLogger(__name__)
 
 # Silence nostr-sdk UniFFI callback stack traces (they're handled by our code)
 logging.getLogger("nostr_sdk").setLevel(logging.CRITICAL)
+
+
+@contextlib.contextmanager
+def _suppress_stderr():
+    """Context manager to suppress stderr output from nostr-sdk UniFFI.
+
+    The nostr-sdk Rust library prints raw tracebacks to stderr via UniFFI callbacks
+    that bypass Python's logging system. This temporarily redirects stderr to devnull.
+    """
+    old_stderr = sys.stderr
+    with open(os.devnull, "w") as devnull:  # noqa: PTH123 (os.devnull is cross-platform)
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stderr = old_stderr
 
 
 # --- SSL Error Detection ---
@@ -356,6 +375,7 @@ async def is_nostr_relay(
     relay: Relay,
     proxy_url: str | None = None,
     timeout: float = 10.0,
+    suppress_stderr: bool = True,
 ) -> bool:
     """Check if a relay speaks the Nostr protocol.
 
@@ -368,6 +388,7 @@ async def is_nostr_relay(
         relay: Relay object to validate.
         proxy_url: SOCKS5 proxy URL (required for overlay networks, None for clearnet).
         timeout: Connection timeout in seconds.
+        suppress_stderr: If True (default), suppress UniFFI traceback noise on stderr.
 
     Returns:
         True if relay speaks Nostr protocol, False otherwise.
@@ -376,32 +397,36 @@ async def is_nostr_relay(
 
     logger.debug("is_nostr_relay: starting relay=%s network=%s", relay.url, relay.network)
 
-    try:
-        client = await connect_relay(
-            relay=relay,
-            proxy_url=proxy_url,
-            timeout=timeout,
-        )
+    # Use context manager to suppress UniFFI stderr noise (or passthrough if disabled)
+    ctx = _suppress_stderr() if suppress_stderr else contextlib.nullcontext()
 
+    with ctx:
         try:
-            # Send REQ for kind:1 limit:1
-            req_filter = Filter().kind(Kind(1)).limit(1)
+            client = await connect_relay(
+                relay=relay,
+                proxy_url=proxy_url,
+                timeout=timeout,
+            )
 
-            # Wait for response with timeout
-            # If relay responds with EOSE (even empty), it's valid
-            await client.fetch_events(req_filter, timedelta(seconds=timeout))
-            logger.debug("is_nostr_relay: valid (EOSE received) relay=%s", relay.url)
-            return True
+            try:
+                # Send REQ for kind:1 limit:1
+                req_filter = Filter().kind(Kind(1)).limit(1)
 
-        finally:
-            await client.disconnect()
+                # Wait for response with timeout
+                # If relay responds with EOSE (even empty), it's valid
+                await client.fetch_events(req_filter, timedelta(seconds=timeout))
+                logger.debug("is_nostr_relay: valid (EOSE received) relay=%s", relay.url)
+                return True
 
-    except Exception as e:
-        # Check if the error indicates AUTH required (NIP-42)
-        # This means the relay speaks Nostr but requires authentication
-        error_msg = str(e).lower()
-        if "auth" in error_msg:
-            logger.debug("is_nostr_relay: valid (AUTH required) relay=%s", relay.url)
-            return True
-        logger.debug("is_nostr_relay: invalid relay=%s error=%s", relay.url, e)
-        return False
+            finally:
+                await client.disconnect()
+
+        except Exception as e:
+            # Check if the error indicates AUTH required (NIP-42)
+            # This means the relay speaks Nostr but requires authentication
+            error_msg = str(e).lower()
+            if "auth" in error_msg:
+                logger.debug("is_nostr_relay: valid (AUTH required) relay=%s", relay.url)
+                return True
+            logger.debug("is_nostr_relay: invalid relay=%s error=%s", relay.url, e)
+            return False
