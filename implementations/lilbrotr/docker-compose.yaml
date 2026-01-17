@@ -237,6 +237,9 @@ services:
     volumes:
       - ./yaml:/app/yaml:ro
 
+    ports:
+      - "127.0.0.1:${FINDER_METRICS_PORT:-9001}:8001"  # Prometheus metrics
+
     networks:
       - lilbrotr-network
 
@@ -275,6 +278,9 @@ services:
 
     volumes:
       - ./yaml:/app/yaml:ro
+
+    ports:
+      - "127.0.0.1:${VALIDATOR_METRICS_PORT:-9002}:8002"  # Prometheus metrics
 
     networks:
       - lilbrotr-network
@@ -322,6 +328,9 @@ services:
       - ./yaml:/app/yaml:ro
       - ./static:/app/static:ro
 
+    ports:
+      - "127.0.0.1:${MONITOR_METRICS_PORT:-9003}:8003"  # Prometheus metrics
+
     networks:
       - lilbrotr-network
 
@@ -366,6 +375,9 @@ services:
 
     volumes:
       - ./yaml:/app/yaml:ro
+
+    ports:
+      - "127.0.0.1:${SYNCHRONIZER_METRICS_PORT:-9004}:8004"  # Prometheus metrics
 
     networks:
       - lilbrotr-network
