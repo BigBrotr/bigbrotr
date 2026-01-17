@@ -656,7 +656,7 @@ bigbrotr/
 ├── releases/                          # Release notes
 │   ├── v1.0.0.md
 │   ├── v2.0.0.md
-│   └── v3.0.0.md
+│   └── v3.0.0-draft.md
 │
 ├── .github/                           # GitHub configuration
 │   ├── workflows/ci.yml               # CI pipeline
@@ -738,7 +738,7 @@ For security issues, please see [SECURITY.md](SECURITY.md).
 - [x] Grafana dashboards for monitoring
 - [x] Multi-network support (Clearnet, Tor, I2P, Lokinet)
 - [x] Docker Compose deployment
-- [x] Unit test suite (411+ tests)
+- [x] Unit test suite (708 tests)
 - [x] Pre-commit hooks and CI configuration
 
 ### Planned
