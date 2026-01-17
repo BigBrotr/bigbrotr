@@ -55,7 +55,7 @@ BigBrotr can be deployed using:
 ### Software Requirements
 
 - Docker 20.10+ and Docker Compose 2.0+
-- OR Python 3.9+ for manual deployment
+- OR Python 3.11+ for manual deployment
 - Git
 
 ### Network Requirements

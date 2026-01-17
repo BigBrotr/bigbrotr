@@ -339,10 +339,10 @@ class Nip66:
 
     @property
     def geohash(self) -> str | None:
-        """Geohash of relay location."""
+        """Geohash of relay location (NIP-52, 9 chars precision)."""
         if self.geo_metadata is None:
             return None
-        return self.geo_metadata.data.get("geo_geohash")
+        return self.geo_metadata.data.get("geohash")
 
     @property
     def is_openable(self) -> bool:

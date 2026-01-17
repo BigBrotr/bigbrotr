@@ -31,7 +31,8 @@ seed:
   #   # This is a comment
   #   ws://localhost:8080
   #
-  file_path: seed_relays.txt
+  file_path: static/seed_relays.txt
+  to_validate: true  # If true, add as validation candidates; if false, insert directly into relays table
 
 # ============================================================================
 # CUSTOMIZATION NOTES

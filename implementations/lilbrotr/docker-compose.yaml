@@ -3,7 +3,7 @@
 # ============================================================================
 # Description: Lightweight containerized deployment for LilBrotr
 # Components: PostgreSQL, PGBouncer (clearnet only by default)
-# Note: LilBrotr stores lightweight events (tagvalues only, no tags/content/sig)
+# Note: LilBrotr stores lightweight events (omits tags/content/sig columns, ~60% disk savings)
 # Usage: docker-compose up -d
 #
 # To enable Tor/I2P/Lokinet support:

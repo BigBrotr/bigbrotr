@@ -867,12 +867,12 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         """Run sync in single process using shared sync algorithm."""
         semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel)
 
-        # Collect cursor updates for batch upsert (H8: batch cursor upserts)
+        # Collect cursor updates for batch upsert (reduces DB round-trips)
         cursor_updates: list[tuple[str, str, str, dict[str, Any]]] = []
         cursor_lock = asyncio.Lock()
         cursor_batch_size = BATCH_CURSOR  # Flush every N successful relays
 
-        # Lock for thread-safe counter increments (H9: prevent race conditions)
+        # Lock for thread-safe counter increments (prevents race conditions)
         counter_lock = asyncio.Lock()
 
         async def worker(relay: Relay) -> None:
@@ -914,14 +914,14 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                         _sync_with_timeout(), timeout=relay_timeout
                     )
 
-                    # Thread-safe counter updates (H9)
+                    # Thread-safe counter updates
                     async with counter_lock:
                         self._synced_events += events_synced
                         self._invalid_events += invalid_events
                         self._skipped_events += skipped_events
                         self._synced_relays += 1
 
-                    # Collect cursor update for batch upsert (H8)
+                    # Collect cursor update for batch upsert
                     async with cursor_lock:
                         cursor_updates.append(
                             (
@@ -949,7 +949,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         tasks = [worker(relay) for relay in relays]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Log any exceptions that escaped the worker's try/except (H7)
+        # Log any exceptions that escaped the worker's try/except
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 relay_url = relays[i].url if i < len(relays) else "unknown"
@@ -961,7 +961,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                 )
                 self._failed_relays += 1
 
-        # Final batch upsert for remaining cursors (H8)
+        # Final batch upsert for remaining cursors
         if cursor_updates:
             try:
                 await self._brotr.upsert_service_data(cursor_updates)

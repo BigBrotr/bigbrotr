@@ -26,14 +26,35 @@
 # Recommendation: 3600-7200 for production (1-2 hours)
 interval: 3600.0
 
-# Tor proxy configuration (for .onion relay monitoring)
-tor:
-  enabled: true               # Set to false to skip Tor relay monitoring
-  host: "tor"                 # Tor proxy host (Docker service name)
-  port: 9050                  # Tor SOCKS5 port (Range: 1 - 65535)
+# Unified network configuration
+# Each network type has: enabled, proxy_url, max_tasks, timeout
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 50              # High concurrency for fast clearnet relays
+    timeout: 30.0              # Timeout for relay checks (Range: 5.0 - 120.0)
+
+  tor:
+    enabled: true
+    proxy_url: "socks5://tor:9050"
+    max_tasks: 10              # Lower concurrency (Tor is slower)
+    timeout: 60.0              # Longer timeout for Tor latency (Range: 10.0 - 180.0)
+
+  i2p:
+    enabled: false             # Disabled by default (enable i2p service in docker-compose first)
+    proxy_url: "socks5://i2p:4447"
+    max_tasks: 5               # Even lower (I2P is slowest)
+    timeout: 90.0              # Longest timeout for I2P
+
+  loki:
+    enabled: false             # Disabled by default (requires Lokinet - Linux only)
+    proxy_url: "socks5://lokinet:1080"
+    max_tasks: 5
+    timeout: 60.0
 
 # Nostr keys for NIP-66 events
-# Private key is loaded from PRIVATE_KEY environment variable
+# Required only if checks.write=true or publishing.enabled=true
+# Private key loaded from PRIVATE_KEY environment variable
 keys: {}
 
 # NIP-66 event publishing configuration
@@ -62,20 +83,18 @@ checks:
   geo: true                   # Geolocate relay IP address
 
 # Geolocation configuration
-# Requires MaxMind GeoLite2-City database (free with registration)
+# Requires MaxMind GeoLite2 databases (free with registration)
 # Download from: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
+# Place databases in static/ folder
 geo:
-  database_path: "/usr/share/GeoIP/GeoLite2-City.mmdb"
-  asn_database_path: "/usr/share/GeoIP/GeoLite2-ASN.mmdb"  # Optional, for ASN/ISP info
-
-# Timeouts for relay checks (seconds)
-timeouts:
-  clearnet: 30.0              # Timeout for clearnet relays (Range: 5.0 - 120.0)
-  tor: 60.0                   # Timeout for Tor relays (Range: 10.0 - 180.0)
+  city_database_path: "static/GeoLite2-City.mmdb"
+  asn_database_path: "static/GeoLite2-ASN.mmdb"  # Optional, for ASN/ISP info
+  country_database_path: "static/GeoLite2-Country.mmdb"  # Optional, for country fallback
+  # Update frequency: "monthly", "weekly", "none" (none = never auto-update)
+  update_frequency: "monthly"
 
 # Concurrency settings
 concurrency:
-  max_parallel: 50            # Max concurrent relay checks per process (Range: 1 - 500)
   max_processes: 1            # Number of worker processes (Range: 1 - 32)
   batch_size: 50              # Relays to process before pushing to database (Range: 1 - 500)
 
@@ -102,7 +121,8 @@ selection:
 #
 # MINIMAL RESOURCES:
 #   interval: 7200.0
-#   concurrency.max_parallel: 10
+#   networks.clearnet.max_tasks: 10
+#   networks.tor.max_tasks: 5
 #   concurrency.batch_size: 10
 #   checks:
 #     open: true
@@ -115,7 +135,7 @@ selection:
 #
 # AGGRESSIVE MONITORING:
 #   interval: 1800.0
-#   concurrency.max_parallel: 100
+#   networks.clearnet.max_tasks: 100
 #   concurrency.max_processes: 4
 #
 # ============================================================================

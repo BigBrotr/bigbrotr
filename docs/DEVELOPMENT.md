@@ -19,7 +19,7 @@ This document provides comprehensive guidance for developing and contributing to
 
 ### Prerequisites
 
-- Python 3.9 or higher
+- Python 3.11 or higher
 - Docker and Docker Compose (for database)
 - Git
 

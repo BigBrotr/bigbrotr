@@ -17,10 +17,9 @@ Example:
     from core import Pool, Brotr
     from services import Seeder, Finder, Validator, Monitor, Synchronizer
 
-    pool = Pool.from_yaml("config.yaml")
-    brotr = Brotr(pool=pool)
+    brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
 
-    async with pool:
+    async with brotr:
         # Run seeder
         seeder = Seeder(brotr=brotr)
         await seeder.run()
@@ -28,7 +27,7 @@ Example:
         # Run finder with context manager
         finder = Finder(brotr=brotr)
         async with finder:
-            await finder.run_forever(interval=3600)
+            await finder.run_forever()
 """
 
 from .finder import (

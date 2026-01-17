@@ -11,7 +11,7 @@ Architecture:
     Stream (DB pages) -> Bounded Pending (backpressure) -> Per-network Semaphores -> Batch Collector
 
 Features:
-    - Pure asyncio (Python 3.10+)
+    - Pure asyncio (Python 3.11+)
     - Bounded pending tasks (memory efficient, O(max_pending) not O(N))
     - Per-network semaphores (50 clearnet vs 10 Tor vs 5 I2P)
     - Network-aware timeouts (10s clearnet vs 30s Tor vs 45s I2P)
@@ -217,7 +217,7 @@ class Validator(BaseService[ValidatorConfig]):
         6. Collect results with lock, auto-flush every write_size
 
     Features:
-        - Pure asyncio (Python 3.10+)
+        - Pure asyncio (Python 3.11+)
         - Bounded memory via max_pending
         - Per-network semaphores (50 clearnet vs 10 Tor vs 5 I2P)
         - Network-aware timeouts (10s clearnet vs 30s Tor vs 45s I2P)

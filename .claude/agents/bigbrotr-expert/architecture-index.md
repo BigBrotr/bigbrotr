@@ -44,8 +44,8 @@ Quick reference for BigBrotr component relationships and design patterns.
 +===============================================================+
 |                         Models                                |
 +---------------------------------------------------------------+
-|  Event   Relay   EventRelay   RelayMetadata   Keys   Metadata |
-|  Nip11   Nip66                                                |
+|  Event   Relay   EventRelay   RelayMetadata   Metadata        |
+|  Nip11   Nip66   NetworkType  MetadataType                    |
 +===============================================================+
 ```
 

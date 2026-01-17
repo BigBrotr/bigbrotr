@@ -3,7 +3,7 @@
 # ============================================================================
 # Description: Discover Nostr relay URLs from external APIs and database events
 # See: implementations/bigbrotr/yaml/services/finder.yaml for full config
-# Notes: Discovered URLs are stored as candidates in the services table
+# Notes: Discovered URLs are stored as candidates in the service_data table
 #        for validation by the Validator service before adding to relays
 # ============================================================================
 

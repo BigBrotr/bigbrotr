@@ -40,7 +40,9 @@ from .core import (
 from .models import (
     Event,
     EventRelay,
-    Keys,
+    Metadata,
+    MetadataType,
+    NetworkType,
     Nip11,
     Nip66,
     Relay,
@@ -63,26 +65,23 @@ from .services import (
 
 
 __all__ = [
-    # Core - Base
     "BaseService",
-    # Core - Brotr
     "BatchConfig",
     "Brotr",
     "BrotrConfig",
     "BrotrTimeoutsConfig",
     "ConfigT",
-    # Core - Pool
     "DatabaseConfig",
-    # Models
     "Event",
     "EventRelay",
-    # Services
     "Finder",
     "FinderConfig",
-    "Keys",
     "Logger",
+    "Metadata",
+    "MetadataType",
     "Monitor",
     "MonitorConfig",
+    "NetworkType",
     "Nip11",
     "Nip66",
     "Pool",

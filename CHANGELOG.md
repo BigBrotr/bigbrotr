@@ -53,7 +53,7 @@ Complete architectural rewrite from monolithic prototype to modular, enterprise-
 - 174 unit tests with pytest
 - Pre-commit hooks (ruff, mypy)
 - Comprehensive documentation (ARCHITECTURE, CONFIGURATION, DATABASE, DEVELOPMENT, DEPLOYMENT)
-- GitHub Actions CI pipeline (lint, typecheck, test matrix Python 3.9-3.12, Docker build)
+- GitHub Actions CI pipeline (lint, typecheck, test matrix Python 3.11-3.14, Docker build)
 - Issue templates (bug report, feature request)
 - Pull request template
 - CHANGELOG.md (Keep a Changelog format)

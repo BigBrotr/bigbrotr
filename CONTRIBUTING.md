@@ -25,7 +25,7 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 ### Prerequisites
 
-- Python 3.9 or higher
+- Python 3.11 or higher
 - Docker and Docker Compose
 - Git
 

@@ -12,9 +12,9 @@ Usage:
     brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
     finder = Finder.from_yaml("yaml/services/finder.yaml", brotr=brotr)
 
-    async with brotr.pool:
+    async with brotr:
         async with finder:
-            await finder.run_forever(interval=3600)
+            await finder.run_forever()
 """
 
 from __future__ import annotations

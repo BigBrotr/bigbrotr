@@ -50,5 +50,5 @@ batch:
 timeouts:
   query: 60.0               # Standard queries
   batch: 120.0              # Batch insert operations
-  cleanup: 90.0             # Cleanup procedures (delete_orphan_*, delete_failed_*)
+  cleanup: 90.0             # Cleanup procedures (orphan_*_delete)
   refresh: null             # Materialized view refresh (no timeout - can be slow on large datasets)

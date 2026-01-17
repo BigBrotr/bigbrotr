@@ -74,8 +74,8 @@ BigBrotr employs a **three-layer architecture** that separates infrastructure, b
 |        Immutable data structures, validation, database mapping       |
 +----------------------------------------------------------------------+
 |                                                                      |
-|   Event   Relay   EventRelay   RelayMetadata   Keys   Metadata       |
-|   Nip11   Nip66                                                      |
+|   Event   Relay   EventRelay   RelayMetadata   Metadata              |
+|   Nip11   Nip66   NetworkType  MetadataType                          |
 |                                                                      |
 +======================================================================+
 ```

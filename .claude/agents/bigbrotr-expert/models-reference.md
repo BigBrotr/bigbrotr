@@ -1,6 +1,6 @@
 # Models Reference
 
-Complete documentation for BigBrotr's data models (Relay, Event, EventRelay, Metadata, RelayMetadata, Nip11, Nip66, Keys).
+Complete documentation for BigBrotr's data models (Relay, Event, EventRelay, Metadata, RelayMetadata, Nip11, Nip66, NetworkType, MetadataType).
 
 ## Immutability Pattern
 

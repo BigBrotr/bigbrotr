@@ -73,7 +73,7 @@ def _is_ssl_error(error_message: str) -> bool:
     return any(keyword in error_lower for keyword in _SSL_ERROR_KEYWORDS)
 
 
-# --- Insecure WebSocket Transport (per relay clearnet con certificati invalidi) ---
+# --- Insecure WebSocket Transport (for clearnet relays with invalid certificates) ---
 
 
 class InsecureWebSocketAdapter(WebSocketAdapter):

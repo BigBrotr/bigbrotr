@@ -258,26 +258,6 @@ class TestCleanupIntegration:
         assert isinstance(deleted, int)
         assert deleted >= 0
 
-    @pytest.mark.asyncio
-    @pytest.mark.integration
-    async def test_delete_failed_candidates(self, integration_brotr: Brotr) -> None:
-        """Test failed candidates cleanup."""
-        # Insert a candidate with high failure count
-        await integration_brotr.upsert_service_data(
-            [("validator", "candidate", "wss://failed.test.relay", {"failed_attempts": 15})]
-        )
-
-        # Delete with threshold 10
-        deleted = await integration_brotr.delete_failed_candidates(max_attempts=10)
-        assert isinstance(deleted, int)
-        assert deleted >= 1
-
-        # Verify deletion
-        result = await integration_brotr.get_service_data(
-            "validator", "candidate", "wss://failed.test.relay"
-        )
-        assert len(result) == 0
-
 
 # ============================================================================
 # Pool Metrics Integration Tests

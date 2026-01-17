@@ -172,7 +172,7 @@ Each service runs independently and can be scaled separately based on your needs
 
 ### Modern Python Stack
 
-- **Python 3.9+**: Async-first with `asyncio`
+- **Python 3.11+**: Async-first with `asyncio`
 - **PostgreSQL**: Robust relational storage with JSONB
 - **nostr-sdk**: Rust-powered protocol implementation via Python bindings
 - **Docker**: One-command deployment with compose

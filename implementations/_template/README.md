@@ -68,7 +68,7 @@ implementations/myimpl/
 | Extensions | `btree_gin`, `pgcrypto` |
 | Tables | `relays`, `events`, `events_relays`, `metadata`, `relay_metadata`, `service_data` |
 | CRUD Functions | `*_insert`, `*_insert_cascade`, `service_data_*` |
-| Cleanup Functions | `orphan_*_delete`, `failed_candidates_delete` |
+| Cleanup Functions | `orphan_*_delete` |
 | Indexes | Basic table indexes for performance |
 
 ### Optional (NOT included - add from bigbrotr if needed)
@@ -154,7 +154,6 @@ These functions are called by `src/core/brotr.py` and MUST exist:
 |----------|---------|
 | `orphan_metadata_delete()` | Remove unreferenced metadata |
 | `orphan_events_delete()` | Remove events without relays |
-| `failed_candidates_delete(INTEGER)` | Remove failed candidates |
 
 ## Services
 

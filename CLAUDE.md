@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-BigBrotr is a modular Nostr data archiving and monitoring system built with Python 3.10+ and PostgreSQL. It provides relay discovery, health monitoring (NIP-11/NIP-66), and event synchronization with Tor network support.
+BigBrotr is a modular Nostr data archiving and monitoring system built with Python 3.11+ and PostgreSQL. It provides relay discovery, health monitoring (NIP-11/NIP-66), and event synchronization with Tor network support.
 
 ## Common Commands
 
@@ -60,7 +60,7 @@ Core Layer (src/core/)
         │
         ▼
 Models Layer (src/models/)
-  └── Event, Relay, EventRelay, Keys, Metadata, Nip11, Nip66, RelayMetadata
+  └── Event, Relay, EventRelay, Metadata, Nip11, Nip66, RelayMetadata
 ```
 
 **Note on Data Storage**: The `Nip11` and `Nip66` Python models are stored in the unified
@@ -234,7 +234,7 @@ For developing, troubleshooting, and extending the BigBrotr codebase.
 **Expertise Areas:**
 1. **Core layer**: Pool, Brotr, BaseService, Logger
 2. **Service layer**: Seeder, Finder, Validator, Monitor, Synchronizer
-3. **Data models**: Event, Relay, Metadata, Keys, Nip11, Nip66
+3. **Data models**: Event, Relay, Metadata, Nip11, Nip66
 4. **Database**: PostgreSQL schema, stored procedures, views, indexes
 5. **Testing**: Unit tests, fixtures, mocking strategies
 

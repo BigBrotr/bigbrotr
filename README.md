@@ -1,6 +1,6 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.0.0-blue?style=for-the-badge" alt="Version">
-  <img src="https://img.shields.io/badge/python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/version-2.0.0-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/postgresql-16+-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="License">
@@ -48,7 +48,7 @@ BigBrotr is a production-ready, modular system for archiving and monitoring the 
 
 ### Prerequisites
 
-- Python 3.9 or higher
+- Python 3.11 or higher
 - Docker and Docker Compose
 - Git
 
@@ -645,7 +645,7 @@ For complete development documentation, see [docs/DEVELOPMENT.md](docs/DEVELOPME
 
 | Technology | Version | Purpose |
 |------------|---------|---------|
-| **Python** | 3.9+ | Primary programming language |
+| **Python** | 3.11+ | Primary programming language |
 | **PostgreSQL** | 16+ | Primary data storage |
 | **asyncpg** | 0.30.0 | Async PostgreSQL driver |
 | **Pydantic** | 2.10.4 | Configuration validation and serialization |

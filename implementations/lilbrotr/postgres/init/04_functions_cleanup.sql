@@ -11,7 +11,7 @@
 -- Purpose: Cleanup unused metadata data after old snapshots are removed
 -- Returns: BIGINT (number of deleted rows)
 -- Usage: SELECT orphan_metadata_delete();
--- Note: Should be called after cleanup_old_metadata_snapshots
+-- Note: Should be called periodically or after bulk relay_metadata deletions
 CREATE OR REPLACE FUNCTION orphan_metadata_delete()
 RETURNS BIGINT
 LANGUAGE plpgsql
@@ -35,7 +35,7 @@ COMMENT ON FUNCTION orphan_metadata_delete() IS 'Deletes metadata records withou
 -- Purpose: Maintains data integrity constraint (events must have >=1 relay)
 -- Returns: BIGINT (number of deleted rows)
 -- Usage: SELECT orphan_events_delete();
--- Note: Should be called after relay deletion or cleanup operations
+-- Note: Should be called after relay deletions
 CREATE OR REPLACE FUNCTION orphan_events_delete()
 RETURNS BIGINT
 LANGUAGE plpgsql
