@@ -1,7 +1,28 @@
-"""Nostr client transport utilities.
+"""Nostr client transport utilities for BigBrotr.
 
-Provides factory functions for creating Nostr clients with proper transport
-configuration for clearnet and overlay networks (Tor, I2P, Loki).
+This module provides factory functions and transport classes for creating
+Nostr clients with proper WebSocket configuration. It supports both clearnet
+and overlay network connections (Tor, I2P, Lokinet) via SOCKS5 proxies.
+
+Key Components:
+    - create_client: Factory for standard Nostr clients with optional proxy
+    - create_insecure_client: Factory for clients with SSL verification disabled
+    - connect_relay: High-level helper with automatic SSL fallback
+    - is_nostr_relay: Validation function to check if a URL is a Nostr relay
+
+Transport Classes:
+    - InsecureWebSocketTransport: Custom transport bypassing SSL verification
+    - InsecureWebSocketAdapter: aiohttp-based WebSocket adapter
+
+The module also handles nostr-sdk's UniFFI callback noise by filtering
+stderr output from the Rust bindings.
+
+Example:
+    >>> from utils.transport import create_client, connect_relay
+    >>> # Simple client creation
+    >>> client = create_client(keys=my_keys, proxy_url="socks5://tor:9050")
+    >>> # High-level connection with SSL fallback
+    >>> client = await connect_relay(relay, keys=my_keys, timeout=10.0)
 """
 
 from __future__ import annotations
@@ -50,16 +71,39 @@ logging.getLogger("nostr_sdk").setLevel(logging.CRITICAL)
 class _UniFFIStderrFilter:
     """Filter that suppresses UniFFI traceback noise from stderr.
 
-    UniFFI prints "Unhandled exception in trait interface call" with full
-    tracebacks directly to stderr, bypassing Python's logging system.
-    This filter wraps stderr and suppresses those messages.
+    UniFFI (the Rust-Python binding layer used by nostr-sdk) prints
+    "Unhandled exception in trait interface call" with full tracebacks
+    directly to stderr, bypassing Python's logging system. This filter
+    wraps stderr and suppresses those specific messages while allowing
+    other stderr output through.
+
+    The filter is stateful: when it sees a UniFFI error header, it enters
+    suppression mode and discards all output until an empty line (which
+    marks the end of the traceback).
+
+    Attributes:
+        _original: The original stderr stream being wrapped.
+        _suppressing: Whether currently in suppression mode.
     """
 
     def __init__(self, original: TextIO) -> None:
+        """Initialize the stderr filter.
+
+        Args:
+            original: The original stderr TextIO stream to wrap.
+        """
         self._original = original
         self._suppressing = False
 
     def write(self, text: str) -> int:
+        """Write text to stderr, filtering UniFFI tracebacks.
+
+        Args:
+            text: Text to write to stderr.
+
+        Returns:
+            int: Number of characters "written" (actual or suppressed).
+        """
         # Start suppressing when we see UniFFI error header
         if "UniFFI:" in text or "Unhandled exception" in text:
             self._suppressing = True
@@ -75,9 +119,18 @@ class _UniFFIStderrFilter:
         return self._original.write(text)
 
     def flush(self) -> None:
+        """Flush the underlying stderr stream."""
         self._original.flush()
 
     def __getattr__(self, name: str) -> object:
+        """Delegate attribute access to the original stderr stream.
+
+        Args:
+            name: Attribute name to look up.
+
+        Returns:
+            The attribute from the original stderr stream.
+        """
         return getattr(self._original, name)
 
 
@@ -88,9 +141,19 @@ if not isinstance(sys.stderr, _UniFFIStderrFilter):
 
 @contextlib.contextmanager
 def _suppress_stderr():
-    """Context manager to suppress all stderr output.
+    """Context manager to completely suppress all stderr output.
 
-    Used as a fallback for complete stderr suppression when needed.
+    Redirects stderr to /dev/null for the duration of the context.
+    Used as a fallback when complete stderr suppression is needed,
+    such as during relay validation where UniFFI noise is excessive.
+
+    Yields:
+        None: Control returns to the caller with stderr redirected.
+
+    Note:
+        This is more aggressive than _UniFFIStderrFilter and should
+        only be used when you're certain no important errors will
+        be printed to stderr.
     """
     old_stderr = sys.stderr
     with open(os.devnull, "w") as devnull:  # noqa: PTH123 (os.devnull is cross-platform)
@@ -136,7 +199,16 @@ def _is_ssl_error(error_message: str) -> bool:
 class InsecureWebSocketAdapter(WebSocketAdapter):
     """WebSocket adapter using aiohttp with SSL verification disabled.
 
+    This adapter implements the nostr-sdk WebSocketAdapter interface using
+    aiohttp as the underlying WebSocket library. SSL certificate verification
+    is disabled, allowing connections to relays with self-signed, expired,
+    or otherwise invalid certificates.
+
     All methods are async as required by nostr-sdk's UniFFI bindings.
+
+    Attributes:
+        _ws: The aiohttp WebSocket response object.
+        _session: The aiohttp client session (must be closed with connection).
     """
 
     def __init__(
@@ -144,11 +216,23 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
         ws: aiohttp.ClientWebSocketResponse,
         session: aiohttp.ClientSession,
     ) -> None:
+        """Initialize the WebSocket adapter.
+
+        Args:
+            ws: An established aiohttp WebSocket connection.
+            session: The aiohttp ClientSession that owns the connection.
+                Must be kept alive for the duration of the connection.
+        """
         self._ws = ws
         self._session = session
 
     async def send(self, msg: WebSocketMessage) -> None:
-        """Send a WebSocket message."""
+        """Send a WebSocket message to the relay.
+
+        Args:
+            msg: The nostr-sdk WebSocketMessage to send. Can be text,
+                binary, ping, or pong frame types.
+        """
         if msg.is_text():
             await self._ws.send_str(msg.text)
         elif msg.is_binary():
@@ -159,7 +243,17 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
             await self._ws.pong(msg.bytes)
 
     async def recv(self) -> WebSocketMessage | None:
-        """Receive a message. Returns None when connection closes or times out."""
+        """Receive a WebSocket message from the relay.
+
+        Waits for the next message with a 60-second timeout. This timeout
+        is generous but prevents indefinite blocking if the server stops
+        responding without closing the connection.
+
+        Returns:
+            WebSocketMessage | None: The received message converted to
+                nostr-sdk format, or None if the connection closed,
+                errored, or timed out.
+        """
         try:
             # Timeout prevents indefinite blocking if server stops responding.
             # 60s is generous - if no frame (including pings) for 60s, connection is dead.
@@ -180,7 +274,12 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
         return None
 
     async def close_connection(self) -> None:
-        """Close the WebSocket connection with timeout."""
+        """Close the WebSocket connection and session with timeout.
+
+        Attempts graceful close of both the WebSocket and the underlying
+        aiohttp session. Uses timeouts to prevent hanging if the server
+        doesn't respond to the close handshake.
+        """
         try:
             # Don't wait forever for close handshake - server may not respond
             await asyncio.wait_for(self._ws.close(), timeout=5.0)
@@ -193,7 +292,16 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
 
 
 class InsecureWebSocketTransport(CustomWebSocketTransport):
-    """Custom WebSocket transport with SSL verification disabled.
+    """Custom WebSocket transport with SSL certificate verification disabled.
+
+    This transport is used as a fallback when connecting to clearnet relays
+    that have invalid, expired, or self-signed SSL certificates. It uses
+    aiohttp with an SSL context that accepts any certificate.
+
+    Warning:
+        Using this transport disables important security checks. Only use
+        for relays where SSL verification has already failed and you've
+        decided to proceed anyway.
 
     All methods are async as required by nostr-sdk's UniFFI bindings.
     """
@@ -204,7 +312,26 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
         mode: ConnectionMode,
         timeout: Duration,
     ) -> WebSocketAdapterWrapper:
-        """Connect to relay without SSL verification."""
+        """Establish a WebSocket connection without SSL verification.
+
+        Creates an aiohttp session with SSL verification disabled and
+        connects to the specified relay URL.
+
+        Args:
+            url: The WebSocket URL to connect to (wss:// or ws://).
+            mode: The nostr-sdk ConnectionMode (unused, aiohttp handles it).
+            timeout: Connection timeout as a timedelta.
+
+        Returns:
+            WebSocketAdapterWrapper: Wrapper around the InsecureWebSocketAdapter
+                that nostr-sdk can use for communication.
+
+        Raises:
+            OSError: If the connection fails for any reason (network error,
+                timeout, DNS failure, etc.).
+            asyncio.CancelledError: If the connection attempt is cancelled.
+        """
+        # Create SSL context that accepts any certificate
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
@@ -216,7 +343,7 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
         try:
             ws = await session.ws_connect(url)
         except aiohttp.ClientError as e:
-            # Log at debug level and re-raise as IOError for nostr-sdk to handle
+            # Log at debug level and re-raise as OSError for nostr-sdk to handle
             await session.close()
             logger.debug("InsecureWebSocketTransport: connection failed url=%s error=%s", url, e)
             raise OSError(f"Connection failed: {e}") from e
@@ -237,7 +364,11 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
         return WebSocketAdapterWrapper(adapter)
 
     def support_ping(self) -> bool:
-        """aiohttp handles ping/pong automatically."""
+        """Check if this transport supports WebSocket ping frames.
+
+        Returns:
+            bool: Always True, as aiohttp handles ping/pong automatically.
+        """
         return True
 
 

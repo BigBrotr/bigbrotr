@@ -1,8 +1,28 @@
-"""
-Shared parsing utilities for NIP models.
+"""Shared parsing utilities for NIP model validation.
 
-Provides type-safe parsing of data against TypedDict schemas using
-get_type_hints() for automatic type validation.
+This module provides type-safe parsing of data against TypedDict schemas,
+used primarily for validating NIP-11 and NIP-66 relay metadata responses.
+It uses Python's typing introspection (get_type_hints, get_origin, get_args)
+to automatically validate field types.
+
+Key Features:
+    - Automatic type validation against TypedDict schemas
+    - Graceful handling of invalid/missing data (normalized to None)
+    - List element filtering (removes invalid elements)
+    - Empty string/collection normalization to None
+
+Limitations:
+    - Nested TypedDict fields are skipped (caller must handle separately)
+    - Complex generic types beyond list[T] are not supported
+
+Example:
+    >>> from typing import TypedDict
+    >>> class RelayInfo(TypedDict, total=False):
+    ...     name: str
+    ...     supported_nips: list[int]
+    >>> data = {"name": "My Relay", "supported_nips": [1, "invalid", 11]}
+    >>> result = parse_typed_dict(data, RelayInfo)
+    >>> # result = {"name": "My Relay", "supported_nips": [1, 11]}
 """
 
 from __future__ import annotations
@@ -13,19 +33,33 @@ from typing import Any, get_args, get_origin, get_type_hints, is_typeddict
 def parse_typed_dict(data: dict[str, Any], schema: type) -> dict[str, Any]:
     """Parse and validate data against a TypedDict schema.
 
-    All keys defined in the schema are included in the result.
-    Invalid types, empty strings, and empty iterables are normalized to None.
-    List elements with invalid types or empty values are filtered out.
+    Validates each field in the input data against the expected types defined
+    in the TypedDict schema. Invalid values are normalized to None rather than
+    raising exceptions, making this suitable for parsing untrusted external data.
 
-    Note: TypedDict fields and complex nested types (list[TypedDict]) are
-    skipped - they should be handled by the caller with custom parsing.
+    Processing Rules:
+        - All keys defined in schema are included in result
+        - Missing keys are set to None
+        - Wrong types are normalized to None
+        - Empty strings (after strip) become None
+        - Empty collections (list, dict, set, tuple) become None
+        - List elements are filtered: invalid/empty elements removed
+        - Nested TypedDict fields are set to None (caller handles)
 
     Args:
-        data: Raw data dict to parse
-        schema: TypedDict class defining expected structure
+        data: Raw dictionary to parse, typically from JSON response.
+            Unknown keys not in schema are ignored.
+        schema: A TypedDict class defining the expected structure.
+            Uses get_type_hints() to extract field types.
 
     Returns:
-        Dict with all schema keys, invalid/missing values as None
+        dict[str, Any]: Dictionary with all schema keys present.
+            Values are either the validated data or None for invalid/missing.
+
+    Note:
+        TypedDict fields and list[TypedDict] types are intentionally skipped
+        and set to None. The caller should handle these with custom parsing
+        logic appropriate to the specific nested structure.
 
     Example:
         >>> class MyData(TypedDict, total=False):
