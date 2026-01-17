@@ -76,7 +76,7 @@ def parse_typed_dict(data: dict[str, Any], schema: type) -> dict[str, Any]:
                 if isinstance(v, str) and not v.strip():
                     continue
                 # Skip empty iterables (list, dict, set, tuple)
-                if isinstance(v, (list, dict, set, tuple)) and not v:
+                if isinstance(v, list | dict | set | tuple) and not v:
                     continue
                 filtered.append(v)
 

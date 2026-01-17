@@ -273,10 +273,13 @@ ignore = [
 # TC001/TC002/TC003: These imports are used at runtime, not just for type hints
 "src/core/brotr.py" = ["TC001", "TC002"]
 "src/core/pool.py" = ["TC003"]
-# PLC0415: Deferred imports to avoid circular dependencies
+# PLC0415: Deferred imports to avoid circular dependencies or heavy imports
 "src/models/nip11.py" = ["PLC0415"]
 "src/models/nip66.py" = ["PLC0415"]
+"src/models/event_relay.py" = ["PLC0415"]
+"src/services/monitor.py" = ["PLC0415"]
 "src/services/synchronizer.py" = ["PLC0415"]
+"src/utils/transport.py" = ["PLC0415"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["core", "models", "services"]

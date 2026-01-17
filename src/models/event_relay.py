@@ -120,7 +120,7 @@ class EventRelay:
         Returns:
             EventRelay instance
         """
-        from .relay import Relay  # noqa: PLC0415
+        from .relay import Relay
 
         event = Event.from_db_params(event_id, pubkey, created_at, kind, tags_json, content, sig)
         relay = Relay.from_db_params(relay_url, relay_network, relay_discovered_at)

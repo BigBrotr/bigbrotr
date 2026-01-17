@@ -71,7 +71,7 @@ class Metadata:
         """
         if max_depth is not None and _depth > max_depth:
             return None
-        if obj is None or isinstance(obj, (bool, int, float)):
+        if obj is None or isinstance(obj, bool | int | float):
             return obj
         if isinstance(obj, str):
             return obj.replace("\x00", "") if "\x00" in obj else obj

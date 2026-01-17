@@ -448,7 +448,7 @@ async def is_nostr_relay(
     Returns:
         True if relay speaks Nostr protocol, False otherwise.
     """
-    from nostr_sdk import Filter, Kind  # noqa: PLC0415
+    from nostr_sdk import Filter, Kind
 
     logger.debug("is_nostr_relay: starting relay=%s timeout=%s", relay.url, timeout)
 

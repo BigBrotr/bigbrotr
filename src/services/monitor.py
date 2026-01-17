@@ -663,9 +663,9 @@ class Monitor(BaseService[MonitorConfig]):
         if not self._keys:
             return
 
-        from nostr_sdk import RelayUrl  # noqa: PLC0415
+        from nostr_sdk import RelayUrl
 
-        from utils.transport import create_client  # noqa: PLC0415
+        from utils.transport import create_client
 
         try:
             # Build event content (NIP-11 JSON if available)
@@ -713,9 +713,9 @@ class Monitor(BaseService[MonitorConfig]):
         if not self._keys:
             return
 
-        from nostr_sdk import RelayUrl  # noqa: PLC0415
+        from nostr_sdk import RelayUrl
 
-        from utils.transport import create_client  # noqa: PLC0415
+        from utils.transport import create_client
 
         try:
             # Build tags
