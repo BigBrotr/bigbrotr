@@ -36,3 +36,6 @@ rfc3986>=2.0.0
 
 # Python compatibility
 typing-extensions>=4.9.0
+
+# Metrics
+prometheus-client>=0.20.0

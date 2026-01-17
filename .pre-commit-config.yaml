@@ -80,6 +80,7 @@ repos:
           - geoip2>=4.8.0
           - geohash2>=1.1
           - nostr-sdk>=0.37.0
+          - prometheus-client>=0.21.0
           - PyYAML>=6.0.1
           - rfc3986>=2.0.0
           - typing-extensions>=4.9.0

@@ -6,12 +6,14 @@ Provides abstract base class for all services with:
 - Lifecycle management (start/stop)
 - Factory methods (from_yaml/from_dict)
 - Graceful error handling with max consecutive failures
+- Prometheus metrics (automatic tracking in run_forever)
 
 Services that need state persistence should implement their own
 storage using dedicated database tables.
 """
 
 import asyncio
+import time
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Generic, TypeVar, cast
 
@@ -21,6 +23,16 @@ from utils.yaml import load_yaml
 
 from .brotr import Brotr
 from .logger import Logger
+from .metrics import (
+    CONSECUTIVE_FAILURES,
+    CYCLE_DURATION_SECONDS,
+    CYCLES_TOTAL,
+    ERRORS_TOTAL,
+    ITEMS_PROCESSED_TOTAL,
+    LAST_CYCLE_TIMESTAMP,
+    SERVICE_INFO,
+    MetricsConfig,
+)
 
 
 # =============================================================================
@@ -44,6 +56,10 @@ class BaseServiceConfig(BaseModel):
         default=5,
         ge=0,
         description="Stop after this many consecutive errors (0 = unlimited)",
+    )
+    metrics: MetricsConfig = Field(
+        default_factory=MetricsConfig,
+        description="Prometheus metrics configuration",
     )
 
 
@@ -137,6 +153,13 @@ class BaseService(ABC, Generic[ConfigT]):
         Calls run() repeatedly until shutdown is requested or max consecutive
         failures is reached. Each cycle is followed by an interruptible wait.
 
+        Automatically tracks Prometheus metrics:
+            - cycles_total: Counter of cycles by status (success/failed)
+            - cycle_duration_seconds: Histogram of cycle durations
+            - consecutive_failures: Gauge of current failure streak
+            - last_cycle_timestamp_seconds: Gauge of last successful cycle
+            - errors_total: Counter of errors by type
+
         Reads from config:
             - interval: Seconds to wait between run() cycles
             - max_consecutive_failures: Stop after this many consecutive errors (0 = unlimited)
@@ -154,6 +177,9 @@ class BaseService(ABC, Generic[ConfigT]):
         interval = getattr(self._config, "interval", 300.0)
         max_consecutive_failures = getattr(self._config, "max_consecutive_failures", 5)
 
+        # Set service info metric (static labels)
+        SERVICE_INFO.info({"service": self.SERVICE_NAME})
+
         self._logger.info(
             "run_forever_started",
             interval=interval,
@@ -164,15 +190,36 @@ class BaseService(ABC, Generic[ConfigT]):
 
         # Use is_running property which checks shutdown_event atomically
         while self.is_running:
+            cycle_start = time.time()
+
             try:
                 await self.run()
+
+                # Success metrics
+                duration = time.time() - cycle_start
+                CYCLES_TOTAL.labels(service=self.SERVICE_NAME, status="success").inc()
+                CYCLE_DURATION_SECONDS.labels(service=self.SERVICE_NAME).observe(duration)
+                LAST_CYCLE_TIMESTAMP.labels(service=self.SERVICE_NAME).set(time.time())
+                CONSECUTIVE_FAILURES.labels(service=self.SERVICE_NAME).set(0)
+
                 consecutive_failures = 0  # Reset on success
                 self._logger.info("cycle_completed", next_run_in_seconds=interval)
+
             except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
                 # Let these propagate to allow proper shutdown
                 raise
+
             except Exception as e:
                 consecutive_failures += 1
+
+                # Failure metrics
+                CYCLES_TOTAL.labels(service=self.SERVICE_NAME, status="failed").inc()
+                CONSECUTIVE_FAILURES.labels(service=self.SERVICE_NAME).set(consecutive_failures)
+                ERRORS_TOTAL.labels(
+                    service=self.SERVICE_NAME,
+                    error_type=type(e).__name__,
+                ).inc()
+
                 self._logger.error(
                     "run_cycle_error",
                     error=str(e),
@@ -194,6 +241,43 @@ class BaseService(ABC, Generic[ConfigT]):
                 break
 
         self._logger.info("run_forever_stopped")
+
+    # -------------------------------------------------------------------------
+    # Metrics Helpers
+    # -------------------------------------------------------------------------
+
+    def record_items(
+        self,
+        success: int = 0,
+        failed: int = 0,
+        skipped: int = 0,
+    ) -> None:
+        """
+        Record item processing metrics.
+
+        Call this from run() to track units of work processed.
+        Updates items_processed_total counter with appropriate labels.
+
+        Args:
+            success: Number of items processed successfully
+            failed: Number of items that failed processing
+            skipped: Number of items skipped (e.g., duplicates)
+        """
+        if success:
+            ITEMS_PROCESSED_TOTAL.labels(
+                service=self.SERVICE_NAME,
+                result="success",
+            ).inc(success)
+        if failed:
+            ITEMS_PROCESSED_TOTAL.labels(
+                service=self.SERVICE_NAME,
+                result="failed",
+            ).inc(failed)
+        if skipped:
+            ITEMS_PROCESSED_TOTAL.labels(
+                service=self.SERVICE_NAME,
+                result="skipped",
+            ).inc(skipped)
 
     # -------------------------------------------------------------------------
     # Factory Methods

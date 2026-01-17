@@ -34,6 +34,12 @@ from .brotr import (
     TimeoutsConfig as BrotrTimeoutsConfig,
 )
 from .logger import Logger
+from .metrics import (
+    HealthConfig,
+    MetricsConfig,
+    MetricsServer,
+    start_metrics_server,
+)
 from .pool import (
     DatabaseConfig,
     Pool,
@@ -58,7 +64,10 @@ __all__ = [
     "BrotrTimeoutsConfig",
     "ConfigT",
     "DatabaseConfig",
+    "HealthConfig",
     "Logger",
+    "MetricsConfig",
+    "MetricsServer",
     "Pool",
     "PoolConfig",
     "PoolLimitsConfig",
@@ -66,4 +75,5 @@ __all__ = [
     "RetryConfig",
     "ServerSettingsConfig",
     "load_yaml",
+    "start_metrics_server",
 ]

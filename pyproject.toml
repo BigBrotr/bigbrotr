@@ -257,8 +257,6 @@ ignore = [
     "ARG002",  # unused method arguments
     "PLC0415", # import outside top-level (inline imports in fixtures)
     "S101",    # assert statements
-    "RUF043",  # raw string patterns in pytest.raises
-    "RUF059",  # unused unpacked variables (common in test assertions)
 ]
 # Notebooks are demo/test scripts with different requirements
 "notebooks/*" = [
@@ -346,6 +344,7 @@ module = [
     "geohash2.*",
     "geoip2.*",
     "dns.*",
+    "prometheus_client.*",
 ]
 ignore_missing_imports = true
 
