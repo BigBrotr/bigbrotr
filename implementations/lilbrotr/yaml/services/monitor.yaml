@@ -2,12 +2,25 @@
 # Monitor Service Configuration (LilBrotr)
 # ============================================================================
 # Description: Monitor relay health and capabilities with full NIP-66 compliance
-# Note: Lighter configuration - only overrides from defaults are listed
-# See: implementations/bigbrotr/yaml/services/monitor.yaml for full config
+# Used by: src/services/monitor.py
+# Dependencies: Validator must have validated relays first
 # Environment: PRIVATE_KEY required if publishing enabled
+# Notes: Lighter configuration for reduced resource usage
 # ============================================================================
 
-# Unified network configuration (clearnet only for lilbrotr)
+# Cycle interval (seconds between monitoring runs)
+# Range: >= 60.0
+interval: 3600.0
+
+# Prometheus metrics
+metrics:
+  enabled: true
+  port: 8003
+  host: "0.0.0.0"
+  path: "/metrics"
+
+# Unified network configuration (clearnet only by default for lilbrotr)
+# Each network type has: enabled, proxy_url, max_tasks, timeout
 networks:
   clearnet:
     enabled: true
@@ -32,21 +45,48 @@ networks:
     max_tasks: 3
     timeout: 60.0
 
+# Nostr keys for NIP-66 events
+# Private key is loaded from PRIVATE_KEY environment variable
+keys: {}
+
 # NIP-66 event publishing configuration
 publishing:
-  enabled: true
+  enabled: true              # Enable publishing Kind 30166/10166 events
+  # Destination options:
+  #   - "monitored_relay": Publish Kind 30166 on the relay being checked (default)
+  #   - "configured_relays": Publish to relays listed below
+  #   - "database_only": No Nostr publishing, only store in database
   destination: "monitored_relay"
+  # Relays for publishing (only used if destination: "configured_relays")
+  relays: []
+
+# Checks to perform on each relay
+checks:
+  open: true                 # Test WebSocket connection
+  read: true                 # Test REQ/EOSE subscription
+  write: true                # Test EVENT/OK publication (requires PRIVATE_KEY)
+  nip11: true                # Fetch NIP-11 relay info document
+  ssl: true                  # Validate SSL/TLS certificate
+  dns: true                  # Measure DNS resolution time
+  geo: true                  # Geolocate relay IP address
 
 # Geolocation configuration
+# Requires MaxMind GeoLite2 databases (free with registration)
+# Download from: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
 # Place databases in static/ folder
 geo:
   city_database_path: "static/GeoLite2-City.mmdb"
-  # ASN database optional for lilbrotr
+  # ASN database optional for lilbrotr (comment out if not available)
   # asn_database_path: "static/GeoLite2-ASN.mmdb"
+  # country_database_path: "static/GeoLite2-Country.mmdb"
   # Update frequency: "monthly", "weekly", "none" (none = never auto-update)
-  update_frequency: "none"  # Manual updates only for lilbrotr
+  update_frequency: "none"   # Manual updates only for lilbrotr
 
-# Reduced concurrency for lighter resource usage
+# Concurrency settings (reduced for lighter resource usage)
 concurrency:
-  max_processes: 1           # Number of worker processes
-  batch_size: 20             # Relays to process before pushing to database
+  max_processes: 1           # Number of worker processes (Range: 1 - 32)
+  batch_size: 20             # Relays to process before pushing to database (Range: 1 - 500)
+
+# Relay selection - which relays to check
+selection:
+  min_age_since_check: 3600  # Minimum seconds since last check (Range: >= 0)

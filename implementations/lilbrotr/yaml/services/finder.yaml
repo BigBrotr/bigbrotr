@@ -2,13 +2,22 @@
 # Finder Service Configuration (LilBrotr)
 # ============================================================================
 # Description: Discover Nostr relay URLs from external APIs and database events
-# See: implementations/bigbrotr/yaml/services/finder.yaml for full config
+# Used by: src/services/finder.py
+# Dependencies: Seeder must complete first
 # Notes: Discovered URLs are stored as candidates in the service_data table
-#        for validation by the Validator service before adding to relays
+#        with service_name='validator' for validation before adding to relays
 # ============================================================================
 
 # Cycle interval (seconds between discovery runs)
+# Range: >= 60.0
 interval: 3600.0
+
+# Prometheus metrics
+metrics:
+  enabled: true
+  port: 8001
+  host: "0.0.0.0"
+  path: "/metrics"
 
 # Event scanning - discovers relay URLs from stored events
 # NOTE: Disabled for LilBrotr because it does not store tags/tagvalues/content columns
@@ -18,16 +27,16 @@ events:
 
 # External API - discovers relay URLs from public APIs
 api:
-  enabled: true
+  enabled: true    # Enable API fetching
   sources:
     - url: https://api.nostr.watch/v1/online
       enabled: true
-      timeout: 30.0
+      timeout: 30.0          # Range: 1.0 - 120.0
     - url: https://api.nostr.watch/v1/offline
       enabled: true
-      timeout: 30.0
-  delay_between_requests: 1.0
+      timeout: 30.0          # Range: 1.0 - 120.0
+  delay_between_requests: 1.0    # Range: 0.0 - 10.0
 
 # Concurrency settings
 concurrency:
-  max_parallel: 5            # Maximum concurrent API requests
+  max_parallel: 5            # Maximum concurrent API requests (Range: 1 - 20)

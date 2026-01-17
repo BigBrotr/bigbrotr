@@ -2,16 +2,30 @@
 # Synchronizer Service Configuration (LilBrotr)
 # ============================================================================
 # Description: Synchronize Nostr events from relays to the database
-# Note: Lighter configuration - only overrides from defaults are listed
-# See: implementations/bigbrotr/yaml/services/synchronizer.yaml for full config
+# Used by: src/services/synchronizer.py
+# Dependencies: Monitor must have checked relays first
+# Notes: Lighter configuration for reduced resource usage (clearnet only by default)
 # ============================================================================
 
-# Unified network configuration (clearnet only for lilbrotr)
+# Cycle interval (seconds between sync runs)
+# Range: >= 60.0
+interval: 900.0
+
+# Prometheus metrics
+metrics:
+  enabled: true
+  port: 8004
+  host: "0.0.0.0"
+  path: "/metrics"
+
+# Unified network configuration (clearnet only by default for lilbrotr)
+# Each network type has: enabled, proxy_url, max_tasks, timeout
+# timeout here is the WebSocket request timeout
 networks:
   clearnet:
     enabled: true
     max_tasks: 5               # Reduced concurrency for lighter resource usage
-    timeout: 30.0
+    timeout: 30.0              # WebSocket request timeout
 
   tor:
     enabled: false             # Disabled by default (enable tor service in docker-compose first)
@@ -31,8 +45,44 @@ networks:
     max_tasks: 2
     timeout: 60.0
 
-# Reduced concurrency for lighter resource usage
+# Event filter settings
+# Set to null to accept all values for that field
+filter:
+  ids: null                  # Event IDs to sync (null = all)
+  kinds: null                # Event kinds to sync (null = all)
+  authors: null              # Authors to sync (null = all)
+  tags: null                 # Tag filters (null = all, format: {e: ["..."], p: ["..."]})
+  limit: 500                 # Events per request (Range: 1 - 5000)
+
+# Time range for sync
+time_range:
+  default_start: 0           # Default start timestamp (0 = epoch, Range: >= 0)
+  use_relay_state: true      # Use per-relay state for incremental sync
+  lookback_seconds: 86400    # Lookback window in seconds (Range: 3600 - 604800, default: 24h)
+
+# Per-relay sync timeouts (max time per relay sync session)
+# WebSocket request timeout comes from networks.*.timeout above
+sync_timeouts:
+  relay_clearnet: 1800.0     # Max time per clearnet relay sync (30 min)
+  relay_tor: 3600.0          # Max time per Tor relay sync (60 min)
+  relay_i2p: 3600.0          # Max time per I2P relay sync (60 min)
+  relay_loki: 3600.0         # Max time per Loki relay sync (60 min)
+
+# Concurrency settings (reduced for lighter resource usage)
 concurrency:
-  max_parallel: 5            # Max parallel relay connections per process
-  max_processes: 2           # Number of worker processes
+  max_parallel: 5            # Max parallel relay connections per process (Range: 1 - 100)
+  max_processes: 2           # Number of worker processes (Range: 1 - 32)
   stagger_delay: [0, 30]     # Random delay range [min, max] to prevent thundering herd
+
+# Relay source - which relays to sync from
+source:
+  from_database: true        # Fetch relays from database
+  max_metadata_age: 43200    # Only sync relays checked within N seconds (Range: >= 0)
+  require_readable: true     # Only sync relays marked as readable
+
+# Override settings for specific relays (optional)
+# overrides:
+#   - url: "wss://relay.damus.io"
+#     timeouts:
+#       request: 60.0
+#       relay: 7200.0
