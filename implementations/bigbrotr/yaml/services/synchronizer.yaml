@@ -27,13 +27,13 @@ networks:
     timeout: 60.0              # Longer timeout for Tor latency
 
   i2p:
-    enabled: true
+    enabled: false             # Disabled by default (enable i2p service in docker-compose first)
     proxy_url: "socks5://i2p:4447"
     max_tasks: 3               # Even lower (I2P is slowest)
     timeout: 90.0              # Longest timeout for I2P
 
   loki:
-    enabled: false             # Enable only on Linux with --profile linux-only
+    enabled: false             # Disabled by default (requires Lokinet - Linux only)
     proxy_url: "socks5://lokinet:1080"
     max_tasks: 3
     timeout: 60.0

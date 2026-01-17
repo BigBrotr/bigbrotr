@@ -14,7 +14,7 @@
 # ============================================================================
 
 # Cycle interval (seconds between validation runs)
-interval: 300.0
+interval: 28800.0              # 8 hours
 
 # Network configuration with per-network concurrency control
 # Each network type has: enabled, proxy_url, max_tasks, timeout
