@@ -4,7 +4,7 @@
 -- File: 02_tables.sql
 -- Description: All database tables (lightweight schema - no tags/content)
 -- Note: Omits tags, tagvalues, and content columns (~60% disk savings)
--- Dependencies: 01_functions_utility.sql
+-- Dependencies: None (tags_to_tagvalues used by CRUD functions, not table definition)
 -- ============================================================================
 
 -- Table: relays

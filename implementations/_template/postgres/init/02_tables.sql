@@ -3,7 +3,7 @@
 -- ============================================================================
 -- File: 02_tables.sql
 -- Purpose: Core database tables for Nostr data storage
--- Dependencies: 01_functions_utility.sql
+-- Dependencies: 01_functions_utility.sql (only if using generated column for tagvalues)
 -- Customization: YES - events table columns can be customized
 -- ============================================================================
 

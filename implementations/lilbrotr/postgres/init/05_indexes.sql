@@ -23,11 +23,11 @@ ON events USING btree (kind);
 CREATE INDEX IF NOT EXISTS idx_events_kind_created_at
 ON events USING btree (kind, created_at DESC);
 
--- Author prefix search: WHERE pubkey = ?
+-- Author lookup: WHERE pubkey = ?
 CREATE INDEX IF NOT EXISTS idx_events_pubkey
 ON events USING btree (pubkey);
 
--- Tag search: WHERE tagvalues @> ARRAY['p:...']
+-- Tag search: WHERE tagvalues @> ARRAY['<tag-value>']
 CREATE INDEX IF NOT EXISTS idx_events_tagvalues
 ON events USING gin (tagvalues);
 
@@ -60,3 +60,7 @@ ON relay_metadata USING btree (metadata_id);
 -- Latest per type: WHERE relay_url = ? AND type = ? ORDER BY generated_at DESC LIMIT 1
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_type_generated
 ON relay_metadata USING btree (relay_url, type, generated_at DESC);
+
+-- ============================================================================
+-- INDEXES CREATED
+-- ============================================================================

@@ -8,8 +8,8 @@
 
 -- Function: tags_to_tagvalues
 -- Description: Extracts single-character tag keys and their values from JSONB array
--- Purpose: Enables efficient GIN indexing on Nostr event tags
--- Note: LilBrotr computes tagvalues at insert time (not a generated column)
+-- Purpose: Computes tag values array for GIN indexing (called by events_insert)
+-- Note: LilBrotr computes tagvalues at insert time, unlike BigBrotr's generated column
 --
 -- Example Input:  [["e", "abc123"], ["p", "def456"], ["relay", "wss://..."]]
 -- Example Output: ARRAY['abc123', 'def456']
