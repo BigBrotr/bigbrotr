@@ -50,7 +50,9 @@ class ProcessingConfig(BaseModel):
     """Chunk processing settings."""
 
     chunk_size: int = Field(default=100, ge=10, le=1000, description="Candidates per chunk")
-    max_candidates: int | None = Field(default=None, ge=1, description="Limit per run (None=unlimited)")
+    max_candidates: int | None = Field(
+        default=None, ge=1, description="Limit per run (None=unlimited)"
+    )
 
 
 class CleanupConfig(BaseModel):
@@ -86,11 +88,18 @@ class Validator(BaseService[ValidatorConfig]):
         self._run_start: float = 0.0
         self._cycle_valid: int = 0
         self._cycle_invalid: int = 0
+        # Per-network tracking
+        self._cycle_valid_by_network: dict[str, int] = {}
+        self._cycle_invalid_by_network: dict[str, int] = {}
+        self._cycle_chunks: int = 0
 
     async def run(self) -> None:
         self._run_start = time.time()
         self._cycle_valid = 0
         self._cycle_invalid = 0
+        self._cycle_valid_by_network = {}
+        self._cycle_invalid_by_network = {}
+        self._cycle_chunks = 0
         self._init_semaphores()
 
         networks = self._config.networks.get_enabled_networks()
@@ -103,18 +112,33 @@ class Validator(BaseService[ValidatorConfig]):
 
         await self._cleanup_promoted()
         await self._cleanup_exhausted()
-        await self._log_candidate_stats(networks)
+
+        stats = await self._count_candidates_by_network(networks)
+        total = sum(stats.values())
+        self.set_gauge("candidates", total)
+        # Per-network candidate gauges
+        for network, count in stats.items():
+            self.set_gauge(f"candidates_{network}", count)
+        self._logger.info("candidates_available", total=total, by_network=stats)
+
         await self._process(networks)
 
         duration = time.time() - self._run_start
+
+        # Final metrics update (also called after each chunk for real-time visibility)
+        self._update_progress_metrics(networks)
+
+        # Cumulative counters (only at end of cycle)
+        self.inc_counter("total_processed", self._cycle_valid + self._cycle_invalid)
+        self.inc_counter("total_promoted", self._cycle_valid)
+
         self._logger.info(
             "cycle_completed",
             valid=self._cycle_valid,
             invalid=self._cycle_invalid,
+            chunks=self._cycle_chunks,
             duration_s=round(duration, 1),
         )
-
-        self.record_items(success=self._cycle_valid, failed=self._cycle_invalid)
 
     def _init_semaphores(self) -> None:
         """Initialize per-network concurrency semaphores."""
@@ -122,6 +146,20 @@ class Validator(BaseService[ValidatorConfig]):
             network: asyncio.Semaphore(self._config.networks.get(network).max_tasks)
             for network in NetworkType
         }
+
+    def _update_progress_metrics(self, networks: list[str]) -> None:
+        """Update gauges with current cycle progress.
+
+        Called after each chunk for real-time visibility in Grafana,
+        and once more at end of cycle.
+        """
+        self.set_gauge("validated", self._cycle_valid)
+        self.set_gauge("invalidated", self._cycle_invalid)
+        self.set_gauge("chunks", self._cycle_chunks)
+
+        for network in networks:
+            self.set_gauge(f"validated_{network}", self._cycle_valid_by_network.get(network, 0))
+            self.set_gauge(f"invalidated_{network}", self._cycle_invalid_by_network.get(network, 0))
 
     # -------------------------------------------------------------------------
     # Cleanup
@@ -149,12 +187,15 @@ class Validator(BaseService[ValidatorConfig]):
             timeout=self._brotr.config.timeouts.query,
         )
         count = self._parse_delete_count(result)
+        self.set_gauge("stale_removed", count)
         if count > 0:
+            self.inc_counter("total_stale_removed", count)
             self._logger.info("stale_candidates_removed", count=count)
 
     async def _cleanup_exhausted(self) -> None:
         """Remove candidates that exceeded the failure threshold."""
         if not self._config.cleanup.enabled:
+            self.set_gauge("exhausted_removed", 0)
             return
 
         result = await self._brotr.pool.execute(
@@ -168,15 +209,17 @@ class Validator(BaseService[ValidatorConfig]):
             timeout=self._brotr.config.timeouts.query,
         )
         count = self._parse_delete_count(result)
+        self.set_gauge("exhausted_removed", count)
         if count > 0:
+            self.inc_counter("total_exhausted_removed", count)
             self._logger.info(
                 "exhausted_candidates_removed",
                 count=count,
                 threshold=self._config.cleanup.max_failures,
             )
 
-    async def _log_candidate_stats(self, networks: list[str]) -> None:
-        """Log candidate counts by network before processing."""
+    async def _count_candidates_by_network(self, networks: list[str]) -> dict[str, int]:
+        """Get candidate counts by network."""
         rows = await self._brotr.pool.fetch(
             """
             SELECT data->>'network' AS network, COUNT(*) AS count
@@ -189,11 +232,7 @@ class Validator(BaseService[ValidatorConfig]):
             networks,
             timeout=self._brotr.config.timeouts.query,
         )
-
-        stats = {row["network"]: row["count"] for row in rows}
-        total = sum(stats.values())
-
-        self._logger.info("candidates_available", total=total, by_network=stats)
+        return {row["network"]: row["count"] for row in rows}
 
     # -------------------------------------------------------------------------
     # Processing
@@ -213,7 +252,9 @@ class Validator(BaseService[ValidatorConfig]):
             if self._config.processing.max_candidates is not None:
                 remaining = self._config.processing.max_candidates - total_processed
                 if remaining <= 0:
-                    self._logger.debug("max_candidates_reached", limit=self._config.processing.max_candidates)
+                    self._logger.debug(
+                        "max_candidates_reached", limit=self._config.processing.max_candidates
+                    )
                     break
                 limit = min(self._config.processing.chunk_size, remaining)
             else:
@@ -234,16 +275,27 @@ class Validator(BaseService[ValidatorConfig]):
             failed_candidates: list[Candidate] = []
 
             for candidate, result in zip(candidates, results, strict=True):
+                network = candidate.relay.network.value
                 if result is True:
                     self._cycle_valid += 1
+                    self._cycle_valid_by_network[network] = (
+                        self._cycle_valid_by_network.get(network, 0) + 1
+                    )
                     valid_relays.append(candidate.relay)
                 else:
                     self._cycle_invalid += 1
+                    self._cycle_invalid_by_network[network] = (
+                        self._cycle_invalid_by_network.get(network, 0) + 1
+                    )
                     failed_candidates.append(candidate)
 
             total_processed += len(candidates)
+            self._cycle_chunks = chunk_index
 
             await self._persist_results(valid_relays, failed_candidates)
+
+            # Update metrics after each chunk for real-time visibility
+            self._update_progress_metrics(networks)
 
             self._logger.debug(
                 "chunk_completed",
@@ -328,13 +380,20 @@ class Validator(BaseService[ValidatorConfig]):
         """Persist validation results: promote valid, increment failures for invalid."""
         if failed_candidates:
             updates = [
-                ("validator", "candidate", c.relay.url, {**c.data, "failed_attempts": c.failed_attempts + 1})
+                (
+                    "validator",
+                    "candidate",
+                    c.relay.url,
+                    {**c.data, "failed_attempts": c.failed_attempts + 1},
+                )
                 for c in failed_candidates
             ]
             try:
                 await self._brotr.upsert_service_data(updates)
             except Exception as e:
-                self._logger.error("failures_update_failed", count=len(failed_candidates), error=str(e))
+                self._logger.error(
+                    "failures_update_failed", count=len(failed_candidates), error=str(e)
+                )
 
         if valid_relays:
             try:

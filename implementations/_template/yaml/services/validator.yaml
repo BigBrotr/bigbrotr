@@ -1,81 +1,137 @@
 # ============================================================================
-# BigBrotr Implementation Template - Validator Service Configuration
+# Validator Service Configuration (Template)
 # ============================================================================
 # Validates candidate relay URLs before promoting to relays table.
 # Workflow: cleanup → fetch chunk → validate in parallel → persist → repeat
-# Used by: src/services/validator.py
-# Run mode: Continuous (runs every interval) or one-shot (--once flag)
-# Dependencies: Seeder/Finder write candidates to service_data
+#
+# All values shown are DEFAULTS from the code. Modify only what you need.
 # ============================================================================
 
-# Cycle interval (seconds between validation runs)
+# -----------------------------------------------------------------------------
+# Base Service Settings (inherited from BaseServiceConfig)
+# -----------------------------------------------------------------------------
+
+# Seconds between validation cycles
 # Range: >= 60.0
-# Recommendation: 300-600 for production (5-10 minutes)
+# Lower = more frequent validation, higher resource usage
 interval: 300.0
 
-# Prometheus metrics and health checks
+# Stop service after this many consecutive cycle failures
+# Set to 0 for unlimited retries
+max_consecutive_failures: 5
+
+# -----------------------------------------------------------------------------
+# Prometheus Metrics
+# -----------------------------------------------------------------------------
+
 metrics:
+  # Enable/disable metrics HTTP server
   enabled: true
+
+  # HTTP port for /metrics endpoint
+  # Each service needs a unique port (finder=8001, validator=8002, etc.)
   port: 8002
+
+  # Bind address (0.0.0.0 for container environments)
   host: "0.0.0.0"
+
+  # URL path for metrics endpoint
   path: "/metrics"
-  health:
-    max_cycle_age_seconds: 900.0   # Unhealthy if no cycle in 15 minutes
 
-# Processing
+# -----------------------------------------------------------------------------
+# Processing Settings
+# -----------------------------------------------------------------------------
+
 processing:
-  chunk_size: 100            # Candidates per chunk
-  max_candidates: 500        # Limit per run (null = unlimited)
+  # Number of candidates to process per chunk
+  # Higher = fewer DB round-trips, more memory
+  # Range: 10-1000
+  chunk_size: 100
 
-# Cleanup of exhausted candidates
+  # Maximum candidates to process per cycle
+  # null = unlimited (process all available)
+  # Set a limit for resource-constrained environments
+  max_candidates: null
+
+# -----------------------------------------------------------------------------
+# Cleanup Settings
+# -----------------------------------------------------------------------------
+
 cleanup:
-  enabled: false             # Remove candidates with too many failures
-  max_failures: 10           # Threshold for removal
+  # Remove candidates that exceeded max_failures
+  # true = delete exhausted candidates
+  # false = keep for analysis/debugging
+  enabled: false
 
-# Network configuration (per-network concurrency and timeouts)
+  # Number of failed validation attempts before removal (if enabled)
+  # Range: 1-100
+  max_failures: 10
+
+# -----------------------------------------------------------------------------
+# Network Configuration
+# -----------------------------------------------------------------------------
+# Per-network settings for relay validation:
+# - enabled: Process relays on this network
+# - proxy_url: SOCKS5 proxy for overlay networks
+# - max_tasks: Concurrent validation limit
+# - timeout: WebSocket handshake timeout in seconds
+# -----------------------------------------------------------------------------
+
 networks:
+  # Clearnet relays (wss://)
   clearnet:
     enabled: true
-    max_tasks: 50            # High concurrency for fast clearnet relays
-    timeout: 10.0            # Short timeout (clearnet is fast)
+    max_tasks: 50
+    timeout: 10.0
 
+  # Tor .onion relays (requires Tor proxy)
   tor:
     enabled: true
     proxy_url: "socks5://tor:9050"
-    max_tasks: 10            # Lower concurrency (Tor is slower)
-    timeout: 30.0            # Longer timeout for Tor latency
+    max_tasks: 10
+    timeout: 30.0
 
+  # I2P .i2p relays (requires I2P router)
   i2p:
-    enabled: false           # Requires I2P proxy
+    enabled: false
     proxy_url: "socks5://i2p:4447"
-    max_tasks: 5             # Even lower (I2P is slowest)
-    timeout: 45.0            # Longest timeout for I2P
+    max_tasks: 5
+    timeout: 45.0
 
+  # Lokinet .loki relays (requires Lokinet, Linux only)
   loki:
-    enabled: false           # Requires Lokinet (Linux only)
+    enabled: false
     proxy_url: "socks5://lokinet:1080"
     max_tasks: 5
     timeout: 30.0
 
 # ============================================================================
-# CUSTOMIZATION NOTES
+# CUSTOMIZATION EXAMPLES
 # ============================================================================
 #
-# NO TOR SUPPORT:
-#   networks.tor.enabled: false
-#   (Remove tor dependency from docker-compose.yaml)
-#
-# MINIMAL RESOURCES:
+# MINIMAL RESOURCES (clearnet only, low frequency):
 #   interval: 600.0
-#   processing.max_candidates: 200
-#   networks.clearnet.max_tasks: 20
+#   processing:
+#     max_candidates: 200
+#   networks:
+#     clearnet:
+#       max_tasks: 20
+#     tor:
+#       enabled: false
 #
-# AGGRESSIVE VALIDATION:
+# AGGRESSIVE VALIDATION (high throughput):
 #   interval: 120.0
-#   processing.max_candidates: 1000
-#   networks.clearnet.max_tasks: 100
+#   processing:
+#     chunk_size: 200
+#   networks:
+#     clearnet:
+#       max_tasks: 100
+#     tor:
+#       max_tasks: 20
 #
-# SLOW NETWORK:
-#   networks.clearnet.timeout: 30.0
+# CLEANUP EXHAUSTED CANDIDATES:
+#   cleanup:
+#     enabled: true
+#     max_failures: 100
 #
 # ============================================================================

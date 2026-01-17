@@ -1,45 +1,19 @@
 # ============================================================================
 # Validator Service Configuration (LilBrotr)
 # ============================================================================
-# Validates candidate relay URLs before promoting to relays table.
-# Workflow: cleanup → fetch chunk → validate in parallel → persist → repeat
-# Note: Clearnet only with reduced concurrency for lighter resource usage
-# See: implementations/bigbrotr/yaml/services/validator.yaml for full config
+# Clearnet only with reduced frequency for lighter resource usage.
+# See bigbrotr/yaml/services/validator.yaml for full-featured config.
 # ============================================================================
 
-interval: 28800.0  # 8 hours (reduced frequency for lighter resource usage)
+# Only override non-default values
+interval: 28800.0  # 8 hours (reduced frequency)
 
-# Processing
+metrics:
+  port: 8002
+
 processing:
-  chunk_size: 100            # Candidates per chunk
-  max_candidates: 200        # Limit per run (reduced for lighter resource usage)
+  max_candidates: 200  # Limit per run (default: null = unlimited)
 
-# Cleanup of exhausted candidates
-cleanup:
-  enabled: false             # Remove candidates with too many failures
-  max_failures: 10           # Threshold for removal
-
-# Network configuration (clearnet only for lilbrotr)
 networks:
   clearnet:
-    enabled: true
-    max_tasks: 20            # Reduced from 50 (lighter resource usage)
-    timeout: 10.0
-
-  tor:
-    enabled: false
-    proxy_url: "socks5://tor:9050"
-    max_tasks: 5
-    timeout: 30.0
-
-  i2p:
-    enabled: false
-    proxy_url: "socks5://i2p:4447"
-    max_tasks: 3
-    timeout: 45.0
-
-  loki:
-    enabled: false
-    proxy_url: "socks5://lokinet:1080"
-    max_tasks: 3
-    timeout: 30.0
+    max_tasks: 20  # Reduced from 50 (lighter resource usage)

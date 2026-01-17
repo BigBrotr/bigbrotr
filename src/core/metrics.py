@@ -22,8 +22,6 @@ Usage:
 
 from __future__ import annotations
 
-import time
-
 from aiohttp import web
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -41,21 +39,6 @@ from pydantic import BaseModel, Field
 # =============================================================================
 
 
-class HealthConfig(BaseModel):
-    """
-    Health check configuration for readiness probes.
-
-    Attributes:
-        max_cycle_age_seconds: Maximum seconds since last successful cycle before unhealthy
-    """
-
-    max_cycle_age_seconds: float = Field(
-        default=3600.0,
-        ge=60.0,
-        description="Maximum seconds since last cycle before unhealthy",
-    )
-
-
 class MetricsConfig(BaseModel):
     """
     Prometheus metrics configuration.
@@ -65,25 +48,26 @@ class MetricsConfig(BaseModel):
         port: HTTP port for /metrics endpoint
         host: HTTP bind address (0.0.0.0 for container environments)
         path: URL path for metrics endpoint
-        health: Health check configuration for readiness probes
     """
 
     enabled: bool = Field(default=True, description="Enable metrics collection")
     port: int = Field(default=8000, ge=1024, le=65535, description="Metrics HTTP port")
     host: str = Field(default="0.0.0.0", description="Metrics HTTP bind address")
     path: str = Field(default="/metrics", description="Metrics endpoint path")
-    health: HealthConfig = Field(
-        default_factory=HealthConfig,
-        description="Health check configuration",
-    )
 
 
 # =============================================================================
 # Common Service Metrics
 # =============================================================================
 #
-# These metrics are automatically updated by BaseService.run_forever().
-# All use 'service' label to distinguish between services in Grafana.
+# Simplified metrics architecture:
+# - SERVICE_INFO: Static metadata (set once at startup)
+# - SERVICE_GAUGE: Point-in-time values (current state)
+# - SERVICE_COUNTER: Cumulative totals (monotonically increasing)
+# - CYCLE_DURATION_SECONDS: Histogram for percentiles (p50/p95/p99)
+#
+# BaseService.run_forever() automatically tracks cycles via SERVICE_COUNTER
+# and SERVICE_GAUGE. Services add their own metrics using set_gauge()/inc_counter().
 # =============================================================================
 
 # Service information (static labels set once at startup)
@@ -92,13 +76,8 @@ SERVICE_INFO = Info(
     "Service information and metadata",
 )
 
-# Cycle metrics - track run() invocations
-CYCLES_TOTAL = Counter(
-    "cycles_total",
-    "Total service cycles executed",
-    ["service", "status"],  # status: success, failed
-)
-
+# Histogram for cycle duration - kept separate for percentile calculations
+# Cannot be replaced with gauge/counter as histograms provide p50/p95/p99
 CYCLE_DURATION_SECONDS = Histogram(
     "cycle_duration_seconds",
     "Duration of service cycle in seconds",
@@ -106,31 +85,36 @@ CYCLE_DURATION_SECONDS = Histogram(
     buckets=(1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600),
 )
 
-# Item processing metrics - track units of work
-ITEMS_PROCESSED_TOTAL = Counter(
-    "items_processed_total",
-    "Total items processed by service",
-    ["service", "result"],  # result: success, failed, skipped
+
+# =============================================================================
+# Generic Service Metrics
+# =============================================================================
+#
+# All service metrics flow through these two generic metrics with labels.
+# This provides a consistent interface while allowing flexibility.
+#
+# Automatic metrics (set by BaseService.run_forever()):
+#   - service_gauge{name="consecutive_failures"} - current failure streak
+#   - service_gauge{name="last_cycle_timestamp"} - unix timestamp of last cycle
+#   - service_counter{name="cycles_success"} - successful cycles
+#   - service_counter{name="cycles_failed"} - failed cycles
+#   - service_counter{name="errors_{type}"} - errors by type
+#
+# Service-specific metrics (examples):
+#   - service_gauge{service="validator", name="candidates"} - pending candidates
+#   - service_counter{service="validator", name="total_promoted"} - promoted relays
+# =============================================================================
+
+SERVICE_GAUGE = Gauge(
+    "service_gauge",
+    "Service gauge values (point-in-time state)",
+    ["service", "name"],
 )
 
-# Error tracking with categorization
-ERRORS_TOTAL = Counter(
-    "errors_total",
-    "Total errors encountered",
-    ["service", "error_type"],  # error_type: TimeoutError, ConnectionError, etc.
-)
-
-# Runtime state gauges
-CONSECUTIVE_FAILURES = Gauge(
-    "consecutive_failures",
-    "Current consecutive failure count",
-    ["service"],
-)
-
-LAST_CYCLE_TIMESTAMP = Gauge(
-    "last_cycle_timestamp_seconds",
-    "Unix timestamp of last completed cycle",
-    ["service"],
+SERVICE_COUNTER = Counter(
+    "service_counter",
+    "Service counter values (cumulative totals)",
+    ["service", "name"],
 )
 
 
@@ -147,20 +131,17 @@ class MetricsServer:
 
     Endpoints:
         /metrics - Prometheus scraping endpoint
-        /health  - Liveness probe (always returns 200 if server is running)
-        /ready   - Readiness probe (checks service health via Prometheus metrics)
 
     Example:
         config = MetricsConfig(port=8001)
-        server = MetricsServer(config, service_name="validator")
+        server = MetricsServer(config)
         await server.start()
         # ... service runs ...
         await server.stop()
     """
 
-    def __init__(self, config: MetricsConfig, service_name: str = "unknown") -> None:
+    def __init__(self, config: MetricsConfig) -> None:
         self._config = config
-        self._service_name = service_name
         self._runner: web.AppRunner | None = None
 
     async def start(self) -> None:
@@ -170,8 +151,6 @@ class MetricsServer:
 
         app = web.Application()
         app.router.add_get(self._config.path, self._handle_metrics)
-        app.router.add_get("/health", self._handle_health)
-        app.router.add_get("/ready", self._handle_ready)
 
         self._runner = web.AppRunner(app, access_log=None)
         await self._runner.setup()
@@ -197,103 +176,20 @@ class MetricsServer:
             headers={"Content-Type": CONTENT_TYPE_LATEST},
         )
 
-    @staticmethod
-    async def _handle_health(_request: web.Request) -> web.Response:
-        """
-        Handle /health endpoint for container liveness probes.
-
-        Always returns 200 if the HTTP server is running.
-        This indicates the process is alive and can accept requests.
-        """
-        return web.json_response({"status": "ok"})
-
-    async def _handle_ready(self, _request: web.Request) -> web.Response:
-        """
-        Handle /ready endpoint for container readiness probes.
-
-        Checks service health using Prometheus metrics:
-        - Last successful cycle not too old
-
-        Returns 200 if healthy, 503 if unhealthy.
-        """
-        current_time = time.time()
-        health_config = self._config.health
-        checks: dict[str, dict[str, object]] = {}
-        healthy = True
-
-        # Check last cycle age
-        try:
-            last_cycle = self._get_gauge_value(LAST_CYCLE_TIMESTAMP, self._service_name)
-            if last_cycle > 0:
-                age = current_time - last_cycle
-                age_ok = age < health_config.max_cycle_age_seconds
-                checks["last_cycle"] = {
-                    "ok": age_ok,
-                    "age_seconds": round(age, 1),
-                    "threshold": health_config.max_cycle_age_seconds,
-                }
-                if not age_ok:
-                    healthy = False
-            else:
-                # No cycle has run yet - this is OK during startup
-                checks["last_cycle"] = {
-                    "ok": True,
-                    "age_seconds": None,
-                    "threshold": health_config.max_cycle_age_seconds,
-                }
-        except Exception:
-            # If we can't read the metric, assume OK (service may not have started yet)
-            checks["last_cycle"] = {
-                "ok": True,
-                "age_seconds": None,
-                "threshold": health_config.max_cycle_age_seconds,
-            }
-
-        response = {
-            "status": "ok" if healthy else "unhealthy",
-            "service": self._service_name,
-            "checks": checks,
-        }
-
-        if healthy:
-            return web.json_response(response)
-        return web.json_response(response, status=503)
-
-    @staticmethod
-    def _get_gauge_value(gauge: Gauge, service_name: str) -> float:
-        """
-        Get the current value of a labeled gauge.
-
-        Args:
-            gauge: The Prometheus Gauge to read from
-            service_name: The service label value
-
-        Returns:
-            The current gauge value, or 0.0 if not found
-        """
-        # Access the internal metric samples
-        for metric in gauge.collect():
-            for sample in metric.samples:
-                if sample.labels.get("service") == service_name:
-                    return sample.value
-        return 0.0
-
 
 async def start_metrics_server(
     config: MetricsConfig | None = None,
-    service_name: str = "unknown",
 ) -> MetricsServer:
     """
     Start metrics server with given or default configuration.
 
     Args:
         config: Metrics configuration. Uses defaults if not provided.
-        service_name: Service name for health check metric lookups.
 
     Returns:
         Running MetricsServer instance. Call stop() on shutdown.
     """
     config = config or MetricsConfig()
-    server = MetricsServer(config, service_name=service_name)
+    server = MetricsServer(config)
     await server.start()
     return server

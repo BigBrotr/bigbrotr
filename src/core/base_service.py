@@ -24,12 +24,9 @@ from utils.yaml import load_yaml
 from .brotr import Brotr
 from .logger import Logger
 from .metrics import (
-    CONSECUTIVE_FAILURES,
     CYCLE_DURATION_SECONDS,
-    CYCLES_TOTAL,
-    ERRORS_TOTAL,
-    ITEMS_PROCESSED_TOTAL,
-    LAST_CYCLE_TIMESTAMP,
+    SERVICE_COUNTER,
+    SERVICE_GAUGE,
     SERVICE_INFO,
     MetricsConfig,
 )
@@ -195,12 +192,12 @@ class BaseService(ABC, Generic[ConfigT]):
             try:
                 await self.run()
 
-                # Success metrics
+                # Success metrics (using generic SERVICE_COUNTER/GAUGE)
                 duration = time.time() - cycle_start
-                CYCLES_TOTAL.labels(service=self.SERVICE_NAME, status="success").inc()
+                self.inc_counter("cycles_success")
                 CYCLE_DURATION_SECONDS.labels(service=self.SERVICE_NAME).observe(duration)
-                LAST_CYCLE_TIMESTAMP.labels(service=self.SERVICE_NAME).set(time.time())
-                CONSECUTIVE_FAILURES.labels(service=self.SERVICE_NAME).set(0)
+                self.set_gauge("last_cycle_timestamp", time.time())
+                self.set_gauge("consecutive_failures", 0)
 
                 consecutive_failures = 0  # Reset on success
                 self._logger.info("cycle_completed", next_run_in_seconds=interval)
@@ -212,13 +209,10 @@ class BaseService(ABC, Generic[ConfigT]):
             except Exception as e:
                 consecutive_failures += 1
 
-                # Failure metrics
-                CYCLES_TOTAL.labels(service=self.SERVICE_NAME, status="failed").inc()
-                CONSECUTIVE_FAILURES.labels(service=self.SERVICE_NAME).set(consecutive_failures)
-                ERRORS_TOTAL.labels(
-                    service=self.SERVICE_NAME,
-                    error_type=type(e).__name__,
-                ).inc()
+                # Failure metrics (using generic SERVICE_COUNTER/GAUGE)
+                self.inc_counter("cycles_failed")
+                self.set_gauge("consecutive_failures", consecutive_failures)
+                self.inc_counter(f"errors_{type(e).__name__}")
 
                 self._logger.error(
                     "run_cycle_error",
@@ -241,43 +235,6 @@ class BaseService(ABC, Generic[ConfigT]):
                 break
 
         self._logger.info("run_forever_stopped")
-
-    # -------------------------------------------------------------------------
-    # Metrics Helpers
-    # -------------------------------------------------------------------------
-
-    def record_items(
-        self,
-        success: int = 0,
-        failed: int = 0,
-        skipped: int = 0,
-    ) -> None:
-        """
-        Record item processing metrics.
-
-        Call this from run() to track units of work processed.
-        Updates items_processed_total counter with appropriate labels.
-
-        Args:
-            success: Number of items processed successfully
-            failed: Number of items that failed processing
-            skipped: Number of items skipped (e.g., duplicates)
-        """
-        if success:
-            ITEMS_PROCESSED_TOTAL.labels(
-                service=self.SERVICE_NAME,
-                result="success",
-            ).inc(success)
-        if failed:
-            ITEMS_PROCESSED_TOTAL.labels(
-                service=self.SERVICE_NAME,
-                result="failed",
-            ).inc(failed)
-        if skipped:
-            ITEMS_PROCESSED_TOTAL.labels(
-                service=self.SERVICE_NAME,
-                result="skipped",
-            ).inc(skipped)
 
     # -------------------------------------------------------------------------
     # Factory Methods
@@ -310,3 +267,41 @@ class BaseService(ABC, Generic[ConfigT]):
         # Set shutdown event to mark service as stopped
         self._shutdown_event.set()
         self._logger.info("stopped")
+
+    # -------------------------------------------------------------------------
+    # Custom Metrics
+    # -------------------------------------------------------------------------
+
+    def set_gauge(self, name: str, value: float) -> None:
+        """
+        Set a custom gauge metric for this service.
+
+        Uses SERVICE_GAUGE with labels for service name and metric name.
+        Each service can track its own named values.
+
+        Args:
+            name: Metric name (e.g., "pending", "active", "queue_size")
+            value: Numeric value to set
+
+        Example:
+            self.set_gauge("pending", 100)
+            # Creates: service_gauge{service="myservice", name="pending"} 100
+        """
+        SERVICE_GAUGE.labels(service=self.SERVICE_NAME, name=name).set(value)
+
+    def inc_counter(self, name: str, value: float = 1) -> None:
+        """
+        Increment a custom counter metric for this service.
+
+        Uses SERVICE_COUNTER with labels for service name and metric name.
+        Counters are cumulative and persist across cycles - use for totals.
+
+        Args:
+            name: Metric name (e.g., "total_processed", "total_promoted")
+            value: Amount to increment (default: 1)
+
+        Example:
+            self.inc_counter("total_promoted", 5)
+            # Increments: service_counter{service="myservice", name="total_promoted"} by 5
+        """
+        SERVICE_COUNTER.labels(service=self.SERVICE_NAME, name=name).inc(value)

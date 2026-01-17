@@ -91,7 +91,7 @@ async def run_service(
 
     # Continuous mode: start metrics server and run forever
     metrics_config: MetricsConfig = getattr(service.config, "metrics", MetricsConfig())
-    metrics_server = await start_metrics_server(metrics_config, service_name=service_name)
+    metrics_server = await start_metrics_server(metrics_config)
 
     if metrics_config.enabled:
         logger.info(

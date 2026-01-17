@@ -15,7 +15,7 @@ import ssl
 import sys
 from datetime import timedelta
 from datetime import timedelta as Duration
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TextIO
 from urllib.parse import urlparse
 
 import aiohttp
@@ -47,12 +47,50 @@ logger = logging.getLogger(__name__)
 logging.getLogger("nostr_sdk").setLevel(logging.CRITICAL)
 
 
+class _UniFFIStderrFilter:
+    """Filter that suppresses UniFFI traceback noise from stderr.
+
+    UniFFI prints "Unhandled exception in trait interface call" with full
+    tracebacks directly to stderr, bypassing Python's logging system.
+    This filter wraps stderr and suppresses those messages.
+    """
+
+    def __init__(self, original: TextIO) -> None:
+        self._original = original
+        self._suppressing = False
+
+    def write(self, text: str) -> int:
+        # Start suppressing when we see UniFFI error header
+        if "UniFFI:" in text or "Unhandled exception" in text:
+            self._suppressing = True
+            return len(text)
+
+        # Stop suppressing after empty line (end of traceback)
+        if self._suppressing:
+            if text.strip() == "" or text == "\n":
+                self._suppressing = False
+            return len(text)
+
+        # Pass through normal output
+        return self._original.write(text)
+
+    def flush(self) -> None:
+        self._original.flush()
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._original, name)
+
+
+# Install the stderr filter once at module import
+if not isinstance(sys.stderr, _UniFFIStderrFilter):
+    sys.stderr = _UniFFIStderrFilter(sys.stderr)
+
+
 @contextlib.contextmanager
 def _suppress_stderr():
-    """Context manager to suppress stderr output from nostr-sdk UniFFI.
+    """Context manager to suppress all stderr output.
 
-    The nostr-sdk Rust library prints raw tracebacks to stderr via UniFFI callbacks
-    that bypass Python's logging system. This temporarily redirects stderr to devnull.
+    Used as a fallback for complete stderr suppression when needed.
     """
     old_stderr = sys.stderr
     with open(os.devnull, "w") as devnull:  # noqa: PTH123 (os.devnull is cross-platform)

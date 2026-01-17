@@ -35,7 +35,10 @@ from .brotr import (
 )
 from .logger import Logger
 from .metrics import (
-    HealthConfig,
+    CYCLE_DURATION_SECONDS,
+    SERVICE_COUNTER,
+    SERVICE_GAUGE,
+    SERVICE_INFO,
     MetricsConfig,
     MetricsServer,
     start_metrics_server,
@@ -56,6 +59,10 @@ from .pool import (
 
 
 __all__ = [
+    "CYCLE_DURATION_SECONDS",
+    "SERVICE_COUNTER",
+    "SERVICE_GAUGE",
+    "SERVICE_INFO",
     "BaseService",
     "BaseServiceConfig",
     "BatchConfig",
@@ -64,7 +71,6 @@ __all__ = [
     "BrotrTimeoutsConfig",
     "ConfigT",
     "DatabaseConfig",
-    "HealthConfig",
     "Logger",
     "MetricsConfig",
     "MetricsServer",

@@ -12,14 +12,12 @@
 # Range: >= 60.0
 interval: 3600.0
 
-# Prometheus metrics and health checks
+# Prometheus metrics
 metrics:
   enabled: true
   port: 8001
   host: "0.0.0.0"
   path: "/metrics"
-  health:
-    max_cycle_age_seconds: 7200.0    # Unhealthy if no cycle in 2 hours
 
 # Event scanning - discovers relay URLs from stored events
 events:
