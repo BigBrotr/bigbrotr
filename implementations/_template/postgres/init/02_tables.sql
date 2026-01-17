@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS relays (
     discovered_at BIGINT NOT NULL            -- Unix timestamp when first discovered
 );
 
+COMMENT ON TABLE relays IS 'Registry of validated Nostr relays across all networks';
+COMMENT ON COLUMN relays.url IS 'WebSocket URL of the relay (e.g., wss://relay.example.com)';
+COMMENT ON COLUMN relays.network IS 'Network type: clearnet, tor, i2p, or loki';
+COMMENT ON COLUMN relays.discovered_at IS 'Unix timestamp when relay was first discovered and validated';
+
 
 -- ----------------------------------------------------------------------------
 -- Table: events
@@ -76,6 +81,16 @@ CREATE TABLE IF NOT EXISTS events (
     sig BYTEA NOT NULL
 );
 
+COMMENT ON TABLE events IS 'Nostr events with computed tag values for efficient querying';
+COMMENT ON COLUMN events.id IS 'SHA-256 hash of serialized event (stored as bytea)';
+COMMENT ON COLUMN events.pubkey IS 'Author public key (stored as bytea)';
+COMMENT ON COLUMN events.created_at IS 'Unix timestamp when event was created';
+COMMENT ON COLUMN events.kind IS 'Event kind per NIP-01 (0=metadata, 1=text, 3=contacts, etc.)';
+COMMENT ON COLUMN events.tags IS 'JSONB array of [key, value, ...] arrays per NIP-01';
+COMMENT ON COLUMN events.tagvalues IS 'Computed array of single-char tag values for GIN indexing';
+COMMENT ON COLUMN events.content IS 'Event content (plaintext or encrypted depending on kind)';
+COMMENT ON COLUMN events.sig IS 'Schnorr signature over event fields (stored as bytea)';
+
 
 -- ----------------------------------------------------------------------------
 -- Table: events_relays
@@ -91,6 +106,11 @@ CREATE TABLE IF NOT EXISTS events_relays (
     FOREIGN KEY (relay_url) REFERENCES relays (url) ON DELETE CASCADE
 );
 
+COMMENT ON TABLE events_relays IS 'Junction table tracking event-relay relationships with timestamps';
+COMMENT ON COLUMN events_relays.event_id IS 'Reference to events.id';
+COMMENT ON COLUMN events_relays.relay_url IS 'Reference to relays.url';
+COMMENT ON COLUMN events_relays.seen_at IS 'Unix timestamp when event was first seen on this relay';
+
 
 -- ----------------------------------------------------------------------------
 -- Table: metadata
@@ -101,6 +121,10 @@ CREATE TABLE IF NOT EXISTS metadata (
     id BYTEA PRIMARY KEY,                    -- SHA-256 hash of data (computed in DB)
     data JSONB NOT NULL                      -- Complete JSON document
 );
+
+COMMENT ON TABLE metadata IS 'Unified storage for NIP-11/NIP-66 metadata (deduplicated by content hash)';
+COMMENT ON COLUMN metadata.id IS 'SHA-256 hash of JSON data (content-addressed)';
+COMMENT ON COLUMN metadata.data IS 'Complete JSON document (NIP-11 or NIP-66 data)';
 
 
 -- ----------------------------------------------------------------------------
@@ -118,6 +142,12 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
     FOREIGN KEY (metadata_id) REFERENCES metadata (id) ON DELETE CASCADE
 );
 
+COMMENT ON TABLE relay_metadata IS 'Time-series relay metadata snapshots (references metadata records by type)';
+COMMENT ON COLUMN relay_metadata.relay_url IS 'Reference to relays.url';
+COMMENT ON COLUMN relay_metadata.generated_at IS 'Unix timestamp when metadata was generated/collected';
+COMMENT ON COLUMN relay_metadata.type IS 'Metadata type: nip11, nip66_rtt, nip66_ssl, nip66_geo, nip66_dns, or nip66_http';
+COMMENT ON COLUMN relay_metadata.metadata_id IS 'Reference to metadata.id';
+
 
 -- ----------------------------------------------------------------------------
 -- Table: service_data
@@ -132,6 +162,13 @@ CREATE TABLE IF NOT EXISTS service_data (
     updated_at BIGINT NOT NULL,
     PRIMARY KEY (service_name, data_type, data_key)
 );
+
+COMMENT ON TABLE service_data IS 'Per-service operational data (candidates, cursors, checkpoints)';
+COMMENT ON COLUMN service_data.service_name IS 'Name of the service (finder, validator, synchronizer, monitor)';
+COMMENT ON COLUMN service_data.data_type IS 'Type of data (candidate, cursor, checkpoint, config)';
+COMMENT ON COLUMN service_data.data_key IS 'Unique identifier within service/data_type (usually relay URL or entity ID)';
+COMMENT ON COLUMN service_data.data IS 'JSONB data specific to the service and data type';
+COMMENT ON COLUMN service_data.updated_at IS 'Unix timestamp when record was last updated';
 
 
 -- ============================================================================
