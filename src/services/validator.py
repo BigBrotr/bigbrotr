@@ -567,6 +567,15 @@ class Validator(BaseService[ValidatorConfig]):
         await self._persist_valid_batch()
         await self._persist_failed_batch()
 
+        # Log progress checkpoint
+        self._logger.info(
+            "progress",
+            processed=self._stats.validated + self._stats.failed,
+            validated=self._stats.validated,
+            failed=self._stats.failed,
+            elapsed=round(self._stats.elapsed, 1),
+        )
+
     async def _persist_valid_batch(self) -> None:
         """Insert valid relays and remove from candidates."""
         if not self._valid_batch:

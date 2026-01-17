@@ -346,7 +346,7 @@ async def connect_relay(
             f"SSL certificate verification failed for {relay.url}: {error_message}"
         )
 
-    logger.info(
+    logger.debug(
         "connect_relay: SSL certificate invalid, using insecure transport relay=%s error=%s",
         relay.url,
         error_message,
@@ -364,7 +364,7 @@ async def connect_relay(
         await client.disconnect()
         raise TimeoutError(f"Connection failed (insecure): {relay.url} ({error_message})")
 
-    logger.warning("connect_relay: connected without SSL verification relay=%s", relay.url)
+    logger.debug("connect_relay: connected without SSL verification relay=%s", relay.url)
     return client
 
 
