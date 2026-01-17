@@ -81,14 +81,17 @@ class Seeder(BaseService[SeederConfig]):
 
     async def run(self) -> None:
         """Run seeding sequence."""
-        self._logger.info("run_started")
+        self._logger.info(
+            "cycle_started",
+            file=self._config.seed.file_path,
+            to_validate=self._config.seed.to_validate,
+        )
         start_time = time.time()
 
         await self._seed()
 
         duration = time.time() - start_time
-
-        self._logger.info("run_completed", duration_s=round(duration, 2))
+        self._logger.info("cycle_completed", duration_s=round(duration, 2))
 
     # -------------------------------------------------------------------------
     # Seed Data
@@ -114,12 +117,7 @@ class Seeder(BaseService[SeederConfig]):
                 try:
                     relays.append(Relay(line))
                 except Exception as e:
-                    self._logger.warning(
-                        "seed_parse_relay_failed",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        line=line,
-                    )
+                    self._logger.warning("relay_parse_failed", url=line, error=str(e))
 
         return relays
 
@@ -128,13 +126,14 @@ class Seeder(BaseService[SeederConfig]):
         path = Path(self._config.seed.file_path)
 
         if not path.exists():
-            self._logger.warning("seed_file_not_found", path=str(path))
+            self._logger.warning("file_not_found", path=str(path))
             return
 
         relays = self._parse_seed_file(path)
+        self._logger.debug("file_parsed", path=str(path), count=len(relays))
 
         if not relays:
-            self._logger.info("seed_no_valid_relays")
+            self._logger.info("no_valid_relays")
             return
 
         if self._config.seed.to_validate:
@@ -166,15 +165,10 @@ class Seeder(BaseService[SeederConfig]):
 
         skipped_count = len(relays) - len(new_urls)
         if skipped_count > 0:
-            self._logger.info(
-                "seed_skipped_existing",
-                total=len(relays),
-                skipped=skipped_count,
-                new=len(new_urls),
-            )
+            self._logger.debug("existing_skipped", skipped=skipped_count)
 
         if not new_urls:
-            self._logger.info("seed_all_relays_exist")
+            self._logger.info("all_relays_exist", count=len(relays))
             return
 
         now = int(time.time())
@@ -193,8 +187,9 @@ class Seeder(BaseService[SeederConfig]):
         for i in range(0, len(records), batch_size):
             batch = records[i : i + batch_size]
             await self._brotr.upsert_service_data(batch)
+            self._logger.debug("batch_inserted", batch_num=i // batch_size + 1, count=len(batch))
 
-        self._logger.info("seed_completed", count=len(new_urls), to_validate=True)
+        self._logger.info("candidates_inserted", count=len(new_urls))
 
     async def _seed_as_relays(self, relays: list[Relay]) -> None:
         """
@@ -207,6 +202,8 @@ class Seeder(BaseService[SeederConfig]):
 
         for i in range(0, len(relays), batch_size):
             batch = relays[i : i + batch_size]
-            inserted += await self._brotr.insert_relays(batch)
+            count = await self._brotr.insert_relays(batch)
+            inserted += count
+            self._logger.debug("batch_inserted", batch_num=i // batch_size + 1, count=count)
 
-        self._logger.info("seed_completed", total=len(relays), inserted=inserted, to_validate=False)
+        self._logger.info("relays_inserted", total=len(relays), inserted=inserted)

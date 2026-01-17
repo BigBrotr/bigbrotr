@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from core import Brotr, Logger
+from core import Brotr, Logger, MetricsConfig, start_metrics_server
 from core.base_service import BaseService
 
 from .finder import Finder
@@ -79,7 +79,7 @@ async def run_service(
         logger.warning("config_not_found", path=str(config_path))
         service = service_class(brotr=brotr)
 
-    # One-shot mode: run once and exit
+    # One-shot mode: run once and exit (no metrics server)
     if once:
         try:
             await service.run()
@@ -89,7 +89,19 @@ async def run_service(
             logger.error(f"{service_name}_failed", error=str(e))
             return 1
 
-    # Continuous mode: run forever with signal handling
+    # Continuous mode: start metrics server and run forever
+    metrics_config: MetricsConfig = getattr(service.config, "metrics", MetricsConfig())
+    metrics_server = await start_metrics_server(metrics_config, service_name=service_name)
+
+    if metrics_config.enabled:
+        logger.info(
+            "metrics_server_started",
+            host=metrics_config.host,
+            port=metrics_config.port,
+            path=metrics_config.path,
+        )
+
+    # Signal handling for graceful shutdown
     def handle_signal(sig: int, _frame: object) -> None:
         sig_name = signal.Signals(sig).name
         logger.info("shutdown_signal", signal=sig_name)
@@ -105,6 +117,10 @@ async def run_service(
     except Exception as e:
         logger.error(f"{service_name}_failed", error=str(e))
         return 1
+    finally:
+        await metrics_server.stop()
+        if metrics_config.enabled:
+            logger.info("metrics_server_stopped")
 
 
 # =============================================================================
