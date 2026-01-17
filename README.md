@@ -20,17 +20,18 @@
 
 ## Overview
 
-BigBrotr is a production-ready, modular system for archiving and monitoring the [Nostr protocol](https://nostr.com) ecosystem. Built with Python and PostgreSQL, it provides comprehensive tools for relay discovery, health monitoring, and event synchronization across both clearnet and Tor networks.
+BigBrotr is a production-ready, modular system for archiving and monitoring the [Nostr protocol](https://nostr.com) ecosystem. Built with Python and PostgreSQL, it provides comprehensive tools for relay discovery, health monitoring, and event synchronization across clearnet and overlay networks.
 
 ### Key Features
 
 - **Relay Discovery** - Automatically discover Nostr relays from public APIs and seed lists
 - **Health Monitoring** - Continuous NIP-11 and NIP-66 compliance testing with RTT measurements
 - **Event Synchronization** - High-performance multicore event collection with incremental sync
-- **Tor Network Support** - Full support for .onion relay addresses via SOCKS5 proxy
+- **Multi-Network Support** - Clearnet, Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay connectivity
 - **Data Deduplication** - Content-addressed storage for NIP-11/NIP-66 documents
+- **Prometheus Metrics** - Built-in metrics server for service monitoring with Grafana dashboards
 - **SQL Analytics** - Pre-built views for statistics, event analysis, and relay metrics
-- **Docker Ready** - Complete containerized deployment with PostgreSQL, PGBouncer, and Tor
+- **Docker Ready** - Complete containerized deployment with PostgreSQL, Prometheus, Grafana, and Tor
 
 ### Design Philosophy
 
@@ -74,13 +75,14 @@ docker-compose logs -f seeder
 ### What Happens on First Run
 
 1. **PostgreSQL** initializes with the complete database schema
-2. **PGBouncer** provides connection pooling in transaction mode
-3. **Tor proxy** enables .onion relay connectivity (optional)
-4. **Seeder** seeds 8,865 relay URLs as candidates for validation
-5. **Finder** begins discovering additional relays from nostr.watch APIs
-6. **Validator** tests candidate relays and promotes valid ones
-7. **Monitor** starts health checking relays (NIP-11/NIP-66)
-8. **Synchronizer** collects events from readable relays using multicore processing
+2. **Tor proxy** enables .onion relay connectivity (optional)
+3. **Prometheus** starts collecting metrics from all services
+4. **Grafana** provides monitoring dashboards (http://localhost:3000)
+5. **Seeder** seeds 8,865 relay URLs as candidates for validation
+6. **Finder** begins discovering additional relays from nostr.watch APIs
+7. **Validator** tests candidate relays and promotes valid ones
+8. **Monitor** starts health checking relays (NIP-11/NIP-66)
+9. **Synchronizer** collects events from readable relays using multicore processing
 
 ---
 
@@ -129,9 +131,10 @@ BigBrotr uses a three-layer architecture that separates concerns and enables fle
 
 | Component | Description | Key Features |
 |-----------|-------------|--------------|
-| **Pool** | PostgreSQL connection pooling | Async pooling, retry with backoff, health checks, PGBouncer compatible |
+| **Pool** | PostgreSQL connection pooling | Async pooling with asyncpg, retry with backoff, health checks |
 | **Brotr** | High-level database interface | Stored procedure wrappers, batch operations, hex-to-BYTEA conversion |
-| **BaseService** | Abstract service base class | State persistence, lifecycle management, factory methods |
+| **BaseService** | Abstract service base class | State persistence, lifecycle management, Prometheus metrics integration |
+| **MetricsServer** | Prometheus metrics endpoint | HTTP /metrics endpoint, per-service gauges and counters |
 | **Logger** | Structured logging wrapper | Key=value formatting, configurable levels |
 
 ### Services
@@ -140,8 +143,8 @@ BigBrotr uses a three-layer architecture that separates concerns and enables fle
 |---------|--------|-------------|
 | **Seeder** | Complete | Relay seeding for validation |
 | **Finder** | Complete | Relay URL discovery from external APIs and database events |
-| **Validator** | Complete | Candidate relay testing and validation with Tor support |
-| **Monitor** | Complete | NIP-11/NIP-66 health monitoring with comprehensive checks |
+| **Validator** | Complete | Candidate relay testing with streaming architecture and multi-network support |
+| **Monitor** | Complete | NIP-11/NIP-66 health monitoring with SSL validation and geolocation |
 | **Synchronizer** | Complete | Multicore event synchronization with incremental sync |
 | **API** | Planned (config stub) | REST API endpoints with OpenAPI documentation |
 | **DVM** | Planned (config stub) | NIP-90 Data Vending Machine protocol support |
@@ -161,9 +164,9 @@ The default implementation with complete event storage:
 | Feature | Description |
 |---------|-------------|
 | **Full Event Storage** | Stores all event fields including tags and content |
-| **Tor Support** | Full .onion relay connectivity |
-| **High Concurrency** | 10 parallel connections, 10 worker processes |
-| **Ports** | PostgreSQL: 5432, PGBouncer: 6432, Tor: 9050 |
+| **Multi-Network** | Clearnet + Tor enabled, I2P/Lokinet available |
+| **High Concurrency** | 10 parallel connections, 4 worker processes |
+| **Monitoring** | Prometheus (9090), Grafana (3000), PostgreSQL (5432), PGBouncer (6432), Tor (9050) |
 
 ```bash
 cd implementations/bigbrotr
@@ -177,9 +180,9 @@ A lightweight implementation that indexes all events but omits storage-heavy fie
 | Feature | Description |
 |---------|-------------|
 | **Essential Metadata** | Stores id, pubkey, created_at, kind, sig (omits tags/content, saves ~60% disk space) |
-| **Clearnet Only** | Tor disabled by default |
+| **Clearnet Only** | Overlay networks disabled by default |
 | **Lower Concurrency** | 5 parallel connections for reduced resource usage |
-| **Different Ports** | PostgreSQL: 5433, PGBouncer: 6433, Tor: 9051 |
+| **Monitoring** | Prometheus (9091), Grafana (3001), PostgreSQL (5433), PGBouncer (6433) |
 
 ```bash
 cd implementations/lilbrotr
@@ -289,17 +292,25 @@ python -m services validator
 
 **Configuration highlights** (`yaml/services/validator.yaml`):
 ```yaml
-interval: 300.0  # 5 minutes between validation cycles
+interval: 28800.0  # 8 hours between validation cycles
 
-connection_timeout: 10.0  # WebSocket connection timeout
+processing:
+  max_candidates: null  # Process all candidates each cycle
 
-concurrency:
-  max_parallel: 10  # concurrent validations
-
-tor:
+cleanup:
   enabled: true
-  host: "tor"    # Docker service name (use 127.0.0.1 for local)
-  port: 9050
+  max_failures: 100  # Remove after 100 failed attempts
+
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 50
+    timeout: 10.0
+  tor:
+    enabled: true
+    proxy_url: "socks5://tor:9050"
+    max_tasks: 10
+    timeout: 30.0
 ```
 
 ### Monitor
@@ -327,18 +338,31 @@ MONITOR_PRIVATE_KEY=<hex_private_key> python -m services monitor
 ```yaml
 interval: 3600.0  # 1 hour between monitoring cycles
 
-tor:
+metrics:
   enabled: true
-  host: "tor"
-  port: 9050
+  port: 8003
 
-timeouts:
-  clearnet: 30.0  # seconds
-  tor: 60.0       # higher timeout for Tor
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 50
+    timeout: 30.0
+  tor:
+    enabled: true
+    proxy_url: "socks5://tor:9050"
+    max_tasks: 10
+    timeout: 60.0
+
+checks:
+  open: true      # WebSocket connection test
+  read: true      # REQ/EOSE subscription test
+  write: true     # EVENT/OK publication test (requires PRIVATE_KEY)
+  nip11: true     # Fetch NIP-11 relay info
+  ssl: true       # Validate SSL certificate
+  geo: true       # Geolocate relay IP
 
 concurrency:
-  max_parallel: 50    # concurrent relay checks
-  batch_size: 50      # relays per database batch
+  batch_size: 50  # relays per database batch
 ```
 
 ### Synchronizer
@@ -364,21 +388,32 @@ python -m services synchronizer
 ```yaml
 interval: 900.0  # 15 minutes between sync cycles
 
+metrics:
+  enabled: true
+  port: 8004
+
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 10
+    timeout: 30.0
+  tor:
+    enabled: true
+    proxy_url: "socks5://tor:9050"
+    max_tasks: 5
+    timeout: 60.0
+
 filter:
   kinds: null     # null = all event kinds
   limit: 500      # events per request
 
-timeouts:
-  clearnet:
-    request: 30.0   # WebSocket timeout
-    relay: 1800.0   # 30 min max per relay
-  tor:
-    request: 60.0
-    relay: 3600.0   # 60 min for Tor relays
+sync_timeouts:
+  relay_clearnet: 1800.0  # 30 min max per relay
+  relay_tor: 3600.0       # 60 min for Tor relays
 
 concurrency:
   max_parallel: 10  # concurrent connections per process
-  max_processes: 10 # worker processes
+  max_processes: 4  # worker processes
 
 # Per-relay overrides
 overrides:
@@ -399,7 +434,8 @@ BigBrotr uses a YAML-driven configuration system with Pydantic validation.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DB_PASSWORD` | **Yes** | PostgreSQL database password |
-| `MONITOR_PRIVATE_KEY` | No | Nostr private key for NIP-66 write tests (hex format) |
+| `PRIVATE_KEY` | **Yes** for Monitor/Sync | Nostr private key (hex or nsec format) for NIP-66 write tests and NIP-42 auth |
+| `GRAFANA_PASSWORD` | No | Grafana admin password (defaults to admin) |
 
 ### Configuration Files
 
@@ -421,7 +457,7 @@ For complete configuration documentation, see [docs/CONFIGURATION.md](docs/CONFI
 
 ## Database
 
-BigBrotr uses PostgreSQL 16+ with PGBouncer for connection pooling.
+BigBrotr uses PostgreSQL 16+ with PGBouncer connection pooling and asyncpg async driver.
 
 ### Schema Overview
 
@@ -647,14 +683,16 @@ For complete development documentation, see [docs/DEVELOPMENT.md](docs/DEVELOPME
 |------------|---------|---------|
 | **Python** | 3.11+ | Primary programming language |
 | **PostgreSQL** | 16+ | Primary data storage |
-| **asyncpg** | 0.30.0 | Async PostgreSQL driver |
+| **asyncpg** | 0.30.0 | Async PostgreSQL driver with native connection pooling |
 | **Pydantic** | 2.10.4 | Configuration validation and serialization |
 | **aiohttp** | 3.13.2 | Async HTTP client for API calls |
-| **aiohttp-socks** | 0.10.1 | SOCKS5 proxy support for Tor |
+| **aiohttp-socks** | 0.10.1 | SOCKS5 proxy support for overlay networks |
 | **aiomultiprocess** | 0.9.1 | Multicore async processing |
 | **nostr-sdk** | 0.39.0 | Nostr protocol library (rust-nostr PyO3 bindings) |
+| **prometheus-client** | latest | Metrics collection and exposition |
 | **PyYAML** | 6.0.2 | YAML configuration parsing |
-| **PGBouncer** | latest | Connection pooling |
+| **Prometheus** | latest | Metrics storage and querying |
+| **Grafana** | latest | Metrics visualization dashboards |
 | **Docker** | - | Containerization |
 
 ---
@@ -690,12 +728,15 @@ For security issues, please see [SECURITY.md](SECURITY.md).
 
 ### Completed
 
-- [x] Core layer (Pool, Brotr, BaseService, Logger)
+- [x] Core layer (Pool, Brotr, BaseService, MetricsServer, Logger)
 - [x] Seeder service with relay seeding
-- [x] Validator service with relay testing
+- [x] Validator service with streaming architecture and multi-network support
 - [x] Finder service with API discovery
-- [x] Monitor service with NIP-11/NIP-66 support
+- [x] Monitor service with NIP-11/NIP-66 support, SSL validation, geolocation
 - [x] Synchronizer service with multicore processing
+- [x] Prometheus metrics integration for all services
+- [x] Grafana dashboards for monitoring
+- [x] Multi-network support (Clearnet, Tor, I2P, Lokinet)
 - [x] Docker Compose deployment
 - [x] Unit test suite (411+ tests)
 - [x] Pre-commit hooks and CI configuration
@@ -705,8 +746,7 @@ For security issues, please see [SECURITY.md](SECURITY.md).
 - [ ] API service (REST endpoints with OpenAPI)
 - [ ] DVM service (NIP-90 Data Vending Machine)
 - [ ] Integration tests with real database
-- [ ] Prometheus metrics export
-- [ ] Admin dashboard
+- [ ] Additional Grafana dashboards
 - [ ] Database backup automation
 
 ---

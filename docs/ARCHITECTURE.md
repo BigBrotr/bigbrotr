@@ -75,6 +75,7 @@ This design allows:
 |   ├── pool.py          PostgreSQL connection pooling                        |
 |   ├── brotr.py         Database interface + stored procedures               |
 |   ├── base_service.py  Abstract service base class                          |
+|   ├── metrics.py       Prometheus metrics server                            |
 |   └── logger.py        Structured logging                                   |
 |                                                                              |
 |   Purpose: Reusable foundation, zero business logic                          |
@@ -97,16 +98,17 @@ The core layer (`src/core/`) provides reusable infrastructure components.
 
 ### Pool (`pool.py`)
 
-**Purpose**: PostgreSQL connection pooling with asyncpg.
+**Purpose**: Async PostgreSQL client with asyncpg driver.
 
 **Key Features**:
-- Async connection pool management
+- Async connection management with asyncpg (works behind PGBouncer)
 - Configurable pool size limits
 - Retry logic with exponential backoff
-- PGBouncer compatibility (transaction mode)
 - Environment variable password loading (`DB_PASSWORD`)
 - Connection health checking
 - Async context manager support
+
+**Note**: In Docker deployments, services connect to PGBouncer (port 6432/6433) which handles connection pooling at the infrastructure level. The Pool class provides application-level connection management and query methods.
 
 **Configuration Model**:
 ```python
@@ -298,16 +300,20 @@ class MyService(BaseService[MyServiceConfig]):
 
 **Lifecycle**: Continuous (`run_forever`)
 
+**Architecture**: Streaming with batch processing
+
 **Operations**:
-1. Fetch candidates from `service_data` table
-2. Test WebSocket connectivity for each candidate
-3. Promote successful candidates to `relays` table
-4. Track failed attempts and remove persistently failing candidates
+1. Cleanup exhausted candidates (optional, based on `max_failures`)
+2. Fetch chunk of candidates from `service_data` table
+3. Validate in parallel with per-network semaphores
+4. Persist results (promote or increment failure count)
+5. Repeat until all candidates processed
 
 **Features**:
-- Probabilistic selection based on retry count
-- Tor proxy support for .onion addresses
-- Configurable connection timeout
+- Multi-network support (clearnet, Tor, I2P, Lokinet)
+- Per-network concurrency limits via `max_tasks`
+- Configurable connection timeout per network
+- Prometheus metrics integration
 
 ### Monitor Service
 
@@ -323,10 +329,11 @@ class MyService(BaseService[MyServiceConfig]):
    - Measure round-trip times
 3. Batch insert results with NIP-11/NIP-66 deduplication
 
-**Tor Support**:
-- Configurable SOCKS5 proxy for .onion addresses
+**Multi-Network Support**:
+- Configurable SOCKS5 proxy for overlay networks (Tor, I2P, Lokinet)
 - Automatic network detection from URL
-- Separate timeout settings for Tor relays
+- Per-network timeout and concurrency settings
+- SSL certificate validation and geolocation
 
 ### Synchronizer Service
 
@@ -381,18 +388,21 @@ implementations/bigbrotr/
 │   └── services/
 │       ├── seeder.yaml          # Seed file configuration
 │       ├── finder.yaml          # API sources, intervals
-│       ├── validator.yaml       # Validation settings, Tor proxy
+│       ├── validator.yaml       # Multi-network validation (Tor enabled)
 │       ├── monitor.yaml         # Health check settings, Tor proxy
-│       └── synchronizer.yaml    # High concurrency (10 parallel, 4 processes), Tor proxy
+│       └── synchronizer.yaml    # High concurrency (10 parallel, 4 processes)
 ├── postgres/
 │   └── init/                    # SQL schema files (00-99)
 │       ├── 02_tables.sql        # Full schema with tags, tagvalues, content
 │       └── ...
+├── prometheus/
+│   └── prometheus.yaml          # Prometheus scrape configuration
+├── grafana/
+│   ├── provisioning/            # Dashboard and datasource provisioning
+│   └── dashboards/              # Pre-built dashboards
 ├── data/
 │   └── seed_relays.txt          # 8,865 initial relay URLs
-├── pgbouncer/
-│   └── pgbouncer.ini            # Connection pooler config
-├── docker-compose.yaml          # Ports: 5432, 6432, 9050
+├── docker-compose.yaml          # Ports: 5432, 6432 (PGBouncer), 9090, 3000, 9050
 ├── Dockerfile
 └── .env.example
 ```
@@ -405,13 +415,18 @@ implementations/lilbrotr/
 │   ├── core/
 │   │   └── brotr.yaml           # Same pool settings
 │   └── services/
-│       ├── synchronizer.yaml    # Tor disabled, lower concurrency (5 parallel)
+│       ├── synchronizer.yaml    # Overlay networks disabled, lower concurrency (5 parallel)
 │       └── ...                  # Other services inherit defaults
 ├── postgres/
 │   └── init/
 │       ├── 02_tables.sql        # Minimal schema (NO tags, tagvalues, content)
 │       └── ...
-├── docker-compose.yaml          # Different ports: 5433, 6433, 9051
+├── prometheus/
+│   └── prometheus.yaml          # Prometheus scrape configuration
+├── grafana/
+│   ├── provisioning/            # Dashboard and datasource provisioning
+│   └── dashboards/              # Pre-built dashboards
+├── docker-compose.yaml          # Different ports: 5433, 6433 (PGBouncer), 9091, 3001
 ├── Dockerfile
 └── .env.example
 ```
@@ -454,10 +469,12 @@ To create a custom deployment:
 2. Modify YAML configurations as needed:
    ```yaml
    # yaml/services/synchronizer.yaml
-   tor:
-     enabled: false  # Disable Tor
-   concurrency:
-     max_parallel: 3  # Lower concurrency
+   networks:
+     clearnet:
+       enabled: true
+       max_tasks: 3  # Lower concurrency
+     tor:
+       enabled: false  # Disable Tor
    ```
 
 3. Optionally customize SQL schemas:

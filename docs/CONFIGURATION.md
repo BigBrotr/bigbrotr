@@ -39,7 +39,8 @@ Only sensitive data is loaded from environment variables:
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
 | `DB_PASSWORD` | **Yes** | PostgreSQL database password | `my_secure_password_123` |
-| `MONITOR_PRIVATE_KEY` | No | Nostr private key for NIP-66 write tests (hex) | `5a2b3c4d...` (64 hex chars) |
+| `PRIVATE_KEY` | **Yes** for Monitor | Nostr private key (hex or nsec) for write tests | `5a2b3c4d...` (64 hex chars) or `nsec1...` |
+| `GRAFANA_PASSWORD` | No | Grafana admin password | Defaults to `admin` |
 
 ### Setting Environment Variables
 
@@ -53,14 +54,14 @@ nano implementations/bigbrotr/.env  # Edit DB_PASSWORD
 **Shell Export**:
 ```bash
 export DB_PASSWORD=your_secure_password
-export MONITOR_PRIVATE_KEY=your_hex_private_key  # Optional
+export PRIVATE_KEY=your_hex_private_key  # Required for Monitor service
 ```
 
 **Systemd Service**:
 ```ini
 [Service]
 Environment="DB_PASSWORD=your_secure_password"
-Environment="MONITOR_PRIVATE_KEY=your_hex_private_key"
+Environment="PRIVATE_KEY=your_hex_private_key"
 ```
 
 ---
@@ -113,18 +114,18 @@ service = MyService.from_dict(config_dict, brotr=brotr)
 ```yaml
 # Connection pool configuration
 pool:
-  # Database connection parameters
+  # Database connection parameters - connects to PGBouncer
   database:
-    host: pgbouncer              # Database host (Docker service name)
-    port: 5432                   # Database port
+    host: pgbouncer              # PGBouncer service name (connects to PostgreSQL)
+    port: 5432                   # PGBouncer internal port
     database: bigbrotr           # Database name
     user: admin                  # Database user
     # password: loaded from DB_PASSWORD environment variable
 
-  # Connection pool size limits
+  # Connection pool size limits (connections to PGBouncer)
   limits:
-    min_size: 5                  # Minimum connections in pool
-    max_size: 20                 # Maximum connections in pool
+    min_size: 5                  # Minimum connections to PGBouncer
+    max_size: 20                 # Maximum connections to PGBouncer
     max_queries: 50000           # Queries per connection before recycling
     max_inactive_connection_lifetime: 300.0  # Idle timeout (seconds)
 
@@ -244,38 +245,59 @@ api:
 
 ```yaml
 # Cycle interval (seconds between validation runs)
-# Range: >= 60.0
-interval: 300.0
+interval: 28800.0  # 8 hours
 
-# WebSocket connection timeout (seconds)
-# Range: 1.0 - 60.0
-connection_timeout: 10.0
-
-# Maximum candidates to validate per cycle (null = unlimited)
-# max_candidates_per_run: 100
-
-# Concurrency settings
-concurrency:
-  max_parallel: 10               # Maximum concurrent relay validations (Range: 1 - 100)
-
-# Tor proxy configuration (for .onion relays)
-tor:
+# Prometheus metrics endpoint
+metrics:
   enabled: true
-  host: "127.0.0.1"              # Tor proxy host (Docker service name or IP)
-  port: 9050                     # Tor proxy port (Range: 1 - 65535)
+  port: 8002
+
+# Processing configuration
+processing:
+  chunk_size: 100                # Candidates per batch
+  max_candidates: null           # Max candidates per cycle (null = unlimited)
+
+# Cleanup configuration
+cleanup:
+  enabled: true
+  max_failures: 100              # Remove after N failures
+
+# Network-specific settings
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 50                # Concurrent validations
+    timeout: 10.0                # Connection timeout
+  tor:
+    enabled: true
+    proxy_url: "socks5://tor:9050"
+    max_tasks: 10
+    timeout: 30.0
+  i2p:
+    enabled: false
+    proxy_url: "socks5://i2p:4447"
+    max_tasks: 5
+    timeout: 45.0
+  loki:
+    enabled: false
+    proxy_url: "socks5://lokinet:1080"
+    max_tasks: 5
+    timeout: 30.0
 ```
 
 #### Validator Configuration Reference
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `interval` | float | `300.0` | >= 60.0 | Seconds between cycles |
-| `connection_timeout` | float | `10.0` | 1.0-60.0 | WebSocket connection timeout |
-| `max_candidates_per_run` | int | `null` | >= 1 | Max candidates per cycle |
-| `concurrency.max_parallel` | int | `10` | 1-100 | Concurrent validations |
-| `tor.enabled` | bool | `true` | - | Enable Tor proxy |
-| `tor.host` | string | `127.0.0.1` | - | Tor SOCKS5 host |
-| `tor.port` | int | `9050` | 1-65535 | Tor SOCKS5 port |
+| `interval` | float | `28800.0` | >= 60.0 | Seconds between cycles |
+| `processing.chunk_size` | int | `100` | 1-1000 | Candidates per batch |
+| `processing.max_candidates` | int | `null` | >= 1 | Max candidates per cycle |
+| `cleanup.enabled` | bool | `true` | - | Enable candidate cleanup |
+| `cleanup.max_failures` | int | `100` | >= 1 | Remove after N failures |
+| `networks.*.enabled` | bool | varies | - | Enable network |
+| `networks.*.max_tasks` | int | varies | 1-100 | Concurrent validations |
+| `networks.*.timeout` | float | varies | 1.0-120.0 | Connection timeout |
+| `networks.*.proxy_url` | string | - | - | SOCKS5 proxy URL |
 
 ### Monitor (`yaml/services/monitor.yaml`)
 
@@ -283,25 +305,55 @@ tor:
 # Cycle interval
 interval: 3600.0                 # 1 hour (Range: >= 60.0)
 
-# Tor proxy for .onion relays
-tor:
-  enabled: true                  # Enable Tor proxy
-  host: "tor"                    # Tor proxy host (Docker service name)
-  port: 9050                     # Tor proxy port (Range: 1-65535)
+# Prometheus metrics endpoint
+metrics:
+  enabled: true
+  port: 8003
 
-# Nostr keys for NIP-66 write tests
-keys:
-  # public_key loaded from config, private_key from MONITOR_PRIVATE_KEY env
-  public_key: "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+# Network-specific settings
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 50
+    timeout: 30.0
+  tor:
+    enabled: true
+    proxy_url: "socks5://tor:9050"
+    max_tasks: 10
+    timeout: 60.0
+  i2p:
+    enabled: false
+    proxy_url: "socks5://i2p:4447"
+    max_tasks: 5
+    timeout: 90.0
+  loki:
+    enabled: false
+    proxy_url: "socks5://lokinet:1080"
+    max_tasks: 5
+    timeout: 60.0
 
-# Timeouts for relay checks
-timeouts:
-  clearnet: 30.0                 # Clearnet timeout (Range: 5.0-120.0)
-  tor: 60.0                      # Tor timeout (Range: 10.0-180.0)
+# Nostr keys for NIP-66 write tests (loaded from PRIVATE_KEY env)
+keys: {}
+
+# NIP-66 checks to perform
+checks:
+  open: true                     # WebSocket connection test
+  read: true                     # REQ/EOSE subscription test
+  write: true                    # EVENT/OK publication test
+  nip11: true                    # Fetch NIP-11 relay info
+  ssl: true                      # SSL certificate validation
+  dns: true                      # DNS resolution time
+  geo: true                      # IP geolocation
+
+# Geolocation database paths
+geo:
+  city_database_path: "static/GeoLite2-City.mmdb"
+  asn_database_path: "static/GeoLite2-ASN.mmdb"
+  country_database_path: "static/GeoLite2-Country.mmdb"
 
 # Concurrency settings
 concurrency:
-  max_parallel: 50               # Max concurrent checks (Range: 1-500)
+  max_processes: 1               # Worker processes
   batch_size: 50                 # Relays per DB batch (Range: 1-500)
 
 # Relay selection criteria
@@ -314,12 +366,11 @@ selection:
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
 | `interval` | float | `3600.0` | >= 60.0 | Seconds between cycles |
-| `tor.enabled` | bool | `true` | - | Enable Tor proxy |
-| `tor.host` | string | `127.0.0.1` | - | Tor SOCKS5 host |
-| `tor.port` | int | `9050` | 1-65535 | Tor SOCKS5 port |
-| `timeouts.clearnet` | float | `30.0` | 5.0-120.0 | Clearnet timeout |
-| `timeouts.tor` | float | `60.0` | 10.0-180.0 | Tor timeout |
-| `concurrency.max_parallel` | int | `50` | 1-500 | Concurrent checks |
+| `networks.*.enabled` | bool | varies | - | Enable network |
+| `networks.*.max_tasks` | int | varies | 1-500 | Concurrent checks |
+| `networks.*.timeout` | float | varies | 5.0-180.0 | Check timeout |
+| `networks.*.proxy_url` | string | - | - | SOCKS5 proxy URL |
+| `checks.*` | bool | `true` | - | Enable specific check |
 | `concurrency.batch_size` | int | `50` | 1-500 | DB batch size |
 | `selection.min_age_since_check` | int | `3600` | >= 0 | Re-check interval |
 
@@ -329,11 +380,32 @@ selection:
 # Cycle interval
 interval: 900.0                  # 15 minutes (Range: >= 60.0)
 
-# Tor proxy for .onion relays
-tor:
+# Prometheus metrics endpoint
+metrics:
   enabled: true
-  host: "tor"
-  port: 9050
+  port: 8004
+
+# Network-specific settings
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 10
+    timeout: 30.0
+  tor:
+    enabled: true
+    proxy_url: "socks5://tor:9050"
+    max_tasks: 5
+    timeout: 60.0
+  i2p:
+    enabled: false
+    proxy_url: "socks5://i2p:4447"
+    max_tasks: 3
+    timeout: 90.0
+  loki:
+    enabled: false
+    proxy_url: "socks5://lokinet:1080"
+    max_tasks: 3
+    timeout: 60.0
 
 # Event filter settings (null = accept all)
 filter:
@@ -349,19 +421,17 @@ time_range:
   use_relay_state: true          # Use per-relay incremental state
   lookback_seconds: 86400        # Lookback window (Range: 3600-604800)
 
-# Network-specific timeouts
-timeouts:
-  clearnet:
-    request: 30.0                # WebSocket timeout (Range: 5.0-120.0)
-    relay: 1800.0                # Max time per relay (Range: 60.0-14400.0)
-  tor:
-    request: 60.0
-    relay: 3600.0
+# Per-relay sync timeouts
+sync_timeouts:
+  relay_clearnet: 1800.0         # Max time per relay (Range: 60.0-14400.0)
+  relay_tor: 3600.0
+  relay_i2p: 3600.0
+  relay_loki: 3600.0
 
 # Concurrency settings
 concurrency:
   max_parallel: 10               # Parallel connections per process (Range: 1-100)
-  max_processes: 10              # Worker processes (Range: 1-32)
+  max_processes: 4               # Worker processes (Range: 1-32)
   stagger_delay: [0, 60]         # Random delay range to prevent thundering herd
 
 # Relay source settings
@@ -383,12 +453,14 @@ overrides:
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
 | `interval` | float | `900.0` | >= 60.0 | Seconds between cycles |
+| `networks.*.enabled` | bool | varies | - | Enable network |
+| `networks.*.max_tasks` | int | varies | 1-100 | Connections per process |
+| `networks.*.timeout` | float | varies | 5.0-120.0 | WebSocket timeout |
 | `filter.limit` | int | `500` | 1-5000 | Events per request |
 | `time_range.lookback_seconds` | int | `86400` | 3600-604800 | Lookback window |
-| `timeouts.clearnet.request` | float | `30.0` | 5.0-120.0 | WebSocket timeout |
-| `timeouts.clearnet.relay` | float | `1800.0` | 60.0-14400.0 | Per-relay timeout |
+| `sync_timeouts.relay_*` | float | varies | 60.0-14400.0 | Per-relay timeout |
 | `concurrency.max_parallel` | int | `10` | 1-100 | Connections per process |
-| `concurrency.max_processes` | int | `10` | 1-32 | Worker processes |
+| `concurrency.max_processes` | int | `4` | 1-32 | Worker processes |
 | `source.max_metadata_age` | int | `43200` | >= 0 | Max metadata age |
 
 ---
@@ -542,8 +614,8 @@ export DB_PASSWORD=your_password
 ```
 
 **"Connection refused"**
-- Check `pool.database.host` matches your database hostname
-- In Docker, use service names (`postgres`, `pgbouncer`)
+- Check `pool.database.host` matches your database/PGBouncer hostname
+- In Docker, use service name (`pgbouncer` for pooled connections, or `postgres` for direct)
 - Outside Docker, use `localhost` or actual hostname
 
 **"Pool exhausted"**
@@ -557,9 +629,11 @@ pool:
 
 **"Timeout connecting to relay"**
 ```yaml
-timeouts:
-  clearnet: 60.0  # Increase timeout
-  tor: 120.0      # Tor needs more time
+networks:
+  clearnet:
+    timeout: 60.0  # Increase timeout
+  tor:
+    timeout: 120.0  # Tor needs more time
 ```
 
 ---
@@ -587,7 +661,7 @@ pool:
 # brotr.yaml - Production
 pool:
   database:
-    host: pgbouncer
+    host: postgres
     port: 5432
   limits:
     min_size: 10
