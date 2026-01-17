@@ -125,7 +125,26 @@ ports:
   - "127.0.0.1:5433:5432"  # PostgreSQL
   - "127.0.0.1:6433:5432"  # PGBouncer
   - "127.0.0.1:9051:9050"  # Tor
+  - "127.0.0.1:9091:9090"  # Prometheus
+  - "127.0.0.1:3001:3000"  # Grafana
 ```
+
+Metrics ports can be configured via environment variables in `.env`:
+
+```bash
+# Service metrics ports (Prometheus scrape targets)
+FINDER_METRICS_PORT=9001       # Default: 8001
+VALIDATOR_METRICS_PORT=9002    # Default: 8002
+MONITOR_METRICS_PORT=9003      # Default: 8003
+SYNCHRONIZER_METRICS_PORT=9004 # Default: 8004
+```
+
+**Port allocation by implementation:**
+| Implementation | PostgreSQL | PGBouncer | Metrics | Prometheus | Grafana |
+|---------------|------------|-----------|---------|------------|---------|
+| bigbrotr      | 5432       | 6432      | 8001-04 | 9090       | 3000    |
+| lilbrotr      | 5433       | 6433      | 9001-04 | 9091       | 3001    |
+| myimpl        | 5434       | 6434      | 7001-04 | 9092       | 3002    |
 
 ## Required SQL Functions
 
@@ -171,6 +190,11 @@ These functions are called by `src/core/brotr.py` and MUST exist:
 |----------|----------|-------------|
 | `DB_PASSWORD` | Yes | PostgreSQL password |
 | `PRIVATE_KEY` | No | Nostr private key (hex, 64 chars) |
+| `GRAFANA_PASSWORD` | No | Grafana admin password (default: admin) |
+| `FINDER_METRICS_PORT` | No | Finder Prometheus port (default: 8001) |
+| `VALIDATOR_METRICS_PORT` | No | Validator Prometheus port (default: 8002) |
+| `MONITOR_METRICS_PORT` | No | Monitor Prometheus port (default: 8003) |
+| `SYNCHRONIZER_METRICS_PORT` | No | Synchronizer Prometheus port (default: 8004) |
 
 ## Troubleshooting
 
