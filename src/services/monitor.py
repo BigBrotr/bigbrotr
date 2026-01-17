@@ -246,7 +246,39 @@ def _extract_kinds_from_retention(
 
 
 def build_kind_30166_tags(relay: Relay, nip11: Nip11 | None, nip66: Nip66 | None) -> list[Tag]:
-    """Build NIP-66 Kind 30166 event tags."""
+    """Build NIP-66 Kind 30166 relay discovery event tags.
+
+    Constructs a list of tags for a Kind 30166 parametrized replaceable event
+    as specified in NIP-66. These tags describe relay metadata, capabilities,
+    and health metrics for relay discovery purposes.
+
+    Tag structure per NIP-66:
+        - "d": Relay URL (required, makes event parametrized replaceable)
+        - "n": Network type (clearnet, tor, i2p, loki)
+        - "rtt-open": Round-trip time for WebSocket open in milliseconds
+        - "rtt-read": Round-trip time for REQ/EOSE cycle in milliseconds
+        - "rtt-write": Round-trip time for EVENT/OK cycle in milliseconds
+        - "g": Geohash of relay location (variable precision)
+        - "N": Supported NIP numbers (one tag per NIP)
+        - "R": Requirements (auth, !auth, payment, !payment, writes, !writes, pow, !pow)
+        - "T": Relay type classification (Public, Paid, Private, AuthRequired, RestrictedWrite)
+        - "k": Accepted/rejected kinds from retention policy (! prefix means rejected)
+        - "t": Topic tags from NIP-11 relay tags field
+
+    Args:
+        relay: The relay being described.
+        nip11: Optional NIP-11 relay information document with capabilities and policies.
+        nip66: Optional NIP-66 health check results with RTT measurements and geolocation.
+
+    Returns:
+        List of nostr_sdk Tag objects ready for event construction.
+
+    Example:
+        >>> tags = build_kind_30166_tags(relay, nip11, nip66)
+        >>> # Results in tags like:
+        >>> # [["d", "wss://relay.example.com"], ["n", "clearnet"],
+        >>> #  ["rtt-open", "150"], ["N", "1"], ["R", "!auth"], ["T", "Public"]]
+    """
     tags = [
         Tag.parse(["d", relay.url]),
         Tag.parse(["n", relay.network]),
@@ -312,11 +344,38 @@ def build_kind_30166_tags(relay: Relay, nip11: Nip11 | None, nip66: Nip66 | None
 
 
 def build_kind_10166_tags(config: MonitorConfig) -> list[Tag]:
-    """Build NIP-66 Kind 10166 monitor announcement tags.
+    """Build NIP-66 Kind 10166 monitor announcement event tags.
 
-    Tag format per NIP-66: ["timeout", <test_type>, <milliseconds>]
-    - Index 1: test type (open, read, write, nip11)
-    - Index 2: timeout value in milliseconds
+    Constructs tags for a Kind 10166 replaceable event that announces this
+    monitor's presence and capabilities to the Nostr network. Other clients
+    can discover monitors and understand their testing methodology.
+
+    The announcement allows relay operators and users to:
+        - Discover active relay monitors on the network
+        - Understand what checks each monitor performs
+        - Know the frequency and timeout settings used
+        - Filter monitoring data by monitor capabilities
+
+    Tag structure per NIP-66:
+        - "frequency": How often monitoring runs (in seconds)
+        - "timeout": Test timeout values, format ["timeout", <test_type>, <ms>]
+            - test_type: "open", "read", "write", "nip11"
+            - ms: Timeout in milliseconds
+        - "c": Check types performed (one tag per check type)
+            - Values: "open", "read", "write", "nip11", "ssl", "dns", "geo"
+
+    Args:
+        config: Monitor configuration containing network timeouts, check settings,
+            and monitoring interval.
+
+    Returns:
+        List of nostr_sdk Tag objects for the Kind 10166 announcement event.
+
+    Example:
+        >>> tags = build_kind_10166_tags(config)
+        >>> # Results in tags like:
+        >>> # [["frequency", "3600"], ["timeout", "open", "10000"],
+        >>> #  ["timeout", "read", "10000"], ["c", "open"], ["c", "nip11"]]
     """
     clearnet_timeout_ms = int(config.networks.clearnet.timeout * 1000)
     tags = [
@@ -419,7 +478,40 @@ class Monitor(BaseService[MonitorConfig]):
             self._asn_reader = None
 
     async def run(self) -> None:
-        """Run single monitoring cycle."""
+        """Execute a single relay monitoring cycle.
+
+        Performs health checks on all relays that need monitoring and stores
+        the results. This method is called by run_forever() at the configured
+        interval, or can be invoked directly for one-shot monitoring.
+
+        Workflow:
+            1. Open GeoIP database readers (if geo checks enabled)
+            2. Publish Kind 10166 announcement (max once per hour)
+            3. Fetch relays needing checks from database
+            4. Process relays in parallel with concurrency limits
+            5. Batch insert metadata results to database
+            6. Save checkpoints for successfully checked relays
+            7. Close GeoIP readers to allow database updates
+
+        The method processes relays in chunks to limit memory usage from
+        pending asyncio tasks. Each relay check includes:
+            - NIP-11 info document fetch
+            - WebSocket connectivity test (open/read/write)
+            - DNS resolution timing
+            - SSL certificate validation
+            - IP geolocation
+
+        Results are stored as RelayMetadata records and optionally published
+        as Kind 30166 events to the monitored relay or configured relays.
+
+        Raises:
+            Exception: Propagated from database operations or network failures.
+                Individual relay check failures are caught and logged.
+
+        Note:
+            Supports graceful shutdown - checks self.is_running between chunks
+            and exits early if shutdown is requested.
+        """
         cycle_start = time.time()
         self._checked_relays = 0
         self._successful_checks = 0
@@ -523,7 +615,29 @@ class Monitor(BaseService[MonitorConfig]):
             self._close_geo_readers()
 
     async def _fetch_relays_to_check(self) -> list[Relay]:
-        """Fetch relays that need health checking from database using SQL JOIN."""
+        """Fetch relays that need health checking from the database.
+
+        Uses a SQL LEFT JOIN to efficiently filter relays based on their
+        last check timestamp stored in the service_data table. This approach
+        avoids loading all checkpoints into Python memory.
+
+        Selection criteria:
+            - Relays never checked before (no checkpoint record)
+            - Relays not checked within min_age_since_check seconds
+
+        Overlay network filtering:
+            - Tor, I2P, and Loki relays are skipped if their respective
+              proxy is not enabled in the network configuration
+            - Skipped counts are logged at debug level
+
+        Returns:
+            List of Relay objects ordered by discovery time (oldest first).
+            Empty list if no relays need checking.
+
+        Note:
+            Invalid relay URLs (malformed or unparseable) are silently
+            skipped and logged at debug level.
+        """
         relays: list[Relay] = []
         threshold = int(time.time()) - self._config.selection.min_age_since_check
 
@@ -569,7 +683,35 @@ class Monitor(BaseService[MonitorConfig]):
     async def _process_relay(
         self, relay: Relay, semaphore: asyncio.Semaphore
     ) -> list[RelayMetadata]:
-        """Check a single relay with concurrency limit."""
+        """Perform health checks on a single relay with concurrency control.
+
+        Executes all configured health checks for the relay and collects
+        metadata results. Uses a semaphore to limit concurrent checks
+        and prevent overwhelming network resources.
+
+        Check sequence:
+            1. NIP-11: Fetch relay information document via HTTP
+            2. NIP-66: Test WebSocket connectivity (open/read/write)
+            3. DNS: Measure resolution time (if clearnet)
+            4. SSL: Validate certificate chain (if wss://)
+            5. Geo: Geolocate relay IP address
+
+        After checks complete, optionally publishes a Kind 30166 relay
+        discovery event to the monitored relay or configured relays.
+
+        Args:
+            relay: The relay to check.
+            semaphore: Asyncio semaphore for concurrency limiting.
+
+        Returns:
+            List of RelayMetadata records containing check results.
+            Returns empty list if all checks fail or raise exceptions.
+
+        Note:
+            All exceptions are caught internally to prevent one failed
+            relay from affecting others. Failures are logged and the
+            failed_checks counter is incremented.
+        """
         async with semaphore:
             # Race condition fix: Protect counter increment with lock
             async with self._metrics_lock:
@@ -641,7 +783,23 @@ class Monitor(BaseService[MonitorConfig]):
                 return []
 
     async def _insert_metadata_batch(self, batch: list[RelayMetadata]) -> None:
-        """Insert a batch of metadata records into database."""
+        """Insert a batch of relay metadata records into the database.
+
+        Uses the Brotr.insert_relay_metadata() method which handles
+        content-addressed deduplication via SHA-256 hashing. Metadata
+        is stored in the unified metadata table with relay associations
+        in relay_metadata.
+
+        Args:
+            batch: List of RelayMetadata records to insert. Each record
+                contains the relay URL, metadata type (nip11, nip66_rtt,
+                nip66_ssl, nip66_geo), and the metadata content.
+
+        Note:
+            Errors are caught and logged rather than raised to prevent
+            database issues from stopping the monitoring cycle. The
+            batch_size configuration controls how often this is called.
+        """
         if not batch:
             return
 
@@ -659,7 +817,32 @@ class Monitor(BaseService[MonitorConfig]):
     async def _publish_relay_discovery(
         self, relay: Relay, nip11: Nip11 | None, nip66: Nip66 | None
     ) -> None:
-        """Publish Kind 30166 relay discovery event."""
+        """Publish a Kind 30166 relay discovery event to the Nostr network.
+
+        Creates and signs a NIP-66 relay discovery event containing the
+        relay's metadata and health check results. The event is published
+        to either the monitored relay itself or to configured relay URLs.
+
+        Event structure:
+            - Kind: 30166 (parametrized replaceable event)
+            - Content: NIP-11 JSON document (if available)
+            - Tags: See build_kind_30166_tags() for full tag structure
+
+        Publishing destinations (configured via publishing.destination):
+            - "monitored_relay": Publish to the relay being checked
+            - "configured_relays": Publish to publishing.relays list
+            - "database_only": No publishing (this method not called)
+
+        Args:
+            relay: The relay that was checked (used for URL and network type).
+            nip11: Optional NIP-11 document to include as event content.
+            nip66: Optional NIP-66 health results for RTT and geo tags.
+
+        Note:
+            Publishing failures are logged at debug level and do not
+            raise exceptions. This prevents network issues from affecting
+            the monitoring cycle.
+        """
         if not self._keys:
             return
 
@@ -709,7 +892,26 @@ class Monitor(BaseService[MonitorConfig]):
             self._logger.debug("publish_30166_failed", relay=relay.url, error=str(e))
 
     async def _publish_announcement(self) -> None:
-        """Publish Kind 10166 monitor announcement event."""
+        """Publish a Kind 10166 monitor announcement event to the Nostr network.
+
+        Creates and signs a NIP-66 monitor announcement event that advertises
+        this monitor's presence and capabilities. This allows other Nostr
+        clients to discover active monitors and understand their methodology.
+
+        Event structure:
+            - Kind: 10166 (replaceable event, one per pubkey)
+            - Content: Empty string
+            - Tags: See build_kind_10166_tags() for full tag structure
+
+        The announcement is published to all configured relays in the
+        publishing.relays list. This method is rate-limited to once per
+        hour (ANNOUNCE_INTERVAL) to avoid spamming the network.
+
+        Note:
+            - Requires signing keys to be configured
+            - Only publishes if publishing.relays is non-empty
+            - Failures are logged at warning level but do not raise
+        """
         if not self._keys:
             return
 
