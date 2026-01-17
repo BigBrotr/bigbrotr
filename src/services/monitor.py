@@ -160,16 +160,6 @@ class MonitorConfig(BaseServiceConfig):
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     selection: SelectionConfig = Field(default_factory=SelectionConfig)
 
-    @model_validator(mode="after")
-    def validate_publishing_requires_key(self) -> MonitorConfig:
-        """Fail-fast: If publishing enabled, private key MUST be configured."""
-        if self.publishing.enabled and self.publishing.destination != "database_only":
-            if not self.keys.keys:
-                raise ValueError(
-                    "publishing.enabled=true requires PRIVATE_KEY environment variable. "
-                    "Set publishing.destination='database_only' to disable event publishing."
-                )
-        return self
 
     @model_validator(mode="after")
     def validate_geo_database_exists(self) -> MonitorConfig:
@@ -388,7 +378,7 @@ class Monitor(BaseService[MonitorConfig]):
         self._config: MonitorConfig
 
         # Keys for signing events and NIP-66 tests
-        self._keys: Keys | None = self._config.keys.keys
+        self._keys: Keys = self._config.keys.keys
 
         # GeoIP reader (lazy loaded)
         self._geo_reader: geoip2.database.Reader | None = None

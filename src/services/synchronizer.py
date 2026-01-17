@@ -493,7 +493,7 @@ async def sync_relay_task(
         config = SynchronizerConfig(**config_dict)
 
         # Get keys for NIP-42 auth (already loaded from env by KeysConfig)
-        keys: Keys | None = config.keys.keys
+        keys: Keys = config.keys.keys
 
         # Get timeouts from unified network config
         network_type_config = config.networks.get(relay.network)
@@ -810,7 +810,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         self._skipped_events: int = 0
 
         # Nostr keys for NIP-42 authentication
-        self._keys: Keys | None = self._config.keys.keys
+        self._keys: Keys = self._config.keys.keys
 
     async def run(self) -> None:
         """Run synchronization cycle."""

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, model_validator
 ENV_PRIVATE_KEY = "PRIVATE_KEY"  # pragma: allowlist secret
 
 
-def load_keys_from_env(env_var: str) -> Keys | None:
+def load_keys_from_env(env_var: str) -> Keys:
     """
     Load Nostr keys from environment variable.
 
@@ -22,20 +22,23 @@ def load_keys_from_env(env_var: str) -> Keys | None:
                  (nsec1... bech32 or hex format)
 
     Returns:
-        Keys instance or None if environment variable is not set
+        Keys instance
 
     Raises:
+        ValueError: If environment variable is not set
         Exception: If the key value is invalid
 
     Example:
         >>> keys = load_keys_from_env("PRIVATE_KEY")
-        >>> if keys:
-        ...     print(f"Loaded keys for: {keys.public_key().to_hex()}")
+        >>> print(f"Loaded keys for: {keys.public_key().to_hex()}")
     """
     value = os.getenv(env_var)
 
     if not value:
-        return None
+        raise ValueError(
+            f"{env_var} environment variable is required. "
+            "Generate one with: openssl rand -hex 32"
+        )
 
     return Keys.parse(value)
 
@@ -45,13 +48,15 @@ class KeysConfig(BaseModel):
 
     Used by Validator (NIP-42), Monitor (NIP-66 publishing), and Synchronizer (NIP-42).
     Keys are automatically loaded from the PRIVATE_KEY environment variable.
+
+    Raises:
+        ValueError: If PRIVATE_KEY environment variable is not set.
     """
 
     model_config = {"arbitrary_types_allowed": True}
 
-    keys: Keys | None = Field(
-        default=None,
-        description="Keys loaded from PRIVATE_KEY env",
+    keys: Keys = Field(
+        description="Keys loaded from PRIVATE_KEY env (required)",
     )
 
     @model_validator(mode="before")
