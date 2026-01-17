@@ -137,22 +137,16 @@ class Relay:
     def __post_init__(self) -> None:
         """Parse and validate the raw URL, setting computed fields."""
         parsed = self._parse(self.raw_url)
-        network = self._detect_network(parsed["host"])
 
-        if network == NetworkType.LOCAL:
+        if parsed["network"] == NetworkType.LOCAL:
             raise ValueError("Local addresses not allowed")
-        if network == NetworkType.UNKNOWN:
+        if parsed["network"] == NetworkType.UNKNOWN:
             raise ValueError(f"Invalid host: '{parsed['host']}'")
 
-        # Enforce scheme based on network type:
-        # - clearnet: wss:// (TLS required for public internet)
-        # - overlay networks (tor/i2p/loki): ws:// (encryption handled by overlay)
-        scheme = "wss" if network == NetworkType.CLEARNET else "ws"
-
         # Use object.__setattr__ to bypass frozen restriction
-        object.__setattr__(self, "url", f"{scheme}://{parsed['url_without_scheme']}")
-        object.__setattr__(self, "network", network)
-        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "url", f"{parsed['scheme']}://{parsed['url_without_scheme']}")
+        object.__setattr__(self, "network", parsed["network"])
+        object.__setattr__(self, "scheme", parsed["scheme"])
         object.__setattr__(self, "host", parsed["host"])
         object.__setattr__(self, "port", parsed["port"])
         object.__setattr__(self, "path", parsed["path"])
@@ -225,7 +219,7 @@ class Relay:
             raw: Raw URL string to parse.
 
         Returns:
-            Dictionary with keys: url_without_scheme, scheme, host, port, path.
+            Dictionary with keys: url_without_scheme, scheme, host, port, path, network.
 
         Raises:
             ValueError: If URL is invalid or uses unsupported scheme.
@@ -246,7 +240,6 @@ class Relay:
         except ValidationError as e:
             raise ValueError(f"Invalid URL: {e}") from None
 
-        scheme = uri.scheme
         port = int(uri.port) if uri.port else None
 
         # Normalize host (strip brackets from IPv6)
@@ -258,10 +251,16 @@ class Relay:
             path = path.replace("//", "/")
         path = path.rstrip("/") or None
 
+        # Detect network to determine final scheme
+        # - clearnet: wss:// (TLS required for public internet)
+        # - overlay networks (tor/i2p/loki): ws:// (encryption handled by overlay)
+        network = Relay._detect_network(host)
+        scheme = "wss" if network == NetworkType.CLEARNET else "ws"
+
         # Format host for URL (add brackets back for IPv6)
         formatted_host = f"[{host}]" if ":" in host else host
 
-        # Build URL without scheme
+        # Build URL without scheme, omitting default port for final scheme
         default_port = Relay._PORT_WSS if scheme == "wss" else Relay._PORT_WS
         if port and port != default_port:
             url_without_scheme = f"{formatted_host}:{port}{path or ''}"
@@ -274,6 +273,7 @@ class Relay:
             "host": host,
             "port": port,
             "path": path,
+            "network": network,
         }
 
     def to_db_params(self) -> RelayDbParams:
