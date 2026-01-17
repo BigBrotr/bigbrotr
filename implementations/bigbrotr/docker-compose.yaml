@@ -237,6 +237,9 @@ services:
     volumes:
       - ./yaml:/app/yaml:ro
 
+    ports:
+      - "127.0.0.1:${FINDER_METRICS_PORT:-8001}:8001"  # Prometheus metrics
+
     networks:
       - bigbrotr-network
 
@@ -275,6 +278,9 @@ services:
 
     volumes:
       - ./yaml:/app/yaml:ro
+
+    ports:
+      - "127.0.0.1:${VALIDATOR_METRICS_PORT:-8002}:8002"  # Prometheus metrics
 
     networks:
       - bigbrotr-network
@@ -322,6 +328,9 @@ services:
       - ./yaml:/app/yaml:ro
       - ./static:/app/static:ro
 
+    ports:
+      - "127.0.0.1:${MONITOR_METRICS_PORT:-8003}:8003"  # Prometheus metrics
+
     networks:
       - bigbrotr-network
 
@@ -367,6 +376,9 @@ services:
     volumes:
       - ./yaml:/app/yaml:ro
 
+    ports:
+      - "127.0.0.1:${SYNCHRONIZER_METRICS_PORT:-8004}:8004"  # Prometheus metrics
+
     networks:
       - bigbrotr-network
 
@@ -395,16 +407,93 @@ services:
         max-size: "100m"
         max-file: "5"
 
+  # --------------------------------------------------------------------------
+  # Prometheus (Metrics Collection)
+  # --------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: bigbrotr-prometheus
+    restart: unless-stopped
+
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+    ports:
+      - "127.0.0.1:9090:9090"
+
+    networks:
+      - bigbrotr-network
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # Grafana (Metrics Visualization)
+  # --------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.1
+    container_name: bigbrotr-grafana
+    restart: unless-stopped
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
+    ports:
+      - "127.0.0.1:3000:3000"
+
+    networks:
+      - bigbrotr-network
+
+    depends_on:
+      - prometheus
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
 # ----------------------------------------------------------------------------
 # Volumes
 # ----------------------------------------------------------------------------
-# Uncomment when enabling I2P or Lokinet:
-#
-# volumes:
-#   i2p-data:
-#     name: bigbrotr-i2p-data
-#   lokinet-data:
-#     name: bigbrotr-lokinet-data
+volumes:
+  prometheus-data:
+    name: bigbrotr-prometheus-data
+  grafana-data:
+    name: bigbrotr-grafana-data
+  # Uncomment when enabling I2P or Lokinet:
+  # i2p-data:
+  #   name: bigbrotr-i2p-data
+  # lokinet-data:
+  #   name: bigbrotr-lokinet-data
 
 # ----------------------------------------------------------------------------
 # Networks

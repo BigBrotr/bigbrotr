@@ -1,0 +1,40 @@
+# ============================================================================
+# Prometheus Configuration for BigBrotr
+# ============================================================================
+# Scrapes metrics from all BigBrotr services
+# ============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # --------------------------------------------------------------------------
+  # BigBrotr Services
+  # --------------------------------------------------------------------------
+  - job_name: "finder"
+    static_configs:
+      - targets: ["finder:8001"]
+    scrape_interval: 30s
+
+  - job_name: "validator"
+    static_configs:
+      - targets: ["validator:8002"]
+    scrape_interval: 30s
+
+  - job_name: "monitor"
+    static_configs:
+      - targets: ["monitor:8003"]
+    scrape_interval: 30s
+
+  - job_name: "synchronizer"
+    static_configs:
+      - targets: ["synchronizer:8004"]
+    scrape_interval: 30s
+
+  # --------------------------------------------------------------------------
+  # Prometheus Self-Monitoring
+  # --------------------------------------------------------------------------
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

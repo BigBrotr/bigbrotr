@@ -1,0 +1,17 @@
+# ============================================================================
+# Grafana Dashboard Provisioning
+# ============================================================================
+# Auto-loads dashboards from JSON files
+# ============================================================================
+
+apiVersion: 1
+
+providers:
+  - name: "BigBrotr"
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
