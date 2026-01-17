@@ -27,7 +27,21 @@ from .logger import Logger
 
 
 async def _init_connection(conn: asyncpg.Connection[asyncpg.Record]) -> None:
-    """Initialize connection with JSON codecs for JSONB support."""
+    """
+    Initialize connection with JSON codecs for JSONB support.
+
+    Registers custom type codecs that enable transparent serialization and
+    deserialization of Python dicts to PostgreSQL JSON/JSONB types. Without
+    these codecs, asyncpg would require manual JSON encoding/decoding for
+    every query involving JSON columns.
+
+    This allows passing Python dicts directly as query parameters and
+    receiving them back as dicts from query results, eliminating the need
+    for explicit json.dumps()/json.loads() calls throughout the codebase.
+
+    Args:
+        conn: The asyncpg connection to configure.
+    """
     await conn.set_type_codec(
         "jsonb",
         encoder=json.dumps,
@@ -304,8 +318,17 @@ class Pool:
         """
         Acquire a connection from the pool.
 
+        Returns:
+            An async context manager that yields an asyncpg Connection.
+            The connection is automatically returned to the pool when
+            the context manager exits.
+
         Raises:
-            RuntimeError: If pool is not connected
+            RuntimeError: If pool is not connected.
+
+        Example:
+            async with pool.acquire() as conn:
+                result = await conn.fetch("SELECT * FROM events")
         """
         if not self._is_connected or self._pool is None:
             raise RuntimeError("Pool not connected. Call connect() first.")
@@ -370,7 +393,23 @@ class Pool:
         """
         Acquire connection with transaction management.
 
-        Commits on success, rolls back on exception.
+        Provides a connection wrapped in a database transaction. The
+        transaction is automatically committed when the context manager
+        exits normally, or rolled back if an exception occurs.
+
+        Returns:
+            An async context manager that yields an asyncpg Connection
+            with an active transaction.
+
+        Raises:
+            RuntimeError: If pool is not connected.
+            asyncpg.PostgresError: On database errors (triggers rollback).
+
+        Example:
+            async with pool.transaction() as conn:
+                await conn.execute("INSERT INTO events ...")
+                await conn.execute("INSERT INTO relays ...")
+                # Both inserts commit together, or rollback on error
         """
         async with self.acquire() as conn, conn.transaction():
             yield conn

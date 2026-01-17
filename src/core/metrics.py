@@ -128,12 +128,14 @@ class MetricsServer:
     Async HTTP server for Prometheus metrics endpoint.
 
     Uses aiohttp for async compatibility with the rest of the codebase.
+    The metrics endpoint path is configurable via MetricsConfig.path
+    (defaults to "/metrics").
 
     Endpoints:
-        /metrics - Prometheus scraping endpoint
+        {config.path} - Prometheus scraping endpoint (default: /metrics)
 
     Example:
-        config = MetricsConfig(port=8001)
+        config = MetricsConfig(port=8001, path="/custom/metrics")
         server = MetricsServer(config)
         await server.start()
         # ... service runs ...
@@ -145,7 +147,20 @@ class MetricsServer:
         self._runner: web.AppRunner | None = None
 
     async def start(self) -> None:
-        """Start the metrics HTTP server."""
+        """
+        Start the metrics HTTP server.
+
+        Creates an aiohttp web application with the metrics endpoint and
+        starts listening on the configured host and port. If metrics are
+        disabled in the configuration, this method returns immediately
+        without starting any server.
+
+        The server runs in the background and serves Prometheus metrics
+        at the configured path (default: /metrics).
+
+        Raises:
+            OSError: If the port is already in use or binding fails.
+        """
         if not self._config.enabled:
             return
 
@@ -163,7 +178,13 @@ class MetricsServer:
         await site.start()
 
     async def stop(self) -> None:
-        """Stop the metrics HTTP server."""
+        """
+        Stop the metrics HTTP server and release resources.
+
+        Gracefully shuts down the aiohttp runner and cleans up all
+        associated resources. Safe to call multiple times or if the
+        server was never started (no-op in those cases).
+        """
         if self._runner:
             await self._runner.cleanup()
 

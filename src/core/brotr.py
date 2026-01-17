@@ -552,7 +552,24 @@ class Brotr:
     # -------------------------------------------------------------------------
 
     async def delete_orphan_events(self) -> int:
-        """Delete orphaned events. Returns count."""
+        """
+        Delete orphaned events from the database.
+
+        Orphaned events are events that exist in the events table but have
+        no corresponding entries in the events_relays junction table. This
+        can occur when relays are deleted or when events were inserted
+        without associated relay information.
+
+        This cleanup operation helps maintain referential integrity and
+        reclaim storage space by removing events that are no longer
+        associated with any relay.
+
+        Returns:
+            Number of orphaned events deleted.
+
+        Raises:
+            asyncpg.PostgresError: On database errors.
+        """
         result: int = await self._call_procedure(
             "orphan_events_delete",
             fetch_result=True,
@@ -561,7 +578,25 @@ class Brotr:
         return result
 
     async def delete_orphan_metadata(self) -> int:
-        """Delete orphaned metadata records. Returns count."""
+        """
+        Delete orphaned metadata records from the database.
+
+        Orphaned metadata records are entries in the metadata table that
+        have no corresponding references in the relay_metadata junction
+        table. Since metadata is content-addressed (stored by SHA-256 hash),
+        orphaned records occur when all relay associations for a particular
+        metadata blob are removed, leaving the metadata unreferenced.
+
+        This cleanup operation reclaims storage by removing metadata that
+        is no longer linked to any relay (e.g., old NIP-11 or NIP-66 data
+        that has been superseded by newer versions).
+
+        Returns:
+            Number of orphaned metadata records deleted.
+
+        Raises:
+            asyncpg.PostgresError: On database errors.
+        """
         result: int = await self._call_procedure(
             "orphan_metadata_delete",
             fetch_result=True,
