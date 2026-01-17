@@ -121,8 +121,14 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
             await self._ws.pong(msg.bytes)
 
     async def recv(self) -> WebSocketMessage | None:
-        """Receive a message. Returns None when connection closes."""
-        msg = await self._ws.receive()
+        """Receive a message. Returns None when connection closes or times out."""
+        try:
+            # Timeout prevents indefinite blocking if server stops responding.
+            # 60s is generous - if no frame (including pings) for 60s, connection is dead.
+            msg = await asyncio.wait_for(self._ws.receive(), timeout=60.0)
+        except TimeoutError:
+            # Treat recv timeout as connection termination
+            return None
 
         if msg.type == aiohttp.WSMsgType.TEXT:
             return WebSocketMessage.TEXT(msg.data)
@@ -136,14 +142,15 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
         return None
 
     async def close_connection(self) -> None:
-        """Close the WebSocket connection."""
+        """Close the WebSocket connection with timeout."""
         try:
-            await self._ws.close()
-        except Exception:
+            # Don't wait forever for close handshake - server may not respond
+            await asyncio.wait_for(self._ws.close(), timeout=5.0)
+        except (TimeoutError, Exception):
             pass
         try:
-            await self._session.close()
-        except Exception:
+            await asyncio.wait_for(self._session.close(), timeout=5.0)
+        except (TimeoutError, Exception):
             pass
 
 
@@ -407,21 +414,26 @@ async def is_nostr_relay(
 
     logger.debug("is_nostr_relay: starting relay=%s timeout=%s", relay.url, timeout)
 
+    # Overall timeout as safety net: connect + fetch + disconnect
+    # 3x the specified timeout should be enough for normal operations
+    overall_timeout = timeout * 3 + 15  # +15s buffer for SSL fallback retry
+
     ctx = _suppress_stderr() if suppress_stderr else contextlib.nullcontext()
 
     with ctx:
         client = None
         try:
-            client = await connect_relay(
-                relay=relay,
-                proxy_url=proxy_url,
-                timeout=timeout,
-            )
+            async with asyncio.timeout(overall_timeout):
+                client = await connect_relay(
+                    relay=relay,
+                    proxy_url=proxy_url,
+                    timeout=timeout,
+                )
 
-            req_filter = Filter().kind(Kind(1)).limit(1)
-            await client.fetch_events(req_filter, timedelta(seconds=timeout))
-            logger.debug("is_nostr_relay: valid (EOSE received) relay=%s", relay.url)
-            return True
+                req_filter = Filter().kind(Kind(1)).limit(1)
+                await client.fetch_events(req_filter, timedelta(seconds=timeout))
+                logger.debug("is_nostr_relay: valid (EOSE received) relay=%s", relay.url)
+                return True
 
         except TimeoutError:
             logger.debug("is_nostr_relay: timeout relay=%s", relay.url)
@@ -439,6 +451,7 @@ async def is_nostr_relay(
         finally:
             if client is not None:
                 try:
-                    await client.disconnect()
-                except Exception:
+                    # Don't let disconnect hang the entire operation
+                    await asyncio.wait_for(client.disconnect(), timeout=10.0)
+                except (TimeoutError, Exception):
                     pass
