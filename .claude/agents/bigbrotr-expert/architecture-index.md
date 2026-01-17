@@ -36,8 +36,11 @@ Quick reference for BigBrotr component relationships and design patterns.
 +---------------------------------------------------------------+
 |  +--------+     +--------+     +-------------+     +--------+ |
 |  |  Pool  |---->| Brotr  |     | BaseService |     | Logger | |
-|  +--------+     +--------+     +-------------+     +--------+ |
-|                                                               |
+|  +--------+     +--------+     +------+------+     +--------+ |
+|                                       |                       |
+|                              +--------v--------+              |
+|                              | MetricsServer   |              |
+|                              +-----------------+              |
 +=============================+=================================+
                               |
                               v
@@ -56,7 +59,7 @@ Quick reference for BigBrotr component relationships and design patterns.
 ### Core Components
 
 **Pool** ← **Brotr** ← **Services**
-- Pool: PostgreSQL connection pooling
+- Pool: Async PostgreSQL client (connects via PGBouncer in Docker)
 - Brotr: High-level database interface
 - Services: Business logic using Brotr
 
@@ -68,6 +71,11 @@ Quick reference for BigBrotr component relationships and design patterns.
 **Logger** ← **All Components**
 - Structured key=value logging
 - Used by Pool, Brotr, Services
+
+**MetricsServer** ← **BaseService**
+- Prometheus /metrics HTTP endpoint
+- SERVICE_INFO, SERVICE_GAUGE, SERVICE_COUNTER metrics
+- CYCLE_DURATION_SECONDS histogram
 
 ### Service Dependencies
 
@@ -539,21 +547,22 @@ candidates = await brotr.get_service_data("validator", "candidate")
 
 ---
 
-### ADR-007: Tor Support Built-in
+### ADR-007: Multi-Network Support
 
-**Decision:** First-class support for .onion relays
+**Decision:** First-class support for overlay networks (Tor, I2P, Lokinet)
 
 **Rationale:**
 - Nostr values censorship resistance
-- .onion relays are common
+- .onion, .i2p, .loki relays exist
 - SOCKS5 proxy for both HTTP and WebSocket
 - Network type differentiation
+- Unified NetworkConfig for all services
 
 **Consequences:**
-- Requires Tor proxy running
-- Separate timeouts for Tor vs clearnet
+- Requires appropriate proxy running (Tor, I2P, Lokinet)
+- Separate timeouts per network type
 - Network detection in Relay model
-- Cannot validate .onion without proxy
+- Per-network concurrency limits via max_tasks
 
 ---
 
@@ -585,7 +594,8 @@ bigbrotr/
 │   │   ├── logger.py              # Structured logging
 │   │   ├── pool.py                # Connection pooling
 │   │   ├── brotr.py               # Database interface
-│   │   └── base_service.py        # Service base class
+│   │   ├── base_service.py        # Service base class
+│   │   └── metrics.py             # Prometheus metrics server
 │   │
 │   ├── models/                    # Data models
 │   │   ├── __init__.py

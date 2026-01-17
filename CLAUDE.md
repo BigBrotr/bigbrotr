@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-BigBrotr is a modular Nostr data archiving and monitoring system built with Python 3.11+ and PostgreSQL. It provides relay discovery, health monitoring (NIP-11/NIP-66), and event synchronization with Tor network support.
+BigBrotr is a modular Nostr data archiving and monitoring system built with Python 3.11+ and PostgreSQL. It provides relay discovery, health monitoring (NIP-11/NIP-66), and event synchronization with multi-network support (clearnet, Tor, I2P, Lokinet).
 
 ## Common Commands
 
@@ -56,7 +56,7 @@ Service Layer (src/services/)
         │
         ▼
 Core Layer (src/core/)
-  └── pool.py, brotr.py, base_service.py, logger.py
+  └── pool.py, brotr.py, base_service.py, metrics.py, logger.py
         │
         ▼
 Models Layer (src/models/)
@@ -68,16 +68,17 @@ Models Layer (src/models/)
 table links relays to metadata records via the `type` column (`nip11`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`).
 
 ### Core Components
-- **Pool** (`src/core/pool.py`): Async PostgreSQL connection pooling with retry logic
+- **Pool** (`src/core/pool.py`): Async PostgreSQL client with asyncpg (connects via PGBouncer in Docker)
 - **Brotr** (`src/core/brotr.py`): Database interface with stored procedure wrappers
 - **BaseService** (`src/core/base_service.py`): Abstract service base with state persistence and lifecycle management
+- **MetricsServer** (`src/core/metrics.py`): Prometheus HTTP metrics endpoint
 - **Logger** (`src/core/logger.py`): Structured key=value logging
 
 ### Services
 - **Seeder**: One-shot relay seeding for validation
 - **Finder**: Continuous relay URL discovery from APIs and events
-- **Validator**: Relay validation and functional testing with Tor support
-- **Monitor**: NIP-11/NIP-66 health monitoring with comprehensive checks
+- **Validator**: Streaming relay validation with multi-network support
+- **Monitor**: NIP-11/NIP-66 health monitoring with SSL and geolocation checks
 - **Synchronizer**: Multicore event collection using aiomultiprocess
 
 ### Key Patterns
@@ -85,6 +86,7 @@ table links relays to metadata records via the `type` column (`nip11`, `nip66_rt
 - All services inherit from `BaseService[ConfigClass]`
 - Configuration uses Pydantic models with YAML loading
 - Passwords loaded from `DB_PASSWORD` environment variable only
+- Keys loaded from `PRIVATE_KEY` environment variable (required for Monitor write tests)
 
 ## Adding a New Service
 
@@ -124,9 +126,9 @@ cd implementations/myimpl
 
 **Common customizations:**
 - **Essential metadata only**: Remove `tags`, `tagvalues`, `content` columns from events table (like lilbrotr - indexes all events but omits heavy fields, ~60% disk savings)
-- **Tor disabled**: Set `tor.enabled: false` in service YAML files
-- **Lower concurrency**: Reduce `concurrency.max_parallel` and `max_processes`
-- **Different ports**: Change PostgreSQL/PGBouncer/Tor ports in docker-compose.yaml
+- **Overlay networks disabled**: Set `networks.tor.enabled: false`, etc. in service YAML files
+- **Lower concurrency**: Reduce `networks.*.max_tasks` and `concurrency.max_processes`
+- **Different ports**: Change PostgreSQL/Prometheus/Grafana/Tor ports in docker-compose.yaml
 - **Event filtering**: Set `filter.kinds` in synchronizer.yaml to store only specific event types
 
 ## Git Workflow

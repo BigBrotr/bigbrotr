@@ -163,49 +163,69 @@ async with brotr:
 
 **Location**: `src/services/validator.py`
 
-Validates candidate relay URLs discovered by the Seeder and Finder services. Tests WebSocket connectivity and adds working relays to the database.
+Validates candidate relay URLs discovered by the Seeder and Finder services. Uses streaming architecture with batch processing for efficient validation at scale.
 
 ### Configuration
 
 ```yaml
 # yaml/services/validator.yaml
-interval: 300.0  # Seconds between validation cycles
+interval: 28800.0  # 8 hours between validation cycles
 
-connection_timeout: 10.0  # WebSocket connection timeout (1.0-60.0)
-max_candidates_per_run: null  # Limit per cycle (null = unlimited)
-
-concurrency:
-  max_parallel: 10  # Concurrent validations (1-100)
-
-tor:
+metrics:
   enabled: true
-  host: "127.0.0.1"
-  port: 9050
+  port: 8002
 
-# Keys loaded from PRIVATE_KEY environment variable (optional for NIP-42)
+processing:
+  chunk_size: 100  # Candidates per batch
+  max_candidates: null  # Limit per cycle (null = unlimited)
+
+cleanup:
+  enabled: true
+  max_failures: 100  # Remove candidates after N failed attempts
+
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 50
+    timeout: 10.0
+  tor:
+    enabled: true
+    proxy_url: "socks5://tor:9050"
+    max_tasks: 10
+    timeout: 30.0
+  i2p:
+    enabled: false
+    proxy_url: "socks5://i2p:4447"
+    max_tasks: 5
+    timeout: 45.0
+  loki:
+    enabled: false
+    proxy_url: "socks5://lokinet:1080"
+    max_tasks: 5
+    timeout: 30.0
 ```
 
 **Configuration Models**:
-- `TorConfig`: enabled, host, port, proxy_url (property)
-- `KeysConfig`: keys (auto-loaded from `PRIVATE_KEY` env)
-- `ConcurrencyConfig`: max_parallel (1-100)
-- `ValidatorConfig`: interval, connection_timeout, max_candidates_per_run, concurrency, tor, keys
+- `NetworkConfig`: clearnet, tor, i2p, loki (each with enabled, proxy_url, max_tasks, timeout)
+- `ProcessingConfig`: chunk_size, max_candidates
+- `CleanupConfig`: enabled, max_failures
+- `ValidatorConfig`: interval, metrics, networks, processing, cleanup
 
-### Validation Process
+### Validation Process (Streaming Architecture)
 
-1. **Fetch Candidates**: Load from `service_data` table where `(service_name='validator', data_type='candidate')`
-   - Candidates are written by both Seeder and Finder with `service_name='validator'`
-2. **Probabilistic Selection** (if max_candidates_per_run set):
-   - Probability = `1 / (1 + failed_attempts)`
-   - Candidates with fewer failed attempts more likely to be selected
-3. **Test Connectivity**:
-   - Build WebSocket client with nostr-sdk
-   - Configure Tor proxy for .onion relays
-   - Apply connection timeout
-   - Attempt connection with `client.add_relay()` and `client.connect()`
-4. **Handle Results**:
+1. **Cleanup Phase** (if enabled): Remove exhausted candidates with `failed_attempts >= max_failures`
+2. **Fetch Chunk**: Load chunk of candidates from `service_data` table
+   - Candidates written by Seeder and Finder with `service_name='validator'`
+   - Chunk size controlled by `processing.chunk_size`
+3. **Validate in Parallel**:
+   - Per-network semaphores limit concurrency (`max_tasks`)
+   - Network detection (clearnet, tor, i2p, loki) from URL
+   - Use appropriate proxy and timeout per network
+   - Test WebSocket connectivity via `is_nostr_relay()` helper
+4. **Persist Results**:
    - **Success**: Insert into `relays` table, delete from candidates
-   - **Failure**: Increment `failed_attempts` in candidate value
+   - **Failure**: Increment `failed_attempts` in candidate data
+5. **Repeat**: Continue until all candidates processed or `max_candidates` reached
 
 ### Public Methods
 
@@ -251,18 +271,26 @@ Candidates stored in `service_data` table:
 ("validator", "candidate", relay_url, {"failed_attempts": int})
 ```
 
-### Tor Network Support
+### Multi-Network Support
 
 **Automatic Detection**:
-- `.onion` URLs detected as Tor network
-- SOCKS5 proxy automatically configured
-- Separate timeout handling
+- `.onion` URLs → Tor network
+- `.i2p` URLs → I2P network
+- `.loki` URLs → Lokinet network
+- Others → Clearnet
+
+**Per-Network Configuration**:
+- `enabled`: Whether to process relays on this network
+- `proxy_url`: SOCKS5 proxy URL for overlay networks
+- `max_tasks`: Maximum concurrent validations
+- `timeout`: Connection timeout in seconds
 
 **Proxy Configuration**:
 ```python
-if relay.network == "tor" and self.config.tor.enabled:
-    opts = ClientOptions().proxy(self.config.tor.proxy_url)
-    builder = builder.opts(opts)
+network_config = self._config.networks.get(relay.network)
+if network_config.enabled and network_config.proxy_url:
+    # Use proxy for overlay networks
+    ...
 ```
 
 ---
@@ -279,13 +307,32 @@ Monitors relay health and metadata with full NIP-66 compliance.
 # yaml/services/monitor.yaml
 interval: 3600.0
 
-tor:
+metrics:
   enabled: true
-  host: "127.0.0.1"
-  port: 9050
+  port: 8003
 
-keys:
-  # Keys loaded from PRIVATE_KEY env var
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 50
+    timeout: 30.0
+  tor:
+    enabled: true
+    proxy_url: "socks5://tor:9050"
+    max_tasks: 10
+    timeout: 60.0
+  i2p:
+    enabled: false
+    proxy_url: "socks5://i2p:4447"
+    max_tasks: 5
+    timeout: 90.0
+  loki:
+    enabled: false
+    proxy_url: "socks5://lokinet:1080"
+    max_tasks: 5
+    timeout: 60.0
+
+keys: {}  # Keys loaded from PRIVATE_KEY env var
 
 publishing:
   enabled: true
@@ -302,19 +349,13 @@ checks:
   geo: true
 
 geo:
-  database_path: "/usr/share/GeoIP/GeoLite2-City.mmdb"
-  asn_database_path: null
-
-timeouts:
-  clearnet:
-    request: 30.0
-    relay: 1800.0
-  tor:
-    request: 60.0
-    relay: 3600.0
+  city_database_path: "static/GeoLite2-City.mmdb"
+  asn_database_path: "static/GeoLite2-ASN.mmdb"
+  country_database_path: "static/GeoLite2-Country.mmdb"
+  update_frequency: "monthly"
 
 concurrency:
-  max_parallel: 50
+  max_processes: 1
   batch_size: 50
 
 selection:
@@ -322,13 +363,12 @@ selection:
 ```
 
 **Configuration Models**:
-- `TorConfig`: enabled, host, port, proxy_url
+- `NetworkConfig`: clearnet, tor, i2p, loki (each with enabled, proxy_url, max_tasks, timeout)
 - `KeysConfig`: keys (loaded from PRIVATE_KEY env)
 - `PublishingConfig`: enabled, destination, relays
 - `ChecksConfig`: open, read, write, nip11, ssl, dns, geo
-- `GeoConfig`: database_path, asn_database_path
-- `TimeoutsConfig`: clearnet, tor (each with request, relay)
-- `ConcurrencyConfig`: max_parallel, batch_size
+- `GeoConfig`: city_database_path, asn_database_path, country_database_path, update_frequency
+- `ConcurrencyConfig`: max_processes, batch_size
 - `SelectionConfig`: min_age_since_check
 
 ### NIP-66 Checks
@@ -412,13 +452,30 @@ Synchronizes Nostr events from relays with multiprocessing support.
 # yaml/services/synchronizer.yaml
 interval: 900.0
 
-tor:
+metrics:
   enabled: true
-  host: "127.0.0.1"
-  port: 9050
+  port: 8004
 
-keys:
-  # Keys loaded from PRIVATE_KEY env var (for NIP-42 auth)
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 10
+    timeout: 30.0
+  tor:
+    enabled: true
+    proxy_url: "socks5://tor:9050"
+    max_tasks: 5
+    timeout: 60.0
+  i2p:
+    enabled: false
+    proxy_url: "socks5://i2p:4447"
+    max_tasks: 3
+    timeout: 90.0
+  loki:
+    enabled: false
+    proxy_url: "socks5://lokinet:1080"
+    max_tasks: 3
+    timeout: 60.0
 
 filter:
   ids: null  # List of event IDs (None = all)
@@ -432,17 +489,15 @@ time_range:
   use_relay_state: true
   lookback_seconds: 86400  # 24 hours
 
-timeouts:
-  clearnet:
-    request: 30.0
-    relay: 1800.0
-  tor:
-    request: 60.0
-    relay: 3600.0
+sync_timeouts:
+  relay_clearnet: 1800.0  # 30 min max per relay
+  relay_tor: 3600.0       # 60 min for Tor
+  relay_i2p: 3600.0
+  relay_loki: 3600.0
 
 concurrency:
   max_parallel: 10
-  max_processes: 1
+  max_processes: 4
   stagger_delay: [0, 60]
 
 source:
@@ -458,12 +513,10 @@ overrides:
 ```
 
 **Configuration Models**:
-- `TorConfig`: enabled, host, port, proxy_url
-- `KeysConfig`: keys (loaded from PRIVATE_KEY env)
+- `NetworkConfig`: clearnet, tor, i2p, loki (each with enabled, proxy_url, max_tasks, timeout)
 - `FilterConfig`: ids, kinds, authors, tags, limit
 - `TimeRangeConfig`: default_start, use_relay_state, lookback_seconds
-- `NetworkTimeoutsConfig`: request, relay
-- `TimeoutsConfig`: clearnet, tor
+- `SyncTimeoutsConfig`: relay_clearnet, relay_tor, relay_i2p, relay_loki
 - `ConcurrencyConfig`: max_parallel, max_processes, stagger_delay
 - `SourceConfig`: from_database, max_metadata_age, require_readable
 - `RelayOverride`: url, timeouts

@@ -1,10 +1,12 @@
 # Core Components Reference
 
-Complete API reference for BigBrotr's core layer (Pool, Brotr, BaseService, Logger).
+Complete API reference for BigBrotr's core layer (Pool, Brotr, BaseService, MetricsServer, Logger).
 
-## Pool - PostgreSQL Connection Manager
+## Pool - PostgreSQL Client
 
 **Location**: `src/core/pool.py`
+
+**Note**: In Docker deployments, Pool connects to PGBouncer (port 5432 internal) which handles connection pooling at infrastructure level. The Pool class provides application-level connection management.
 
 ### Configuration
 
@@ -14,10 +16,10 @@ from core import Pool, PoolConfig, DatabaseConfig
 # From YAML
 pool = Pool.from_yaml("config.yaml")
 
-# From dict
+# From dict (Docker: host=pgbouncer, local: host=localhost)
 pool = Pool.from_dict({
     "database": {
-        "host": "localhost",
+        "host": "pgbouncer",  # or "localhost" for local dev
         "port": 5432,
         "database": "bigbrotr",
         "user": "admin"
@@ -458,6 +460,95 @@ json_logger.info("cycle_completed", events=100, duration=2.5)
 - Values with spaces, `=`, or quotes are automatically quoted
 - Internal quotes are escaped with backslash
 - Empty strings are quoted
+
+---
+
+## MetricsServer - Prometheus Metrics
+
+**Location**: `src/core/metrics.py`
+
+HTTP server exposing Prometheus metrics for service monitoring.
+
+### Configuration
+
+```python
+from core import MetricsConfig, MetricsServer, start_metrics_server
+
+# Configuration model
+config = MetricsConfig(
+    enabled=True,      # Enable metrics collection
+    port=8000,         # HTTP port for /metrics endpoint
+    host="0.0.0.0",    # Bind address
+    path="/metrics"    # Endpoint path
+)
+```
+
+### Metrics
+
+**Service Information** (set once at startup):
+```python
+from core.metrics import SERVICE_INFO
+
+SERVICE_INFO.info({
+    "service": "validator",
+    "version": "2.0.0"
+})
+```
+
+**Service Gauges** (point-in-time values):
+```python
+from core.metrics import SERVICE_GAUGE
+
+# Current state metrics
+SERVICE_GAUGE.labels(service="validator", name="candidates").set(150)
+SERVICE_GAUGE.labels(service="validator", name="consecutive_failures").set(0)
+SERVICE_GAUGE.labels(service="monitor", name="relays_checked").set(500)
+```
+
+**Service Counters** (cumulative totals):
+```python
+from core.metrics import SERVICE_COUNTER
+
+# Cumulative metrics
+SERVICE_COUNTER.labels(service="validator", name="total_validated").inc()
+SERVICE_COUNTER.labels(service="validator", name="total_promoted").inc(10)
+SERVICE_COUNTER.labels(service="monitor", name="cycles_completed").inc()
+```
+
+**Cycle Duration Histogram**:
+```python
+from core.metrics import CYCLE_DURATION_SECONDS
+
+# Tracks cycle duration for percentiles (p50/p95/p99)
+with CYCLE_DURATION_SECONDS.labels(service="validator").time():
+    await run_cycle()
+```
+
+### Starting the Server
+
+```python
+from core import start_metrics_server, MetricsConfig
+
+# Start with default config
+server = await start_metrics_server()
+
+# Start with custom config
+config = MetricsConfig(port=8001, host="127.0.0.1")
+server = await start_metrics_server(config)
+
+# Stop on shutdown
+await server.stop()
+```
+
+### Integration with BaseService
+
+BaseService automatically integrates metrics:
+- Tracks `cycles_success` and `cycles_failed` counters
+- Records `CYCLE_DURATION_SECONDS` for each cycle
+- Updates `consecutive_failures` gauge
+- Updates `last_cycle_timestamp` gauge
+
+Services add their own metrics via `set_gauge()` and `inc_counter()` helpers.
 
 ---
 
