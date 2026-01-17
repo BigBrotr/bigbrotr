@@ -36,8 +36,7 @@ def load_keys_from_env(env_var: str) -> Keys:
 
     if not value:
         raise ValueError(
-            f"{env_var} environment variable is required. "
-            "Generate one with: openssl rand -hex 32"
+            f"{env_var} environment variable is required. Generate one with: openssl rand -hex 32"
         )
 
     return Keys.parse(value)
