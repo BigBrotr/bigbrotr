@@ -18,6 +18,12 @@ CREATE EXTENSION IF NOT EXISTS btree_gin;
 -- Note: Used for content-based deduplication of metadata records
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- Extension: pg_stat_statements
+-- Purpose: Track execution statistics of SQL statements for performance analysis
+-- Usage: Query pg_stat_statements view to identify slow queries and optimization targets
+-- Note: Requires shared_preload_libraries = 'pg_stat_statements' in postgresql.conf
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
 -- ============================================================================
 -- EXTENSIONS LOADED
 -- ============================================================================
