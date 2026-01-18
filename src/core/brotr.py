@@ -785,13 +785,32 @@ class Brotr:
     # Refresh Operations
     # -------------------------------------------------------------------------
 
+    # Allowlist of valid materialized view names (security: prevents SQL injection)
+    _VALID_MATVIEW_NAMES: ClassVar[frozenset[str]] = frozenset(
+        [
+            "relay_metadata_latest",
+            "events_statistics",
+            "relays_statistics",
+            "kind_counts_total",
+            "kind_counts_by_relay",
+            "pubkey_counts_total",
+            "pubkey_counts_by_relay",
+        ]
+    )
+
     async def refresh_matview(self, view_name: str) -> None:
         """
         Refresh a materialized view by name (concurrent, non-blocking).
 
         Args:
             view_name: Name of the materialized view to refresh.
+                Must be in the allowlist of valid view names.
+
+        Raises:
+            ValueError: If view_name is not in the allowlist.
         """
+        if view_name not in self._VALID_MATVIEW_NAMES:
+            raise ValueError(f"Invalid materialized view name: {view_name}")
         await self._call_procedure(
             f"{view_name}_refresh",
             timeout=self._config.timeouts.refresh,
