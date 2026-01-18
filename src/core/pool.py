@@ -136,6 +136,9 @@ class ServerSettingsConfig(BaseModel):
 
     application_name: str = Field(default="bigbrotr", description="Application name")
     timezone: str = Field(default="UTC", description="Timezone")
+    statement_timeout: int = Field(
+        default=300000, ge=0, description="Max query execution time in milliseconds (0=unlimited)"
+    )
 
 
 class PoolConfig(BaseModel):
@@ -262,6 +265,9 @@ class Pool:
                         server_settings={
                             "application_name": self._config.server_settings.application_name,
                             "timezone": self._config.server_settings.timezone,
+                            "statement_timeout": str(
+                                self._config.server_settings.statement_timeout
+                            ),
                         },
                     )
                     self._is_connected = True
