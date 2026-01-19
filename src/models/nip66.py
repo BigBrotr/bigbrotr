@@ -427,7 +427,19 @@ class Nip66:
                 # Check if relay rejected the event
                 if output and relay_url in output.failed:
                     reason = output.failed.get(relay_url, "unknown")
-                    logger.debug("_test_rtt: write rejected relay=%s reason=%s", relay.url, reason)
+                    reason_lower = str(reason).lower() if reason else ""
+                    # NIP-42: auth-required, restricted, blocked, payment-required are valid
+                    # policy rejections - relay is correctly enforcing its rules, not a failure
+                    policy_keywords = ("auth", "restricted", "blocked", "payment", "paid", "closed")
+                    if any(kw in reason_lower for kw in policy_keywords):
+                        logger.debug(
+                            "_test_rtt: write policy-rejected relay=%s reason=%s", relay.url, reason
+                        )
+                        # Note: rtt_write intentionally not set - indicates write requires auth/payment
+                    else:
+                        logger.debug(
+                            "_test_rtt: write rejected relay=%s reason=%s", relay.url, reason
+                        )
                 elif output and relay_url in output.success:
                     logger.debug(
                         "_test_rtt: write accepted relay=%s rtt_write=%dms", relay.url, rtt_write
