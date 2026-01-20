@@ -49,43 +49,55 @@ networks:
 # Private key is loaded from PRIVATE_KEY environment variable
 keys: {}
 
-# NIP-66 event publishing configuration
-publishing:
-  enabled: true              # Enable publishing Kind 30166/10166 events
-  # Destination options:
-  #   - "monitored_relay": Publish Kind 30166 on the relay being checked (default)
-  #   - "configured_relays": Publish to relays listed below
-  #   - "database_only": No Nostr publishing, only store in database
-  destination: "monitored_relay"
-  # Relays for publishing (only used if destination: "configured_relays")
-  relays: []
+# Metadata to store in database
+storing:
+  nip11: true
+  nip66_rtt: true
+  nip66_ssl: true
+  nip66_geo: true
+  nip66_dns: true
+  nip66_http: true
 
-# Checks to perform on each relay
-checks:
-  open: true                 # Test WebSocket connection
-  read: true                 # Test REQ/EOSE subscription
-  write: true                # Test EVENT/OK publication (requires PRIVATE_KEY)
-  nip11: true                # Fetch NIP-11 relay info document
-  ssl: true                  # Validate SSL/TLS certificate
-  dns: true                  # Measure DNS resolution time
-  geo: true                  # Geolocate relay IP address
+# Publishing configuration
+publishing:
+  # Kind 30166 relay discovery events
+  discovery:
+    enabled: true
+    interval: 3600             # Minimum seconds since last check (Range: >= 0)
+    include:                   # Which metadata to include in events
+      nip11: true
+      nip66_rtt: true
+      nip66_ssl: true
+      nip66_geo: true
+      nip66_dns: true
+      nip66_http: true
+    monitored_relay: true      # Publish on the relay being checked
+    configured_relays: false   # Publish to relays listed below
+    relays: []
+
+  # Kind 10166 monitor announcement
+  announcement:
+    enabled: true
+    interval: 86400            # Rate limit (seconds)
+    relays: []                 # Where to publish announcements
+
+  # Kind 0 profile
+  profile:
+    enabled: false
+    interval: 86400            # Rate limit (seconds)
+    relays: []
 
 # Geolocation configuration
 # Requires MaxMind GeoLite2 databases (free with registration)
-# Download from: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
+# Download from: https://dev.maxmind.com/geoip/geolocation-databases
 # Place databases in static/ folder
 geo:
   city_database_path: "static/GeoLite2-City.mmdb"
-  asn_database_path: "static/GeoLite2-ASN.mmdb"  # Optional, for ASN/ISP info
-  country_database_path: "static/GeoLite2-Country.mmdb"  # Optional, for country fallback
-  # Update frequency: "monthly", "weekly", "none" (none = never auto-update)
-  update_frequency: "monthly"
+  asn_database_path: "static/GeoLite2-ASN.mmdb"
+  update_frequency: "monthly"  # "monthly", "weekly", "none"
 
-# Concurrency settings
-concurrency:
-  max_processes: 1           # Number of worker processes (Range: 1 - 32)
-  batch_size: 50             # Relays to process before pushing to database (Range: 1 - 500)
-
-# Relay selection - which relays to check
-selection:
-  min_age_since_check: 3600  # Minimum seconds since last check (Range: >= 0)
+# Processing settings
+processing:
+  chunk_size: 100              # Relays to process per chunk (Range: 10 - 1000)
+  # max_relays: 500            # Optional limit on relays per cycle
+  nip11_max_size: 1048576      # Max NIP-11 response size (1MB default)
