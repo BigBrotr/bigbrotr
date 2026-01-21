@@ -49,43 +49,35 @@ networks:
 # Private key is loaded from PRIVATE_KEY environment variable
 keys: {}
 
-# Metadata to store in database
-storing:
-  nip11: true
-  nip66_rtt: true
-  nip66_ssl: true
-  nip66_geo: true
-  nip66_dns: true
-  nip66_http: true
+# Kind 30166 relay discovery events
+# Publishes relay metadata to the Nostr network
+discovery:
+  enabled: true
+  interval: 3600             # Seconds between re-checking a relay (Range: >= 60)
+  include:                   # Which metadata to include in events (⊆ processing.compute)
+    nip11: true              # NIP-11 relay information document
+    nip66_rtt: true          # Round-trip time measurements
+    nip66_ssl: true          # SSL certificate validation
+    nip66_geo: true          # Geolocation (country, city, coordinates)
+    nip66_dns: true          # DNS resolution time
+    nip66_http: true         # HTTP response codes
+  monitored_relay: true      # Publish to the relay being checked
+  configured_relays: false   # Publish to relays listed below
+  relays: []                 # Additional relays to publish to
 
-# Publishing configuration
-publishing:
-  # Kind 30166 relay discovery events
-  discovery:
-    enabled: true
-    interval: 3600             # Minimum seconds since last check (Range: >= 0)
-    include:                   # Which metadata to include in events
-      nip11: true
-      nip66_rtt: true
-      nip66_ssl: true
-      nip66_geo: true
-      nip66_dns: true
-      nip66_http: true
-    monitored_relay: true      # Publish on the relay being checked
-    configured_relays: false   # Publish to relays listed below
-    relays: []
+# Kind 10166 monitor announcement
+# Announces this monitor's existence and capabilities to the network
+announcement:
+  enabled: true
+  interval: 86400            # Seconds between announcements (Range: >= 60)
+  relays: []                 # Relays to publish announcements to
 
-  # Kind 10166 monitor announcement
-  announcement:
-    enabled: true
-    interval: 86400            # Rate limit (seconds)
-    relays: []                 # Where to publish announcements
-
-  # Kind 0 profile
-  profile:
-    enabled: false
-    interval: 86400            # Rate limit (seconds)
-    relays: []
+# Kind 0 profile
+# Publishes monitor's profile metadata (name, about, picture)
+profile:
+  enabled: false
+  interval: 86400            # Seconds between profile updates (Range: >= 60)
+  relays: []                 # Relays to publish profile to
 
 # Geolocation configuration
 # Requires MaxMind GeoLite2 databases (free with registration)
@@ -97,7 +89,24 @@ geo:
   update_frequency: "monthly"  # "monthly", "weekly", "none"
 
 # Processing settings
+# Controls what metadata is computed and stored
+# Dependency chain: compute → store → discovery.include
+# (can only store what is computed, can only publish what is computed)
 processing:
-  chunk_size: 100              # Relays to process per chunk (Range: 10 - 1000)
-  # max_relays: 500            # Optional limit on relays per cycle
-  nip11_max_size: 1048576      # Max NIP-11 response size (1MB default)
+  chunk_size: 100              # Relays per batch (Range: 10 - 1000)
+  # max_relays: 500            # Optional limit on total relays per cycle
+  nip11_max_size: 1048576      # Max NIP-11 response size in bytes (1MB default)
+  compute:                     # What metadata to compute
+    nip11: true                # NIP-11 relay information document
+    nip66_rtt: true            # Round-trip time (open/read/write latency)
+    nip66_ssl: true            # SSL certificate chain validation
+    nip66_geo: true            # IP geolocation (requires MaxMind databases)
+    nip66_dns: true            # DNS resolution timing
+    nip66_http: true           # HTTP status codes
+  store:                       # What metadata to store in database (⊆ compute)
+    nip11: true
+    nip66_rtt: true
+    nip66_ssl: true
+    nip66_geo: true
+    nip66_dns: true
+    nip66_http: true
