@@ -33,16 +33,8 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
-class ProcessingConfig(BaseModel):
-    """Chunk processing settings."""
-
-    chunk_size: int = Field(default=100, ge=10, le=1000)
-    max_relays: int | None = Field(default=None, ge=1)
-    nip11_max_size: int = Field(default=1_048_576, ge=1024, le=10_485_760)
-
-
 class MetadataFlags(BaseModel):
-    """Which metadata types to store/publish."""
+    """Which metadata types to compute/store/publish."""
 
     nip11: bool = Field(default=True)
     nip66_rtt: bool = Field(default=True)
@@ -50,6 +42,16 @@ class MetadataFlags(BaseModel):
     nip66_geo: bool = Field(default=True)
     nip66_dns: bool = Field(default=True)
     nip66_http: bool = Field(default=True)
+
+
+class ProcessingConfig(BaseModel):
+    """Processing settings including what to compute and store."""
+
+    chunk_size: int = Field(default=100, ge=10, le=1000)
+    max_relays: int | None = Field(default=None, ge=1)
+    nip11_max_size: int = Field(default=1_048_576, ge=1024, le=10_485_760)
+    compute: MetadataFlags = Field(default_factory=MetadataFlags)
+    store: MetadataFlags = Field(default_factory=MetadataFlags)
 
 
 class GeoConfig(BaseModel):
@@ -87,73 +89,94 @@ class ProfileConfig(BaseModel):
     relays: list[str] = Field(default_factory=list)
 
 
-class PublishingConfig(BaseModel):
-    """All publishing settings."""
-
-    discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
-    announcement: AnnouncementConfig = Field(default_factory=AnnouncementConfig)
-    profile: ProfileConfig = Field(default_factory=ProfileConfig)
-
-
 class MonitorConfig(BaseServiceConfig):
     """Monitor service configuration."""
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
     keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
-    storing: MetadataFlags = Field(default_factory=MetadataFlags)
     geo: GeoConfig = Field(default_factory=GeoConfig)
-    publishing: PublishingConfig = Field(default_factory=PublishingConfig)
+    discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
+    announcement: AnnouncementConfig = Field(default_factory=AnnouncementConfig)
+    profile: ProfileConfig = Field(default_factory=ProfileConfig)
 
     @model_validator(mode="after")
     def validate_geo_databases(self) -> MonitorConfig:
-        """Fail-fast: If geo check enabled, databases MUST exist."""
-        if not self.storing.nip66_geo:
+        """Fail-fast: If geo compute enabled, databases MUST exist."""
+        if not self.processing.compute.nip66_geo:
             return self
 
         city_path = Path(self.geo.city_database_path)
         if not city_path.exists():
             raise ValueError(
                 f"geo.city_database_path not found: {city_path}. "
-                "Download GeoLite2-City.mmdb or set storing.nip66_geo=false."
+                "Download GeoLite2-City.mmdb or set processing.compute.nip66_geo=false."
             )
 
         asn_path = Path(self.geo.asn_database_path)
         if not asn_path.exists():
             raise ValueError(
                 f"geo.asn_database_path not found: {asn_path}. "
-                "Download GeoLite2-ASN.mmdb or set storing.nip66_geo=false."
+                "Download GeoLite2-ASN.mmdb or set processing.compute.nip66_geo=false."
             )
 
         return self
 
     @model_validator(mode="after")
-    def validate_publish_requires_store(self) -> MonitorConfig:
-        """Ensure publishing a check requires storing it."""
-        if not self.publishing.discovery.enabled:
-            return self
-
-        checks = self.storing
-        pub_checks = self.publishing.discovery.include
+    def validate_store_requires_compute(self) -> MonitorConfig:
+        """Ensure storing requires computing."""
+        compute = self.processing.compute
+        store = self.processing.store
         errors = []
 
-        if pub_checks.nip11 and not checks.nip11:
+        if store.nip11 and not compute.nip11:
             errors.append("nip11")
-        if pub_checks.nip66_rtt and not checks.nip66_rtt:
+        if store.nip66_rtt and not compute.nip66_rtt:
             errors.append("nip66_rtt")
-        if pub_checks.nip66_ssl and not checks.nip66_ssl:
+        if store.nip66_ssl and not compute.nip66_ssl:
             errors.append("nip66_ssl")
-        if pub_checks.nip66_geo and not checks.nip66_geo:
+        if store.nip66_geo and not compute.nip66_geo:
             errors.append("nip66_geo")
-        if pub_checks.nip66_dns and not checks.nip66_dns:
+        if store.nip66_dns and not compute.nip66_dns:
             errors.append("nip66_dns")
-        if pub_checks.nip66_http and not checks.nip66_http:
+        if store.nip66_http and not compute.nip66_http:
             errors.append("nip66_http")
 
         if errors:
             raise ValueError(
-                f"Cannot publish checks that are not stored: {', '.join(errors)}. "
-                "Enable in storing.* or disable in publishing.discovery.include.*"
+                f"Cannot store metadata that is not computed: {', '.join(errors)}. "
+                "Enable in processing.compute.* or disable in processing.store.*"
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_publish_requires_compute(self) -> MonitorConfig:
+        """Ensure publishing requires computing."""
+        if not self.discovery.enabled:
+            return self
+
+        compute = self.processing.compute
+        include = self.discovery.include
+        errors = []
+
+        if include.nip11 and not compute.nip11:
+            errors.append("nip11")
+        if include.nip66_rtt and not compute.nip66_rtt:
+            errors.append("nip66_rtt")
+        if include.nip66_ssl and not compute.nip66_ssl:
+            errors.append("nip66_ssl")
+        if include.nip66_geo and not compute.nip66_geo:
+            errors.append("nip66_geo")
+        if include.nip66_dns and not compute.nip66_dns:
+            errors.append("nip66_dns")
+        if include.nip66_http and not compute.nip66_http:
+            errors.append("nip66_http")
+
+        if errors:
+            raise ValueError(
+                f"Cannot publish metadata that is not computed: {', '.join(errors)}. "
+                "Enable in processing.compute.* or disable in discovery.include.*"
             )
 
         return self
@@ -322,7 +345,7 @@ class Monitor(BaseService[MonitorConfig]):
         Readers are opened at the start of each run() cycle to allow
         database files to be updated between runs without restarting.
         """
-        if not self._config.storing.nip66_geo:
+        if not self._config.processing.store.nip66_geo:
             return
 
         self._geo_reader = geoip2.database.Reader(self._config.geo.city_database_path)
@@ -387,7 +410,7 @@ class Monitor(BaseService[MonitorConfig]):
             self._logger.warning("no_networks_enabled")
             return 0
 
-        threshold = int(self._start_time) - self._config.publishing.discovery.interval
+        threshold = int(self._start_time) - self._config.discovery.interval
 
         row = await self._brotr.pool.fetchrow(
             """
@@ -482,7 +505,7 @@ class Monitor(BaseService[MonitorConfig]):
             List of Relay objects ready for checking. May be empty if no
             relays remain or all have been processed this cycle.
         """
-        threshold = int(self._start_time) - self._config.publishing.discovery.interval
+        threshold = int(self._start_time) - self._config.discovery.interval
 
         rows = await self._brotr.pool.fetch(
             """
@@ -593,7 +616,7 @@ class Monitor(BaseService[MonitorConfig]):
 
             try:
                 # NIP-11 check
-                if self._config.storing.nip11:
+                if self._config.processing.store.nip11:
                     nip11 = await Nip11.fetch(
                         relay,
                         timeout=timeout,
@@ -604,7 +627,7 @@ class Monitor(BaseService[MonitorConfig]):
                         metadata_records.append(nip11.to_relay_metadata())
 
                 # NIP-66 tests (RTT, DNS, SSL, Geo, HTTP)
-                checks = self._config.storing
+                checks = self._config.processing.store
                 keys = self._keys if checks.nip66_rtt else None
                 nip66 = await Nip66.test(
                     relay=relay,
@@ -701,7 +724,7 @@ class Monitor(BaseService[MonitorConfig]):
 
     def _should_publish_discovery(self) -> bool:
         """Check if Kind 30166 publishing is enabled."""
-        disc = self._config.publishing.discovery
+        disc = self._config.discovery
         return (
             disc.enabled
             and (disc.monitored_relay or disc.configured_relays)
@@ -713,7 +736,7 @@ class Monitor(BaseService[MonitorConfig]):
 
         Rate-limited to once per interval to avoid spamming.
         """
-        ann = self._config.publishing.announcement
+        ann = self._config.announcement
         if not ann.enabled or not ann.relays or self._keys is None:
             return
 
@@ -735,7 +758,7 @@ class Monitor(BaseService[MonitorConfig]):
             - Content: Empty string
             - Tags: frequency, timeout, check types performed
         """
-        ann = self._config.publishing.announcement
+        ann = self._config.announcement
 
         try:
             tags = self._build_10166_tags()
@@ -777,7 +800,7 @@ class Monitor(BaseService[MonitorConfig]):
             nip11: Optional NIP-11 document for content and capability tags.
             nip66: Optional NIP-66 results for RTT and geo tags.
         """
-        disc = self._config.publishing.discovery
+        disc = self._config.discovery
 
         # Build content (NIP-11 JSON if available)
         content = ""
@@ -837,7 +860,7 @@ class Monitor(BaseService[MonitorConfig]):
         ]
 
         # Announce only checks that will be published
-        pub_checks = self._config.publishing.discovery.include
+        pub_checks = self._config.discovery.include
         check_items = [
             ("nip11", pub_checks.nip11),
             ("rtt", pub_checks.nip66_rtt),
@@ -867,7 +890,7 @@ class Monitor(BaseService[MonitorConfig]):
         Returns:
             List of tags: d, n, rtt-*, g, N, R, T, k, t.
         """
-        pub_checks = self._config.publishing.discovery.include
+        pub_checks = self._config.discovery.include
         tags = [
             Tag.parse(["d", relay.url]),
             Tag.parse(["n", relay.network.value]),
