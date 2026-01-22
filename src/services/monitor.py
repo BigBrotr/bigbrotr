@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -28,6 +29,20 @@ if TYPE_CHECKING:
     from models.nip11 import Nip11Limitation, Nip11RetentionEntry
 
 
+def _download_geolite_db(url: str, dest: Path) -> None:
+    """Download a GeoLite2 database file from GitHub mirror.
+
+    Args:
+        url: Download URL for the .mmdb file.
+        dest: Local path to save the database.
+
+    Raises:
+        urllib.error.URLError: If download fails.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    urllib.request.urlretrieve(url, dest)
+
+
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -40,6 +55,7 @@ class MetadataFlags(BaseModel):
     nip66_rtt: bool = Field(default=True)
     nip66_ssl: bool = Field(default=True)
     nip66_geo: bool = Field(default=True)
+    nip66_net: bool = Field(default=True)
     nip66_dns: bool = Field(default=True)
     nip66_http: bool = Field(default=True)
 
@@ -59,6 +75,12 @@ class GeoConfig(BaseModel):
 
     city_database_path: str = Field(default="static/GeoLite2-City.mmdb")
     asn_database_path: str = Field(default="static/GeoLite2-ASN.mmdb")
+    city_download_url: str = Field(
+        default="https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb"
+    )
+    asn_download_url: str = Field(
+        default="https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb"
+    )
     update_frequency: Literal["monthly", "weekly", "none"] = Field(default="monthly")
 
 
@@ -102,23 +124,18 @@ class MonitorConfig(BaseServiceConfig):
 
     @model_validator(mode="after")
     def validate_geo_databases(self) -> MonitorConfig:
-        """Fail-fast: If geo compute enabled, databases MUST exist."""
-        if not self.processing.compute.nip66_geo:
-            return self
+        """Ensure geo databases exist, downloading from GitHub mirror if missing."""
+        # Download City database if geo is enabled
+        if self.processing.compute.nip66_geo:
+            city_path = Path(self.geo.city_database_path)
+            if not city_path.exists():
+                _download_geolite_db(self.geo.city_download_url, city_path)
 
-        city_path = Path(self.geo.city_database_path)
-        if not city_path.exists():
-            raise ValueError(
-                f"geo.city_database_path not found: {city_path}. "
-                "Download GeoLite2-City.mmdb or set processing.compute.nip66_geo=false."
-            )
-
-        asn_path = Path(self.geo.asn_database_path)
-        if not asn_path.exists():
-            raise ValueError(
-                f"geo.asn_database_path not found: {asn_path}. "
-                "Download GeoLite2-ASN.mmdb or set processing.compute.nip66_geo=false."
-            )
+        # Download ASN database if net is enabled
+        if self.processing.compute.nip66_net:
+            asn_path = Path(self.geo.asn_database_path)
+            if not asn_path.exists():
+                _download_geolite_db(self.geo.asn_download_url, asn_path)
 
         return self
 
@@ -137,6 +154,8 @@ class MonitorConfig(BaseServiceConfig):
             errors.append("nip66_ssl")
         if store.nip66_geo and not compute.nip66_geo:
             errors.append("nip66_geo")
+        if store.nip66_net and not compute.nip66_net:
+            errors.append("nip66_net")
         if store.nip66_dns and not compute.nip66_dns:
             errors.append("nip66_dns")
         if store.nip66_http and not compute.nip66_http:
@@ -168,6 +187,8 @@ class MonitorConfig(BaseServiceConfig):
             errors.append("nip66_ssl")
         if include.nip66_geo and not compute.nip66_geo:
             errors.append("nip66_geo")
+        if include.nip66_net and not compute.nip66_net:
+            errors.append("nip66_net")
         if include.nip66_dns and not compute.nip66_dns:
             errors.append("nip66_dns")
         if include.nip66_http and not compute.nip66_http:
@@ -217,7 +238,8 @@ class Monitor(BaseService[MonitorConfig]):
     Network Support:
         - Clearnet (wss://): Direct WebSocket connections
         - Tor (wss://*.onion): Connections via SOCKS5 proxy (configurable)
-        - I2P (wss://*.i2p): Connections via HTTP proxy (configurable)
+        - I2P (wss://*.i2p): Connections via SOCKS5 proxy (configurable)
+        - Lokinet (wss://*.loki): Connections via SOCKS5 proxy (configurable)
 
     Attributes:
         SERVICE_NAME: Service identifier for configuration and logging.
@@ -242,7 +264,35 @@ class Monitor(BaseService[MonitorConfig]):
         self._successful: int = 0
         self._failed: int = 0
         self._chunks: int = 0
-        self._last_announcement: float = 0.0
+
+    # -------------------------------------------------------------------------
+    # Cursor Helpers (persistent state in service_data)
+    # -------------------------------------------------------------------------
+
+    async def _get_cursor_timestamp(self, cursor_name: str) -> float:
+        """Get a cursor timestamp from service_data.
+
+        Args:
+            cursor_name: Name of the cursor (e.g., "last_announcement", "last_profile")
+
+        Returns:
+            Timestamp as float, or 0.0 if not found.
+        """
+        rows = await self._brotr.get_service_data("monitor", "cursor", cursor_name)
+        if rows and rows[0].get("value"):
+            return float(rows[0]["value"].get("timestamp", 0.0))
+        return 0.0
+
+    async def _set_cursor_timestamp(self, cursor_name: str, timestamp: float) -> None:
+        """Save a cursor timestamp to service_data.
+
+        Args:
+            cursor_name: Name of the cursor
+            timestamp: Timestamp to save
+        """
+        await self._brotr.upsert_service_data(
+            [("monitor", "cursor", cursor_name, {"timestamp": timestamp})]
+        )
 
     # -------------------------------------------------------------------------
     # Main Cycle
@@ -265,6 +315,10 @@ class Monitor(BaseService[MonitorConfig]):
         """
         self._reset_cycle_state()
         self._init_semaphores()
+
+        # Update GeoLite2 databases if stale (checks file mtime)
+        await self._maybe_update_geo_databases()
+
         self._open_geo_readers()
 
         try:
@@ -276,7 +330,8 @@ class Monitor(BaseService[MonitorConfig]):
                 networks=networks,
             )
 
-            # Publish announcement if due
+            # Publish profile and announcement if due
+            await self._maybe_publish_profile()
             await self._maybe_publish_announcement()
 
             # Count relays needing checks
@@ -339,17 +394,64 @@ class Monitor(BaseService[MonitorConfig]):
             for network in NetworkType
         }
 
+    async def _maybe_update_geo_databases(self) -> None:
+        """Update GeoLite2 databases if stale based on update_frequency.
+
+        Checks file modification time against configured update interval:
+            - monthly: Update if > 30 days old
+            - weekly: Update if > 7 days old
+            - none: Never update automatically
+
+        Downloads from configured URLs if database files are stale or missing.
+        """
+        compute = self._config.processing.compute
+        if not compute.nip66_geo and not compute.nip66_net:
+            return
+
+        freq = self._config.geo.update_frequency
+        if freq == "none":
+            return
+
+        max_age_days = 30 if freq == "monthly" else 7
+        max_age_seconds = max_age_days * 86400
+        now = time.time()
+
+        # Check and update city database (for geo)
+        if compute.nip66_geo:
+            city_path = Path(self._config.geo.city_database_path)
+            if city_path.exists():
+                age = now - city_path.stat().st_mtime
+                if age > max_age_seconds:
+                    self._logger.info("updating_geo_db", db="city", age_days=round(age / 86400, 1))
+                    _download_geolite_db(self._config.geo.city_download_url, city_path)
+            else:
+                self._logger.info("downloading_geo_db", db="city")
+                _download_geolite_db(self._config.geo.city_download_url, city_path)
+
+        # Check and update ASN database (for net)
+        if compute.nip66_net:
+            asn_path = Path(self._config.geo.asn_database_path)
+            if asn_path.exists():
+                age = now - asn_path.stat().st_mtime
+                if age > max_age_seconds:
+                    self._logger.info("updating_geo_db", db="asn", age_days=round(age / 86400, 1))
+                    _download_geolite_db(self._config.geo.asn_download_url, asn_path)
+            else:
+                self._logger.info("downloading_geo_db", db="asn")
+                _download_geolite_db(self._config.geo.asn_download_url, asn_path)
+
     def _open_geo_readers(self) -> None:
         """Open GeoIP database readers for the current run.
 
         Readers are opened at the start of each run() cycle to allow
         database files to be updated between runs without restarting.
         """
-        if not self._config.processing.store.nip66_geo:
-            return
+        # Open City reader if geo is enabled
+        if self._config.processing.store.nip66_geo:
+            self._geo_reader = geoip2.database.Reader(self._config.geo.city_database_path)
 
-        self._geo_reader = geoip2.database.Reader(self._config.geo.city_database_path)
-        if self._config.geo.asn_database_path:
+        # Open ASN reader if net is enabled
+        if self._config.processing.store.nip66_net:
             asn_path = Path(self._config.geo.asn_database_path)
             if asn_path.exists():
                 self._asn_reader = geoip2.database.Reader(str(asn_path))
@@ -626,7 +728,7 @@ class Monitor(BaseService[MonitorConfig]):
                     if nip11:
                         metadata_records.append(nip11.to_relay_metadata())
 
-                # NIP-66 tests (RTT, DNS, SSL, Geo, HTTP)
+                # NIP-66 tests (RTT, SSL, Geo, Net, DNS, HTTP)
                 checks = self._config.processing.store
                 keys = self._keys if checks.nip66_rtt else None
                 nip66 = await Nip66.test(
@@ -638,6 +740,7 @@ class Monitor(BaseService[MonitorConfig]):
                     run_rtt=checks.nip66_rtt,
                     run_ssl=checks.nip66_ssl,
                     run_geo=checks.nip66_geo,
+                    run_net=checks.nip66_net,
                     run_dns=checks.nip66_dns,
                     run_http=checks.nip66_http,
                     proxy_url=proxy_url,
@@ -734,18 +837,19 @@ class Monitor(BaseService[MonitorConfig]):
     async def _maybe_publish_announcement(self) -> None:
         """Publish Kind 10166 announcement if due.
 
-        Rate-limited to once per interval to avoid spamming.
+        Rate-limited to once per interval. Timestamp persisted in service_data.
         """
         ann = self._config.announcement
         if not ann.enabled or not ann.relays or self._keys is None:
             return
 
-        elapsed = time.time() - self._last_announcement
+        last_announcement = await self._get_cursor_timestamp("last_announcement")
+        elapsed = time.time() - last_announcement
         if elapsed < ann.interval:
             return
 
         await self._publish_announcement()
-        self._last_announcement = time.time()
+        await self._set_cursor_timestamp("last_announcement", time.time())
 
     async def _publish_announcement(self) -> None:
         """Publish a Kind 10166 monitor announcement event.
@@ -780,6 +884,53 @@ class Monitor(BaseService[MonitorConfig]):
 
         except Exception as e:
             self._logger.warning("announcement_failed", error=str(e))
+
+    async def _maybe_publish_profile(self) -> None:
+        """Publish Kind 0 profile if due.
+
+        Rate-limited to once per interval. Timestamp persisted in service_data.
+        """
+        profile = self._config.profile
+        if not profile.enabled or not profile.relays or self._keys is None:
+            return
+
+        last_profile = await self._get_cursor_timestamp("last_profile")
+        elapsed = time.time() - last_profile
+        if elapsed < profile.interval:
+            return
+
+        await self._publish_profile()
+        await self._set_cursor_timestamp("last_profile", time.time())
+
+    async def _publish_profile(self) -> None:
+        """Publish a Kind 0 profile event.
+
+        Creates and signs a profile metadata event for this monitor.
+        """
+        profile = self._config.profile
+
+        try:
+            # Build profile content (could be extended with config options)
+            content = "{}"
+
+            builder = EventBuilder(Kind(0), content)
+
+            client = create_client(self._keys)
+            for url in profile.relays:
+                try:
+                    await client.add_relay(RelayUrl.parse(url))
+                except Exception:
+                    pass
+
+            try:
+                await client.connect()
+                await client.send_event_builder(builder)
+                self._logger.info("profile_published")
+            finally:
+                await client.shutdown()
+
+        except Exception as e:
+            self._logger.warning("profile_failed", error=str(e))
 
     async def _publish_relay_discovery(
         self, relay: Relay, nip11: Nip11 | None, nip66: Nip66 | None
@@ -866,6 +1017,7 @@ class Monitor(BaseService[MonitorConfig]):
             ("rtt", pub_checks.nip66_rtt),
             ("ssl", pub_checks.nip66_ssl),
             ("geo", pub_checks.nip66_geo),
+            ("net", pub_checks.nip66_net),
             ("dns", pub_checks.nip66_dns),
             ("http", pub_checks.nip66_http),
         ]
