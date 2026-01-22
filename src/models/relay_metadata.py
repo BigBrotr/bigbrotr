@@ -36,6 +36,7 @@ class MetadataType(StrEnum):
     NIP66_RTT = "nip66_rtt"
     NIP66_SSL = "nip66_ssl"
     NIP66_GEO = "nip66_geo"
+    NIP66_NET = "nip66_net"
     NIP66_DNS = "nip66_dns"
     NIP66_HTTP = "nip66_http"
 
