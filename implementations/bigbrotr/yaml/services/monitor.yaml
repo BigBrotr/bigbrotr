@@ -59,6 +59,7 @@ discovery:
     nip66_rtt: true          # Round-trip time measurements
     nip66_ssl: true          # SSL certificate validation
     nip66_geo: true          # Geolocation (country, city, coordinates)
+    nip66_net: true          # Network/ASN info (IP, ASN, organization)
     nip66_dns: true          # DNS resolution time
     nip66_http: true         # HTTP response codes
   monitored_relay: true      # Publish to the relay being checked
@@ -100,7 +101,8 @@ processing:
     nip11: true                # NIP-11 relay information document
     nip66_rtt: true            # Round-trip time (open/read/write latency)
     nip66_ssl: true            # SSL certificate chain validation
-    nip66_geo: true            # IP geolocation (requires MaxMind databases)
+    nip66_geo: true            # IP geolocation (requires MaxMind City database)
+    nip66_net: true            # Network/ASN info (requires MaxMind ASN database)
     nip66_dns: true            # DNS resolution timing
     nip66_http: true           # HTTP status codes
   store:                       # What metadata to store in database (⊆ compute)
@@ -108,5 +110,6 @@ processing:
     nip66_rtt: true
     nip66_ssl: true
     nip66_geo: true
+    nip66_net: true
     nip66_dns: true
     nip66_http: true
