@@ -2,7 +2,7 @@
 Unit tests for services.monitor module.
 
 Tests:
-- Configuration models (NetworkConfig, ChecksConfig, etc.)
+- Configuration models (MetadataFlags, ProcessingConfig, GeoConfig, etc.)
 - Monitor service initialization
 - Relay selection logic
 - Metadata batch insertion
@@ -18,15 +18,14 @@ from core.brotr import Brotr
 from models import Nip11, Nip66, Relay, RelayMetadata
 from models.relay import NetworkType
 from services.monitor import (
-    ChecksConfig,
-    ConcurrencyConfig,
+    AnnouncementConfig,
+    DiscoveryConfig,
     GeoConfig,
+    MetadataFlags,
     Monitor,
     MonitorConfig,
-    PublishingConfig,
-    SelectionConfig,
-    build_kind_10166_tags,
-    build_kind_30166_tags,
+    ProcessingConfig,
+    ProfileConfig,
 )
 from utils.network import NetworkConfig, NetworkTypeConfig
 
@@ -49,60 +48,62 @@ def set_private_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ============================================================================
-# PublishingConfig Tests
+# MetadataFlags Tests
 # ============================================================================
 
 
-class TestPublishingConfig:
-    """Tests for PublishingConfig Pydantic model."""
+class TestMetadataFlags:
+    """Tests for MetadataFlags Pydantic model."""
 
     def test_default_values(self) -> None:
-        """Test default publishing config."""
-        config = PublishingConfig()
+        """Test all flags enabled by default."""
+        flags = MetadataFlags()
 
-        assert config.enabled is True
-        assert config.destination == "monitored_relay"
-        assert config.relays == []
+        assert flags.nip11 is True
+        assert flags.nip66_rtt is True
+        assert flags.nip66_ssl is True
+        assert flags.nip66_geo is True
+        assert flags.nip66_net is True
+        assert flags.nip66_dns is True
+        assert flags.nip66_http is True
+
+    def test_disable_flags(self) -> None:
+        """Test disabling specific flags."""
+        flags = MetadataFlags(nip66_geo=False, nip66_net=False)
+
+        assert flags.nip66_geo is False
+        assert flags.nip66_net is False
+        assert flags.nip66_rtt is True
+
+
+# ============================================================================
+# ProcessingConfig Tests
+# ============================================================================
+
+
+class TestProcessingConfig:
+    """Tests for ProcessingConfig Pydantic model."""
+
+    def test_default_values(self) -> None:
+        """Test default processing config."""
+        config = ProcessingConfig()
+
+        assert config.chunk_size == 100
+        assert config.nip11_max_size == 1048576
+        assert config.compute.nip11 is True
+        assert config.store.nip11 is True
 
     def test_custom_values(self) -> None:
-        """Test custom publishing config."""
-        config = PublishingConfig(
-            enabled=False,
-            destination="configured_relays",
-            relays=["wss://relay1.com", "wss://relay2.com"],
+        """Test custom processing config."""
+        config = ProcessingConfig(
+            chunk_size=50,
+            compute=MetadataFlags(nip66_geo=False),
+            store=MetadataFlags(nip66_geo=False),
         )
 
-        assert config.enabled is False
-        assert config.destination == "configured_relays"
-        assert len(config.relays) == 2
-
-
-# ============================================================================
-# ChecksConfig Tests
-# ============================================================================
-
-
-class TestChecksConfig:
-    """Tests for ChecksConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        """Test all checks enabled by default."""
-        config = ChecksConfig()
-
-        assert config.open is True
-        assert config.read is True
-        assert config.write is True
-        assert config.nip11 is True
-        assert config.ssl is True
-        assert config.dns is True
-        assert config.geo is True
-
-    def test_disable_checks(self) -> None:
-        """Test disabling specific checks."""
-        config = ChecksConfig(write=False, geo=False)
-
-        assert config.write is False
-        assert config.geo is False
+        assert config.chunk_size == 50
+        assert config.compute.nip66_geo is False
+        assert config.store.nip66_geo is False
 
 
 # ============================================================================
@@ -118,8 +119,7 @@ class TestGeoConfig:
         config = GeoConfig()
 
         assert config.city_database_path == "static/GeoLite2-City.mmdb"
-        assert config.asn_database_path is None
-        assert config.country_database_path is None
+        assert config.asn_database_path == "static/GeoLite2-ASN.mmdb"
         assert config.update_frequency == "monthly"
 
     def test_custom_paths(self) -> None:
@@ -127,72 +127,80 @@ class TestGeoConfig:
         config = GeoConfig(
             city_database_path="/custom/path/city.mmdb",
             asn_database_path="/custom/path/asn.mmdb",
-            country_database_path="/custom/path/country.mmdb",
             update_frequency="weekly",
         )
 
         assert config.city_database_path == "/custom/path/city.mmdb"
         assert config.asn_database_path == "/custom/path/asn.mmdb"
-        assert config.country_database_path == "/custom/path/country.mmdb"
         assert config.update_frequency == "weekly"
 
 
 # ============================================================================
-# ConcurrencyConfig Tests
+# DiscoveryConfig Tests
 # ============================================================================
 
 
-class TestMonitorConcurrencyConfig:
-    """Tests for ConcurrencyConfig (Monitor)."""
+class TestDiscoveryConfig:
+    """Tests for DiscoveryConfig Pydantic model."""
 
     def test_default_values(self) -> None:
-        """Test default concurrency config."""
-        config = ConcurrencyConfig()
+        """Test default discovery config."""
+        config = DiscoveryConfig()
 
-        assert config.max_processes == 1
-        assert config.batch_size == 50
+        assert config.enabled is True
+        assert config.interval == 3600
+        assert config.include.nip11 is True
+        assert config.monitored_relay is True
+        assert config.configured_relays is True
+        assert config.relays == []
 
     def test_custom_values(self) -> None:
-        """Test custom concurrency values."""
-        config = ConcurrencyConfig(max_processes=2, batch_size=100)
+        """Test custom discovery config."""
+        config = DiscoveryConfig(
+            enabled=False,
+            interval=7200,
+            include=MetadataFlags(nip66_http=False),
+            relays=["wss://relay1.com"],
+        )
 
-        assert config.max_processes == 2
-        assert config.batch_size == 100
-
-    def test_validation_constraints(self) -> None:
-        """Test validation constraints."""
-        with pytest.raises(ValueError):
-            ConcurrencyConfig(max_processes=0)
-
-        with pytest.raises(ValueError):
-            ConcurrencyConfig(max_processes=33)
-
-        with pytest.raises(ValueError):
-            ConcurrencyConfig(batch_size=0)
-
-        with pytest.raises(ValueError):
-            ConcurrencyConfig(batch_size=501)
+        assert config.enabled is False
+        assert config.interval == 7200
+        assert config.include.nip66_http is False
+        assert len(config.relays) == 1
 
 
 # ============================================================================
-# SelectionConfig Tests
+# AnnouncementConfig Tests
 # ============================================================================
 
 
-class TestSelectionConfig:
-    """Tests for SelectionConfig."""
+class TestAnnouncementConfig:
+    """Tests for AnnouncementConfig Pydantic model."""
 
     def test_default_values(self) -> None:
-        """Test default selection config."""
-        config = SelectionConfig()
+        """Test default announcement config."""
+        config = AnnouncementConfig()
 
-        assert config.min_age_since_check == 3600
+        assert config.enabled is True
+        assert config.interval == 86400
+        assert config.relays == []
 
-    def test_custom_values(self) -> None:
-        """Test custom selection config."""
-        config = SelectionConfig(min_age_since_check=0)
 
-        assert config.min_age_since_check == 0
+# ============================================================================
+# ProfileConfig Tests
+# ============================================================================
+
+
+class TestProfileConfig:
+    """Tests for ProfileConfig Pydantic model."""
+
+    def test_default_values(self) -> None:
+        """Test default profile config."""
+        config = ProfileConfig()
+
+        assert config.enabled is False
+        assert config.interval == 86400
+        assert config.relays == []
 
 
 # ============================================================================
@@ -203,43 +211,36 @@ class TestSelectionConfig:
 class TestMonitorConfig:
     """Tests for MonitorConfig Pydantic model."""
 
-    def test_default_values_with_mocked_checks(self, tmp_path: Path) -> None:
-        """Test default configuration values with mocked geo check."""
-        # Create a fake geo database file
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
+    def test_default_values_with_geo_disabled(self, tmp_path: Path) -> None:
+        """Test default configuration with geo/net disabled (no database needed)."""
         config = MonitorConfig(
-            publishing=PublishingConfig(destination="database_only"),
-            checks=ChecksConfig(geo=False),
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
         )
 
-        # Only clearnet enabled by default
         assert config.networks.clearnet.enabled is True
         assert config.networks.tor.enabled is False
-        # keys is not validated when publishing.destination == "database_only"
-        assert config.publishing.destination == "database_only"
+        assert config.processing.compute.nip66_geo is False
+        assert config.processing.compute.nip66_net is False
 
-    def test_publishing_database_only_works(self, tmp_path: Path) -> None:
-        """Test publishing to database_only doesn't require key."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
-        # Should not raise
-        config = MonitorConfig(
-            publishing=PublishingConfig(enabled=True, destination="database_only"),
-            checks=ChecksConfig(geo=False),
-        )
-
-        assert config.publishing.destination == "database_only"
-
-    def test_geo_database_validation(self) -> None:
-        """Test geo check requires database file to exist."""
-        with pytest.raises(ValueError, match=r"geo\.city_database_path"):
+    def test_store_requires_compute_validation(self, tmp_path: Path) -> None:
+        """Test that storing requires computing."""
+        with pytest.raises(ValueError, match="Cannot store metadata that is not computed"):
             MonitorConfig(
-                publishing=PublishingConfig(destination="database_only"),
-                checks=ChecksConfig(geo=True),
-                geo=GeoConfig(city_database_path="/nonexistent/path.mmdb"),
+                processing=ProcessingConfig(
+                    compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                    store=MetadataFlags(
+                        nip66_geo=True, nip66_net=False
+                    ),  # geo store without compute
+                ),
+                discovery=DiscoveryConfig(
+                    include=MetadataFlags(nip66_geo=False, nip66_net=False),
+                ),
             )
 
 
@@ -267,6 +268,7 @@ def _create_nip66(
     rtt_data: dict | None = None,
     ssl_data: dict | None = None,
     geo_data: dict | None = None,
+    net_data: dict | None = None,
     dns_data: dict | None = None,
     http_data: dict | None = None,
     generated_at: int = 1700000001,
@@ -279,6 +281,7 @@ def _create_nip66(
     rtt_metadata = Metadata(rtt_data)
     ssl_metadata = Metadata(ssl_data) if ssl_data else None
     geo_metadata = Metadata(geo_data) if geo_data else None
+    net_metadata = Metadata(net_data) if net_data else None
     dns_metadata = Metadata(dns_data) if dns_data else None
     http_metadata = Metadata(http_data) if http_data else None
 
@@ -287,6 +290,7 @@ def _create_nip66(
     object.__setattr__(instance, "rtt_metadata", rtt_metadata)
     object.__setattr__(instance, "ssl_metadata", ssl_metadata)
     object.__setattr__(instance, "geo_metadata", geo_metadata)
+    object.__setattr__(instance, "net_metadata", net_metadata)
     object.__setattr__(instance, "dns_metadata", dns_metadata)
     object.__setattr__(instance, "http_metadata", http_metadata)
     object.__setattr__(instance, "generated_at", generated_at)
@@ -307,7 +311,7 @@ class TestNip11:
         data = _create_nip11(relay, {})
 
         assert data.name is None
-        assert data.supported_nips is None  # None when not present in metadata
+        assert data.supported_nips is None
 
     def test_properties(self) -> None:
         """Test NIP-11 property access."""
@@ -357,7 +361,7 @@ class TestNip66:
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(relay, rtt_data={"rtt_open": 100})
 
-        rtt, ssl, geo, dns, http = nip66.to_relay_metadata()
+        rtt, ssl, geo, net, dns, http = nip66.to_relay_metadata()
 
         assert rtt is not None
         assert rtt.metadata_type == "nip66_rtt"
@@ -365,6 +369,7 @@ class TestNip66:
         assert rtt.metadata.data == {"rtt_open": 100}
         assert ssl is None
         assert geo is None
+        assert net is None
         assert dns is None
         assert http is None
 
@@ -377,7 +382,7 @@ class TestNip66:
             geo_data={"geohash": "abc123", "geo_country": "US"},
         )
 
-        rtt, ssl, geo, dns, http = nip66.to_relay_metadata()
+        rtt, ssl, geo, net, dns, http = nip66.to_relay_metadata()
 
         assert rtt is not None
         assert rtt.metadata_type == "nip66_rtt"
@@ -386,6 +391,7 @@ class TestNip66:
         assert geo is not None
         assert geo.metadata_type == "nip66_geo"
         assert geo.metadata.data == {"geohash": "abc123", "geo_country": "US"}
+        assert net is None
         assert dns is None
         assert http is None
 
@@ -398,7 +404,7 @@ class TestNip66:
             ssl_data={"ssl_valid": True, "ssl_issuer": "Let's Encrypt"},
         )
 
-        rtt, ssl, geo, dns, http = nip66.to_relay_metadata()
+        rtt, ssl, geo, net, dns, http = nip66.to_relay_metadata()
 
         assert rtt is not None
         assert rtt.metadata_type == "nip66_rtt"
@@ -407,11 +413,28 @@ class TestNip66:
         assert ssl.metadata_type == "nip66_ssl"
         assert ssl.metadata.data == {"ssl_valid": True, "ssl_issuer": "Let's Encrypt"}
         assert geo is None
+        assert net is None
         assert dns is None
         assert http is None
 
+    def test_to_relay_metadata_with_net(self) -> None:
+        """Test NIP-66 to_relay_metadata factory with RTT and net data."""
+        relay = Relay("wss://relay.example.com")
+        nip66 = _create_nip66(
+            relay,
+            rtt_data={"rtt_open": 100},
+            net_data={"net_ip": "8.8.8.8", "net_asn": 15169},
+        )
+
+        rtt, _ssl, _geo, net, _dns, _http = nip66.to_relay_metadata()
+
+        assert rtt is not None
+        assert net is not None
+        assert net.metadata_type == "nip66_net"
+        assert net.metadata.data == {"net_ip": "8.8.8.8", "net_asn": 15169}
+
     def test_to_relay_metadata_with_all(self) -> None:
-        """Test NIP-66 to_relay_metadata factory with RTT, SSL, and geo data."""
+        """Test NIP-66 to_relay_metadata factory with all metadata types."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(
             relay,
@@ -420,7 +443,7 @@ class TestNip66:
             geo_data={"geohash": "abc123", "geo_country": "US"},
         )
 
-        rtt, ssl, geo, dns, http = nip66.to_relay_metadata()
+        rtt, ssl, geo, net, dns, http = nip66.to_relay_metadata()
 
         assert rtt is not None
         assert rtt.metadata_type == "nip66_rtt"
@@ -431,7 +454,8 @@ class TestNip66:
         assert geo is not None
         assert geo.metadata_type == "nip66_geo"
         assert geo.metadata.data == {"geohash": "abc123", "geo_country": "US"}
-        # DNS and HTTP are optional
+        # Net, DNS and HTTP are optional
+        assert net is None
         assert dns is None
         assert http is None
 
@@ -506,108 +530,6 @@ class TestRelayMetadataType:
 
 
 # ============================================================================
-# Tag Building Tests
-# ============================================================================
-
-
-class TestBuildKind30166Tags:
-    """Tests for build_kind_30166_tags function."""
-
-    def test_basic_tags(self) -> None:
-        """Test basic tag generation."""
-        relay = Relay("wss://relay.example.com")
-
-        tags = build_kind_30166_tags(relay, None, None)
-
-        # Extract tag values for easier testing
-        tag_dict = {tag.as_vec()[0]: tag.as_vec()[1:] for tag in tags}
-
-        assert "d" in tag_dict
-        assert "relay.example.com" in tag_dict["d"][0]
-        assert "n" in tag_dict
-        assert tag_dict["n"][0] == "clearnet"
-
-    def test_with_nip66_data(self) -> None:
-        """Test tags with NIP-66 data."""
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(relay, rtt_data={"rtt_open": 100, "rtt_read": 50})
-
-        tags = build_kind_30166_tags(relay, None, nip66)
-
-        tag_dict = {tag.as_vec()[0]: tag.as_vec()[1:] for tag in tags}
-
-        assert "rtt-open" in tag_dict
-        assert tag_dict["rtt-open"][0] == "100"
-        assert "rtt-read" in tag_dict
-        assert tag_dict["rtt-read"][0] == "50"
-
-    def test_with_nip11_data(self) -> None:
-        """Test tags with NIP-11 data."""
-        relay = Relay("wss://relay.example.com")
-        nip11 = _create_nip11(relay, {"supported_nips": [1, 11, 66]})
-
-        tags = build_kind_30166_tags(relay, nip11, None)
-
-        # Count N tags
-        n_tags = [tag for tag in tags if tag.as_vec()[0] == "N"]
-
-        assert len(n_tags) == 3
-
-
-class TestBuildKind10166Tags:
-    """Tests for build_kind_10166_tags function."""
-
-    def test_basic_announcement_tags(self, tmp_path: Path) -> None:
-        """Test basic announcement tag generation."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
-        config = MonitorConfig(
-            interval=3600,
-            publishing=PublishingConfig(destination="database_only"),
-            checks=ChecksConfig(geo=False),
-        )
-
-        tags = build_kind_10166_tags(config)
-
-        tag_dict = {tag.as_vec()[0]: tag.as_vec()[1:] for tag in tags}
-
-        assert "frequency" in tag_dict
-        assert tag_dict["frequency"][0] == "3600"
-
-    def test_timeout_tags_nip66_format(self, tmp_path: Path) -> None:
-        """Test timeout tags follow NIP-66 format: [timeout, test_type, ms]."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
-        config = MonitorConfig(
-            interval=3600,
-            networks=NetworkConfig(clearnet=NetworkTypeConfig(enabled=True, timeout=30.0)),
-            publishing=PublishingConfig(destination="database_only"),
-            checks=ChecksConfig(geo=False),
-        )
-
-        tags = build_kind_10166_tags(config)
-
-        # Filter timeout tags
-        timeout_tags = [tag.as_vec() for tag in tags if tag.as_vec()[0] == "timeout"]
-
-        # Should have 3 timeout tags (open, read, write)
-        assert len(timeout_tags) == 3
-
-        # Each timeout tag should be: ["timeout", "<test_type>", "<ms>"]
-        # Per NIP-66: Index 1 is test type, Index 2 is timeout in ms
-        for tag in timeout_tags:
-            assert len(tag) == 3, f"Timeout tag should have 3 elements: {tag}"
-            assert tag[0] == "timeout"
-            # Index 1 should be test type
-            assert tag[1] in ("open", "read", "write"), f"Invalid test_type: {tag}"
-            # Index 2 should be numeric (milliseconds)
-            assert tag[2].isdigit(), f"Index 2 should be ms value: {tag}"
-            assert tag[2] == "30000", f"Expected 30000ms: {tag}"
-
-
-# ============================================================================
 # Monitor Initialization Tests
 # ============================================================================
 
@@ -616,13 +538,15 @@ class TestMonitorInit:
     """Tests for Monitor initialization."""
 
     def test_init_with_defaults(self, mock_brotr: Brotr, tmp_path: Path) -> None:
-        """Test initialization with defaults."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
+        """Test initialization with defaults (geo/net disabled)."""
         config = MonitorConfig(
-            publishing=PublishingConfig(destination="database_only"),
-            checks=ChecksConfig(geo=False),
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
 
@@ -631,19 +555,19 @@ class TestMonitorInit:
 
     def test_init_with_custom_config(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test initialization with custom config."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
         config = MonitorConfig(
             networks=NetworkConfig(tor=NetworkTypeConfig(enabled=False)),
-            selection=SelectionConfig(min_age_since_check=7200),
-            publishing=PublishingConfig(destination="database_only"),
-            checks=ChecksConfig(geo=False),
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
 
         assert monitor.config.networks.tor.enabled is False
-        assert monitor.config.selection.min_age_since_check == 7200
 
 
 # ============================================================================
@@ -651,34 +575,33 @@ class TestMonitorInit:
 # ============================================================================
 
 
-class TestMonitorFetchRelays:
-    """Tests for Monitor._fetch_relays_to_check() method."""
+class TestMonitorFetchChunk:
+    """Tests for Monitor._fetch_chunk() method."""
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_empty(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+    async def test_fetch_chunk_empty(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test fetching relays when none need checking."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
-        mock_brotr.pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
+        mock_brotr.pool.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
         config = MonitorConfig(
-            publishing=PublishingConfig(destination="database_only"),
-            checks=ChecksConfig(geo=False),
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        relays = await monitor._fetch_relays_to_check()
+        monitor._reset_cycle_state()
+        relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert relays == []
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_with_results(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+    async def test_fetch_chunk_with_results(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test fetching relays that need checking."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
-        # Single query with JOIN returns relays that need checking
-        mock_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_brotr.pool.fetch = AsyncMock(  # type: ignore[method-assign]
             return_value=[
                 {
                     "url": "wss://relay1.example.com",
@@ -694,27 +617,28 @@ class TestMonitorFetchRelays:
         )
 
         config = MonitorConfig(
-            publishing=PublishingConfig(destination="database_only"),
-            checks=ChecksConfig(geo=False),
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        relays = await monitor._fetch_relays_to_check()
+        monitor._reset_cycle_state()
+        relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert len(relays) == 2
-        # relays is now list[Relay], url is RelayUrl
         assert "relay1.example.com" in str(relays[0].url)
         assert "relay2.example.com" in str(relays[1].url)
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_filters_invalid_urls(
+    async def test_fetch_chunk_filters_invalid_urls(
         self, mock_brotr: Brotr, tmp_path: Path
     ) -> None:
         """Test fetching relays filters invalid URLs."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
-        # Single query with JOIN returns relays that need checking
-        mock_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_brotr.pool.fetch = AsyncMock(  # type: ignore[method-assign]
             return_value=[
                 {
                     "url": "wss://valid.relay.com",
@@ -726,48 +650,51 @@ class TestMonitorFetchRelays:
         )
 
         config = MonitorConfig(
-            publishing=PublishingConfig(destination="database_only"),
-            checks=ChecksConfig(geo=False),
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        relays = await monitor._fetch_relays_to_check()
+        monitor._reset_cycle_state()
+        relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert len(relays) == 1
-        # relays is now list[Relay], url is RelayUrl
         assert "valid.relay.com" in str(relays[0].url)
 
     @pytest.mark.asyncio
-    async def test_fetch_relays_skips_tor_when_disabled(
-        self, mock_brotr: Brotr, tmp_path: Path
-    ) -> None:
-        """Test .onion relays skipped when Tor disabled."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
-        onion_url = "ws://oxtrdevav64z64yb7x6rjg4ntzqjhedm5b5zjqulugknhzr46ny2qbad.onion"
-        # Single query with JOIN returns relays that need checking
-        mock_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+    async def test_fetch_chunk_respects_limit(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        """Test that fetch_chunk respects the limit parameter."""
+        mock_brotr.pool.fetch = AsyncMock(  # type: ignore[method-assign]
             return_value=[
                 {
-                    "url": "wss://clearnet.relay.com",
+                    "url": "wss://relay1.example.com",
                     "network": "clearnet",
                     "discovered_at": 1700000000,
                 },
-                {"url": onion_url, "network": "tor", "discovered_at": 1700000000},
             ]
         )
 
         config = MonitorConfig(
-            networks=NetworkConfig(tor=NetworkTypeConfig(enabled=False)),
-            publishing=PublishingConfig(destination="database_only"),
-            checks=ChecksConfig(geo=False),
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        relays = await monitor._fetch_relays_to_check()
+        monitor._reset_cycle_state()
+        await monitor._fetch_chunk(["clearnet"], 50)
 
-        assert len(relays) == 1
-        # relays is now list[Relay], url is RelayUrl
-        assert "clearnet.relay.com" in str(relays[0].url)
+        # Verify limit was passed to fetch call
+        # Args: query, networks, threshold, limit
+        call_args = mock_brotr.pool.fetch.call_args  # type: ignore[attr-defined]
+        assert call_args[0][3] == 50  # Fourth positional arg is the limit
 
 
 # ============================================================================
@@ -781,19 +708,24 @@ class TestMonitorRun:
     @pytest.mark.asyncio
     async def test_run_no_relays(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test run cycle with no relays to check."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
-        mock_brotr.pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
+        # Mock pool methods
+        mock_brotr.pool.fetchrow = AsyncMock(return_value={"count": 0})  # type: ignore[method-assign]
+        mock_brotr.pool.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
         config = MonitorConfig(
-            publishing=PublishingConfig(destination="database_only"),
-            checks=ChecksConfig(geo=False),
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         await monitor.run()
 
-        assert monitor._checked_relays == 0
+        assert monitor._checked == 0
 
 
 # ============================================================================
@@ -801,43 +733,82 @@ class TestMonitorRun:
 # ============================================================================
 
 
-class TestMonitorInsertMetadata:
-    """Tests for Monitor._insert_metadata_batch() method."""
+class TestMonitorPersistResults:
+    """Tests for Monitor._persist_results() method."""
 
     @pytest.mark.asyncio
-    async def test_insert_metadata_empty(self, mock_brotr: Brotr, tmp_path: Path) -> None:
-        """Test inserting empty metadata batch."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
-
-        mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[attr-defined]
+    async def test_persist_results_empty(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        """Test persisting empty results batch."""
+        mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
+        mock_brotr.upsert_service_data = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
         config = MonitorConfig(
-            publishing=PublishingConfig(destination="database_only"),
-            checks=ChecksConfig(geo=False),
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        await monitor._insert_metadata_batch([])
+        await monitor._persist_results([], [])
 
         mock_brotr.insert_relay_metadata.assert_not_called()  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
-    async def test_insert_metadata_success(self, mock_brotr: Brotr, tmp_path: Path) -> None:
-        """Test successful metadata batch insertion."""
-        geo_db = tmp_path / "GeoLite2-City.mmdb"
-        geo_db.write_bytes(b"fake")
+    async def test_persist_results_with_successful(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        """Test persisting successful check results."""
+        from models import Metadata
 
-        mock_brotr.insert_relay_metadata = AsyncMock(return_value=2)  # type: ignore[attr-defined]
+        mock_brotr.insert_relay_metadata = AsyncMock(return_value=2)  # type: ignore[method-assign]
+        mock_brotr.upsert_service_data = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
         config = MonitorConfig(
-            publishing=PublishingConfig(destination="database_only"),
-            checks=ChecksConfig(geo=False),
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        metadata = [
-            {"relay_url": "wss://relay1.example.com/", "generated_at": 123456},
-            {"relay_url": "wss://relay2.example.com/", "generated_at": 123456},
-        ]
-        await monitor._insert_metadata_batch(metadata)
 
-        mock_brotr.insert_relay_metadata.assert_called_once_with(metadata)  # type: ignore[attr-defined]
+        relay1 = Relay("wss://relay1.example.com")
+        relay2 = Relay("wss://relay2.example.com")
+        metadata1 = RelayMetadata(relay1, Metadata({"rtt_open": 100}), "nip66_rtt")
+        metadata2 = RelayMetadata(relay2, Metadata({"rtt_open": 200}), "nip66_rtt")
+
+        successful = [(relay1, [metadata1]), (relay2, [metadata2])]
+        await monitor._persist_results(successful, [])
+
+        mock_brotr.insert_relay_metadata.assert_called_once()  # type: ignore[attr-defined]
+        mock_brotr.upsert_service_data.assert_called_once()  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_persist_results_with_failed(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        """Test persisting failed check results updates checkpoint."""
+        mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
+        mock_brotr.upsert_service_data = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        relay1 = Relay("wss://failed1.example.com")
+        relay2 = Relay("wss://failed2.example.com")
+
+        await monitor._persist_results([], [relay1, relay2])
+
+        # insert_relay_metadata should not be called for failed relays
+        mock_brotr.insert_relay_metadata.assert_not_called()  # type: ignore[attr-defined]
+        # But checkpoint should be updated to prevent immediate retry
+        mock_brotr.upsert_service_data.assert_called_once()  # type: ignore[attr-defined]
