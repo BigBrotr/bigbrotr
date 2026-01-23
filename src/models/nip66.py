@@ -17,6 +17,16 @@ Complete NIP-66 metadata structures::
         "rtt_write": 180,  # Write test time in ms
     }
 
+    # Check metadata - optional, present if check test was performed
+    check_metadata = {
+        "chk_open_success": True,  # True if connection succeeded
+        "chk_open_reason": None,  # Raw error message (only if chk_open_success=False)
+        "chk_read_success": True,  # True if read worked without restrictions
+        "chk_read_reason": None,  # Raw rejection message (only if chk_read_success=False)
+        "chk_write_success": False,  # True if write worked without restrictions
+        "chk_write_reason": "auth-required: please authenticate",  # Raw rejection message
+    }
+
     # SSL metadata - optional, clearnet wss:// only
     ssl_metadata = {
         "ssl_valid": True,  # Certificate is valid
@@ -68,7 +78,6 @@ Complete NIP-66 metadata structures::
         "dns_reverse": "server1.example.com",  # Reverse DNS (PTR)
         "dns_ns": ["ns1.cloudflare.com"],  # Nameservers
         "dns_ttl": 300,  # TTL in seconds
-        "dns_rtt": 50,  # DNS resolution time in ms
     }
 
     # HTTP metadata - optional, from WebSocket upgrade
@@ -95,16 +104,24 @@ Usage::
         asn_reader=asn_reader,
     )
 
-    # Access results via metadata dicts
+    # Check results via metadata dicts
     if nip66.rtt_metadata:
         print(f"Open RTT: {nip66.rtt_metadata.data.get('rtt_open')}ms")
+    if nip66.check_metadata:
+        print(
+            f"Write allowed: {nip66.check_metadata.data.get('chk_write_success')}"
+        )
+        if not nip66.check_metadata.data.get("chk_write_success"):
+            print(
+                f"Write rejected: {nip66.check_metadata.data.get('chk_write_reason')}"
+            )
     if nip66.geo_metadata:
         print(f"Location: {nip66.geo_metadata.data.get('geo_country')}")
     if nip66.net_metadata:
         print(f"ASN: {nip66.net_metadata.data.get('net_asn')}")
 
-    # Convert for database storage (up to 6 RelayMetadata objects)
-    rtt, ssl, geo, dns, http, net = nip66.to_relay_metadata()
+    # Convert for database storage (up to 7 RelayMetadata objects)
+    rtt, check, ssl, geo, net, dns, http = nip66.to_relay_metadata()
 """
 
 from __future__ import annotations
@@ -153,6 +170,21 @@ class Nip66RttData(TypedDict, total=False):
     rtt_open: int  # Connection time in ms
     rtt_read: int  # Read test time in ms
     rtt_write: int  # Write test time in ms
+
+
+class Nip66CheckData(TypedDict, total=False):
+    """Check test results metadata per NIP-66.
+
+    Captures raw rejection reasons without assuming specific message formats.
+    This allows clients to analyze and classify restrictions as needed.
+    """
+
+    chk_open_success: bool  # True if connection succeeded
+    chk_open_reason: str  # Raw error message (only if chk_open_success=False)
+    chk_read_success: bool  # True if read worked without restrictions
+    chk_read_reason: str  # Raw rejection message (only if chk_read_success=False)
+    chk_write_success: bool  # True if write worked without restrictions
+    chk_write_reason: str  # Raw rejection message (only if chk_write_success=False)
 
 
 class Nip66SslData(TypedDict, total=False):
@@ -210,7 +242,6 @@ class Nip66DnsData(TypedDict, total=False):
     dns_reverse: str  # Reverse DNS (PTR record)
     dns_ns: list[str]  # Nameservers
     dns_ttl: int  # TTL in seconds
-    dns_rtt: int  # DNS resolution time in ms
 
 
 class Nip66HttpData(TypedDict, total=False):
@@ -241,13 +272,14 @@ class Nip66:
     Immutable NIP-66 relay monitoring data.
 
     Tests relay capabilities (open, read, write) and collects monitoring metrics
-    including round-trip times, SSL certificate data, DNS records, HTTP headers,
-    network info, and geolocation info. Generates up to 6 RelayMetadata objects
-    for database storage.
+    including round-trip times, check test restrictions, SSL certificate data,
+    DNS records, HTTP headers, network info, and geolocation info. Generates up to
+    7 RelayMetadata objects for database storage.
 
     Attributes:
         relay: The Relay being monitored.
         rtt_metadata: RTT data (optional, present if any test succeeded).
+        check_metadata: Check test results with raw rejection reasons (optional).
         ssl_metadata: SSL/TLS certificate data (optional, clearnet wss:// only).
         geo_metadata: Geolocation data (optional, requires GeoIP City database).
         net_metadata: Network data (optional, requires GeoIP ASN database).
@@ -255,8 +287,9 @@ class Nip66:
         http_metadata: HTTP headers data (optional, from WebSocket upgrade).
         generated_at: Unix timestamp when monitoring was performed (default: now).
 
-    Access metadata fields directly via metadata.data dict:
+    Check metadata fields directly via metadata.data dict:
         nip66.rtt_metadata.data.get('rtt_open')
+        nip66.check_metadata.data.get('chk_write_reason')
         nip66.ssl_metadata.data.get('ssl_issuer')
         nip66.geo_metadata.data.get('geo_country')
         nip66.net_metadata.data.get('net_asn')
@@ -264,6 +297,7 @@ class Nip66:
 
     relay: Relay
     rtt_metadata: Metadata | None = None
+    check_metadata: Metadata | None = None
     ssl_metadata: Metadata | None = None
     geo_metadata: Metadata | None = None
     net_metadata: Metadata | None = None
@@ -278,6 +312,9 @@ class Nip66:
         Raises ValueError if all metadata are None.
         """
         object.__setattr__(self, "rtt_metadata", self._to_metadata(self.rtt_metadata, Nip66RttData))
+        object.__setattr__(
+            self, "check_metadata", self._to_metadata(self.check_metadata, Nip66CheckData)
+        )
         object.__setattr__(self, "ssl_metadata", self._to_metadata(self.ssl_metadata, Nip66SslData))
         object.__setattr__(self, "geo_metadata", self._to_metadata(self.geo_metadata, Nip66GeoData))
         object.__setattr__(self, "net_metadata", self._to_metadata(self.net_metadata, Nip66NetData))
@@ -291,6 +328,7 @@ class Nip66:
             m is None
             for m in [
                 self.rtt_metadata,
+                self.check_metadata,
                 self.ssl_metadata,
                 self.geo_metadata,
                 self.net_metadata,
@@ -328,55 +366,13 @@ class Nip66:
 
         return Metadata(parsed)
 
-    # --- Convenience properties for common fields ---
-
-    @property
-    def rtt_open(self) -> int | None:
-        """Round-trip time to open connection (milliseconds)."""
-        if self.rtt_metadata is None:
-            return None
-        return self.rtt_metadata.data.get("rtt_open")
-
-    @property
-    def rtt_read(self) -> int | None:
-        """Round-trip time to read event (milliseconds)."""
-        if self.rtt_metadata is None:
-            return None
-        return self.rtt_metadata.data.get("rtt_read")
-
-    @property
-    def rtt_write(self) -> int | None:
-        """Round-trip time to write event (milliseconds)."""
-        if self.rtt_metadata is None:
-            return None
-        return self.rtt_metadata.data.get("rtt_write")
-
-    @property
-    def geohash(self) -> str | None:
-        """Geohash of relay location (NIP-52, 9 chars precision)."""
-        if self.geo_metadata is None:
-            return None
-        return self.geo_metadata.data.get("geohash")
-
-    @property
-    def net_ip(self) -> str | None:
-        """Resolved IP address of relay."""
-        if self.net_metadata is None:
-            return None
-        return self.net_metadata.data.get("net_ip")
-
-    @property
-    def is_openable(self) -> bool:
-        """Whether relay connection succeeded (has rtt_open)."""
-        return self.rtt_open is not None
-
     # --- Class-level defaults ---
     _DEFAULT_TEST_TIMEOUT: ClassVar[float] = 10.0
 
     # --- Internal test methods ---
 
     @classmethod
-    async def _test_rtt(
+    async def _test_rtt_and_check(
         cls,
         relay: Relay,
         timeout: float,
@@ -385,8 +381,11 @@ class Nip66:
         read_filter: Filter,
         proxy_url: str | None = None,
         allow_insecure: bool = True,
-    ) -> Metadata:
-        """Test relay RTT (round-trip times) and capabilities.
+    ) -> tuple[Metadata | None, Metadata | None]:
+        """Test relay RTT (round-trip times) and check test.
+
+        Captures raw rejection messages without assuming specific formats.
+        This allows clients to analyze and classify restrictions as needed.
 
         Args:
             relay: Relay to test
@@ -398,47 +397,74 @@ class Nip66:
             allow_insecure: If True (default), fallback to insecure transport for
                 clearnet relays with invalid SSL certificates.
 
+        Returns:
+            Tuple of (rtt_metadata, check_metadata). If connection fails,
+            rtt_metadata is None and check_metadata contains chk_open_success=False.
+
         Raises:
-            Nip66TestError: If test fails or proxy url is missing for overlay networks
+            Nip66TestError: If proxy url is missing for overlay networks
         """
         from nostr_sdk import RelayUrl
 
         from utils.transport import connect_relay
 
-        logger.debug("_test_rtt: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url)
+        logger.debug(
+            "_test_rtt_and_check: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url
+        )
 
-        data: dict[str, Any] = {}
+        rtt_data: dict[str, Any] = {}
+        check_data: dict[str, Any] = {}
         relay_url = RelayUrl.parse(relay.url)
 
         # Test open: measure connection time (includes SSL fallback for clearnet)
-        logger.debug("_test_rtt: connecting relay=%s", relay.url)
-        start = perf_counter()
-        client = await connect_relay(relay, keys, proxy_url, timeout, allow_insecure)
-        rtt_open = int((perf_counter() - start) * 1000)
-        data["rtt_open"] = rtt_open
-        logger.debug("_test_rtt: open succeeded relay=%s rtt_open=%dms", relay.url, rtt_open)
+        logger.debug("_test_rtt_and_check: connecting relay=%s", relay.url)
+        try:
+            start = perf_counter()
+            client = await connect_relay(relay, keys, proxy_url, timeout, allow_insecure)
+            rtt_open = int((perf_counter() - start) * 1000)
+            rtt_data["rtt_open"] = rtt_open
+            check_data["chk_open_success"] = True
+            logger.debug(
+                "_test_rtt_and_check: open succeeded relay=%s rtt_open=%dms", relay.url, rtt_open
+            )
+        except Exception as e:
+            # Connection failed - capture raw error message
+            check_data["chk_open_success"] = False
+            check_data["chk_open_reason"] = str(e)
+            logger.debug("_test_rtt_and_check: open failed relay=%s reason=%s", relay.url, e)
+            # Return early - can't test read/write without connection
+            return Metadata(rtt_data) if rtt_data else None, Metadata(check_data)
 
         try:
             # Test read: stream_events to measure time to first event
             try:
-                logger.debug("_test_rtt: reading relay=%s", relay.url)
+                logger.debug("_test_rtt_and_check: reading relay=%s", relay.url)
                 start = perf_counter()
                 stream = await client.stream_events(read_filter, timeout=timedelta(seconds=timeout))
                 first_event = await stream.next()
                 if first_event is not None:
                     rtt_read = int((perf_counter() - start) * 1000)
-                    data["rtt_read"] = rtt_read
+                    rtt_data["rtt_read"] = rtt_read
+                    check_data["chk_read_success"] = True  # Read succeeded
                     logger.debug(
-                        "_test_rtt: read event relay=%s rtt_read=%dms", relay.url, rtt_read
+                        "_test_rtt_and_check: read event relay=%s rtt_read=%dms",
+                        relay.url,
+                        rtt_read,
                     )
                 else:
-                    logger.debug("_test_rtt: read returned no events relay=%s", relay.url)
+                    # No events returned - zero-trust: cannot verify read works
+                    check_data["chk_read_success"] = False
+                    check_data["chk_read_reason"] = "no events returned"
+                    logger.debug("_test_rtt_and_check: read returned no events relay=%s", relay.url)
             except Exception as e:
-                logger.debug("_test_rtt: read failed relay=%s error=%s", relay.url, e)
+                # Read failed - capture raw error message
+                check_data["chk_read_success"] = False
+                check_data["chk_read_reason"] = str(e)
+                logger.debug("_test_rtt_and_check: read failed relay=%s reason=%s", relay.url, e)
 
             # Test write: send event and verify by reading it back
             try:
-                logger.debug("_test_rtt: writing relay=%s", relay.url)
+                logger.debug("_test_rtt_and_check: writing relay=%s", relay.url)
                 start = perf_counter()
                 output = await asyncio.wait_for(
                     client.send_event_builder(event_builder), timeout=timeout
@@ -448,28 +474,27 @@ class Nip66:
                 # Check if relay rejected the event
                 if output and relay_url in output.failed:
                     reason = output.failed.get(relay_url, "unknown")
-                    reason_lower = str(reason).lower() if reason else ""
-                    # NIP-42: auth-required, restricted, blocked, payment-required are valid
-                    # policy rejections - relay is correctly enforcing its rules, not a failure
-                    policy_keywords = ("auth", "restricted", "blocked", "payment", "paid", "closed")
-                    if any(kw in reason_lower for kw in policy_keywords):
-                        logger.debug(
-                            "_test_rtt: write policy-rejected relay=%s reason=%s", relay.url, reason
-                        )
-                        # Note: rtt_write intentionally not set - indicates write requires auth/payment
-                    else:
-                        logger.debug(
-                            "_test_rtt: write rejected relay=%s reason=%s", relay.url, reason
-                        )
+                    # Capture raw rejection reason without classification
+                    check_data["chk_write_success"] = False
+                    check_data["chk_write_reason"] = str(reason) if reason else "unknown"
+                    logger.debug(
+                        "_test_rtt_and_check: write rejected relay=%s reason=%s",
+                        relay.url,
+                        reason,
+                    )
                 elif output and relay_url in output.success:
                     logger.debug(
-                        "_test_rtt: write accepted relay=%s rtt_write=%dms", relay.url, rtt_write
+                        "_test_rtt_and_check: write accepted relay=%s rtt_write=%dms",
+                        relay.url,
+                        rtt_write,
                     )
                     # Verify by reading back the event
                     event_id = output.id
                     verify_filter = Filter().id(event_id).limit(1)
                     logger.debug(
-                        "_test_rtt: verifying write relay=%s event_id=%s", relay.url, event_id
+                        "_test_rtt_and_check: verifying write relay=%s event_id=%s",
+                        relay.url,
+                        event_id,
                     )
                     try:
                         stream = await client.stream_events(
@@ -478,27 +503,40 @@ class Nip66:
                         verify_event = await stream.next()
                         if verify_event is not None:
                             # Event found: write confirmed
-                            data["rtt_write"] = rtt_write
-                            logger.debug("_test_rtt: write verified relay=%s", relay.url)
+                            rtt_data["rtt_write"] = rtt_write
+                            check_data["chk_write_success"] = True  # Write succeeded
+                            logger.debug("_test_rtt_and_check: write verified relay=%s", relay.url)
                         else:
                             # Relay responded OK=true but event not retrievable
-                            # This happens with indexing relays that accept but filter events
+                            # Zero-trust: cannot verify write actually works
+                            check_data["chk_write_success"] = False
+                            check_data["chk_write_reason"] = (
+                                "unverified: accepted but not retrievable"
+                            )
                             logger.debug(
-                                "_test_rtt: write unverified relay=%s (relay said OK but event not retrievable)",
+                                "_test_rtt_and_check: write unverified relay=%s "
+                                "(relay said OK but event not retrievable)",
                                 relay.url,
                             )
                     except Exception as e:
-                        # Verify failed - cannot confirm write without verification
+                        # Verify failed - zero-trust: cannot confirm write
+                        check_data["chk_write_success"] = False
+                        check_data["chk_write_reason"] = f"unverified: verify failed ({e})"
                         logger.debug(
-                            "_test_rtt: write unverified relay=%s (verify failed: %s)",
+                            "_test_rtt_and_check: write unverified relay=%s (verify failed: %s)",
                             relay.url,
                             e,
                         )
                 else:
-                    # No response for this relay
-                    logger.debug("_test_rtt: write no response relay=%s", relay.url)
+                    # No response for this relay - zero-trust: cannot verify
+                    check_data["chk_write_success"] = False
+                    check_data["chk_write_reason"] = "no response from relay"
+                    logger.debug("_test_rtt_and_check: write no response relay=%s", relay.url)
             except Exception as e:
-                logger.debug("_test_rtt: write error relay=%s error=%s", relay.url, e)
+                # Write failed - capture raw error message
+                check_data["chk_write_success"] = False
+                check_data["chk_write_reason"] = str(e)
+                logger.debug("_test_rtt_and_check: write failed relay=%s reason=%s", relay.url, e)
 
         finally:
             # Cleanup: disconnect client
@@ -507,12 +545,16 @@ class Nip66:
             except Exception:
                 pass
 
-        if not data:
-            logger.warning("_test_rtt: no data relay=%s", relay.url)
-            raise Nip66TestError(relay, ValueError("RTT test returned no data"))
-
-        logger.debug("_test_rtt: completed relay=%s data=%s", relay.url, list(data.keys()))
-        return Metadata(data)
+        logger.debug(
+            "_test_rtt_and_check: completed relay=%s rtt=%s check=%s",
+            relay.url,
+            list(rtt_data.keys()),
+            list(check_data.keys()),
+        )
+        return (
+            Metadata(rtt_data) if rtt_data else None,
+            Metadata(check_data) if check_data else None,
+        )
 
     @classmethod
     async def _test_ssl(
@@ -846,10 +888,9 @@ class Nip66:
             logger.debug("_test_dns: resolving host=%s", relay.host)
             data = await asyncio.to_thread(cls._resolve_dns_sync, relay.host, timeout)
             logger.debug(
-                "_test_dns: completed relay=%s ips=%s rtt=%sms",
+                "_test_dns: completed relay=%s ips=%s",
                 relay.url,
                 data.get("dns_ips"),
-                data.get("dns_rtt"),
             )
         except Exception as e:
             logger.debug("_test_dns: error relay=%s error=%s", relay.url, e)
@@ -868,14 +909,12 @@ class Nip66:
         resolver.lifetime = timeout
 
         # A records (IPv4)
-        start = perf_counter()
         try:
             answers = resolver.resolve(host, "A")
             ips = [rdata.address for rdata in answers]
             if ips:
                 result["dns_ips"] = ips
                 result["dns_ttl"] = answers.rrset.ttl if answers.rrset else None
-            result["dns_rtt"] = int((perf_counter() - start) * 1000)
         except Exception:
             pass
 
@@ -1042,12 +1081,13 @@ class Nip66:
         RelayMetadata | None,
         RelayMetadata | None,
         RelayMetadata | None,
+        RelayMetadata | None,
     ]:
         """
         Convert to RelayMetadata objects for database storage.
 
         Returns:
-            Tuple of (rtt, ssl, geo, net, dns, http) where each is RelayMetadata or None.
+            Tuple of (rtt, check, ssl, geo, net, dns, http) where each is RelayMetadata or None.
         """
         from .relay_metadata import MetadataType, RelayMetadata
 
@@ -1063,6 +1103,7 @@ class Nip66:
 
         return (
             make(self.rtt_metadata, MetadataType.NIP66_RTT),
+            make(self.check_metadata, MetadataType.NIP66_CHECK),
             make(self.ssl_metadata, MetadataType.NIP66_SSL),
             make(self.geo_metadata, MetadataType.NIP66_GEO),
             make(self.net_metadata, MetadataType.NIP66_NET),
@@ -1097,6 +1138,8 @@ class Nip66:
         All tests are enabled by default. Disable specific tests with run_* flags.
         At least one test must succeed to create a valid Nip66 instance.
 
+        Note: run_rtt also collects check_metadata as a byproduct of the RTT test.
+
         Args:
             relay: Relay object to test
             timeout: Connection timeout in seconds (default: _DEFAULT_TEST_TIMEOUT)
@@ -1105,7 +1148,8 @@ class Nip66:
             read_filter: Filter for read test (required if run_rtt=True)
             city_reader: Pre-opened GeoLite2-City database reader (required if run_geo=True)
             asn_reader: Pre-opened GeoLite2-ASN database reader (required if run_net=True)
-            run_rtt: Run RTT test (open/read/write). Requires keys, event_builder, read_filter.
+            run_rtt: Run RTT test (open/read/write) and collect check test data.
+                Requires keys, event_builder, read_filter.
             run_ssl: Run SSL certificate test (clearnet wss:// only)
             run_geo: Run geolocation test. Requires city_reader.
             run_net: Run network/ASN test. Requires asn_reader.
@@ -1130,11 +1174,11 @@ class Nip66:
 
         if run_rtt and keys is not None and event_builder is not None and read_filter is not None:
             tasks.append(
-                cls._test_rtt(
+                cls._test_rtt_and_check(
                     relay, timeout, keys, event_builder, read_filter, proxy_url, allow_insecure
                 )
             )
-            task_names.append("rtt")
+            task_names.append("rtt_and_check")
 
         if run_ssl:
             tasks.append(cls._test_ssl(relay, timeout))
@@ -1161,6 +1205,7 @@ class Nip66:
 
         # Map results back to metadata types
         rtt_metadata: Metadata | None = None
+        check_metadata: Metadata | None = None
         ssl_metadata: Metadata | None = None
         geo_metadata: Metadata | None = None
         net_metadata: Metadata | None = None
@@ -1172,8 +1217,8 @@ class Nip66:
                 logger.debug("test: %s failed: %s", name, result)
                 continue
             logger.debug("test: %s succeeded", name)
-            if name == "rtt":
-                rtt_metadata = result
+            if name == "rtt_and_check":
+                rtt_metadata, check_metadata = result
             elif name == "ssl":
                 ssl_metadata = result
             elif name == "geo":
@@ -1189,6 +1234,7 @@ class Nip66:
             nip66 = cls(
                 relay=relay,
                 rtt_metadata=rtt_metadata,
+                check_metadata=check_metadata,
                 ssl_metadata=ssl_metadata,
                 geo_metadata=geo_metadata,
                 net_metadata=net_metadata,
