@@ -57,6 +57,7 @@ discovery:
   include:                   # Which metadata to include in events (⊆ processing.compute)
     nip11: true              # NIP-11 relay information document
     nip66_rtt: true          # Round-trip time measurements
+    nip66_check: true        # Check test results (open/read/write restrictions)
     nip66_ssl: true          # SSL certificate validation
     nip66_geo: true          # Geolocation (country, city, coordinates)
     nip66_net: true          # Network/ASN info (IP, ASN, organization)
@@ -100,6 +101,7 @@ processing:
   compute:                     # What metadata to compute
     nip11: true                # NIP-11 relay information document
     nip66_rtt: true            # Round-trip time (open/read/write latency)
+    nip66_check: true          # Check test results with raw rejection reasons
     nip66_ssl: true            # SSL certificate chain validation
     nip66_geo: true            # IP geolocation (requires MaxMind City database)
     nip66_net: true            # Network/ASN info (requires MaxMind ASN database)
@@ -108,6 +110,7 @@ processing:
   store:                       # What metadata to store in database (⊆ compute)
     nip11: true
     nip66_rtt: true
+    nip66_check: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
