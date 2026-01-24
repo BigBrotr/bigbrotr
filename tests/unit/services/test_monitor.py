@@ -61,7 +61,7 @@ class TestMetadataFlags:
 
         assert flags.nip11 is True
         assert flags.nip66_rtt is True
-        assert flags.nip66_check is True
+        assert flags.nip66_probe is True
         assert flags.nip66_ssl is True
         assert flags.nip66_geo is True
         assert flags.nip66_net is True
@@ -75,7 +75,7 @@ class TestMetadataFlags:
         assert flags.nip66_geo is False
         assert flags.nip66_net is False
         assert flags.nip66_rtt is True
-        assert flags.nip66_check is True
+        assert flags.nip66_probe is True
 
 
 # ============================================================================
@@ -268,7 +268,7 @@ def _create_nip11(relay: Relay, data: dict | None = None, generated_at: int = 17
 def _create_nip66(
     relay: Relay,
     rtt_data: dict | None = None,
-    check_data: dict | None = None,
+    probe_data: dict | None = None,
     ssl_data: dict | None = None,
     geo_data: dict | None = None,
     net_data: dict | None = None,
@@ -282,7 +282,7 @@ def _create_nip66(
     if rtt_data is None:
         rtt_data = {}
     rtt_metadata = Metadata(rtt_data)
-    check_metadata = Metadata(check_data) if check_data else None
+    probe_metadata = Metadata(probe_data) if probe_data else None
     ssl_metadata = Metadata(ssl_data) if ssl_data else None
     geo_metadata = Metadata(geo_data) if geo_data else None
     net_metadata = Metadata(net_data) if net_data else None
@@ -292,7 +292,7 @@ def _create_nip66(
     instance = object.__new__(Nip66)
     object.__setattr__(instance, "relay", relay)
     object.__setattr__(instance, "rtt_metadata", rtt_metadata)
-    object.__setattr__(instance, "check_metadata", check_metadata)
+    object.__setattr__(instance, "probe_metadata", probe_metadata)
     object.__setattr__(instance, "ssl_metadata", ssl_metadata)
     object.__setattr__(instance, "geo_metadata", geo_metadata)
     object.__setattr__(instance, "net_metadata", net_metadata)
@@ -379,16 +379,16 @@ class TestNip66:
         assert dns is None
         assert http is None
 
-    def test_to_relay_metadata_with_check(self) -> None:
-        """Test NIP-66 to_relay_metadata factory with RTT and check data."""
+    def test_to_relay_metadata_with_probe(self) -> None:
+        """Test NIP-66 to_relay_metadata factory with RTT and probe data."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(
             relay,
             rtt_data={"rtt_open": 100},
-            check_data={
-                "chk_open_success": True,
-                "chk_write_success": False,
-                "chk_write_reason": "auth-required",
+            probe_data={
+                "probe_open_success": True,
+                "probe_write_success": False,
+                "probe_write_reason": "auth-required",
             },
         )
 
@@ -397,9 +397,9 @@ class TestNip66:
         assert rtt is not None
         assert rtt.metadata_type == "nip66_rtt"
         assert check is not None
-        assert check.metadata_type == "nip66_check"
-        assert check.metadata.data["chk_open_success"] is True
-        assert check.metadata.data["chk_write_success"] is False
+        assert check.metadata_type == "nip66_probe"
+        assert check.metadata.data["probe_open_success"] is True
+        assert check.metadata.data["probe_write_success"] is False
         assert ssl is None
         assert geo is None
 
@@ -471,7 +471,7 @@ class TestNip66:
         nip66 = _create_nip66(
             relay,
             rtt_data={"rtt_open": 100, "network": "clearnet"},
-            check_data={"chk_open_success": True},
+            probe_data={"probe_open_success": True},
             ssl_data={"ssl_valid": True, "ssl_issuer": "Let's Encrypt"},
             geo_data={"geohash": "abc123", "geo_country": "US"},
         )
@@ -482,7 +482,7 @@ class TestNip66:
         assert rtt.metadata_type == "nip66_rtt"
         assert rtt.metadata.data == {"rtt_open": 100, "network": "clearnet"}
         assert check is not None
-        assert check.metadata_type == "nip66_check"
+        assert check.metadata_type == "nip66_probe"
         assert ssl is not None
         assert ssl.metadata_type == "nip66_ssl"
         assert ssl.metadata.data == {"ssl_valid": True, "ssl_issuer": "Let's Encrypt"}
@@ -515,23 +515,25 @@ class TestNip66:
 
         assert nip66.ssl_metadata is None
 
-    def test_check_metadata_access(self) -> None:
-        """Test NIP-66 check metadata access."""
+    def test_probe_metadata_access(self) -> None:
+        """Test NIP-66 probe metadata access."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(
             relay,
             rtt_data={"rtt_open": 100},
-            check_data={
-                "chk_open_success": True,
-                "chk_write_success": False,
-                "chk_write_reason": "auth-required: please authenticate",
+            probe_data={
+                "probe_open_success": True,
+                "probe_write_success": False,
+                "probe_write_reason": "auth-required: please authenticate",
             },
         )
 
-        assert nip66.check_metadata is not None
-        assert nip66.check_metadata.data["chk_open_success"] is True
-        assert nip66.check_metadata.data["chk_write_success"] is False
-        assert nip66.check_metadata.data["chk_write_reason"] == "auth-required: please authenticate"
+        assert nip66.probe_metadata is not None
+        assert nip66.probe_metadata.data["probe_open_success"] is True
+        assert nip66.probe_metadata.data["probe_write_success"] is False
+        assert (
+            nip66.probe_metadata.data["probe_write_reason"] == "auth-required: please authenticate"
+        )
 
 
 class TestRelayMetadataType:
