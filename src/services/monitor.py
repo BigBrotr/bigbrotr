@@ -53,7 +53,7 @@ class MetadataFlags(BaseModel):
 
     nip11: bool = Field(default=True)
     nip66_rtt: bool = Field(default=True)
-    nip66_check: bool = Field(default=True)
+    nip66_probe: bool = Field(default=True)
     nip66_ssl: bool = Field(default=True)
     nip66_geo: bool = Field(default=True)
     nip66_net: bool = Field(default=True)
@@ -151,8 +151,8 @@ class MonitorConfig(BaseServiceConfig):
             errors.append("nip11")
         if store.nip66_rtt and not compute.nip66_rtt:
             errors.append("nip66_rtt")
-        if store.nip66_check and not compute.nip66_check:
-            errors.append("nip66_check")
+        if store.nip66_probe and not compute.nip66_probe:
+            errors.append("nip66_probe")
         if store.nip66_ssl and not compute.nip66_ssl:
             errors.append("nip66_ssl")
         if store.nip66_geo and not compute.nip66_geo:
@@ -186,8 +186,8 @@ class MonitorConfig(BaseServiceConfig):
             errors.append("nip11")
         if include.nip66_rtt and not compute.nip66_rtt:
             errors.append("nip66_rtt")
-        if include.nip66_check and not compute.nip66_check:
-            errors.append("nip66_check")
+        if include.nip66_probe and not compute.nip66_probe:
+            errors.append("nip66_probe")
         if include.nip66_ssl and not compute.nip66_ssl:
             errors.append("nip66_ssl")
         if include.nip66_geo and not compute.nip66_geo:
@@ -1025,7 +1025,7 @@ class Monitor(BaseService[MonitorConfig]):
         check_items = [
             ("nip11", pub_checks.nip11),
             ("rtt", pub_checks.nip66_rtt),
-            ("check", pub_checks.nip66_check),
+            ("probe", pub_checks.nip66_probe),
             ("ssl", pub_checks.nip66_ssl),
             ("geo", pub_checks.nip66_geo),
             ("net", pub_checks.nip66_net),
