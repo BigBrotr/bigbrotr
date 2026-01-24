@@ -8,7 +8,7 @@ deduplication (metadata hash computed by PostgreSQL during insertion).
 Database mapping:
     - relay_url -> relays.url (FK)
     - generated_at -> relay_metadata.generated_at timestamp
-    - type -> MetadataType enum value (nip11, nip66_rtt, nip66_check, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http)
+    - type -> MetadataType enum value (nip11, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http)
     - metadata_id -> metadata.id (FK, computed from content hash)
 
 Example:
@@ -34,7 +34,7 @@ class MetadataType(StrEnum):
 
     NIP11 = "nip11"
     NIP66_RTT = "nip66_rtt"
-    NIP66_CHECK = "nip66_check"
+    NIP66_PROBE = "nip66_probe"
     NIP66_SSL = "nip66_ssl"
     NIP66_GEO = "nip66_geo"
     NIP66_NET = "nip66_net"
