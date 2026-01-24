@@ -3,7 +3,7 @@ Unit tests for models.relay_metadata module.
 
 Tests:
 - RelayMetadata construction from Relay and Metadata
-- MetadataType literal values (nip11, nip66_rtt, nip66_check, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http)
+- MetadataType literal values (nip11, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http)
 - to_db_params() serialization for bulk insert
 - generated_at timestamp handling
 - Immutability enforcement
@@ -52,7 +52,7 @@ class TestConstruction:
         [
             "nip11",
             "nip66_rtt",
-            "nip66_check",
+            "nip66_probe",
             "nip66_ssl",
             "nip66_geo",
             "nip66_net",
@@ -127,7 +127,7 @@ class TestMetadataTypeEnum:
         assert valid == {
             "nip11",
             "nip66_rtt",
-            "nip66_check",
+            "nip66_probe",
             "nip66_ssl",
             "nip66_geo",
             "nip66_net",

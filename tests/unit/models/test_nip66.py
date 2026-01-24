@@ -53,22 +53,22 @@ def complete_rtt_data():
 
 
 @pytest.fixture
-def complete_check_data():
-    """Complete check test results metadata for NIP-66.
+def complete_probe_data():
+    """Complete probe test results metadata for NIP-66.
 
     Contains raw success/failure status and rejection reasons:
-    - chk_open_success: True if connection succeeded
-    - chk_open_reason: Raw error message (only if chk_open_success=False)
-    - chk_read_success: True if read worked without restrictions
-    - chk_read_reason: Raw rejection message (only if chk_read_success=False)
-    - chk_write_success: True if write worked without restrictions
-    - chk_write_reason: Raw rejection message (only if chk_write_success=False)
+    - probe_open_success: True if connection succeeded
+    - probe_open_reason: Raw error message (only if probe_open_success=False)
+    - probe_read_success: True if read worked without restrictions
+    - probe_read_reason: Raw rejection message (only if probe_read_success=False)
+    - probe_write_success: True if write worked without restrictions
+    - probe_write_reason: Raw rejection message (only if probe_write_success=False)
     """
     return {
-        "chk_open_success": True,
-        "chk_read_success": True,
-        "chk_write_success": False,
-        "chk_write_reason": "auth-required: please authenticate",
+        "probe_open_success": True,
+        "probe_read_success": True,
+        "probe_write_success": False,
+        "probe_write_reason": "auth-required: please authenticate",
     }
 
 
@@ -184,7 +184,7 @@ def complete_http_data():
 def nip66_full(
     relay,
     complete_rtt_data,
-    complete_check_data,
+    complete_probe_data,
     complete_ssl_data,
     complete_geo_data,
     complete_net_data,
@@ -199,7 +199,7 @@ def nip66_full(
     return Nip66(
         relay=relay,
         rtt_metadata=complete_rtt_data,
-        check_metadata=complete_check_data,
+        probe_metadata=complete_probe_data,
         ssl_metadata=complete_ssl_data,
         geo_metadata=complete_geo_data,
         net_metadata=complete_net_data,
@@ -278,7 +278,7 @@ class TestConstruction:
         self,
         relay,
         complete_rtt_data,
-        complete_check_data,
+        complete_probe_data,
         complete_ssl_data,
         complete_geo_data,
         complete_net_data,
@@ -289,7 +289,7 @@ class TestConstruction:
         nip66 = Nip66(
             relay=relay,
             rtt_metadata=complete_rtt_data,
-            check_metadata=complete_check_data,
+            probe_metadata=complete_probe_data,
             ssl_metadata=complete_ssl_data,
             geo_metadata=complete_geo_data,
             net_metadata=complete_net_data,
@@ -298,7 +298,7 @@ class TestConstruction:
         )
         assert nip66.relay is relay
         assert nip66.rtt_metadata is not None
-        assert nip66.check_metadata is not None
+        assert nip66.probe_metadata is not None
         assert nip66.ssl_metadata is not None
         assert nip66.geo_metadata is not None
         assert nip66.net_metadata is not None
@@ -311,18 +311,18 @@ class TestConstruction:
         # RTT has data
         assert nip66.rtt_metadata.data["rtt_open"] == 100
         # Others are None
-        assert nip66.check_metadata is None
+        assert nip66.probe_metadata is None
         assert nip66.ssl_metadata is None
         assert nip66.geo_metadata is None
         assert nip66.net_metadata is None
         assert nip66.dns_metadata is None
         assert nip66.http_metadata is None
 
-    def test_with_check_only(self, relay, complete_check_data):
-        """Construct with check metadata only, others are None."""
-        nip66 = Nip66(relay=relay, check_metadata=complete_check_data)
-        assert nip66.check_metadata.data["chk_open_success"] is True
-        assert nip66.check_metadata.data["chk_write_success"] is False
+    def test_with_probe_only(self, relay, complete_probe_data):
+        """Construct with probe metadata only, others are None."""
+        nip66 = Nip66(relay=relay, probe_metadata=complete_probe_data)
+        assert nip66.probe_metadata.data["probe_open_success"] is True
+        assert nip66.probe_metadata.data["probe_write_success"] is False
         assert nip66.rtt_metadata is None
         assert nip66.ssl_metadata is None
 
@@ -370,7 +370,7 @@ class TestConstruction:
         nip66 = Nip66(
             relay=relay,
             rtt_metadata=complete_rtt_data,
-            check_metadata={},
+            probe_metadata={},
             ssl_metadata={},
             geo_metadata={},
             net_metadata={},
@@ -380,7 +380,7 @@ class TestConstruction:
         # RTT has data
         assert nip66.rtt_metadata.data["rtt_open"] == 100
         # Others are None (empty {} becomes None)
-        assert nip66.check_metadata is None
+        assert nip66.probe_metadata is None
         assert nip66.ssl_metadata is None
         assert nip66.geo_metadata is None
         assert nip66.net_metadata is None
@@ -407,13 +407,13 @@ class TestMetadataAccess:
         assert nip66_full.rtt_metadata.data.get("rtt_read") == 150
         assert nip66_full.rtt_metadata.data.get("rtt_write") == 200
 
-    def test_check_metadata_access(self, nip66_full):
-        """Access check test values via metadata.data."""
-        assert nip66_full.check_metadata.data.get("chk_open_success") is True
-        assert nip66_full.check_metadata.data.get("chk_read_success") is True
-        assert nip66_full.check_metadata.data.get("chk_write_success") is False
+    def test_probe_metadata_access(self, nip66_full):
+        """Access probe test values via metadata.data."""
+        assert nip66_full.probe_metadata.data.get("probe_open_success") is True
+        assert nip66_full.probe_metadata.data.get("probe_read_success") is True
+        assert nip66_full.probe_metadata.data.get("probe_write_success") is False
         assert (
-            nip66_full.check_metadata.data.get("chk_write_reason")
+            nip66_full.probe_metadata.data.get("probe_write_reason")
             == "auth-required: please authenticate"
         )
 
@@ -594,7 +594,7 @@ class TestToRelayMetadata:
         """Each RelayMetadata has correct type."""
         rtt, check, ssl, geo, net, dns, http = nip66_full.to_relay_metadata()
         assert rtt.metadata_type == MetadataType.NIP66_RTT
-        assert check.metadata_type == MetadataType.NIP66_CHECK
+        assert check.metadata_type == MetadataType.NIP66_PROBE
         assert ssl.metadata_type == MetadataType.NIP66_SSL
         assert geo.metadata_type == MetadataType.NIP66_GEO
         assert net.metadata_type == MetadataType.NIP66_NET
@@ -957,12 +957,12 @@ class TestTestHttp:
         assert "requires proxy url" in str(exc_info.value.cause)
 
 
-class TestTestRttAndCheck:
-    """Test _test_rtt_and_check() class method with connect_relay factory."""
+class TestTestRttAndProbe:
+    """Test _test_rtt_and_probe() class method with connect_relay factory."""
 
     @pytest.mark.asyncio
-    async def test_clearnet_returns_rtt_and_check_data(self, relay, mock_keys, mock_nostr_client):
-        """Returns RTT and check data for clearnet relay using connect_relay factory."""
+    async def test_clearnet_returns_rtt_and_probe_data(self, relay, mock_keys, mock_nostr_client):
+        """Returns RTT and probe data for clearnet relay using connect_relay factory."""
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 
@@ -973,7 +973,7 @@ class TestTestRttAndCheck:
             return mock_nostr_client
 
         with patch("utils.transport.connect_relay", side_effect=mock_connect_relay):
-            rtt_result, check_result = await Nip66._test_rtt_and_check(
+            rtt_result, probe_result = await Nip66._test_rtt_and_probe(
                 relay,
                 timeout=10.0,
                 keys=mock_keys,
@@ -985,12 +985,12 @@ class TestTestRttAndCheck:
         assert isinstance(rtt_result, Metadata)
         assert rtt_result.data.get("rtt_open") is not None
         # Check data present
-        assert isinstance(check_result, Metadata)
-        assert check_result.data.get("chk_open_success") is True
+        assert isinstance(probe_result, Metadata)
+        assert probe_result.data.get("probe_open_success") is True
 
     @pytest.mark.asyncio
-    async def test_connection_failure_returns_check_with_failure(self, relay, mock_keys):
-        """Connection failure returns check metadata with chk_open_success=False."""
+    async def test_connection_failure_returns_probe_with_failure(self, relay, mock_keys):
+        """Connection failure returns probe metadata with probe_open_success=False."""
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 
@@ -1001,7 +1001,7 @@ class TestTestRttAndCheck:
             raise TimeoutError("Connection refused")
 
         with patch("utils.transport.connect_relay", side_effect=mock_connect_relay):
-            rtt_result, check_result = await Nip66._test_rtt_and_check(
+            rtt_result, probe_result = await Nip66._test_rtt_and_probe(
                 relay,
                 timeout=10.0,
                 keys=mock_keys,
@@ -1012,9 +1012,9 @@ class TestTestRttAndCheck:
         # RTT is None (connection failed)
         assert rtt_result is None
         # Check metadata captures the failure
-        assert isinstance(check_result, Metadata)
-        assert check_result.data.get("chk_open_success") is False
-        assert "Connection refused" in check_result.data.get("chk_open_reason", "")
+        assert isinstance(probe_result, Metadata)
+        assert probe_result.data.get("probe_open_success") is False
+        assert "Connection refused" in probe_result.data.get("probe_open_reason", "")
 
 
 class TestTest:
@@ -1024,13 +1024,13 @@ class TestTest:
     async def test_returns_nip66_on_success(self, relay, mock_keys, mock_nostr_client):
         """Returns Nip66 instance on successful test."""
         rtt_data = {"rtt_open": 100, "rtt_read": 150}
-        check_data = {"chk_open_success": True, "chk_read_success": True}
+        check_data = {"probe_open_success": True, "probe_read_success": True}
         dns_data = {"dns_ips": ["8.8.8.8"], "dns_ttl": 300}
 
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 
-        # _test_rtt_and_check returns tuple of (rtt_metadata, check_metadata)
+        # _test_rtt_and_probe returns tuple of (rtt_metadata, probe_metadata)
         # Other _test_* methods raise Nip66TestError on failure
         with (
             patch.object(
@@ -1038,7 +1038,7 @@ class TestTest:
             ),
             patch.object(
                 Nip66,
-                "_test_rtt_and_check",
+                "_test_rtt_and_probe",
                 new_callable=AsyncMock,
                 return_value=(Metadata(rtt_data), Metadata(check_data)),
             ),
@@ -1077,7 +1077,7 @@ class TestTest:
 
         assert isinstance(result, Nip66)
         assert result.rtt_metadata.data.get("rtt_open") == 100
-        assert result.check_metadata.data.get("chk_open_success") is True
+        assert result.probe_metadata.data.get("probe_open_success") is True
         assert result.dns_metadata.data.get("dns_ips") == ["8.8.8.8"]
 
     @pytest.mark.asyncio
@@ -1091,7 +1091,7 @@ class TestTest:
         with (
             patch.object(Nip66, "_test_dns", new_callable=AsyncMock, side_effect=test_error),
             patch.object(
-                Nip66, "_test_rtt_and_check", new_callable=AsyncMock, side_effect=test_error
+                Nip66, "_test_rtt_and_probe", new_callable=AsyncMock, side_effect=test_error
             ),
             patch.object(Nip66, "_test_ssl", new_callable=AsyncMock, side_effect=test_error),
             patch.object(Nip66, "_test_geo", new_callable=AsyncMock, side_effect=test_error),
@@ -1143,7 +1143,7 @@ class TestTest:
         assert result.dns_metadata.data.get("dns_ttl") == 300
         # Others are None
         assert result.rtt_metadata is None
-        assert result.check_metadata is None
+        assert result.probe_metadata is None
         assert result.ssl_metadata is None
         assert result.geo_metadata is None
         assert result.net_metadata is None
