@@ -3,7 +3,8 @@ NIP-66 Relay Monitoring and Discovery.
 
 This module provides the Nip66 class for testing relay capabilities and collecting
 monitoring data per NIP-66 specification. Tests relay connectivity (open, read, write),
-collects SSL certificate info, DNS records, HTTP headers, and performs geolocation lookup.
+collects SSL certificate info, DNS records, HTTP headers, network info, and performs
+geolocation lookup.
 
 See: https://github.com/nostr-protocol/nips/blob/master/66.md
 
@@ -14,6 +15,16 @@ Complete NIP-66 metadata structures::
         "rtt_open": 150,  # Connection time in ms
         "rtt_read": 200,  # Read test time in ms
         "rtt_write": 180,  # Write test time in ms
+    }
+
+    # Probe metadata - optional, present if probe test was performed
+    probe_metadata = {
+        "probe_open_success": True,  # True if connection succeeded
+        "probe_open_reason": None,  # Raw error message (only if probe_open_success=False)
+        "probe_read_success": True,  # True if read worked without restrictions
+        "probe_read_reason": None,  # Raw rejection message (only if probe_read_success=False)
+        "probe_write_success": False,  # True if write worked without restrictions
+        "probe_write_reason": "auth-required: please authenticate",  # Raw rejection message
     }
 
     # SSL metadata - optional, clearnet wss:// only
@@ -33,9 +44,8 @@ Complete NIP-66 metadata structures::
         "ssl_cipher_bits": 256,  # Cipher strength in bits
     }
 
-    # Geo metadata - optional, requires GeoIP database
+    # Geo metadata - optional, requires GeoIP City database
     geo_metadata = {
-        "geo_ip": "1.2.3.4",  # Resolved IP address
         "geo_country": "US",  # ISO country code
         "geo_country_name": "United States",  # Full country name
         "geo_continent": "NA",  # Continent code
@@ -48,24 +58,26 @@ Complete NIP-66 metadata structures::
         "geo_lon": -122.4194,  # Longitude
         "geo_accuracy": 10,  # Accuracy radius in km
         "geo_tz": "America/Los_Angeles",  # Timezone
-        "geohash": "9q8yyk8yu",  # NIP-52 geohash
+        "geohash": "9q8yyk8yu",  # NIP-52 geohash (9 chars precision)
         "geo_geoname_id": 5391959,  # GeoNames ID
-        "geo_asn": 13335,  # Autonomous System Number
-        "geo_asn_org": "Cloudflare",  # ASN organization name
-        "geo_network": "1.2.3.0/24",  # Network CIDR
+    }
+
+    # Net metadata - optional, requires GeoIP ASN database
+    net_metadata = {
+        "net_ip": "1.2.3.4",  # Resolved IP address
+        "net_asn": 13335,  # Autonomous System Number
+        "net_asn_org": "Cloudflare",  # ASN organization name
+        "net_network": "1.2.3.0/24",  # Network CIDR
     }
 
     # DNS metadata - optional, clearnet only
     dns_metadata = {
-        "dns_ip": "1.2.3.4",  # Primary IPv4 address
-        "dns_ipv6": "2606:4700::1",  # Primary IPv6 address
         "dns_ips": ["1.2.3.4", "1.2.3.5"],  # All A record IPs
         "dns_ips_v6": ["2606:4700::1"],  # All AAAA record IPs
         "dns_cname": "proxy.example.com",  # CNAME if present
         "dns_reverse": "server1.example.com",  # Reverse DNS (PTR)
         "dns_ns": ["ns1.cloudflare.com"],  # Nameservers
         "dns_ttl": 300,  # TTL in seconds
-        "dns_rtt": 50,  # DNS resolution time in ms
     }
 
     # HTTP metadata - optional, from WebSocket upgrade
@@ -92,14 +104,24 @@ Usage::
         asn_reader=asn_reader,
     )
 
-    # Access results via metadata dicts
+    # Probe results via metadata dicts
     if nip66.rtt_metadata:
         print(f"Open RTT: {nip66.rtt_metadata.data.get('rtt_open')}ms")
+    if nip66.probe_metadata:
+        print(
+            f"Write allowed: {nip66.probe_metadata.data.get('probe_write_success')}"
+        )
+        if not nip66.probe_metadata.data.get("probe_write_success"):
+            print(
+                f"Write rejected: {nip66.probe_metadata.data.get('probe_write_reason')}"
+            )
     if nip66.geo_metadata:
         print(f"Location: {nip66.geo_metadata.data.get('geo_country')}")
+    if nip66.net_metadata:
+        print(f"ASN: {nip66.net_metadata.data.get('net_asn')}")
 
-    # Convert for database storage (up to 5 RelayMetadata objects)
-    rtt, ssl, geo, dns, http = nip66.to_relay_metadata()
+    # Convert for database storage (up to 7 RelayMetadata objects)
+    rtt, probe, ssl, geo, net, dns, http = nip66.to_relay_metadata()
 """
 
 from __future__ import annotations
@@ -150,6 +172,21 @@ class Nip66RttData(TypedDict, total=False):
     rtt_write: int  # Write test time in ms
 
 
+class Nip66ProbeData(TypedDict, total=False):
+    """Probe test results metadata per NIP-66.
+
+    Captures raw rejection reasons without assuming specific message formats.
+    This allows clients to analyze and classify restrictions as needed.
+    """
+
+    probe_open_success: bool  # True if connection succeeded
+    probe_open_reason: str  # Raw error message (only if probe_open_success=False)
+    probe_read_success: bool  # True if read worked without restrictions
+    probe_read_reason: str  # Raw rejection message (only if probe_read_success=False)
+    probe_write_success: bool  # True if write worked without restrictions
+    probe_write_reason: str  # Raw rejection message (only if probe_write_success=False)
+
+
 class Nip66SslData(TypedDict, total=False):
     """SSL/TLS metadata per NIP-66."""
 
@@ -169,9 +206,8 @@ class Nip66SslData(TypedDict, total=False):
 
 
 class Nip66GeoData(TypedDict, total=False):
-    """Geolocation metadata per NIP-66."""
+    """Geolocation metadata per NIP-66 (geographic data only)."""
 
-    geo_ip: str  # Resolved IP address
     geo_country: str  # ISO country code
     geo_country_name: str  # Full country name
     geo_continent: str  # Continent code (NA, EU, AS, etc.)
@@ -186,23 +222,26 @@ class Nip66GeoData(TypedDict, total=False):
     geo_tz: str  # Timezone identifier
     geohash: str  # NIP-52 geohash (9 chars precision)
     geo_geoname_id: int  # GeoNames ID
-    geo_asn: int  # Autonomous System Number
-    geo_asn_org: str  # ASN organization name
-    geo_network: str  # Network CIDR
+
+
+class Nip66NetData(TypedDict, total=False):
+    """Network metadata per NIP-66 (network identifiers)."""
+
+    net_ip: str  # Resolved IP address
+    net_asn: int  # Autonomous System Number
+    net_asn_org: str  # ASN organization name
+    net_network: str  # Network CIDR
 
 
 class Nip66DnsData(TypedDict, total=False):
     """DNS metadata per NIP-66."""
 
-    dns_ip: str  # Primary IPv4 address
-    dns_ipv6: str  # Primary IPv6 address
     dns_ips: list[str]  # All A record IPs
     dns_ips_v6: list[str]  # All AAAA record IPs
     dns_cname: str  # CNAME record if present
     dns_reverse: str  # Reverse DNS (PTR record)
     dns_ns: list[str]  # Nameservers
     dns_ttl: int  # TTL in seconds
-    dns_rtt: int  # DNS resolution time in ms
 
 
 class Nip66HttpData(TypedDict, total=False):
@@ -233,28 +272,35 @@ class Nip66:
     Immutable NIP-66 relay monitoring data.
 
     Tests relay capabilities (open, read, write) and collects monitoring metrics
-    including round-trip times, SSL certificate data, DNS records, HTTP headers,
-    and geolocation info. Generates up to 5 RelayMetadata objects for database storage.
+    including round-trip times, probe test restrictions, SSL certificate data,
+    DNS records, HTTP headers, network info, and geolocation info. Generates up to
+    7 RelayMetadata objects for database storage.
 
     Attributes:
         relay: The Relay being monitored.
         rtt_metadata: RTT data (optional, present if any test succeeded).
+        probe_metadata: Probe test results with raw rejection reasons (optional).
         ssl_metadata: SSL/TLS certificate data (optional, clearnet wss:// only).
-        geo_metadata: Geolocation data (optional, requires GeoIP database).
+        geo_metadata: Geolocation data (optional, requires GeoIP City database).
+        net_metadata: Network data (optional, requires GeoIP ASN database).
         dns_metadata: DNS resolution data (optional, clearnet only).
         http_metadata: HTTP headers data (optional, from WebSocket upgrade).
         generated_at: Unix timestamp when monitoring was performed (default: now).
 
-    Access metadata fields directly via metadata.data dict:
+    Probe metadata fields directly via metadata.data dict:
         nip66.rtt_metadata.data.get('rtt_open')
+        nip66.probe_metadata.data.get('probe_write_reason')
         nip66.ssl_metadata.data.get('ssl_issuer')
         nip66.geo_metadata.data.get('geo_country')
+        nip66.net_metadata.data.get('net_asn')
     """
 
     relay: Relay
     rtt_metadata: Metadata | None = None
+    probe_metadata: Metadata | None = None
     ssl_metadata: Metadata | None = None
     geo_metadata: Metadata | None = None
+    net_metadata: Metadata | None = None
     dns_metadata: Metadata | None = None
     http_metadata: Metadata | None = None
     generated_at: int = field(default_factory=lambda: int(time()))
@@ -266,8 +312,12 @@ class Nip66:
         Raises ValueError if all metadata are None.
         """
         object.__setattr__(self, "rtt_metadata", self._to_metadata(self.rtt_metadata, Nip66RttData))
+        object.__setattr__(
+            self, "probe_metadata", self._to_metadata(self.probe_metadata, Nip66ProbeData)
+        )
         object.__setattr__(self, "ssl_metadata", self._to_metadata(self.ssl_metadata, Nip66SslData))
         object.__setattr__(self, "geo_metadata", self._to_metadata(self.geo_metadata, Nip66GeoData))
+        object.__setattr__(self, "net_metadata", self._to_metadata(self.net_metadata, Nip66NetData))
         object.__setattr__(self, "dns_metadata", self._to_metadata(self.dns_metadata, Nip66DnsData))
         object.__setattr__(
             self, "http_metadata", self._to_metadata(self.http_metadata, Nip66HttpData)
@@ -278,8 +328,10 @@ class Nip66:
             m is None
             for m in [
                 self.rtt_metadata,
+                self.probe_metadata,
                 self.ssl_metadata,
                 self.geo_metadata,
+                self.net_metadata,
                 self.dns_metadata,
                 self.http_metadata,
             ]
@@ -314,48 +366,13 @@ class Nip66:
 
         return Metadata(parsed)
 
-    # --- Convenience properties for common fields ---
-
-    @property
-    def rtt_open(self) -> int | None:
-        """Round-trip time to open connection (milliseconds)."""
-        if self.rtt_metadata is None:
-            return None
-        return self.rtt_metadata.data.get("rtt_open")
-
-    @property
-    def rtt_read(self) -> int | None:
-        """Round-trip time to read event (milliseconds)."""
-        if self.rtt_metadata is None:
-            return None
-        return self.rtt_metadata.data.get("rtt_read")
-
-    @property
-    def rtt_write(self) -> int | None:
-        """Round-trip time to write event (milliseconds)."""
-        if self.rtt_metadata is None:
-            return None
-        return self.rtt_metadata.data.get("rtt_write")
-
-    @property
-    def geohash(self) -> str | None:
-        """Geohash of relay location (NIP-52, 9 chars precision)."""
-        if self.geo_metadata is None:
-            return None
-        return self.geo_metadata.data.get("geohash")
-
-    @property
-    def is_openable(self) -> bool:
-        """Whether relay connection succeeded (has rtt_open)."""
-        return self.rtt_open is not None
-
     # --- Class-level defaults ---
     _DEFAULT_TEST_TIMEOUT: ClassVar[float] = 10.0
 
     # --- Internal test methods ---
 
     @classmethod
-    async def _test_rtt(
+    async def _test_rtt_and_probe(
         cls,
         relay: Relay,
         timeout: float,
@@ -364,8 +381,11 @@ class Nip66:
         read_filter: Filter,
         proxy_url: str | None = None,
         allow_insecure: bool = True,
-    ) -> Metadata:
-        """Test relay RTT (round-trip times) and capabilities.
+    ) -> tuple[Metadata | None, Metadata | None]:
+        """Test relay RTT (round-trip times) and probe test.
+
+        Captures raw rejection messages without assuming specific formats.
+        This allows clients to analyze and classify restrictions as needed.
 
         Args:
             relay: Relay to test
@@ -377,47 +397,74 @@ class Nip66:
             allow_insecure: If True (default), fallback to insecure transport for
                 clearnet relays with invalid SSL certificates.
 
+        Returns:
+            Tuple of (rtt_metadata, probe_metadata). If connection fails,
+            rtt_metadata is None and probe_metadata contains probe_open_success=False.
+
         Raises:
-            Nip66TestError: If test fails or proxy url is missing for overlay networks
+            Nip66TestError: If proxy url is missing for overlay networks
         """
         from nostr_sdk import RelayUrl
 
         from utils.transport import connect_relay
 
-        logger.debug("_test_rtt: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url)
+        logger.debug(
+            "_test_rtt_and_probe: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url
+        )
 
-        data: dict[str, Any] = {}
+        rtt_data: dict[str, Any] = {}
+        probe_data: dict[str, Any] = {}
         relay_url = RelayUrl.parse(relay.url)
 
         # Test open: measure connection time (includes SSL fallback for clearnet)
-        logger.debug("_test_rtt: connecting relay=%s", relay.url)
-        start = perf_counter()
-        client = await connect_relay(relay, keys, proxy_url, timeout, allow_insecure)
-        rtt_open = int((perf_counter() - start) * 1000)
-        data["rtt_open"] = rtt_open
-        logger.debug("_test_rtt: open succeeded relay=%s rtt_open=%dms", relay.url, rtt_open)
+        logger.debug("_test_rtt_and_probe: connecting relay=%s", relay.url)
+        try:
+            start = perf_counter()
+            client = await connect_relay(relay, keys, proxy_url, timeout, allow_insecure)
+            rtt_open = int((perf_counter() - start) * 1000)
+            rtt_data["rtt_open"] = rtt_open
+            probe_data["probe_open_success"] = True
+            logger.debug(
+                "_test_rtt_and_probe: open succeeded relay=%s rtt_open=%dms", relay.url, rtt_open
+            )
+        except Exception as e:
+            # Connection failed - capture raw error message
+            probe_data["probe_open_success"] = False
+            probe_data["probe_open_reason"] = str(e)
+            logger.debug("_test_rtt_and_probe: open failed relay=%s reason=%s", relay.url, e)
+            # Return early - can't test read/write without connection
+            return Metadata(rtt_data) if rtt_data else None, Metadata(probe_data)
 
         try:
             # Test read: stream_events to measure time to first event
             try:
-                logger.debug("_test_rtt: reading relay=%s", relay.url)
+                logger.debug("_test_rtt_and_probe: reading relay=%s", relay.url)
                 start = perf_counter()
                 stream = await client.stream_events(read_filter, timeout=timedelta(seconds=timeout))
                 first_event = await stream.next()
                 if first_event is not None:
                     rtt_read = int((perf_counter() - start) * 1000)
-                    data["rtt_read"] = rtt_read
+                    rtt_data["rtt_read"] = rtt_read
+                    probe_data["probe_read_success"] = True  # Read succeeded
                     logger.debug(
-                        "_test_rtt: read event relay=%s rtt_read=%dms", relay.url, rtt_read
+                        "_test_rtt_and_probe: read event relay=%s rtt_read=%dms",
+                        relay.url,
+                        rtt_read,
                     )
                 else:
-                    logger.debug("_test_rtt: read returned no events relay=%s", relay.url)
+                    # No events returned - zero-trust: cannot verify read works
+                    probe_data["probe_read_success"] = False
+                    probe_data["probe_read_reason"] = "no events returned"
+                    logger.debug("_test_rtt_and_probe: read returned no events relay=%s", relay.url)
             except Exception as e:
-                logger.debug("_test_rtt: read failed relay=%s error=%s", relay.url, e)
+                # Read failed - capture raw error message
+                probe_data["probe_read_success"] = False
+                probe_data["probe_read_reason"] = str(e)
+                logger.debug("_test_rtt_and_probe: read failed relay=%s reason=%s", relay.url, e)
 
             # Test write: send event and verify by reading it back
             try:
-                logger.debug("_test_rtt: writing relay=%s", relay.url)
+                logger.debug("_test_rtt_and_probe: writing relay=%s", relay.url)
                 start = perf_counter()
                 output = await asyncio.wait_for(
                     client.send_event_builder(event_builder), timeout=timeout
@@ -427,16 +474,27 @@ class Nip66:
                 # Check if relay rejected the event
                 if output and relay_url in output.failed:
                     reason = output.failed.get(relay_url, "unknown")
-                    logger.debug("_test_rtt: write rejected relay=%s reason=%s", relay.url, reason)
+                    # Capture raw rejection reason without classification
+                    probe_data["probe_write_success"] = False
+                    probe_data["probe_write_reason"] = str(reason) if reason else "unknown"
+                    logger.debug(
+                        "_test_rtt_and_probe: write rejected relay=%s reason=%s",
+                        relay.url,
+                        reason,
+                    )
                 elif output and relay_url in output.success:
                     logger.debug(
-                        "_test_rtt: write accepted relay=%s rtt_write=%dms", relay.url, rtt_write
+                        "_test_rtt_and_probe: write accepted relay=%s rtt_write=%dms",
+                        relay.url,
+                        rtt_write,
                     )
                     # Verify by reading back the event
                     event_id = output.id
                     verify_filter = Filter().id(event_id).limit(1)
                     logger.debug(
-                        "_test_rtt: verifying write relay=%s event_id=%s", relay.url, event_id
+                        "_test_rtt_and_probe: verifying write relay=%s event_id=%s",
+                        relay.url,
+                        event_id,
                     )
                     try:
                         stream = await client.stream_events(
@@ -445,27 +503,40 @@ class Nip66:
                         verify_event = await stream.next()
                         if verify_event is not None:
                             # Event found: write confirmed
-                            data["rtt_write"] = rtt_write
-                            logger.debug("_test_rtt: write verified relay=%s", relay.url)
+                            rtt_data["rtt_write"] = rtt_write
+                            probe_data["probe_write_success"] = True  # Write succeeded
+                            logger.debug("_test_rtt_and_probe: write verified relay=%s", relay.url)
                         else:
                             # Relay responded OK=true but event not retrievable
-                            # This happens with indexing relays that accept but filter events
+                            # Zero-trust: cannot verify write actually works
+                            probe_data["probe_write_success"] = False
+                            probe_data["probe_write_reason"] = (
+                                "unverified: accepted but not retrievable"
+                            )
                             logger.debug(
-                                "_test_rtt: write unverified relay=%s (relay said OK but event not retrievable)",
+                                "_test_rtt_and_probe: write unverified relay=%s "
+                                "(relay said OK but event not retrievable)",
                                 relay.url,
                             )
                     except Exception as e:
-                        # Verify failed - cannot confirm write without verification
+                        # Verify failed - zero-trust: cannot confirm write
+                        probe_data["probe_write_success"] = False
+                        probe_data["probe_write_reason"] = f"unverified: verify failed ({e})"
                         logger.debug(
-                            "_test_rtt: write unverified relay=%s (verify failed: %s)",
+                            "_test_rtt_and_probe: write unverified relay=%s (verify failed: %s)",
                             relay.url,
                             e,
                         )
                 else:
-                    # No response for this relay
-                    logger.debug("_test_rtt: write no response relay=%s", relay.url)
+                    # No response for this relay - zero-trust: cannot verify
+                    probe_data["probe_write_success"] = False
+                    probe_data["probe_write_reason"] = "no response from relay"
+                    logger.debug("_test_rtt_and_probe: write no response relay=%s", relay.url)
             except Exception as e:
-                logger.debug("_test_rtt: write error relay=%s error=%s", relay.url, e)
+                # Write failed - capture raw error message
+                probe_data["probe_write_success"] = False
+                probe_data["probe_write_reason"] = str(e)
+                logger.debug("_test_rtt_and_probe: write failed relay=%s reason=%s", relay.url, e)
 
         finally:
             # Cleanup: disconnect client
@@ -474,12 +545,16 @@ class Nip66:
             except Exception:
                 pass
 
-        if not data:
-            logger.warning("_test_rtt: no data relay=%s", relay.url)
-            raise Nip66TestError(relay, ValueError("RTT test returned no data"))
-
-        logger.debug("_test_rtt: completed relay=%s data=%s", relay.url, list(data.keys()))
-        return Metadata(data)
+        logger.debug(
+            "_test_rtt_and_probe: completed relay=%s rtt=%s probe=%s",
+            relay.url,
+            list(rtt_data.keys()),
+            list(probe_data.keys()),
+        )
+        return (
+            Metadata(rtt_data) if rtt_data else None,
+            Metadata(probe_data) if probe_data else None,
+        )
 
     @classmethod
     async def _test_ssl(
@@ -627,23 +702,16 @@ class Nip66:
         cls,
         relay: Relay,
         city_reader: geoip2.database.Reader,
-        asn_reader: geoip2.database.Reader,
     ) -> Metadata:
         """Lookup geolocation for relay.
 
-        Resolves the relay hostname to IP internally, then performs GeoIP lookup.
-        Note: Geolocation lookup uses local GeoIP database after DNS resolution.
+        Resolves the relay hostname to IP independently, then performs GeoIP City lookup.
         Only works for clearnet relays (overlay networks have no public IP).
 
         Raises:
             Nip66TestError: If test returns no data (not applicable or failed).
         """
-        logger.debug(
-            "_test_geo: relay=%s city=%s asn=%s",
-            relay.url,
-            city_reader is not None,
-            asn_reader is not None,
-        )
+        logger.debug("_test_geo: relay=%s", relay.url)
 
         if relay.network != NetworkType.CLEARNET:
             logger.debug("_test_geo: skipped (non-clearnet) relay=%s", relay.url)
@@ -651,18 +719,14 @@ class Nip66:
 
         data: dict[str, Any] = {}
         try:
-            # Resolve hostname to IP first
+            # Resolve hostname to IP independently
             logger.debug("_test_geo: resolving host=%s", relay.host)
             ip = await asyncio.to_thread(socket.gethostbyname, relay.host)
             logger.debug("_test_geo: resolved ip=%s relay=%s", ip, relay.url)
-            data = await asyncio.to_thread(cls._lookup_geo_sync, ip, city_reader, asn_reader)
-            if len(data) == 1 and "geo_ip" in data:
-                logger.debug("_test_geo: only geo_ip found relay=%s", relay.url)
-                data = {}  # Only geo_ip present, treat as no data
-            else:
-                logger.debug(
-                    "_test_geo: completed relay=%s country=%s", relay.url, data.get("geo_country")
-                )
+            data = await asyncio.to_thread(cls._lookup_geo_sync, ip, city_reader)
+            logger.debug(
+                "_test_geo: completed relay=%s country=%s", relay.url, data.get("geo_country")
+            )
         except Exception as e:
             logger.debug("_test_geo: error relay=%s error=%s", relay.url, e)
 
@@ -675,86 +739,127 @@ class Nip66:
     def _lookup_geo_sync(
         ip: str,
         city_reader: geoip2.database.Reader,
+    ) -> dict[str, Any]:
+        """Synchronous geolocation lookup (geographic data only)."""
+        result: dict[str, Any] = {}
+
+        try:
+            response = city_reader.city(ip)
+
+            # Country
+            if response.country.iso_code:
+                result["geo_country"] = response.country.iso_code
+            elif response.registered_country.iso_code:
+                result["geo_country"] = response.registered_country.iso_code
+
+            if response.country.name:
+                result["geo_country_name"] = response.country.name
+            elif response.registered_country.name:
+                result["geo_country_name"] = response.registered_country.name
+
+            # EU membership
+            is_eu = response.country.is_in_european_union
+            if is_eu is not None:
+                result["geo_is_eu"] = is_eu
+
+            # Continent
+            if response.continent.code:
+                result["geo_continent"] = response.continent.code
+            if response.continent.name:
+                result["geo_continent_name"] = response.continent.name
+
+            # City
+            if response.city.name:
+                result["geo_city"] = response.city.name
+            if response.city.geoname_id:
+                result["geo_geoname_id"] = response.city.geoname_id
+
+            # Region
+            if response.subdivisions:
+                region = response.subdivisions.most_specific.name
+                if region:
+                    result["geo_region"] = region
+
+            # Postal
+            if response.postal.code:
+                result["geo_postal"] = response.postal.code
+
+            # Location
+            if response.location.latitude is not None:
+                result["geo_lat"] = response.location.latitude
+            if response.location.longitude is not None:
+                result["geo_lon"] = response.location.longitude
+            if response.location.accuracy_radius is not None:
+                result["geo_accuracy"] = response.location.accuracy_radius
+            if response.location.time_zone:
+                result["geo_tz"] = response.location.time_zone
+
+            # Generate geohash if coordinates available
+            if "geo_lat" in result and "geo_lon" in result:
+                result["geohash"] = geohash2.encode(
+                    result["geo_lat"],
+                    result["geo_lon"],
+                    precision=9,
+                )
+        except Exception:
+            pass
+
+        return result
+
+    @classmethod
+    async def _test_net(
+        cls,
+        relay: Relay,
+        asn_reader: geoip2.database.Reader,
+    ) -> Metadata:
+        """Lookup network/ASN info for relay.
+
+        Resolves hostname to IP independently, then performs ASN lookup.
+        Only works for clearnet relays (overlay networks have no public IP).
+
+        Raises:
+            Nip66TestError: If test returns no data (not applicable or failed).
+        """
+        logger.debug("_test_net: relay=%s", relay.url)
+
+        if relay.network != NetworkType.CLEARNET:
+            logger.debug("_test_net: skipped (non-clearnet) relay=%s", relay.url)
+            raise Nip66TestError(relay, ValueError("Net test not applicable (non-clearnet)"))
+
+        data: dict[str, Any] = {}
+        try:
+            # Resolve hostname to IP independently
+            logger.debug("_test_net: resolving host=%s", relay.host)
+            ip = await asyncio.to_thread(socket.gethostbyname, relay.host)
+            logger.debug("_test_net: resolved ip=%s relay=%s", ip, relay.url)
+            data = await asyncio.to_thread(cls._lookup_net_sync, ip, asn_reader)
+            logger.debug("_test_net: completed relay=%s asn=%s", relay.url, data.get("net_asn"))
+        except Exception as e:
+            logger.debug("_test_net: error relay=%s error=%s", relay.url, e)
+
+        if not data:
+            logger.warning("_test_net: no data relay=%s", relay.url)
+            raise Nip66TestError(relay, ValueError("Net test returned no data"))
+        return Metadata(data)
+
+    @staticmethod
+    def _lookup_net_sync(
+        ip: str,
         asn_reader: geoip2.database.Reader,
     ) -> dict[str, Any]:
-        """Synchronous geolocation lookup with comprehensive field extraction."""
-        result: dict[str, Any] = {"geo_ip": ip}
+        """Synchronous network/ASN lookup."""
+        result: dict[str, Any] = {"net_ip": ip}
 
-        # City/Country data from city reader
-        if city_reader:
-            try:
-                response = city_reader.city(ip)
-
-                # Country
-                if response.country.iso_code:
-                    result["geo_country"] = response.country.iso_code
-                elif response.registered_country.iso_code:
-                    result["geo_country"] = response.registered_country.iso_code
-
-                if response.country.name:
-                    result["geo_country_name"] = response.country.name
-                elif response.registered_country.name:
-                    result["geo_country_name"] = response.registered_country.name
-
-                # EU membership
-                is_eu = response.country.is_in_european_union
-                if is_eu is not None:
-                    result["geo_is_eu"] = is_eu
-
-                # Continent
-                if response.continent.code:
-                    result["geo_continent"] = response.continent.code
-                if response.continent.name:
-                    result["geo_continent_name"] = response.continent.name
-
-                # City
-                if response.city.name:
-                    result["geo_city"] = response.city.name
-                if response.city.geoname_id:
-                    result["geo_geoname_id"] = response.city.geoname_id
-
-                # Region
-                if response.subdivisions:
-                    region = response.subdivisions.most_specific.name
-                    if region:
-                        result["geo_region"] = region
-
-                # Postal
-                if response.postal.code:
-                    result["geo_postal"] = response.postal.code
-
-                # Location
-                if response.location.latitude is not None:
-                    result["geo_lat"] = response.location.latitude
-                if response.location.longitude is not None:
-                    result["geo_lon"] = response.location.longitude
-                if response.location.accuracy_radius is not None:
-                    result["geo_accuracy"] = response.location.accuracy_radius
-                if response.location.time_zone:
-                    result["geo_tz"] = response.location.time_zone
-
-                # Generate geohash if coordinates available
-                if "geo_lat" in result and "geo_lon" in result:
-                    result["geohash"] = geohash2.encode(
-                        result["geo_lat"],
-                        result["geo_lon"],
-                        precision=9,
-                    )
-            except Exception:
-                pass
-
-        # ASN data
-        if asn_reader:
-            try:
-                asn_response = asn_reader.asn(ip)
-                if asn_response.autonomous_system_number:
-                    result["geo_asn"] = asn_response.autonomous_system_number
-                if asn_response.autonomous_system_organization:
-                    result["geo_asn_org"] = asn_response.autonomous_system_organization
-                if asn_response.network:
-                    result["geo_network"] = str(asn_response.network)
-            except Exception:
-                pass
+        try:
+            asn_response = asn_reader.asn(ip)
+            if asn_response.autonomous_system_number:
+                result["net_asn"] = asn_response.autonomous_system_number
+            if asn_response.autonomous_system_organization:
+                result["net_asn_org"] = asn_response.autonomous_system_organization
+            if asn_response.network:
+                result["net_network"] = str(asn_response.network)
+        except Exception:
+            pass
 
         return result
 
@@ -783,10 +888,9 @@ class Nip66:
             logger.debug("_test_dns: resolving host=%s", relay.host)
             data = await asyncio.to_thread(cls._resolve_dns_sync, relay.host, timeout)
             logger.debug(
-                "_test_dns: completed relay=%s ip=%s rtt=%sms",
+                "_test_dns: completed relay=%s ips=%s",
                 relay.url,
-                data.get("dns_ip"),
-                data.get("dns_rtt"),
+                data.get("dns_ips"),
             )
         except Exception as e:
             logger.debug("_test_dns: error relay=%s error=%s", relay.url, e)
@@ -805,15 +909,12 @@ class Nip66:
         resolver.lifetime = timeout
 
         # A records (IPv4)
-        start = perf_counter()
         try:
             answers = resolver.resolve(host, "A")
             ips = [rdata.address for rdata in answers]
             if ips:
-                result["dns_ip"] = ips[0]
                 result["dns_ips"] = ips
                 result["dns_ttl"] = answers.rrset.ttl if answers.rrset else None
-            result["dns_rtt"] = int((perf_counter() - start) * 1000)
         except Exception:
             pass
 
@@ -822,7 +923,6 @@ class Nip66:
             answers = resolver.resolve(host, "AAAA")
             ips_v6 = [rdata.address for rdata in answers]
             if ips_v6:
-                result["dns_ipv6"] = ips_v6[0]
                 result["dns_ips_v6"] = ips_v6
         except Exception:
             pass
@@ -849,11 +949,10 @@ class Nip66:
         except Exception:
             pass
 
-        # Reverse DNS (PTR)
-        if result.get("dns_ip"):
+        # Reverse DNS (PTR) - uses first IP from dns_ips if available
+        if result.get("dns_ips"):
             try:
-                # Convert IP to reverse DNS format
-                ip = result["dns_ip"]
+                ip = result["dns_ips"][0]
                 reverse_name = dns.reversename.from_address(ip)
                 answers = resolver.resolve(reverse_name, "PTR")
                 for rdata in answers:
@@ -981,12 +1080,14 @@ class Nip66:
         RelayMetadata | None,
         RelayMetadata | None,
         RelayMetadata | None,
+        RelayMetadata | None,
+        RelayMetadata | None,
     ]:
         """
         Convert to RelayMetadata objects for database storage.
 
         Returns:
-            Tuple of (rtt, ssl, geo, dns, http) where each is RelayMetadata or None.
+            Tuple of (rtt, probe, ssl, geo, net, dns, http) where each is RelayMetadata or None.
         """
         from .relay_metadata import MetadataType, RelayMetadata
 
@@ -1002,8 +1103,10 @@ class Nip66:
 
         return (
             make(self.rtt_metadata, MetadataType.NIP66_RTT),
+            make(self.probe_metadata, MetadataType.NIP66_PROBE),
             make(self.ssl_metadata, MetadataType.NIP66_SSL),
             make(self.geo_metadata, MetadataType.NIP66_GEO),
+            make(self.net_metadata, MetadataType.NIP66_NET),
             make(self.dns_metadata, MetadataType.NIP66_DNS),
             make(self.http_metadata, MetadataType.NIP66_HTTP),
         )
@@ -1023,6 +1126,7 @@ class Nip66:
         run_rtt: bool = True,
         run_ssl: bool = True,
         run_geo: bool = True,
+        run_net: bool = True,
         run_dns: bool = True,
         run_http: bool = True,
         proxy_url: str | None = None,
@@ -1034,17 +1138,21 @@ class Nip66:
         All tests are enabled by default. Disable specific tests with run_* flags.
         At least one test must succeed to create a valid Nip66 instance.
 
+        Note: run_rtt also collects probe_metadata as a byproduct of the RTT test.
+
         Args:
             relay: Relay object to test
             timeout: Connection timeout in seconds (default: _DEFAULT_TEST_TIMEOUT)
             keys: Keys for signing test events (required if run_rtt=True)
             event_builder: EventBuilder for write test (required if run_rtt=True)
             read_filter: Filter for read test (required if run_rtt=True)
-            city_reader: Pre-opened GeoLite2-City database reader for geo lookup
-            asn_reader: Optional pre-opened GeoLite2-ASN database reader
-            run_rtt: Run RTT test (open/read/write). Requires keys, event_builder, read_filter.
+            city_reader: Pre-opened GeoLite2-City database reader (required if run_geo=True)
+            asn_reader: Pre-opened GeoLite2-ASN database reader (required if run_net=True)
+            run_rtt: Run RTT test (open/read/write) and collect probe test data.
+                Requires keys, event_builder, read_filter.
             run_ssl: Run SSL certificate test (clearnet wss:// only)
             run_geo: Run geolocation test. Requires city_reader.
+            run_net: Run network/ASN test. Requires asn_reader.
             run_dns: Run DNS resolution test (clearnet only)
             run_http: Run HTTP headers test (clearnet only, or via proxy for overlay)
             proxy_url: Optional SOCKS5 proxy URL for overlay networks (Tor, I2P, Loki)
@@ -1060,26 +1168,34 @@ class Nip66:
         timeout = timeout if timeout is not None else cls._DEFAULT_TEST_TIMEOUT
         logger.info("test: relay=%s timeout=%.1fs", relay.url, timeout)
 
-        # Run all tests in parallel
+        # Run all tests in parallel (each test is independent)
         tasks: list[Any] = []
         task_names: list[str] = []
+
+        if run_rtt and keys is not None and event_builder is not None and read_filter is not None:
+            tasks.append(
+                cls._test_rtt_and_probe(
+                    relay, timeout, keys, event_builder, read_filter, proxy_url, allow_insecure
+                )
+            )
+            task_names.append("rtt_and_probe")
+
+        if run_ssl:
+            tasks.append(cls._test_ssl(relay, timeout))
+            task_names.append("ssl")
+
+        if run_geo and city_reader is not None:
+            tasks.append(cls._test_geo(relay, city_reader))
+            task_names.append("geo")
+
+        if run_net and asn_reader is not None:
+            tasks.append(cls._test_net(relay, asn_reader))
+            task_names.append("net")
 
         if run_dns:
             tasks.append(cls._test_dns(relay, timeout))
             task_names.append("dns")
-        if run_rtt and keys is not None and event_builder is not None and read_filter is not None:
-            tasks.append(
-                cls._test_rtt(
-                    relay, timeout, keys, event_builder, read_filter, proxy_url, allow_insecure
-                )
-            )
-            task_names.append("rtt")
-        if run_ssl:
-            tasks.append(cls._test_ssl(relay, timeout))
-            task_names.append("ssl")
-        if run_geo and city_reader is not None and asn_reader is not None:
-            tasks.append(cls._test_geo(relay, city_reader, asn_reader))
-            task_names.append("geo")
+
         if run_http:
             tasks.append(cls._test_http(relay, timeout, proxy_url))
             task_names.append("http")
@@ -1088,10 +1204,12 @@ class Nip66:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Map results back to metadata types
-        dns_metadata: Metadata | None = None
         rtt_metadata: Metadata | None = None
+        probe_metadata: Metadata | None = None
         ssl_metadata: Metadata | None = None
         geo_metadata: Metadata | None = None
+        net_metadata: Metadata | None = None
+        dns_metadata: Metadata | None = None
         http_metadata: Metadata | None = None
 
         for name, result in zip(task_names, results, strict=True):
@@ -1099,14 +1217,16 @@ class Nip66:
                 logger.debug("test: %s failed: %s", name, result)
                 continue
             logger.debug("test: %s succeeded", name)
-            if name == "dns":
-                dns_metadata = result
-            elif name == "rtt":
-                rtt_metadata = result
+            if name == "rtt_and_probe":
+                rtt_metadata, probe_metadata = result
             elif name == "ssl":
                 ssl_metadata = result
             elif name == "geo":
                 geo_metadata = result
+            elif name == "net":
+                net_metadata = result
+            elif name == "dns":
+                dns_metadata = result
             elif name == "http":
                 http_metadata = result
 
@@ -1114,8 +1234,10 @@ class Nip66:
             nip66 = cls(
                 relay=relay,
                 rtt_metadata=rtt_metadata,
+                probe_metadata=probe_metadata,
                 ssl_metadata=ssl_metadata,
                 geo_metadata=geo_metadata,
+                net_metadata=net_metadata,
                 dns_metadata=dns_metadata,
                 http_metadata=http_metadata,
             )

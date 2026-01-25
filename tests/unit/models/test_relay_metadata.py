@@ -3,7 +3,7 @@ Unit tests for models.relay_metadata module.
 
 Tests:
 - RelayMetadata construction from Relay and Metadata
-- MetadataType literal values (nip11, nip66_rtt, nip66_ssl, nip66_geo)
+- MetadataType literal values (nip11, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http)
 - to_db_params() serialization for bulk insert
 - generated_at timestamp handling
 - Immutability enforcement
@@ -47,7 +47,19 @@ class TestConstruction:
         after = int(time())
         assert before <= rm.generated_at <= after
 
-    @pytest.mark.parametrize("mtype", ["nip11", "nip66_rtt", "nip66_ssl", "nip66_geo"])
+    @pytest.mark.parametrize(
+        "mtype",
+        [
+            "nip11",
+            "nip66_rtt",
+            "nip66_probe",
+            "nip66_ssl",
+            "nip66_geo",
+            "nip66_net",
+            "nip66_dns",
+            "nip66_http",
+        ],
+    )
     def test_metadata_types(self, relay, metadata, mtype):
         rm = RelayMetadata(relay, metadata, mtype)
         assert rm.metadata_type == mtype
@@ -112,7 +124,16 @@ class TestMetadataTypeEnum:
 
     def test_valid_types(self):
         valid = {member.value for member in MetadataType}
-        assert valid == {"nip11", "nip66_rtt", "nip66_ssl", "nip66_geo", "nip66_dns", "nip66_http"}
+        assert valid == {
+            "nip11",
+            "nip66_rtt",
+            "nip66_probe",
+            "nip66_ssl",
+            "nip66_geo",
+            "nip66_net",
+            "nip66_dns",
+            "nip66_http",
+        }
 
     def test_str_compatibility(self):
         assert MetadataType.NIP11 == "nip11"
