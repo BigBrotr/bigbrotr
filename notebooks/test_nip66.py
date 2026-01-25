@@ -4,8 +4,10 @@ Test NIP-66 Relay Monitoring
 
 Interactive script for testing the `Nip66` model:
 - RTT - Round-trip time tests (open, read, write) using Client wrapper
+- Probe - Success/failure with raw rejection reasons
 - SSL - Certificate checks (clearnet only)
-- GEO - Geolocation lookup (clearnet only)
+- GEO - Geolocation lookup (clearnet only, requires GeoIP City DB)
+- NET - Network/ASN lookup (clearnet only, requires GeoIP ASN DB)
 - DNS - DNS resolution (clearnet only)
 - HTTP - HTTP headers (clearnet or via proxy)
 - Proxy support - For Tor/I2P/Loki relays (RTT and HTTP tests only)
@@ -124,11 +126,13 @@ async def test_full_relay(
         )
 
         print("\nMetadata collected:")
-        print(f"  RTT:  {nip66.rtt_metadata is not None}")
-        print(f"  SSL:  {nip66.ssl_metadata is not None}")
-        print(f"  GEO:  {nip66.geo_metadata is not None}")
-        print(f"  DNS:  {nip66.dns_metadata is not None}")
-        print(f"  HTTP: {nip66.http_metadata is not None}")
+        print(f"  RTT:   {nip66.rtt_metadata is not None}")
+        print(f"  PROBE: {nip66.probe_metadata is not None}")
+        print(f"  SSL:   {nip66.ssl_metadata is not None}")
+        print(f"  GEO:   {nip66.geo_metadata is not None}")
+        print(f"  NET:   {nip66.net_metadata is not None}")
+        print(f"  DNS:   {nip66.dns_metadata is not None}")
+        print(f"  HTTP:  {nip66.http_metadata is not None}")
 
         return nip66
 
@@ -147,6 +151,21 @@ def print_rtt_results(nip66: Nip66) -> None:
         print(f"rtt_write: {rtt.get('rtt_write')} ms")
     else:
         print("No RTT data collected")
+
+
+def print_probe_results(nip66: Nip66) -> None:
+    """Print Probe test results."""
+    print_separator("Probe Results")
+    if nip66.probe_metadata:
+        probe = nip66.probe_metadata.data
+        print(f"probe_open_success:  {probe.get('probe_open_success')}")
+        print(f"probe_open_reason:   {probe.get('probe_open_reason')}")
+        print(f"probe_read_success:  {probe.get('probe_read_success')}")
+        print(f"probe_read_reason:   {probe.get('probe_read_reason')}")
+        print(f"probe_write_success: {probe.get('probe_write_success')}")
+        print(f"probe_write_reason:  {probe.get('probe_write_reason')}")
+    else:
+        print("No Probe data collected")
 
 
 def print_ssl_results(nip66: Nip66) -> None:
@@ -168,13 +187,31 @@ def print_geo_results(nip66: Nip66) -> None:
     print_separator("GEO Results")
     if nip66.geo_metadata:
         geo = nip66.geo_metadata.data
-        print(f"geo_ip:      {geo.get('geo_ip')}")
-        print(f"geo_country: {geo.get('geo_country')}")
-        print(f"geo_city:    {geo.get('geo_city')}")
-        print(f"geo_asn:     {geo.get('geo_asn')}")
-        print(f"geo_asn_org: {geo.get('geo_asn_org')}")
+        print(f"geo_country:      {geo.get('geo_country')}")
+        print(f"geo_country_name: {geo.get('geo_country_name')}")
+        print(f"geo_city:         {geo.get('geo_city')}")
+        print(f"geo_region:       {geo.get('geo_region')}")
+        print(f"geo_lat:          {geo.get('geo_lat')}")
+        print(f"geo_lon:          {geo.get('geo_lon')}")
+        print(f"geohash:          {geo.get('geohash')}")
+        print(f"geo_tz:           {geo.get('geo_tz')}")
     else:
-        print("No GEO data (overlay relay or no GeoIP DB)")
+        print("No GEO data (overlay relay or no GeoIP City DB)")
+
+
+def print_net_results(nip66: Nip66) -> None:
+    """Print NET test results."""
+    print_separator("NET Results")
+    if nip66.net_metadata:
+        net = nip66.net_metadata.data
+        print(f"net_ip:         {net.get('net_ip')}")
+        print(f"net_ipv6:       {net.get('net_ipv6')}")
+        print(f"net_asn:        {net.get('net_asn')}")
+        print(f"net_asn_org:    {net.get('net_asn_org')}")
+        print(f"net_network:    {net.get('net_network')}")
+        print(f"net_network_v6: {net.get('net_network_v6')}")
+    else:
+        print("No NET data (overlay relay or no GeoIP ASN DB)")
 
 
 def print_dns_results(nip66: Nip66) -> None:
@@ -182,11 +219,12 @@ def print_dns_results(nip66: Nip66) -> None:
     print_separator("DNS Results")
     if nip66.dns_metadata:
         dns = nip66.dns_metadata.data
-        print(f"dns_ip:   {dns.get('dns_ip')}")
-        print(f"dns_ipv6: {dns.get('dns_ipv6')}")
-        print(f"dns_ns:   {dns.get('dns_ns')}")
-        print(f"dns_ttl:  {dns.get('dns_ttl')} seconds")
-        print(f"dns_rtt:  {dns.get('dns_rtt')} ms")
+        print(f"dns_ips:     {dns.get('dns_ips')}")
+        print(f"dns_ips_v6:  {dns.get('dns_ips_v6')}")
+        print(f"dns_cname:   {dns.get('dns_cname')}")
+        print(f"dns_ns:      {dns.get('dns_ns')}")
+        print(f"dns_reverse: {dns.get('dns_reverse')}")
+        print(f"dns_ttl:     {dns.get('dns_ttl')} seconds")
     else:
         print("No DNS data (overlay relay)")
 
@@ -209,8 +247,10 @@ def print_full_json(nip66: Nip66) -> None:
         "relay_url": nip66.relay.url,
         "generated_at": nip66.generated_at,
         "rtt": nip66.rtt_metadata.data if nip66.rtt_metadata else None,
+        "probe": nip66.probe_metadata.data if nip66.probe_metadata else None,
         "ssl": nip66.ssl_metadata.data if nip66.ssl_metadata else None,
         "geo": nip66.geo_metadata.data if nip66.geo_metadata else None,
+        "net": nip66.net_metadata.data if nip66.net_metadata else None,
         "dns": nip66.dns_metadata.data if nip66.dns_metadata else None,
         "http": nip66.http_metadata.data if nip66.http_metadata else None,
     }
@@ -244,23 +284,27 @@ async def test_bad_ssl_relay(
             relay,
             keys=keys,
             event_builder=EventBuilder.text_note("SmartTransport test"),
-            read_filter=Filter().limit(1),
+            read_filter=Filter().kind(Kind(1)).limit(1),
             city_reader=city_reader,
             asn_reader=asn_reader,
             timeout=15.0,
         )
 
         print("\nMetadata collected:")
-        print(f"  RTT:  {result.rtt_metadata is not None}")
+        print(f"  RTT:   {result.rtt_metadata is not None}")
         if result.rtt_metadata:
             rtt = result.rtt_metadata.data
-            print(f"        rtt_open={rtt.get('rtt_open')}ms")
-            print(f"        rtt_read={rtt.get('rtt_read')}ms")
-            print(f"        rtt_write={rtt.get('rtt_write')}ms")
-        print(f"  SSL:  {result.ssl_metadata is not None}")
+            print(f"         rtt_open={rtt.get('rtt_open')}ms")
+            print(f"         rtt_read={rtt.get('rtt_read')}ms")
+            print(f"         rtt_write={rtt.get('rtt_write')}ms")
+        print(f"  PROBE: {result.probe_metadata is not None}")
+        if result.probe_metadata:
+            probe = result.probe_metadata.data
+            print(f"         probe_write_success={probe.get('probe_write_success')}")
+        print(f"  SSL:   {result.ssl_metadata is not None}")
         if result.ssl_metadata:
             ssl_data = result.ssl_metadata.data
-            print(f"        ssl_valid={ssl_data.get('ssl_valid')} (expected: False)")
+            print(f"         ssl_valid={ssl_data.get('ssl_valid')} (expected: False)")
 
     except Nip66TestError as e:
         print(f"\nTest failed: {e}")
@@ -286,24 +330,29 @@ async def test_onion_relay(
             relay,
             keys=keys,
             event_builder=EventBuilder.text_note("Tor relay test"),
-            read_filter=Filter().limit(1),
+            read_filter=Filter().kind(Kind(1)).limit(1),
             proxy_url=proxy_url,
             timeout=30.0,  # Tor is slower
         )
 
         print("\nResults:")
-        print(f"  RTT:  {nip66.rtt_metadata is not None}")
+        print(f"  RTT:   {nip66.rtt_metadata is not None}")
         if nip66.rtt_metadata:
             rtt = nip66.rtt_metadata.data
-            print(f"        rtt_open={rtt.get('rtt_open')}ms")
-            print(f"        rtt_read={rtt.get('rtt_read')}ms")
-            print(f"        rtt_write={rtt.get('rtt_write')}ms")
-        print(f"  HTTP: {nip66.http_metadata is not None}")
+            print(f"         rtt_open={rtt.get('rtt_open')}ms")
+            print(f"         rtt_read={rtt.get('rtt_read')}ms")
+            print(f"         rtt_write={rtt.get('rtt_write')}ms")
+        print(f"  PROBE: {nip66.probe_metadata is not None}")
+        if nip66.probe_metadata:
+            probe = nip66.probe_metadata.data
+            print(f"         probe_open_success={probe.get('probe_open_success')}")
+        print(f"  HTTP:  {nip66.http_metadata is not None}")
         if nip66.http_metadata:
-            print(f"        server={nip66.http_metadata.data.get('http_server')}")
-        print(f"  SSL:  {nip66.ssl_metadata is not None} (expected: False - not for .onion)")
-        print(f"  DNS:  {nip66.dns_metadata is not None} (expected: False - not for .onion)")
-        print(f"  GEO:  {nip66.geo_metadata is not None} (expected: False - not for .onion)")
+            print(f"         server={nip66.http_metadata.data.get('http_server')}")
+        print(f"  SSL:   {nip66.ssl_metadata is not None} (expected: False - not for .onion)")
+        print(f"  DNS:   {nip66.dns_metadata is not None} (expected: False - not for .onion)")
+        print(f"  GEO:   {nip66.geo_metadata is not None} (expected: False - not for .onion)")
+        print(f"  NET:   {nip66.net_metadata is not None} (expected: False - not for .onion)")
 
     except Nip66TestError as e:
         print(f"\nTest failed: {e}")
@@ -323,6 +372,7 @@ async def test_selective(relay: Relay) -> None:
             relay,
             run_rtt=False,
             run_geo=False,
+            run_net=False,
             run_dns=False,
             run_http=False,
         )
@@ -339,10 +389,12 @@ async def test_selective(relay: Relay) -> None:
             run_rtt=False,
             run_ssl=False,
             run_geo=False,
+            run_net=False,
             run_http=False,
         )
         if nip66_dns.dns_metadata:
-            print(f"DNS IP: {nip66_dns.dns_metadata.data.get('dns_ip')}")
+            ips = nip66_dns.dns_metadata.data.get("dns_ips")
+            print(f"DNS IPs: {ips}")
     except Nip66TestError as e:
         print(f"DNS test failed: {e}")
 
@@ -359,6 +411,7 @@ async def test_error_handling(relay: Relay) -> None:
             run_rtt=True,
             run_ssl=False,
             run_geo=False,
+            run_net=False,
             run_dns=False,
             run_http=False,
         )
@@ -371,8 +424,10 @@ async def test_error_handling(relay: Relay) -> None:
         Nip66(
             relay=relay,
             rtt_metadata=Metadata({}),
+            probe_metadata=Metadata({}),
             ssl_metadata=Metadata({}),
             geo_metadata=Metadata({}),
+            net_metadata=Metadata({}),
             dns_metadata=Metadata({}),
             http_metadata=Metadata({}),
         )
@@ -385,32 +440,38 @@ def print_summary() -> None:
     print_separator("Summary")
     print("""
 Key Points:
-- RTT tests use models.Client wrapper with automatic TLS fallback
-- Clearnet: SSL fallback via _SmartWebSocketTransport
+- RTT tests use utils.transport.connect_relay with automatic TLS fallback
+- RTT test also collects probe_metadata with success/failure and raw rejection reasons
+- Clearnet: SSL fallback via connect_relay
 - Overlay (tor/i2p/loki): proxy via ConnectionMode.PROXY
 - Access fields via nip66.<type>_metadata.data["key"]
 - At least one metadata type must have data
 - RTT test requires: keys, event_builder, read_filter
+- Geo test requires: city_reader (GeoIP City DB)
+- Net test requires: asn_reader (GeoIP ASN DB)
 - Only RTT and HTTP tests use proxy_url
 
-Client Behavior:
-┌─────────────────────────────────────┬────────────────────────────────────┐
-│ Network                             │ Transport                          │
-├─────────────────────────────────────┼────────────────────────────────────┤
-│ Clearnet (wss://)                   │ _SmartWebSocketTransport           │
-│ Overlay (tor/i2p/loki)              │ ConnectionMode.PROXY               │
-└─────────────────────────────────────┴────────────────────────────────────┘
+Metadata Types (7 total):
+┌───────┬─────────────────────────────────────────────┬───────────────┐
+│ Type  │ Fields                                      │ Proxy Support │
+├───────┼─────────────────────────────────────────────┼───────────────┤
+│ RTT   │ rtt_open, rtt_read, rtt_write               │ Yes           │
+│ PROBE │ probe_open/read/write_success/reason        │ Yes           │
+│ HTTP  │ http_server, http_powered_by                │ Yes           │
+│ SSL   │ ssl_valid, ssl_protocol, ssl_issuer, ...    │ No (clearnet) │
+│ DNS   │ dns_ips, dns_ips_v6, dns_ns, dns_ttl, ...   │ No (clearnet) │
+│ GEO   │ geo_country, geo_city, geohash, geo_tz, ... │ No (clearnet) │
+│ NET   │ net_ip, net_ipv6, net_asn, net_asn_org, ... │ No (clearnet) │
+└───────┴─────────────────────────────────────────────┴───────────────┘
 
-Metadata Types:
-┌──────┬─────────────────────────────────────┬───────────────┐
-│ Type │ Fields                              │ Proxy Support │
-├──────┼─────────────────────────────────────┼───────────────┤
-│ RTT  │ rtt_open, rtt_read, rtt_write       │ Yes           │
-│ HTTP │ http_server, http_powered_by        │ Yes           │
-│ SSL  │ ssl_valid, ssl_protocol, ...        │ No (clearnet) │
-│ DNS  │ dns_ip, dns_ipv6, dns_ns, ...       │ No (clearnet) │
-│ GEO  │ geo_country, geo_city, geo_asn, ... │ No (clearnet) │
-└──────┴─────────────────────────────────────┴───────────────┘
+RelayMetadata Types for DB Storage:
+- nip66_rtt   - Round-trip times
+- nip66_probe - Probe test results (success/failure)
+- nip66_ssl   - SSL certificate data
+- nip66_geo   - Geolocation data
+- nip66_net   - Network/ASN data
+- nip66_dns   - DNS resolution data
+- nip66_http  - HTTP headers data
 """)
 
 
@@ -476,8 +537,10 @@ async def main() -> None:
 
         if nip66:
             print_rtt_results(nip66)
+            print_probe_results(nip66)
             print_ssl_results(nip66)
             print_geo_results(nip66)
+            print_net_results(nip66)
             print_dns_results(nip66)
             print_http_results(nip66)
 
