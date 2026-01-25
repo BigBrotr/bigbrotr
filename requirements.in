@@ -19,6 +19,7 @@ asyncpg>=0.29.0
 
 # DNS resolution
 dnspython>=2.5.0
+tldextract>=5.1.0
 
 # Geolocation
 geoip2>=4.8.0
