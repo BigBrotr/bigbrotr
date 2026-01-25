@@ -64,10 +64,12 @@ Complete NIP-66 metadata structures::
 
     # Net metadata - optional, requires GeoIP ASN database
     net_metadata = {
-        "net_ip": "1.2.3.4",  # Resolved IP address
+        "net_ip": "1.2.3.4",  # Resolved IPv4 address
+        "net_ipv6": "2606:4700::1",  # Resolved IPv6 address (if available)
         "net_asn": 13335,  # Autonomous System Number
         "net_asn_org": "Cloudflare",  # ASN organization name
-        "net_network": "1.2.3.0/24",  # Network CIDR
+        "net_network": "1.2.3.0/24",  # IPv4 network CIDR
+        "net_network_v6": "2606:4700::/32",  # IPv6 network CIDR (if available)
     }
 
     # DNS metadata - optional, clearnet only
@@ -227,10 +229,12 @@ class Nip66GeoData(TypedDict, total=False):
 class Nip66NetData(TypedDict, total=False):
     """Network metadata per NIP-66 (network identifiers)."""
 
-    net_ip: str  # Resolved IP address
+    net_ip: str  # Resolved IPv4 address
+    net_ipv6: str  # Resolved IPv6 address (if available)
     net_asn: int  # Autonomous System Number
     net_asn_org: str  # ASN organization name
-    net_network: str  # Network CIDR
+    net_network: str  # IPv4 network CIDR
+    net_network_v6: str  # IPv6 network CIDR (if available)
 
 
 class Nip66DnsData(TypedDict, total=False):
@@ -717,18 +721,36 @@ class Nip66:
             logger.debug("_test_geo: skipped (non-clearnet) relay=%s", relay.url)
             raise Nip66TestError(relay, ValueError("Geo test not applicable (non-clearnet)"))
 
-        data: dict[str, Any] = {}
+        # Resolve hostname to IP (prefer IPv4, fallback to IPv6)
+        logger.debug("_test_geo: resolving host=%s", relay.host)
+        ip: str | None = None
+
         try:
-            # Resolve hostname to IP independently
-            logger.debug("_test_geo: resolving host=%s", relay.host)
             ip = await asyncio.to_thread(socket.gethostbyname, relay.host)
-            logger.debug("_test_geo: resolved ip=%s relay=%s", ip, relay.url)
-            data = await asyncio.to_thread(cls._lookup_geo_sync, ip, city_reader)
-            logger.debug(
-                "_test_geo: completed relay=%s country=%s", relay.url, data.get("geo_country")
-            )
+            logger.debug("_test_geo: resolved ipv4=%s relay=%s", ip, relay.url)
         except Exception as e:
-            logger.debug("_test_geo: error relay=%s error=%s", relay.url, e)
+            logger.debug("_test_geo: ipv4 resolution failed relay=%s error=%s", relay.url, e)
+
+        if ip is None:
+            try:
+                ipv6_result = await asyncio.to_thread(
+                    socket.getaddrinfo, relay.host, None, socket.AF_INET6
+                )
+                if ipv6_result:
+                    ip = str(ipv6_result[0][4][0])
+                    logger.debug("_test_geo: resolved ipv6=%s relay=%s", ip, relay.url)
+            except Exception as e:
+                logger.debug("_test_geo: ipv6 resolution failed relay=%s error=%s", relay.url, e)
+
+        data: dict[str, Any] = {}
+        if ip:
+            try:
+                data = await asyncio.to_thread(cls._lookup_geo_sync, ip, city_reader)
+                logger.debug(
+                    "_test_geo: completed relay=%s country=%s", relay.url, data.get("geo_country")
+                )
+            except Exception as e:
+                logger.debug("_test_geo: lookup failed relay=%s error=%s", relay.url, e)
 
         if not data:
             logger.warning("_test_geo: no data relay=%s", relay.url)
@@ -814,7 +836,7 @@ class Nip66:
     ) -> Metadata:
         """Lookup network/ASN info for relay.
 
-        Resolves hostname to IP independently, then performs ASN lookup.
+        Resolves hostname to IPv4 and IPv6 independently, then performs ASN lookup.
         Only works for clearnet relays (overlay networks have no public IP).
 
         Raises:
@@ -826,16 +848,32 @@ class Nip66:
             logger.debug("_test_net: skipped (non-clearnet) relay=%s", relay.url)
             raise Nip66TestError(relay, ValueError("Net test not applicable (non-clearnet)"))
 
-        data: dict[str, Any] = {}
+        # Resolve hostname to IPv4 and IPv6 independently
+        logger.debug("_test_net: resolving host=%s", relay.host)
+        ipv4: str | None = None
+        ipv6: str | None = None
+
         try:
-            # Resolve hostname to IP independently
-            logger.debug("_test_net: resolving host=%s", relay.host)
-            ip = await asyncio.to_thread(socket.gethostbyname, relay.host)
-            logger.debug("_test_net: resolved ip=%s relay=%s", ip, relay.url)
-            data = await asyncio.to_thread(cls._lookup_net_sync, ip, asn_reader)
-            logger.debug("_test_net: completed relay=%s asn=%s", relay.url, data.get("net_asn"))
+            ipv4 = await asyncio.to_thread(socket.gethostbyname, relay.host)
+            logger.debug("_test_net: resolved ipv4=%s relay=%s", ipv4, relay.url)
         except Exception as e:
-            logger.debug("_test_net: error relay=%s error=%s", relay.url, e)
+            logger.debug("_test_net: ipv4 resolution failed relay=%s error=%s", relay.url, e)
+
+        try:
+            ipv6_result = await asyncio.to_thread(
+                socket.getaddrinfo, relay.host, None, socket.AF_INET6
+            )
+            if ipv6_result:
+                ipv6 = str(ipv6_result[0][4][0])
+                logger.debug("_test_net: resolved ipv6=%s relay=%s", ipv6, relay.url)
+        except Exception as e:
+            logger.debug("_test_net: ipv6 resolution failed relay=%s error=%s", relay.url, e)
+
+        # Lookup ASN info if we have at least one IP
+        data: dict[str, Any] = {}
+        if ipv4 or ipv6:
+            data = await asyncio.to_thread(cls._lookup_net_sync, ipv4, ipv6, asn_reader)
+            logger.debug("_test_net: completed relay=%s asn=%s", relay.url, data.get("net_asn"))
 
         if not data:
             logger.warning("_test_net: no data relay=%s", relay.url)
@@ -844,22 +882,42 @@ class Nip66:
 
     @staticmethod
     def _lookup_net_sync(
-        ip: str,
+        ipv4: str | None,
+        ipv6: str | None,
         asn_reader: geoip2.database.Reader,
     ) -> dict[str, Any]:
-        """Synchronous network/ASN lookup."""
-        result: dict[str, Any] = {"net_ip": ip}
+        """Synchronous network/ASN lookup for both IPv4 and IPv6."""
+        result: dict[str, Any] = {}
 
-        try:
-            asn_response = asn_reader.asn(ip)
-            if asn_response.autonomous_system_number:
-                result["net_asn"] = asn_response.autonomous_system_number
-            if asn_response.autonomous_system_organization:
-                result["net_asn_org"] = asn_response.autonomous_system_organization
-            if asn_response.network:
-                result["net_network"] = str(asn_response.network)
-        except Exception:
-            pass
+        # Lookup IPv4
+        if ipv4:
+            result["net_ip"] = ipv4
+            try:
+                asn_response = asn_reader.asn(ipv4)
+                if asn_response.autonomous_system_number:
+                    result["net_asn"] = asn_response.autonomous_system_number
+                if asn_response.autonomous_system_organization:
+                    result["net_asn_org"] = asn_response.autonomous_system_organization
+                if asn_response.network:
+                    result["net_network"] = str(asn_response.network)
+            except Exception:
+                pass
+
+        # Lookup IPv6
+        if ipv6:
+            result["net_ipv6"] = ipv6
+            try:
+                asn_response = asn_reader.asn(ipv6)
+                if asn_response.network:
+                    result["net_network_v6"] = str(asn_response.network)
+                # Only set ASN from IPv6 if not already set from IPv4
+                if "net_asn" not in result:
+                    if asn_response.autonomous_system_number:
+                        result["net_asn"] = asn_response.autonomous_system_number
+                    if asn_response.autonomous_system_organization:
+                        result["net_asn_org"] = asn_response.autonomous_system_organization
+            except Exception:
+                pass
 
         return result
 
@@ -914,7 +972,8 @@ class Nip66:
             ips = [rdata.address for rdata in answers]
             if ips:
                 result["dns_ips"] = ips
-                result["dns_ttl"] = answers.rrset.ttl if answers.rrset else None
+                if answers.rrset:
+                    result["dns_ttl"] = answers.rrset.ttl
         except Exception:
             pass
 
@@ -936,12 +995,14 @@ class Nip66:
         except Exception:
             pass
 
-        # NS records (for the domain, not the host)
+        # NS records (for the registered domain, not the full host)
         try:
-            # Extract domain from host (e.g., relay.example.com -> example.com)
-            parts = host.split(".")
-            if len(parts) >= 2:
-                domain = ".".join(parts[-2:])
+            import tldextract
+
+            # Extract registered domain (handles .co.uk, .com.br, etc.)
+            ext = tldextract.extract(host)
+            if ext.domain and ext.suffix:
+                domain = f"{ext.domain}.{ext.suffix}"
                 answers = resolver.resolve(domain, "NS")
                 ns_list = [str(rdata.target).rstrip(".") for rdata in answers]
                 if ns_list:
@@ -1004,9 +1065,8 @@ class Nip66:
             raise Nip66TestError(relay, ValueError("HTTP test returned no data"))
         return Metadata(data)
 
-    @classmethod
+    @staticmethod
     async def _check_http(
-        cls,
         relay: Relay,
         timeout: float,
         proxy_url: str | None = None,
@@ -1027,7 +1087,7 @@ class Nip66:
 
         # Build URL for HTTP request (convert ws:// to http://, wss:// to https://)
         scheme = "https" if relay.scheme == "wss" else "http"
-        port = relay.port or (443 if relay.scheme == "wss" else 80)
+        port = relay.port or (Relay._PORT_WSS if relay.scheme == "wss" else Relay._PORT_WS)
         path = relay.path or "/"
         url = f"{scheme}://{relay.host}:{port}{path}"
 

@@ -348,6 +348,7 @@ module = [
     "geoip2.*",
     "dns.*",
     "prometheus_client.*",
+    "tldextract.*",
 ]
 ignore_missing_imports = true
 
