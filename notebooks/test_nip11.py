@@ -4,7 +4,7 @@ Test NIP-11 Relay Information Document
 
 Interactive script for testing the `Nip11` model:
 - Fetch NIP-11 documents from relays (clearnet and overlay networks)
-- Data access via `metadata.data["key"]`
+- Data access via `metadata.data["key"]` and convenience properties
 - Proxy support for Tor/I2P/Loki relays
 - Parsing and validation
 - Error handling
@@ -103,6 +103,14 @@ async def test_basic_fetch(
         print(f"\nFetch failed: {e}")
         print(f"Cause: {type(e.cause).__name__}: {e.cause}")
         return None
+
+
+def print_convenience_properties(nip11: Nip11) -> None:
+    """Print convenience properties."""
+    print_separator("Convenience Properties")
+    print(f"name:           {nip11.name}")
+    print(f"supported_nips: {nip11.supported_nips}")
+    print(f"tags:           {nip11.tags}")
 
 
 def print_base_fields(nip11: Nip11) -> None:
@@ -236,9 +244,8 @@ async def test_multiple_relays(relay_urls: list[str], timeout: float = 5.0) -> N
     print("\nResults:")
     for url, nip11, error in results:
         if nip11:
-            data = nip11.metadata.data
-            nips = data.get("supported_nips") or []
-            name = data.get("name") or "No name"
+            nips = nip11.supported_nips or []
+            name = nip11.name or "No name"
             print(f"  ✓ {url}")
             print(f"      name: {name}")
             print(f"      nips: {len(nips)}")
@@ -258,12 +265,11 @@ async def test_onion_relay(proxy_url: str, timeout: float = 30.0) -> None:
 
     try:
         nip11 = await Nip11.fetch(relay, timeout=timeout, proxy_url=proxy_url)
-        data = nip11.metadata.data
         print("\nFetch successful!")
-        print(f"name: {data.get('name')}")
-        print(f"software: {data.get('software')}")
-        print(f"version: {data.get('version')}")
-        nips = data.get("supported_nips") or []
+        print(f"name: {nip11.name}")
+        print(f"software: {nip11.metadata.data.get('software')}")
+        print(f"version: {nip11.metadata.data.get('version')}")
+        nips = nip11.supported_nips or []
         print(f"nips: {len(nips)}")
 
     except Nip11FetchError as e:
@@ -293,12 +299,11 @@ async def test_synthetic_data() -> None:
     }
 
     nip11 = Nip11(relay=test_relay, metadata=Metadata(synthetic_data))
-    data = nip11.metadata.data
 
-    print(f"name:           {data.get('name')}")
-    print(f"supported_nips: {data.get('supported_nips')}")
-    print(f"limitation:     {data.get('limitation')}")
-    print(f"fees:           {data.get('fees')}")
+    print(f"name:           {nip11.name}")
+    print(f"supported_nips: {nip11.supported_nips}")
+    print(f"limitation:     {nip11.limitation}")
+    print(f"fees:           {nip11.metadata.data.get('fees')}")
 
 
 async def test_parsing_edge_cases() -> None:
@@ -316,10 +321,9 @@ async def test_parsing_edge_cases() -> None:
     }
 
     nip11_invalid = Nip11(relay=test_relay, metadata=Metadata(invalid_data))
-    data = nip11_invalid.metadata.data
-    print(f"name: {data.get('name')} (was int -> None)")
-    print(f"description: {data.get('description')}")
-    print(f"supported_nips: {data.get('supported_nips')} (filtered non-ints)")
+    print(f"name: {nip11_invalid.name} (was int -> None)")
+    print(f"description: {nip11_invalid.metadata.data.get('description')}")
+    print(f"supported_nips: {nip11_invalid.supported_nips} (filtered non-ints)")
 
     # Empty iterables become None
     print("\n--- Empty Iterables ---")
@@ -330,10 +334,9 @@ async def test_parsing_edge_cases() -> None:
     }
 
     nip11_empty = Nip11(relay=test_relay, metadata=Metadata(empty_data))
-    data = nip11_empty.metadata.data
-    print(f"name: {data.get('name')}")
-    print(f"supported_nips: {data.get('supported_nips')} (was [] -> None)")
-    print(f"relay_countries: {data.get('relay_countries')} (was [] -> None)")
+    print(f"name: {nip11_empty.name}")
+    print(f"supported_nips: {nip11_empty.supported_nips} (was [] -> None)")
+    print(f"relay_countries: {nip11_empty.metadata.data.get('relay_countries')} (was [] -> None)")
 
 
 async def test_error_handling() -> None:
@@ -367,10 +370,12 @@ def print_summary() -> None:
     print("""
 Key Points:
 - Access fields via nip11.metadata.data["key"]
+- Convenience properties: name, supported_nips, limitation, retention, tags
 - All schema keys are present (with None for missing)
 - Invalid types are silently converted to None
 - Empty iterables become None
 - Use proxy_url for Tor/I2P/Loki relays
+- SSL fallback: clearnet relays with invalid certs retry with allow_insecure=True
 
 NIP-11 Structure:
 ┌─────────────────────────────────────────────────────────────┐
@@ -455,6 +460,7 @@ async def main() -> None:
         )
 
         if nip11:
+            print_convenience_properties(nip11)
             print_base_fields(nip11)
             print_nips(nip11)
             print_limitation(nip11)
