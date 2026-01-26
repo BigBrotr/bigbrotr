@@ -710,7 +710,7 @@ class Monitor(BaseService[MonitorConfig]):
 
         semaphore = self._semaphores.get(relay.network)
         if semaphore is None:
-            self._logger.warning("unknown_network", url=relay.url, network=relay.network)
+            self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
             return empty
 
         async with semaphore:
@@ -899,7 +899,8 @@ class Monitor(BaseService[MonitorConfig]):
         Rate-limited to once per interval. Timestamp persisted in service_data.
         """
         ann = self._config.announcement
-        if not ann.enabled or not self._get_announcement_relays() or self._keys is None:
+        relays = self._get_announcement_relays()
+        if not ann.enabled or not relays or self._keys is None:
             return
 
         last_announcement = await self._get_cursor_timestamp("last_announcement")
@@ -908,7 +909,6 @@ class Monitor(BaseService[MonitorConfig]):
             return
 
         try:
-            relays = self._get_announcement_relays()
             builder = self._build_kind_10166()
             await self._broadcast_events([builder], relays)
             self._logger.info("announcement_published", relays=len(relays))
@@ -922,7 +922,8 @@ class Monitor(BaseService[MonitorConfig]):
         Rate-limited to once per interval. Timestamp persisted in service_data.
         """
         profile = self._config.profile
-        if not profile.enabled or not self._get_profile_relays() or self._keys is None:
+        relays = self._get_profile_relays()
+        if not profile.enabled or not relays or self._keys is None:
             return
 
         last_profile = await self._get_cursor_timestamp("last_profile")
@@ -931,7 +932,6 @@ class Monitor(BaseService[MonitorConfig]):
             return
 
         try:
-            relays = self._get_profile_relays()
             builder = self._build_kind_0()
             await self._broadcast_events([builder], relays)
             self._logger.info("profile_published", relays=len(relays))
@@ -949,7 +949,8 @@ class Monitor(BaseService[MonitorConfig]):
             successful: List of (relay, result) tuples from successful checks.
         """
         disc = self._config.discovery
-        if not disc.enabled or not self._get_discovery_relays() or self._keys is None:
+        relays = self._get_discovery_relays()
+        if not disc.enabled or not relays or self._keys is None:
             return
 
         builders: list[EventBuilder] = []
@@ -961,7 +962,7 @@ class Monitor(BaseService[MonitorConfig]):
 
         if builders:
             try:
-                await self._broadcast_events(builders, self._get_discovery_relays())
+                await self._broadcast_events(builders, relays)
                 self._logger.debug("discoveries_published", count=len(builders))
             except Exception as e:
                 self._logger.warning(
