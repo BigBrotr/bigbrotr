@@ -86,26 +86,27 @@ concurrency:
 
 events:
   enabled: true
-  batch_size: 1000
-  kinds: [2, 3, 10002]  # Kinds to scan for relay URLs
+  batch_size: 1000                # Events per batch (Range: 100-10000)
+  kinds: [2, 3, 10002]            # Kinds to scan for relay URLs
 
 api:
   enabled: true
+  verify_ssl: true                # Verify TLS certificates
   sources:
     - url: "https://api.nostr.watch/v1/online"
       enabled: true
-      timeout: 30.0
+      timeout: 30.0               # Range: 0.1-120.0
     - url: "https://api.nostr.watch/v1/offline"
       enabled: true
-      timeout: 30.0
+      timeout: 30.0               # Range: 0.1-120.0
   delay_between_requests: 1.0
 ```
 
 **Configuration Models**:
 - `ConcurrencyConfig`: max_parallel (1-20)
-- `EventsConfig`: enabled, batch_size, kinds
-- `ApiSourceConfig`: url, enabled, timeout
-- `ApiConfig`: enabled, sources, delay_between_requests
+- `EventsConfig`: enabled, batch_size (100-10000), kinds
+- `ApiSourceConfig`: url, enabled, timeout (0.1-120.0)
+- `ApiConfig`: enabled, verify_ssl, sources, delay_between_requests
 
 ### Discovery Sources
 
@@ -332,44 +333,67 @@ networks:
     max_tasks: 5
     timeout: 60.0
 
-keys: {}  # Keys loaded from PRIVATE_KEY env var
+keys:
+  # Keys loaded from PRIVATE_KEY environment variable
+  # Required for: write tests, publishing discovery/announcement events
 
 publishing:
-  enabled: true
-  destination: "monitored_relay"  # or "configured_relays", "database_only"
-  relays: []
+  relays: []                      # Default relay list for publishing
 
-checks:
-  open: true
-  read: true
-  write: true
-  nip11: true
-  ssl: true
-  dns: true
-  geo: true
+discovery:
+  enabled: true
+  interval: 3600                  # Re-check interval (Range: >= 60)
+  include:                        # Metadata to include in Kind 30166 events
+    nip11: true
+    nip66_rtt: true
+    nip66_probe: true
+    nip66_ssl: true
+    nip66_geo: true
+    nip66_net: true
+    nip66_dns: true
+    nip66_http: true
+
+announcement:
+  enabled: true
+  interval: 86400                 # Kind 10166 announcement interval
 
 geo:
   city_database_path: "static/GeoLite2-City.mmdb"
   asn_database_path: "static/GeoLite2-ASN.mmdb"
-  country_database_path: "static/GeoLite2-Country.mmdb"
-  update_frequency: "monthly"
+  city_download_url: "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb"
+  asn_download_url: "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb"
+  max_age_days: 30                # Auto-update if older (null = never)
 
-concurrency:
-  max_processes: 1
-  batch_size: 50
-
-selection:
-  min_age_since_check: 3600
+processing:
+  chunk_size: 100                 # Relays per batch (Range: 10-1000)
+  compute:                        # What metadata to compute
+    nip11: true
+    nip66_rtt: true
+    nip66_probe: true
+    nip66_ssl: true
+    nip66_geo: true
+    nip66_net: true
+    nip66_dns: true
+    nip66_http: true
+  store:                          # What to store in database
+    nip11: true
+    nip66_rtt: true
+    nip66_probe: true
+    nip66_ssl: true
+    nip66_geo: true
+    nip66_net: true
+    nip66_dns: true
+    nip66_http: true
 ```
 
 **Configuration Models**:
 - `NetworkConfig`: clearnet, tor, i2p, loki (each with enabled, proxy_url, max_tasks, timeout)
 - `KeysConfig`: keys (loaded from PRIVATE_KEY env)
-- `PublishingConfig`: enabled, destination, relays
-- `ChecksConfig`: open, read, write, nip11, ssl, dns, geo
-- `GeoConfig`: city_database_path, asn_database_path, country_database_path, update_frequency
-- `ConcurrencyConfig`: max_processes, batch_size
-- `SelectionConfig`: min_age_since_check
+- `PublishingConfig`: relays (default relay list)
+- `DiscoveryConfig`: enabled, interval, include (metadata flags)
+- `AnnouncementConfig`: enabled, interval
+- `GeoConfig`: city_database_path, asn_database_path, city_download_url, asn_download_url, max_age_days
+- `ProcessingConfig`: chunk_size (10-1000), compute, store
 
 ### NIP-66 Checks
 
@@ -377,15 +401,15 @@ selection:
 **NIP-66 Tests**:
 - Open: WebSocket connection test
 - Read: REQ/EOSE subscription test
-- Write: EVENT/OK publication test
+- Write: EVENT/OK publication test (requires PRIVATE_KEY)
 - DNS: Measure resolution time
 - SSL: Validate certificate
-- Geo: Geolocate relay IP
+- Geo: Geolocate relay IP (auto-downloads MaxMind databases if missing)
 
 ### Publishing
 
-**Kind 30166**: Relay discovery events (published to monitored relay or configured relays)
-**Kind 10166**: Monitor announcements (published hourly)
+**Kind 30166**: Relay discovery events (published to configured relays)
+**Kind 10166**: Monitor announcements (published at configured interval)
 
 ### Public Methods
 
@@ -477,6 +501,10 @@ networks:
     max_tasks: 3
     timeout: 60.0
 
+keys:
+  # Keys loaded from PRIVATE_KEY environment variable
+  # Used for NIP-42 authentication with relays that require it
+
 filter:
   ids: null  # List of event IDs (None = all)
   kinds: null  # List of event kinds (None = all)
@@ -514,6 +542,7 @@ overrides:
 
 **Configuration Models**:
 - `NetworkConfig`: clearnet, tor, i2p, loki (each with enabled, proxy_url, max_tasks, timeout)
+- `KeysConfig`: keys (loaded from PRIVATE_KEY env, for NIP-42 auth)
 - `FilterConfig`: ids, kinds, authors, tags, limit
 - `TimeRangeConfig`: default_start, use_relay_state, lookback_seconds
 - `SyncTimeoutsConfig`: relay_clearnet, relay_tor, relay_i2p, relay_loki
@@ -654,11 +683,11 @@ python -m services synchronizer --help
 ### Service Development Template
 
 ```python
-from core import BaseService
+from core import BaseService, BaseServiceConfig
 from core import Brotr
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-class MyServiceConfig(BaseModel):
+class MyServiceConfig(BaseServiceConfig):
     interval: float = Field(default=60.0, ge=10.0)
     batch_size: int = Field(default=100, ge=1, le=1000)
 

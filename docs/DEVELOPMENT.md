@@ -110,15 +110,37 @@ bigbrotr/
 │
 ├── tests/                            # Test suite
 │   ├── conftest.py                   # Shared fixtures
+│   ├── integration/                  # Integration tests
+│   │   └── __init__.py
 │   └── unit/                         # Unit tests
 │       ├── __init__.py
-│       ├── test_pool.py
-│       ├── test_brotr.py
-│       ├── test_seeder.py
-│       ├── test_finder.py
-│       ├── test_monitor.py
-│       ├── test_synchronizer.py
-│       └── test_logger.py
+│       ├── core/                     # Core layer tests
+│       │   ├── test_pool.py
+│       │   ├── test_brotr.py
+│       │   ├── test_base_service.py
+│       │   ├── test_metrics.py
+│       │   └── test_logger.py
+│       ├── models/                   # Models layer tests
+│       │   ├── test_event.py
+│       │   ├── test_relay.py
+│       │   ├── test_event_relay.py
+│       │   ├── test_metadata.py
+│       │   ├── test_relay_metadata.py
+│       │   ├── test_nip11.py
+│       │   └── test_nip66.py
+│       ├── services/                 # Services layer tests
+│       │   ├── test_seeder.py
+│       │   ├── test_finder.py
+│       │   ├── test_validator.py
+│       │   ├── test_monitor.py
+│       │   ├── test_synchronizer.py
+│       │   └── test_cli.py
+│       └── utils/                    # Utils layer tests
+│           ├── test_network.py
+│           ├── test_parsing.py
+│           ├── test_transport.py
+│           ├── test_yaml.py
+│           └── test_keys.py
 │
 ├── docs/                             # Documentation
 │   ├── ARCHITECTURE.md
@@ -180,13 +202,13 @@ xdg-open htmlcov/index.html  # Linux
 
 ```bash
 # Run single test file
-pytest tests/test_pool.py -v
+pytest tests/unit/core/test_pool.py -v
 
 # Run single test class
-pytest tests/test_pool.py::TestPool -v
+pytest tests/unit/core/test_pool.py::TestPool -v
 
 # Run single test method
-pytest tests/test_pool.py::TestPool::test_init_with_defaults -v
+pytest tests/unit/core/test_pool.py::TestPool::test_init_with_defaults -v
 
 # Run tests matching pattern
 pytest -k "health_check" -v
@@ -350,19 +372,24 @@ From `.pre-commit-config.yaml`:
 My Service - Description of what it does.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-from core.base_service import BaseService
+from core.base_service import BaseService, BaseServiceConfig
 from core.brotr import Brotr
 from core.logger import Logger
 
 SERVICE_NAME = "myservice"
 
 
-class MyServiceConfig(BaseModel):
-    """Configuration for MyService."""
+class MyServiceConfig(BaseServiceConfig):
+    """Configuration for MyService.
 
-    interval: float = Field(default=300.0, ge=60.0, description="Cycle interval in seconds")
+    Inherits from BaseServiceConfig which provides:
+    - interval: float (default 300.0, min 60.0)
+    - max_consecutive_failures: int (default 5)
+    - metrics: MetricsConfig
+    """
+
     some_setting: str = Field(default="value", description="Description")
 
 
@@ -394,7 +421,6 @@ class MyService(BaseService[MyServiceConfig]):
         """Internal work method."""
         # Access config: self._config.some_setting
         # Access database: self._brotr.pool.fetch(...)
-        # Access state: self._state["key"]
         pass
 ```
 
@@ -434,7 +460,7 @@ __all__ = [
 ### 5. Write Tests
 
 ```python
-# tests/test_myservice.py
+# tests/unit/services/test_myservice.py
 """Unit tests for MyService."""
 
 import pytest

@@ -307,10 +307,9 @@ MAX_CONSECUTIVE_FAILURES: ClassVar[int] = 5
 
 **Example**:
 ```python
-from core import BaseService
-from pydantic import BaseModel
+from core import BaseService, BaseServiceConfig
 
-class MyServiceConfig(BaseModel):
+class MyServiceConfig(BaseServiceConfig):
     interval: float = 60.0
 
 class MyService(BaseService[MyServiceConfig]):
@@ -557,10 +556,9 @@ Services add their own metrics via `set_gauge()` and `inc_counter()` helpers.
 ### Complete Service Example
 
 ```python
-from core import Pool, Brotr, BaseService
-from pydantic import BaseModel
+from core import Pool, Brotr, BaseService, BaseServiceConfig
 
-class MyConfig(BaseModel):
+class MyConfig(BaseServiceConfig):
     interval: float = 60.0
 
 class MyService(BaseService[MyConfig]):

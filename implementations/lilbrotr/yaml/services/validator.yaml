@@ -18,7 +18,7 @@ metrics:
 
 # Processing configuration
 processing:
-  chunk_size: 100            # Candidates per batch
+  chunk_size: 100            # Candidates per batch (Range: 10-1000)
   max_candidates: 200        # Limit per run (default: null = unlimited)
 
 # Cleanup configuration

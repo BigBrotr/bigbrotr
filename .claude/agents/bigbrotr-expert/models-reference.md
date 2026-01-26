@@ -269,7 +269,10 @@ RelayMetadata(
 
 **Metadata Types**:
 ```python
-MetadataType = Literal["nip11", "nip66_rtt", "nip66_ssl", "nip66_geo"]
+MetadataType = Literal[
+    "nip11", "nip66_rtt", "nip66_probe", "nip66_ssl",
+    "nip66_geo", "nip66_net", "nip66_dns", "nip66_http"
+]
 ```
 
 ### Attributes
@@ -471,10 +474,14 @@ snapshot_at: int
 ```python
 def to_relay_metadata() -> list[RelayMetadata]
 ```
-Convert to list of RelayMetadata (up to 3):
-1. `nip66_rtt` (always)
-2. `nip66_ssl` (if available)
-3. `nip66_geo` (if available)
+Convert to list of RelayMetadata (up to 8 types):
+1. `nip66_rtt` - RTT and basic connectivity data
+2. `nip66_probe` - Detailed probe results
+3. `nip66_ssl` - SSL/TLS certificate data (clearnet only)
+4. `nip66_geo` - Geolocation data (clearnet only)
+5. `nip66_net` - Network information
+6. `nip66_dns` - DNS resolution data
+7. `nip66_http` - HTTP header data
 
 ### Examples
 

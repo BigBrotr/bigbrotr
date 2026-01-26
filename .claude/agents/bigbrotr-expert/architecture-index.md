@@ -4,7 +4,7 @@ Quick reference for BigBrotr component relationships and design patterns.
 
 ---
 
-## Three-Layer Architecture
+## Four-Layer Architecture
 
 ```
 +===============================================================+
@@ -145,7 +145,7 @@ External Sources
 ```python
 # Constructor injection
 class MyService(BaseService[MyServiceConfig]):
-    def __init__(self, config: MyServiceConfig, brotr: Brotr):
+    def __init__(self, brotr: Brotr, config: MyServiceConfig):
         super().__init__(config)
         self._brotr = brotr  # Injected dependency
 
@@ -439,14 +439,15 @@ candidates = await brotr.get_service_data("validator", "candidate")
 
 ## Architecture Decision Records
 
-### ADR-001: Three-Layer Separation
+### ADR-001: Four-Layer Separation
 
-**Decision:** Separate Implementation, Service, and Core layers
+**Decision:** Separate Implementation, Service, Core, and Utils layers
 
 **Rationale:**
 - Multiple implementations (bigbrotr, lilbrotr) share same services
 - Services focus on business logic, not database details
 - Core provides reusable infrastructure
+- Utils provides shared utilities (NetworkConfig, BatchProgress, transport, etc.)
 - Clear separation of concerns
 
 **Consequences:**
@@ -638,15 +639,18 @@ bigbrotr/
 │
 └── tests/
     ├── conftest.py                # Shared fixtures
-    ├── core/
-    │   ├── test_logger.py
-    │   ├── test_pool.py
-    │   ├── test_brotr.py
-    │   └── test_base_service.py
-    ├── models/
-    │   └── test_*.py
-    └── services/
-        └── test_*.py
+    └── unit/
+        ├── core/
+        │   ├── test_logger.py
+        │   ├── test_pool.py
+        │   ├── test_brotr.py
+        │   └── test_base_service.py
+        ├── models/
+        │   └── test_*.py
+        ├── services/
+        │   └── test_*.py
+        └── utils/
+            └── test_*.py
 ```
 
 ---

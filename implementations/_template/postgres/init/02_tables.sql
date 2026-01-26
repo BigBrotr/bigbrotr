@@ -135,7 +135,7 @@ COMMENT ON COLUMN metadata.data IS 'Complete JSON document (NIP-11 or NIP-66 dat
 CREATE TABLE IF NOT EXISTS relay_metadata (
     relay_url TEXT NOT NULL,
     generated_at BIGINT NOT NULL,
-    type TEXT NOT NULL,                      -- nip11, nip66_rtt, nip66_ssl, nip66_geo
+    type TEXT NOT NULL,                      -- nip11, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
     metadata_id BYTEA NOT NULL,
     PRIMARY KEY (relay_url, generated_at, type),
     FOREIGN KEY (relay_url) REFERENCES relays (url) ON DELETE CASCADE,
@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
 COMMENT ON TABLE relay_metadata IS 'Time-series relay metadata snapshots (references metadata records by type)';
 COMMENT ON COLUMN relay_metadata.relay_url IS 'Reference to relays.url';
 COMMENT ON COLUMN relay_metadata.generated_at IS 'Unix timestamp when metadata was generated/collected';
-COMMENT ON COLUMN relay_metadata.type IS 'Metadata type: nip11, nip66_rtt, nip66_ssl, nip66_geo, nip66_dns, or nip66_http';
+COMMENT ON COLUMN relay_metadata.type IS 'Metadata type: nip11, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
 COMMENT ON COLUMN relay_metadata.metadata_id IS 'Reference to metadata.id';
 
 

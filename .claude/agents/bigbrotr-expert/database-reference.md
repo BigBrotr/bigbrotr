@@ -32,7 +32,7 @@ CREATE TABLE relays (
 
 **Columns**:
 - `url`: WebSocket URL (e.g., "wss://relay.example.com")
-- `network`: Network type ("clearnet" or "tor")
+- `network`: Network type ("clearnet", "tor", "i2p", or "loki")
 - `discovered_at`: Unix timestamp when relay was first discovered and validated
 
 **Purpose**: Only validated relays (passed Validator service) are stored here. Candidates are stored in `service_data`.
@@ -118,20 +118,21 @@ Time-series metadata snapshots linking relays to metadata records.
 ```sql
 CREATE TABLE relay_metadata (
     relay_url       TEXT    NOT NULL,
-    snapshot_at     BIGINT  NOT NULL,
+    generated_at    BIGINT  NOT NULL,
     type            TEXT    NOT NULL,
     metadata_id     BYTEA   NOT NULL,
-    PRIMARY KEY (relay_url, snapshot_at, type),
+    PRIMARY KEY (relay_url, generated_at, type),
     FOREIGN KEY (relay_url)    REFERENCES relays(url)    ON DELETE CASCADE,
     FOREIGN KEY (metadata_id)  REFERENCES metadata(id)   ON DELETE CASCADE,
-    CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo'))
+    CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_probe', 'nip66_ssl',
+                    'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http'))
 );
 ```
 
 **Columns**:
 - `relay_url`: Reference to relays.url
-- `snapshot_at`: Unix timestamp when metadata was collected
-- `type`: Metadata type ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo')
+- `generated_at`: Unix timestamp when metadata was collected
+- `type`: Metadata type ('nip11', 'nip66_rtt', 'nip66_probe', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http')
 - `metadata_id`: Reference to metadata.id
 
 **Purpose**: Tracks metadata changes over time. Each relay can have multiple snapshots per type.
@@ -329,8 +330,12 @@ Latest NIP-11 and NIP-66 data per relay.
 - `relay_url`, `network`, `discovered_at`
 - `nip11_at`, `nip11_id`, `nip11_data`
 - `nip66_rtt_at`, `nip66_rtt_id`, `nip66_rtt_data`
+- `nip66_probe_at`, `nip66_probe_id`, `nip66_probe_data`
 - `nip66_ssl_at`, `nip66_ssl_id`, `nip66_ssl_data`
 - `nip66_geo_at`, `nip66_geo_id`, `nip66_geo_data`
+- `nip66_net_at`, `nip66_net_id`, `nip66_net_data`
+- `nip66_dns_at`, `nip66_dns_id`, `nip66_dns_data`
+- `nip66_http_at`, `nip66_http_id`, `nip66_http_data`
 - `rtt_open`, `rtt_read`, `rtt_write`
 - `is_openable`, `is_readable`, `is_writable`
 - `ssl_valid`, `ssl_issuer`, `ssl_expires`

@@ -89,7 +89,7 @@ CREATE TABLE relays (
 | Column | Type | Description |
 |--------|------|-------------|
 | `url` | TEXT (PK) | WebSocket URL (e.g., `wss://relay.example.com`) |
-| `network` | TEXT | Network type: `clearnet` or `tor` |
+| `network` | TEXT | Network type: `clearnet`, `tor`, `i2p`, or `loki` |
 | `discovered_at` | BIGINT | Unix timestamp when relay was first discovered and validated |
 
 **Note**: Only relays that have been validated by the Validator service are stored here. Candidates are stored in `service_data`.
@@ -179,9 +179,13 @@ CREATE TABLE metadata (
 
 **Content Types**:
 - **NIP-11**: Relay information documents (name, description, supported NIPs, limitations, etc.)
-- **NIP-66 RTT**: Round-trip time measurements (open, read, write, dns)
+- **NIP-66 RTT**: Round-trip time measurements (open, read, write)
+- **NIP-66 Probe**: Probe results (is_openable, is_readable, is_writable)
 - **NIP-66 SSL**: SSL/TLS certificate information
 - **NIP-66 Geo**: Geolocation data (country, city, coordinates, ASN)
+- **NIP-66 Net**: Network information (IP addresses, protocols)
+- **NIP-66 DNS**: DNS resolution data and timing
+- **NIP-66 HTTP**: HTTP/WebSocket connection metadata
 
 ### relay_metadata
 
@@ -190,19 +194,19 @@ Time-series metadata snapshots linking relays to metadata records by type.
 ```sql
 CREATE TABLE relay_metadata (
     relay_url TEXT NOT NULL REFERENCES relays(url) ON DELETE CASCADE,
-    snapshot_at BIGINT NOT NULL,
+    generated_at BIGINT NOT NULL,
     type TEXT NOT NULL,
     metadata_id BYTEA NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
-    PRIMARY KEY (relay_url, snapshot_at, type),
-    CONSTRAINT relay_metadata_type_check CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo'))
+    PRIMARY KEY (relay_url, generated_at, type),
+    CONSTRAINT relay_metadata_type_check CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_probe', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http'))
 );
 ```
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `relay_url` | TEXT (FK, PK) | Reference to relays table |
-| `snapshot_at` | BIGINT (PK) | Unix timestamp when metadata snapshot was collected |
-| `type` | TEXT (PK) | Metadata type: `nip11`, `nip66_rtt`, `nip66_ssl`, or `nip66_geo` |
+| `generated_at` | BIGINT (PK) | Unix timestamp when metadata snapshot was collected |
+| `type` | TEXT (PK) | Metadata type: `nip11`, `nip66_rtt`, `nip66_probe`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, or `nip66_http` |
 | `metadata_id` | BYTEA (FK) | Reference to metadata table |
 
 **Note**: Each relay can have multiple metadata types per snapshot, allowing separate storage of NIP-11 info, RTT measurements, SSL data, and geolocation data.
@@ -248,7 +252,7 @@ PRIMARY KEY (id) ON events
 PRIMARY KEY (url) ON relays
 PRIMARY KEY (event_id, relay_url) ON events_relays
 PRIMARY KEY (id) ON metadata
-PRIMARY KEY (relay_url, snapshot_at, type) ON relay_metadata
+PRIMARY KEY (relay_url, generated_at, type) ON relay_metadata
 PRIMARY KEY (service_name, data_type, data_key) ON service_data
 ```
 
@@ -272,9 +276,9 @@ CREATE INDEX idx_events_relays_relay_url ON events_relays (relay_url);
 CREATE INDEX idx_events_relays_seen_at ON events_relays (seen_at DESC);
 
 -- Metadata lookups by time and type
-CREATE INDEX idx_relay_metadata_snapshot_at ON relay_metadata (snapshot_at DESC);
+CREATE INDEX idx_relay_metadata_generated_at ON relay_metadata (generated_at DESC);
 CREATE INDEX idx_relay_metadata_type ON relay_metadata (type);
-CREATE INDEX idx_relay_metadata_relay_type_time ON relay_metadata (relay_url, type, snapshot_at DESC);
+CREATE INDEX idx_relay_metadata_relay_type_time ON relay_metadata (relay_url, type, generated_at DESC);
 
 -- Service data lookups
 CREATE INDEX idx_service_data_service_name ON service_data (service_name);
@@ -344,7 +348,7 @@ CREATE OR REPLACE FUNCTION insert_relay_metadata(
     p_relay_url             TEXT,
     p_relay_network         TEXT,
     p_relay_discovered_at   BIGINT,
-    p_snapshot_at           BIGINT,
+    p_generated_at           BIGINT,
     p_type                  TEXT,
     p_metadata_data         JSONB
 ) RETURNS VOID;
@@ -352,10 +356,10 @@ CREATE OR REPLACE FUNCTION insert_relay_metadata(
 
 **Parameters**:
 - `p_relay_url`: Relay WebSocket URL
-- `p_relay_network`: Network type (`clearnet` or `tor`)
+- `p_relay_network`: Network type (`clearnet`, `tor`, `i2p`, or `loki`)
 - `p_relay_discovered_at`: Relay discovery timestamp
-- `p_snapshot_at`: Metadata snapshot timestamp
-- `p_type`: Metadata type (`nip11`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`)
+- `p_generated_at`: Metadata snapshot timestamp
+- `p_type`: Metadata type (`nip11`, `nip66_rtt`, `nip66_probe`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`)
 - `p_metadata_data`: Complete metadata as JSONB
 
 **Deduplication Process**:
@@ -414,10 +418,10 @@ CREATE MATERIALIZED VIEW relay_metadata_latest AS
 SELECT DISTINCT ON (relay_url, type)
     relay_url,
     type,
-    snapshot_at,
+    generated_at,
     metadata_id
 FROM relay_metadata
-ORDER BY relay_url, type, snapshot_at DESC;
+ORDER BY relay_url, type, generated_at DESC;
 ```
 
 **Purpose**: Provides fast access to the most recent metadata for each relay without scanning the full time-series table.
@@ -491,7 +495,7 @@ relay_performance AS (
     SELECT relay_url, AVG((data->>'rtt_open')::int), AVG((data->>'rtt_read')::int), AVG((data->>'rtt_write')::int)
     FROM (
         SELECT rm.relay_url, m.data,
-               ROW_NUMBER() OVER (PARTITION BY rm.relay_url ORDER BY rm.snapshot_at DESC) AS rn
+               ROW_NUMBER() OVER (PARTITION BY rm.relay_url ORDER BY rm.generated_at DESC) AS rn
         FROM relay_metadata rm
         JOIN metadata m ON rm.metadata_id = m.id
         WHERE rm.type = 'nip66_rtt'

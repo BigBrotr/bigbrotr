@@ -39,7 +39,7 @@ Only sensitive data is loaded from environment variables:
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
 | `DB_PASSWORD` | **Yes** | PostgreSQL database password | `my_secure_password_123` |
-| `PRIVATE_KEY` | **Yes** for Monitor | Nostr private key (hex or nsec) for write tests | `5a2b3c4d...` (64 hex chars) or `nsec1...` |
+| `PRIVATE_KEY` | **Yes** for Monitor, optional for Synchronizer | Nostr private key (hex or nsec) for write tests and NIP-42 auth | `5a2b3c4d...` (64 hex chars) or `nsec1...` |
 | `GRAFANA_PASSWORD` | No | Grafana admin password | Defaults to `admin` |
 
 ### Setting Environment Variables
@@ -54,7 +54,7 @@ nano implementations/bigbrotr/.env  # Edit DB_PASSWORD
 **Shell Export**:
 ```bash
 export DB_PASSWORD=your_secure_password
-export PRIVATE_KEY=your_hex_private_key  # Required for Monitor service
+export PRIVATE_KEY=your_hex_private_key  # Required for Monitor, optional for Synchronizer (NIP-42)
 ```
 
 **Systemd Service**:
@@ -216,14 +216,17 @@ interval: 3600.0                 # 1 hour (Range: >= 60.0)
 # Event scanning (discovers relays from stored events)
 events:
   enabled: true                  # Enable event-based discovery
+  batch_size: 1000               # Events per batch (Range: 100-10000)
+  kinds: [2, 3, 10002]           # Event kinds: 2=recommend relay, 3=contacts, 10002=relay list
 
 # External API discovery
 api:
   enabled: true                  # Enable API-based discovery
+  verify_ssl: true               # Verify TLS certificates (disable only for testing)
   sources:
     - url: https://api.nostr.watch/v1/online
       enabled: true
-      timeout: 30.0              # Request timeout (Range: 1.0-120.0)
+      timeout: 30.0              # Request timeout (Range: 0.1-120.0)
     - url: https://api.nostr.watch/v1/offline
       enabled: true
       timeout: 30.0
@@ -236,8 +239,11 @@ api:
 |-------|------|---------|-------|-------------|
 | `interval` | float | `3600.0` | >= 60.0 | Seconds between cycles |
 | `events.enabled` | bool | `true` | - | Enable event scanning |
+| `events.batch_size` | int | `1000` | 100-10000 | Events per batch |
+| `events.kinds` | list | `[2, 3, 10002]` | - | Event kinds to scan |
 | `api.enabled` | bool | `true` | - | Enable API discovery |
-| `api.sources[].timeout` | float | `30.0` | 1.0-120.0 | Request timeout |
+| `api.verify_ssl` | bool | `true` | - | Verify TLS certificates |
+| `api.sources[].timeout` | float | `30.0` | 0.1-120.0 | Request timeout |
 | `api.delay_between_requests` | float | `1.0` | 0.0-10.0 | Inter-request delay |
 | `concurrency.max_parallel` | int | `5` | 1-20 | Concurrent API requests |
 
@@ -290,7 +296,7 @@ networks:
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
 | `interval` | float | `28800.0` | >= 60.0 | Seconds between cycles |
-| `processing.chunk_size` | int | `100` | 1-1000 | Candidates per batch |
+| `processing.chunk_size` | int | `100` | 10-1000 | Candidates per batch |
 | `processing.max_candidates` | int | `null` | >= 1 | Max candidates per cycle |
 | `cleanup.enabled` | bool | `true` | - | Enable candidate cleanup |
 | `cleanup.max_failures` | int | `100` | >= 1 | Remove after N failures |
@@ -333,32 +339,63 @@ networks:
     timeout: 60.0
 
 # Nostr keys for NIP-66 write tests (loaded from PRIVATE_KEY env)
-keys: {}
+# Required for: write tests (nip66_probe), publishing events
+keys:
+  # Keys are loaded from environment variable, no config needed here
 
-# NIP-66 checks to perform
-checks:
-  open: true                     # WebSocket connection test
-  read: true                     # REQ/EOSE subscription test
-  write: true                    # EVENT/OK publication test
-  nip11: true                    # Fetch NIP-11 relay info
-  ssl: true                      # SSL certificate validation
-  dns: true                      # DNS resolution time
-  geo: true                      # IP geolocation
+# Default relay list for publishing events
+publishing:
+  relays: []                     # Relay URLs for publishing
 
-# Geolocation database paths
+# Kind 30166 relay discovery events
+discovery:
+  enabled: true
+  interval: 3600                 # Re-check interval (Range: >= 60)
+  include:                       # Metadata to include in events
+    nip11: true
+    nip66_rtt: true
+    nip66_probe: true
+    nip66_ssl: true
+    nip66_geo: true
+    nip66_net: true
+    nip66_dns: true
+    nip66_http: true
+
+# Kind 10166 monitor announcement
+announcement:
+  enabled: true
+  interval: 86400                # Announcement interval (Range: >= 60)
+
+# Geolocation database configuration
+# MaxMind databases are auto-downloaded from GitHub mirror if missing
 geo:
   city_database_path: "static/GeoLite2-City.mmdb"
   asn_database_path: "static/GeoLite2-ASN.mmdb"
-  country_database_path: "static/GeoLite2-Country.mmdb"
+  city_download_url: "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb"
+  asn_download_url: "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb"
+  max_age_days: 30               # Auto-update if older (null = never)
 
-# Concurrency settings
-concurrency:
-  max_processes: 1               # Worker processes
-  batch_size: 50                 # Relays per DB batch (Range: 1-500)
-
-# Relay selection criteria
-selection:
-  min_age_since_check: 3600      # Min seconds since last check (Range: >= 0)
+# Processing settings
+processing:
+  chunk_size: 100                # Relays per batch (Range: 10-1000)
+  compute:                       # What metadata to compute
+    nip11: true
+    nip66_rtt: true
+    nip66_probe: true
+    nip66_ssl: true
+    nip66_geo: true
+    nip66_net: true
+    nip66_dns: true
+    nip66_http: true
+  store:                         # What to store in database
+    nip11: true
+    nip66_rtt: true
+    nip66_probe: true
+    nip66_ssl: true
+    nip66_geo: true
+    nip66_net: true
+    nip66_dns: true
+    nip66_http: true
 ```
 
 #### Monitor Configuration Reference
@@ -370,9 +407,14 @@ selection:
 | `networks.*.max_tasks` | int | varies | 1-500 | Concurrent checks |
 | `networks.*.timeout` | float | varies | 5.0-180.0 | Check timeout |
 | `networks.*.proxy_url` | string | - | - | SOCKS5 proxy URL |
-| `checks.*` | bool | `true` | - | Enable specific check |
-| `concurrency.batch_size` | int | `50` | 1-500 | DB batch size |
-| `selection.min_age_since_check` | int | `3600` | >= 0 | Re-check interval |
+| `discovery.enabled` | bool | `true` | - | Enable Kind 30166 events |
+| `discovery.interval` | int | `3600` | >= 60 | Re-check interval |
+| `announcement.enabled` | bool | `true` | - | Enable Kind 10166 events |
+| `announcement.interval` | int | `86400` | >= 60 | Announcement interval |
+| `geo.city_download_url` | string | GitHub URL | - | Auto-download URL for City DB |
+| `geo.asn_download_url` | string | GitHub URL | - | Auto-download URL for ASN DB |
+| `geo.max_age_days` | int | `30` | null or >= 1 | Auto-update threshold |
+| `processing.chunk_size` | int | `100` | 10-1000 | Relays per batch |
 
 ### Synchronizer (`yaml/services/synchronizer.yaml`)
 
@@ -406,6 +448,11 @@ networks:
     proxy_url: "socks5://lokinet:1080"
     max_tasks: 3
     timeout: 60.0
+
+# Nostr keys for NIP-42 authentication (loaded from PRIVATE_KEY env)
+# Used for relays that require authentication
+keys:
+  # Keys are loaded from environment variable, no config needed here
 
 # Event filter settings (null = accept all)
 filter:

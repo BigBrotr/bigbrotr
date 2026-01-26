@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.0.0-blue?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/postgresql-16+-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
@@ -37,7 +37,7 @@ BigBrotr is a production-ready, modular system for archiving and monitoring the 
 
 | Principle | Implementation |
 |-----------|----------------|
-| **Three-Layer Architecture** | Core (reusable) -> Services (modular) -> Implementation (config-driven) |
+| **Four-Layer Architecture** | Core -> Utils -> Models -> Services -> Implementation (config-driven) |
 | **Dependency Injection** | Services receive database interface via constructor for testability |
 | **Configuration-Driven** | YAML configuration with Pydantic validation, minimal hardcoding |
 | **Type Safety** | Full type hints with strict mypy checking throughout codebase |
@@ -88,7 +88,7 @@ docker-compose logs -f seeder
 
 ## Architecture
 
-BigBrotr uses a three-layer architecture that separates concerns and enables flexibility:
+BigBrotr uses a four-layer architecture that separates concerns and enables flexibility:
 
 ```
 +=============================================================================+
@@ -108,10 +108,6 @@ BigBrotr uses a three-layer architecture that separates concerns and enables fle
 |  | (seed) |  |(disco) |  |  (test)   |  |(health) |  |   (events)   |       |
 |  +--------+  +--------+  +-----------+  +---------+  +--------------+       |
 |                                                                             |
-|  +-------+  +-------+                                                       |
-|  |  API  |  |  DVM  |  (planned)                                            |
-|  +-------+  +-------+                                                       |
-|                                                                             |
 +=====================================+=======================================+
                                       |
                                       v
@@ -120,9 +116,30 @@ BigBrotr uses a three-layer architecture that separates concerns and enables fle
 |                           src/core/                                         |
 +-----------------------------------------------------------------------------+
 |                                                                             |
-|  +--------+     +--------+     +-------------+     +--------+               |
-|  |  Pool  |---->| Brotr  |     | BaseService |     | Logger |               |
-|  +--------+     +--------+     +-------------+     +--------+               |
+|  +--------+     +--------+     +-------------+     +---------+  +--------+  |
+|  |  Pool  |---->| Brotr  |     | BaseService |     | Metrics |  | Logger |  |
+|  +--------+     +--------+     +-------------+     +---------+  +--------+  |
+|                                                                             |
++=====================================+=======================================+
+                                      |
+                                      v
++=============================================================================+
+|                           UTILS LAYER                                       |
+|                           src/utils/                                        |
++-----------------------------------------------------------------------------+
+|                                                                             |
+|  NetworkConfig, KeysConfig, BatchProgress, create_client, load_yaml         |
+|                                                                             |
++=====================================+=======================================+
+                                      |
+                                      v
++=============================================================================+
+|                          MODELS LAYER                                       |
+|                          src/models/                                        |
++-----------------------------------------------------------------------------+
+|                                                                             |
+|  Event, Relay, EventRelay, Metadata, Nip11, Nip66, RelayMetadata            |
+|  NetworkType, MetadataType                                                  |
 |                                                                             |
 +=============================================================================+
 ```
@@ -155,7 +172,7 @@ For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITE
 
 ## Implementations
 
-The three-layer architecture enables multiple deployment configurations from the same codebase. Two implementations are included:
+The four-layer architecture enables multiple deployment configurations from the same codebase. Two implementations are included:
 
 ### BigBrotr (Full-Featured)
 

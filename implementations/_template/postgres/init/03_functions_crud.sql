@@ -323,7 +323,8 @@ COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT[], TEXT[], BIGINT[], JSON
 -- Description: Bulk upsert service data records (for candidates, cursors, state, etc.)
 -- Parameters: Arrays of service_name, data_type, data_key, data (JSONB), updated_at
 -- Returns: VOID
--- Notes: Uses merge (||) so new fields override existing, but unspecified fields are preserved
+-- Note: Uses DISTINCT ON to handle duplicates within same batch, last value wins
+--       Full replacement semantics: new data completely replaces existing data
 CREATE OR REPLACE FUNCTION service_data_upsert(
     p_service_names TEXT[],
     p_data_types TEXT[],
@@ -336,22 +337,24 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
     INSERT INTO service_data (service_name, data_type, data_key, data, updated_at)
-    SELECT * FROM unnest(
+    SELECT DISTINCT ON (service_name, data_type, data_key)
+        service_name, data_type, data_key, data, updated_at
+    FROM unnest(
         p_service_names,
         p_data_types,
         p_data_keys,
         p_datas,
         p_updated_ats
-    )
+    ) AS t(service_name, data_type, data_key, data, updated_at)
     ON CONFLICT (service_name, data_type, data_key)
     DO UPDATE SET
-        data = service_data.data || EXCLUDED.data,
+        data = EXCLUDED.data,
         updated_at = EXCLUDED.updated_at;
 END;
 $$;
 
 COMMENT ON FUNCTION service_data_upsert(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[]) IS
-'Bulk upsert service data records with merge semantics';
+'Bulk upsert service data records with dedup and full replacement';
 
 
 -- ----------------------------------------------------------------------------

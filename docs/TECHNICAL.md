@@ -21,7 +21,7 @@
 
 ## System Architecture
 
-BigBrotr employs a **three-layer architecture** that separates infrastructure, business logic, and deployment concerns.
+BigBrotr employs a **four-layer architecture** that separates infrastructure, business logic, utilities, and deployment concerns.
 
 ### Layered Design
 
@@ -102,7 +102,14 @@ BigBrotr employs a **three-layer architecture** that separates infrastructure, b
 - Service lifecycle management
 - Structured logging
 
-**Data Models**
+**Utils Layer**
+- Network detection and proxy configuration
+- URL and data parsing utilities
+- HTTP/WebSocket transport helpers
+- YAML loading with environment variable support
+- Nostr key management utilities
+
+**Models Layer**
 - Type-safe data structures
 - Validation logic
 - Database parameter extraction
@@ -826,9 +833,9 @@ async def run(self):
         FROM relays r
         LEFT JOIN relay_metadata rm ON r.url = rm.relay_url
             AND rm.type = 'nip66_rtt'
-        WHERE rm.snapshot_at IS NULL
-           OR rm.snapshot_at < $1
-        ORDER BY rm.snapshot_at ASC NULLS FIRST
+        WHERE rm.generated_at IS NULL
+           OR rm.generated_at < $1
+        ORDER BY rm.generated_at ASC NULLS FIRST
         LIMIT $2
     """
 
@@ -1173,7 +1180,7 @@ class EventRelay:
 ```sql
 CREATE TABLE relays (
     url TEXT PRIMARY KEY,               -- WebSocket URL (e.g., wss://relay.example.com)
-    network TEXT NOT NULL,              -- clearnet or tor
+    network TEXT NOT NULL,              -- clearnet, tor, i2p, or loki
     discovered_at BIGINT NOT NULL       -- Unix timestamp
 );
 
@@ -1239,17 +1246,17 @@ CREATE INDEX idx_metadata_data ON metadata USING GIN(data jsonb_path_ops);
 ```sql
 CREATE TABLE relay_metadata (
     relay_url TEXT NOT NULL REFERENCES relays(url) ON DELETE CASCADE,
-    snapshot_at BIGINT NOT NULL,
-    type TEXT NOT NULL,                 -- nip11, nip66_rtt, nip66_ssl, nip66_geo
+    generated_at BIGINT NOT NULL,
+    type TEXT NOT NULL,                 -- nip11, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
     metadata_id BYTEA NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
 
-    PRIMARY KEY (relay_url, snapshot_at, type),
-    CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo'))
+    PRIMARY KEY (relay_url, generated_at, type),
+    CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_probe', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http'))
 );
 
 CREATE INDEX idx_relay_metadata_type ON relay_metadata(type);
-CREATE INDEX idx_relay_metadata_snapshot_at ON relay_metadata(snapshot_at DESC);
-CREATE INDEX idx_relay_metadata_relay_type_time ON relay_metadata(relay_url, type, snapshot_at DESC);
+CREATE INDEX idx_relay_metadata_generated_at ON relay_metadata(generated_at DESC);
+CREATE INDEX idx_relay_metadata_relay_type_time ON relay_metadata(relay_url, type, generated_at DESC);
 ```
 
 **service_data**: Per-service operational data
@@ -1315,7 +1322,7 @@ CREATE OR REPLACE FUNCTION insert_relay_metadata(
     p_relay_url TEXT,
     p_relay_network TEXT,
     p_relay_discovered_at BIGINT,
-    p_snapshot_at BIGINT,
+    p_generated_at BIGINT,
     p_type TEXT,
     p_metadata_data JSONB
 )
@@ -1339,9 +1346,9 @@ BEGIN
     ON CONFLICT (id) DO NOTHING;
 
     -- Insert relay_metadata junction (idempotent)
-    INSERT INTO relay_metadata (relay_url, snapshot_at, type, metadata_id)
-    VALUES (p_relay_url, p_snapshot_at, p_type, v_metadata_id)
-    ON CONFLICT (relay_url, snapshot_at, type) DO NOTHING;
+    INSERT INTO relay_metadata (relay_url, generated_at, type, metadata_id)
+    VALUES (p_relay_url, p_generated_at, p_type, v_metadata_id)
+    ON CONFLICT (relay_url, generated_at, type) DO NOTHING;
 END;
 $$;
 ```
@@ -1356,10 +1363,10 @@ CREATE MATERIALIZED VIEW relay_metadata_latest AS
 SELECT DISTINCT ON (relay_url, type)
     relay_url,
     type,
-    snapshot_at,
+    generated_at,
     metadata_id
 FROM relay_metadata
-ORDER BY relay_url, type, snapshot_at DESC;
+ORDER BY relay_url, type, generated_at DESC;
 
 CREATE UNIQUE INDEX idx_relay_metadata_latest_pkey
     ON relay_metadata_latest(relay_url, type);
@@ -1772,7 +1779,7 @@ with event_insert_duration.time():
 BigBrotr is a production-ready, scalable platform for Nostr network intelligence. Its modular architecture, async-first design, and comprehensive monitoring make it suitable for both personal projects and large-scale deployments.
 
 **Key Strengths**:
-- ✅ Modular three-layer architecture
+- ✅ Modular four-layer architecture
 - ✅ Async-first with high concurrency
 - ✅ Multiprocessing for CPU-bound tasks
 - ✅ Immutable data models with validation

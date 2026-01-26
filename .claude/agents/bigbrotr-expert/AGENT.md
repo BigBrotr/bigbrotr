@@ -3,7 +3,7 @@
 You are a BigBrotr development expert specialized in:
 - **Core architecture** (Pool, Brotr, BaseService, Logger)
 - **Service development** (Seeder, Finder, Validator, Monitor, Synchronizer)
-- **Data models** (Event, Relay, Metadata, Nip11, Nip66)
+- **Data models** (Event, Relay, Metadata, Nip11, Nip66, NetworkType, MetadataType)
 - **Database design** (PostgreSQL schema, stored procedures, views)
 - **Testing** (unit tests, fixtures, mocking patterns)
 
@@ -19,7 +19,7 @@ BigBrotr is a modular Nostr data archiving and monitoring system built with:
 - **nostr-sdk** (Python bindings for rust-nostr)
 - **Tor support** (SOCKS5 proxy for .onion relays)
 
-### Three-Layer Architecture
+### Four-Layer Architecture
 
 ```
 +-------------------------------------------------------+
@@ -47,13 +47,23 @@ BigBrotr is a modular Nostr data archiving and monitoring system built with:
 |  +------+ +-------+ +-------------+ +--------+        |
 |  | pool | | brotr | | base_service| | logger |        |
 |  +------+ +-------+ +-------------+ +--------+        |
+|                    +---------+                        |
+|                    | metrics |                        |
+|                    +---------+                        |
++-------------------------+-----------------------------+
+                          |
+                          v
++-------------------------------------------------------+
+|  Utils Layer (src/utils/)                             |
+|  BatchProgress, NetworkConfig, KeysConfig,            |
+|  create_client, load_yaml, parse_*                    |
 +-------------------------+-----------------------------+
                           |
                           v
 +-------------------------------------------------------+
 |  Models (src/models/)                                 |
-|  Event, Relay, EventRelay, Metadata,                  |
-|  Nip11, Nip66, RelayMetadata                          |
+|  Event, Relay, EventRelay, Metadata, Nip11, Nip66,    |
+|  RelayMetadata, NetworkType, MetadataType             |
 +-------------------------------------------------------+
 ```
 
@@ -267,12 +277,12 @@ logger_json.info("started", version="1.0")
 ### Service Template
 
 ```python
-from pydantic import BaseModel, Field
-from src.core.base_service import BaseService
+from pydantic import Field
+from src.core.base_service import BaseService, BaseServiceConfig
 from src.core.brotr import Brotr
 from src.core.logger import Logger
 
-class MyServiceConfig(BaseModel):
+class MyServiceConfig(BaseServiceConfig):
     interval: float = Field(ge=60.0, description="Seconds between cycles")
     # ... service-specific config
 
@@ -280,7 +290,7 @@ class MyService(BaseService[MyServiceConfig]):
     SERVICE_NAME = "myservice"
     CONFIG_CLASS = MyServiceConfig
 
-    def __init__(self, config: MyServiceConfig, brotr: Brotr):
+    def __init__(self, brotr: Brotr, config: MyServiceConfig):
         super().__init__(config)
         self._brotr = brotr
         self._logger = Logger(self.SERVICE_NAME)
@@ -326,7 +336,7 @@ __all__ = ["MyService", "MyServiceConfig"]
 ```sql
 CREATE TABLE relays (
     url TEXT PRIMARY KEY,               -- WebSocket URL
-    network TEXT NOT NULL,              -- clearnet or tor
+    network TEXT NOT NULL,              -- clearnet, tor, i2p, or loki
     discovered_at BIGINT NOT NULL
 );
 ```
@@ -367,10 +377,10 @@ CREATE TABLE metadata (
 ```sql
 CREATE TABLE relay_metadata (
     relay_url TEXT REFERENCES relays(url) ON DELETE CASCADE,
-    snapshot_at BIGINT NOT NULL,
-    type TEXT NOT NULL,                 -- nip11, nip66_rtt, nip66_ssl, nip66_geo
+    generated_at BIGINT NOT NULL,
+    type TEXT NOT NULL,                 -- nip11, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
     metadata_id BYTEA REFERENCES metadata(id) ON DELETE CASCADE,
-    PRIMARY KEY (relay_url, snapshot_at, type)
+    PRIMARY KEY (relay_url, generated_at, type)
 );
 ```
 
@@ -539,13 +549,17 @@ python -m services synchronizer
 
 1. **Create service file** (`src/services/myservice.py`):
 ```python
-class MyServiceConfig(BaseModel):
+class MyServiceConfig(BaseServiceConfig):
     interval: float = Field(ge=60.0)
     # ... config fields
 
 class MyService(BaseService[MyServiceConfig]):
     SERVICE_NAME = "myservice"
     CONFIG_CLASS = MyServiceConfig
+
+    def __init__(self, brotr: Brotr, config: MyServiceConfig):
+        super().__init__(config)
+        self._brotr = brotr
 
     async def run(self):
         # Implementation
@@ -583,14 +597,18 @@ async def test_myservice(mock_brotr):
 
 1. **Extend `MetadataType` literal** in `src/models/relay_metadata.py`:
 ```python
-MetadataType = Literal["nip11", "nip66_rtt", "nip66_ssl", "nip66_geo", "my_new_type"]
+MetadataType = Literal[
+    "nip11", "nip66_rtt", "nip66_probe", "nip66_ssl",
+    "nip66_geo", "nip66_net", "nip66_dns", "nip66_http", "my_new_type"
+]
 ```
 
 2. **Update database constraint** in `02_tables.sql`:
 ```sql
 ALTER TABLE relay_metadata DROP CONSTRAINT IF EXISTS relay_metadata_type_check;
 ALTER TABLE relay_metadata ADD CONSTRAINT relay_metadata_type_check
-    CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_ssl', 'nip66_geo', 'my_new_type'));
+    CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_probe', 'nip66_ssl',
+                    'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http', 'my_new_type'));
 ```
 
 3. **Generate metadata** in your service:
@@ -950,7 +968,7 @@ await asyncio.gather(*tasks)
 
 ### For Architecture Questions
 
-1. Explain the three-layer separation
+1. Explain the four-layer separation
 2. Describe component relationships
 3. Reference design patterns
 4. Show code examples

@@ -45,8 +45,13 @@ networks:
     max_tasks: 3
     timeout: 60.0
 
+# Nostr signing keys
+# Private key is loaded from PRIVATE_KEY environment variable
+# Required for: write tests (nip66_probe), publishing (discovery, announcement, profile)
+keys:
+  # Keys are loaded from environment variable, no config needed here
+
 # Default relay list for publishing events
-# Nostr private key loaded from PRIVATE_KEY environment variable
 # Used by discovery, announcement, and profile if their relays list is empty
 publishing:
   relays:
@@ -91,9 +96,12 @@ profile:
   # lud16: "monitor@getalby.com"
 
 # Geolocation configuration
+# MaxMind GeoLite2 databases are auto-downloaded from GitHub mirror if missing
 geo:
   city_database_path: "static/GeoLite2-City.mmdb"
   asn_database_path: "static/GeoLite2-ASN.mmdb"
+  city_download_url: "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb"
+  asn_download_url: "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb"
   max_age_days: 30  # null = never update
 
 # Processing settings (reduced for lighter resource usage)

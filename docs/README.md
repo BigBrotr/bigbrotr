@@ -16,9 +16,10 @@ Comprehensive documentation for the BigBrotr Nostr network intelligence platform
   - Perfect for: Users, stakeholders, decision-makers
 
 - **[TECHNICAL.md](TECHNICAL.md)** - Deep technical architecture
-  - System architecture (three-layer design)
+  - System architecture (four-layer design)
   - Core components (Pool, Brotr, BaseService, Logger)
   - Service layer (Seeder, Finder, Validator, Monitor, Synchronizer)
+  - Utils layer (network, parsing, transport, YAML, keys)
   - Data models and database schema
   - Design patterns and performance characteristics
   - Perfect for: Developers, architects, contributors

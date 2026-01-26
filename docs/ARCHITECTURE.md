@@ -5,9 +5,11 @@ This document provides a comprehensive overview of BigBrotr's architecture, desi
 ## Table of Contents
 
 - [Overview](#overview)
-- [Three-Layer Architecture](#three-layer-architecture)
+- [Four-Layer Architecture](#four-layer-architecture)
 - [Core Layer](#core-layer)
 - [Service Layer](#service-layer)
+- [Utils Layer](#utils-layer)
+- [Models Layer](#models-layer)
 - [Implementation Layer](#implementation-layer)
 - [Design Patterns](#design-patterns)
 - [Data Flow](#data-flow)
@@ -17,11 +19,13 @@ This document provides a comprehensive overview of BigBrotr's architecture, desi
 
 ## Overview
 
-BigBrotr follows a three-layer architecture that separates concerns and enables maximum flexibility:
+BigBrotr follows a four-layer architecture that separates concerns and enables maximum flexibility:
 
 1. **Core Layer** - Reusable infrastructure components with zero business logic
 2. **Service Layer** - Business logic and service orchestration
-3. **Implementation Layer** - Deployment-specific configuration and customization
+3. **Utils Layer** - Shared utilities (network, parsing, transport, YAML, keys)
+4. **Models Layer** - Immutable data structures with validation and database mapping
+5. **Implementation Layer** - Deployment-specific configuration and customization
 
 This design allows:
 - Multiple deployments from the same codebase
@@ -31,7 +35,7 @@ This design allows:
 
 ---
 
-## Three-Layer Architecture
+## Four-Layer Architecture
 
 ```
 +-----------------------------------------------------------------------------+
@@ -79,6 +83,39 @@ This design allows:
 |   └── logger.py        Structured logging                                   |
 |                                                                              |
 |   Purpose: Reusable foundation, zero business logic                          |
++----------------------------------+------------------------------------------+
+                                   |
+                                   | Uses
+                                   v
++-----------------------------------------------------------------------------+
+|                              UTILS LAYER                                     |
+|                                                                              |
+|   src/utils/                                                                 |
+|   ├── network.py       Network detection and proxy configuration            |
+|   ├── parsing.py       URL and data parsing utilities                       |
+|   ├── transport.py     HTTP/WebSocket transport helpers                     |
+|   ├── yaml.py          YAML loading with environment variable support       |
+|   ├── keys.py          Nostr key management utilities                       |
+|   └── progress.py      Progress tracking utilities                          |
+|                                                                              |
+|   Purpose: Shared utilities used across core and services                    |
++----------------------------------+------------------------------------------+
+                                   |
+                                   | Uses
+                                   v
++-----------------------------------------------------------------------------+
+|                             MODELS LAYER                                     |
+|                                                                              |
+|   src/models/                                                                |
+|   ├── event.py         Nostr event with validation                          |
+|   ├── relay.py         Relay URL with network detection                     |
+|   ├── event_relay.py   Event-relay junction                                 |
+|   ├── metadata.py      Generic metadata container                           |
+|   ├── relay_metadata.py RelayMetadata junction with MetadataType            |
+|   ├── nip11.py         NIP-11 relay information document                    |
+|   └── nip66.py         NIP-66 relay monitoring data                         |
+|                                                                              |
+|   Purpose: Immutable data structures, validation, database mapping           |
 +-----------------------------------------------------------------------------+
 ```
 
@@ -86,8 +123,10 @@ This design allows:
 
 | Layer | Responsibility | Changes When |
 |-------|----------------|--------------|
-| **Core** | Infrastructure, utilities, abstractions | Rarely - foundation is stable |
+| **Core** | Infrastructure, abstractions | Rarely - foundation is stable |
 | **Service** | Business logic, orchestration | Feature additions, protocol updates |
+| **Utils** | Shared utilities, helpers | When adding cross-cutting functionality |
+| **Models** | Data structures, validation | Schema changes, new data types |
 | **Implementation** | Configuration, customization | Per-deployment or environment |
 
 ---
@@ -235,6 +274,52 @@ logger.debug("processing_event", event_id="abc123")
 
 ---
 
+## Utils Layer
+
+The utils layer (`src/utils/`) provides shared utilities used across core and services.
+
+### Modules
+
+| Module | Purpose |
+|--------|---------|
+| `network.py` | Network detection and proxy configuration |
+| `parsing.py` | URL and data parsing utilities |
+| `transport.py` | HTTP/WebSocket transport helpers |
+| `yaml.py` | YAML loading with environment variable support |
+| `keys.py` | Nostr key management utilities |
+| `progress.py` | Progress tracking utilities |
+
+These utilities are stateless functions and classes that can be imported by any layer above Models.
+
+---
+
+## Models Layer
+
+The models layer (`src/models/`) contains immutable data structures with validation.
+
+### Data Models
+
+| Model | Purpose |
+|-------|---------|
+| `Event` | Nostr event with cryptographic validation |
+| `Relay` | Relay URL with network type detection |
+| `EventRelay` | Event-relay junction with seen_at timestamp |
+| `Metadata` | Generic metadata container (JSON data) |
+| `RelayMetadata` | Relay-metadata junction with type and timestamp |
+| `Nip11` | NIP-11 relay information document |
+| `Nip66` | NIP-66 relay monitoring data |
+
+### Key Types
+
+| Type | Values |
+|------|--------|
+| `NetworkType` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
+| `MetadataType` | `nip11`, `nip66_rtt`, `nip66_probe`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
+
+All models use `@dataclass(frozen=True)` for immutability and provide `to_db_params()` for database insertion.
+
+---
+
 ## Service Layer
 
 The service layer (`src/services/`) contains business logic implementations.
@@ -243,7 +328,7 @@ The service layer (`src/services/`) contains business logic implementations.
 
 All services follow the same pattern:
 
-1. **Configuration Class** - Pydantic model with validation
+1. **Configuration Class** - Pydantic model inheriting from `BaseServiceConfig`
 2. **Service Class** - Inherits from `BaseService[ConfigClass]`
 3. **`run()` Method** - Single cycle logic (abstract method implementation)
 4. **Factory Methods** - `from_yaml()`, `from_dict()` inherited from base
@@ -252,8 +337,9 @@ All services follow the same pattern:
 # Example service structure
 SERVICE_NAME = "myservice"
 
-class MyServiceConfig(BaseModel):
-    interval: float = Field(default=300.0, ge=60.0)
+class MyServiceConfig(BaseServiceConfig):
+    # Inherits: interval, max_consecutive_failures, metrics
+    some_setting: str = Field(default="value")
     # ... other config fields
 
 class MyService(BaseService[MyServiceConfig]):
@@ -277,7 +363,7 @@ class MyService(BaseService[MyServiceConfig]):
 
 **Operations**:
 1. Parse seed relay URLs from configured file
-2. Validate URLs and detect network type (clearnet/tor)
+2. Validate URLs and detect network type (clearnet/tor/i2p/loki)
 3. Store as candidates in `service_data` table for Validator
 
 ### Finder Service
@@ -636,7 +722,7 @@ async with brotr:           # Connect on enter, close on exit
 │                                    └─────────────────────────┘│
 └──────────────────────────────────────────────────────────────┘
 
-**Metadata Types**: `nip11`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`
+**Metadata Types**: `nip11`, `nip66_rtt`, `nip66_probe`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`
 ```
 
 ---
@@ -714,7 +800,7 @@ async def run_forever(self, interval: float) -> None:
 
 BigBrotr's architecture provides:
 
-1. **Modularity** - Three-layer separation enables independent development and testing
+1. **Modularity** - Four-layer separation enables independent development and testing
 2. **Flexibility** - Configuration-driven behavior without code changes
 3. **Testability** - Dependency injection enables comprehensive unit testing
 4. **Scalability** - Multicore processing and connection pooling for high throughput

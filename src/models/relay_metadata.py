@@ -30,7 +30,18 @@ from .relay import Relay
 
 
 class MetadataType(StrEnum):
-    """Metadata type constants matching database CHECK constraint."""
+    """Metadata type constants matching database CHECK constraint.
+
+    Supported types:
+        - nip11: NIP-11 relay information document
+        - nip66_rtt: NIP-66 round-trip time measurements
+        - nip66_probe: NIP-66 relay probe results
+        - nip66_ssl: NIP-66 SSL certificate information
+        - nip66_geo: NIP-66 geolocation data
+        - nip66_net: NIP-66 network information
+        - nip66_dns: NIP-66 DNS resolution data
+        - nip66_http: NIP-66 HTTP header information
+    """
 
     NIP11 = "nip11"
     NIP66_RTT = "nip66_rtt"

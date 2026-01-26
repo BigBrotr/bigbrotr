@@ -44,7 +44,7 @@ docker-compose exec postgres psql -U admin -d bigbrotr
 
 ## Architecture
 
-Three-layer architecture separating concerns:
+Four-layer architecture separating concerns:
 
 ```
 Implementation Layer (implementations/bigbrotr/, implementations/lilbrotr/)
@@ -59,20 +59,27 @@ Core Layer (src/core/)
   └── pool.py, brotr.py, base_service.py, metrics.py, logger.py
         │
         ▼
+Utils Layer (src/utils/)
+  └── BatchProgress, NetworkConfig, KeysConfig, create_client, load_yaml
+        │
+        ▼
 Models Layer (src/models/)
-  └── Event, Relay, EventRelay, Metadata, Nip11, Nip66, RelayMetadata
+  └── Event, Relay, EventRelay, Metadata, Nip11, Nip66, RelayMetadata, NetworkType, MetadataType
 ```
 
 **Note on Data Storage**: The `Nip11` and `Nip66` Python models are stored in the unified
 `metadata` table using content-addressed deduplication (SHA-256 hash). The `relay_metadata`
-table links relays to metadata records via the `type` column (`nip11`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`).
+table links relays to metadata records via the `type` column (`nip11`, `nip66_rtt`, `nip66_probe`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`).
 
 ### Core Components
 - **Pool** (`src/core/pool.py`): Async PostgreSQL client with asyncpg (connects via PGBouncer in Docker)
 - **Brotr** (`src/core/brotr.py`): Database interface with stored procedure wrappers
 - **BaseService** (`src/core/base_service.py`): Abstract service base with state persistence and lifecycle management
+- **BaseServiceConfig** (`src/core/base_service.py`): Base configuration class for all services
 - **MetricsServer** (`src/core/metrics.py`): Prometheus HTTP metrics endpoint
+- **MetricsConfig** (`src/core/metrics.py`): Prometheus metrics configuration
 - **Logger** (`src/core/logger.py`): Structured key=value logging
+- **ConfigT**: TypeVar for typed configuration in generic service classes
 
 ### Services
 - **Seeder**: One-shot relay seeding for validation
@@ -87,11 +94,14 @@ table links relays to metadata records via the `type` column (`nip11`, `nip66_rt
 - Configuration uses Pydantic models with YAML loading
 - Passwords loaded from `DB_PASSWORD` environment variable only
 - Keys loaded from `PRIVATE_KEY` environment variable (required for Monitor write tests)
+- Services use `NetworkConfig` for unified network settings (Tor, I2P, Lokinet)
+- Services use `BatchProgress` for tracking batch processing progress
+- Monitor uses `CheckResult` NamedTuple for health check results
 
 ## Adding a New Service
 
 1. Create `src/services/myservice.py` with:
-   - `MyServiceConfig(BaseModel)` for configuration
+   - `MyServiceConfig(BaseServiceConfig)` for configuration
    - `MyService(BaseService[MyServiceConfig])` with `run()` method
 
 2. Add configuration: `implementations/bigbrotr/yaml/services/myservice.yaml`
@@ -242,7 +252,7 @@ For developing, troubleshooting, and extending the BigBrotr codebase.
 
 **Capabilities:**
 1. **Development**: Write new services, modify existing code, add features
-2. **Architecture**: Navigate three-layer design, understand component relationships
+2. **Architecture**: Navigate four-layer design, understand component relationships
 3. **Database**: Work with schema, procedures, queries, migrations
 4. **Testing**: Write comprehensive tests following project patterns
 5. **Troubleshooting**: Debug issues, analyze errors, optimize performance

@@ -563,6 +563,7 @@ def test_relay_network_detection():
     """Test network detection."""
     assert Relay("wss://abc123.onion").network == "tor"
     assert Relay("wss://example.i2p").network == "i2p"
+    assert Relay("wss://example.loki").network == "loki"
     assert Relay("wss://relay.com").network == "clearnet"
 
 def test_relay_to_db_params():

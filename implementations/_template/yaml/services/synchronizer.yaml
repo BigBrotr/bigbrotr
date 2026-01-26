@@ -61,6 +61,12 @@ networks:
     max_tasks: 3
     timeout: 60.0
 
+# Nostr signing keys
+# Private key is loaded from PRIVATE_KEY environment variable
+# Used for NIP-42 authentication with relays that require it
+keys:
+  # Keys are loaded from environment variable, no config needed here
+
 # Event filter settings
 # Set to null to accept all values for that field
 filter:

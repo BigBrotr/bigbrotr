@@ -33,22 +33,25 @@ metrics:
 # Event scanning - discovers relay URLs from stored events
 # Scans events for relay URLs in tags (e.g., relay lists, relay recommendations)
 events:
-  enabled: true               # Set to false if you only want API discovery
+  enabled: true                 # Set to false if you only want API discovery
+  batch_size: 1000              # Events to process per batch (Range: 100-10000)
+  kinds: [2, 3, 10002]          # Event kinds: 2=recommend relay, 3=contacts, 10002=relay list
 
 # External API fetching - discovers relay URLs from public APIs
 api:
-  enabled: true               # Set to false if you only want event scanning
+  enabled: true                 # Set to false if you only want event scanning
+  verify_ssl: true              # Verify TLS certificates (disable only for testing)
 
   # API sources to fetch relay URLs from
   # Each source should return a JSON array of relay URLs or objects with URLs
   sources:
     - url: https://api.nostr.watch/v1/online
       enabled: true
-      timeout: 30.0           # Request timeout in seconds (Range: 1.0 - 120.0)
+      timeout: 30.0             # Request timeout in seconds (Range: 0.1 - 120.0)
 
     - url: https://api.nostr.watch/v1/offline
       enabled: true
-      timeout: 30.0
+      timeout: 30.0             # Range: 0.1 - 120.0
 
     # Add more sources as needed:
     # - url: https://your-api.com/relays
