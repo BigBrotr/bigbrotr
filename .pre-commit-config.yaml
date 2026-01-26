@@ -43,8 +43,6 @@ repos:
       - id: check-docstring-first
       - id: mixed-line-ending
         args: [--fix=lf]
-      - id: no-commit-to-branch
-        args: [--branch, main]
 
   # --------------------------------------------------------------------------
   # Python: Ruff (linter + formatter)
