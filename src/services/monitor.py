@@ -11,7 +11,7 @@ import json
 import time
 import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar
+from typing import TYPE_CHECKING, Annotated, ClassVar, NamedTuple
 
 import geoip2.database
 from nostr_sdk import EventBuilder, Filter, Keys, Kind, RelayUrl, Tag
@@ -22,12 +22,12 @@ from models import Nip11, Nip66, Relay, RelayMetadata
 from models.relay import NetworkType
 from utils.keys import KeysConfig
 from utils.network import NetworkConfig
+from utils.progress import BatchProgress
 from utils.transport import create_client
 
 
 if TYPE_CHECKING:
     from core.brotr import Brotr
-    from models.nip11 import Nip11Limitation, Nip11RetentionEntry
 
 
 def _parse_relays(v: list[str | Relay]) -> list[Relay]:
@@ -49,6 +49,19 @@ RelayList = Annotated[
     BeforeValidator(_parse_relays),
     PlainSerializer(lambda v: [r.url for r in v]),
 ]
+
+
+class CheckResult(NamedTuple):
+    """Result of a single relay health check."""
+
+    nip11: RelayMetadata | None
+    rtt: RelayMetadata | None
+    probe: RelayMetadata | None
+    ssl: RelayMetadata | None
+    geo: RelayMetadata | None
+    net: RelayMetadata | None
+    dns: RelayMetadata | None
+    http: RelayMetadata | None
 
 
 def _download_geolite_db(url: str, dest: Path) -> None:
@@ -260,16 +273,9 @@ class Monitor(BaseService[MonitorConfig]):
         self._config: MonitorConfig
         self._keys: Keys = self._config.keys.keys
         self._semaphores: dict[NetworkType, asyncio.Semaphore] = {}
-        # GeoIP readers (opened/closed each cycle to allow DB updates)
         self._geo_reader: geoip2.database.Reader | None = None
         self._asn_reader: geoip2.database.Reader | None = None
-        # Cycle state (reset at start of each run)
-        self._start_time: float = 0.0
-        self._total_relays: int = 0
-        self._checked: int = 0
-        self._successful: int = 0
-        self._failed: int = 0
-        self._chunks: int = 0
+        self._progress = BatchProgress()
 
     # -------------------------------------------------------------------------
     # Cursor Helpers (persistent state in service_data)
@@ -319,7 +325,7 @@ class Monitor(BaseService[MonitorConfig]):
             Exception: Database errors are logged but not raised to allow the
                 service to continue with subsequent cycles.
         """
-        self._reset_cycle_state()
+        self._progress.reset()
         self._init_semaphores()
 
         await self._update_geo_databases()
@@ -339,9 +345,9 @@ class Monitor(BaseService[MonitorConfig]):
             await self._publish_announcement()
 
             # Count relays needing checks
-            self._total_relays = await self._count_relays(networks)
+            self._progress.total = await self._count_relays(networks)
 
-            self._logger.info("relays_available", total=self._total_relays)
+            self._logger.info("relays_available", total=self._progress.total)
             self._emit_metrics()
 
             # Process all relays (fetching chunks from DB)
@@ -350,36 +356,14 @@ class Monitor(BaseService[MonitorConfig]):
             self._emit_metrics()
             self._logger.info(
                 "cycle_completed",
-                checked=self._checked,
-                successful=self._successful,
-                failed=self._failed,
-                chunks=self._chunks,
-                duration_s=round(time.time() - self._start_time, 1),
+                checked=self._progress.processed,
+                successful=self._progress.success,
+                failed=self._progress.failure,
+                chunks=self._progress.chunks,
+                duration_s=self._progress.elapsed,
             )
         finally:
             self._close_geo_readers()
-
-    def _reset_cycle_state(self) -> None:
-        """Reset all cycle counters and timers for a fresh monitoring run.
-
-        Called at the start of each run() to ensure clean state. This prevents
-        metrics from previous cycles from carrying over and ensures accurate
-        duration calculations.
-
-        Resets:
-            _start_time: Current timestamp for duration tracking.
-            _total_relays: Total relays available count.
-            _checked: Relays processed count.
-            _successful: Successfully checked relay count.
-            _failed: Failed check relay count.
-            _chunks: Number of chunks processed.
-        """
-        self._start_time = time.time()
-        self._total_relays = 0
-        self._checked = 0
-        self._successful = 0
-        self._failed = 0
-        self._chunks = 0
 
     def _init_semaphores(self) -> None:
         """Initialize per-network concurrency semaphores.
@@ -476,18 +460,18 @@ class Monitor(BaseService[MonitorConfig]):
         """Emit Prometheus metrics reflecting current cycle state.
 
         Updates gauge metrics for monitoring dashboards:
-            - total_relays: Total relays available at cycle start
-            - checked: Relays processed (cumulative in cycle)
-            - successful: Relays that passed checks (cumulative in cycle)
-            - failed: Relays that failed checks (cumulative in cycle)
+            - total: Total relays available at cycle start
+            - processed: Relays processed (cumulative in cycle)
+            - success: Relays that passed checks (cumulative in cycle)
+            - failure: Relays that failed checks (cumulative in cycle)
 
         Called after fetching relays, after each chunk, and at cycle completion
         to provide real-time visibility into monitoring progress.
         """
-        self.set_gauge("total_relays", self._total_relays)
-        self.set_gauge("checked", self._checked)
-        self.set_gauge("successful", self._successful)
-        self.set_gauge("failed", self._failed)
+        self.set_gauge("total", self._progress.total)
+        self.set_gauge("processed", self._progress.processed)
+        self.set_gauge("success", self._progress.success)
+        self.set_gauge("failure", self._progress.failure)
 
     # -------------------------------------------------------------------------
     # Counting
@@ -511,7 +495,7 @@ class Monitor(BaseService[MonitorConfig]):
             self._logger.warning("no_networks_enabled")
             return 0
 
-        threshold = int(self._start_time) - self._config.discovery.interval
+        threshold = int(self._progress.started_at) - self._config.discovery.interval
 
         row = await self._brotr.pool.fetchrow(
             """
@@ -561,7 +545,7 @@ class Monitor(BaseService[MonitorConfig]):
         while self.is_running:
             # Calculate limit for this chunk
             if max_relays is not None:
-                budget = max_relays - self._checked
+                budget = max_relays - self._progress.processed
                 if budget <= 0:
                     self._logger.debug("max_relays_reached", limit=max_relays)
                     break
@@ -575,17 +559,18 @@ class Monitor(BaseService[MonitorConfig]):
                 self._logger.debug("no_more_relays")
                 break
 
-            self._chunks += 1
+            self._progress.chunks += 1
             successful, failed = await self._check_chunk(relays)
+            await self._publish_relay_discoveries(successful)
             await self._persist_results(successful, failed)
 
             self._emit_metrics()
             self._logger.info(
                 "chunk_completed",
-                chunk=self._chunks,
+                chunk=self._progress.chunks,
                 successful=len(successful),
                 failed=len(failed),
-                remaining=self._total_relays - self._checked,
+                remaining=self._progress.remaining,
             )
 
     async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Relay]:
@@ -606,7 +591,7 @@ class Monitor(BaseService[MonitorConfig]):
             List of Relay objects ready for checking. May be empty if no
             relays remain or all have been processed this cycle.
         """
-        threshold = int(self._start_time) - self._config.discovery.interval
+        threshold = int(self._progress.started_at) - self._config.discovery.interval
 
         rows = await self._brotr.pool.fetch(
             """
@@ -641,7 +626,7 @@ class Monitor(BaseService[MonitorConfig]):
 
     async def _check_chunk(
         self, relays: list[Relay]
-    ) -> tuple[list[tuple[Relay, list[RelayMetadata]]], list[Relay]]:
+    ) -> tuple[list[tuple[Relay, CheckResult]], list[Relay]]:
         """Check a chunk of relays concurrently.
 
         Creates check tasks for all relays and awaits them together
@@ -656,31 +641,27 @@ class Monitor(BaseService[MonitorConfig]):
 
         Returns:
             A tuple of (successful, failed) where:
-                - successful: List of (Relay, metadata_list) tuples that passed
+                - successful: List of (Relay, CheckResult) tuples with metadata
                 - failed: List of Relay objects that failed all checks
         """
         tasks = [self._check_one(r) for r in relays]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        successful: list[tuple[Relay, list[RelayMetadata]]] = []
+        successful: list[tuple[Relay, CheckResult]] = []
         failed: list[Relay] = []
 
         for relay, result in zip(relays, results, strict=True):
-            self._checked += 1
-            if isinstance(result, BaseException):
-                self._logger.debug("check_exception", url=relay.url, error=str(result))
-                self._failed += 1
-                failed.append(relay)
-            elif result:
-                self._successful += 1
+            self._progress.processed += 1
+            if isinstance(result, CheckResult) and any(result):
+                self._progress.success += 1
                 successful.append((relay, result))
             else:
-                self._failed += 1
+                self._progress.failure += 1
                 failed.append(relay)
 
         return successful, failed
 
-    async def _check_one(self, relay: Relay) -> list[RelayMetadata]:
+    async def _check_one(self, relay: Relay) -> CheckResult:
         """Perform health checks on a single relay.
 
         Executes all configured health checks for the relay and collects
@@ -691,34 +672,30 @@ class Monitor(BaseService[MonitorConfig]):
             1. NIP-11: Fetch relay information document via HTTP
             2. NIP-66: Test WebSocket connectivity (open/read/write) + DNS/SSL/Geo
 
-        After checks complete, optionally publishes a Kind 30166 relay
-        discovery event to the monitored relay or configured relays.
-
         Args:
             relay: The relay to check.
 
         Returns:
-            List of RelayMetadata records containing check results.
-            Returns empty list if all checks fail.
+            CheckResult with all metadata fields. Fields are None if check
+            was not run or failed.
         """
+        empty = CheckResult(None, None, None, None, None, None, None, None)
+
         semaphore = self._semaphores.get(relay.network)
         if semaphore is None:
             self._logger.warning("unknown_network", url=relay.url, network=relay.network)
-            return []
+            return empty
 
         async with semaphore:
             network_config = self._config.networks.get(relay.network)
             proxy_url = self._config.networks.get_proxy_url(relay.network)
             timeout = network_config.timeout
+            compute = self._config.processing.compute
 
-            metadata_records: list[RelayMetadata] = []
             nip11: Nip11 | None = None
-            nip66: Nip66 | None = None
+            nip66_meta = None
 
             try:
-                compute = self._config.processing.compute
-                store = self._config.processing.store
-
                 # NIP-11 check
                 if compute.nip11:
                     nip11 = await Nip11.fetch(
@@ -727,13 +704,24 @@ class Monitor(BaseService[MonitorConfig]):
                         max_size=self._config.processing.nip11_max_size,
                         proxy_url=proxy_url,
                     )
-                    if nip11 and store.nip11:
-                        metadata_records.append(nip11.to_relay_metadata())
 
                 # NIP-66 tests (RTT, Probe, SSL, Geo, Net, DNS, HTTP)
                 needs_rtt_probe = compute.nip66_rtt or compute.nip66_probe
                 keys = self._keys if needs_rtt_probe else None
-                event_builder = EventBuilder.text_note("nip66-test") if needs_rtt_probe else None
+
+                # Build addressable test event (kind 30000 with d=relay_url)
+                # Replaceable per relay, can be read back to verify write
+                event_builder: EventBuilder | None = None
+                if needs_rtt_probe:
+                    event_builder = EventBuilder(Kind(30000), "nip66-test").tags(
+                        [Tag.parse(["d", relay.url])]
+                    )
+                    # Add POW if NIP-11 specifies minimum difficulty
+                    if nip11 and nip11.limitation:
+                        pow_difficulty = nip11.limitation.get("min_pow_difficulty", 0)
+                        if pow_difficulty and pow_difficulty > 0:
+                            event_builder = event_builder.pow(pow_difficulty)
+
                 read_filter = Filter().limit(1) if needs_rtt_probe else None
                 nip66 = await Nip66.test(
                     relay=relay,
@@ -753,41 +741,30 @@ class Monitor(BaseService[MonitorConfig]):
                     proxy_url=proxy_url,
                 )
                 if nip66:
-                    meta = nip66.to_relay_metadata()
-                    if meta.rtt and store.nip66_rtt:
-                        metadata_records.append(meta.rtt)
-                    if meta.probe and store.nip66_probe:
-                        metadata_records.append(meta.probe)
-                    if meta.ssl and store.nip66_ssl:
-                        metadata_records.append(meta.ssl)
-                    if meta.geo and store.nip66_geo:
-                        metadata_records.append(meta.geo)
-                    if meta.net and store.nip66_net:
-                        metadata_records.append(meta.net)
-                    if meta.dns and store.nip66_dns:
-                        metadata_records.append(meta.dns)
-                    if meta.http and store.nip66_http:
-                        metadata_records.append(meta.http)
+                    nip66_meta = nip66.to_relay_metadata()
 
-                # Publish Kind 30166
-                await self._publish_relay_discovery(relay, nip11, nip66)
+                result = CheckResult(
+                    nip11=nip11.to_relay_metadata() if nip11 else None,
+                    rtt=nip66_meta.rtt if nip66_meta else None,
+                    probe=nip66_meta.probe if nip66_meta else None,
+                    ssl=nip66_meta.ssl if nip66_meta else None,
+                    geo=nip66_meta.geo if nip66_meta else None,
+                    net=nip66_meta.net if nip66_meta else None,
+                    dns=nip66_meta.dns if nip66_meta else None,
+                    http=nip66_meta.http if nip66_meta else None,
+                )
 
                 # Log result
-                has_rtt_open = (
-                    nip66
-                    and nip66.rtt_metadata
-                    and nip66.rtt_metadata.data.get("rtt_open") is not None
-                )
-                if has_rtt_open or nip11:
+                if any(result):
                     self._logger.debug("check_ok", url=relay.url)
                 else:
                     self._logger.debug("check_failed", url=relay.url)
 
-                return metadata_records
+                return result
 
             except Exception as e:
                 self._logger.debug("check_error", url=relay.url, error=str(e))
-                return []
+                return empty
 
     # -------------------------------------------------------------------------
     # Persistence
@@ -795,12 +772,13 @@ class Monitor(BaseService[MonitorConfig]):
 
     async def _persist_results(
         self,
-        successful: list[tuple[Relay, list[RelayMetadata]]],
+        successful: list[tuple[Relay, CheckResult]],
         failed: list[Relay],
     ) -> None:
         """Persist check results to the database.
 
         For successful checks:
+            - Filters metadata by store config
             - Inserts metadata records using content-addressed deduplication
             - Saves checkpoint with current timestamp
 
@@ -808,10 +786,28 @@ class Monitor(BaseService[MonitorConfig]):
             - Updates checkpoint to mark the attempt (prevents immediate retry)
         """
         now = int(time.time())
+        store = self._config.processing.store
 
-        # Insert metadata for successful checks
+        # Insert metadata for successful checks (filtered by store config)
         if successful:
-            metadata = [m for _, metadata_list in successful for m in metadata_list]
+            metadata: list[RelayMetadata] = []
+            for _, result in successful:
+                if result.nip11 and store.nip11:
+                    metadata.append(result.nip11)
+                if result.rtt and store.nip66_rtt:
+                    metadata.append(result.rtt)
+                if result.probe and store.nip66_probe:
+                    metadata.append(result.probe)
+                if result.ssl and store.nip66_ssl:
+                    metadata.append(result.ssl)
+                if result.geo and store.nip66_geo:
+                    metadata.append(result.geo)
+                if result.net and store.nip66_net:
+                    metadata.append(result.net)
+                if result.dns and store.nip66_dns:
+                    metadata.append(result.dns)
+                if result.http and store.nip66_http:
+                    metadata.append(result.http)
             if metadata:
                 try:
                     count = await self._brotr.insert_relay_metadata(metadata)
@@ -898,19 +894,22 @@ class Monitor(BaseService[MonitorConfig]):
         except Exception as e:
             self._logger.warning("profile_failed", error=str(e))
 
-    async def _publish_relay_discovery(
-        self, relay: Relay, nip11: Nip11 | None, nip66: Nip66 | None
-    ) -> None:
-        """Publish a Kind 30166 relay discovery event if enabled."""
-        disc = self._config.discovery
-        if not disc.enabled or not self._get_discovery_relays() or self._keys is None:
+    async def _publish_relay_discoveries(self, successful: list[tuple[Relay, CheckResult]]) -> None:
+        """Publish Kind 30166 relay discovery events for all successful checks.
+
+        Args:
+            successful: List of (relay, result) tuples from successful checks.
+            publish_relays: List of relays to publish the events to.
+        """
+        if self._keys is None:
             return
 
-        try:
-            builder = self._build_kind_30166(relay, nip11, nip66)
-            await self._publish_event(builder, self._get_discovery_relays())
-        except Exception as e:
-            self._logger.debug("publish_30166_failed", error=str(e))
+        for relay, result in successful:
+            try:
+                builder = self._build_kind_30166(relay, result)
+                await self._publish_event(builder, self._get_discovery_relays())
+            except Exception as e:
+                self._logger.debug("publish_30166_failed", url=relay.url, error=str(e))
 
     # -------------------------------------------------------------------------
     # Event Builders
@@ -969,20 +968,18 @@ class Monitor(BaseService[MonitorConfig]):
 
         return EventBuilder(Kind(10166), "").tags(tags)
 
-    def _build_kind_30166(
-        self, relay: Relay, nip11: Nip11 | None, nip66: Nip66 | None
-    ) -> EventBuilder:
+    def _build_kind_30166(self, relay: Relay, result: CheckResult) -> EventBuilder:
         """Build Kind 30166 relay discovery event."""
         include = self._config.discovery.include
-        content = nip11.metadata.to_db_params()[0] if nip11 else ""
+        content = result.nip11.metadata.to_db_params()[0] if result.nip11 else ""
         tags = [
             Tag.parse(["d", relay.url]),
             Tag.parse(["n", relay.network.value]),
         ]
 
         # NIP-66 RTT tags
-        if nip66 and nip66.rtt_metadata and include.nip66_rtt:
-            rtt_data = nip66.rtt_metadata.data
+        if result.rtt and include.nip66_rtt:
+            rtt_data = result.rtt.metadata.data
             if rtt_data.get("rtt_open") is not None:
                 tags.append(Tag.parse(["rtt-open", str(rtt_data["rtt_open"])]))
             if rtt_data.get("rtt_read") is not None:
@@ -991,8 +988,8 @@ class Monitor(BaseService[MonitorConfig]):
                 tags.append(Tag.parse(["rtt-write", str(rtt_data["rtt_write"])]))
 
         # NIP-66 SSL tags
-        if nip66 and nip66.ssl_metadata and include.nip66_ssl:
-            ssl_data = nip66.ssl_metadata.data
+        if result.ssl and include.nip66_ssl:
+            ssl_data = result.ssl.metadata.data
             ssl_valid = ssl_data.get("ssl_valid")
             if ssl_valid is not None:
                 tags.append(Tag.parse(["ssl", "valid" if ssl_valid else "!valid"]))
@@ -1004,8 +1001,8 @@ class Monitor(BaseService[MonitorConfig]):
                 tags.append(Tag.parse(["ssl-issuer", ssl_issuer]))
 
         # NIP-66 Network tags
-        if nip66 and nip66.net_metadata and include.nip66_net:
-            net_data = nip66.net_metadata.data
+        if result.net and include.nip66_net:
+            net_data = result.net.metadata.data
             net_ip = net_data.get("net_ip")
             if net_ip:
                 tags.append(Tag.parse(["net-ip", net_ip]))
@@ -1020,8 +1017,8 @@ class Monitor(BaseService[MonitorConfig]):
                 tags.append(Tag.parse(["net-asn-org", net_asn_org]))
 
         # NIP-66 Geo tags
-        if nip66 and nip66.geo_metadata and include.nip66_geo:
-            geo_data = nip66.geo_metadata.data
+        if result.geo and include.nip66_geo:
+            geo_data = result.geo.metadata.data
             geohash = geo_data.get("geohash")
             if geohash:
                 tags.append(Tag.parse(["g", geohash]))
@@ -1041,108 +1038,108 @@ class Monitor(BaseService[MonitorConfig]):
             if geo_tz:
                 tags.append(Tag.parse(["geo-tz", geo_tz]))
 
-        # NIP-11 capability tags
-        if nip11 and include.nip11:
-            if nip11.supported_nips:
-                for nip in nip11.supported_nips:
+        # NIP-11 capability tags (self-reported by relay)
+        if result.nip11 and include.nip11:
+            nip11_data = result.nip11.metadata.data
+
+            # N tags: supported NIPs
+            supported_nips = nip11_data.get("supported_nips")
+            if supported_nips:
+                for nip in supported_nips:
                     tags.append(Tag.parse(["N", str(nip)]))
 
-            if nip11.limitation:
-                tags.extend(self._build_limitation_tags(nip11.limitation))
-
-            if nip11.retention:
-                for kind in self._extract_retention_kinds(nip11.retention):
-                    tags.append(Tag.parse(["k", kind]))
-
-            if nip11.tags:
-                for topic in nip11.tags:
+            # t tags: topic tags
+            nip11_tags = nip11_data.get("tags")
+            if nip11_tags:
+                for topic in nip11_tags:
                     tags.append(Tag.parse(["t", topic]))
 
-        return EventBuilder(Kind(30166), content).tags(tags)
+            # l tags: language tags (ISO-639-1)
+            # NIP-11 uses IETF tags (e.g., "en-419"), extract primary subtag for ISO-639-1
+            # "*" means global relay (all languages) - skip l tags in that case
+            language_tags = nip11_data.get("language_tags")
+            if language_tags and "*" not in language_tags:
+                seen_langs: set[str] = set()
+                for lang in language_tags:
+                    # Extract primary language subtag (before hyphen) for ISO-639-1
+                    # e.g., "en-419" -> "en", "pt-BR" -> "pt"
+                    primary = lang.split("-")[0].lower() if lang else ""
+                    if primary and len(primary) == 2 and primary not in seen_langs:
+                        seen_langs.add(primary)
+                        tags.append(Tag.parse(["l", primary, "ISO-639-1"]))
 
-    @staticmethod
-    def _build_limitation_tags(limitation: Nip11Limitation | dict[str, Any]) -> list[Tag]:
-        """Build R and T tags from NIP-11 limitation field.
+            # Combine NIP-11 claims with probe verification
+            limitation = nip11_data.get("limitation") or {}
+            nip11_auth = limitation.get("auth_required", False)
+            nip11_payment = limitation.get("payment_required", False)
+            nip11_writes = limitation.get("restricted_writes", False)
+            pow_diff = limitation.get("min_pow_difficulty", 0)
 
-        Args:
-            limitation: NIP-11 limitation dict with auth, payment, etc.
+            # Get probe results for verification (probe overrides NIP-11 claims)
+            probe_data = result.probe.metadata.data if result.probe else {}
+            write_success = probe_data.get("probe_write_success")
+            write_reason = (probe_data.get("probe_write_reason") or "").lower()
+            read_success = probe_data.get("probe_read_success")
+            read_reason = (probe_data.get("probe_read_reason") or "").lower()
 
-        Returns:
-            List of R (requirement) and T (type) tags.
-        """
-        tags: list[Tag] = []
+            # Determine actual restrictions from probe results
+            # Probe results override NIP-11 claims when available
+            if write_success is False and write_reason:
+                # Probe detected actual restrictions
+                probe_auth = "auth" in write_reason
+                probe_payment = "pay" in write_reason or "paid" in write_reason
+                probe_writes = not probe_auth and not probe_payment  # generic rejection
+            else:
+                probe_auth = False
+                probe_payment = False
+                probe_writes = False
 
-        # R tags: requirements
-        if limitation.get("auth_required"):
-            tags.append(Tag.parse(["R", "auth"]))
-        else:
-            tags.append(Tag.parse(["R", "!auth"]))
+            # Final determination: NIP-11 OR probe detected
+            auth = nip11_auth or probe_auth
+            payment = nip11_payment or probe_payment
+            # restricted_writes: NIP-11 says restricted, OR probe failed without auth/payment
+            # BUT if probe succeeded, writes are actually open (False overrides)
+            writes = False if write_success is True else nip11_writes or probe_writes
 
-        if limitation.get("payment_required"):
-            tags.append(Tag.parse(["R", "payment"]))
-        else:
-            tags.append(Tag.parse(["R", "!payment"]))
+            # Check if read requires auth (from probe)
+            read_auth = read_success is False and "auth" in read_reason
 
-        if limitation.get("restricted_writes"):
-            tags.append(Tag.parse(["R", "writes"]))
-        else:
-            tags.append(Tag.parse(["R", "!writes"]))
+            # R tags
+            tags.append(Tag.parse(["R", "auth" if auth else "!auth"]))
+            tags.append(Tag.parse(["R", "payment" if payment else "!payment"]))
+            tags.append(Tag.parse(["R", "writes" if writes else "!writes"]))
+            tags.append(Tag.parse(["R", "pow" if pow_diff and pow_diff > 0 else "!pow"]))
 
-        min_pow = limitation.get("min_pow_difficulty", 0)
-        if min_pow and min_pow > 0:
-            tags.append(Tag.parse(["R", "pow"]))
-        else:
-            tags.append(Tag.parse(["R", "!pow"]))
+            # T tags: relay types (per issue #1282)
+            # A relay can have multiple types, so we emit all applicable T tags
+            nips = set(supported_nips) if supported_nips else set()
 
-        # T tag: relay type
-        relay_type = Monitor._determine_relay_type(limitation)
-        if relay_type:
-            tags.append(Tag.parse(["T", relay_type]))
+            # Capability-based types (from supported_nips)
+            if 50 in nips:
+                tags.append(Tag.parse(["T", "Search"]))
+            if 29 in nips:
+                tags.append(Tag.parse(["T", "Community"]))
+            if 95 in nips:
+                tags.append(Tag.parse(["T", "Blob"]))
 
-        return tags
+            # Access-based types (from limitation + probe verification)
+            # Payment is a modifier - emitted separately, but also implies write restriction
+            if payment:
+                tags.append(Tag.parse(["T", "Paid"]))
 
-    @staticmethod
-    def _determine_relay_type(limitation: Nip11Limitation | dict[str, Any]) -> str | None:
-        """Determine relay type from NIP-11 limitation fields.
-
-        Returns:
-            One of: "Paid", "Private", "AuthRequired", "RestrictedWrite", "Public", or None.
-        """
-        auth_required = limitation.get("auth_required", False)
-        payment_required = limitation.get("payment_required", False)
-        restricted_writes = limitation.get("restricted_writes", False)
-
-        if payment_required:
-            return "Paid"
-        elif auth_required and restricted_writes:
-            return "Private"
-        elif auth_required:
-            return "AuthRequired"
-        elif restricted_writes:
-            return "RestrictedWrite"
-        else:
-            return "Public"
-
-    @staticmethod
-    def _extract_retention_kinds(
-        retention: list[Nip11RetentionEntry] | list[dict[str, Any]],
-    ) -> list[str]:
-        """Extract kind strings from NIP-11 retention field.
-
-        Returns:
-            List of kind strings with optional ! prefix for excluded kinds.
-        """
-        kinds: list[str] = []
-
-        for entry in retention:
-            entry_kinds: list[int | list[int]] = entry.get("kinds") or []
-            is_discard = entry.get("time") == 0 or entry.get("count") == 0
-
-            for kind in entry_kinds:
-                kind_str = str(kind)
-                if is_discard:
-                    kinds.append(f"!{kind_str}")
+            # Determine primary access type based on read/write restrictions
+            if read_auth:
+                if auth:
+                    # Both read and write require auth = PrivateStorage
+                    tags.append(Tag.parse(["T", "PrivateStorage"]))
                 else:
-                    kinds.append(kind_str)
+                    # Only read requires auth (p-tagged can download, anyone uploads)
+                    tags.append(Tag.parse(["T", "PrivateInbox"]))
+            elif auth or writes or payment:
+                # Read is open, writes restricted (by auth, whitelist, or payment)
+                tags.append(Tag.parse(["T", "PublicOutbox"]))
+            else:
+                # Both read and write are completely open
+                tags.append(Tag.parse(["T", "PublicInbox"]))
 
-        return kinds
+        return EventBuilder(Kind(30166), content).tags(tags)
