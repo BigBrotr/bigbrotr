@@ -31,13 +31,23 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class Candidate:
-    """Relay candidate pending validation."""
+    """Relay candidate pending validation.
+
+    Wraps a Relay object with its associated service_data metadata, providing
+    convenient access to validation state like failure counts.
+
+    Attributes:
+        relay: The Relay object containing URL and network information.
+        data: Dictionary of metadata from service_data table, including
+            'network' and 'failed_attempts' fields.
+    """
 
     relay: Relay
     data: dict[str, Any]
 
     @property
     def failed_attempts(self) -> int:
+        """Return the number of failed validation attempts for this candidate."""
         return self.data.get("failed_attempts", 0)
 
 
@@ -47,21 +57,42 @@ class Candidate:
 
 
 class ProcessingConfig(BaseModel):
-    """Chunk processing settings."""
+    """Candidate processing settings.
+
+    Attributes:
+        chunk_size: Number of candidates to fetch and validate per iteration.
+            Larger chunks reduce database round-trips but increase memory usage.
+        max_candidates: Optional limit on total candidates processed per cycle.
+            When None, processes all available candidates.
+    """
 
     chunk_size: int = Field(default=100, ge=10, le=1000)
     max_candidates: int | None = Field(default=None, ge=1)
 
 
 class CleanupConfig(BaseModel):
-    """Exhausted candidate cleanup settings."""
+    """Exhausted candidate cleanup settings.
+
+    Controls removal of candidates that have failed validation too many times,
+    preventing permanently broken relays from consuming resources indefinitely.
+
+    Attributes:
+        enabled: Whether to enable exhausted candidate cleanup.
+        max_failures: Failure threshold after which candidates are removed.
+    """
 
     enabled: bool = Field(default=False)
     max_failures: int = Field(default=100, ge=1, le=1000)
 
 
 class ValidatorConfig(BaseServiceConfig):
-    """Validator service configuration."""
+    """Validator service configuration.
+
+    Attributes:
+        networks: Network-specific settings (timeouts, proxies, concurrency).
+        processing: Chunk size and candidate limits for validation cycles.
+        cleanup: Settings for removing exhausted candidates.
+    """
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
@@ -112,6 +143,12 @@ class Validator(BaseService[ValidatorConfig]):
     CONFIG_CLASS: ClassVar[type[ValidatorConfig]] = ValidatorConfig
 
     def __init__(self, brotr: Brotr, config: ValidatorConfig | None = None) -> None:
+        """Initialize the Validator service.
+
+        Args:
+            brotr: Database interface for relay and service_data operations.
+            config: Optional configuration. If None, loads from YAML file.
+        """
         super().__init__(brotr=brotr, config=config)
         self._config: ValidatorConfig
         self._semaphores: dict[NetworkType, asyncio.Semaphore] = {}
@@ -498,7 +535,7 @@ class Validator(BaseService[ValidatorConfig]):
         semaphore = self._semaphores.get(relay.network)
 
         if semaphore is None:
-            self._logger.warning("unknown_network", url=relay.url, network=relay.network)
+            self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
             return False
 
         async with semaphore:
