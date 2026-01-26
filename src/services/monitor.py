@@ -1,7 +1,22 @@
-"""Monitors relay health and metadata with NIP-66 compliance.
+"""Relay health monitoring service with NIP-66 compliance.
 
-Performs connectivity tests, fetches NIP-11 documents, validates SSL certificates,
-measures DNS resolution, geolocates IPs, and publishes Kind 30166/10166 events.
+This service performs comprehensive health checks on Nostr relays and publishes
+the results to the network. It supports multiple network types (clearnet, Tor,
+I2P, Lokinet) and can optionally store results to the database.
+
+Health Checks:
+    - NIP-11: Fetch relay information document via HTTP
+    - NIP-66 RTT: Measure WebSocket open/read/write latencies
+    - NIP-66 Probe: Test read/write capabilities with actual events
+    - SSL: Validate certificate chain, expiry, and issuer
+    - DNS: Resolve hostname and measure resolution time
+    - Geo: Geolocate relay IP using MaxMind GeoLite2 databases
+    - Net: Lookup ASN information for the relay IP
+
+Publishing:
+    - Kind 30166: Relay discovery events with health check results
+    - Kind 10166: Monitor announcement with capabilities and frequency
+    - Kind 0: Optional monitor profile metadata
 """
 
 from __future__ import annotations
@@ -52,7 +67,22 @@ RelayList = Annotated[
 
 
 class CheckResult(NamedTuple):
-    """Result of a single relay health check."""
+    """Result of a single relay health check.
+
+    Each field contains RelayMetadata if that check was run and produced data,
+    or None if the check was skipped (disabled in config) or failed completely.
+    A relay is considered successful if any(result) is True.
+
+    Attributes:
+        nip11: NIP-11 relay information document (name, description, pubkey, etc.).
+        rtt: Round-trip times for open/read/write operations in milliseconds.
+        probe: Read/write capability probe results (success/failure and reason).
+        ssl: SSL certificate validation (valid, expiry timestamp, issuer).
+        geo: Geolocation data (country, city, coordinates, timezone, geohash).
+        net: Network information (IP address, ASN, organization).
+        dns: DNS resolution data (IPs, CNAME, nameservers, reverse DNS).
+        http: HTTP metadata (status code, headers, redirect chain).
+    """
 
     nip11: RelayMetadata | None
     rtt: RelayMetadata | None
@@ -629,12 +659,9 @@ class Monitor(BaseService[MonitorConfig]):
     ) -> tuple[list[tuple[Relay, CheckResult]], list[Relay]]:
         """Check a chunk of relays concurrently.
 
-        Creates check tasks for all relays and awaits them together
-        using asyncio.gather. Each check respects network-specific
-        semaphores to limit concurrency.
-
-        Updates the cycle counters (_checked, _successful, _failed) as results
-        are processed.
+        Creates check tasks for all relays and awaits them together using
+        asyncio.gather. Each check respects network-specific semaphores to
+        limit concurrency. Updates progress counters as results are processed.
 
         Args:
             relays: List of Relay objects to check.
@@ -855,12 +882,15 @@ class Monitor(BaseService[MonitorConfig]):
             await client.shutdown()
 
     def _get_discovery_relays(self) -> list[Relay]:
+        """Get relays for Kind 30166 discovery events (falls back to publishing.relays)."""
         return self._config.discovery.relays or self._config.publishing.relays
 
     def _get_announcement_relays(self) -> list[Relay]:
+        """Get relays for Kind 10166 announcements (falls back to publishing.relays)."""
         return self._config.announcement.relays or self._config.publishing.relays
 
     def _get_profile_relays(self) -> list[Relay]:
+        """Get relays for Kind 0 profile (falls back to publishing.relays)."""
         return self._config.profile.relays or self._config.publishing.relays
 
     async def _publish_announcement(self) -> None:
@@ -878,9 +908,10 @@ class Monitor(BaseService[MonitorConfig]):
             return
 
         try:
+            relays = self._get_announcement_relays()
             builder = self._build_kind_10166()
-            await self._broadcast_events([builder], self._get_announcement_relays())
-            self._logger.info("announcement_published")
+            await self._broadcast_events([builder], relays)
+            self._logger.info("announcement_published", relays=len(relays))
             await self._set_cursor_timestamp("last_announcement", time.time())
         except Exception as e:
             self._logger.warning("announcement_failed", error=str(e))
@@ -900,9 +931,10 @@ class Monitor(BaseService[MonitorConfig]):
             return
 
         try:
+            relays = self._get_profile_relays()
             builder = self._build_kind_0()
-            await self._broadcast_events([builder], self._get_profile_relays())
-            self._logger.info("profile_published")
+            await self._broadcast_events([builder], relays)
+            self._logger.info("profile_published", relays=len(relays))
             await self._set_cursor_timestamp("last_profile", time.time())
         except Exception as e:
             self._logger.warning("profile_failed", error=str(e))
@@ -932,14 +964,24 @@ class Monitor(BaseService[MonitorConfig]):
                 await self._broadcast_events(builders, self._get_discovery_relays())
                 self._logger.debug("discoveries_published", count=len(builders))
             except Exception as e:
-                self._logger.warning("discoveries_broadcast_failed", error=str(e))
+                self._logger.warning(
+                    "discoveries_broadcast_failed", count=len(builders), error=str(e)
+                )
 
     # -------------------------------------------------------------------------
     # Event Builders
     # -------------------------------------------------------------------------
 
     def _build_kind_0(self) -> EventBuilder:
-        """Build Kind 0 profile event."""
+        """Build Kind 0 profile metadata event per NIP-01.
+
+        Creates a replaceable event with the monitor's profile information
+        including name, about, picture, nip05, website, banner, and lud16.
+        Only non-empty fields from profile config are included.
+
+        Returns:
+            EventBuilder ready for signing and publishing.
+        """
         profile = self._config.profile
         profile_data: dict[str, str] = {}
         if profile.name:
@@ -959,7 +1001,17 @@ class Monitor(BaseService[MonitorConfig]):
         return EventBuilder(Kind(0), json.dumps(profile_data))
 
     def _build_kind_10166(self) -> EventBuilder:
-        """Build Kind 10166 monitor announcement event."""
+        """Build Kind 10166 monitor announcement event per NIP-66.
+
+        Creates a replaceable event announcing this monitor's capabilities.
+        Tags include:
+            - frequency: How often checks run (seconds)
+            - timeout: Timeout per check type (open, read, write, nip11, ssl)
+            - c: Check types performed (open, read, write, nip11, ssl, geo, net)
+
+        Returns:
+            EventBuilder ready for signing and publishing.
+        """
         timeout_ms = str(int(self._config.networks.clearnet.timeout * 1000))
         include = self._config.discovery.include
 
@@ -992,7 +1044,39 @@ class Monitor(BaseService[MonitorConfig]):
         return EventBuilder(Kind(10166), "").tags(tags)
 
     def _build_kind_30166(self, relay: Relay, result: CheckResult) -> EventBuilder:
-        """Build Kind 30166 relay discovery event."""
+        """Build Kind 30166 relay discovery event per NIP-66.
+
+        Creates an addressable event (d-tag = relay URL) with health check results.
+        Content is the NIP-11 JSON if available. Tags include:
+
+        Required:
+            - d: Relay URL (addressable identifier)
+            - n: Network type (clearnet, tor, i2p, lokinet)
+
+        From NIP-66 checks (if enabled and data available):
+            - rtt-open/read/write: Round-trip times in milliseconds
+            - ssl, ssl-expires, ssl-issuer: Certificate validation
+            - net-ip, net-ipv6, net-asn, net-asn-org: Network info
+            - g, geo-country, geo-city, geo-lat, geo-lon, geo-tz: Geolocation
+
+        From NIP-11 (if enabled and relay provides it):
+            - N: Supported NIP numbers
+            - t: Topic tags from relay
+            - l: Language codes (ISO-639-1)
+            - R: Requirements (auth, payment, writes, pow with ! prefix if not required)
+            - T: Relay types (Search, Community, Blob, Paid, PrivateStorage,
+                 PrivateInbox, PublicOutbox, PublicInbox)
+
+        R and T tags combine NIP-11 claims with probe verification - probe results
+        override self-reported capabilities when they conflict.
+
+        Args:
+            relay: The relay being described.
+            result: Health check results containing metadata.
+
+        Returns:
+            EventBuilder ready for signing and publishing.
+        """
         include = self._config.discovery.include
         content = result.nip11.metadata.to_db_params()[0] if result.nip11 else ""
         tags = [
