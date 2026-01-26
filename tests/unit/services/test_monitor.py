@@ -19,6 +19,7 @@ from models import Nip11, Nip66, Relay, RelayMetadata
 from models.relay import NetworkType
 from services.monitor import (
     AnnouncementConfig,
+    CheckResult,
     DiscoveryConfig,
     GeoConfig,
     MetadataFlags,
@@ -670,7 +671,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._reset_cycle_state()
+        monitor._progress.reset()
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert relays == []
@@ -703,7 +704,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._reset_cycle_state()
+        monitor._progress.reset()
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert len(relays) == 2
@@ -736,7 +737,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._reset_cycle_state()
+        monitor._progress.reset()
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert len(relays) == 1
@@ -765,7 +766,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._reset_cycle_state()
+        monitor._progress.reset()
         await monitor._fetch_chunk(["clearnet"], 50)
 
         # Verify limit was passed to fetch call
@@ -802,7 +803,7 @@ class TestMonitorRun:
         monitor = Monitor(brotr=mock_brotr, config=config)
         await monitor.run()
 
-        assert monitor._checked == 0
+        assert monitor._progress.processed == 0
 
 
 # ============================================================================
@@ -854,10 +855,18 @@ class TestMonitorPersistResults:
 
         relay1 = Relay("wss://relay1.example.com")
         relay2 = Relay("wss://relay2.example.com")
-        metadata1 = RelayMetadata(relay1, Metadata({"rtt_open": 100}), "nip66_rtt")
-        metadata2 = RelayMetadata(relay2, Metadata({"rtt_open": 200}), "nip66_rtt")
+        rtt1 = RelayMetadata(relay1, Metadata({"rtt_open": 100}), "nip66_rtt")
+        rtt2 = RelayMetadata(relay2, Metadata({"rtt_open": 200}), "nip66_rtt")
 
-        successful = [(relay1, [metadata1]), (relay2, [metadata2])]
+        # Create CheckResult with rtt metadata
+        result1 = CheckResult(
+            nip11=None, rtt=rtt1, probe=None, ssl=None, geo=None, net=None, dns=None, http=None
+        )
+        result2 = CheckResult(
+            nip11=None, rtt=rtt2, probe=None, ssl=None, geo=None, net=None, dns=None, http=None
+        )
+
+        successful = [(relay1, result1), (relay2, result2)]
         await monitor._persist_results(successful, [])
 
         mock_brotr.insert_relay_metadata.assert_called_once()  # type: ignore[attr-defined]

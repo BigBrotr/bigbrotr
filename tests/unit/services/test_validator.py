@@ -136,8 +136,8 @@ class TestValidatorRun:
         validator = Validator(brotr=mock_brotr)
         await validator.run()
 
-        assert validator._validated == 0
-        assert validator._invalidated == 0
+        assert validator._progress.success == 0
+        assert validator._progress.failure == 0
 
     @pytest.mark.asyncio
     async def test_cleanup_promoted_called_at_end_of_run(self, mock_brotr: Brotr) -> None:
@@ -175,8 +175,8 @@ class TestValidatorRun:
         with patch("services.validator.is_nostr_relay", side_effect=mock_is_nostr_relay):
             await validator.run()
 
-        assert validator._validated == 1
-        assert validator._invalidated == 1
+        assert validator._progress.success == 1
+        assert validator._progress.failure == 1
 
 
 # ============================================================================
@@ -204,7 +204,7 @@ class TestChunkProcessing:
         with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True):
             await validator.run()
 
-        assert validator._validated == 150
+        assert validator._progress.success == 150
 
     @pytest.mark.asyncio
     async def test_respects_max_candidates_limit(self, mock_brotr: Brotr) -> None:
@@ -235,7 +235,7 @@ class TestChunkProcessing:
         with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True):
             await validator.run()
 
-        assert validator._validated == 150
+        assert validator._progress.success == 150
 
 
 # ============================================================================
@@ -346,8 +346,8 @@ class TestErrorHandling:
         ):
             await validator.run()
 
-        assert validator._validated == 0
-        assert validator._invalidated == 1
+        assert validator._progress.success == 0
+        assert validator._progress.failure == 1
 
     @pytest.mark.asyncio
     async def test_database_error_during_persist_logged(self, mock_brotr: Brotr) -> None:
@@ -360,7 +360,7 @@ class TestErrorHandling:
         with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False):
             await validator.run()
 
-        assert validator._invalidated == 1
+        assert validator._progress.failure == 1
 
     @pytest.mark.asyncio
     async def test_all_candidates_fail_validation(self, mock_brotr: Brotr) -> None:
@@ -374,8 +374,8 @@ class TestErrorHandling:
         with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False):
             await validator.run()
 
-        assert validator._validated == 0
-        assert validator._invalidated == 10
+        assert validator._progress.success == 0
+        assert validator._progress.failure == 10
 
     @pytest.mark.asyncio
     async def test_graceful_shutdown(self, mock_brotr: Brotr) -> None:
@@ -392,7 +392,7 @@ class TestErrorHandling:
         with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True):
             await validator.run()
 
-        total = validator._validated + validator._invalidated
+        total = validator._progress.success + validator._progress.failure
         assert total == 10
 
         # Test stopping via is_running
