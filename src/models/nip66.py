@@ -136,11 +136,12 @@ import ssl
 from dataclasses import dataclass, field
 from datetime import timedelta
 from time import perf_counter, time
-from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, TypedDict
 
 import dns.resolver  # type: ignore[import-not-found]
 import geohash2
 import geoip2.database  # noqa: TC002 - used at runtime in _lookup_geo_sync
+import tldextract
 from nostr_sdk import EventBuilder, Filter
 
 from utils.parsing import parse_typed_dict
@@ -153,6 +154,18 @@ if TYPE_CHECKING:
     from nostr_sdk import Keys
 
     from .relay_metadata import RelayMetadata
+
+
+class Nip66RelayMetadata(NamedTuple):
+    """Named tuple for NIP-66 relay metadata results."""
+
+    rtt: RelayMetadata | None
+    probe: RelayMetadata | None
+    ssl: RelayMetadata | None
+    geo: RelayMetadata | None
+    net: RelayMetadata | None
+    dns: RelayMetadata | None
+    http: RelayMetadata | None
 
 
 logger = logging.getLogger(__name__)
@@ -182,11 +195,14 @@ class Nip66ProbeData(TypedDict, total=False):
     """
 
     probe_open_success: bool  # True if connection succeeded
-    probe_open_reason: str  # Raw error message (only if probe_open_success=False)
+    # Raw error message (only if probe_open_success=False)
+    probe_open_reason: str
     probe_read_success: bool  # True if read worked without restrictions
-    probe_read_reason: str  # Raw rejection message (only if probe_read_success=False)
+    # Raw rejection message (only if probe_read_success=False)
+    probe_read_reason: str
     probe_write_success: bool  # True if write worked without restrictions
-    probe_write_reason: str  # Raw rejection message (only if probe_write_success=False)
+    # Raw rejection message (only if probe_write_success=False)
+    probe_write_reason: str
 
 
 class Nip66SslData(TypedDict, total=False):
@@ -508,7 +524,8 @@ class Nip66:
                         if verify_event is not None:
                             # Event found: write confirmed
                             rtt_data["rtt_write"] = rtt_write
-                            probe_data["probe_write_success"] = True  # Write succeeded
+                            # Write succeeded
+                            probe_data["probe_write_success"] = True
                             logger.debug("_test_rtt_and_probe: write verified relay=%s", relay.url)
                         else:
                             # Relay responded OK=true but event not retrievable
@@ -997,8 +1014,6 @@ class Nip66:
 
         # NS records (for the registered domain, not the full host)
         try:
-            import tldextract
-
             # Extract registered domain (handles .co.uk, .com.br, etc.)
             ext = tldextract.extract(host)
             if ext.domain and ext.suffix:
@@ -1132,22 +1147,12 @@ class Nip66:
 
     # --- Factory method ---
 
-    def to_relay_metadata(
-        self,
-    ) -> tuple[
-        RelayMetadata | None,
-        RelayMetadata | None,
-        RelayMetadata | None,
-        RelayMetadata | None,
-        RelayMetadata | None,
-        RelayMetadata | None,
-        RelayMetadata | None,
-    ]:
+    def to_relay_metadata(self) -> Nip66RelayMetadata:
         """
         Convert to RelayMetadata objects for database storage.
 
         Returns:
-            Tuple of (rtt, probe, ssl, geo, net, dns, http) where each is RelayMetadata or None.
+            Nip66RelayMetadata named tuple with rtt, probe, ssl, geo, net, dns, http fields.
         """
         from .relay_metadata import MetadataType, RelayMetadata
 
@@ -1161,14 +1166,14 @@ class Nip66:
                 generated_at=self.generated_at,
             )
 
-        return (
-            make(self.rtt_metadata, MetadataType.NIP66_RTT),
-            make(self.probe_metadata, MetadataType.NIP66_PROBE),
-            make(self.ssl_metadata, MetadataType.NIP66_SSL),
-            make(self.geo_metadata, MetadataType.NIP66_GEO),
-            make(self.net_metadata, MetadataType.NIP66_NET),
-            make(self.dns_metadata, MetadataType.NIP66_DNS),
-            make(self.http_metadata, MetadataType.NIP66_HTTP),
+        return Nip66RelayMetadata(
+            rtt=make(self.rtt_metadata, MetadataType.NIP66_RTT),
+            probe=make(self.probe_metadata, MetadataType.NIP66_PROBE),
+            ssl=make(self.ssl_metadata, MetadataType.NIP66_SSL),
+            geo=make(self.geo_metadata, MetadataType.NIP66_GEO),
+            net=make(self.net_metadata, MetadataType.NIP66_NET),
+            dns=make(self.dns_metadata, MetadataType.NIP66_DNS),
+            http=make(self.http_metadata, MetadataType.NIP66_HTTP),
         )
 
     # --- Main test method ---
@@ -1184,6 +1189,7 @@ class Nip66:
         city_reader: geoip2.database.Reader | None = None,
         asn_reader: geoip2.database.Reader | None = None,
         run_rtt: bool = True,
+        run_probe: bool = True,
         run_ssl: bool = True,
         run_geo: bool = True,
         run_net: bool = True,
@@ -1198,18 +1204,19 @@ class Nip66:
         All tests are enabled by default. Disable specific tests with run_* flags.
         At least one test must succeed to create a valid Nip66 instance.
 
-        Note: run_rtt also collects probe_metadata as a byproduct of the RTT test.
+        Note: run_rtt and run_probe share the same WebSocket test internally.
+        The test runs if either flag is True; results are kept based on individual flags.
 
         Args:
             relay: Relay object to test
             timeout: Connection timeout in seconds (default: _DEFAULT_TEST_TIMEOUT)
-            keys: Keys for signing test events (required if run_rtt=True)
-            event_builder: EventBuilder for write test (required if run_rtt=True)
-            read_filter: Filter for read test (required if run_rtt=True)
+            keys: Keys for signing test events (required if run_rtt or run_probe)
+            event_builder: EventBuilder for write test (required if run_rtt or run_probe)
+            read_filter: Filter for read test (required if run_rtt or run_probe)
             city_reader: Pre-opened GeoLite2-City database reader (required if run_geo=True)
             asn_reader: Pre-opened GeoLite2-ASN database reader (required if run_net=True)
-            run_rtt: Run RTT test (open/read/write) and collect probe test data.
-                Requires keys, event_builder, read_filter.
+            run_rtt: Collect RTT timing data (rtt_open, rtt_read, rtt_write in ms).
+            run_probe: Collect probe status data (is_open, is_read, is_write booleans).
             run_ssl: Run SSL certificate test (clearnet wss:// only)
             run_geo: Run geolocation test. Requires city_reader.
             run_net: Run network/ASN test. Requires asn_reader.
@@ -1232,7 +1239,12 @@ class Nip66:
         tasks: list[Any] = []
         task_names: list[str] = []
 
-        if run_rtt and keys is not None and event_builder is not None and read_filter is not None:
+        if (
+            (run_rtt or run_probe)
+            and keys is not None
+            and event_builder is not None
+            and read_filter is not None
+        ):
             tasks.append(
                 cls._test_rtt_and_probe(
                     relay, timeout, keys, event_builder, read_filter, proxy_url, allow_insecure
@@ -1278,7 +1290,11 @@ class Nip66:
                 continue
             logger.debug("test: %s succeeded", name)
             if name == "rtt_and_probe":
-                rtt_metadata, probe_metadata = result
+                _rtt, _probe = result
+                if run_rtt:
+                    rtt_metadata = _rtt
+                if run_probe:
+                    probe_metadata = _probe
             elif name == "ssl":
                 ssl_metadata = result
             elif name == "geo":
