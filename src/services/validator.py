@@ -7,7 +7,6 @@ failure counter incremented and will be retried in future cycles.
 from __future__ import annotations
 
 import asyncio
-import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -17,6 +16,7 @@ from core.base_service import BaseService, BaseServiceConfig
 from models import Relay
 from models.relay import NetworkType
 from utils.network import NetworkConfig
+from utils.progress import BatchProgress
 from utils.transport import is_nostr_relay
 
 
@@ -31,13 +31,23 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class Candidate:
-    """Relay candidate pending validation."""
+    """Relay candidate pending validation.
+
+    Wraps a Relay object with its associated service_data metadata, providing
+    convenient access to validation state like failure counts.
+
+    Attributes:
+        relay: The Relay object containing URL and network information.
+        data: Dictionary of metadata from service_data table, including
+            'network' and 'failed_attempts' fields.
+    """
 
     relay: Relay
     data: dict[str, Any]
 
     @property
     def failed_attempts(self) -> int:
+        """Return the number of failed validation attempts for this candidate."""
         return self.data.get("failed_attempts", 0)
 
 
@@ -47,21 +57,42 @@ class Candidate:
 
 
 class ProcessingConfig(BaseModel):
-    """Chunk processing settings."""
+    """Candidate processing settings.
+
+    Attributes:
+        chunk_size: Number of candidates to fetch and validate per iteration.
+            Larger chunks reduce database round-trips but increase memory usage.
+        max_candidates: Optional limit on total candidates processed per cycle.
+            When None, processes all available candidates.
+    """
 
     chunk_size: int = Field(default=100, ge=10, le=1000)
     max_candidates: int | None = Field(default=None, ge=1)
 
 
 class CleanupConfig(BaseModel):
-    """Exhausted candidate cleanup settings."""
+    """Exhausted candidate cleanup settings.
+
+    Controls removal of candidates that have failed validation too many times,
+    preventing permanently broken relays from consuming resources indefinitely.
+
+    Attributes:
+        enabled: Whether to enable exhausted candidate cleanup.
+        max_failures: Failure threshold after which candidates are removed.
+    """
 
     enabled: bool = Field(default=False)
     max_failures: int = Field(default=100, ge=1, le=1000)
 
 
 class ValidatorConfig(BaseServiceConfig):
-    """Validator service configuration."""
+    """Validator service configuration.
+
+    Attributes:
+        networks: Network-specific settings (timeouts, proxies, concurrency).
+        processing: Chunk size and candidate limits for validation cycles.
+        cleanup: Settings for removing exhausted candidates.
+    """
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
@@ -112,15 +143,16 @@ class Validator(BaseService[ValidatorConfig]):
     CONFIG_CLASS: ClassVar[type[ValidatorConfig]] = ValidatorConfig
 
     def __init__(self, brotr: Brotr, config: ValidatorConfig | None = None) -> None:
+        """Initialize the Validator service.
+
+        Args:
+            brotr: Database interface for relay and service_data operations.
+            config: Optional configuration. If None, loads from YAML file.
+        """
         super().__init__(brotr=brotr, config=config)
         self._config: ValidatorConfig
         self._semaphores: dict[NetworkType, asyncio.Semaphore] = {}
-        # Cycle state (reset at start of each run)
-        self._start_time: float = 0.0
-        self._candidates: int = 0
-        self._validated: int = 0
-        self._invalidated: int = 0
-        self._chunks: int = 0
+        self._progress = BatchProgress()
 
     # -------------------------------------------------------------------------
     # Main Cycle
@@ -141,7 +173,7 @@ class Validator(BaseService[ValidatorConfig]):
             Exception: Database errors are logged but not raised to allow the
                 service to continue with subsequent cycles.
         """
-        self._reset_cycle_state()
+        self._progress.reset()
         self._init_semaphores()
 
         networks = self._config.networks.get_enabled_networks()
@@ -155,9 +187,9 @@ class Validator(BaseService[ValidatorConfig]):
         # Cleanup and count
         await self._cleanup_stale()
         await self._cleanup_exhausted()
-        self._candidates = await self._count_candidates(networks)
+        self._progress.total = await self._count_candidates(networks)
 
-        self._logger.info("candidates_available", total=self._candidates)
+        self._logger.info("candidates_available", total=self._progress.total)
         self._emit_metrics()
 
         # Process all candidates
@@ -166,31 +198,11 @@ class Validator(BaseService[ValidatorConfig]):
         self._emit_metrics()
         self._logger.info(
             "cycle_completed",
-            validated=self._validated,
-            invalidated=self._invalidated,
-            chunks=self._chunks,
-            duration_s=round(time.time() - self._start_time, 1),
+            validated=self._progress.success,
+            invalidated=self._progress.failure,
+            chunks=self._progress.chunks,
+            duration_s=self._progress.elapsed,
         )
-
-    def _reset_cycle_state(self) -> None:
-        """Reset all cycle counters and timers for a fresh validation run.
-
-        Called at the start of each run() to ensure clean state. This prevents
-        metrics from previous cycles from carrying over and ensures accurate
-        duration calculations.
-
-        Resets:
-            _start_time: Current timestamp for duration tracking.
-            _candidates: Total candidates available count.
-            _validated: Successfully validated relay count.
-            _invalidated: Failed validation relay count.
-            _chunks: Number of chunks processed.
-        """
-        self._start_time = time.time()
-        self._candidates = 0
-        self._validated = 0
-        self._invalidated = 0
-        self._chunks = 0
 
     def _init_semaphores(self) -> None:
         """Initialize per-network concurrency semaphores.
@@ -217,16 +229,18 @@ class Validator(BaseService[ValidatorConfig]):
         """Emit Prometheus metrics reflecting current cycle state.
 
         Updates gauge metrics for monitoring dashboards:
-            - candidates: Total candidates available at cycle start
-            - validated: Relays that passed validation (cumulative in cycle)
-            - invalidated: Relays that failed validation (cumulative in cycle)
+            - total: Total candidates available at cycle start
+            - processed: Candidates processed (cumulative in cycle)
+            - success: Relays that passed validation (cumulative in cycle)
+            - failure: Relays that failed validation (cumulative in cycle)
 
         Called after cleanup/counting, after each chunk, and at cycle completion
         to provide real-time visibility into validation progress.
         """
-        self.set_gauge("candidates", self._candidates)
-        self.set_gauge("validated", self._validated)
-        self.set_gauge("invalidated", self._invalidated)
+        self.set_gauge("total", self._progress.total)
+        self.set_gauge("processed", self._progress.processed)
+        self.set_gauge("success", self._progress.success)
+        self.set_gauge("failure", self._progress.failure)
 
     # -------------------------------------------------------------------------
     # Cleanup
@@ -383,9 +397,8 @@ class Validator(BaseService[ValidatorConfig]):
 
         while self.is_running:
             # Calculate limit for this chunk
-            processed = self._validated + self._invalidated
             if max_candidates is not None:
-                budget = max_candidates - processed
+                budget = max_candidates - self._progress.processed
                 if budget <= 0:
                     self._logger.debug("max_candidates_reached", limit=max_candidates)
                     break
@@ -399,17 +412,17 @@ class Validator(BaseService[ValidatorConfig]):
                 self._logger.debug("no_more_candidates")
                 break
 
-            self._chunks += 1
+            self._progress.chunks += 1
             valid, invalid = await self._validate_chunk(candidates)
             await self._persist_results(valid, invalid)
 
             self._emit_metrics()
             self._logger.info(
                 "chunk_completed",
-                chunk=self._chunks,
+                chunk=self._progress.chunks,
                 valid=len(valid),
                 invalid=len(invalid),
-                remaining=self._candidates - self._validated - self._invalidated,
+                remaining=self._progress.remaining,
             )
 
     async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Candidate]:
@@ -448,7 +461,7 @@ class Validator(BaseService[ValidatorConfig]):
             LIMIT $3
             """,
             networks,
-            int(self._start_time),
+            int(self._progress.started_at),
             limit,
             timeout=self._brotr.config.timeouts.query,
         )
@@ -472,7 +485,7 @@ class Validator(BaseService[ValidatorConfig]):
         using asyncio.gather. Each validation respects network-specific
         semaphores to limit concurrency.
 
-        Updates the cycle counters (_validated, _invalidated) as results
+        Updates the progress counters (processed, success, failure) as results
         are processed.
 
         Args:
@@ -490,11 +503,12 @@ class Validator(BaseService[ValidatorConfig]):
         invalid: list[Candidate] = []
 
         for candidate, result in zip(candidates, results, strict=True):
+            self._progress.processed += 1
             if result is True:
-                self._validated += 1
+                self._progress.success += 1
                 valid.append(candidate.relay)
             else:
-                self._invalidated += 1
+                self._progress.failure += 1
                 invalid.append(candidate)
 
         return valid, invalid
@@ -521,7 +535,7 @@ class Validator(BaseService[ValidatorConfig]):
         semaphore = self._semaphores.get(relay.network)
 
         if semaphore is None:
-            self._logger.warning("unknown_network", url=relay.url, network=relay.network)
+            self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
             return False
 
         async with semaphore:

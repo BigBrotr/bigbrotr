@@ -44,6 +44,7 @@ body:
         - Core (Pool/Brotr/BaseService)
         - Seeder service
         - Finder service
+        - Validator service
         - Monitor service
         - Synchronizer service
         - API service (planned)

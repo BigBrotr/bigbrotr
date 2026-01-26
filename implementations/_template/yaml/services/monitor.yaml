@@ -32,8 +32,6 @@ metrics:
   port: 8003
   host: "0.0.0.0"
   path: "/metrics"
-  health:
-    max_cycle_age_seconds: 7200.0  # Unhealthy if no cycle in 2 hours
 
 # Unified network configuration
 # Each network type has: enabled, proxy_url, max_tasks, timeout
@@ -47,49 +45,66 @@ networks:
     enabled: true
     proxy_url: "socks5://tor:9050"
     max_tasks: 10              # Lower concurrency (Tor is slower)
-    timeout: 60.0              # Longer timeout for Tor latency (Range: 10.0 - 180.0)
+    timeout: 60.0              # Longer timeout for Tor latency
 
   i2p:
-    enabled: false             # Disabled by default (enable i2p service in docker-compose first)
+    enabled: false             # Disabled by default
     proxy_url: "socks5://i2p:4447"
-    max_tasks: 5               # Even lower (I2P is slowest)
-    timeout: 90.0              # Longest timeout for I2P
+    max_tasks: 5
+    timeout: 90.0
 
   loki:
-    enabled: false             # Disabled by default (requires Lokinet - Linux only)
+    enabled: false             # Disabled by default
     proxy_url: "socks5://lokinet:1080"
     max_tasks: 5
     timeout: 60.0
 
-# Nostr keys for NIP-66 events
-# Required only if checks.write=true or publishing.enabled=true
-# Private key loaded from PRIVATE_KEY environment variable
-keys: {}
-
-# NIP-66 event publishing configuration
+# Default relay list for publishing events
+# Nostr private key loaded from PRIVATE_KEY environment variable
+# Used by discovery, announcement, and profile if their relays list is empty
 publishing:
-  enabled: true               # Enable publishing Kind 30166/10166 events
-
-  # Destination options:
-  #   "monitored_relay"   : Publish to the relay being checked (default)
-  #   "configured_relays" : Publish to relays listed below
-  #   "database_only"     : No Nostr publishing, only store in database
-  destination: "monitored_relay"
-
-  # Relays for publishing (only used if destination: "configured_relays")
-  relays: []
+  relays:
     # - wss://relay.damus.io
     # - wss://nos.lol
+    # - wss://relay.nostr.band
 
-# Health checks to perform on each relay
-checks:
-  open: true                  # Test WebSocket connection
-  read: true                  # Test REQ/EOSE subscription
-  write: true                 # Test EVENT/OK publication (requires PRIVATE_KEY)
-  nip11: true                 # Fetch NIP-11 relay info document
-  ssl: true                   # Validate SSL/TLS certificate
-  dns: true                   # Measure DNS resolution time
-  geo: true                   # Geolocate relay IP address
+# Kind 30166 relay discovery events
+# Publishes relay metadata to the Nostr network
+discovery:
+  enabled: true
+  interval: 3600             # Seconds between re-checking a relay (Range: >= 60)
+  include:                   # Which metadata to include in events (⊆ processing.compute)
+    nip11: true              # NIP-11 relay information document
+    nip66_rtt: true          # Round-trip time measurements
+    nip66_probe: true        # Probe test results (open/read/write restrictions)
+    nip66_ssl: true          # SSL certificate validation
+    nip66_geo: true          # Geolocation (country, city, coordinates)
+    nip66_net: true          # Network/ASN info (IP, ASN, organization)
+    nip66_dns: true          # DNS resolution time
+    nip66_http: true         # HTTP response codes
+  relays:                    # Override publishing.relays (empty = use publishing.relays)
+
+# Kind 10166 monitor announcement
+# Announces this monitor's existence and capabilities to the network
+announcement:
+  enabled: true
+  interval: 86400            # Seconds between announcements (Range: >= 60)
+  relays:                    # Override publishing.relays (empty = use publishing.relays)
+
+# Kind 0 profile
+# Publishes monitor's profile metadata
+profile:
+  enabled: false
+  interval: 86400            # Seconds between profile updates (Range: >= 60)
+  relays:                    # Override publishing.relays (empty = use publishing.relays)
+  # Profile content (NIP-01)
+  # name: "My Monitor"
+  # about: "NIP-66 relay monitor"
+  # picture: "https://example.com/avatar.png"
+  # nip05: "monitor@example.com"
+  # website: "https://example.com"
+  # banner: "https://example.com/banner.png"
+  # lud16: "monitor@getalby.com"
 
 # Geolocation configuration
 # Requires MaxMind GeoLite2 databases (free with registration)
@@ -97,54 +112,64 @@ checks:
 # Place databases in static/ folder
 geo:
   city_database_path: "static/GeoLite2-City.mmdb"
-  asn_database_path: "static/GeoLite2-ASN.mmdb"  # Optional, for ASN/ISP info
-  country_database_path: "static/GeoLite2-Country.mmdb"  # Optional, for country fallback
-  # Update frequency: "monthly", "weekly", "none" (none = never auto-update)
-  update_frequency: "monthly"
+  asn_database_path: "static/GeoLite2-ASN.mmdb"
+  max_age_days: 30  # null = never update
 
-# Concurrency settings
-concurrency:
-  max_processes: 1            # Number of worker processes (Range: 1 - 32)
-  batch_size: 50              # Relays to process before pushing to database (Range: 1 - 500)
-
-# Relay selection - which relays to check
-selection:
-  # Minimum seconds since last check before re-checking
-  # Prevents checking the same relay too frequently
-  # Range: >= 0
-  min_age_since_check: 3600
+# Processing settings
+# Controls what metadata is computed and stored
+# Dependency chain: compute → store → discovery.include
+processing:
+  chunk_size: 100              # Relays per batch (Range: 10 - 1000)
+  # max_relays: 500            # Optional limit on total relays per cycle
+  nip11_max_size: 1048576      # Max NIP-11 response size in bytes (1MB)
+  compute:                     # What metadata to compute
+    nip11: true
+    nip66_rtt: true
+    nip66_probe: true
+    nip66_ssl: true
+    nip66_geo: true
+    nip66_net: true
+    nip66_dns: true
+    nip66_http: true
+  store:                       # What metadata to store in database (⊆ compute)
+    nip11: true
+    nip66_rtt: true
+    nip66_probe: true
+    nip66_ssl: true
+    nip66_geo: true
+    nip66_net: true
+    nip66_dns: true
+    nip66_http: true
 
 # ============================================================================
 # CUSTOMIZATION NOTES
 # ============================================================================
 #
 # NO GEOLOCATION:
-#   checks.geo: false
-#   geo: {}  # Remove database paths
+#   processing.compute.nip66_geo: false
+#   processing.store.nip66_geo: false
+#   discovery.include.nip66_geo: false
 #
 # NO WRITE TESTS (no PRIVATE_KEY needed):
-#   checks.write: false
+#   processing.compute.nip66_rtt: false  # RTT includes write test
 #
 # DATABASE ONLY (no Nostr publishing):
-#   publishing.destination: "database_only"
+#   discovery.enabled: false
+#   announcement.enabled: false
+#   profile.enabled: false
 #
 # MINIMAL RESOURCES:
 #   interval: 7200.0
 #   networks.clearnet.max_tasks: 10
-#   networks.tor.max_tasks: 5
-#   concurrency.batch_size: 10
-#   checks:
-#     open: true
-#     read: false
-#     write: false
+#   processing.chunk_size: 20
+#   processing.compute:
 #     nip11: true
-#     ssl: false
-#     dns: false
-#     geo: false
-#
-# AGGRESSIVE MONITORING:
-#   interval: 1800.0
-#   networks.clearnet.max_tasks: 100
-#   concurrency.max_processes: 4
+#     nip66_rtt: false
+#     nip66_probe: false
+#     nip66_ssl: false
+#     nip66_geo: false
+#     nip66_net: false
+#     nip66_dns: false
+#     nip66_http: false
 #
 # ============================================================================

@@ -398,7 +398,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"candidates\"}",
+          "expr": "service_gauge{service=\"validator\", name=\"total\"}",
           "legendFormat": "Total",
           "refId": "A"
         }
@@ -447,13 +447,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"validated\"}",
+          "expr": "service_gauge{service=\"validator\", name=\"success\"}",
           "legendFormat": "Valid",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"invalidated\"}",
+          "expr": "service_gauge{service=\"validator\", name=\"failure\"}",
           "legendFormat": "Invalid",
           "refId": "B"
         }
@@ -519,19 +519,19 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"candidates\"}",
+          "expr": "service_gauge{service=\"validator\", name=\"total\"}",
           "legendFormat": "Total",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"validated\"}",
+          "expr": "service_gauge{service=\"validator\", name=\"success\"}",
           "legendFormat": "Valid",
           "refId": "B"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "service_gauge{service=\"validator\", name=\"invalidated\"}",
+          "expr": "service_gauge{service=\"validator\", name=\"failure\"}",
           "legendFormat": "Invalid",
           "refId": "C"
         }

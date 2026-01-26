@@ -19,6 +19,7 @@ from models import Nip11, Nip66, Relay, RelayMetadata
 from models.relay import NetworkType
 from services.monitor import (
     AnnouncementConfig,
+    CheckResult,
     DiscoveryConfig,
     GeoConfig,
     MetadataFlags,
@@ -26,6 +27,7 @@ from services.monitor import (
     MonitorConfig,
     ProcessingConfig,
     ProfileConfig,
+    PublishingConfig,
 )
 from utils.network import NetworkConfig, NetworkTypeConfig
 
@@ -122,19 +124,42 @@ class TestGeoConfig:
 
         assert config.city_database_path == "static/GeoLite2-City.mmdb"
         assert config.asn_database_path == "static/GeoLite2-ASN.mmdb"
-        assert config.update_frequency == "monthly"
+        assert config.max_age_days == 30
 
     def test_custom_paths(self) -> None:
         """Test custom database paths."""
         config = GeoConfig(
             city_database_path="/custom/path/city.mmdb",
             asn_database_path="/custom/path/asn.mmdb",
-            update_frequency="weekly",
+            max_age_days=7,
         )
 
         assert config.city_database_path == "/custom/path/city.mmdb"
         assert config.asn_database_path == "/custom/path/asn.mmdb"
-        assert config.update_frequency == "weekly"
+        assert config.max_age_days == 7
+
+
+# ============================================================================
+# PublishingConfig Tests
+# ============================================================================
+
+
+class TestPublishingConfig:
+    """Tests for PublishingConfig Pydantic model."""
+
+    def test_default_values(self) -> None:
+        """Test default publishing config."""
+        config = PublishingConfig()
+
+        assert config.relays == []
+
+    def test_custom_values(self) -> None:
+        """Test custom publishing config."""
+        config = PublishingConfig(relays=["wss://relay1.com", "wss://relay2.com"])
+
+        assert len(config.relays) == 2
+        assert config.relays[0].url == "wss://relay1.com"
+        assert config.relays[1].url == "wss://relay2.com"
 
 
 # ============================================================================
@@ -152,8 +177,6 @@ class TestDiscoveryConfig:
         assert config.enabled is True
         assert config.interval == 3600
         assert config.include.nip11 is True
-        assert config.monitored_relay is True
-        assert config.configured_relays is True
         assert config.relays == []
 
     def test_custom_values(self) -> None:
@@ -648,7 +671,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._reset_cycle_state()
+        monitor._progress.reset()
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert relays == []
@@ -681,7 +704,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._reset_cycle_state()
+        monitor._progress.reset()
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert len(relays) == 2
@@ -714,7 +737,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._reset_cycle_state()
+        monitor._progress.reset()
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert len(relays) == 1
@@ -743,7 +766,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._reset_cycle_state()
+        monitor._progress.reset()
         await monitor._fetch_chunk(["clearnet"], 50)
 
         # Verify limit was passed to fetch call
@@ -780,7 +803,7 @@ class TestMonitorRun:
         monitor = Monitor(brotr=mock_brotr, config=config)
         await monitor.run()
 
-        assert monitor._checked == 0
+        assert monitor._progress.processed == 0
 
 
 # ============================================================================
@@ -832,10 +855,18 @@ class TestMonitorPersistResults:
 
         relay1 = Relay("wss://relay1.example.com")
         relay2 = Relay("wss://relay2.example.com")
-        metadata1 = RelayMetadata(relay1, Metadata({"rtt_open": 100}), "nip66_rtt")
-        metadata2 = RelayMetadata(relay2, Metadata({"rtt_open": 200}), "nip66_rtt")
+        rtt1 = RelayMetadata(relay1, Metadata({"rtt_open": 100}), "nip66_rtt")
+        rtt2 = RelayMetadata(relay2, Metadata({"rtt_open": 200}), "nip66_rtt")
 
-        successful = [(relay1, [metadata1]), (relay2, [metadata2])]
+        # Create CheckResult with rtt metadata
+        result1 = CheckResult(
+            nip11=None, rtt=rtt1, probe=None, ssl=None, geo=None, net=None, dns=None, http=None
+        )
+        result2 = CheckResult(
+            nip11=None, rtt=rtt2, probe=None, ssl=None, geo=None, net=None, dns=None, http=None
+        )
+
+        successful = [(relay1, result1), (relay2, result2)]
         await monitor._persist_results(successful, [])
 
         mock_brotr.insert_relay_metadata.assert_called_once()  # type: ignore[attr-defined]

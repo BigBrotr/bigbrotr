@@ -5,6 +5,7 @@ across the BigBrotr codebase. It re-exports commonly used utilities for
 convenient imports.
 
 Exported utilities:
+    - BatchProgress: Dataclass for tracking batch processing progress
     - KeysConfig: Pydantic model for Nostr key configuration
     - load_keys_from_env: Load Nostr keys from environment variables
     - NetworkConfig: Unified network configuration for all services
@@ -22,11 +23,13 @@ Example:
 from utils.keys import KeysConfig, load_keys_from_env
 from utils.network import NetworkConfig, NetworkTypeConfig
 from utils.parsing import parse_typed_dict
+from utils.progress import BatchProgress
 from utils.transport import create_client
 from utils.yaml import load_yaml
 
 
 __all__ = [
+    "BatchProgress",
     "KeysConfig",
     "NetworkConfig",
     "NetworkTypeConfig",

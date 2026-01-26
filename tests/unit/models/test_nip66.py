@@ -133,16 +133,20 @@ def complete_net_data():
     """Complete network metadata for NIP-66.
 
     Contains network data from GeoIP ASN database lookups:
-    - net_ip: Resolved IP address
+    - net_ip: Resolved IPv4 address
+    - net_ipv6: Resolved IPv6 address (if available)
     - net_asn: Autonomous System Number
     - net_asn_org: ASN organization name
-    - net_network: Network CIDR
+    - net_network: IPv4 network CIDR
+    - net_network_v6: IPv6 network CIDR (if available)
     """
     return {
         "net_ip": "8.8.8.8",
+        "net_ipv6": "2001:4860:4860::8888",
         "net_asn": 15169,
         "net_asn_org": "GOOGLE",
         "net_network": "8.8.8.0/24",
+        "net_network_v6": "2001:4860::/32",
     }
 
 
@@ -434,9 +438,11 @@ class TestMetadataAccess:
     def test_net_metadata_access(self, nip66_full):
         """Access net values via metadata.data."""
         assert nip66_full.net_metadata.data.get("net_ip") == "8.8.8.8"
+        assert nip66_full.net_metadata.data.get("net_ipv6") == "2001:4860:4860::8888"
         assert nip66_full.net_metadata.data.get("net_asn") == 15169
         assert nip66_full.net_metadata.data.get("net_asn_org") == "GOOGLE"
         assert nip66_full.net_metadata.data.get("net_network") == "8.8.8.0/24"
+        assert nip66_full.net_metadata.data.get("net_network_v6") == "2001:4860::/32"
 
     def test_dns_metadata_access(self, nip66_full):
         """Access DNS values via metadata.data."""
@@ -764,8 +770,8 @@ class TestLookupGeoSync:
 class TestLookupNetSync:
     """Test _lookup_net_sync() static method."""
 
-    def test_success_with_asn_reader(self):
-        """Successful lookup returns net data (ASN info)."""
+    def test_success_with_ipv4_only(self):
+        """Successful lookup with IPv4 only returns net data."""
         mock_asn_response = MagicMock()
         mock_asn_response.autonomous_system_number = 7922
         mock_asn_response.autonomous_system_organization = "Comcast Cable"
@@ -774,12 +780,57 @@ class TestLookupNetSync:
         mock_asn_reader = MagicMock()
         mock_asn_reader.asn.return_value = mock_asn_response
 
-        result = Nip66._lookup_net_sync("8.8.8.8", mock_asn_reader)
+        result = Nip66._lookup_net_sync("8.8.8.8", None, mock_asn_reader)
 
         assert result["net_ip"] == "8.8.8.8"
+        assert result.get("net_ipv6") is None
         assert result["net_asn"] == 7922
         assert result["net_asn_org"] == "Comcast Cable"
         assert result["net_network"] == "1.2.3.0/24"
+        assert result.get("net_network_v6") is None
+
+    def test_success_with_ipv6_only(self):
+        """Successful lookup with IPv6 only returns net data."""
+        mock_asn_response = MagicMock()
+        mock_asn_response.autonomous_system_number = 15169
+        mock_asn_response.autonomous_system_organization = "GOOGLE"
+        mock_asn_response.network = "2001:4860::/32"
+
+        mock_asn_reader = MagicMock()
+        mock_asn_reader.asn.return_value = mock_asn_response
+
+        result = Nip66._lookup_net_sync(None, "2001:4860:4860::8888", mock_asn_reader)
+
+        assert result.get("net_ip") is None
+        assert result["net_ipv6"] == "2001:4860:4860::8888"
+        assert result["net_asn"] == 15169
+        assert result["net_asn_org"] == "GOOGLE"
+        assert result.get("net_network") is None
+        assert result["net_network_v6"] == "2001:4860::/32"
+
+    def test_success_with_dual_stack(self):
+        """Successful lookup with both IPv4 and IPv6 returns full net data."""
+        mock_asn_response_v4 = MagicMock()
+        mock_asn_response_v4.autonomous_system_number = 15169
+        mock_asn_response_v4.autonomous_system_organization = "GOOGLE"
+        mock_asn_response_v4.network = "8.8.8.0/24"
+
+        mock_asn_response_v6 = MagicMock()
+        mock_asn_response_v6.autonomous_system_number = 15169
+        mock_asn_response_v6.autonomous_system_organization = "GOOGLE"
+        mock_asn_response_v6.network = "2001:4860::/32"
+
+        mock_asn_reader = MagicMock()
+        mock_asn_reader.asn.side_effect = [mock_asn_response_v4, mock_asn_response_v6]
+
+        result = Nip66._lookup_net_sync("8.8.8.8", "2001:4860:4860::8888", mock_asn_reader)
+
+        assert result["net_ip"] == "8.8.8.8"
+        assert result["net_ipv6"] == "2001:4860:4860::8888"
+        assert result["net_asn"] == 15169  # From IPv4 (preferred)
+        assert result["net_asn_org"] == "GOOGLE"
+        assert result["net_network"] == "8.8.8.0/24"
+        assert result["net_network_v6"] == "2001:4860::/32"
 
 
 class TestResolveDnsSync:
@@ -845,7 +896,7 @@ class TestTestGeo:
 
     @pytest.mark.asyncio
     async def test_clearnet_with_reader_returns_geo_data(self, relay):
-        """Returns geo data for clearnet relay with city reader."""
+        """Returns geo data for clearnet relay with city reader (IPv4)."""
         geo_result = {
             "geo_country": "US",
             "geo_country_name": "United States",
@@ -855,6 +906,28 @@ class TestTestGeo:
 
         with (
             patch("socket.gethostbyname", return_value="8.8.8.8"),
+            patch.object(Nip66, "_lookup_geo_sync", return_value=geo_result),
+        ):
+            result = await Nip66._test_geo(relay, mock_city_reader)
+
+        assert isinstance(result, Metadata)
+        assert result.data.get("geo_country") == "US"
+
+    @pytest.mark.asyncio
+    async def test_clearnet_ipv6_fallback(self, relay):
+        """Returns geo data using IPv6 when IPv4 resolution fails."""
+        geo_result = {
+            "geo_country": "US",
+            "geo_country_name": "United States",
+        }
+
+        mock_city_reader = MagicMock()
+        # Mock IPv6 resolution result (getaddrinfo returns list of tuples)
+        mock_ipv6_result = [(None, None, None, None, ("2001:4860:4860::8888", 0, 0, 0))]
+
+        with (
+            patch("socket.gethostbyname", side_effect=OSError("No IPv4")),
+            patch("socket.getaddrinfo", return_value=mock_ipv6_result),
             patch.object(Nip66, "_lookup_geo_sync", return_value=geo_result),
         ):
             result = await Nip66._test_geo(relay, mock_city_reader)
@@ -879,6 +952,34 @@ class TestTestNet:
         """Returns net data for clearnet relay with ASN reader."""
         net_result = {
             "net_ip": "8.8.8.8",
+            "net_ipv6": "2001:4860:4860::8888",
+            "net_asn": 15169,
+            "net_asn_org": "GOOGLE",
+            "net_network": "8.8.8.0/24",
+            "net_network_v6": "2001:4860::/32",
+        }
+
+        mock_asn_reader = MagicMock()
+        # Mock IPv6 resolution result (getaddrinfo returns list of tuples)
+        mock_ipv6_result = [(None, None, None, None, ("2001:4860:4860::8888", 0, 0, 0))]
+
+        with (
+            patch("socket.gethostbyname", return_value="8.8.8.8"),
+            patch("socket.getaddrinfo", return_value=mock_ipv6_result),
+            patch.object(Nip66, "_lookup_net_sync", return_value=net_result),
+        ):
+            result = await Nip66._test_net(relay, mock_asn_reader)
+
+        assert isinstance(result, Metadata)
+        assert result.data.get("net_asn") == 15169
+        assert result.data.get("net_ip") == "8.8.8.8"
+        assert result.data.get("net_ipv6") == "2001:4860:4860::8888"
+
+    @pytest.mark.asyncio
+    async def test_clearnet_ipv4_only(self, relay):
+        """Returns net data when only IPv4 is available."""
+        net_result = {
+            "net_ip": "8.8.8.8",
             "net_asn": 15169,
             "net_asn_org": "GOOGLE",
         }
@@ -887,12 +988,13 @@ class TestTestNet:
 
         with (
             patch("socket.gethostbyname", return_value="8.8.8.8"),
+            patch("socket.getaddrinfo", side_effect=OSError("No IPv6")),
             patch.object(Nip66, "_lookup_net_sync", return_value=net_result),
         ):
             result = await Nip66._test_net(relay, mock_asn_reader)
 
         assert isinstance(result, Metadata)
-        assert result.data.get("net_asn") == 15169
+        assert result.data.get("net_ip") == "8.8.8.8"
 
     @pytest.mark.asyncio
     async def test_tor_raises_error(self, tor_relay):

@@ -68,6 +68,7 @@ body:
       options:
         - Seeder
         - Finder
+        - Validator
         - Monitor
         - Synchronizer
         - Core (Pool/Brotr)
