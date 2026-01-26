@@ -830,14 +830,27 @@ class Monitor(BaseService[MonitorConfig]):
     # Publishing
     # -------------------------------------------------------------------------
 
-    async def _publish_event(self, builder: EventBuilder, relays: list[Relay]) -> None:
-        """Publish an event to the specified relays."""
+    async def _broadcast_events(self, builders: list[EventBuilder], relays: list[Relay]) -> None:
+        """Broadcast multiple events to the specified relays.
+
+        Connects once and sends all events, then disconnects. More efficient
+        than publishing events individually when sending multiple events to
+        the same set of relays.
+
+        Args:
+            builders: List of event builders to sign and send.
+            relays: Target relays to broadcast to.
+        """
+        if not builders or not relays:
+            return
+
         client = create_client(self._keys)
         for relay in relays:
             await client.add_relay(RelayUrl.parse(relay.url))
         try:
             await client.connect()
-            await client.send_event_builder(builder)
+            for builder in builders:
+                await client.send_event_builder(builder)
         finally:
             await client.shutdown()
 
@@ -866,7 +879,7 @@ class Monitor(BaseService[MonitorConfig]):
 
         try:
             builder = self._build_kind_10166()
-            await self._publish_event(builder, self._get_announcement_relays())
+            await self._broadcast_events([builder], self._get_announcement_relays())
             self._logger.info("announcement_published")
             await self._set_cursor_timestamp("last_announcement", time.time())
         except Exception as e:
@@ -888,7 +901,7 @@ class Monitor(BaseService[MonitorConfig]):
 
         try:
             builder = self._build_kind_0()
-            await self._publish_event(builder, self._get_profile_relays())
+            await self._broadcast_events([builder], self._get_profile_relays())
             self._logger.info("profile_published")
             await self._set_cursor_timestamp("last_profile", time.time())
         except Exception as e:
@@ -897,19 +910,29 @@ class Monitor(BaseService[MonitorConfig]):
     async def _publish_relay_discoveries(self, successful: list[tuple[Relay, CheckResult]]) -> None:
         """Publish Kind 30166 relay discovery events for all successful checks.
 
+        Builds all events first, then broadcasts them in a single connection
+        for efficiency.
+
         Args:
             successful: List of (relay, result) tuples from successful checks.
-            publish_relays: List of relays to publish the events to.
         """
-        if self._keys is None:
+        disc = self._config.discovery
+        if not disc.enabled or not self._get_discovery_relays() or self._keys is None:
             return
 
+        builders: list[EventBuilder] = []
         for relay, result in successful:
             try:
-                builder = self._build_kind_30166(relay, result)
-                await self._publish_event(builder, self._get_discovery_relays())
+                builders.append(self._build_kind_30166(relay, result))
             except Exception as e:
-                self._logger.debug("publish_30166_failed", url=relay.url, error=str(e))
+                self._logger.debug("build_30166_failed", url=relay.url, error=str(e))
+
+        if builders:
+            try:
+                await self._broadcast_events(builders, self._get_discovery_relays())
+                self._logger.debug("discoveries_published", count=len(builders))
+            except Exception as e:
+                self._logger.warning("discoveries_broadcast_failed", error=str(e))
 
     # -------------------------------------------------------------------------
     # Event Builders
