@@ -26,6 +26,7 @@ from services.monitor import (
     MonitorConfig,
     ProcessingConfig,
     ProfileConfig,
+    PublishingConfig,
 )
 from utils.network import NetworkConfig, NetworkTypeConfig
 
@@ -122,19 +123,42 @@ class TestGeoConfig:
 
         assert config.city_database_path == "static/GeoLite2-City.mmdb"
         assert config.asn_database_path == "static/GeoLite2-ASN.mmdb"
-        assert config.update_frequency == "monthly"
+        assert config.max_age_days == 30
 
     def test_custom_paths(self) -> None:
         """Test custom database paths."""
         config = GeoConfig(
             city_database_path="/custom/path/city.mmdb",
             asn_database_path="/custom/path/asn.mmdb",
-            update_frequency="weekly",
+            max_age_days=7,
         )
 
         assert config.city_database_path == "/custom/path/city.mmdb"
         assert config.asn_database_path == "/custom/path/asn.mmdb"
-        assert config.update_frequency == "weekly"
+        assert config.max_age_days == 7
+
+
+# ============================================================================
+# PublishingConfig Tests
+# ============================================================================
+
+
+class TestPublishingConfig:
+    """Tests for PublishingConfig Pydantic model."""
+
+    def test_default_values(self) -> None:
+        """Test default publishing config."""
+        config = PublishingConfig()
+
+        assert config.relays == []
+
+    def test_custom_values(self) -> None:
+        """Test custom publishing config."""
+        config = PublishingConfig(relays=["wss://relay1.com", "wss://relay2.com"])
+
+        assert len(config.relays) == 2
+        assert config.relays[0].url == "wss://relay1.com"
+        assert config.relays[1].url == "wss://relay2.com"
 
 
 # ============================================================================
@@ -152,8 +176,6 @@ class TestDiscoveryConfig:
         assert config.enabled is True
         assert config.interval == 3600
         assert config.include.nip11 is True
-        assert config.monitored_relay is True
-        assert config.configured_relays is True
         assert config.relays == []
 
     def test_custom_values(self) -> None:
