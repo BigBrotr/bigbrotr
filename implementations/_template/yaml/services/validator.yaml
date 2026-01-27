@@ -1,137 +1,242 @@
-# ============================================================================
-# Validator Service Configuration (Template)
-# ============================================================================
-# Validates candidate relay URLs before promoting to relays table.
-# Workflow: cleanup → fetch chunk → validate in parallel → persist → repeat
+# =============================================================================
+# Validator Service Configuration - Template with ALL Default Values
+# =============================================================================
 #
-# All values shown are DEFAULTS from the code. Modify only what you need.
-# ============================================================================
+# The Validator service tests candidate relay URLs before adding them to the
+# relays table. It performs WebSocket connection tests to verify relays are
+# accessible and responsive.
+#
+# Workflow: cleanup -> fetch chunk -> validate in parallel -> persist -> repeat
+#
+# Run mode: Continuous (runs every interval)
+# Dependencies: Seeder/Finder must have added candidates
+# Configuration class: src/services/validator.py::ValidatorConfig
+#
+# =============================================================================
 
 # -----------------------------------------------------------------------------
 # Base Service Settings (inherited from BaseServiceConfig)
 # -----------------------------------------------------------------------------
+# Class: src/core/base_service.py::BaseServiceConfig
 
 # Seconds between validation cycles
+# Lower values = more frequent validation, higher resource usage
+# Recommendation: 300-900 for production
 # Range: >= 60.0
-# Lower = more frequent validation, higher resource usage
+# Default: 300.0
 interval: 300.0
 
 # Stop service after this many consecutive cycle failures
 # Set to 0 for unlimited retries
+# Range: >= 0
+# Default: 5
 max_consecutive_failures: 5
 
 # -----------------------------------------------------------------------------
-# Prometheus Metrics
+# Prometheus Metrics Configuration
 # -----------------------------------------------------------------------------
+# Class: src/core/metrics.py::MetricsConfig
 
 metrics:
-  # Enable/disable metrics HTTP server
+  # Enable or disable the metrics HTTP server
+  # Default: true
   enabled: true
 
-  # HTTP port for /metrics endpoint
-  # Each service needs a unique port (finder=8001, validator=8002, etc.)
-  port: 8002
+  # TCP port for the metrics HTTP server
+  # Validator typically uses 8002
+  # Range: 1024-65535
+  # Default: 8000
+  port: 8000
 
-  # Bind address (0.0.0.0 for container environments)
+  # IP address to bind the metrics server to
+  # Default: "0.0.0.0"
   host: "0.0.0.0"
 
-  # URL path for metrics endpoint
+  # URL path for the metrics endpoint
+  # Default: "/metrics"
   path: "/metrics"
 
 # -----------------------------------------------------------------------------
-# Processing Settings
+# Processing Configuration
 # -----------------------------------------------------------------------------
+# Controls how candidates are fetched and processed.
+# Class: src/services/validator.py::ProcessingConfig
 
 processing:
-  # Number of candidates to process per chunk
-  # Higher = fewer DB round-trips, more memory
+  # Number of candidates to fetch and process per chunk
+  # Higher values = fewer database round-trips, more memory
   # Range: 10-1000
+  # Default: 100
   chunk_size: 100
 
   # Maximum candidates to process per cycle
-  # null = unlimited (process all available)
+  # null = unlimited (process all available candidates)
   # Set a limit for resource-constrained environments
+  # Range: >= 1 or null
+  # Default: null
   max_candidates: null
 
 # -----------------------------------------------------------------------------
-# Cleanup Settings
+# Cleanup Configuration
 # -----------------------------------------------------------------------------
+# Controls removal of candidates that have failed too many times.
+# Class: src/services/validator.py::CleanupConfig
 
 cleanup:
-  # Remove candidates that exceeded max_failures
-  # true = delete exhausted candidates
-  # false = keep for analysis/debugging
+  # Enable automatic removal of exhausted candidates
+  # true = delete candidates after max_failures attempts
+  # false = keep failed candidates for analysis/debugging
+  # Default: false
   enabled: false
 
-  # Number of failed validation attempts before removal (if enabled)
+  # Number of failed validation attempts before removal (if cleanup.enabled=true)
+  # Higher values = more retry chances, slower cleanup
   # Range: 1-1000
+  # Default: 100
   max_failures: 100
 
 # -----------------------------------------------------------------------------
 # Network Configuration
 # -----------------------------------------------------------------------------
-# Per-network settings for relay validation:
-# - enabled: Process relays on this network
-# - proxy_url: SOCKS5 proxy for overlay networks
-# - max_tasks: Concurrent validation limit
-# - timeout: WebSocket handshake timeout in seconds
-# -----------------------------------------------------------------------------
+# Per-network settings for relay validation.
+# Each network type supports:
+#   - enabled: Process relays on this network
+#   - proxy_url: SOCKS5 proxy URL (required for overlay networks)
+#   - max_tasks: Maximum concurrent validation tasks
+#   - timeout: WebSocket handshake timeout in seconds
+#
+# Class: src/utils/network.py::NetworkConfig
 
 networks:
-  # Clearnet relays (wss://)
+  # ---------------------------------------------------------------------------
+  # Clearnet (standard internet relays: wss://, ws://)
+  # ---------------------------------------------------------------------------
   clearnet:
+    # Enable validation for clearnet relays
+    # Default: true
     enabled: true
+
+    # Proxy URL (not used for clearnet, always null)
+    # Default: null
+    proxy_url: null
+
+    # Maximum concurrent validation tasks
+    # Higher values = faster validation, more network/memory usage
+    # Range: 1-200
+    # Default: 50
     max_tasks: 50
+
+    # WebSocket handshake timeout in seconds
+    # Clearnet relays should respond quickly
+    # Range: 1.0-120.0
+    # Default: 10.0
     timeout: 10.0
 
-  # Tor .onion relays (requires Tor proxy)
+  # ---------------------------------------------------------------------------
+  # Tor (.onion relays)
+  # ---------------------------------------------------------------------------
+  # Requires Tor SOCKS5 proxy (e.g., tor service in Docker)
   tor:
-    enabled: true
+    # Enable validation for Tor relays
+    # Set to true if you have a Tor proxy available
+    # Default: false
+    enabled: false
+
+    # SOCKS5 proxy URL for Tor connections
+    # Docker: "socks5://tor:9050" (tor service name)
+    # Local: "socks5://127.0.0.1:9050"
+    # Default: "socks5://tor:9050"
     proxy_url: "socks5://tor:9050"
+
+    # Maximum concurrent validation tasks
+    # Lower than clearnet due to Tor network limitations
+    # Range: 1-200
+    # Default: 10
     max_tasks: 10
+
+    # WebSocket handshake timeout in seconds
+    # Longer than clearnet due to Tor latency
+    # Range: 1.0-120.0
+    # Default: 30.0
     timeout: 30.0
 
-  # I2P .i2p relays (requires I2P router)
+  # ---------------------------------------------------------------------------
+  # I2P (.i2p relays)
+  # ---------------------------------------------------------------------------
+  # Requires I2P SOCKS5 proxy (e.g., i2p service in Docker)
   i2p:
+    # Enable validation for I2P relays
+    # Set to true if you have an I2P router available
+    # Default: false
     enabled: false
+
+    # SOCKS5 proxy URL for I2P connections
+    # Docker: "socks5://i2p:4447" (i2p service name)
+    # Default: "socks5://i2p:4447"
     proxy_url: "socks5://i2p:4447"
+
+    # Maximum concurrent validation tasks
+    # Very low due to I2P network characteristics
+    # Range: 1-200
+    # Default: 5
     max_tasks: 5
+
+    # WebSocket handshake timeout in seconds
+    # Longest timeout due to I2P latency
+    # Range: 1.0-120.0
+    # Default: 45.0
     timeout: 45.0
 
-  # Lokinet .loki relays (requires Lokinet, Linux only)
+  # ---------------------------------------------------------------------------
+  # Lokinet (.loki relays)
+  # ---------------------------------------------------------------------------
+  # Requires Lokinet SOCKS5 proxy (Linux only)
   loki:
+    # Enable validation for Lokinet relays
+    # Lokinet is only available on Linux
+    # Default: false
     enabled: false
+
+    # SOCKS5 proxy URL for Lokinet connections
+    # Docker: "socks5://lokinet:1080"
+    # Default: "socks5://lokinet:1080"
     proxy_url: "socks5://lokinet:1080"
+
+    # Maximum concurrent validation tasks
+    # Range: 1-200
+    # Default: 5
     max_tasks: 5
+
+    # WebSocket handshake timeout in seconds
+    # Range: 1.0-120.0
+    # Default: 30.0
     timeout: 30.0
 
-# ============================================================================
-# CUSTOMIZATION EXAMPLES
-# ============================================================================
+# =============================================================================
+# CUSTOMIZATION GUIDE
+# =============================================================================
 #
-# MINIMAL RESOURCES (clearnet only, low frequency):
+# MINIMAL RESOURCES (slow validation, low resource usage):
 #   interval: 600.0
-#   processing:
-#     max_candidates: 200
-#   networks:
-#     clearnet:
-#       max_tasks: 20
-#     tor:
-#       enabled: false
+#   processing.max_candidates: 200
+#   networks.clearnet.max_tasks: 20
+#   networks.tor.enabled: false
 #
-# AGGRESSIVE VALIDATION (high throughput):
+# AGGRESSIVE VALIDATION (fast validation, higher resource usage):
 #   interval: 120.0
-#   processing:
-#     chunk_size: 200
-#   networks:
-#     clearnet:
-#       max_tasks: 100
-#     tor:
-#       max_tasks: 20
+#   processing.chunk_size: 200
+#   networks.clearnet.max_tasks: 100
+#   networks.tor.max_tasks: 20
+#
+# ENABLE TOR RELAY DISCOVERY:
+#   networks.tor.enabled: true
+#   (requires Tor proxy service)
 #
 # CLEANUP EXHAUSTED CANDIDATES:
-#   cleanup:
-#     enabled: true
-#     max_failures: 100
+#   cleanup.enabled: true
+#   cleanup.max_failures: 100
 #
-# ============================================================================
+# CUSTOM METRICS PORT:
+#   metrics.port: 8002
+#
+# =============================================================================

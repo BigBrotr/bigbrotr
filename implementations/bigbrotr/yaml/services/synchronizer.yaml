@@ -1,94 +1,30 @@
-# ============================================================================
+# =============================================================================
 # Synchronizer Service Configuration (BigBrotr)
-# ============================================================================
-# Description: Synchronize Nostr events from relays to the database
-# Used by: src/services/synchronizer.py
-# Dependencies: Monitor must have checked relays first
-# Notes: Uses overlay network proxies for hidden relay synchronization (.onion, .i2p, .loki)
-# ============================================================================
+# =============================================================================
+# Only values that differ from defaults are specified here.
+# See _template/yaml/services/synchronizer.yaml for all options and documentation.
+# =============================================================================
 
-# Cycle interval (seconds between sync runs)
-# Range: >= 60.0
-interval: 900.0
+interval: 900.0                    # 15 minutes (default: 300.0)
 
-# Prometheus metrics
 metrics:
-  enabled: true
-  port: 8004
-  host: "0.0.0.0"
-  path: "/metrics"
+  port: 8004                       # Synchronizer metrics port (default: 8000)
 
-# Unified network configuration
-# Each network type has: enabled, proxy_url, max_tasks, timeout
-# timeout here is the WebSocket request timeout
 networks:
   clearnet:
-    enabled: true
-    max_tasks: 10              # Concurrent connections per process
-    timeout: 30.0              # WebSocket request timeout
-
+    max_tasks: 10                  # Reduced concurrency (default: 50)
   tor:
-    enabled: true
-    proxy_url: "socks5://tor:9050"
-    max_tasks: 5               # Lower concurrency (Tor is slower)
-    timeout: 60.0              # Longer timeout for Tor latency
-
+    enabled: true                  # Enable Tor relay sync (default: false)
+    max_tasks: 5                   # Reduced concurrency (default: 10)
   i2p:
-    enabled: false             # Disabled by default (enable i2p service in docker-compose first)
-    proxy_url: "socks5://i2p:4447"
-    max_tasks: 3               # Even lower (I2P is slowest)
-    timeout: 90.0              # Longest timeout for I2P
-
+    max_tasks: 3                   # Reduced concurrency (default: 5)
   loki:
-    enabled: false             # Disabled by default (requires Lokinet - Linux only)
-    proxy_url: "socks5://lokinet:1080"
-    max_tasks: 3
-    timeout: 60.0
+    max_tasks: 3                   # Reduced concurrency (default: 5)
 
-# Nostr signing keys
-# Private key is loaded from PRIVATE_KEY environment variable
-# Used for NIP-42 authentication with relays that require it
-keys:
-  # Keys are loaded from environment variable, no config needed here
-
-# Event filter settings
-# Set to null to accept all values for that field
-filter:
-  ids: null                  # Event IDs to sync (null = all)
-  kinds: null                # Event kinds to sync (null = all)
-  authors: null              # Authors to sync (null = all)
-  tags: null                 # Tag filters (null = all, format: {e: ["..."], p: ["..."]})
-  limit: 500                 # Events per request (Range: 1 - 5000)
-
-# Time range for sync
-time_range:
-  default_start: 0           # Default start timestamp (0 = epoch, Range: >= 0)
-  use_relay_state: true      # Use per-relay state for incremental sync
-  lookback_seconds: 86400    # Lookback window in seconds (Range: 3600 - 604800, default: 24h)
-
-# Per-relay sync timeouts (max time per relay sync session)
-# WebSocket request timeout comes from networks.*.timeout above
-sync_timeouts:
-  relay_clearnet: 1800.0     # Max time per clearnet relay sync (30 min)
-  relay_tor: 3600.0          # Max time per Tor relay sync (60 min)
-  relay_i2p: 3600.0          # Max time per I2P relay sync (60 min)
-  relay_loki: 3600.0         # Max time per Loki relay sync (60 min)
-
-# Concurrency settings
 concurrency:
-  max_parallel: 10           # Max parallel relay connections per process (Range: 1 - 100)
-  max_processes: 4           # Number of worker processes (Range: 1 - 32)
-  stagger_delay: [0, 60]     # Random delay range [min, max] to prevent thundering herd
+  max_processes: 4                 # Multiprocess sync (default: 1)
 
-# Relay source - which relays to sync from
-source:
-  from_database: true        # Fetch relays from database
-  max_metadata_age: 43200    # Only sync relays checked within N seconds (Range: >= 0)
-  require_readable: true     # Only sync relays marked as readable
-
-# Override settings for specific relays
 overrides:
-  # Damus Relay (Very large, high traffic - needs extended timeouts)
   - url: "wss://relay.damus.io"
     timeouts:
       request: 60.0

@@ -1,52 +1,29 @@
-# ============================================================================
+# =============================================================================
 # Validator Service Configuration (LilBrotr)
-# ============================================================================
-# Validates candidate relay URLs before promoting to relays table.
-# Workflow: cleanup -> fetch chunk -> validate in parallel -> persist -> repeat
-# Notes: Clearnet only with reduced frequency for lighter resource usage.
-# ============================================================================
+# =============================================================================
+# Only values that differ from defaults are specified here.
+# See _template/yaml/services/validator.yaml for all options and documentation.
+#
+# Note: Lighter configuration for reduced resource usage (clearnet only).
+# =============================================================================
 
-# Cycle interval (seconds between validation runs)
-interval: 28800.0  # 8 hours
+interval: 28800.0                  # 8 hours (default: 300.0)
 
-# Prometheus metrics
 metrics:
-  enabled: true
-  port: 8002
-  host: "0.0.0.0"
-  path: "/metrics"
+  port: 8002                       # Validator metrics port (default: 8000)
 
-# Processing configuration
 processing:
-  chunk_size: 100            # Candidates per batch (Range: 10-1000)
-  max_candidates: 200        # Limit per run (default: null = unlimited)
+  max_candidates: 200              # Limit per cycle (default: null)
 
-# Cleanup configuration
 cleanup:
-  enabled: true
-  max_failures: 100          # Remove candidates after 100 failed attempts
+  enabled: true                    # Enable candidate cleanup (default: false)
 
-# Network-specific settings (clearnet only by default for lilbrotr)
 networks:
   clearnet:
-    enabled: true
-    max_tasks: 20            # Reduced from 50 (lighter resource usage)
-    timeout: 10.0            # Connection timeout
-
+    max_tasks: 20                  # Reduced concurrency (default: 50)
   tor:
-    enabled: false           # Disabled by default (enable tor service in docker-compose first)
-    proxy_url: "socks5://tor:9050"
-    max_tasks: 5
-    timeout: 30.0
-
+    max_tasks: 5                   # Reduced concurrency (default: 10)
   i2p:
-    enabled: false           # Disabled by default (enable i2p service in docker-compose first)
-    proxy_url: "socks5://i2p:4447"
-    max_tasks: 3
-    timeout: 45.0
-
+    max_tasks: 3                   # Reduced concurrency (default: 5)
   loki:
-    enabled: false           # Disabled by default (requires Lokinet - Linux only)
-    proxy_url: "socks5://lokinet:1080"
-    max_tasks: 3
-    timeout: 30.0
+    max_tasks: 3                   # Reduced concurrency (default: 5)
