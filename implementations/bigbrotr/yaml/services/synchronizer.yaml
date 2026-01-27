@@ -8,7 +8,8 @@
 interval: 900.0                    # 15 minutes (default: 300.0)
 
 metrics:
-  port: 8004                       # Synchronizer metrics port (default: 8000)
+  enabled: true                    # Enable metrics (default: false)
+  host: "0.0.0.0"                  # Bind to all interfaces for Docker (default: 127.0.0.1)
 
 networks:
   clearnet:

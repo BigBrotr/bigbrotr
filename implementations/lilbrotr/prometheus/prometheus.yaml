@@ -14,22 +14,22 @@ scrape_configs:
   # --------------------------------------------------------------------------
   - job_name: "finder"
     static_configs:
-      - targets: ["finder:8001"]
+      - targets: ["finder:8000"]
     scrape_interval: 30s
 
   - job_name: "validator"
     static_configs:
-      - targets: ["validator:8002"]
+      - targets: ["validator:8000"]
     scrape_interval: 30s
 
   - job_name: "monitor"
     static_configs:
-      - targets: ["monitor:8003"]
+      - targets: ["monitor:8000"]
     scrape_interval: 30s
 
   - job_name: "synchronizer"
     static_configs:
-      - targets: ["synchronizer:8004"]
+      - targets: ["synchronizer:8000"]
     scrape_interval: 30s
 
   # --------------------------------------------------------------------------

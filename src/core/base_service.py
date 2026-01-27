@@ -173,9 +173,11 @@ class BaseService(ABC, Generic[ConfigT]):
         # Read from config (with fallback defaults for non-BaseServiceConfig)
         interval = getattr(self._config, "interval", 300.0)
         max_consecutive_failures = getattr(self._config, "max_consecutive_failures", 5)
+        metrics_enabled = self._config.metrics.enabled
 
         # Set service info metric (static labels)
-        SERVICE_INFO.info({"service": self.SERVICE_NAME})
+        if metrics_enabled:
+            SERVICE_INFO.info({"service": self.SERVICE_NAME})
 
         self._logger.info(
             "run_forever_started",
@@ -195,7 +197,8 @@ class BaseService(ABC, Generic[ConfigT]):
                 # Success metrics (using generic SERVICE_COUNTER/GAUGE)
                 duration = time.time() - cycle_start
                 self.inc_counter("cycles_success")
-                CYCLE_DURATION_SECONDS.labels(service=self.SERVICE_NAME).observe(duration)
+                if metrics_enabled:
+                    CYCLE_DURATION_SECONDS.labels(service=self.SERVICE_NAME).observe(duration)
                 self.set_gauge("last_cycle_timestamp", time.time())
                 self.set_gauge("consecutive_failures", 0)
 
@@ -286,7 +289,12 @@ class BaseService(ABC, Generic[ConfigT]):
         Example:
             self.set_gauge("pending", 100)
             # Creates: service_gauge{service="myservice", name="pending"} 100
+
+        Note:
+            No-op if metrics.enabled is False.
         """
+        if not self._config.metrics.enabled:
+            return
         SERVICE_GAUGE.labels(service=self.SERVICE_NAME, name=name).set(value)
 
     def inc_counter(self, name: str, value: float = 1) -> None:
@@ -303,5 +311,10 @@ class BaseService(ABC, Generic[ConfigT]):
         Example:
             self.inc_counter("total_promoted", 5)
             # Increments: service_counter{service="myservice", name="total_promoted"} by 5
+
+        Note:
+            No-op if metrics.enabled is False.
         """
+        if not self._config.metrics.enabled:
+            return
         SERVICE_COUNTER.labels(service=self.SERVICE_NAME, name=name).inc(value)

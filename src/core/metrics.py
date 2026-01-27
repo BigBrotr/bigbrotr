@@ -50,9 +50,9 @@ class MetricsConfig(BaseModel):
         path: URL path for metrics endpoint
     """
 
-    enabled: bool = Field(default=True, description="Enable metrics collection")
+    enabled: bool = Field(default=False, description="Enable metrics collection")
     port: int = Field(default=8000, ge=1024, le=65535, description="Metrics HTTP port")
-    host: str = Field(default="0.0.0.0", description="Metrics HTTP bind address")
+    host: str = Field(default="127.0.0.1", description="Metrics HTTP bind address")
     path: str = Field(default="/metrics", description="Metrics endpoint path")
 
 

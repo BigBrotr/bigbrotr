@@ -45,19 +45,20 @@ max_consecutive_failures: 5
 # Class: src/core/metrics.py::MetricsConfig
 
 metrics:
-  # Enable or disable the metrics HTTP server
-  # Default: true
-  enabled: true
+  # Enable or disable metrics collection and HTTP server
+  # Default: false
+  enabled: false
 
   # TCP port for the metrics HTTP server
-  # Monitor typically uses 8003
+  # In Docker, all services can use the same port (different containers)
   # Range: 1024-65535
   # Default: 8000
   port: 8000
 
   # IP address to bind the metrics server to
-  # Default: "0.0.0.0"
-  host: "0.0.0.0"
+  # Use "0.0.0.0" for Docker/container environments
+  # Default: "127.0.0.1"
+  host: "127.0.0.1"
 
   # URL path for the metrics endpoint
   # Default: "/metrics"

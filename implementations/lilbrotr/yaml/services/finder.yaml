@@ -11,7 +11,8 @@
 interval: 3600.0                   # 1 hour (default: 300.0)
 
 metrics:
-  port: 8001                       # Finder metrics port (default: 8000)
+  enabled: true                    # Enable metrics (default: false)
+  host: "0.0.0.0"                  # Bind to all interfaces for Docker (default: 127.0.0.1)
 
 events:
   enabled: false                   # Disabled - LilBrotr lacks tags/content columns
