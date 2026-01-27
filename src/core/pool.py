@@ -242,7 +242,7 @@ class Pool:
             db = self._config.database
 
             self._logger.info(
-                "connecting",
+                "connection_starting",
                 host=db.host,
                 port=db.port,
                 database=db.database,
@@ -271,7 +271,7 @@ class Pool:
                         },
                     )
                     self._is_connected = True
-                    self._logger.info("connected")
+                    self._logger.info("connection_established")
                     return
 
                 except (asyncpg.PostgresError, OSError, ConnectionError) as e:
@@ -311,7 +311,7 @@ class Pool:
             if self._pool is not None:
                 try:
                     await self._pool.close()
-                    self._logger.info("closed")
+                    self._logger.info("connection_closed")
                 finally:
                     self._pool = None
                     self._is_connected = False
@@ -454,8 +454,22 @@ class Pool:
             ) as e:
                 last_error = e
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(self._DEFAULT_RETRY_BASE_DELAY * (2**attempt))
+                    delay = self._DEFAULT_RETRY_BASE_DELAY * (2**attempt)
+                    self._logger.warning(
+                        "query_retry",
+                        operation=operation,
+                        attempt=attempt + 1,
+                        delay_s=delay,
+                        error=str(e),
+                    )
+                    await asyncio.sleep(delay)
                     continue
+                self._logger.error(
+                    "query_failed",
+                    operation=operation,
+                    attempts=max_retries,
+                    error=str(e),
+                )
                 raise
 
         # Should not reach here, but satisfy type checker

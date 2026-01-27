@@ -830,10 +830,12 @@ class Brotr:
                 await brotr.insert_events_relays([...])
         """
         await self.pool.connect()
+        self._logger.debug("session_started")
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Async context manager exit - closes the pool."""
+        self._logger.debug("session_ending")
         await self.pool.close()
 
     def __repr__(self) -> str:

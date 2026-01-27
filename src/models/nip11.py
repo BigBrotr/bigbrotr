@@ -87,7 +87,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import ssl
 from dataclasses import dataclass, field
 from time import time
@@ -96,6 +95,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypedDict, get_type_hints
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
+from core.logger import Logger
 from utils.parsing import parse_typed_dict
 
 from .metadata import Metadata
@@ -107,7 +107,7 @@ if TYPE_CHECKING:
     from .relay_metadata import RelayMetadata
 
 
-logger = logging.getLogger(__name__)
+logger = Logger("models.nip11")
 
 
 # --- TypedDicts for NIP-11 structure ---
@@ -537,19 +537,19 @@ class Nip11:
             insecure_ctx = ssl.create_default_context()
             insecure_ctx.check_hostname = False
             insecure_ctx.verify_mode = ssl.CERT_NONE
-            logger.debug("_fetch: overlay network, using insecure SSL relay=%s", relay.url)
+            logger.debug("fetch_overlay_insecure", relay=relay.url)
             return await cls._do_fetch(
                 http_url, headers, timeout, max_size, insecure_ctx, proxy_url
             )
 
         if protocol == "http":
             # Plain HTTP (ws://): no SSL
-            logger.debug("_fetch: HTTP (no SSL) relay=%s", relay.url)
+            logger.debug("fetch_http_no_ssl", relay=relay.url)
             return await cls._do_fetch(http_url, headers, timeout, max_size, False, proxy_url)
 
         # HTTPS clearnet: try with SSL verification first
         try:
-            logger.debug("_fetch: trying verified SSL relay=%s", relay.url)
+            logger.debug("fetch_ssl_verified", relay=relay.url)
             return await cls._do_fetch(http_url, headers, timeout, max_size, True, proxy_url)
         except aiohttp.ClientConnectorCertificateError as e:
             # SSL certificate error - fallback if allowed
@@ -558,9 +558,7 @@ class Nip11:
                     f"SSL certificate verification failed for {relay.url} and allow_insecure=False"
                 ) from e
 
-            logger.warning(
-                "_fetch: SSL certificate invalid, using insecure fallback relay=%s", relay.url
-            )
+            logger.info("fetch_ssl_fallback", relay=relay.url)
             insecure_ctx = ssl.create_default_context()
             insecure_ctx.check_hostname = False
             insecure_ctx.verify_mode = ssl.CERT_NONE
@@ -620,14 +618,14 @@ class Nip11:
         timeout = timeout if timeout is not None else cls._FETCH_TIMEOUT
         max_size = max_size if max_size is not None else cls._FETCH_MAX_SIZE
 
-        logger.debug("fetch: relay=%s timeout=%.1fs", relay.url, timeout)
+        logger.debug("fetch_started", relay=relay.url, timeout_s=timeout)
 
         try:
             metadata = await cls._fetch(relay, timeout, max_size, proxy_url, allow_insecure)
-            logger.info("fetch: completed relay=%s name=%s", relay.url, metadata.data.get("name"))
+            logger.info("fetch_completed", relay=relay.url, name=metadata.data.get("name"))
             return cls(relay=relay, metadata=metadata)
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except Exception as e:
-            logger.warning("fetch: failed relay=%s error=%s", relay.url, e)
+            logger.warning("fetch_failed", relay=relay.url, error=str(e))
             raise Nip11FetchError(relay, e) from e

@@ -21,6 +21,42 @@ import logging
 from typing import Any, ClassVar
 
 
+def format_kv_pairs(
+    kwargs: dict[str, Any],
+    max_value_length: int | None = 1000,
+    prefix: str = " ",
+) -> str:
+    """Format kwargs as key=value pairs with proper escaping.
+
+    Shared utility for consistent formatting across Logger and worker processes.
+
+    Args:
+        kwargs: Key-value pairs to format
+        max_value_length: Max chars per value (None = no limit)
+        prefix: String to prepend (default: single space)
+
+    Returns:
+        Formatted string like " key1=value1 key2=\"value with spaces\""
+    """
+    if not kwargs:
+        return ""
+
+    parts = []
+    for k, v in kwargs.items():
+        s = str(v)
+        # Truncate if needed
+        if max_value_length and len(s) > max_value_length:
+            s = s[:max_value_length] + f"...<truncated {len(s) - max_value_length} chars>"
+        # Quote if contains special chars
+        if not s or " " in s or "=" in s or '"' in s or "'" in s:
+            escaped = s.replace("\\", "\\\\").replace('"', '\\"')
+            parts.append(f'{k}="{escaped}"')
+        else:
+            parts.append(f"{k}={s}")
+
+    return prefix + " ".join(parts) if parts else ""
+
+
 class Logger:
     """
     Logger wrapper that supports keyword arguments as extra fields.

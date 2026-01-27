@@ -102,19 +102,14 @@ def _get_worker_logger() -> logging.Logger:
 
 
 def _format_kv(kwargs: dict[str, Any]) -> str:
-    """Format kwargs as key=value pairs with proper escaping."""
-    if not kwargs:
-        return ""
-    parts = []
-    for k, v in kwargs.items():
-        s = str(v)
-        # Quote if contains spaces, equals, or quotes
-        if " " in s or "=" in s or '"' in s or "'" in s:
-            escaped = s.replace("\\", "\\\\").replace('"', '\\"')
-            parts.append(f'{k}="{escaped}"')
-        else:
-            parts.append(f"{k}={s}")
-    return " " + " ".join(parts)
+    """Format kwargs as key=value pairs (wrapper for worker processes).
+
+    Uses the shared format_kv_pairs utility for consistency with Logger class.
+    Workers use no truncation to preserve full context in logs.
+    """
+    from core.logger import format_kv_pairs
+
+    return format_kv_pairs(kwargs, max_value_length=None)
 
 
 def _worker_log(level: str, message: str, **kwargs: Any) -> None:

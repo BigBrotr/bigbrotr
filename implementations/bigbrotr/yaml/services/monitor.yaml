@@ -48,13 +48,13 @@ networks:
 # Nostr signing keys
 # Private key is loaded from PRIVATE_KEY environment variable
 # Required for: write tests (nip66_probe), publishing (discovery, announcement, profile)
-keys:
+keys: {}
   # Keys are loaded from environment variable, no config needed here
 
 # Default relay list for publishing events
 # Used by discovery, announcement, and profile if their relays list is empty
 publishing:
-  relays:
+  relays: []
     # - wss://relay.damus.io
     # - wss://nos.lol
     # - wss://relay.nostr.band
@@ -73,21 +73,21 @@ discovery:
     nip66_net: true          # Network/ASN info (IP, ASN, organization)
     nip66_dns: true          # DNS resolution time
     nip66_http: true         # HTTP response codes
-  relays:                    # Override publishing.relays (empty = use publishing.relays)
+  relays: []                 # Override publishing.relays (empty = use publishing.relays)
 
 # Kind 10166 monitor announcement
 # Announces this monitor's existence and capabilities to the network
 announcement:
   enabled: true
   interval: 86400            # Seconds between announcements (Range: >= 60)
-  relays:                    # Override publishing.relays (empty = use publishing.relays)
+  relays: []                 # Override publishing.relays (empty = use publishing.relays)
 
 # Kind 0 profile
 # Publishes monitor's profile metadata
 profile:
   enabled: false
   interval: 86400            # Seconds between profile updates (Range: >= 60)
-  relays:                    # Override publishing.relays (empty = use publishing.relays)
+  relays: []                 # Override publishing.relays (empty = use publishing.relays)
   # Profile content (NIP-01)
   # name: "BigBrotr Monitor"
   # about: "NIP-66 relay monitor"

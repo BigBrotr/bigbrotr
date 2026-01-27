@@ -783,7 +783,7 @@ class Monitor(BaseService[MonitorConfig]):
 
                 # Log result
                 if any(result):
-                    self._logger.debug("check_ok", url=relay.url)
+                    self._logger.debug("check_succeeded", url=relay.url)
                 else:
                     self._logger.debug("check_failed", url=relay.url)
 

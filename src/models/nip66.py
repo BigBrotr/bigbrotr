@@ -130,7 +130,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import logging
 import socket
 import ssl
 from dataclasses import dataclass, field
@@ -144,6 +143,7 @@ import geoip2.database  # noqa: TC002 - used at runtime in _lookup_geo_sync
 import tldextract
 from nostr_sdk import EventBuilder, Filter
 
+from core.logger import Logger
 from utils.parsing import parse_typed_dict
 
 from .metadata import Metadata
@@ -168,7 +168,7 @@ class Nip66RelayMetadata(NamedTuple):
     http: RelayMetadata | None
 
 
-logger = logging.getLogger(__name__)
+logger = Logger("models.nip66")
 
 
 # --- TypedDicts for NIP-66 structure ---
@@ -428,37 +428,33 @@ class Nip66:
 
         from utils.transport import connect_relay
 
-        logger.debug(
-            "_test_rtt_and_probe: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url
-        )
+        logger.debug("rtt_probe_started", relay=relay.url, timeout_s=timeout, proxy=proxy_url)
 
         rtt_data: dict[str, Any] = {}
         probe_data: dict[str, Any] = {}
         relay_url = RelayUrl.parse(relay.url)
 
         # Test open: measure connection time (includes SSL fallback for clearnet)
-        logger.debug("_test_rtt_and_probe: connecting relay=%s", relay.url)
+        logger.debug("rtt_probe_connecting", relay=relay.url)
         try:
             start = perf_counter()
             client = await connect_relay(relay, keys, proxy_url, timeout, allow_insecure)
             rtt_open = int((perf_counter() - start) * 1000)
             rtt_data["rtt_open"] = rtt_open
             probe_data["probe_open_success"] = True
-            logger.debug(
-                "_test_rtt_and_probe: open succeeded relay=%s rtt_open=%dms", relay.url, rtt_open
-            )
+            logger.debug("rtt_probe_open_ok", relay=relay.url, rtt_open_ms=rtt_open)
         except Exception as e:
             # Connection failed - capture raw error message
             probe_data["probe_open_success"] = False
             probe_data["probe_open_reason"] = str(e)
-            logger.debug("_test_rtt_and_probe: open failed relay=%s reason=%s", relay.url, e)
+            logger.debug("rtt_probe_open_failed", relay=relay.url, reason=str(e))
             # Return early - can't test read/write without connection
             return Metadata(rtt_data) if rtt_data else None, Metadata(probe_data)
 
         try:
             # Test read: stream_events to measure time to first event
             try:
-                logger.debug("_test_rtt_and_probe: reading relay=%s", relay.url)
+                logger.debug("rtt_probe_reading", relay=relay.url)
                 start = perf_counter()
                 stream = await client.stream_events(read_filter, timeout=timedelta(seconds=timeout))
                 first_event = await stream.next()
@@ -466,25 +462,21 @@ class Nip66:
                     rtt_read = int((perf_counter() - start) * 1000)
                     rtt_data["rtt_read"] = rtt_read
                     probe_data["probe_read_success"] = True  # Read succeeded
-                    logger.debug(
-                        "_test_rtt_and_probe: read event relay=%s rtt_read=%dms",
-                        relay.url,
-                        rtt_read,
-                    )
+                    logger.debug("rtt_probe_read_ok", relay=relay.url, rtt_read_ms=rtt_read)
                 else:
                     # No events returned - zero-trust: cannot verify read works
                     probe_data["probe_read_success"] = False
                     probe_data["probe_read_reason"] = "no events returned"
-                    logger.debug("_test_rtt_and_probe: read returned no events relay=%s", relay.url)
+                    logger.debug("rtt_probe_read_no_events", relay=relay.url)
             except Exception as e:
                 # Read failed - capture raw error message
                 probe_data["probe_read_success"] = False
                 probe_data["probe_read_reason"] = str(e)
-                logger.debug("_test_rtt_and_probe: read failed relay=%s reason=%s", relay.url, e)
+                logger.debug("rtt_probe_read_failed", relay=relay.url, reason=str(e))
 
             # Test write: send event and verify by reading it back
             try:
-                logger.debug("_test_rtt_and_probe: writing relay=%s", relay.url)
+                logger.debug("rtt_probe_writing", relay=relay.url)
                 start = perf_counter()
                 output = await asyncio.wait_for(
                     client.send_event_builder(event_builder), timeout=timeout
@@ -497,24 +489,16 @@ class Nip66:
                     # Capture raw rejection reason without classification
                     probe_data["probe_write_success"] = False
                     probe_data["probe_write_reason"] = str(reason) if reason else "unknown"
-                    logger.debug(
-                        "_test_rtt_and_probe: write rejected relay=%s reason=%s",
-                        relay.url,
-                        reason,
-                    )
+                    logger.debug("rtt_probe_write_rejected", relay=relay.url, reason=str(reason))
                 elif output and relay_url in output.success:
                     logger.debug(
-                        "_test_rtt_and_probe: write accepted relay=%s rtt_write=%dms",
-                        relay.url,
-                        rtt_write,
+                        "rtt_probe_write_accepted", relay=relay.url, rtt_write_ms=rtt_write
                     )
                     # Verify by reading back the event
                     event_id = output.id
                     verify_filter = Filter().id(event_id).limit(1)
                     logger.debug(
-                        "_test_rtt_and_probe: verifying write relay=%s event_id=%s",
-                        relay.url,
-                        event_id,
+                        "rtt_probe_write_verifying", relay=relay.url, event_id=str(event_id)
                     )
                     try:
                         stream = await client.stream_events(
@@ -526,7 +510,7 @@ class Nip66:
                             rtt_data["rtt_write"] = rtt_write
                             # Write succeeded
                             probe_data["probe_write_success"] = True
-                            logger.debug("_test_rtt_and_probe: write verified relay=%s", relay.url)
+                            logger.debug("rtt_probe_write_verified", relay=relay.url)
                         else:
                             # Relay responded OK=true but event not retrievable
                             # Zero-trust: cannot verify write actually works
@@ -535,29 +519,29 @@ class Nip66:
                                 "unverified: accepted but not retrievable"
                             )
                             logger.debug(
-                                "_test_rtt_and_probe: write unverified relay=%s "
-                                "(relay said OK but event not retrievable)",
-                                relay.url,
+                                "rtt_probe_write_unverified",
+                                relay=relay.url,
+                                reason="event not retrievable",
                             )
                     except Exception as e:
                         # Verify failed - zero-trust: cannot confirm write
                         probe_data["probe_write_success"] = False
                         probe_data["probe_write_reason"] = f"unverified: verify failed ({e})"
                         logger.debug(
-                            "_test_rtt_and_probe: write unverified relay=%s (verify failed: %s)",
-                            relay.url,
-                            e,
+                            "rtt_probe_write_unverified",
+                            relay=relay.url,
+                            reason=f"verify failed: {e}",
                         )
                 else:
                     # No response for this relay - zero-trust: cannot verify
                     probe_data["probe_write_success"] = False
                     probe_data["probe_write_reason"] = "no response from relay"
-                    logger.debug("_test_rtt_and_probe: write no response relay=%s", relay.url)
+                    logger.debug("rtt_probe_write_no_response", relay=relay.url)
             except Exception as e:
                 # Write failed - capture raw error message
                 probe_data["probe_write_success"] = False
                 probe_data["probe_write_reason"] = str(e)
-                logger.debug("_test_rtt_and_probe: write failed relay=%s reason=%s", relay.url, e)
+                logger.debug("rtt_probe_write_failed", relay=relay.url, reason=str(e))
 
         finally:
             # Cleanup: disconnect client
@@ -567,10 +551,10 @@ class Nip66:
                 pass
 
         logger.debug(
-            "_test_rtt_and_probe: completed relay=%s rtt=%s probe=%s",
-            relay.url,
-            list(rtt_data.keys()),
-            list(probe_data.keys()),
+            "rtt_probe_completed",
+            relay=relay.url,
+            rtt_keys=list(rtt_data.keys()),
+            probe_keys=list(probe_data.keys()),
         )
         return (
             Metadata(rtt_data) if rtt_data else None,
@@ -591,23 +575,23 @@ class Nip66:
         Raises:
             Nip66TestError: If test returns no data (not applicable or failed).
         """
-        logger.debug("_test_ssl: relay=%s timeout=%.1fs", relay.url, timeout)
+        logger.debug("ssl_testing", relay=relay.url, timeout_s=timeout)
 
         if relay.network != NetworkType.CLEARNET:
-            logger.debug("_test_ssl: skipped (non-clearnet) relay=%s", relay.url)
+            logger.debug("ssl_skipped", relay=relay.url, reason="non-clearnet")
             raise Nip66TestError(relay, ValueError("SSL test not applicable (non-clearnet)"))
 
         data: dict[str, Any] = {}
         port = relay.port or Relay._PORT_WSS
         try:
-            logger.debug("_test_ssl: checking host=%s port=%d", relay.host, port)
+            logger.debug("ssl_checking", host=relay.host, port=port)
             data = await asyncio.to_thread(cls._check_ssl_sync, relay.host, port, timeout)
-            logger.debug("_test_ssl: completed relay=%s valid=%s", relay.url, data.get("ssl_valid"))
+            logger.debug("ssl_checked", relay=relay.url, valid=data.get("ssl_valid"))
         except Exception as e:
-            logger.debug("_test_ssl: error relay=%s error=%s", relay.url, e)
+            logger.debug("ssl_error", relay=relay.url, error=str(e))
 
         if not data:
-            logger.warning("_test_ssl: no data relay=%s", relay.url)
+            logger.debug("ssl_no_data", relay=relay.url)
             raise Nip66TestError(relay, ValueError("SSL test returned no data"))
         return Metadata(data)
 
@@ -696,9 +680,9 @@ class Nip66:
                     result["ssl_cipher"] = cipher_info[0]
                     result["ssl_cipher_bits"] = cipher_info[2]
         except ssl.SSLError as e:
-            logger.debug("_check_ssl_sync: cert extraction failed: %s", e)
+            logger.debug("ssl_cert_extraction_failed", error=str(e))
         except Exception as e:
-            logger.debug("_check_ssl_sync: unexpected error during cert extraction: %s", e)
+            logger.debug("ssl_cert_extraction_error", error=str(e))
 
         # Validate certificate separately (check expiry, trust chain, hostname)
         result["ssl_valid"] = False
@@ -714,7 +698,7 @@ class Nip66:
             # Certificate validation failed (expired, untrusted, hostname mismatch)
             pass
         except Exception as e:
-            logger.debug("_check_ssl_sync: unexpected error during cert validation: %s", e)
+            logger.debug("ssl_validation_error", error=str(e))
 
         return result
 
@@ -732,21 +716,21 @@ class Nip66:
         Raises:
             Nip66TestError: If test returns no data (not applicable or failed).
         """
-        logger.debug("_test_geo: relay=%s", relay.url)
+        logger.debug("geo_testing", relay=relay.url)
 
         if relay.network != NetworkType.CLEARNET:
-            logger.debug("_test_geo: skipped (non-clearnet) relay=%s", relay.url)
+            logger.debug("geo_skipped", relay=relay.url, reason="non-clearnet")
             raise Nip66TestError(relay, ValueError("Geo test not applicable (non-clearnet)"))
 
         # Resolve hostname to IP (prefer IPv4, fallback to IPv6)
-        logger.debug("_test_geo: resolving host=%s", relay.host)
+        logger.debug("geo_resolving", host=relay.host)
         ip: str | None = None
 
         try:
             ip = await asyncio.to_thread(socket.gethostbyname, relay.host)
-            logger.debug("_test_geo: resolved ipv4=%s relay=%s", ip, relay.url)
+            logger.debug("geo_resolved_ipv4", ip=ip, relay=relay.url)
         except Exception as e:
-            logger.debug("_test_geo: ipv4 resolution failed relay=%s error=%s", relay.url, e)
+            logger.debug("geo_ipv4_failed", relay=relay.url, error=str(e))
 
         if ip is None:
             try:
@@ -755,22 +739,20 @@ class Nip66:
                 )
                 if ipv6_result:
                     ip = str(ipv6_result[0][4][0])
-                    logger.debug("_test_geo: resolved ipv6=%s relay=%s", ip, relay.url)
+                    logger.debug("geo_resolved_ipv6", ip=ip, relay=relay.url)
             except Exception as e:
-                logger.debug("_test_geo: ipv6 resolution failed relay=%s error=%s", relay.url, e)
+                logger.debug("geo_ipv6_failed", relay=relay.url, error=str(e))
 
         data: dict[str, Any] = {}
         if ip:
             try:
                 data = await asyncio.to_thread(cls._lookup_geo_sync, ip, city_reader)
-                logger.debug(
-                    "_test_geo: completed relay=%s country=%s", relay.url, data.get("geo_country")
-                )
+                logger.debug("geo_completed", relay=relay.url, country=data.get("geo_country"))
             except Exception as e:
-                logger.debug("_test_geo: lookup failed relay=%s error=%s", relay.url, e)
+                logger.debug("geo_lookup_failed", relay=relay.url, error=str(e))
 
         if not data:
-            logger.warning("_test_geo: no data relay=%s", relay.url)
+            logger.debug("geo_no_data", relay=relay.url)
             raise Nip66TestError(relay, ValueError("Geo test returned no data"))
         return Metadata(data)
 
@@ -859,22 +841,22 @@ class Nip66:
         Raises:
             Nip66TestError: If test returns no data (not applicable or failed).
         """
-        logger.debug("_test_net: relay=%s", relay.url)
+        logger.debug("net_testing", relay=relay.url)
 
         if relay.network != NetworkType.CLEARNET:
-            logger.debug("_test_net: skipped (non-clearnet) relay=%s", relay.url)
+            logger.debug("net_skipped", relay=relay.url, reason="non-clearnet")
             raise Nip66TestError(relay, ValueError("Net test not applicable (non-clearnet)"))
 
         # Resolve hostname to IPv4 and IPv6 independently
-        logger.debug("_test_net: resolving host=%s", relay.host)
+        logger.debug("net_resolving", host=relay.host)
         ipv4: str | None = None
         ipv6: str | None = None
 
         try:
             ipv4 = await asyncio.to_thread(socket.gethostbyname, relay.host)
-            logger.debug("_test_net: resolved ipv4=%s relay=%s", ipv4, relay.url)
+            logger.debug("net_resolved_ipv4", ip=ipv4, relay=relay.url)
         except Exception as e:
-            logger.debug("_test_net: ipv4 resolution failed relay=%s error=%s", relay.url, e)
+            logger.debug("net_ipv4_failed", relay=relay.url, error=str(e))
 
         try:
             ipv6_result = await asyncio.to_thread(
@@ -882,18 +864,18 @@ class Nip66:
             )
             if ipv6_result:
                 ipv6 = str(ipv6_result[0][4][0])
-                logger.debug("_test_net: resolved ipv6=%s relay=%s", ipv6, relay.url)
+                logger.debug("net_resolved_ipv6", ip=ipv6, relay=relay.url)
         except Exception as e:
-            logger.debug("_test_net: ipv6 resolution failed relay=%s error=%s", relay.url, e)
+            logger.debug("net_ipv6_failed", relay=relay.url, error=str(e))
 
         # Lookup ASN info if we have at least one IP
         data: dict[str, Any] = {}
         if ipv4 or ipv6:
             data = await asyncio.to_thread(cls._lookup_net_sync, ipv4, ipv6, asn_reader)
-            logger.debug("_test_net: completed relay=%s asn=%s", relay.url, data.get("net_asn"))
+            logger.debug("net_completed", relay=relay.url, asn=data.get("net_asn"))
 
         if not data:
-            logger.warning("_test_net: no data relay=%s", relay.url)
+            logger.debug("net_no_data", relay=relay.url)
             raise Nip66TestError(relay, ValueError("Net test returned no data"))
         return Metadata(data)
 
@@ -952,26 +934,22 @@ class Nip66:
         Raises:
             Nip66TestError: If test returns no data (not applicable or failed).
         """
-        logger.debug("_test_dns: relay=%s timeout=%.1fs", relay.url, timeout)
+        logger.debug("dns_testing", relay=relay.url, timeout_s=timeout)
 
         if relay.network != NetworkType.CLEARNET:
-            logger.debug("_test_dns: skipped (non-clearnet) relay=%s", relay.url)
+            logger.debug("dns_skipped", relay=relay.url, reason="non-clearnet")
             raise Nip66TestError(relay, ValueError("DNS test not applicable (non-clearnet)"))
 
         data: dict[str, Any] = {}
         try:
-            logger.debug("_test_dns: resolving host=%s", relay.host)
+            logger.debug("dns_resolving", host=relay.host)
             data = await asyncio.to_thread(cls._resolve_dns_sync, relay.host, timeout)
-            logger.debug(
-                "_test_dns: completed relay=%s ips=%s",
-                relay.url,
-                data.get("dns_ips"),
-            )
+            logger.debug("dns_completed", relay=relay.url, ips=data.get("dns_ips"))
         except Exception as e:
-            logger.debug("_test_dns: error relay=%s error=%s", relay.url, e)
+            logger.debug("dns_error", relay=relay.url, error=str(e))
 
         if not data:
-            logger.warning("_test_dns: no data relay=%s", relay.url)
+            logger.debug("dns_no_data", relay=relay.url)
             raise Nip66TestError(relay, ValueError("DNS test returned no data"))
         return Metadata(data)
 
@@ -1056,12 +1034,12 @@ class Nip66:
         Raises:
             Nip66TestError: If test returns no data (not applicable or failed).
         """
-        logger.debug("_test_http: relay=%s timeout=%.1fs proxy=%s", relay.url, timeout, proxy_url)
+        logger.debug("http_testing", relay=relay.url, timeout_s=timeout, proxy=proxy_url)
 
         # Non-clearnet relays require proxy
         overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
         if proxy_url is None and relay.network in overlay_networks:
-            logger.warning("_test_http: missing proxy url relay=%s", relay.url)
+            logger.warning("http_missing_proxy", relay=relay.url)
             raise Nip66TestError(
                 relay, ValueError("HTTP test requires proxy url for overlay networks")
             )
@@ -1069,14 +1047,12 @@ class Nip66:
         data: dict[str, Any] = {}
         try:
             data = await cls._check_http(relay, timeout, proxy_url)
-            logger.debug(
-                "_test_http: completed relay=%s server=%s", relay.url, data.get("http_server")
-            )
+            logger.debug("http_completed", relay=relay.url, server=data.get("http_server"))
         except Exception as e:
-            logger.debug("_test_http: error relay=%s error=%s", relay.url, e)
+            logger.debug("http_error", relay=relay.url, error=str(e))
 
         if not data:
-            logger.warning("_test_http: no data relay=%s", relay.url)
+            logger.debug("http_no_data", relay=relay.url)
             raise Nip66TestError(relay, ValueError("HTTP test returned no data"))
         return Metadata(data)
 
@@ -1233,7 +1209,7 @@ class Nip66:
             Nip66TestError: If all tests fail and no metadata collected
         """
         timeout = timeout if timeout is not None else cls._DEFAULT_TEST_TIMEOUT
-        logger.info("test: relay=%s timeout=%.1fs", relay.url, timeout)
+        logger.info("test_started", relay=relay.url, timeout_s=timeout)
 
         # Run all tests in parallel (each test is independent)
         tasks: list[Any] = []
@@ -1272,7 +1248,7 @@ class Nip66:
             tasks.append(cls._test_http(relay, timeout, proxy_url))
             task_names.append("http")
 
-        logger.debug("test: running tests=%s", task_names)
+        logger.debug("test_running", tests=task_names)
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Map results back to metadata types
@@ -1286,9 +1262,9 @@ class Nip66:
 
         for name, result in zip(task_names, results, strict=True):
             if isinstance(result, BaseException):
-                logger.debug("test: %s failed: %s", name, result)
+                logger.debug("test_task_failed", test=name, error=str(result))
                 continue
-            logger.debug("test: %s succeeded", name)
+            logger.debug("test_task_succeeded", test=name)
             if name == "rtt_and_probe":
                 _rtt, _probe = result
                 if run_rtt:
@@ -1317,8 +1293,8 @@ class Nip66:
                 dns_metadata=dns_metadata,
                 http_metadata=http_metadata,
             )
-            logger.info("test: completed relay=%s", relay.url)
+            logger.info("test_completed", relay=relay.url)
             return nip66
         except ValueError as e:
-            logger.warning("test: all tests failed relay=%s", relay.url)
+            logger.warning("test_all_failed", relay=relay.url)
             raise Nip66TestError(relay, e) from e
