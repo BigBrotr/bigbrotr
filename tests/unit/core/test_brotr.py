@@ -31,7 +31,7 @@ class TestBatchConfig:
 
     def test_defaults(self):
         config = BatchConfig()
-        assert config.max_batch_size == 10000
+        assert config.max_batch_size == 1000
 
     def test_validation_min(self):
         with pytest.raises(ValidationError):
@@ -60,7 +60,7 @@ class TestBrotrInit:
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         brotr = Brotr()
         assert brotr.pool is not None
-        assert brotr.config.batch.max_batch_size == 10000
+        assert brotr.config.batch.max_batch_size == 1000
 
     def test_with_injected_pool(self, mock_pool):
         config = BrotrConfig(batch=BatchConfig(max_batch_size=5000))

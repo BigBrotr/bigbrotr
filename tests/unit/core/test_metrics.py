@@ -31,9 +31,9 @@ class TestMetricsConfig:
     def test_defaults(self):
         """Test default configuration values."""
         config = MetricsConfig()
-        assert config.enabled is True
+        assert config.enabled is False
         assert config.port == 8000
-        assert config.host == "0.0.0.0"
+        assert config.host == "127.0.0.1"
         assert config.path == "/metrics"
 
     def test_custom_values(self):
@@ -92,8 +92,8 @@ class TestMetricsServer:
     @pytest.mark.asyncio
     async def test_start_and_stop(self):
         """Test server start and stop lifecycle."""
-        # Use high port to avoid conflicts
-        config = MetricsConfig(port=19876, host="127.0.0.1")
+        # Use high port to avoid conflicts, enable explicitly
+        config = MetricsConfig(enabled=True, port=19876, host="127.0.0.1")
         server = MetricsServer(config)
 
         try:
@@ -114,7 +114,7 @@ class TestMetricsServer:
     @pytest.mark.asyncio
     async def test_stop_multiple_times(self):
         """Test stop() can be called multiple times safely."""
-        config = MetricsConfig(port=19877, host="127.0.0.1")
+        config = MetricsConfig(enabled=True, port=19877, host="127.0.0.1")
         server = MetricsServer(config)
 
         try:
@@ -144,7 +144,7 @@ class TestMetricsServer:
         """Test that the metrics endpoint serves prometheus content."""
         from aiohttp import ClientSession
 
-        config = MetricsConfig(port=19878, host="127.0.0.1")
+        config = MetricsConfig(enabled=True, port=19878, host="127.0.0.1")
         server = MetricsServer(config)
 
         try:
@@ -167,7 +167,7 @@ class TestMetricsServer:
         """Test server respects custom path configuration."""
         from aiohttp import ClientSession
 
-        config = MetricsConfig(port=19879, host="127.0.0.1", path="/custom/prom")
+        config = MetricsConfig(enabled=True, port=19879, host="127.0.0.1", path="/custom/prom")
         server = MetricsServer(config)
 
         try:
@@ -191,7 +191,7 @@ class TestStartMetricsServer:
     @pytest.mark.asyncio
     async def test_with_config(self):
         """Test start_metrics_server with custom config."""
-        config = MetricsConfig(port=19880, host="127.0.0.1")
+        config = MetricsConfig(enabled=True, port=19880, host="127.0.0.1")
         server = await start_metrics_server(config)
 
         try:
