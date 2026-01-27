@@ -71,8 +71,21 @@ if TYPE_CHECKING:
 # Module constant for worker logging (workers can't access class attributes)
 _WORKER_SERVICE_NAME = "synchronizer"
 
+# Worker log level (set by main process before spawning workers, default: INFO)
+_WORKER_LOG_LEVEL = "INFO"
+
 # Worker-level logger instance (created once per worker process)
 _WORKER_LOGGER: logging.Logger | None = None
+
+
+def _set_worker_log_level(level: str) -> None:
+    """Set worker log level before spawning worker processes.
+
+    Args:
+        level: Log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    """
+    global _WORKER_LOG_LEVEL
+    _WORKER_LOG_LEVEL = level.upper()
 
 
 def _get_worker_logger() -> logging.Logger:
@@ -94,7 +107,8 @@ def _get_worker_logger() -> logging.Logger:
                 )
             )
             _WORKER_LOGGER.addHandler(handler)
-            _WORKER_LOGGER.setLevel(logging.DEBUG)
+            log_level = getattr(logging, _WORKER_LOG_LEVEL, logging.INFO)
+            _WORKER_LOGGER.setLevel(log_level)
             # Prevent propagation to root logger
             _WORKER_LOGGER.propagate = False
 
@@ -354,6 +368,10 @@ class SynchronizerConfig(BaseServiceConfig):
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     source: SourceConfig = Field(default_factory=SourceConfig)
     overrides: list[RelayOverride] = Field(default_factory=list)
+    worker_log_level: str = Field(
+        default="INFO",
+        description="Log level for worker processes (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    )
 
 
 # =============================================================================
@@ -969,6 +987,9 @@ class Synchronizer(BaseService[SynchronizerConfig]):
 
     async def _run_multiprocess(self, relays: list[Relay]) -> None:
         """Run sync using aiomultiprocess Pool (Queue-based balancing)."""
+
+        # Set worker log level before spawning processes
+        _set_worker_log_level(self._config.worker_log_level)
 
         # Prepare tasks arguments
         tasks = []

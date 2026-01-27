@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from core import Logger
+from core.logger import format_kv_pairs
 
 
 class TestInit:
@@ -34,42 +35,57 @@ class TestInit:
         assert logger._json_output is True
 
 
-class TestFormatValue:
-    """Value formatting and escaping."""
+class TestFormatKvPairs:
+    """Key-value pairs formatting and escaping."""
 
     def test_simple(self):
-        logger = Logger("test")
-        assert logger._format_value("hello") == "hello"
-        assert logger._format_value(123) == "123"
-        assert logger._format_value(45.67) == "45.67"
+        assert format_kv_pairs({"key": "hello"}) == " key=hello"
+        assert format_kv_pairs({"key": 123}) == " key=123"
+        assert format_kv_pairs({"key": 45.67}) == " key=45.67"
 
     def test_with_spaces(self):
-        logger = Logger("test")
-        assert logger._format_value("hello world") == '"hello world"'
+        assert format_kv_pairs({"key": "hello world"}) == ' key="hello world"'
 
     def test_with_equals(self):
-        logger = Logger("test")
-        assert logger._format_value("foo=bar") == '"foo=bar"'
+        assert format_kv_pairs({"key": "foo=bar"}) == ' key="foo=bar"'
 
     def test_with_double_quotes(self):
-        logger = Logger("test")
-        assert logger._format_value('say "hello"') == '"say \\"hello\\""'
+        assert format_kv_pairs({"key": 'say "hello"'}) == ' key="say \\"hello\\""'
 
     def test_with_single_quotes(self):
-        logger = Logger("test")
-        assert logger._format_value("it's") == '"it\'s"'
+        assert format_kv_pairs({"key": "it's"}) == ' key="it\'s"'
 
-    def test_empty(self):
-        logger = Logger("test")
-        assert logger._format_value("") == '""'
+    def test_empty_value(self):
+        assert format_kv_pairs({"key": ""}) == ' key=""'
 
     def test_with_backslash(self):
-        logger = Logger("test")
-        assert logger._format_value("path\\to\\file") == "path\\to\\file"
+        assert format_kv_pairs({"key": "path\\to\\file"}) == " key=path\\to\\file"
 
     def test_with_backslash_and_spaces(self):
-        logger = Logger("test")
-        assert logger._format_value("path\\to\\my file") == '"path\\\\to\\\\my file"'
+        assert format_kv_pairs({"key": "path\\to\\my file"}) == ' key="path\\\\to\\\\my file"'
+
+    def test_empty_dict(self):
+        assert format_kv_pairs({}) == ""
+
+    def test_multiple_keys(self):
+        result = format_kv_pairs({"a": 1, "b": 2})
+        assert "a=1" in result
+        assert "b=2" in result
+
+    def test_truncation(self):
+        long_value = "x" * 1500
+        result = format_kv_pairs({"key": long_value}, max_value_length=1000)
+        assert "truncated" in result
+        assert len(result) < 1500
+
+    def test_no_truncation(self):
+        long_value = "x" * 1500
+        result = format_kv_pairs({"key": long_value}, max_value_length=None)
+        assert "truncated" not in result
+
+    def test_custom_prefix(self):
+        assert format_kv_pairs({"key": "val"}, prefix="") == "key=val"
+        assert format_kv_pairs({"key": "val"}, prefix=" | ") == " | key=val"
 
 
 class TestFormatMessage:
