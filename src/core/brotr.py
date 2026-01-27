@@ -43,7 +43,7 @@ class BatchConfig(BaseModel):
     """Batch operation configuration."""
 
     max_batch_size: int = Field(
-        default=10000, ge=1, le=100000, description="Maximum items per batch operation"
+        default=1000, ge=1, le=100000, description="Maximum items per batch operation"
     )
 
 
