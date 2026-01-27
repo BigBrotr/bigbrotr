@@ -271,7 +271,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "cycle_duration_seconds_sum{service=\"validator\"} / cycle_duration_seconds_count{service=\"validator\"}",
+          "expr": "rate(cycle_duration_seconds_sum{service=\"validator\"}[5m]) / rate(cycle_duration_seconds_count{service=\"validator\"}[5m])",
           "legendFormat": "Duration",
           "refId": "A"
         }

@@ -56,13 +56,14 @@ from nostr_sdk import (
     uniffi_set_event_loop,
 )
 
+from core.logger import Logger
 from models.relay import NetworkType, Relay
 
 
 if TYPE_CHECKING:
     from nostr_sdk import Keys
 
-logger = logging.getLogger(__name__)
+logger = Logger("utils.transport")
 
 # Silence nostr-sdk UniFFI callback stack traces (they're handled by our code)
 logging.getLogger("nostr_sdk").setLevel(logging.CRITICAL)
@@ -345,19 +346,19 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
         except aiohttp.ClientError as e:
             # Log at debug level and re-raise as OSError for nostr-sdk to handle
             await session.close()
-            logger.debug("InsecureWebSocketTransport: connection failed url=%s error=%s", url, e)
+            logger.debug("insecure_ws_connect_failed", url=url, error=str(e))
             raise OSError(f"Connection failed: {e}") from e
         except TimeoutError:
             await session.close()
-            logger.debug("InsecureWebSocketTransport: connection timeout url=%s", url)
+            logger.debug("insecure_ws_timeout", url=url)
             raise OSError(f"Connection timeout: {url}") from None
         except asyncio.CancelledError:
             await session.close()
-            logger.debug("InsecureWebSocketTransport: cancelled url=%s", url)
+            logger.debug("insecure_ws_cancelled", url=url)
             raise
         except BaseException as e:
             await session.close()
-            logger.debug("InsecureWebSocketTransport: unexpected error url=%s error=%s", url, e)
+            logger.debug("insecure_ws_error", url=url, error=str(e))
             raise OSError(f"Connection failed: {e}") from e
 
         adapter = InsecureWebSocketAdapter(ws, session)
@@ -505,7 +506,7 @@ async def connect_relay(
 
     # Clearnet: try with SSL verification first using try_connect()
     # try_connect() returns Output with success/failed lists and error messages
-    logger.debug("connect_relay: trying SSL connection relay=%s", relay.url)
+    logger.debug("ssl_connecting", relay=relay.url)
 
     client = create_client(keys)
     await client.add_relay(relay_url)
@@ -513,13 +514,13 @@ async def connect_relay(
 
     # Check if connection succeeded
     if relay_url in output.success:
-        logger.debug("connect_relay: SSL connection succeeded relay=%s", relay.url)
+        logger.debug("ssl_connected", relay=relay.url)
         return client
 
     # Connection failed - check error message
     await client.disconnect()
     error_message = output.failed.get(relay_url, "Unknown error")
-    logger.debug("connect_relay: connection failed relay=%s error=%s", relay.url, error_message)
+    logger.debug("connect_failed", relay=relay.url, error=error_message)
 
     # Check if it's an SSL error
     if not _is_ssl_error(error_message):
@@ -532,11 +533,7 @@ async def connect_relay(
             f"SSL certificate verification failed for {relay.url}: {error_message}"
         )
 
-    logger.debug(
-        "connect_relay: SSL certificate invalid, using insecure transport relay=%s error=%s",
-        relay.url,
-        error_message,
-    )
+    logger.debug("ssl_fallback_insecure", relay=relay.url, error=error_message)
 
     # Set event loop for UniFFI callbacks (required for custom WebSocket transport)
     uniffi_set_event_loop(asyncio.get_running_loop())
@@ -550,7 +547,7 @@ async def connect_relay(
         await client.disconnect()
         raise TimeoutError(f"Connection failed (insecure): {relay.url} ({error_message})")
 
-    logger.debug("connect_relay: connected without SSL verification relay=%s", relay.url)
+    logger.debug("insecure_connected", relay=relay.url)
     return client
 
 
@@ -581,7 +578,7 @@ async def is_nostr_relay(
     """
     from nostr_sdk import Filter, Kind
 
-    logger.debug("is_nostr_relay: starting relay=%s timeout=%s", relay.url, timeout)
+    logger.debug("validation_started", relay=relay.url, timeout_s=timeout)
 
     # Overall timeout as safety net: connect + fetch + disconnect
     # 3x the specified timeout should be enough for normal operations
@@ -601,20 +598,20 @@ async def is_nostr_relay(
 
                 req_filter = Filter().kind(Kind(1)).limit(1)
                 await client.fetch_events(req_filter, timedelta(seconds=timeout))
-                logger.debug("is_nostr_relay: valid (EOSE received) relay=%s", relay.url)
+                logger.debug("validation_success", relay=relay.url, reason="eose")
                 return True
 
         except TimeoutError:
-            logger.debug("is_nostr_relay: timeout relay=%s", relay.url)
+            logger.debug("validation_timeout", relay=relay.url)
             return False
 
         except Exception as e:
             # Check if the error indicates AUTH required (NIP-42)
             error_msg = str(e).lower()
             if "auth" in error_msg:
-                logger.debug("is_nostr_relay: valid (AUTH required) relay=%s", relay.url)
+                logger.debug("validation_success", relay=relay.url, reason="auth")
                 return True
-            logger.debug("is_nostr_relay: invalid relay=%s error=%s", relay.url, e)
+            logger.debug("validation_failed", relay=relay.url, error=str(e))
             return False
 
         finally:

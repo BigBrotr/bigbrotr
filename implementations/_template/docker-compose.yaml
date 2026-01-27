@@ -178,7 +178,7 @@ services:
 
     ports:
       # CUSTOMIZE: Use unique port to avoid conflicts
-      - "127.0.0.1:${FINDER_METRICS_PORT:-8001}:8001"  # Prometheus metrics
+      - "127.0.0.1:${FINDER_METRICS_PORT:-8001}:8000"  # Prometheus metrics
 
     networks:
       - myimpl-network                        # <-- CUSTOMIZE
@@ -221,7 +221,7 @@ services:
 
     ports:
       # CUSTOMIZE: Use unique port to avoid conflicts
-      - "127.0.0.1:${VALIDATOR_METRICS_PORT:-8002}:8002"  # Prometheus metrics
+      - "127.0.0.1:${VALIDATOR_METRICS_PORT:-8002}:8000"  # Prometheus metrics
 
     networks:
       - myimpl-network                        # <-- CUSTOMIZE
@@ -267,7 +267,7 @@ services:
 
     ports:
       # CUSTOMIZE: Use unique port to avoid conflicts
-      - "127.0.0.1:${MONITOR_METRICS_PORT:-8003}:8003"  # Prometheus metrics
+      - "127.0.0.1:${MONITOR_METRICS_PORT:-8003}:8000"  # Prometheus metrics
 
     networks:
       - myimpl-network                        # <-- CUSTOMIZE
@@ -312,7 +312,7 @@ services:
 
     ports:
       # CUSTOMIZE: Use unique port to avoid conflicts
-      - "127.0.0.1:${SYNCHRONIZER_METRICS_PORT:-8004}:8004"  # Prometheus metrics
+      - "127.0.0.1:${SYNCHRONIZER_METRICS_PORT:-8004}:8000"  # Prometheus metrics
 
     networks:
       - myimpl-network                        # <-- CUSTOMIZE

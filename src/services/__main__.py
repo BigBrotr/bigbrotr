@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from core import Brotr, Logger, MetricsConfig, start_metrics_server
+from core import Brotr, Logger, start_metrics_server
 from core.base_service import BaseService
 
 from .finder import Finder
@@ -90,7 +90,7 @@ async def run_service(
             return 1
 
     # Continuous mode: start metrics server and run forever
-    metrics_config: MetricsConfig = getattr(service.config, "metrics", MetricsConfig())
+    metrics_config = service.config.metrics
     metrics_server = await start_metrics_server(metrics_config)
 
     if metrics_config.enabled:

@@ -1,18 +1,8 @@
-# ============================================================================
+# =============================================================================
 # Seeder Service Configuration (BigBrotr)
-# ============================================================================
-# Description: Seed initial relay data for validation
-# Used by: src/services/seeder.py
-# Priority: Run once at startup before other services
-# ============================================================================
+# =============================================================================
+# Only values that differ from defaults are specified here.
+# See _template/yaml/services/seeder.yaml for all options and documentation.
+# =============================================================================
 
-# Seed relays configuration
-# Note: Network type (clearnet, tor, i2p, loki) is auto-detected from URL
-# Note: Duplicate URLs are filtered server-side (existing relays and candidates skipped)
-# Note: File paths are relative to the working directory:
-#       - Docker: /app (so seed_relays.txt = /app/seed_relays.txt)
-#       - Local: run from implementations/bigbrotr/
-# Note: Batch size is controlled by Brotr's max_batch_size in brotr.yaml
-seed:
-  file_path: static/seed_relays.txt  # Path to seed file
-  to_validate: true  # If true, add as validation candidates; if false, insert directly into relays table
+# All values use defaults - seed file path and to_validate behavior

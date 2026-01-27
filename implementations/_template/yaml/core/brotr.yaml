@@ -1,79 +1,246 @@
-# ============================================================================
-# BigBrotr Implementation Template - Brotr Configuration
-# ============================================================================
-# Description: Database connection pool and operation settings
-# Used by: src/core/brotr.py (Brotr class)
-# Customization: Update database name, pool sizes, timeouts as needed
-# ============================================================================
+# =============================================================================
+# Brotr Configuration - Template with ALL Default Values
+# =============================================================================
+#
+# This template shows ALL configuration options with their DEFAULT values.
+# Copy this file to your implementation and modify only what you need.
+#
+# Configuration classes: src/core/pool.py (Pool), src/core/brotr.py (Brotr)
+#
+# Environment variables:
+#   - DB_PASSWORD: Required. Database password (never stored in YAML for security)
+#
+# =============================================================================
 
-# Connection pool configuration
+# -----------------------------------------------------------------------------
+# Connection Pool Configuration
+# -----------------------------------------------------------------------------
+# The pool manages database connections using asyncpg with connection pooling.
+# In Docker environments, typically connects to PGBouncer for additional pooling.
+
 pool:
-  # Database connection parameters
-  # Connects to PGBouncer for connection pooling
+
+  # ---------------------------------------------------------------------------
+  # Database Connection Settings
+  # ---------------------------------------------------------------------------
+  # These parameters define how to connect to the PostgreSQL database.
+  # Class: src/core/pool.py::DatabaseConfig
+
   database:
-    host: pgbouncer           # Docker service name
-    port: 5432                # PGBouncer internal port (mapped to 6432 externally)
-    database: myimpl          # <-- CUSTOMIZE: Your database name
-    user: admin               # Database user
-    # password: loaded from DB_PASSWORD environment variable (never stored here)
+    # Hostname of the database server
+    # In Docker: use service name (e.g., "pgbouncer" or "postgres")
+    # In production: use actual hostname or IP
+    # Default: "localhost"
+    host: localhost
 
-  # Connection pool sizing
-  # These are connections to PGBouncer, which then pools to PostgreSQL
+    # TCP port for database connections
+    # Standard PostgreSQL: 5432
+    # PGBouncer external: often mapped to 6432
+    # Default: 5432
+    port: 5432
+
+    # Name of the database to connect to
+    # Must exist in PostgreSQL (created by init scripts in Docker)
+    # Default: "bigbrotr"
+    database: bigbrotr
+
+    # Database user for authentication
+    # Must have appropriate permissions on the database
+    # Default: "admin"
+    user: admin
+
+    # Password is loaded from DB_PASSWORD environment variable
+    # NEVER store passwords in configuration files
+    # Set via: export DB_PASSWORD="your-secure-password"
+    # password: (loaded from DB_PASSWORD environment variable)
+
+  # ---------------------------------------------------------------------------
+  # Connection Pool Limits
+  # ---------------------------------------------------------------------------
+  # Controls the size and behavior of the connection pool.
+  # Tune based on your database capacity and application concurrency.
+  # Class: src/core/pool.py::LimitsConfig
+
   limits:
-    min_size: 5               # Minimum idle connections
-    max_size: 20              # Maximum total connections
-    max_queries: 50000        # Queries per connection before recycling
-    max_inactive_connection_lifetime: 300.0  # Seconds before idle connection closed
+    # Minimum number of connections to keep in the pool
+    # These connections are pre-established and ready for use
+    # Higher values = faster initial queries, more idle resources
+    # Range: 1-100
+    # Default: 5
+    min_size: 5
 
-  # Timeout settings for connection acquisition and health checks
+    # Maximum number of connections allowed in the pool
+    # Additional connection requests will wait or fail based on timeout
+    # Must be >= min_size
+    # Range: 1-200
+    # Default: 20
+    max_size: 20
+
+    # Maximum queries a connection can execute before being recycled
+    # Prevents connection state accumulation and memory leaks
+    # Lower values = more frequent reconnects, cleaner connections
+    # Range: >= 100
+    # Default: 50000
+    max_queries: 50000
+
+    # Maximum time (seconds) a connection can be idle before being closed
+    # Helps release unused database resources
+    # Set to 0 to disable idle timeout
+    # Range: >= 0.0
+    # Default: 300.0 (5 minutes)
+    max_inactive_connection_lifetime: 300.0
+
+  # ---------------------------------------------------------------------------
+  # Pool Timeouts
+  # ---------------------------------------------------------------------------
+  # Timeouts for pool-level operations (not query timeouts).
+  # Class: src/core/pool.py::TimeoutsConfig
+
   timeouts:
-    acquisition: 10.0         # Seconds to wait for available connection
-    health_check: 5.0         # Seconds for connection health check
+    # Maximum time (seconds) to wait when acquiring a connection from the pool
+    # If pool is exhausted, requests wait up to this duration
+    # Increase if you see "connection pool exhausted" errors
+    # Range: >= 0.1
+    # Default: 10.0
+    acquisition: 10.0
 
-  # Retry logic for transient connection failures
+    # Timeout (seconds) for connection health check queries
+    # Used to validate connections before returning them to callers
+    # Range: >= 0.1
+    # Default: 5.0
+    health_check: 5.0
+
+  # ---------------------------------------------------------------------------
+  # Retry Configuration
+  # ---------------------------------------------------------------------------
+  # Handles transient connection failures with automatic retries.
+  # Useful for database restarts, network blips, and container orchestration.
+  # Class: src/core/pool.py::RetryConfig
+
   retry:
-    max_attempts: 3           # Maximum retry attempts
-    initial_delay: 1.0        # Initial delay between retries (seconds)
-    max_delay: 10.0           # Maximum delay between retries (seconds)
-    exponential_backoff: true # Use exponential backoff
+    # Maximum number of connection attempts before giving up
+    # Includes the initial attempt (max_attempts=3 means 1 try + 2 retries)
+    # Range: 1-10
+    # Default: 3
+    max_attempts: 3
 
-  # PostgreSQL server settings (sent on connection)
+    # Initial delay (seconds) between retry attempts
+    # First retry waits this long after initial failure
+    # Range: >= 0.1
+    # Default: 1.0
+    initial_delay: 1.0
+
+    # Maximum delay (seconds) between retry attempts
+    # Caps the delay when using exponential backoff
+    # Must be >= initial_delay
+    # Range: >= 0.1
+    # Default: 10.0
+    max_delay: 10.0
+
+    # Whether to use exponential backoff for retry delays
+    # true: delay doubles each attempt (1s, 2s, 4s, 8s, 10s max)
+    # false: linear backoff (1s, 2s, 3s, 4s, ...)
+    # Default: true
+    exponential_backoff: true
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Server Settings
+  # ---------------------------------------------------------------------------
+  # Session-level settings sent to PostgreSQL on connection.
+  # These appear in pg_stat_activity and affect query behavior.
+  # Class: src/core/pool.py::ServerSettingsConfig
+
   server_settings:
-    application_name: myimpl  # <-- CUSTOMIZE: Application name in pg_stat_activity
-    timezone: UTC             # Database timezone
+    # Application name shown in pg_stat_activity.application_name
+    # Useful for identifying connections in database monitoring
+    # Default: "bigbrotr"
+    application_name: bigbrotr
 
-# Batch operation settings
-# Controls memory usage and database round-trips
+    # Timezone for the database session
+    # Affects timestamp display and timezone-aware functions
+    # Use standard timezone names (e.g., "UTC", "America/New_York")
+    # Default: "UTC"
+    timezone: UTC
+
+    # Maximum query execution time in milliseconds
+    # Queries exceeding this are automatically cancelled
+    # Set to 0 to disable (no timeout)
+    # Range: >= 0
+    # Default: 300000 (5 minutes)
+    statement_timeout: 300000
+
+# -----------------------------------------------------------------------------
+# Batch Operation Settings
+# -----------------------------------------------------------------------------
+# Controls bulk insert operations for performance tuning.
+# Class: src/core/brotr.py::BatchConfig
+
 batch:
-  max_batch_size: 1000        # Maximum records per batch insert
-                              # Higher = fewer round-trips, more memory
-                              # Lower = more round-trips, less memory
+  # Maximum number of records per batch insert operation
+  # Higher values = fewer database round-trips, more memory usage
+  # Lower values = more round-trips, better for memory-constrained environments
+  # Range: 1-100000
+  # Default: 1000
+  max_batch_size: 1000
 
-# Query timeouts for different operation types (seconds)
-# null = no timeout (infinite)
+# -----------------------------------------------------------------------------
+# Operation Timeouts
+# -----------------------------------------------------------------------------
+# Query-level timeouts for different types of database operations.
+# Use null for no timeout (infinite wait - use with caution).
+# Class: src/core/brotr.py::TimeoutsConfig
+
 timeouts:
-  query: 60.0                 # Standard SELECT/UPDATE/DELETE queries
-  batch: 120.0                # Bulk INSERT operations
-  cleanup: 90.0               # Cleanup procedures (orphan_*_delete)
-  refresh: null               # Materialized view refresh (can be slow on large datasets)
+  # Timeout (seconds) for standard SELECT, UPDATE, DELETE queries
+  # Most queries should complete well within this time
+  # null = no timeout
+  # Range: >= 0.1 or null
+  # Default: 60.0
+  query: 60.0
 
-# ============================================================================
-# CUSTOMIZATION NOTES
-# ============================================================================
+  # Timeout (seconds) for batch INSERT operations
+  # Batch inserts may take longer due to volume
+  # null = no timeout
+  # Range: >= 0.1 or null
+  # Default: 120.0
+  batch: 120.0
+
+  # Timeout (seconds) for cleanup procedures (orphan_events_delete, etc.)
+  # These scan and delete unreferenced records
+  # null = no timeout
+  # Range: >= 0.1 or null
+  # Default: 90.0
+  cleanup: 90.0
+
+  # Timeout (seconds) for materialized view refresh operations
+  # Can be very slow on large datasets (millions of rows)
+  # null = no timeout (recommended for large datasets)
+  # Range: >= 0.1 or null
+  # Default: null (no timeout)
+  refresh: null
+
+# =============================================================================
+# CUSTOMIZATION GUIDE
+# =============================================================================
+#
+# DOCKER DEPLOYMENT (typical):
+#   pool.database.host: pgbouncer
+#   pool.database.database: your_db_name
+#   pool.server_settings.application_name: your_app_name
 #
 # SMALL DEPLOYMENT (< 100 relays, < 1M events):
 #   pool.limits.min_size: 2
 #   pool.limits.max_size: 10
-#   batch.max_batch_size: 500
 #
 # LARGE DEPLOYMENT (> 1000 relays, > 10M events):
 #   pool.limits.min_size: 10
 #   pool.limits.max_size: 50
-#   batch.max_batch_size: 5000
+#   batch.max_batch_size: 10000  # Increase from default 1000
 #
-# HIGH LATENCY DATABASE (remote PostgreSQL):
+# HIGH LATENCY DATABASE (remote PostgreSQL, cloud database):
 #   pool.timeouts.acquisition: 30.0
 #   pool.timeouts.health_check: 10.0
 #   pool.retry.max_attempts: 5
+#   timeouts.query: 120.0
 #
-# ============================================================================
+# =============================================================================
