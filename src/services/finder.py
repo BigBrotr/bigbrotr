@@ -157,7 +157,7 @@ class Finder(BaseService[FinderConfig]):
             await self._find_from_api()
 
         elapsed = time.time() - cycle_start
-        self._logger.info("cycle_completed", found=self._found_relays, duration=round(elapsed, 2))
+        self._logger.info("cycle_completed", found=self._found_relays, duration_s=round(elapsed, 2))
 
     async def _find_from_events(self) -> None:
         """

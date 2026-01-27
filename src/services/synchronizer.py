@@ -71,8 +71,21 @@ if TYPE_CHECKING:
 # Module constant for worker logging (workers can't access class attributes)
 _WORKER_SERVICE_NAME = "synchronizer"
 
+# Worker log level (set by main process before spawning workers, default: INFO)
+_WORKER_LOG_LEVEL = "INFO"
+
 # Worker-level logger instance (created once per worker process)
 _WORKER_LOGGER: logging.Logger | None = None
+
+
+def _set_worker_log_level(level: str) -> None:
+    """Set worker log level before spawning worker processes.
+
+    Args:
+        level: Log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    """
+    global _WORKER_LOG_LEVEL
+    _WORKER_LOG_LEVEL = level.upper()
 
 
 def _get_worker_logger() -> logging.Logger:
@@ -94,7 +107,8 @@ def _get_worker_logger() -> logging.Logger:
                 )
             )
             _WORKER_LOGGER.addHandler(handler)
-            _WORKER_LOGGER.setLevel(logging.DEBUG)
+            log_level = getattr(logging, _WORKER_LOG_LEVEL, logging.INFO)
+            _WORKER_LOGGER.setLevel(log_level)
             # Prevent propagation to root logger
             _WORKER_LOGGER.propagate = False
 
@@ -102,19 +116,14 @@ def _get_worker_logger() -> logging.Logger:
 
 
 def _format_kv(kwargs: dict[str, Any]) -> str:
-    """Format kwargs as key=value pairs with proper escaping."""
-    if not kwargs:
-        return ""
-    parts = []
-    for k, v in kwargs.items():
-        s = str(v)
-        # Quote if contains spaces, equals, or quotes
-        if " " in s or "=" in s or '"' in s or "'" in s:
-            escaped = s.replace("\\", "\\\\").replace('"', '\\"')
-            parts.append(f'{k}="{escaped}"')
-        else:
-            parts.append(f"{k}={s}")
-    return " " + " ".join(parts)
+    """Format kwargs as key=value pairs (wrapper for worker processes).
+
+    Uses the shared format_kv_pairs utility for consistency with Logger class.
+    Workers use no truncation to preserve full context in logs.
+    """
+    from core.logger import format_kv_pairs
+
+    return format_kv_pairs(kwargs, max_value_length=None)
 
 
 def _worker_log(level: str, message: str, **kwargs: Any) -> None:
@@ -359,6 +368,10 @@ class SynchronizerConfig(BaseServiceConfig):
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     source: SourceConfig = Field(default_factory=SourceConfig)
     overrides: list[RelayOverride] = Field(default_factory=list)
+    worker_log_level: str = Field(
+        default="INFO",
+        description="Log level for worker processes (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    )
 
 
 # =============================================================================
@@ -974,6 +987,9 @@ class Synchronizer(BaseService[SynchronizerConfig]):
 
     async def _run_multiprocess(self, relays: list[Relay]) -> None:
         """Run sync using aiomultiprocess Pool (Queue-based balancing)."""
+
+        # Set worker log level before spawning processes
+        _set_worker_log_level(self._config.worker_log_level)
 
         # Prepare tasks arguments
         tasks = []

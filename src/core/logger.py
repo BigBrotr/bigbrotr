@@ -21,6 +21,42 @@ import logging
 from typing import Any, ClassVar
 
 
+def format_kv_pairs(
+    kwargs: dict[str, Any],
+    max_value_length: int | None = 1000,
+    prefix: str = " ",
+) -> str:
+    """Format kwargs as key=value pairs with proper escaping.
+
+    Shared utility for consistent formatting across Logger and worker processes.
+
+    Args:
+        kwargs: Key-value pairs to format
+        max_value_length: Max chars per value (None = no limit)
+        prefix: String to prepend (default: single space)
+
+    Returns:
+        Formatted string like " key1=value1 key2=\"value with spaces\""
+    """
+    if not kwargs:
+        return ""
+
+    parts = []
+    for k, v in kwargs.items():
+        s = str(v)
+        # Truncate if needed
+        if max_value_length and len(s) > max_value_length:
+            s = s[:max_value_length] + f"...<truncated {len(s) - max_value_length} chars>"
+        # Quote if contains special chars
+        if not s or " " in s or "=" in s or '"' in s or "'" in s:
+            escaped = s.replace("\\", "\\\\").replace('"', '\\"')
+            parts.append(f'{k}="{escaped}"')
+        else:
+            parts.append(f"{k}={s}")
+
+    return prefix + " ".join(parts) if parts else ""
+
+
 class Logger:
     """
     Logger wrapper that supports keyword arguments as extra fields.
@@ -61,61 +97,32 @@ class Logger:
         self._json_output = json_output
         self._max_value_length = max_value_length
 
-    def _format_value(self, value: Any) -> str:
-        """Format a single value, quoting if necessary and truncating if too long."""
-        s = str(value)
-
-        # Truncate long values to prevent log spam
-        if len(s) > self._max_value_length:
-            s = (
-                s[: self._max_value_length]
-                + f"...<truncated {len(str(value)) - self._max_value_length} chars>"
-            )
-
-        # Quote if contains spaces, equals, quotes, or is empty
-        if not s or " " in s or "=" in s or '"' in s or "'" in s:
-            # Escape internal quotes
-            escaped = s.replace("\\", "\\\\").replace('"', '\\"')
-            return f'"{escaped}"'
-        return s
-
     def _format_message(self, msg: str, kwargs: dict[str, Any]) -> str:
         """Format message with kwargs in appropriate format."""
         if self._json_output:
             return json.dumps({"message": msg, **kwargs}, default=str)
-
-        if not kwargs:
-            return msg
-
-        pairs = " ".join(f"{k}={self._format_value(v)}" for k, v in kwargs.items())
-        return f"{msg} {pairs}"
+        return msg + format_kv_pairs(kwargs, max_value_length=self._max_value_length)
 
     def debug(self, msg: str, **kwargs: Any) -> None:
         """Log a DEBUG level message with optional key=value pairs."""
-        if self._logger.isEnabledFor(logging.DEBUG):
-            self._logger.debug(self._format_message(msg, kwargs))
+        self._logger.debug(self._format_message(msg, kwargs))
 
     def info(self, msg: str, **kwargs: Any) -> None:
         """Log an INFO level message with optional key=value pairs."""
-        if self._logger.isEnabledFor(logging.INFO):
-            self._logger.info(self._format_message(msg, kwargs))
+        self._logger.info(self._format_message(msg, kwargs))
 
     def warning(self, msg: str, **kwargs: Any) -> None:
         """Log a WARNING level message with optional key=value pairs."""
-        if self._logger.isEnabledFor(logging.WARNING):
-            self._logger.warning(self._format_message(msg, kwargs))
+        self._logger.warning(self._format_message(msg, kwargs))
 
     def error(self, msg: str, **kwargs: Any) -> None:
         """Log an ERROR level message with optional key=value pairs."""
-        if self._logger.isEnabledFor(logging.ERROR):
-            self._logger.error(self._format_message(msg, kwargs))
+        self._logger.error(self._format_message(msg, kwargs))
 
     def critical(self, msg: str, **kwargs: Any) -> None:
         """Log a CRITICAL level message with optional key=value pairs."""
-        if self._logger.isEnabledFor(logging.CRITICAL):
-            self._logger.critical(self._format_message(msg, kwargs))
+        self._logger.critical(self._format_message(msg, kwargs))
 
     def exception(self, msg: str, **kwargs: Any) -> None:
         """Log an ERROR level message with exception traceback and optional key=value pairs."""
-        if self._logger.isEnabledFor(logging.ERROR):
-            self._logger.exception(self._format_message(msg, kwargs))
+        self._logger.exception(self._format_message(msg, kwargs))

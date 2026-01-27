@@ -200,7 +200,7 @@ class BaseService(ABC, Generic[ConfigT]):
                 self.set_gauge("consecutive_failures", 0)
 
                 consecutive_failures = 0  # Reset on success
-                self._logger.info("cycle_completed", next_run_in_seconds=interval)
+                self._logger.info("cycle_completed", next_cycle_s=interval)
 
             except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
                 # Let these propagate to allow proper shutdown
@@ -259,14 +259,14 @@ class BaseService(ABC, Generic[ConfigT]):
         """Start service on context entry."""
         # Clear shutdown event to mark service as running
         self._shutdown_event.clear()
-        self._logger.info("started")
+        self._logger.info("service_started")
         return self
 
     async def __aexit__(self, _exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
         """Stop service on context exit."""
         # Set shutdown event to mark service as stopped
         self._shutdown_event.set()
-        self._logger.info("stopped")
+        self._logger.info("service_stopped")
 
     # -------------------------------------------------------------------------
     # Custom Metrics
