@@ -18,7 +18,7 @@ import pytest
 
 from core.brotr import Brotr, BrotrConfig
 from services.validator import Validator, ValidatorConfig
-from utils.network import NetworkConfig, NetworkTypeConfig
+from utils.network import ClearnetConfig, NetworkConfig, TorConfig
 
 
 # ============================================================================
@@ -254,7 +254,7 @@ class TestNetworkAwareValidation:
         )
 
         config = ValidatorConfig(
-            networks=NetworkConfig(clearnet=NetworkTypeConfig(timeout=5.0, max_tasks=10))
+            networks=NetworkConfig(clearnet=ClearnetConfig(timeout=5.0, max_tasks=10))
         )
         validator = Validator(brotr=mock_brotr, config=config)
 
@@ -273,9 +273,7 @@ class TestNetworkAwareValidation:
             side_effect=[[make_candidate_row("ws://onion.onion", network="tor")], []]
         )
 
-        config = ValidatorConfig(
-            networks=NetworkConfig(tor=NetworkTypeConfig(timeout=45.0, max_tasks=5))
-        )
+        config = ValidatorConfig(networks=NetworkConfig(tor=TorConfig(timeout=45.0, max_tasks=5)))
         validator = Validator(brotr=mock_brotr, config=config)
 
         with patch(
@@ -294,7 +292,7 @@ class TestNetworkAwareValidation:
         )
 
         config = ValidatorConfig(
-            networks=NetworkConfig(tor=NetworkTypeConfig(proxy_url="socks5://tor:9050"))
+            networks=NetworkConfig(tor=TorConfig(enabled=True, proxy_url="socks5://tor:9050"))
         )
         validator = Validator(brotr=mock_brotr, config=config)
 

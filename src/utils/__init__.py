@@ -9,7 +9,8 @@ Exported utilities:
     - KeysConfig: Pydantic model for Nostr key configuration
     - load_keys_from_env: Load Nostr keys from environment variables
     - NetworkConfig: Unified network configuration for all services
-    - NetworkTypeConfig: Settings for individual network types
+    - ClearnetConfig, TorConfig, I2pConfig, LokiConfig: Per-network configs
+    - NetworkTypeConfig: Type alias for any network-specific config
     - create_client: Factory for creating Nostr clients
     - load_yaml: Load YAML configuration files
     - parse_typed_dict: Type-safe parsing against TypedDict schemas
@@ -21,7 +22,14 @@ Example:
 """
 
 from utils.keys import KeysConfig, load_keys_from_env
-from utils.network import NetworkConfig, NetworkTypeConfig
+from utils.network import (
+    ClearnetConfig,
+    I2pConfig,
+    LokiConfig,
+    NetworkConfig,
+    NetworkTypeConfig,
+    TorConfig,
+)
 from utils.parsing import parse_typed_dict
 from utils.progress import BatchProgress
 from utils.transport import create_client
@@ -30,9 +38,13 @@ from utils.yaml import load_yaml
 
 __all__ = [
     "BatchProgress",
+    "ClearnetConfig",
+    "I2pConfig",
     "KeysConfig",
+    "LokiConfig",
     "NetworkConfig",
     "NetworkTypeConfig",
+    "TorConfig",
     "create_client",
     "load_keys_from_env",
     "load_yaml",

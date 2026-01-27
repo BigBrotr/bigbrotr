@@ -29,7 +29,7 @@ from services.monitor import (
     ProfileConfig,
     PublishingConfig,
 )
-from utils.network import NetworkConfig, NetworkTypeConfig
+from utils.network import NetworkConfig, TorConfig
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
@@ -634,7 +634,7 @@ class TestMonitorInit:
     def test_init_with_custom_config(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test initialization with custom config."""
         config = MonitorConfig(
-            networks=NetworkConfig(tor=NetworkTypeConfig(enabled=False)),
+            networks=NetworkConfig(tor=TorConfig(enabled=False)),
             processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
