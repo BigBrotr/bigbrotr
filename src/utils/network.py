@@ -3,6 +3,10 @@
 This module provides Pydantic configuration models for managing network-specific
 settings across different relay network types (clearnet, Tor, I2P, Lokinet).
 
+Each network type has its own configuration class with appropriate defaults,
+allowing partial YAML overrides to work correctly (e.g., setting only
+`tor.enabled: true` inherits the default `proxy_url`).
+
 Network Types:
     - clearnet: Standard internet relays (wss://example.com)
     - tor: Tor hidden service relays (.onion addresses)
@@ -15,23 +19,13 @@ Configuration Fields:
     - max_tasks: Concurrent connection limit (for parallel services)
     - timeout: Connection timeout in seconds
 
-Service Usage:
-    - Validator: Uses all fields (enabled, proxy_url, max_tasks, timeout)
-    - Monitor: Uses enabled, proxy_url, timeout
-    - Synchronizer: Uses enabled, proxy_url, max_tasks
-    - Finder: Uses enabled only
-
 Example YAML Configuration:
     networks:
       clearnet:
         enabled: true
-        max_tasks: 50
-        timeout: 10.0
+        max_tasks: 100       # Override only max_tasks
       tor:
-        enabled: true
-        proxy_url: "socks5://tor:9050"
-        max_tasks: 10
-        timeout: 30.0
+        enabled: true        # Override only enabled, inherits proxy_url default
 """
 
 from __future__ import annotations
@@ -41,52 +35,94 @@ from pydantic import BaseModel, Field
 from models.relay import NetworkType
 
 
-class NetworkTypeConfig(BaseModel):
-    """Configuration settings for a single network type.
+# =============================================================================
+# Network-Specific Configuration Classes
+# =============================================================================
 
-    This model combines connectivity settings (enabled/proxy) with performance
-    tuning parameters (concurrency/timeout). Services use only the fields
-    they need; all fields have sensible defaults.
 
-    Attributes:
-        enabled: Whether processing is enabled for relays on this network.
-            Disabled networks are skipped during relay discovery and validation.
-        proxy_url: SOCKS5 proxy URL for overlay networks. Required for Tor,
-            I2P, and Lokinet. Format: "socks5://host:port"
-        max_tasks: Maximum concurrent connections allowed. Higher values
-            increase throughput but may trigger rate limiting.
-        timeout: Connection timeout in seconds. Overlay networks typically
-            need longer timeouts (30-45s) than clearnet (10s).
+class ClearnetConfig(BaseModel):
+    """Configuration for clearnet (standard internet) relays.
 
-    Example:
-        >>> config = NetworkTypeConfig(
-        ...     enabled=True,
-        ...     proxy_url="socks5://127.0.0.1:9050",
-        ...     max_tasks=10,
-        ...     timeout=30.0,
-        ... )
+    Clearnet relays are accessed directly without a proxy. They typically
+    support high concurrency and have short timeouts.
+
+    Defaults:
+        enabled: True
+        proxy_url: None (no proxy needed)
+        max_tasks: 50 (high concurrency)
+        timeout: 10.0s (short timeout)
     """
 
-    enabled: bool = Field(
-        default=True,
-        description="Enable processing for this network",
-    )
-    proxy_url: str | None = Field(
-        default=None,
-        description="SOCKS5 proxy URL (required for overlay networks)",
-    )
-    max_tasks: int = Field(
-        default=10,
-        ge=1,
-        le=200,
-        description="Maximum concurrent connections (for parallel services)",
-    )
-    timeout: float = Field(
-        default=10.0,
-        ge=1.0,
-        le=120.0,
-        description="Connection timeout in seconds",
-    )
+    enabled: bool = True
+    proxy_url: str | None = None
+    max_tasks: int = Field(default=50, ge=1, le=200)
+    timeout: float = Field(default=10.0, ge=1.0, le=120.0)
+
+
+class TorConfig(BaseModel):
+    """Configuration for Tor (.onion) relays.
+
+    Tor relays require a SOCKS5 proxy to access the Tor network. They have
+    lower concurrency limits and longer timeouts due to network latency.
+
+    Defaults:
+        enabled: False
+        proxy_url: socks5://tor:9050
+        max_tasks: 10 (lower concurrency)
+        timeout: 30.0s (longer timeout)
+    """
+
+    enabled: bool = False
+    proxy_url: str | None = "socks5://tor:9050"
+    max_tasks: int = Field(default=10, ge=1, le=200)
+    timeout: float = Field(default=30.0, ge=1.0, le=120.0)
+
+
+class I2pConfig(BaseModel):
+    """Configuration for I2P (.i2p) relays.
+
+    I2P relays require a SOCKS5 proxy to access the I2P network. They have
+    the lowest concurrency limits and longest timeouts due to network latency.
+
+    Defaults:
+        enabled: False
+        proxy_url: socks5://i2p:4447
+        max_tasks: 5 (lowest concurrency)
+        timeout: 45.0s (longest timeout)
+    """
+
+    enabled: bool = False
+    proxy_url: str | None = "socks5://i2p:4447"
+    max_tasks: int = Field(default=5, ge=1, le=200)
+    timeout: float = Field(default=45.0, ge=1.0, le=120.0)
+
+
+class LokiConfig(BaseModel):
+    """Configuration for Lokinet (.loki) relays.
+
+    Lokinet relays require a SOCKS5 proxy to access the Lokinet network.
+    Note: Lokinet is only supported on Linux.
+
+    Defaults:
+        enabled: False
+        proxy_url: socks5://lokinet:1080
+        max_tasks: 5 (lower concurrency)
+        timeout: 30.0s (longer timeout)
+    """
+
+    enabled: bool = False
+    proxy_url: str | None = "socks5://lokinet:1080"
+    max_tasks: int = Field(default=5, ge=1, le=200)
+    timeout: float = Field(default=30.0, ge=1.0, le=120.0)
+
+
+# Type alias for any network-specific config (for type hints)
+NetworkTypeConfig = ClearnetConfig | TorConfig | I2pConfig | LokiConfig
+
+
+# =============================================================================
+# Unified Network Configuration
+# =============================================================================
 
 
 class NetworkConfig(BaseModel):
@@ -96,20 +132,19 @@ class NetworkConfig(BaseModel):
     object. It provides convenience methods for querying network settings
     and is designed to be embedded in service configuration models.
 
+    Each network type uses its own configuration class with appropriate defaults,
+    allowing partial YAML overrides to work correctly.
+
     Attributes:
-        clearnet: Settings for standard internet relays. Default: enabled
-            with high concurrency (50 tasks) and short timeout (10s).
-        tor: Settings for Tor .onion relays. Default: disabled, requires
-            SOCKS5 proxy at socks5://tor:9050.
-        i2p: Settings for I2P .i2p relays. Default: disabled, requires
-            SOCKS5 proxy at socks5://i2p:4447.
-        loki: Settings for Lokinet .loki relays. Default: disabled, requires
-            SOCKS5 proxy at socks5://lokinet:1080.
+        clearnet: Settings for standard internet relays.
+        tor: Settings for Tor .onion relays.
+        i2p: Settings for I2P .i2p relays.
+        loki: Settings for Lokinet .loki relays.
 
     Example:
         >>> config = NetworkConfig(
-        ...     clearnet=NetworkTypeConfig(enabled=True, max_tasks=100),
-        ...     tor=NetworkTypeConfig(enabled=True, proxy_url="socks5://tor:9050"),
+        ...     clearnet=ClearnetConfig(max_tasks=100),
+        ...     tor=TorConfig(enabled=True),  # Inherits proxy_url default
         ... )
         >>> config.is_enabled(NetworkType.TOR)
         True
@@ -117,42 +152,10 @@ class NetworkConfig(BaseModel):
         'socks5://tor:9050'
     """
 
-    clearnet: NetworkTypeConfig = Field(
-        default_factory=lambda: NetworkTypeConfig(
-            enabled=True,
-            proxy_url=None,
-            max_tasks=50,
-            timeout=10.0,
-        ),
-        description="Clearnet relays (fast, high concurrency)",
-    )
-    tor: NetworkTypeConfig = Field(
-        default_factory=lambda: NetworkTypeConfig(
-            enabled=False,
-            proxy_url="socks5://tor:9050",
-            max_tasks=10,
-            timeout=30.0,
-        ),
-        description="Tor .onion relays (slower, needs proxy)",
-    )
-    i2p: NetworkTypeConfig = Field(
-        default_factory=lambda: NetworkTypeConfig(
-            enabled=False,
-            proxy_url="socks5://i2p:4447",
-            max_tasks=5,
-            timeout=45.0,
-        ),
-        description="I2P .i2p relays (slowest, needs proxy)",
-    )
-    loki: NetworkTypeConfig = Field(
-        default_factory=lambda: NetworkTypeConfig(
-            enabled=False,
-            proxy_url="socks5://lokinet:1080",
-            max_tasks=5,
-            timeout=30.0,
-        ),
-        description="Lokinet .loki relays (needs proxy)",
-    )
+    clearnet: ClearnetConfig = Field(default_factory=ClearnetConfig)
+    tor: TorConfig = Field(default_factory=TorConfig)
+    i2p: I2pConfig = Field(default_factory=I2pConfig)
+    loki: LokiConfig = Field(default_factory=LokiConfig)
 
     def get(self, network: NetworkType) -> NetworkTypeConfig:
         """Get configuration for a specific network type.
@@ -161,8 +164,8 @@ class NetworkConfig(BaseModel):
             network: The NetworkType enum value to look up.
 
         Returns:
-            NetworkTypeConfig: The configuration for the specified network.
-                Falls back to clearnet config if network is not found.
+            The configuration for the specified network.
+            Falls back to clearnet config if network is not found.
         """
         return getattr(self, network.value, self.clearnet)
 
@@ -170,15 +173,13 @@ class NetworkConfig(BaseModel):
         """Get the SOCKS5 proxy URL for a network type.
 
         Returns the proxy URL only if the network is enabled and has a
-        configured proxy. Clearnet always returns None since it doesn't
-        require a proxy.
+        configured proxy. Clearnet always returns None.
 
         Args:
-            network: Network type as string (e.g., "tor") or NetworkType enum.
+            network: Network type as string or NetworkType enum.
 
         Returns:
-            str | None: The SOCKS5 proxy URL if the network is enabled and
-                has a proxy configured, None otherwise.
+            The SOCKS5 proxy URL if enabled and configured, None otherwise.
         """
         if isinstance(network, str):
             try:
@@ -196,11 +197,10 @@ class NetworkConfig(BaseModel):
         """Check if processing is enabled for a network type.
 
         Args:
-            network: Network type as string (e.g., "tor") or NetworkType enum.
+            network: Network type as string or NetworkType enum.
 
         Returns:
-            bool: True if the network is enabled, False otherwise.
-                Returns False for invalid network type strings.
+            True if the network is enabled, False otherwise.
         """
         if isinstance(network, str):
             try:
@@ -214,7 +214,6 @@ class NetworkConfig(BaseModel):
         """Get a list of all enabled network type names.
 
         Returns:
-            list[str]: Names of enabled networks (e.g., ["clearnet", "tor"]).
-                Order is always: clearnet, tor, i2p, loki (if enabled).
+            Names of enabled networks (order matches field definition).
         """
-        return [name for name in ["clearnet", "tor", "i2p", "loki"] if getattr(self, name).enabled]
+        return [name for name in self.model_fields if getattr(self, name).enabled]

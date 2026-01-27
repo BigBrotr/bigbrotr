@@ -28,7 +28,7 @@ from services.synchronizer import (
     SyncTimeoutsConfig,
     TimeRangeConfig,
 )
-from utils.network import NetworkConfig, NetworkTypeConfig
+from utils.network import NetworkConfig, TorConfig
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
@@ -291,7 +291,7 @@ class TestSynchronizerConfig:
     def test_custom_nested_config(self) -> None:
         """Test custom nested configuration with Tor enabled."""
         config = SynchronizerConfig(
-            networks=NetworkConfig(tor=NetworkTypeConfig(enabled=True)),
+            networks=NetworkConfig(tor=TorConfig(enabled=True)),
             concurrency=ConcurrencyConfig(max_parallel=5),
             interval=1800.0,
         )
@@ -321,7 +321,7 @@ class TestSynchronizerInit:
     def test_init_with_custom_config(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test initialization with custom config (Tor enabled)."""
         config = SynchronizerConfig(
-            networks=NetworkConfig(tor=NetworkTypeConfig(enabled=True)),
+            networks=NetworkConfig(tor=TorConfig(enabled=True)),
             concurrency=ConcurrencyConfig(max_parallel=5),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)

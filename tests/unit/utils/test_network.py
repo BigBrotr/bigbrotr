@@ -2,7 +2,7 @@
 Unit tests for utils.network module.
 
 Tests:
-- NetworkTypeConfig - Individual network type settings
+- ClearnetConfig, TorConfig, I2pConfig, LokiConfig - Network-specific configs
 - NetworkConfig - Unified configuration for all networks
 """
 
@@ -10,103 +10,145 @@ import pytest
 from pydantic import ValidationError
 
 from models.relay import NetworkType
-from utils.network import NetworkConfig, NetworkTypeConfig
+from utils.network import (
+    ClearnetConfig,
+    I2pConfig,
+    LokiConfig,
+    NetworkConfig,
+    TorConfig,
+)
 
 
 # =============================================================================
-# NetworkTypeConfig Tests
+# ClearnetConfig Tests
 # =============================================================================
 
 
-class TestNetworkTypeConfigDefaults:
-    """NetworkTypeConfig default values."""
+class TestClearnetConfigDefaults:
+    """ClearnetConfig default values."""
 
     def test_default_enabled(self):
-        config = NetworkTypeConfig()
+        config = ClearnetConfig()
         assert config.enabled is True
 
     def test_default_proxy_url(self):
-        config = NetworkTypeConfig()
+        config = ClearnetConfig()
         assert config.proxy_url is None
 
     def test_default_max_tasks(self):
-        config = NetworkTypeConfig()
-        assert config.max_tasks == 10
+        config = ClearnetConfig()
+        assert config.max_tasks == 50
 
     def test_default_timeout(self):
-        config = NetworkTypeConfig()
+        config = ClearnetConfig()
         assert config.timeout == 10.0
 
 
-class TestNetworkTypeConfigCustomValues:
-    """NetworkTypeConfig with custom values."""
+class TestClearnetConfigCustomValues:
+    """ClearnetConfig with custom values."""
 
     def test_all_custom_values(self):
-        config = NetworkTypeConfig(
+        config = ClearnetConfig(
             enabled=False,
             proxy_url="socks5://127.0.0.1:9050",
-            max_tasks=50,
+            max_tasks=100,
             timeout=30.0,
         )
         assert config.enabled is False
         assert config.proxy_url == "socks5://127.0.0.1:9050"
-        assert config.max_tasks == 50
+        assert config.max_tasks == 100
         assert config.timeout == 30.0
 
     def test_partial_custom_values(self):
-        config = NetworkTypeConfig(enabled=False, max_tasks=25)
+        config = ClearnetConfig(enabled=False, max_tasks=25)
         assert config.enabled is False
-        assert config.proxy_url is None
+        assert config.proxy_url is None  # Inherits default
         assert config.max_tasks == 25
-        assert config.timeout == 10.0
+        assert config.timeout == 10.0  # Inherits default
 
 
-class TestNetworkTypeConfigMaxTasksValidation:
-    """NetworkTypeConfig max_tasks validation."""
+# =============================================================================
+# Validation Tests (using ClearnetConfig as concrete class)
+# =============================================================================
+
+
+class TestMaxTasksValidation:
+    """max_tasks validation constraints (inherited from NetworkTypeConfig)."""
 
     def test_max_tasks_minimum_boundary(self):
-        config = NetworkTypeConfig(max_tasks=1)
+        config = ClearnetConfig(max_tasks=1)
         assert config.max_tasks == 1
 
     def test_max_tasks_maximum_boundary(self):
-        config = NetworkTypeConfig(max_tasks=200)
+        config = ClearnetConfig(max_tasks=200)
         assert config.max_tasks == 200
 
     def test_max_tasks_below_minimum_raises(self):
         with pytest.raises(ValidationError):
-            NetworkTypeConfig(max_tasks=0)
+            ClearnetConfig(max_tasks=0)
 
     def test_max_tasks_above_maximum_raises(self):
         with pytest.raises(ValidationError):
-            NetworkTypeConfig(max_tasks=201)
+            ClearnetConfig(max_tasks=201)
 
     def test_max_tasks_negative_raises(self):
         with pytest.raises(ValidationError):
-            NetworkTypeConfig(max_tasks=-1)
+            ClearnetConfig(max_tasks=-1)
 
 
-class TestNetworkTypeConfigTimeoutValidation:
-    """NetworkTypeConfig timeout validation."""
+class TestTimeoutValidation:
+    """timeout validation constraints (inherited from NetworkTypeConfig)."""
 
     def test_timeout_minimum_boundary(self):
-        config = NetworkTypeConfig(timeout=1.0)
+        config = ClearnetConfig(timeout=1.0)
         assert config.timeout == 1.0
 
     def test_timeout_maximum_boundary(self):
-        config = NetworkTypeConfig(timeout=120.0)
+        config = ClearnetConfig(timeout=120.0)
         assert config.timeout == 120.0
 
     def test_timeout_below_minimum_raises(self):
         with pytest.raises(ValidationError):
-            NetworkTypeConfig(timeout=0.5)
+            ClearnetConfig(timeout=0.5)
 
     def test_timeout_above_maximum_raises(self):
         with pytest.raises(ValidationError):
-            NetworkTypeConfig(timeout=121.0)
+            ClearnetConfig(timeout=121.0)
 
     def test_timeout_zero_raises(self):
         with pytest.raises(ValidationError):
-            NetworkTypeConfig(timeout=0.0)
+            ClearnetConfig(timeout=0.0)
+
+
+# =============================================================================
+# TorConfig Tests
+# =============================================================================
+
+
+class TestTorConfigDefaults:
+    """TorConfig default values."""
+
+    def test_default_enabled(self):
+        config = TorConfig()
+        assert config.enabled is False
+
+    def test_default_proxy_url(self):
+        config = TorConfig()
+        assert config.proxy_url == "socks5://tor:9050"
+
+    def test_default_max_tasks(self):
+        config = TorConfig()
+        assert config.max_tasks == 10
+
+    def test_default_timeout(self):
+        config = TorConfig()
+        assert config.timeout == 30.0
+
+    def test_partial_override_inherits_proxy_url(self):
+        """Key test: partial YAML override inherits proxy_url default."""
+        config = TorConfig(enabled=True)
+        assert config.enabled is True
+        assert config.proxy_url == "socks5://tor:9050"  # Inherited!
 
 
 # =============================================================================
@@ -150,7 +192,7 @@ class TestNetworkConfigCustomValues:
     """NetworkConfig with custom values."""
 
     def test_custom_clearnet(self):
-        config = NetworkConfig(clearnet=NetworkTypeConfig(max_tasks=100, timeout=5.0))
+        config = NetworkConfig(clearnet=ClearnetConfig(max_tasks=100, timeout=5.0))
         assert config.clearnet.max_tasks == 100
         assert config.clearnet.timeout == 5.0
         # Other networks keep defaults
@@ -158,7 +200,7 @@ class TestNetworkConfigCustomValues:
 
     def test_custom_tor(self):
         config = NetworkConfig(
-            tor=NetworkTypeConfig(
+            tor=TorConfig(
                 enabled=True,
                 proxy_url="socks5://localhost:9050",
                 max_tasks=20,
@@ -172,9 +214,9 @@ class TestNetworkConfigCustomValues:
 
     def test_multiple_networks_custom(self):
         config = NetworkConfig(
-            clearnet=NetworkTypeConfig(max_tasks=100),
-            tor=NetworkTypeConfig(enabled=True),
-            i2p=NetworkTypeConfig(enabled=True, timeout=60.0),
+            clearnet=ClearnetConfig(max_tasks=100),
+            tor=TorConfig(enabled=True),
+            i2p=I2pConfig(enabled=True, timeout=60.0),
         )
         assert config.clearnet.max_tasks == 100
         assert config.tor.enabled is True
@@ -206,7 +248,7 @@ class TestNetworkConfigGet:
         assert result == config.loki
 
     def test_get_returns_correct_custom_config(self):
-        config = NetworkConfig(tor=NetworkTypeConfig(max_tasks=99, timeout=99.0))
+        config = NetworkConfig(tor=TorConfig(max_tasks=99, timeout=99.0))
         result = config.get(NetworkType.TOR)
         assert result.max_tasks == 99
         assert result.timeout == 99.0
@@ -224,15 +266,15 @@ class TestNetworkConfigGetProxyUrl:
         assert config.get_proxy_url("clearnet") is None
 
     def test_tor_enabled_returns_proxy(self):
-        config = NetworkConfig(tor=NetworkTypeConfig(enabled=True, proxy_url="socks5://tor:9050"))
+        config = NetworkConfig(tor=TorConfig(enabled=True, proxy_url="socks5://tor:9050"))
         assert config.get_proxy_url(NetworkType.TOR) == "socks5://tor:9050"
 
     def test_tor_disabled_returns_none(self):
-        config = NetworkConfig(tor=NetworkTypeConfig(enabled=False, proxy_url="socks5://tor:9050"))
+        config = NetworkConfig(tor=TorConfig(enabled=False, proxy_url="socks5://tor:9050"))
         assert config.get_proxy_url(NetworkType.TOR) is None
 
     def test_accepts_string_network(self):
-        config = NetworkConfig(tor=NetworkTypeConfig(enabled=True, proxy_url="socks5://tor:9050"))
+        config = NetworkConfig(tor=TorConfig(enabled=True, proxy_url="socks5://tor:9050"))
         assert config.get_proxy_url("tor") == "socks5://tor:9050"
 
     def test_invalid_string_network_returns_none(self):
@@ -240,13 +282,11 @@ class TestNetworkConfigGetProxyUrl:
         assert config.get_proxy_url("invalid_network") is None
 
     def test_i2p_enabled_returns_proxy(self):
-        config = NetworkConfig(i2p=NetworkTypeConfig(enabled=True, proxy_url="socks5://i2p:4447"))
+        config = NetworkConfig(i2p=I2pConfig(enabled=True, proxy_url="socks5://i2p:4447"))
         assert config.get_proxy_url(NetworkType.I2P) == "socks5://i2p:4447"
 
     def test_loki_enabled_returns_proxy(self):
-        config = NetworkConfig(
-            loki=NetworkTypeConfig(enabled=True, proxy_url="socks5://lokinet:1080")
-        )
+        config = NetworkConfig(loki=LokiConfig(enabled=True, proxy_url="socks5://lokinet:1080"))
         assert config.get_proxy_url(NetworkType.LOKI) == "socks5://lokinet:1080"
 
 
@@ -280,8 +320,8 @@ class TestNetworkConfigIsEnabled:
 
     def test_custom_enabled_state(self):
         config = NetworkConfig(
-            clearnet=NetworkTypeConfig(enabled=False),
-            tor=NetworkTypeConfig(enabled=True),
+            clearnet=ClearnetConfig(enabled=False),
+            tor=TorConfig(enabled=True),
         )
         assert config.is_enabled(NetworkType.CLEARNET) is False
         assert config.is_enabled(NetworkType.TOR) is True
@@ -297,41 +337,41 @@ class TestNetworkConfigGetEnabledNetworks:
 
     def test_multiple_enabled(self):
         config = NetworkConfig(
-            clearnet=NetworkTypeConfig(enabled=True),
-            tor=NetworkTypeConfig(enabled=True),
-            i2p=NetworkTypeConfig(enabled=True),
-            loki=NetworkTypeConfig(enabled=False),
+            clearnet=ClearnetConfig(enabled=True),
+            tor=TorConfig(enabled=True),
+            i2p=I2pConfig(enabled=True),
+            loki=LokiConfig(enabled=False),
         )
         enabled = config.get_enabled_networks()
         assert enabled == ["clearnet", "tor", "i2p"]
 
     def test_all_enabled(self):
         config = NetworkConfig(
-            clearnet=NetworkTypeConfig(enabled=True),
-            tor=NetworkTypeConfig(enabled=True),
-            i2p=NetworkTypeConfig(enabled=True),
-            loki=NetworkTypeConfig(enabled=True),
+            clearnet=ClearnetConfig(enabled=True),
+            tor=TorConfig(enabled=True),
+            i2p=I2pConfig(enabled=True),
+            loki=LokiConfig(enabled=True),
         )
         enabled = config.get_enabled_networks()
         assert enabled == ["clearnet", "tor", "i2p", "loki"]
 
     def test_none_enabled(self):
         config = NetworkConfig(
-            clearnet=NetworkTypeConfig(enabled=False),
-            tor=NetworkTypeConfig(enabled=False),
-            i2p=NetworkTypeConfig(enabled=False),
-            loki=NetworkTypeConfig(enabled=False),
+            clearnet=ClearnetConfig(enabled=False),
+            tor=TorConfig(enabled=False),
+            i2p=I2pConfig(enabled=False),
+            loki=LokiConfig(enabled=False),
         )
         enabled = config.get_enabled_networks()
         assert enabled == []
 
-    def test_returns_list_in_order(self):
+    def test_returns_list_in_field_definition_order(self):
         config = NetworkConfig(
-            clearnet=NetworkTypeConfig(enabled=True),
-            tor=NetworkTypeConfig(enabled=True),
-            i2p=NetworkTypeConfig(enabled=True),
-            loki=NetworkTypeConfig(enabled=True),
+            clearnet=ClearnetConfig(enabled=True),
+            tor=TorConfig(enabled=True),
+            i2p=I2pConfig(enabled=True),
+            loki=LokiConfig(enabled=True),
         )
         enabled = config.get_enabled_networks()
-        # Order should always be: clearnet, tor, i2p, loki
+        # Order matches field definition in NetworkConfig
         assert enabled == ["clearnet", "tor", "i2p", "loki"]
