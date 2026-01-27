@@ -558,7 +558,7 @@ class Nip11:
                     f"SSL certificate verification failed for {relay.url} and allow_insecure=False"
                 ) from e
 
-            logger.info("fetch_ssl_fallback", relay=relay.url)
+            logger.debug("fetch_ssl_fallback", relay=relay.url)
             insecure_ctx = ssl.create_default_context()
             insecure_ctx.check_hostname = False
             insecure_ctx.verify_mode = ssl.CERT_NONE
@@ -622,7 +622,7 @@ class Nip11:
 
         try:
             metadata = await cls._fetch(relay, timeout, max_size, proxy_url, allow_insecure)
-            logger.info("fetch_completed", relay=relay.url, name=metadata.data.get("name"))
+            logger.debug("fetch_completed", relay=relay.url, name=metadata.data.get("name"))
             return cls(relay=relay, metadata=metadata)
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise

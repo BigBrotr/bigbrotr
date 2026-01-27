@@ -1209,7 +1209,7 @@ class Nip66:
             Nip66TestError: If all tests fail and no metadata collected
         """
         timeout = timeout if timeout is not None else cls._DEFAULT_TEST_TIMEOUT
-        logger.info("test_started", relay=relay.url, timeout_s=timeout)
+        logger.debug("test_started", relay=relay.url, timeout_s=timeout)
 
         # Run all tests in parallel (each test is independent)
         tasks: list[Any] = []
@@ -1293,7 +1293,7 @@ class Nip66:
                 dns_metadata=dns_metadata,
                 http_metadata=http_metadata,
             )
-            logger.info("test_completed", relay=relay.url)
+            logger.debug("test_completed", relay=relay.url)
             return nip66
         except ValueError as e:
             logger.warning("test_all_failed", relay=relay.url)
