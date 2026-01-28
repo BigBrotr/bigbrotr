@@ -14,7 +14,7 @@
 -- Performance: Uses DISTINCT ON for efficient latest-per-group selection
 --
 -- Structure: One row per (relay_url, type) combination
--- Columns: relay_url, type, generated_at, metadata_id, data
+-- Columns: relay_url, type, generated_at, metadata_id, metadata
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS relay_metadata_latest AS
 SELECT DISTINCT ON (rm.relay_url, rm.type)
@@ -22,7 +22,7 @@ SELECT DISTINCT ON (rm.relay_url, rm.type)
     rm.type,
     rm.generated_at,
     rm.metadata_id,
-    m.data
+    m.metadata
 FROM relay_metadata AS rm
 INNER JOIN metadata AS m ON rm.metadata_id = m.id
 ORDER BY rm.relay_url ASC, rm.type ASC, rm.generated_at DESC;
@@ -138,9 +138,9 @@ LEFT JOIN res ON r.url = res.relay_url
 -- Performance metrics: average of last 10 RTT measurements
 LEFT JOIN LATERAL (
     SELECT
-        ROUND(AVG((m.data ->> 'rtt_open')::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
-        ROUND(AVG((m.data ->> 'rtt_read')::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
-        ROUND(AVG((m.data ->> 'rtt_write')::INTEGER)::NUMERIC, 2) AS avg_rtt_write
+        ROUND(AVG((m.metadata ->> 'rtt_open')::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
+        ROUND(AVG((m.metadata ->> 'rtt_read')::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
+        ROUND(AVG((m.metadata ->> 'rtt_write')::INTEGER)::NUMERIC, 2) AS avg_rtt_write
     FROM (
         SELECT rm.metadata_id
         FROM relay_metadata AS rm
