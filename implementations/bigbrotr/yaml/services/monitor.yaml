@@ -11,6 +11,25 @@ metrics:
   enabled: true                    # Enable metrics (default: false)
   host: "0.0.0.0"                  # Bind to all interfaces for Docker (default: 127.0.0.1)
 
+processing:
+  retry:
+    nip11:
+      max_retries: 3               # Retry failed NIP-11 fetches (default: 0)
+    nip66_rtt:
+      max_retries: 2               # Retry failed RTT tests (default: 0)
+    nip66_ssl:
+      max_retries: 2               # Retry failed SSL tests (default: 0)
+    nip66_dns:
+      max_retries: 2               # Retry failed DNS tests (default: 0)
+    nip66_geo:
+      max_retries: 1               # Retry failed Geo tests (default: 0)
+    nip66_net:
+      max_retries: 1               # Retry failed Net tests (default: 0)
+    nip66_http:
+      max_retries: 2               # Retry failed HTTP tests (default: 0)
+
 networks:
+  clearnet:
+    max_tasks: 50                  # Back to default concurrency
   tor:
     enabled: true                  # Enable Tor relay monitoring (default: false)
