@@ -21,6 +21,7 @@ Example:
     >>> client = create_client(keys=None, proxy_url=None)
 """
 
+from utils.dns import ResolvedHost, resolve_host
 from utils.keys import KeysConfig, load_keys_from_env
 from utils.network import (
     ClearnetConfig,
@@ -44,9 +45,11 @@ __all__ = [
     "LokiConfig",
     "NetworkConfig",
     "NetworkTypeConfig",
+    "ResolvedHost",
     "TorConfig",
     "create_client",
     "load_keys_from_env",
     "load_yaml",
     "parse_typed_dict",
+    "resolve_host",
 ]
