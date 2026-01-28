@@ -102,10 +102,13 @@ COMMENT ON FUNCTION events_insert(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[]
 -- metadata_insert
 -- ----------------------------------------------------------------------------
 -- Description: Bulk insert metadata records (content-addressed by hash)
--- Parameters: Array of data (hash computed in DB)
+-- Parameters: Arrays of pre-computed SHA-256 hashes and metadata JSON
 -- Returns: Number of rows inserted
+-- Note: Hash is computed in Python for deterministic deduplication
+DROP FUNCTION IF EXISTS metadata_insert(JSONB[]);
 CREATE OR REPLACE FUNCTION metadata_insert(
-    p_datas JSONB[]
+    p_ids BYTEA[],
+    p_metadata JSONB[]
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -113,9 +116,8 @@ AS $$
 DECLARE
     row_count INTEGER;
 BEGIN
-    INSERT INTO metadata (id, data)
-    SELECT digest(d::TEXT, 'sha256'), d
-    FROM unnest(p_datas) AS d
+    INSERT INTO metadata (id, metadata)
+    SELECT * FROM unnest(p_ids, p_metadata)
     ON CONFLICT (id) DO NOTHING;
 
     GET DIAGNOSTICS row_count = ROW_COUNT;
@@ -123,7 +125,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION metadata_insert(JSONB[]) IS
+COMMENT ON FUNCTION metadata_insert(BYTEA[], JSONB[]) IS
 'Bulk insert metadata records (content-addressed), returns number of rows inserted';
 
 
@@ -162,11 +164,14 @@ COMMENT ON FUNCTION events_relays_insert(BYTEA[], TEXT[], BIGINT[]) IS
 -- relay_metadata_insert
 -- ----------------------------------------------------------------------------
 -- Description: Bulk insert relay-metadata junction records (FK must exist)
--- Parameters: Arrays of relay_url, metadata_data, type, generated_at (hash computed in DB)
+-- Parameters: Arrays of relay_url, metadata_id (hash), metadata_json, type, generated_at
 -- Returns: Number of rows inserted
 -- Notes: Will fail if FK references don't exist - use cascade version if needed
+-- Note: Hash is computed in Python for deterministic deduplication
+DROP FUNCTION IF EXISTS relay_metadata_insert(TEXT[], JSONB[], TEXT[], BIGINT[]);
 CREATE OR REPLACE FUNCTION relay_metadata_insert(
     p_relay_urls TEXT[],
+    p_metadata_ids BYTEA[],
     p_metadata_datas JSONB[],
     p_types TEXT[],
     p_generated_ats BIGINT[]
@@ -178,8 +183,8 @@ DECLARE
     row_count INTEGER;
 BEGIN
     INSERT INTO relay_metadata (relay_url, generated_at, type, metadata_id)
-    SELECT u, g, t, digest(m::TEXT, 'sha256')
-    FROM unnest(p_relay_urls, p_metadata_datas, p_types, p_generated_ats) AS x(u, m, t, g)
+    SELECT u, g, t, id
+    FROM unnest(p_relay_urls, p_metadata_ids, p_types, p_generated_ats) AS x(u, id, t, g)
     ON CONFLICT (relay_url, generated_at, type) DO NOTHING;
 
     GET DIAGNOSTICS row_count = ROW_COUNT;
@@ -187,7 +192,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION relay_metadata_insert(TEXT[], JSONB[], TEXT[], BIGINT[]) IS
+COMMENT ON FUNCTION relay_metadata_insert(TEXT[], BYTEA[], JSONB[], TEXT[], BIGINT[]) IS
 'Bulk insert relay-metadata junctions, returns number of rows inserted';
 
 
@@ -251,10 +256,13 @@ COMMENT ON FUNCTION events_relays_insert_cascade(BYTEA[], BYTEA[], BIGINT[], INT
 -- Returns: Number of junction rows inserted (relay_metadata)
 -- Notes:
 --   - Reuses relays_insert() and metadata_insert() for DRY principle
+--   - Hash is computed in Python for deterministic deduplication
+DROP FUNCTION IF EXISTS relay_metadata_insert_cascade(TEXT[], TEXT[], BIGINT[], JSONB[], TEXT[], BIGINT[]);
 CREATE OR REPLACE FUNCTION relay_metadata_insert_cascade(
     p_relay_urls TEXT[],
     p_relay_networks TEXT[],
     p_relay_discovered_ats BIGINT[],
+    p_metadata_ids BYTEA[],
     p_metadata_datas JSONB[],
     p_types TEXT[],
     p_generated_ats BIGINT[]
@@ -268,13 +276,13 @@ BEGIN
     -- Insert relays (reuse base function)
     PERFORM relays_insert(p_relay_urls, p_relay_networks, p_relay_discovered_ats);
 
-    -- Insert metadata (reuse base function)
-    PERFORM metadata_insert(p_metadata_datas);
+    -- Insert metadata (reuse base function with pre-computed hashes)
+    PERFORM metadata_insert(p_metadata_ids, p_metadata_datas);
 
-    -- Insert junction records
+    -- Insert junction records (use pre-computed hashes)
     INSERT INTO relay_metadata (relay_url, generated_at, type, metadata_id)
-    SELECT u, g, t, digest(m::TEXT, 'sha256')
-    FROM unnest(p_relay_urls, p_metadata_datas, p_types, p_generated_ats) AS x(u, m, t, g)
+    SELECT u, g, t, id
+    FROM unnest(p_relay_urls, p_metadata_ids, p_types, p_generated_ats) AS x(u, id, t, g)
     ON CONFLICT (relay_url, generated_at, type) DO NOTHING;
 
     GET DIAGNOSTICS row_count = ROW_COUNT;
@@ -282,7 +290,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT[], TEXT[], BIGINT[], JSONB[], TEXT[], BIGINT[]) IS
+COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT[], TEXT[], BIGINT[], BYTEA[], JSONB[], TEXT[], BIGINT[]) IS
 'Bulk insert relay metadata atomically, returns junction count';
 
 
