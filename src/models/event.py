@@ -47,6 +47,17 @@ class Event:
 
     _inner: NostrEvent
 
+    def __post_init__(self) -> None:
+        """Validate event content for database compatibility.
+
+        Raises:
+            ValueError: If content contains null bytes (PostgreSQL rejects them).
+        """
+        if "\x00" in self._inner.content():
+            raise ValueError(
+                f"Event {self._inner.id().to_hex()[:16]}... content contains null bytes"
+            )
+
     def __getattr__(self, name: str) -> Any:
         """Delegate all attribute access to the wrapped NostrEvent."""
         return getattr(self._inner, name)
