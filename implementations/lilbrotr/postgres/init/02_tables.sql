@@ -68,16 +68,16 @@ COMMENT ON COLUMN events_relays.seen_at IS 'Unix timestamp when event was first 
 -- Purpose: One metadata record can be shared by multiple relays (normalized)
 CREATE TABLE IF NOT EXISTS metadata (
     id BYTEA PRIMARY KEY,
-    data JSONB NOT NULL
+    metadata JSONB NOT NULL
 );
 
 COMMENT ON TABLE metadata IS 'Unified storage for NIP-11/NIP-66 metadata (deduplicated by content hash)';
 COMMENT ON COLUMN metadata.id IS 'SHA-256 hash of JSON data (content-addressed)';
-COMMENT ON COLUMN metadata.data IS 'Complete JSON document (NIP-11 or NIP-66 data)';
+COMMENT ON COLUMN metadata.metadata IS 'Complete JSON document (NIP-11 or NIP-66 data)';
 
 -- Table: relay_metadata
 -- Description: Time-series metadata snapshots linking relays to metadata records
--- Notes: Each relay can have nip11, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http records per timestamp
+-- Notes: Each relay can have nip11_fetch, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http records per timestamp
 -- Purpose: Tracks metadata changes over time with deduplication via metadata table
 CREATE TABLE IF NOT EXISTS relay_metadata (
     relay_url TEXT NOT NULL,
@@ -92,14 +92,14 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
 
     -- Validate type
     CONSTRAINT relay_metadata_type_check CHECK (
-        type IN ('nip11', 'nip66_rtt', 'nip66_probe', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http')
+        type IN ('nip11_fetch', 'nip66_rtt', 'nip66_probe', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http')
     )
 );
 
 COMMENT ON TABLE relay_metadata IS 'Time-series relay metadata snapshots (references metadata records by type)';
 COMMENT ON COLUMN relay_metadata.relay_url IS 'Reference to relays.url';
 COMMENT ON COLUMN relay_metadata.generated_at IS 'Unix timestamp when metadata was generated/collected';
-COMMENT ON COLUMN relay_metadata.type IS 'Metadata type: nip11, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
+COMMENT ON COLUMN relay_metadata.type IS 'Metadata type: nip11_fetch, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
 COMMENT ON COLUMN relay_metadata.metadata_id IS 'Reference to metadata.id';
 
 -- Table: service_data
