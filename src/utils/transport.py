@@ -57,6 +57,7 @@ from nostr_sdk import (
 )
 
 from core.logger import Logger
+from models.nips.base import DEFAULT_TIMEOUT
 from models.relay import NetworkType, Relay
 
 
@@ -452,7 +453,7 @@ async def connect_relay(
     relay: Relay,
     keys: Keys | None = None,
     proxy_url: str | None = None,
-    timeout: float = 10.0,
+    timeout: float = DEFAULT_TIMEOUT,
     allow_insecure: bool = True,
 ) -> Client:
     """Connect to a relay with optional SSL fallback for clearnet.
@@ -557,7 +558,7 @@ async def connect_relay(
 async def is_nostr_relay(
     relay: Relay,
     proxy_url: str | None = None,
-    timeout: float = 10.0,
+    timeout: float = DEFAULT_TIMEOUT,
     suppress_stderr: bool = True,
 ) -> bool:
     """Check if a relay speaks the Nostr protocol.
