@@ -136,7 +136,9 @@ class Relay:
 
     def __post_init__(self) -> None:
         """Parse and validate the raw URL, setting computed fields."""
-        parsed = self._parse(self.raw_url)
+        # Remove null bytes (PostgreSQL rejects them in TEXT columns)
+        raw = self.raw_url.replace("\x00", "") if "\x00" in self.raw_url else self.raw_url
+        parsed = self._parse(raw)
 
         if parsed["network"] == NetworkType.LOCAL:
             raise ValueError("Local addresses not allowed")
