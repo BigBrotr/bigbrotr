@@ -220,7 +220,7 @@ Get nested optional value.
 
 ```python
 @property
-def data_jsonb() -> str
+def data_json() -> str
 ```
 Sanitized JSON string for PostgreSQL JSONB storage.
 
@@ -245,7 +245,7 @@ nips = metadata._get("supported_nips", list, [])
 auth = metadata._get_nested("limitation", "auth_required", bool, False)
 
 # JSON for database
-json_str = metadata.data_jsonb
+json_str = metadata.data_json
 ```
 
 ---
@@ -292,7 +292,7 @@ def to_db_params() -> tuple[str, str, int, int, str, str]
 Returns 6-tuple for `insert_relay_metadata` procedure:
 ```
 (relay_url, relay_network, relay_discovered_at,
- snapshot_at, metadata_type, metadata_data_jsonb)
+ snapshot_at, metadata_type, metadata_data_json)
 ```
 
 ### Examples
