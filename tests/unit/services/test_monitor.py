@@ -10,7 +10,7 @@ Tests:
 """
 
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -29,7 +29,7 @@ from services.monitor import (
     ProfileConfig,
     PublishingConfig,
 )
-from utils.network import NetworkConfig, TorConfig
+from utils.network import ClearnetConfig, NetworkConfig, TorConfig
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
@@ -79,6 +79,28 @@ class TestMetadataFlags:
         assert flags.nip66_rtt is True
         assert flags.nip66_probe is True
 
+    def test_all_flags_disabled(self) -> None:
+        """Test disabling all flags."""
+        flags = MetadataFlags(
+            nip11=False,
+            nip66_rtt=False,
+            nip66_probe=False,
+            nip66_ssl=False,
+            nip66_geo=False,
+            nip66_net=False,
+            nip66_dns=False,
+            nip66_http=False,
+        )
+
+        assert flags.nip11 is False
+        assert flags.nip66_rtt is False
+        assert flags.nip66_probe is False
+        assert flags.nip66_ssl is False
+        assert flags.nip66_geo is False
+        assert flags.nip66_net is False
+        assert flags.nip66_dns is False
+        assert flags.nip66_http is False
+
 
 # ============================================================================
 # ProcessingConfig Tests
@@ -109,6 +131,20 @@ class TestProcessingConfig:
         assert config.compute.nip66_geo is False
         assert config.store.nip66_geo is False
 
+    def test_chunk_size_bounds(self) -> None:
+        """Test chunk_size validation bounds."""
+        # Valid values
+        config_min = ProcessingConfig(chunk_size=10)
+        assert config_min.chunk_size == 10
+
+        config_max = ProcessingConfig(chunk_size=1000)
+        assert config_max.chunk_size == 1000
+
+    def test_nip11_max_size_custom(self) -> None:
+        """Test custom NIP-11 max size."""
+        config = ProcessingConfig(nip11_max_size=2097152)  # 2MB
+        assert config.nip11_max_size == 2097152
+
 
 # ============================================================================
 # GeoConfig Tests
@@ -138,6 +174,14 @@ class TestGeoConfig:
         assert config.asn_database_path == "/custom/path/asn.mmdb"
         assert config.max_age_days == 7
 
+    def test_max_age_days_validation(self) -> None:
+        """Test max_age_days can be set to various values."""
+        config = GeoConfig(max_age_days=1)
+        assert config.max_age_days == 1
+
+        config2 = GeoConfig(max_age_days=365)
+        assert config2.max_age_days == 365
+
 
 # ============================================================================
 # PublishingConfig Tests
@@ -160,6 +204,11 @@ class TestPublishingConfig:
         assert len(config.relays) == 2
         assert config.relays[0].url == "wss://relay1.com"
         assert config.relays[1].url == "wss://relay2.com"
+
+    def test_single_relay(self) -> None:
+        """Test publishing config with single relay."""
+        config = PublishingConfig(relays=["wss://single.relay.com"])
+        assert len(config.relays) == 1
 
 
 # ============================================================================
@@ -193,6 +242,14 @@ class TestDiscoveryConfig:
         assert config.include.nip66_http is False
         assert len(config.relays) == 1
 
+    def test_interval_validation(self) -> None:
+        """Test interval can be set to various values."""
+        config = DiscoveryConfig(interval=60)
+        assert config.interval == 60
+
+        config2 = DiscoveryConfig(interval=86400)
+        assert config2.interval == 86400
+
 
 # ============================================================================
 # AnnouncementConfig Tests
@@ -210,6 +267,18 @@ class TestAnnouncementConfig:
         assert config.interval == 86400
         assert config.relays == []
 
+    def test_custom_values(self) -> None:
+        """Test custom announcement config."""
+        config = AnnouncementConfig(
+            enabled=False,
+            interval=3600,
+            relays=["wss://relay.com"],
+        )
+
+        assert config.enabled is False
+        assert config.interval == 3600
+        assert len(config.relays) == 1
+
 
 # ============================================================================
 # ProfileConfig Tests
@@ -226,6 +295,18 @@ class TestProfileConfig:
         assert config.enabled is False
         assert config.interval == 86400
         assert config.relays == []
+
+    def test_custom_values(self) -> None:
+        """Test custom profile config."""
+        config = ProfileConfig(
+            enabled=True,
+            interval=43200,
+            relays=["wss://profile.relay.com"],
+        )
+
+        assert config.enabled is True
+        assert config.interval == 43200
+        assert len(config.relays) == 1
 
 
 # ============================================================================
@@ -268,6 +349,41 @@ class TestMonitorConfig:
                 ),
             )
 
+    def test_networks_config(self) -> None:
+        """Test networks configuration."""
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            networks=NetworkConfig(
+                clearnet=ClearnetConfig(timeout=5.0),
+                tor=TorConfig(enabled=True, timeout=30.0),
+            ),
+        )
+
+        assert config.networks.clearnet.timeout == 5.0
+        assert config.networks.tor.enabled is True
+        assert config.networks.tor.timeout == 30.0
+
+    def test_interval_config(self) -> None:
+        """Test interval configuration from base service config."""
+        config = MonitorConfig(
+            interval=600.0,
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+        )
+
+        assert config.interval == 600.0
+
 
 # ============================================================================
 # Helper Functions for Test Data Creation
@@ -275,23 +391,20 @@ class TestMonitorConfig:
 
 
 def _create_nip11(relay: Relay, data: dict | None = None, generated_at: int = 1700000001) -> Nip11:
-    """Create a Nip11 instance using object.__new__ pattern."""
-    from models import Metadata
+    """Create a Nip11 instance with proper Nip11FetchMetadata structure."""
+    from models.nips.nip11 import Nip11FetchData, Nip11FetchLogs, Nip11FetchMetadata
 
     if data is None:
         data = {}
-    metadata = Metadata(data)
-    instance = object.__new__(Nip11)
-    object.__setattr__(instance, "relay", relay)
-    object.__setattr__(instance, "metadata", metadata)
-    object.__setattr__(instance, "generated_at", generated_at)
-    return instance
+    fetch_data = Nip11FetchData.model_validate(Nip11FetchData.parse(data))
+    fetch_logs = Nip11FetchLogs(success=True)
+    fetch_metadata = Nip11FetchMetadata(data=fetch_data, logs=fetch_logs)
+    return Nip11(relay=relay, fetch_metadata=fetch_metadata, generated_at=generated_at)
 
 
 def _create_nip66(
     relay: Relay,
     rtt_data: dict | None = None,
-    probe_data: dict | None = None,
     ssl_data: dict | None = None,
     geo_data: dict | None = None,
     net_data: dict | None = None,
@@ -299,30 +412,80 @@ def _create_nip66(
     http_data: dict | None = None,
     generated_at: int = 1700000001,
 ) -> Nip66:
-    """Create a Nip66 instance using object.__new__ pattern."""
-    from models import Metadata
+    """Create a Nip66 instance with proper metadata types."""
+    from models.nips.nip66 import (
+        Nip66DnsData,
+        Nip66DnsLogs,
+        Nip66DnsMetadata,
+        Nip66GeoData,
+        Nip66GeoLogs,
+        Nip66GeoMetadata,
+        Nip66HttpData,
+        Nip66HttpLogs,
+        Nip66HttpMetadata,
+        Nip66NetData,
+        Nip66NetLogs,
+        Nip66NetMetadata,
+        Nip66RttData,
+        Nip66RttLogs,
+        Nip66RttMetadata,
+        Nip66SslData,
+        Nip66SslLogs,
+        Nip66SslMetadata,
+    )
 
-    if rtt_data is None:
-        rtt_data = {}
-    rtt_metadata = Metadata(rtt_data)
-    probe_metadata = Metadata(probe_data) if probe_data else None
-    ssl_metadata = Metadata(ssl_data) if ssl_data else None
-    geo_metadata = Metadata(geo_data) if geo_data else None
-    net_metadata = Metadata(net_data) if net_data else None
-    dns_metadata = Metadata(dns_data) if dns_data else None
-    http_metadata = Metadata(http_data) if http_data else None
+    rtt_metadata = None
+    if rtt_data is not None:
+        rtt_metadata = Nip66RttMetadata(
+            data=Nip66RttData.model_validate(Nip66RttData.parse(rtt_data)),
+            logs=Nip66RttLogs(open_success=True),
+        )
 
-    instance = object.__new__(Nip66)
-    object.__setattr__(instance, "relay", relay)
-    object.__setattr__(instance, "rtt_metadata", rtt_metadata)
-    object.__setattr__(instance, "probe_metadata", probe_metadata)
-    object.__setattr__(instance, "ssl_metadata", ssl_metadata)
-    object.__setattr__(instance, "geo_metadata", geo_metadata)
-    object.__setattr__(instance, "net_metadata", net_metadata)
-    object.__setattr__(instance, "dns_metadata", dns_metadata)
-    object.__setattr__(instance, "http_metadata", http_metadata)
-    object.__setattr__(instance, "generated_at", generated_at)
-    return instance
+    ssl_metadata = None
+    if ssl_data is not None:
+        ssl_metadata = Nip66SslMetadata(
+            data=Nip66SslData.model_validate(Nip66SslData.parse(ssl_data)),
+            logs=Nip66SslLogs(success=True),
+        )
+
+    geo_metadata = None
+    if geo_data is not None:
+        geo_metadata = Nip66GeoMetadata(
+            data=Nip66GeoData.model_validate(Nip66GeoData.parse(geo_data)),
+            logs=Nip66GeoLogs(success=True),
+        )
+
+    net_metadata = None
+    if net_data is not None:
+        net_metadata = Nip66NetMetadata(
+            data=Nip66NetData.model_validate(Nip66NetData.parse(net_data)),
+            logs=Nip66NetLogs(success=True),
+        )
+
+    dns_metadata = None
+    if dns_data is not None:
+        dns_metadata = Nip66DnsMetadata(
+            data=Nip66DnsData.model_validate(Nip66DnsData.parse(dns_data)),
+            logs=Nip66DnsLogs(success=True),
+        )
+
+    http_metadata = None
+    if http_data is not None:
+        http_metadata = Nip66HttpMetadata(
+            data=Nip66HttpData.model_validate(Nip66HttpData.parse(http_data)),
+            logs=Nip66HttpLogs(success=True),
+        )
+
+    return Nip66(
+        relay=relay,
+        rtt_metadata=rtt_metadata,
+        ssl_metadata=ssl_metadata,
+        geo_metadata=geo_metadata,
+        net_metadata=net_metadata,
+        dns_metadata=dns_metadata,
+        http_metadata=http_metadata,
+        generated_at=generated_at,
+    )
 
 
 # ============================================================================
@@ -334,100 +497,94 @@ class TestNip11:
     """Tests for Nip11 dataclass."""
 
     def test_default_values(self) -> None:
-        """Test NIP-11 with empty data."""
+        """Test NIP-11 with empty data - access via fetch_metadata.data."""
         relay = Relay("wss://relay.example.com")
-        data = _create_nip11(relay, {})
+        nip11 = _create_nip11(relay, {})
 
-        assert data.name is None
-        assert data.supported_nips is None
+        assert nip11.fetch_metadata.data.name is None
+        assert nip11.fetch_metadata.data.supported_nips is None
 
     def test_properties(self) -> None:
-        """Test NIP-11 property access."""
+        """Test NIP-11 property access via fetch_metadata.data."""
         relay = Relay("wss://relay.example.com")
-        data = _create_nip11(relay, {"name": "Test Relay", "supported_nips": [1, 11, 66]})
+        nip11 = _create_nip11(relay, {"name": "Test Relay", "supported_nips": [1, 11, 66]})
 
-        assert data.name == "Test Relay"
-        assert data.supported_nips == [1, 11, 66]
+        assert nip11.fetch_metadata.data.name == "Test Relay"
+        assert nip11.fetch_metadata.data.supported_nips == [1, 11, 66]
 
     def test_to_relay_metadata(self) -> None:
-        """Test NIP-11 to_relay_metadata factory method."""
+        """Test NIP-11 to_relay_metadata_tuple factory method."""
         relay = Relay("wss://relay.example.com")
         nip11 = _create_nip11(relay, {"name": "Test"})
 
-        rm = nip11.to_relay_metadata()
+        metadata_tuple = nip11.to_relay_metadata_tuple()
 
-        assert rm.metadata_type == "nip11"
-        assert rm.relay == relay
-        assert rm.metadata.data == {"name": "Test"}
+        assert metadata_tuple.nip11_fetch is not None
+        assert metadata_tuple.nip11_fetch.metadata_type == "nip11_fetch"
+        assert metadata_tuple.nip11_fetch.relay == relay
+        # Metadata is nested under "data" key (from to_dict())
+        assert metadata_tuple.nip11_fetch.metadata.metadata["data"]["name"] == "Test"
+
+    def test_additional_properties(self) -> None:
+        """Test additional NIP-11 properties via fetch_metadata.data."""
+        relay = Relay("wss://relay.example.com")
+        nip11 = _create_nip11(
+            relay,
+            {
+                "name": "Test Relay",
+                "description": "A test relay",
+                "pubkey": "abc123",
+                "contact": "test@example.com",
+            },
+        )
+
+        assert nip11.fetch_metadata.data.name == "Test Relay"
 
 
 class TestNip66:
     """Tests for Nip66 dataclass."""
 
     def test_default_values(self) -> None:
-        """Test NIP-66 with empty RTT data - access via metadata.data."""
+        """Test NIP-66 with no metadata."""
         relay = Relay("wss://relay.example.com")
-        data = _create_nip66(relay, {})
+        nip66 = _create_nip66(relay)
 
-        # Access via metadata.data dict instead of removed convenience properties
-        assert data.rtt_metadata.data.get("rtt_open") is None
-        assert data.rtt_metadata.data.get("rtt_read") is None
-        assert data.rtt_metadata.data.get("rtt_write") is None
+        # No metadata when not provided
+        assert nip66.rtt_metadata is None
+        assert nip66.ssl_metadata is None
+        assert nip66.geo_metadata is None
 
     def test_metadata_access(self) -> None:
-        """Test NIP-66 metadata access via metadata.data dict."""
+        """Test NIP-66 metadata access via data attributes."""
         relay = Relay("wss://relay.example.com")
-        data = _create_nip66(relay, rtt_data={"rtt_open": 100, "rtt_read": 50})
+        nip66 = _create_nip66(relay, rtt_data={"rtt_open": 100, "rtt_read": 50})
 
-        # Access via metadata.data dict
-        assert data.rtt_metadata.data.get("rtt_open") == 100
-        assert data.rtt_metadata.data.get("rtt_read") == 50
-        assert data.rtt_metadata.data.get("rtt_write") is None
+        # Access via data attributes
+        assert nip66.rtt_metadata is not None
+        assert nip66.rtt_metadata.data.rtt_open == 100
+        assert nip66.rtt_metadata.data.rtt_read == 50
+        assert nip66.rtt_metadata.data.rtt_write is None
 
     def test_to_relay_metadata_rtt_only(self) -> None:
-        """Test NIP-66 to_relay_metadata factory with RTT data only."""
+        """Test NIP-66 to_relay_metadata_tuple with RTT data only."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(relay, rtt_data={"rtt_open": 100})
 
-        rtt, check, ssl, geo, net, dns, http = nip66.to_relay_metadata()
+        metadata_tuple = nip66.to_relay_metadata_tuple()
 
-        assert rtt is not None
-        assert rtt.metadata_type == "nip66_rtt"
-        assert rtt.relay == relay
-        assert rtt.metadata.data == {"rtt_open": 100}
-        assert check is None
-        assert ssl is None
-        assert geo is None
-        assert net is None
-        assert dns is None
-        assert http is None
-
-    def test_to_relay_metadata_with_probe(self) -> None:
-        """Test NIP-66 to_relay_metadata factory with RTT and probe data."""
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(
-            relay,
-            rtt_data={"rtt_open": 100},
-            probe_data={
-                "probe_open_success": True,
-                "probe_write_success": False,
-                "probe_write_reason": "auth-required",
-            },
-        )
-
-        rtt, check, ssl, geo, _net, _dns, _http = nip66.to_relay_metadata()
-
-        assert rtt is not None
-        assert rtt.metadata_type == "nip66_rtt"
-        assert check is not None
-        assert check.metadata_type == "nip66_probe"
-        assert check.metadata.data["probe_open_success"] is True
-        assert check.metadata.data["probe_write_success"] is False
-        assert ssl is None
-        assert geo is None
+        assert metadata_tuple.nip66_rtt is not None
+        assert metadata_tuple.nip66_rtt.metadata_type == "nip66_rtt"
+        assert metadata_tuple.nip66_rtt.relay == relay
+        # Metadata is nested under "data" key (from to_dict())
+        assert metadata_tuple.nip66_rtt.metadata.metadata["data"]["rtt_open"] == 100
+        assert metadata_tuple.nip66_ssl is None
+        assert metadata_tuple.nip66_geo is None
+        assert metadata_tuple.nip66_net is None
+        assert metadata_tuple.nip66_dns is None
+        assert metadata_tuple.nip66_http is None
 
     def test_to_relay_metadata_with_geo(self) -> None:
-        """Test NIP-66 to_relay_metadata factory with RTT and geo data."""
+        """Test NIP-66 to_relay_metadata_tuple with RTT and geo data."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(
             relay,
@@ -435,22 +592,23 @@ class TestNip66:
             geo_data={"geohash": "abc123", "geo_country": "US"},
         )
 
-        rtt, check, ssl, geo, net, dns, http = nip66.to_relay_metadata()
+        metadata_tuple = nip66.to_relay_metadata_tuple()
 
-        assert rtt is not None
-        assert rtt.metadata_type == "nip66_rtt"
-        assert rtt.metadata.data == {"rtt_open": 100}
-        assert check is None
-        assert ssl is None
-        assert geo is not None
-        assert geo.metadata_type == "nip66_geo"
-        assert geo.metadata.data == {"geohash": "abc123", "geo_country": "US"}
-        assert net is None
-        assert dns is None
-        assert http is None
+        assert metadata_tuple.nip66_rtt is not None
+        assert metadata_tuple.nip66_rtt.metadata_type == "nip66_rtt"
+        # Metadata is nested under "data" key (from to_dict())
+        assert metadata_tuple.nip66_rtt.metadata.metadata["data"]["rtt_open"] == 100
+        assert metadata_tuple.nip66_ssl is None
+        assert metadata_tuple.nip66_geo is not None
+        assert metadata_tuple.nip66_geo.metadata_type == "nip66_geo"
+        assert metadata_tuple.nip66_geo.metadata.metadata["data"]["geohash"] == "abc123"
+        assert metadata_tuple.nip66_geo.metadata.metadata["data"]["geo_country"] == "US"
+        assert metadata_tuple.nip66_net is None
+        assert metadata_tuple.nip66_dns is None
+        assert metadata_tuple.nip66_http is None
 
     def test_to_relay_metadata_with_ssl(self) -> None:
-        """Test NIP-66 to_relay_metadata factory with RTT and SSL data."""
+        """Test NIP-66 to_relay_metadata_tuple with RTT and SSL data."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(
             relay,
@@ -458,22 +616,22 @@ class TestNip66:
             ssl_data={"ssl_valid": True, "ssl_issuer": "Let's Encrypt"},
         )
 
-        rtt, check, ssl, geo, net, dns, http = nip66.to_relay_metadata()
+        metadata_tuple = nip66.to_relay_metadata_tuple()
 
-        assert rtt is not None
-        assert rtt.metadata_type == "nip66_rtt"
-        assert rtt.metadata.data == {"rtt_open": 100}
-        assert check is None
-        assert ssl is not None
-        assert ssl.metadata_type == "nip66_ssl"
-        assert ssl.metadata.data == {"ssl_valid": True, "ssl_issuer": "Let's Encrypt"}
-        assert geo is None
-        assert net is None
-        assert dns is None
-        assert http is None
+        assert metadata_tuple.nip66_rtt is not None
+        assert metadata_tuple.nip66_rtt.metadata_type == "nip66_rtt"
+        assert metadata_tuple.nip66_ssl is not None
+        assert metadata_tuple.nip66_ssl.metadata_type == "nip66_ssl"
+        # Metadata is nested under "data" key (from to_dict())
+        assert metadata_tuple.nip66_ssl.metadata.metadata["data"]["ssl_valid"] is True
+        assert metadata_tuple.nip66_ssl.metadata.metadata["data"]["ssl_issuer"] == "Let's Encrypt"
+        assert metadata_tuple.nip66_geo is None
+        assert metadata_tuple.nip66_net is None
+        assert metadata_tuple.nip66_dns is None
+        assert metadata_tuple.nip66_http is None
 
     def test_to_relay_metadata_with_net(self) -> None:
-        """Test NIP-66 to_relay_metadata factory with RTT and net data."""
+        """Test NIP-66 to_relay_metadata_tuple with RTT and net data."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(
             relay,
@@ -481,44 +639,78 @@ class TestNip66:
             net_data={"net_ip": "8.8.8.8", "net_asn": 15169},
         )
 
-        rtt, _check, _ssl, _geo, net, _dns, _http = nip66.to_relay_metadata()
+        metadata_tuple = nip66.to_relay_metadata_tuple()
 
-        assert rtt is not None
-        assert net is not None
-        assert net.metadata_type == "nip66_net"
-        assert net.metadata.data == {"net_ip": "8.8.8.8", "net_asn": 15169}
+        assert metadata_tuple.nip66_rtt is not None
+        assert metadata_tuple.nip66_net is not None
+        assert metadata_tuple.nip66_net.metadata_type == "nip66_net"
+        # Metadata is nested under "data" key (from to_dict())
+        assert metadata_tuple.nip66_net.metadata.metadata["data"]["net_ip"] == "8.8.8.8"
+        assert metadata_tuple.nip66_net.metadata.metadata["data"]["net_asn"] == 15169
 
-    def test_to_relay_metadata_with_all(self) -> None:
-        """Test NIP-66 to_relay_metadata factory with all metadata types."""
+    def test_to_relay_metadata_with_dns(self) -> None:
+        """Test NIP-66 to_relay_metadata_tuple with RTT and DNS data."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(
             relay,
-            rtt_data={"rtt_open": 100, "network": "clearnet"},
-            probe_data={"probe_open_success": True},
-            ssl_data={"ssl_valid": True, "ssl_issuer": "Let's Encrypt"},
-            geo_data={"geohash": "abc123", "geo_country": "US"},
+            rtt_data={"rtt_open": 100},
+            dns_data={"dns_resolved": True},
         )
 
-        rtt, check, ssl, geo, net, dns, http = nip66.to_relay_metadata()
+        metadata_tuple = nip66.to_relay_metadata_tuple()
 
-        assert rtt is not None
-        assert rtt.metadata_type == "nip66_rtt"
-        assert rtt.metadata.data == {"rtt_open": 100, "network": "clearnet"}
-        assert check is not None
-        assert check.metadata_type == "nip66_probe"
-        assert ssl is not None
-        assert ssl.metadata_type == "nip66_ssl"
-        assert ssl.metadata.data == {"ssl_valid": True, "ssl_issuer": "Let's Encrypt"}
-        assert geo is not None
-        assert geo.metadata_type == "nip66_geo"
-        assert geo.metadata.data == {"geohash": "abc123", "geo_country": "US"}
-        # Net, DNS and HTTP are optional
-        assert net is None
-        assert dns is None
-        assert http is None
+        assert metadata_tuple.nip66_rtt is not None
+        assert metadata_tuple.nip66_dns is not None
+        assert metadata_tuple.nip66_dns.metadata_type == "nip66_dns"
+
+    def test_to_relay_metadata_with_http(self) -> None:
+        """Test NIP-66 to_relay_metadata_tuple with RTT and HTTP data."""
+        relay = Relay("wss://relay.example.com")
+        nip66 = _create_nip66(
+            relay,
+            rtt_data={"rtt_open": 100},
+            http_data={"http_server": "nginx"},
+        )
+
+        metadata_tuple = nip66.to_relay_metadata_tuple()
+
+        assert metadata_tuple.nip66_rtt is not None
+        assert metadata_tuple.nip66_http is not None
+        assert metadata_tuple.nip66_http.metadata_type == "nip66_http"
+
+    def test_to_relay_metadata_with_all(self) -> None:
+        """Test NIP-66 to_relay_metadata_tuple with all metadata types."""
+        relay = Relay("wss://relay.example.com")
+        nip66 = _create_nip66(
+            relay,
+            rtt_data={"rtt_open": 100},
+            ssl_data={"ssl_valid": True, "ssl_issuer": "Let's Encrypt"},
+            geo_data={"geohash": "abc123", "geo_country": "US"},
+            net_data={"net_ip": "8.8.8.8"},
+            dns_data={"dns_resolved": True},
+            http_data={"http_server": "nginx"},
+        )
+
+        metadata_tuple = nip66.to_relay_metadata_tuple()
+
+        assert metadata_tuple.nip66_rtt is not None
+        assert metadata_tuple.nip66_rtt.metadata_type == "nip66_rtt"
+        assert metadata_tuple.nip66_ssl is not None
+        assert metadata_tuple.nip66_ssl.metadata_type == "nip66_ssl"
+        # Metadata is nested under "data" key (from to_dict())
+        assert metadata_tuple.nip66_ssl.metadata.metadata["data"]["ssl_valid"] is True
+        assert metadata_tuple.nip66_ssl.metadata.metadata["data"]["ssl_issuer"] == "Let's Encrypt"
+        assert metadata_tuple.nip66_geo is not None
+        assert metadata_tuple.nip66_geo.metadata_type == "nip66_geo"
+        assert metadata_tuple.nip66_geo.metadata.metadata["data"]["geohash"] == "abc123"
+        assert metadata_tuple.nip66_geo.metadata.metadata["data"]["geo_country"] == "US"
+        # Net, DNS and HTTP are also present
+        assert metadata_tuple.nip66_net is not None
+        assert metadata_tuple.nip66_dns is not None
+        assert metadata_tuple.nip66_http is not None
 
     def test_ssl_metadata_access(self) -> None:
-        """Test NIP-66 SSL metadata access."""
+        """Test NIP-66 SSL metadata access via data attributes."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(
             relay,
@@ -527,9 +719,9 @@ class TestNip66:
         )
 
         assert nip66.ssl_metadata is not None
-        assert nip66.ssl_metadata.data["ssl_valid"] is True
-        assert nip66.ssl_metadata.data["ssl_issuer"] == "Let's Encrypt"
-        assert nip66.ssl_metadata.data["ssl_expires"] == 1700000000
+        assert nip66.ssl_metadata.data.ssl_valid is True
+        assert nip66.ssl_metadata.data.ssl_issuer == "Let's Encrypt"
+        assert nip66.ssl_metadata.data.ssl_expires == 1700000000
 
     def test_ssl_metadata_none(self) -> None:
         """Test NIP-66 SSL metadata when not provided."""
@@ -538,25 +730,17 @@ class TestNip66:
 
         assert nip66.ssl_metadata is None
 
-    def test_probe_metadata_access(self) -> None:
-        """Test NIP-66 probe metadata access."""
+    def test_rtt_logs_access(self) -> None:
+        """Test NIP-66 RTT logs access (probe data is in logs)."""
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(
             relay,
             rtt_data={"rtt_open": 100},
-            probe_data={
-                "probe_open_success": True,
-                "probe_write_success": False,
-                "probe_write_reason": "auth-required: please authenticate",
-            },
         )
 
-        assert nip66.probe_metadata is not None
-        assert nip66.probe_metadata.data["probe_open_success"] is True
-        assert nip66.probe_metadata.data["probe_write_success"] is False
-        assert (
-            nip66.probe_metadata.data["probe_write_reason"] == "auth-required: please authenticate"
-        )
+        # Probe data is now in RTT logs
+        assert nip66.rtt_metadata is not None
+        assert nip66.rtt_metadata.logs.open_success is True
 
 
 class TestRelayMetadataType:
@@ -572,14 +756,14 @@ class TestRelayMetadataType:
         rm = RelayMetadata(
             relay=relay,
             metadata=metadata_obj,
-            metadata_type="nip11",
+            metadata_type="nip11_fetch",
             generated_at=1700000001,
         )
 
         assert "relay.example.com" in rm.relay.url
         assert rm.relay.network == NetworkType.CLEARNET
-        assert rm.metadata_type == "nip11"
-        assert rm.metadata.data == {"name": "Test"}
+        assert rm.metadata_type == "nip11_fetch"
+        assert rm.metadata.metadata == {"name": "Test"}
         assert rm.generated_at == 1700000001
 
     def test_to_db_params(self) -> None:
@@ -598,13 +782,14 @@ class TestRelayMetadataType:
 
         params = rm.to_db_params()
 
-        # 6 params: relay_url, network, discovered_at, metadata_data, type, generated_at
-        assert len(params) == 6
+        # 7 params: relay_url, network, discovered_at, metadata_id, metadata_json, type, generated_at
+        assert len(params) == 7
         assert params[0] == "wss://relay.example.com"  # relay_url with scheme
         assert params[1] == "clearnet"  # network
-        assert params[3] == metadata_obj.to_db_params()[0]  # metadata as JSON string
-        assert params[4] == "nip66_rtt"  # metadata_type
-        assert params[5] == 1700000001  # generated_at
+        assert isinstance(params[3], bytes) and len(params[3]) == 32  # metadata_id (SHA-256)
+        assert params[4] == metadata_obj.to_db_params().metadata_json  # metadata as JSON string
+        assert params[5] == "nip66_rtt"  # metadata_type
+        assert params[6] == 1700000001  # generated_at
 
 
 # ============================================================================
@@ -646,6 +831,14 @@ class TestMonitorInit:
         monitor = Monitor(brotr=mock_brotr, config=config)
 
         assert monitor.config.networks.tor.enabled is False
+
+    def test_config_class_attribute(self, mock_brotr: Brotr) -> None:
+        """Test CONFIG_CLASS class attribute."""
+        assert Monitor.CONFIG_CLASS == MonitorConfig
+
+    def test_service_name_attribute(self, mock_brotr: Brotr) -> None:
+        """Test SERVICE_NAME class attribute."""
+        assert Monitor.SERVICE_NAME == "monitor"
 
 
 # ============================================================================
@@ -805,6 +998,31 @@ class TestMonitorRun:
 
         assert monitor._progress.processed == 0
 
+    @pytest.mark.asyncio
+    async def test_run_resets_progress(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        """Test run cycle resets progress at start."""
+        mock_brotr.pool.fetchrow = AsyncMock(return_value={"count": 0})  # type: ignore[method-assign]
+        mock_brotr.pool.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor._progress.success = 10
+        monitor._progress.failure = 5
+
+        await monitor.run()
+
+        assert monitor._progress.success == 0
+        assert monitor._progress.failure == 0
+
 
 # ============================================================================
 # Monitor Insert Metadata Tests
@@ -898,3 +1116,47 @@ class TestMonitorPersistResults:
         mock_brotr.insert_relay_metadata.assert_not_called()  # type: ignore[attr-defined]
         # But checkpoint should be updated to prevent immediate retry
         mock_brotr.upsert_service_data.assert_called_once()  # type: ignore[attr-defined]
+
+
+# ============================================================================
+# Network Configuration Tests
+# ============================================================================
+
+
+class TestMonitorNetworkConfiguration:
+    """Tests for network configuration in Monitor."""
+
+    def test_enabled_networks_default(self, mock_brotr: Brotr) -> None:
+        """Test default enabled networks via config.networks."""
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        enabled = monitor._config.networks.get_enabled_networks()
+        assert "clearnet" in enabled
+
+    def test_enabled_networks_with_tor(self, mock_brotr: Brotr) -> None:
+        """Test enabled networks with Tor enabled via config.networks."""
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            networks=NetworkConfig(
+                clearnet=ClearnetConfig(enabled=True),
+                tor=TorConfig(enabled=True),
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        enabled = monitor._config.networks.get_enabled_networks()
+        assert "clearnet" in enabled
+        assert "tor" in enabled

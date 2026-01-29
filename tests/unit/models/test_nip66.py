@@ -3,18 +3,39 @@ Unit tests for models.nip66 module.
 
 Tests:
 - Nip66 construction and validation
-- Metadata parsing and type validation
-- to_relay_metadata() conversion (generates up to 7 records)
-- Internal helper methods (_check_ssl_sync, _lookup_geo_sync, _resolve_dns_sync)
-- Nip66.test() async connection tests
+- Metadata parsing and type validation via Pydantic models
+- to_relay_metadata_tuple() conversion (generates up to 6 records)
+- Internal helper methods (*Metadata._*())
+- Nip66.create() async connection tests
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from models import Metadata, Nip66, Relay, RelayMetadata
-from models.nip66 import Nip66TestError
+from models import Relay, RelayMetadata
+from models.nips.nip66 import (
+    Nip66,
+    Nip66DnsData,
+    Nip66DnsLogs,
+    Nip66DnsMetadata,
+    Nip66GeoData,
+    Nip66GeoLogs,
+    Nip66GeoMetadata,
+    Nip66HttpData,
+    Nip66HttpLogs,
+    Nip66HttpMetadata,
+    Nip66NetData,
+    Nip66NetLogs,
+    Nip66NetMetadata,
+    Nip66RttData,
+    Nip66RttLogs,
+    Nip66RttMetadata,
+    Nip66SslData,
+    Nip66SslLogs,
+    Nip66SslMetadata,
+    RelayNip66MetadataTuple,
+)
 from models.relay_metadata import MetadataType
 
 
@@ -37,203 +58,148 @@ def ws_relay():
 
 
 @pytest.fixture
-def complete_rtt_data():
-    """Complete RTT (Round-Trip Time) metadata for NIP-66.
-
-    Contains timing measurements in milliseconds for relay operations:
-    - rtt_open: Time to establish WebSocket connection
-    - rtt_read: Time to receive response to REQ message
-    - rtt_write: Time to receive OK response to EVENT message
-    """
-    return {
-        "rtt_open": 100,
-        "rtt_read": 150,
-        "rtt_write": 200,
-    }
-
-
-@pytest.fixture
-def complete_probe_data():
-    """Complete probe test results metadata for NIP-66.
-
-    Contains raw success/failure status and rejection reasons:
-    - probe_open_success: True if connection succeeded
-    - probe_open_reason: Raw error message (only if probe_open_success=False)
-    - probe_read_success: True if read worked without restrictions
-    - probe_read_reason: Raw rejection message (only if probe_read_success=False)
-    - probe_write_success: True if write worked without restrictions
-    - probe_write_reason: Raw rejection message (only if probe_write_success=False)
-    """
-    return {
-        "probe_open_success": True,
-        "probe_read_success": True,
-        "probe_write_success": False,
-        "probe_write_reason": "auth-required: please authenticate",
-    }
+def complete_rtt_metadata():
+    """Complete RTT metadata as Pydantic model."""
+    return Nip66RttMetadata(
+        data=Nip66RttData(rtt_open=100, rtt_read=150, rtt_write=200),
+        logs=Nip66RttLogs(
+            open_success=True,
+            open_reason=None,
+            read_success=True,
+            read_reason=None,
+            write_success=False,
+            write_reason="auth-required: please authenticate",
+        ),
+    )
 
 
 @pytest.fixture
-def complete_ssl_data():
-    """Complete SSL/TLS certificate metadata for NIP-66.
-
-    Contains certificate details extracted from relay's TLS connection:
-    - Validation: ssl_valid, ssl_expires, ssl_not_before
-    - Subject: ssl_subject_cn, ssl_san (Subject Alternative Names)
-    - Issuer: ssl_issuer, ssl_issuer_cn
-    - Technical: ssl_serial, ssl_version, ssl_fingerprint
-    - Connection: ssl_protocol, ssl_cipher, ssl_cipher_bits
-    """
-    return {
-        "ssl_valid": True,
-        "ssl_subject_cn": "relay.example.com",
-        "ssl_issuer": "Let's Encrypt",
-        "ssl_issuer_cn": "R3",
-        "ssl_expires": 1735689600,
-        "ssl_not_before": 1727827200,
-        "ssl_san": ["relay.example.com", "*.example.com"],
-        "ssl_serial": "04ABCDEF12345678",  # pragma: allowlist secret
-        "ssl_version": 3,
-        "ssl_fingerprint": "SHA256:AB:CD:EF:12:34:56",
-        "ssl_protocol": "TLSv1.3",
-        "ssl_cipher": "TLS_AES_256_GCM_SHA384",
-        "ssl_cipher_bits": 256,
-    }
+def complete_ssl_metadata():
+    """Complete SSL metadata as Pydantic model."""
+    return Nip66SslMetadata(
+        data=Nip66SslData(
+            ssl_valid=True,
+            ssl_subject_cn="relay.example.com",
+            ssl_issuer="Let's Encrypt",
+            ssl_issuer_cn="R3",
+            ssl_expires=1735689600,
+            ssl_not_before=1727827200,
+            ssl_san=["relay.example.com", "*.example.com"],
+            ssl_serial="04ABCDEF12345678",  # pragma: allowlist secret
+            ssl_version=3,
+            ssl_fingerprint="SHA256:AB:CD:EF:12:34:56",
+            ssl_protocol="TLSv1.3",
+            ssl_cipher="TLS_AES_256_GCM_SHA384",
+            ssl_cipher_bits=256,
+        ),
+        logs=Nip66SslLogs(success=True, reason=None),
+    )
 
 
 @pytest.fixture
-def complete_geo_data():
-    """Complete geolocation metadata for NIP-66.
-
-    Contains location data from GeoIP City database lookups:
-    - Location: geo_country, geo_country_name, geo_continent, geo_continent_name
-    - Region: geo_region, geo_city, geo_postal
-    - Coordinates: geo_lat, geo_lon, geo_accuracy, geohash
-    - Metadata: geo_is_eu, geo_tz, geo_geoname_id
-    """
-    return {
-        "geo_country": "US",
-        "geo_country_name": "United States",
-        "geo_continent": "NA",
-        "geo_continent_name": "North America",
-        "geo_is_eu": False,
-        "geo_region": "California",
-        "geo_city": "Mountain View",
-        "geo_postal": "94035",
-        "geo_lat": 37.386,
-        "geo_lon": -122.084,
-        "geo_accuracy": 10,
-        "geo_tz": "America/Los_Angeles",
-        "geohash": "9q9hvu7wp",
-        "geo_geoname_id": 5375480,
-    }
+def complete_geo_metadata():
+    """Complete geo metadata as Pydantic model."""
+    return Nip66GeoMetadata(
+        data=Nip66GeoData(
+            geo_country="US",
+            geo_country_name="United States",
+            geo_continent="NA",
+            geo_continent_name="North America",
+            geo_is_eu=False,
+            geo_region="California",
+            geo_city="Mountain View",
+            geo_postal="94035",
+            geo_lat=37.386,
+            geo_lon=-122.084,
+            geo_accuracy=10,
+            geo_tz="America/Los_Angeles",
+            geohash="9q9hvu7wp",
+            geo_geoname_id=5375480,
+        ),
+        logs=Nip66GeoLogs(success=True, reason=None),
+    )
 
 
 @pytest.fixture
-def complete_net_data():
-    """Complete network metadata for NIP-66.
-
-    Contains network data from GeoIP ASN database lookups:
-    - net_ip: Resolved IPv4 address
-    - net_ipv6: Resolved IPv6 address (if available)
-    - net_asn: Autonomous System Number
-    - net_asn_org: ASN organization name
-    - net_network: IPv4 network CIDR
-    - net_network_v6: IPv6 network CIDR (if available)
-    """
-    return {
-        "net_ip": "8.8.8.8",
-        "net_ipv6": "2001:4860:4860::8888",
-        "net_asn": 15169,
-        "net_asn_org": "GOOGLE",
-        "net_network": "8.8.8.0/24",
-        "net_network_v6": "2001:4860::/32",
-    }
+def complete_net_metadata():
+    """Complete net metadata as Pydantic model."""
+    return Nip66NetMetadata(
+        data=Nip66NetData(
+            net_ip="8.8.8.8",
+            net_ipv6="2001:4860:4860::8888",
+            net_asn=15169,
+            net_asn_org="GOOGLE",
+            net_network="8.8.8.0/24",
+            net_network_v6="2001:4860::/32",
+        ),
+        logs=Nip66NetLogs(success=True, reason=None),
+    )
 
 
 @pytest.fixture
-def complete_dns_data():
-    """Complete DNS resolution metadata for NIP-66.
-
-    Contains DNS lookup results for relay hostname:
-    - IPv4: dns_ips (all A records)
-    - IPv6: dns_ips_v6 (all AAAA records)
-    - Records: dns_cname, dns_reverse (PTR), dns_ns
-    - Performance: dns_ttl
-    """
-    return {
-        "dns_ips": ["8.8.8.8", "8.8.4.4"],
-        "dns_ips_v6": ["2001:4860:4860::8888"],
-        "dns_cname": "dns.google",
-        "dns_reverse": "dns.google",
-        "dns_ns": ["ns1.google.com", "ns2.google.com"],
-        "dns_ttl": 300,
-    }
+def complete_dns_metadata():
+    """Complete DNS metadata as Pydantic model."""
+    return Nip66DnsMetadata(
+        data=Nip66DnsData(
+            dns_ips=["8.8.8.8", "8.8.4.4"],
+            dns_ips_v6=["2001:4860:4860::8888"],
+            dns_cname="dns.google",
+            dns_reverse="dns.google",
+            dns_ns=["ns1.google.com", "ns2.google.com"],
+            dns_ttl=300,
+        ),
+        logs=Nip66DnsLogs(success=True, reason=None),
+    )
 
 
 @pytest.fixture
-def complete_http_data():
-    """Complete HTTP header metadata for NIP-66.
-
-    Contains server identification from HTTP response headers:
-    - http_server: Server header (e.g., 'nginx/1.24.0')
-    - http_powered_by: X-Powered-By header (e.g., 'Strfry')
-    """
-    return {
-        "http_server": "nginx/1.24.0",
-        "http_powered_by": "Strfry",
-    }
+def complete_http_metadata():
+    """Complete HTTP metadata as Pydantic model."""
+    return Nip66HttpMetadata(
+        data=Nip66HttpData(
+            http_server="nginx/1.24.0",
+            http_powered_by="Strfry",
+        ),
+        logs=Nip66HttpLogs(success=True, reason=None),
+    )
 
 
 @pytest.fixture
 def nip66_full(
     relay,
-    complete_rtt_data,
-    complete_probe_data,
-    complete_ssl_data,
-    complete_geo_data,
-    complete_net_data,
-    complete_dns_data,
-    complete_http_data,
+    complete_rtt_metadata,
+    complete_ssl_metadata,
+    complete_geo_metadata,
+    complete_net_metadata,
+    complete_dns_metadata,
+    complete_http_metadata,
 ):
-    """Nip66 instance with all seven metadata types populated.
-
-    Used for testing to_relay_metadata() which generates up to 7 RelayMetadata
-    records (one for each metadata type: rtt, check, ssl, geo, net, dns, http).
-    """
+    """Nip66 instance with all six metadata types populated."""
     return Nip66(
         relay=relay,
-        rtt_metadata=complete_rtt_data,
-        probe_metadata=complete_probe_data,
-        ssl_metadata=complete_ssl_data,
-        geo_metadata=complete_geo_data,
-        net_metadata=complete_net_data,
-        dns_metadata=complete_dns_data,
-        http_metadata=complete_http_data,
+        rtt_metadata=complete_rtt_metadata,
+        ssl_metadata=complete_ssl_metadata,
+        geo_metadata=complete_geo_metadata,
+        net_metadata=complete_net_metadata,
+        dns_metadata=complete_dns_metadata,
+        http_metadata=complete_http_metadata,
         generated_at=1234567890,
     )
 
 
 @pytest.fixture
-def nip66_rtt_only(relay, complete_rtt_data):
-    """Nip66 instance with only RTT metadata (ssl, geo, dns, http are None).
-
-    Used for testing partial metadata scenarios where only connection
-    timing data is available (e.g., overlay networks without SSL/geo).
-    """
+def nip66_rtt_only(relay, complete_rtt_metadata):
+    """Nip66 instance with only RTT metadata."""
     return Nip66(
         relay=relay,
-        rtt_metadata=complete_rtt_data,
+        rtt_metadata=complete_rtt_metadata,
         generated_at=1234567890,
     )
 
 
 @pytest.fixture
 def mock_keys():
-    """Mock nostr_sdk.Keys object for RTT tests.
-
-    RTT tests require keys to sign test events for write latency measurement.
-    Uses MagicMock to avoid actual key generation overhead in unit tests.
-    """
+    """Mock nostr_sdk.Keys object for RTT tests."""
     keys = MagicMock()
     keys._inner = MagicMock()
     return keys
@@ -241,32 +207,22 @@ def mock_keys():
 
 @pytest.fixture
 def mock_nostr_client():
-    """Mock nostr-sdk Client for RTT connection tests.
-
-    Configures all async methods needed for RTT measurement workflow:
-    - add_relay(), connect(), wait_for_connection(), disconnect()
-    - relay() -> mock relay object with is_connected()
-    - stream_events() -> mock stream for read latency
-    - send_event_builder() -> mock output for write latency
-    """
-    mock_client = MagicMock()  # Sync mock since create_client is now sync
-    mock_client.add_relay = AsyncMock()  # add_relay is still async
+    """Mock nostr-sdk Client for RTT connection tests."""
+    mock_client = MagicMock()
+    mock_client.add_relay = AsyncMock()
     mock_client.connect = AsyncMock()
     mock_client.wait_for_connection = AsyncMock()
     mock_client.disconnect = AsyncMock()
     mock_client.fetch_events_of = AsyncMock(return_value=[MagicMock()])
 
-    # Mock relay() -> RelayObject with is_connected() (sync method)
     mock_relay_obj = MagicMock()
     mock_relay_obj.is_connected.return_value = True
     mock_client.relay = AsyncMock(return_value=mock_relay_obj)
 
-    # Mock stream_events() for read test
     mock_stream = AsyncMock()
-    mock_stream.next = AsyncMock(return_value=MagicMock())  # Returns an event
+    mock_stream.next = AsyncMock(return_value=MagicMock())
     mock_client.stream_events = AsyncMock(return_value=mock_stream)
 
-    # Mock send_event_builder() for write test
     mock_output = MagicMock()
     mock_output.success = ["wss://relay.example.com"]
     mock_output.failed = []
@@ -275,377 +231,481 @@ def mock_nostr_client():
     return mock_client
 
 
+class TestNip66RttLogsValidation:
+    """Test Nip66RttLogs semantic validation rules."""
+
+    def test_all_success(self):
+        """All operations successful is valid."""
+        logs = Nip66RttLogs(
+            open_success=True,
+            read_success=True,
+            write_success=True,
+        )
+        assert logs.open_success is True
+        assert logs.read_success is True
+        assert logs.write_success is True
+
+    def test_open_success_read_write_optional(self):
+        """Open success with optional read/write is valid."""
+        logs = Nip66RttLogs(open_success=True)
+        assert logs.open_success is True
+        assert logs.read_success is None
+        assert logs.write_success is None
+
+    def test_open_fail_cascades(self):
+        """Open failure with cascading read/write failures is valid."""
+        logs = Nip66RttLogs(
+            open_success=False,
+            open_reason="connection refused",
+            read_success=False,
+            read_reason="connection refused",
+            write_success=False,
+            write_reason="connection refused",
+        )
+        assert logs.open_success is False
+        assert logs.read_success is False
+        assert logs.write_success is False
+
+    def test_partial_success_read_fail(self):
+        """Open success, read failure, write untested is valid."""
+        logs = Nip66RttLogs(
+            open_success=True,
+            read_success=False,
+            read_reason="no events returned",
+        )
+        assert logs.open_success is True
+        assert logs.read_success is False
+        assert logs.write_success is None
+
+    def test_partial_success_write_fail(self):
+        """Open+read success, write failure is valid."""
+        logs = Nip66RttLogs(
+            open_success=True,
+            read_success=True,
+            write_success=False,
+            write_reason="auth-required",
+        )
+        assert logs.open_success is True
+        assert logs.read_success is True
+        assert logs.write_success is False
+
+    def test_open_success_with_reason_raises(self):
+        """Open success with reason is invalid."""
+        with pytest.raises(ValueError, match="open_reason must be None when open_success is True"):
+            Nip66RttLogs(
+                open_success=True,
+                open_reason="should not be here",
+            )
+
+    def test_open_failure_without_reason_raises(self):
+        """Open failure without reason is invalid."""
+        with pytest.raises(ValueError, match="open_reason is required when open_success is False"):
+            Nip66RttLogs(
+                open_success=False,
+                open_reason=None,
+            )
+
+    def test_read_success_with_reason_raises(self):
+        """Read success with reason is invalid."""
+        with pytest.raises(ValueError, match="read_reason must be None when read_success is True"):
+            Nip66RttLogs(
+                open_success=True,
+                read_success=True,
+                read_reason="should not be here",
+            )
+
+    def test_read_failure_without_reason_raises(self):
+        """Read failure without reason is invalid."""
+        with pytest.raises(ValueError, match="read_reason is required when read_success is False"):
+            Nip66RttLogs(
+                open_success=True,
+                read_success=False,
+                read_reason=None,
+            )
+
+    def test_write_success_with_reason_raises(self):
+        """Write success with reason is invalid."""
+        with pytest.raises(ValueError, match="write_reason must be None when write_success is True"):
+            Nip66RttLogs(
+                open_success=True,
+                write_success=True,
+                write_reason="should not be here",
+            )
+
+    def test_write_failure_without_reason_raises(self):
+        """Write failure without reason is invalid."""
+        with pytest.raises(ValueError, match="write_reason is required when write_success is False"):
+            Nip66RttLogs(
+                open_success=True,
+                write_success=False,
+                write_reason=None,
+            )
+
+    def test_open_fail_read_success_raises(self):
+        """Open failure with read success is invalid (cascade constraint)."""
+        with pytest.raises(ValueError, match="read_success must be False when open_success is False"):
+            Nip66RttLogs(
+                open_success=False,
+                open_reason="connection refused",
+                read_success=True,
+            )
+
+    def test_open_fail_write_success_raises(self):
+        """Open failure with write success is invalid (cascade constraint)."""
+        with pytest.raises(ValueError, match="write_success must be False when open_success is False"):
+            Nip66RttLogs(
+                open_success=False,
+                open_reason="connection refused",
+                write_success=True,
+            )
+
+    def test_to_dict_excludes_none(self):
+        """to_dict excludes None values."""
+        logs = Nip66RttLogs(open_success=True)
+        d = logs.to_dict()
+        assert d == {"open_success": True}
+
+    def test_to_dict_includes_all_set_values(self):
+        """to_dict includes all explicitly set values."""
+        logs = Nip66RttLogs(
+            open_success=True,
+            read_success=False,
+            read_reason="timeout",
+        )
+        d = logs.to_dict()
+        assert d == {
+            "open_success": True,
+            "read_success": False,
+            "read_reason": "timeout",
+        }
+
+
 class TestConstruction:
     """Test Nip66 construction and validation."""
 
     def test_with_all_metadata(
         self,
         relay,
-        complete_rtt_data,
-        complete_probe_data,
-        complete_ssl_data,
-        complete_geo_data,
-        complete_net_data,
-        complete_dns_data,
-        complete_http_data,
+        complete_rtt_metadata,
+        complete_ssl_metadata,
+        complete_geo_metadata,
+        complete_net_metadata,
+        complete_dns_metadata,
+        complete_http_metadata,
     ):
-        """Construct with all seven metadata types."""
+        """Construct with all six metadata types."""
         nip66 = Nip66(
             relay=relay,
-            rtt_metadata=complete_rtt_data,
-            probe_metadata=complete_probe_data,
-            ssl_metadata=complete_ssl_data,
-            geo_metadata=complete_geo_data,
-            net_metadata=complete_net_data,
-            dns_metadata=complete_dns_data,
-            http_metadata=complete_http_data,
+            rtt_metadata=complete_rtt_metadata,
+            ssl_metadata=complete_ssl_metadata,
+            geo_metadata=complete_geo_metadata,
+            net_metadata=complete_net_metadata,
+            dns_metadata=complete_dns_metadata,
+            http_metadata=complete_http_metadata,
         )
         assert nip66.relay is relay
         assert nip66.rtt_metadata is not None
-        assert nip66.probe_metadata is not None
         assert nip66.ssl_metadata is not None
         assert nip66.geo_metadata is not None
         assert nip66.net_metadata is not None
         assert nip66.dns_metadata is not None
         assert nip66.http_metadata is not None
 
-    def test_with_rtt_only(self, relay, complete_rtt_data):
+    def test_with_rtt_only(self, relay, complete_rtt_metadata):
         """Construct with RTT metadata only, others are None."""
-        nip66 = Nip66(relay=relay, rtt_metadata=complete_rtt_data)
-        # RTT has data
-        assert nip66.rtt_metadata.data["rtt_open"] == 100
+        nip66 = Nip66(relay=relay, rtt_metadata=complete_rtt_metadata)
+        # RTT has data via attribute access
+        assert nip66.rtt_metadata.data.rtt_open == 100
+        # Probe info is in logs
+        assert nip66.rtt_metadata.logs.open_success is True
         # Others are None
-        assert nip66.probe_metadata is None
         assert nip66.ssl_metadata is None
         assert nip66.geo_metadata is None
         assert nip66.net_metadata is None
         assert nip66.dns_metadata is None
         assert nip66.http_metadata is None
 
-    def test_with_probe_only(self, relay, complete_probe_data):
-        """Construct with probe metadata only, others are None."""
-        nip66 = Nip66(relay=relay, probe_metadata=complete_probe_data)
-        assert nip66.probe_metadata.data["probe_open_success"] is True
-        assert nip66.probe_metadata.data["probe_write_success"] is False
+    def test_with_ssl_only(self, relay, complete_ssl_metadata):
+        """Construct with SSL metadata only, RTT is None."""
+        nip66 = Nip66(relay=relay, ssl_metadata=complete_ssl_metadata)
         assert nip66.rtt_metadata is None
-        assert nip66.ssl_metadata is None
-
-    def test_with_ssl_only(self, relay, complete_ssl_data):
-        """Construct with SSL metadata only, others are None."""
-        nip66 = Nip66(relay=relay, ssl_metadata=complete_ssl_data)
-        assert nip66.rtt_metadata is None
-        assert nip66.ssl_metadata.data["ssl_valid"] is True
+        assert nip66.ssl_metadata.data.ssl_valid is True
         assert nip66.geo_metadata is None
 
-    def test_with_geo_only(self, relay, complete_geo_data):
-        """Construct with geo metadata only, others are None."""
-        nip66 = Nip66(relay=relay, geo_metadata=complete_geo_data)
+    def test_with_geo_only(self, relay, complete_geo_metadata):
+        """Construct with geo metadata only."""
+        nip66 = Nip66(relay=relay, geo_metadata=complete_geo_metadata)
         assert nip66.rtt_metadata is None
         assert nip66.ssl_metadata is None
-        assert nip66.geo_metadata.data["geo_country"] == "US"
+        assert nip66.geo_metadata.data.geo_country == "US"
 
-    def test_with_net_only(self, relay, complete_net_data):
-        """Construct with net metadata only, others are None."""
-        nip66 = Nip66(relay=relay, net_metadata=complete_net_data)
-        assert nip66.net_metadata.data["net_ip"] == "8.8.8.8"
-        assert nip66.net_metadata.data["net_asn"] == 15169
+    def test_with_net_only(self, relay, complete_net_metadata):
+        """Construct with net metadata only."""
+        nip66 = Nip66(relay=relay, net_metadata=complete_net_metadata)
+        assert nip66.net_metadata.data.net_ip == "8.8.8.8"
+        assert nip66.net_metadata.data.net_asn == 15169
         assert nip66.rtt_metadata is None
         assert nip66.geo_metadata is None
 
-    def test_with_dns_only(self, relay, complete_dns_data):
-        """Construct with DNS metadata only, others are None."""
-        nip66 = Nip66(relay=relay, dns_metadata=complete_dns_data)
-        assert nip66.dns_metadata.data["dns_ips"] == ["8.8.8.8", "8.8.4.4"]
+    def test_with_dns_only(self, relay, complete_dns_metadata):
+        """Construct with DNS metadata only."""
+        nip66 = Nip66(relay=relay, dns_metadata=complete_dns_metadata)
+        assert nip66.dns_metadata.data.dns_ips == ["8.8.8.8", "8.8.4.4"]
         assert nip66.rtt_metadata is None
 
-    def test_with_http_only(self, relay, complete_http_data):
-        """Construct with HTTP metadata only, others are None."""
-        nip66 = Nip66(relay=relay, http_metadata=complete_http_data)
-        assert nip66.http_metadata.data["http_server"] == "nginx/1.24.0"
+    def test_with_http_only(self, relay, complete_http_metadata):
+        """Construct with HTTP metadata only."""
+        nip66 = Nip66(relay=relay, http_metadata=complete_http_metadata)
+        assert nip66.http_metadata.data.http_server == "nginx/1.24.0"
         assert nip66.rtt_metadata is None
 
-    def test_no_metadata_raises_error(self, relay):
-        """Construction without any metadata raises ValueError."""
-        with pytest.raises(ValueError, match="At least one"):
-            Nip66(relay=relay)
-
-    def test_empty_metadata_becomes_none(self, relay, complete_rtt_data):
-        """Empty metadata dict becomes None."""
-        nip66 = Nip66(
-            relay=relay,
-            rtt_metadata=complete_rtt_data,
-            probe_metadata={},
-            ssl_metadata={},
-            geo_metadata={},
-            net_metadata={},
-            dns_metadata={},
-            http_metadata={},
-        )
-        # RTT has data
-        assert nip66.rtt_metadata.data["rtt_open"] == 100
-        # Others are None (empty {} becomes None)
-        assert nip66.probe_metadata is None
-        assert nip66.ssl_metadata is None
-        assert nip66.geo_metadata is None
-        assert nip66.net_metadata is None
-        assert nip66.dns_metadata is None
-        assert nip66.http_metadata is None
-
-    def test_generated_at_default(self, relay, complete_rtt_data):
+    def test_generated_at_default(self, relay, complete_rtt_metadata):
         """generated_at defaults to current time."""
-        nip66 = Nip66(relay=relay, rtt_metadata=complete_rtt_data)
+        nip66 = Nip66(relay=relay, rtt_metadata=complete_rtt_metadata)
         assert nip66.generated_at > 0
 
-    def test_generated_at_explicit(self, relay, complete_rtt_data):
+    def test_generated_at_explicit(self, relay, complete_rtt_metadata):
         """Explicit generated_at is preserved."""
-        nip66 = Nip66(relay=relay, rtt_metadata=complete_rtt_data, generated_at=1000)
+        nip66 = Nip66(relay=relay, rtt_metadata=complete_rtt_metadata, generated_at=1000)
         assert nip66.generated_at == 1000
 
 
 class TestMetadataAccess:
-    """Test metadata access via .data dict."""
+    """Test metadata access via attributes."""
 
-    def test_rtt_metadata_access(self, nip66_full):
-        """Access RTT values via metadata.data."""
-        assert nip66_full.rtt_metadata.data.get("rtt_open") == 100
-        assert nip66_full.rtt_metadata.data.get("rtt_read") == 150
-        assert nip66_full.rtt_metadata.data.get("rtt_write") == 200
+    def test_rtt_data_access(self, nip66_full):
+        """Access RTT values via data attributes."""
+        assert nip66_full.rtt_metadata.data.rtt_open == 100
+        assert nip66_full.rtt_metadata.data.rtt_read == 150
+        assert nip66_full.rtt_metadata.data.rtt_write == 200
 
-    def test_probe_metadata_access(self, nip66_full):
-        """Access probe test values via metadata.data."""
-        assert nip66_full.probe_metadata.data.get("probe_open_success") is True
-        assert nip66_full.probe_metadata.data.get("probe_read_success") is True
-        assert nip66_full.probe_metadata.data.get("probe_write_success") is False
-        assert (
-            nip66_full.probe_metadata.data.get("probe_write_reason")
-            == "auth-required: please authenticate"
-        )
+    def test_rtt_logs_access(self, nip66_full):
+        """Access probe test results via logs attributes."""
+        assert nip66_full.rtt_metadata.logs.open_success is True
+        assert nip66_full.rtt_metadata.logs.read_success is True
+        assert nip66_full.rtt_metadata.logs.write_success is False
+        assert nip66_full.rtt_metadata.logs.write_reason == "auth-required: please authenticate"
 
     def test_ssl_metadata_access(self, nip66_full):
-        """Access SSL values via metadata.data."""
-        assert nip66_full.ssl_metadata.data.get("ssl_valid") is True
-        assert nip66_full.ssl_metadata.data.get("ssl_issuer") == "Let's Encrypt"
-        assert nip66_full.ssl_metadata.data.get("ssl_protocol") == "TLSv1.3"
-        assert nip66_full.ssl_metadata.data.get("ssl_cipher_bits") == 256
+        """Access SSL values via data attributes."""
+        assert nip66_full.ssl_metadata.data.ssl_valid is True
+        assert nip66_full.ssl_metadata.data.ssl_issuer == "Let's Encrypt"
+        assert nip66_full.ssl_metadata.data.ssl_protocol == "TLSv1.3"
+        assert nip66_full.ssl_metadata.data.ssl_cipher_bits == 256
 
     def test_geo_metadata_access(self, nip66_full):
-        """Access geo values via metadata.data."""
-        assert nip66_full.geo_metadata.data.get("geo_country") == "US"
-        assert nip66_full.geo_metadata.data.get("geo_country_name") == "United States"
-        assert nip66_full.geo_metadata.data.get("geo_is_eu") is False
-        assert nip66_full.geo_metadata.data.get("geohash") == "9q9hvu7wp"
+        """Access geo values via data attributes."""
+        assert nip66_full.geo_metadata.data.geo_country == "US"
+        assert nip66_full.geo_metadata.data.geo_country_name == "United States"
+        assert nip66_full.geo_metadata.data.geo_is_eu is False
+        assert nip66_full.geo_metadata.data.geohash == "9q9hvu7wp"
 
     def test_net_metadata_access(self, nip66_full):
-        """Access net values via metadata.data."""
-        assert nip66_full.net_metadata.data.get("net_ip") == "8.8.8.8"
-        assert nip66_full.net_metadata.data.get("net_ipv6") == "2001:4860:4860::8888"
-        assert nip66_full.net_metadata.data.get("net_asn") == 15169
-        assert nip66_full.net_metadata.data.get("net_asn_org") == "GOOGLE"
-        assert nip66_full.net_metadata.data.get("net_network") == "8.8.8.0/24"
-        assert nip66_full.net_metadata.data.get("net_network_v6") == "2001:4860::/32"
+        """Access net values via data attributes."""
+        assert nip66_full.net_metadata.data.net_ip == "8.8.8.8"
+        assert nip66_full.net_metadata.data.net_ipv6 == "2001:4860:4860::8888"
+        assert nip66_full.net_metadata.data.net_asn == 15169
+        assert nip66_full.net_metadata.data.net_asn_org == "GOOGLE"
+        assert nip66_full.net_metadata.data.net_network == "8.8.8.0/24"
+        assert nip66_full.net_metadata.data.net_network_v6 == "2001:4860::/32"
 
     def test_dns_metadata_access(self, nip66_full):
-        """Access DNS values via metadata.data."""
-        assert nip66_full.dns_metadata.data.get("dns_ips") == ["8.8.8.8", "8.8.4.4"]
-        assert nip66_full.dns_metadata.data.get("dns_ips_v6") == ["2001:4860:4860::8888"]
-        assert nip66_full.dns_metadata.data.get("dns_ttl") == 300
-        assert nip66_full.dns_metadata.data.get("dns_cname") == "dns.google"
-        assert len(nip66_full.dns_metadata.data.get("dns_ips")) == 2
+        """Access DNS values via data attributes."""
+        assert nip66_full.dns_metadata.data.dns_ips == ["8.8.8.8", "8.8.4.4"]
+        assert nip66_full.dns_metadata.data.dns_ips_v6 == ["2001:4860:4860::8888"]
+        assert nip66_full.dns_metadata.data.dns_ttl == 300
+        assert nip66_full.dns_metadata.data.dns_cname == "dns.google"
 
     def test_http_metadata_access(self, nip66_full):
-        """Access HTTP values via metadata.data."""
-        assert nip66_full.http_metadata.data.get("http_server") == "nginx/1.24.0"
-        assert nip66_full.http_metadata.data.get("http_powered_by") == "Strfry"
+        """Access HTTP values via data attributes."""
+        assert nip66_full.http_metadata.data.http_server == "nginx/1.24.0"
+        assert nip66_full.http_metadata.data.http_powered_by == "Strfry"
 
 
-class TestMetadataParsing:
-    """Test metadata parsing and type validation."""
+class TestDataParsing:
+    """Test data parsing and type validation via parse() class method.
 
-    def test_filters_invalid_rtt_types(self, relay):
-        """Invalid types in RTT metadata are filtered."""
-        data = {
+    Note: parse() returns a dict (for sanitizing raw input), then the model
+    is created from the parsed dict. Tests verify the sanitization logic.
+    """
+
+    def test_filters_invalid_rtt_types(self):
+        """Invalid types in RTT data are filtered."""
+        raw = {
             "rtt_open": "fast",  # Invalid: should be int
             "rtt_read": 150,  # Valid
         }
-        nip66 = Nip66(relay=relay, rtt_metadata=data)
-        assert nip66.rtt_metadata is not None
-        assert nip66.rtt_metadata.data.get("rtt_open") is None
-        assert nip66.rtt_metadata.data.get("rtt_read") == 150
+        parsed = Nip66RttData.parse(raw)
+        data = Nip66RttData(**parsed)
+        assert data.rtt_open is None
+        assert data.rtt_read == 150
 
-    def test_filters_invalid_ssl_types(self, relay):
-        """Invalid types in SSL metadata are filtered."""
-        data = {
+    def test_filters_invalid_ssl_types(self):
+        """Invalid types in SSL data are filtered."""
+        raw = {
             "ssl_valid": "yes",  # Invalid: should be bool
             "ssl_issuer": 123,  # Invalid: should be str
             "ssl_expires": 1735689600,  # Valid
         }
-        nip66 = Nip66(relay=relay, ssl_metadata=data)
-        assert nip66.ssl_metadata is not None
-        assert nip66.ssl_metadata.data.get("ssl_valid") is None
-        assert nip66.ssl_metadata.data.get("ssl_issuer") is None
-        assert nip66.ssl_metadata.data.get("ssl_expires") == 1735689600
+        parsed = Nip66SslData.parse(raw)
+        data = Nip66SslData(**parsed)
+        assert data.ssl_valid is None
+        assert data.ssl_issuer is None
+        assert data.ssl_expires == 1735689600
 
-    def test_filters_invalid_geo_types(self, relay):
-        """Invalid types in geo metadata are filtered."""
-        data = {
+    def test_filters_invalid_geo_types(self):
+        """Invalid types in geo data are filtered."""
+        raw = {
             "geo_country": "US",  # Valid
             "geo_lat": "37.386",  # Invalid: should be float
             "geo_lon": -122.084,  # Valid
             "geo_geoname_id": "5375480",  # Invalid: should be int
         }
-        nip66 = Nip66(relay=relay, geo_metadata=data)
-        assert nip66.geo_metadata is not None
-        assert nip66.geo_metadata.data.get("geo_country") == "US"
-        assert nip66.geo_metadata.data.get("geo_lat") is None
-        assert nip66.geo_metadata.data.get("geo_lon") == -122.084
-        assert nip66.geo_metadata.data.get("geo_geoname_id") is None
+        parsed = Nip66GeoData.parse(raw)
+        data = Nip66GeoData(**parsed)
+        assert data.geo_country == "US"
+        assert data.geo_lat is None
+        assert data.geo_lon == -122.084
+        assert data.geo_geoname_id is None
 
-    def test_filters_invalid_net_types(self, relay):
-        """Invalid types in net metadata are filtered."""
-        data = {
+    def test_filters_invalid_net_types(self):
+        """Invalid types in net data are filtered."""
+        raw = {
             "net_ip": 127001,  # Invalid: should be str
             "net_asn": "15169",  # Invalid: should be int
             "net_asn_org": "GOOGLE",  # Valid
             "net_network": 123,  # Invalid: should be str
         }
-        nip66 = Nip66(relay=relay, net_metadata=data)
-        assert nip66.net_metadata is not None
-        assert nip66.net_metadata.data.get("net_ip") is None
-        assert nip66.net_metadata.data.get("net_asn") is None
-        assert nip66.net_metadata.data.get("net_asn_org") == "GOOGLE"
-        assert nip66.net_metadata.data.get("net_network") is None
+        parsed = Nip66NetData.parse(raw)
+        data = Nip66NetData(**parsed)
+        assert data.net_ip is None
+        assert data.net_asn is None
+        assert data.net_asn_org == "GOOGLE"
+        assert data.net_network is None
 
-    def test_filters_empty_strings(self, relay):
-        """Empty strings are filtered out."""
-        data = {
+    def test_preserves_valid_strings(self):
+        """Valid strings are preserved (parse() validates types, not content)."""
+        raw = {
             "ssl_valid": True,
-            "ssl_issuer": "",  # Empty string
-            "ssl_subject_cn": "  ",  # Whitespace only
+            "ssl_issuer": "Let's Encrypt",
+            "ssl_subject_cn": "example.com",
         }
-        nip66 = Nip66(relay=relay, ssl_metadata=data)
-        assert nip66.ssl_metadata is not None
-        assert nip66.ssl_metadata.data.get("ssl_valid") is True
-        assert nip66.ssl_metadata.data.get("ssl_issuer") is None
-        assert nip66.ssl_metadata.data.get("ssl_subject_cn") is None
+        parsed = Nip66SslData.parse(raw)
+        data = Nip66SslData(**parsed)
+        assert data.ssl_valid is True
+        assert data.ssl_issuer == "Let's Encrypt"
+        assert data.ssl_subject_cn == "example.com"
 
-    def test_filters_empty_lists(self, relay):
+    def test_filters_empty_lists(self):
         """Empty lists are filtered out."""
-        data = {
+        raw = {
             "dns_ttl": 300,
             "dns_ips": [],  # Empty list
             "dns_ns": ["ns1.google.com"],  # Non-empty list
         }
-        nip66 = Nip66(relay=relay, dns_metadata=data)
-        assert nip66.dns_metadata is not None
-        assert nip66.dns_metadata.data.get("dns_ttl") == 300
-        assert nip66.dns_metadata.data.get("dns_ips") is None
-        assert nip66.dns_metadata.data.get("dns_ns") == ["ns1.google.com"]
+        parsed = Nip66DnsData.parse(raw)
+        data = Nip66DnsData(**parsed)
+        assert data.dns_ttl == 300
+        assert data.dns_ips is None
+        assert data.dns_ns == ["ns1.google.com"]
 
-    def test_filters_invalid_list_elements(self, relay):
+    def test_filters_invalid_list_elements(self):
         """Invalid types inside lists are filtered out."""
-        data = {
+        raw = {
             "dns_ttl": 300,
             "dns_ips": ["8.8.8.8", 123, "8.8.4.4"],  # Int mixed in
             "dns_ns": ["ns1.google.com", None, "ns2.google.com"],  # None mixed in
         }
-        nip66 = Nip66(relay=relay, dns_metadata=data)
-        assert nip66.dns_metadata is not None
-        assert nip66.dns_metadata.data.get("dns_ips") == ["8.8.8.8", "8.8.4.4"]
-        assert nip66.dns_metadata.data.get("dns_ns") == ["ns1.google.com", "ns2.google.com"]
+        parsed = Nip66DnsData.parse(raw)
+        data = Nip66DnsData(**parsed)
+        assert data.dns_ips == ["8.8.8.8", "8.8.4.4"]
+        assert data.dns_ns == ["ns1.google.com", "ns2.google.com"]
 
-    def test_list_with_only_invalid_elements_becomes_none(self, relay):
+    def test_list_with_only_invalid_elements_becomes_none(self):
         """List with only invalid elements becomes None."""
-        data = {
+        raw = {
             "dns_ttl": 300,
             "dns_ips": [123, 456, 789],  # All invalid
             "dns_ns": [None, None],  # All None
         }
-        nip66 = Nip66(relay=relay, dns_metadata=data)
-        assert nip66.dns_metadata is not None
-        assert nip66.dns_metadata.data.get("dns_ips") is None
-        assert nip66.dns_metadata.data.get("dns_ns") is None
+        parsed = Nip66DnsData.parse(raw)
+        data = Nip66DnsData(**parsed)
+        assert data.dns_ips is None
+        assert data.dns_ns is None
 
-    def test_filters_empty_strings_in_lists(self, relay):
-        """Empty strings inside lists are filtered out."""
-        dns_data = {
+    def test_preserves_strings_in_lists(self):
+        """String lists preserve all valid strings (parse() validates types, not content)."""
+        raw = {
             "dns_ttl": 300,
-            "dns_ips": ["8.8.8.8", "", "8.8.4.4", "   "],  # Empty/whitespace strings
+            "dns_ips": ["8.8.8.8", "8.8.4.4"],
+            "dns_ns": ["ns1.google.com", "ns2.google.com"],
         }
-        nip66 = Nip66(relay=relay, dns_metadata=dns_data)
-        assert nip66.dns_metadata.data.get("dns_ips") == ["8.8.8.8", "8.8.4.4"]
-
-        ssl_data = {
-            "ssl_valid": True,
-            "ssl_san": ["relay.example.com", "", "*.example.com"],
-        }
-        nip66_ssl = Nip66(relay=relay, ssl_metadata=ssl_data)
-        assert nip66_ssl.ssl_metadata.data.get("ssl_san") == ["relay.example.com", "*.example.com"]
+        parsed = Nip66DnsData.parse(raw)
+        data = Nip66DnsData(**parsed)
+        assert data.dns_ips == ["8.8.8.8", "8.8.4.4"]
+        assert data.dns_ns == ["ns1.google.com", "ns2.google.com"]
 
 
-class TestToRelayMetadata:
-    """Test to_relay_metadata() method."""
+class TestToRelayMetadataTuple:
+    """Test to_relay_metadata_tuple() method."""
 
-    def test_returns_tuple_of_seven(self, nip66_full):
-        """Returns tuple of seven RelayMetadata objects."""
-        rtt, check, ssl, geo, net, dns, http = nip66_full.to_relay_metadata()
-        assert isinstance(rtt, RelayMetadata)
-        assert isinstance(check, RelayMetadata)
-        assert isinstance(ssl, RelayMetadata)
-        assert isinstance(geo, RelayMetadata)
-        assert isinstance(net, RelayMetadata)
-        assert isinstance(dns, RelayMetadata)
-        assert isinstance(http, RelayMetadata)
+    def test_returns_named_tuple_of_six(self, nip66_full):
+        """Returns RelayNip66MetadataTuple with 6 fields."""
+        result = nip66_full.to_relay_metadata_tuple()
+        assert isinstance(result, RelayNip66MetadataTuple)
+        assert isinstance(result.nip66_rtt, RelayMetadata)
+        assert isinstance(result.nip66_ssl, RelayMetadata)
+        assert isinstance(result.nip66_geo, RelayMetadata)
+        assert isinstance(result.nip66_net, RelayMetadata)
+        assert isinstance(result.nip66_dns, RelayMetadata)
+        assert isinstance(result.nip66_http, RelayMetadata)
 
     def test_correct_metadata_types(self, nip66_full):
         """Each RelayMetadata has correct type."""
-        rtt, check, ssl, geo, net, dns, http = nip66_full.to_relay_metadata()
-        assert rtt.metadata_type == MetadataType.NIP66_RTT
-        assert check.metadata_type == MetadataType.NIP66_PROBE
-        assert ssl.metadata_type == MetadataType.NIP66_SSL
-        assert geo.metadata_type == MetadataType.NIP66_GEO
-        assert net.metadata_type == MetadataType.NIP66_NET
-        assert dns.metadata_type == MetadataType.NIP66_DNS
-        assert http.metadata_type == MetadataType.NIP66_HTTP
+        result = nip66_full.to_relay_metadata_tuple()
+        assert result.nip66_rtt.metadata_type == MetadataType.NIP66_RTT
+        assert result.nip66_ssl.metadata_type == MetadataType.NIP66_SSL
+        assert result.nip66_geo.metadata_type == MetadataType.NIP66_GEO
+        assert result.nip66_net.metadata_type == MetadataType.NIP66_NET
+        assert result.nip66_dns.metadata_type == MetadataType.NIP66_DNS
+        assert result.nip66_http.metadata_type == MetadataType.NIP66_HTTP
 
     def test_returns_none_for_missing_metadata(self, nip66_rtt_only):
         """Returns None for missing metadata types."""
-        rtt, check, ssl, geo, net, dns, http = nip66_rtt_only.to_relay_metadata()
+        result = nip66_rtt_only.to_relay_metadata_tuple()
         # RTT has data
-        assert isinstance(rtt, RelayMetadata)
-        assert rtt.metadata.data["rtt_open"] == 100
+        assert isinstance(result.nip66_rtt, RelayMetadata)
+        assert result.nip66_rtt.metadata.metadata["data"]["rtt_open"] == 100
         # Others are None
-        assert check is None
-        assert ssl is None
-        assert geo is None
-        assert net is None
-        assert dns is None
-        assert http is None
+        assert result.nip66_ssl is None
+        assert result.nip66_geo is None
+        assert result.nip66_net is None
+        assert result.nip66_dns is None
+        assert result.nip66_http is None
 
     def test_preserves_relay(self, nip66_full):
         """Each RelayMetadata preserves relay reference."""
-        rtt, check, ssl, geo, net, dns, http = nip66_full.to_relay_metadata()
-        assert rtt.relay is nip66_full.relay
-        assert check.relay is nip66_full.relay
-        assert ssl.relay is nip66_full.relay
-        assert geo.relay is nip66_full.relay
-        assert net.relay is nip66_full.relay
-        assert dns.relay is nip66_full.relay
-        assert http.relay is nip66_full.relay
+        result = nip66_full.to_relay_metadata_tuple()
+        assert result.nip66_rtt.relay is nip66_full.relay
+        assert result.nip66_ssl.relay is nip66_full.relay
+        assert result.nip66_geo.relay is nip66_full.relay
+        assert result.nip66_net.relay is nip66_full.relay
+        assert result.nip66_dns.relay is nip66_full.relay
+        assert result.nip66_http.relay is nip66_full.relay
 
     def test_preserves_generated_at(self, nip66_full):
         """Each RelayMetadata preserves generated_at timestamp."""
-        rtt, check, ssl, geo, net, dns, http = nip66_full.to_relay_metadata()
-        assert rtt.generated_at == 1234567890
-        assert check.generated_at == 1234567890
-        assert ssl.generated_at == 1234567890
-        assert geo.generated_at == 1234567890
-        assert net.generated_at == 1234567890
-        assert dns.generated_at == 1234567890
-        assert http.generated_at == 1234567890
+        result = nip66_full.to_relay_metadata_tuple()
+        assert result.nip66_rtt.generated_at == 1234567890
+        assert result.nip66_ssl.generated_at == 1234567890
+        assert result.nip66_geo.generated_at == 1234567890
+        assert result.nip66_net.generated_at == 1234567890
+        assert result.nip66_dns.generated_at == 1234567890
+        assert result.nip66_http.generated_at == 1234567890
 
 
-class TestCheckSslSync:
-    """Test _check_ssl_sync() static method."""
+class TestSslMetadataMethod:
+    """Test Nip66SslMetadata._ssl() static method."""
 
     def test_success_returns_valid_cert(self):
         """Successful SSL check returns ssl_valid=True and cert info."""
@@ -678,7 +738,7 @@ class TestCheckSslSync:
                 mock_wrapped.__exit__ = MagicMock(return_value=False)
                 mock_ctx.return_value.wrap_socket.return_value = mock_wrapped
 
-                result = Nip66._check_ssl_sync("example.com", 443, 30.0)
+                result = Nip66SslMetadata._ssl("example.com", 443, 30.0)
 
         assert result["ssl_valid"] is True
         assert result.get("ssl_subject_cn") == "relay.example.com"
@@ -704,25 +764,23 @@ class TestCheckSslSync:
 
             with patch("ssl.create_default_context") as mock_ctx:
                 mock_ctx.return_value.wrap_socket.side_effect = ssl_module.SSLError()
-                result = Nip66._check_ssl_sync("example.com", 443, 30.0)
+                result = Nip66SslMetadata._ssl("example.com", 443, 30.0)
 
-        # SSL error is caught, returns dict with ssl_valid=False
         assert result.get("ssl_valid") is False
 
     def test_connection_error_returns_dict_with_ssl_valid_false(self):
         """Connection error is handled internally and returns dict with ssl_valid=False."""
         with patch("socket.create_connection", side_effect=TimeoutError()):
-            result = Nip66._check_ssl_sync("example.com", 443, 30.0)
+            result = Nip66SslMetadata._ssl("example.com", 443, 30.0)
 
-        # Connection error is caught, returns dict with ssl_valid=False
         assert result.get("ssl_valid") is False
 
 
-class TestLookupGeoSync:
-    """Test _lookup_geo_sync() static method."""
+class TestGeoMetadataMethod:
+    """Test Nip66GeoMetadata._geo() static method."""
 
     def test_success_with_city_reader(self):
-        """Successful lookup returns geo data (geographic only, no ASN)."""
+        """Successful lookup returns geo data."""
         mock_response = MagicMock()
         mock_response.country.iso_code = "US"
         mock_response.country.name = "United States"
@@ -743,9 +801,8 @@ class TestLookupGeoSync:
         mock_city_reader = MagicMock()
         mock_city_reader.city.return_value = mock_response
 
-        result = Nip66._lookup_geo_sync("8.8.8.8", mock_city_reader)
+        result = Nip66GeoMetadata._geo("8.8.8.8", mock_city_reader)
 
-        # geo_ip is no longer in geo data (moved to net)
         assert "geo_ip" not in result
         assert result["geo_country"] == "US"
         assert result["geo_country_name"] == "United States"
@@ -761,14 +818,10 @@ class TestLookupGeoSync:
         assert result["geo_tz"] == "America/Los_Angeles"
         assert result["geo_region"] == "California"
         assert "geohash" in result
-        # ASN fields should not be in geo data anymore
-        assert "geo_asn" not in result
-        assert "geo_asn_org" not in result
-        assert "geo_network" not in result
 
 
-class TestLookupNetSync:
-    """Test _lookup_net_sync() static method."""
+class TestNetMetadataMethod:
+    """Test Nip66NetMetadata._net() static method."""
 
     def test_success_with_ipv4_only(self):
         """Successful lookup with IPv4 only returns net data."""
@@ -780,7 +833,7 @@ class TestLookupNetSync:
         mock_asn_reader = MagicMock()
         mock_asn_reader.asn.return_value = mock_asn_response
 
-        result = Nip66._lookup_net_sync("8.8.8.8", None, mock_asn_reader)
+        result = Nip66NetMetadata._net("8.8.8.8", None, mock_asn_reader)
 
         assert result["net_ip"] == "8.8.8.8"
         assert result.get("net_ipv6") is None
@@ -799,7 +852,7 @@ class TestLookupNetSync:
         mock_asn_reader = MagicMock()
         mock_asn_reader.asn.return_value = mock_asn_response
 
-        result = Nip66._lookup_net_sync(None, "2001:4860:4860::8888", mock_asn_reader)
+        result = Nip66NetMetadata._net(None, "2001:4860:4860::8888", mock_asn_reader)
 
         assert result.get("net_ip") is None
         assert result["net_ipv6"] == "2001:4860:4860::8888"
@@ -823,18 +876,18 @@ class TestLookupNetSync:
         mock_asn_reader = MagicMock()
         mock_asn_reader.asn.side_effect = [mock_asn_response_v4, mock_asn_response_v6]
 
-        result = Nip66._lookup_net_sync("8.8.8.8", "2001:4860:4860::8888", mock_asn_reader)
+        result = Nip66NetMetadata._net("8.8.8.8", "2001:4860:4860::8888", mock_asn_reader)
 
         assert result["net_ip"] == "8.8.8.8"
         assert result["net_ipv6"] == "2001:4860:4860::8888"
-        assert result["net_asn"] == 15169  # From IPv4 (preferred)
+        assert result["net_asn"] == 15169
         assert result["net_asn_org"] == "GOOGLE"
         assert result["net_network"] == "8.8.8.0/24"
         assert result["net_network_v6"] == "2001:4860::/32"
 
 
-class TestResolveDnsSync:
-    """Test _resolve_dns_sync() static method."""
+class TestDnsMetadataMethod:
+    """Test Nip66DnsMetadata._dns() static method."""
 
     def test_success_returns_dns_data(self):
         """Successful DNS resolution returns comprehensive data."""
@@ -846,57 +899,53 @@ class TestResolveDnsSync:
         mock_resolver.resolve.return_value = mock_a_response
 
         with patch("dns.resolver.Resolver", return_value=mock_resolver):
-            result = Nip66._resolve_dns_sync("example.com", 5.0)
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
 
-        # dns_ip removed, use dns_ips instead
         assert result.get("dns_ips") == ["8.8.8.8"]
         assert result.get("dns_ttl") == 300
 
 
-class TestTestSsl:
-    """Test _test_ssl() class method."""
+class TestSslAsyncMethod:
+    """Test Nip66SslMetadata.ssl() async class method."""
 
     @pytest.mark.asyncio
-    async def test_clearnet_wss_returns_ssl_data(self, relay):
-        """Returns SSL data for clearnet wss:// relay."""
+    async def test_clearnet_wss_returns_ssl_metadata(self, relay):
+        """Returns Nip66SslMetadata for clearnet wss:// relay."""
         ssl_result = {
             "ssl_valid": True,
             "ssl_issuer": "Test CA",
             "ssl_protocol": "TLSv1.3",
         }
 
-        with patch.object(Nip66, "_check_ssl_sync", return_value=ssl_result):
-            result = await Nip66._test_ssl(relay, 10.0)
+        with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):
+            result = await Nip66SslMetadata.ssl(relay, 10.0)
 
-        assert isinstance(result, Metadata)
-        assert result.data.get("ssl_valid") is True
-        assert result.data.get("ssl_protocol") == "TLSv1.3"
-
-    @pytest.mark.asyncio
-    async def test_ssl_failure_raises_error(self, relay):
-        """Raises Nip66TestError when SSL check fails."""
-        # Mock _check_ssl_sync to return empty dict (SSL check failed)
-        with (
-            patch.object(Nip66, "_check_ssl_sync", return_value={}),
-            pytest.raises(Nip66TestError) as exc_info,
-        ):
-            await Nip66._test_ssl(relay, 10.0)
-        assert "returned no data" in str(exc_info.value.cause)
+        assert isinstance(result, Nip66SslMetadata)
+        assert result.data.ssl_valid is True
+        assert result.data.ssl_protocol == "TLSv1.3"
 
     @pytest.mark.asyncio
-    async def test_tor_raises_error(self, tor_relay):
-        """Raises Nip66TestError for Tor relay."""
-        with pytest.raises(Nip66TestError) as exc_info:
-            await Nip66._test_ssl(tor_relay, 10.0)
-        assert "not applicable" in str(exc_info.value.cause)
-
-
-class TestTestGeo:
-    """Test _test_geo() class method."""
+    async def test_ssl_failure_returns_metadata_with_failure(self, relay):
+        """SSL check failure returns Nip66SslMetadata with success=False."""
+        with patch.object(Nip66SslMetadata, "_ssl", return_value={}):
+            result = await Nip66SslMetadata.ssl(relay, 10.0)
+        assert isinstance(result, Nip66SslMetadata)
+        assert result.logs.success is False
+        assert result.logs.reason is not None
 
     @pytest.mark.asyncio
-    async def test_clearnet_with_reader_returns_geo_data(self, relay):
-        """Returns geo data for clearnet relay with city reader (IPv4)."""
+    async def test_tor_raises_value_error(self, tor_relay):
+        """Raises ValueError for Tor relay (SSL not applicable)."""
+        with pytest.raises(ValueError, match="SSL test requires clearnet"):
+            await Nip66SslMetadata.ssl(tor_relay, 10.0)
+
+
+class TestGeoAsyncMethod:
+    """Test Nip66GeoMetadata.geo() async class method."""
+
+    @pytest.mark.asyncio
+    async def test_clearnet_with_reader_returns_geo_metadata(self, relay):
+        """Returns Nip66GeoMetadata for clearnet relay with city reader."""
         geo_result = {
             "geo_country": "US",
             "geo_country_name": "United States",
@@ -906,50 +955,27 @@ class TestTestGeo:
 
         with (
             patch("socket.gethostbyname", return_value="8.8.8.8"),
-            patch.object(Nip66, "_lookup_geo_sync", return_value=geo_result),
+            patch.object(Nip66GeoMetadata, "_geo", return_value=geo_result),
         ):
-            result = await Nip66._test_geo(relay, mock_city_reader)
+            result = await Nip66GeoMetadata.geo(relay, mock_city_reader)
 
-        assert isinstance(result, Metadata)
-        assert result.data.get("geo_country") == "US"
+        assert isinstance(result, Nip66GeoMetadata)
+        assert result.data.geo_country == "US"
 
     @pytest.mark.asyncio
-    async def test_clearnet_ipv6_fallback(self, relay):
-        """Returns geo data using IPv6 when IPv4 resolution fails."""
-        geo_result = {
-            "geo_country": "US",
-            "geo_country_name": "United States",
-        }
-
+    async def test_tor_raises_value_error(self, tor_relay):
+        """Raises ValueError for Tor relay (geo not applicable)."""
         mock_city_reader = MagicMock()
-        # Mock IPv6 resolution result (getaddrinfo returns list of tuples)
-        mock_ipv6_result = [(None, None, None, None, ("2001:4860:4860::8888", 0, 0, 0))]
+        with pytest.raises(ValueError, match="geo lookup requires clearnet"):
+            await Nip66GeoMetadata.geo(tor_relay, mock_city_reader)
 
-        with (
-            patch("socket.gethostbyname", side_effect=OSError("No IPv4")),
-            patch("socket.getaddrinfo", return_value=mock_ipv6_result),
-            patch.object(Nip66, "_lookup_geo_sync", return_value=geo_result),
-        ):
-            result = await Nip66._test_geo(relay, mock_city_reader)
 
-        assert isinstance(result, Metadata)
-        assert result.data.get("geo_country") == "US"
+class TestNetAsyncMethod:
+    """Test Nip66NetMetadata.net() async class method."""
 
     @pytest.mark.asyncio
-    async def test_tor_raises_error(self, tor_relay):
-        """Raises Nip66TestError for Tor relay."""
-        mock_city_reader = MagicMock()
-        with pytest.raises(Nip66TestError) as exc_info:
-            await Nip66._test_geo(tor_relay, mock_city_reader)
-        assert "not applicable" in str(exc_info.value.cause)
-
-
-class TestTestNet:
-    """Test _test_net() class method."""
-
-    @pytest.mark.asyncio
-    async def test_clearnet_with_reader_returns_net_data(self, relay):
-        """Returns net data for clearnet relay with ASN reader."""
+    async def test_clearnet_with_reader_returns_net_metadata(self, relay):
+        """Returns Nip66NetMetadata for clearnet relay with ASN reader."""
         net_result = {
             "net_ip": "8.8.8.8",
             "net_ipv6": "2001:4860:4860::8888",
@@ -960,83 +986,59 @@ class TestTestNet:
         }
 
         mock_asn_reader = MagicMock()
-        # Mock IPv6 resolution result (getaddrinfo returns list of tuples)
         mock_ipv6_result = [(None, None, None, None, ("2001:4860:4860::8888", 0, 0, 0))]
 
         with (
             patch("socket.gethostbyname", return_value="8.8.8.8"),
             patch("socket.getaddrinfo", return_value=mock_ipv6_result),
-            patch.object(Nip66, "_lookup_net_sync", return_value=net_result),
+            patch.object(Nip66NetMetadata, "_net", return_value=net_result),
         ):
-            result = await Nip66._test_net(relay, mock_asn_reader)
+            result = await Nip66NetMetadata.net(relay, mock_asn_reader)
 
-        assert isinstance(result, Metadata)
-        assert result.data.get("net_asn") == 15169
-        assert result.data.get("net_ip") == "8.8.8.8"
-        assert result.data.get("net_ipv6") == "2001:4860:4860::8888"
+        assert isinstance(result, Nip66NetMetadata)
+        assert result.data.net_asn == 15169
+        assert result.data.net_ip == "8.8.8.8"
+        assert result.data.net_ipv6 == "2001:4860:4860::8888"
 
     @pytest.mark.asyncio
-    async def test_clearnet_ipv4_only(self, relay):
-        """Returns net data when only IPv4 is available."""
-        net_result = {
-            "net_ip": "8.8.8.8",
-            "net_asn": 15169,
-            "net_asn_org": "GOOGLE",
-        }
-
+    async def test_tor_raises_value_error(self, tor_relay):
+        """Raises ValueError for Tor relay (net not applicable)."""
         mock_asn_reader = MagicMock()
+        with pytest.raises(ValueError, match="net lookup requires clearnet"):
+            await Nip66NetMetadata.net(tor_relay, mock_asn_reader)
 
-        with (
-            patch("socket.gethostbyname", return_value="8.8.8.8"),
-            patch("socket.getaddrinfo", side_effect=OSError("No IPv6")),
-            patch.object(Nip66, "_lookup_net_sync", return_value=net_result),
-        ):
-            result = await Nip66._test_net(relay, mock_asn_reader)
 
-        assert isinstance(result, Metadata)
-        assert result.data.get("net_ip") == "8.8.8.8"
+class TestDnsAsyncMethod:
+    """Test Nip66DnsMetadata.dns() async class method."""
 
     @pytest.mark.asyncio
-    async def test_tor_raises_error(self, tor_relay):
-        """Raises Nip66TestError for Tor relay."""
-        mock_asn_reader = MagicMock()
-        with pytest.raises(Nip66TestError) as exc_info:
-            await Nip66._test_net(tor_relay, mock_asn_reader)
-        assert "not applicable" in str(exc_info.value.cause)
-
-
-class TestTestDns:
-    """Test _test_dns() class method."""
-
-    @pytest.mark.asyncio
-    async def test_clearnet_returns_dns_data(self, relay):
-        """Returns DNS data for clearnet relay."""
+    async def test_clearnet_returns_dns_metadata(self, relay):
+        """Returns Nip66DnsMetadata for clearnet relay."""
         dns_result = {
             "dns_ips": ["8.8.8.8"],
             "dns_ttl": 300,
         }
 
-        with patch.object(Nip66, "_resolve_dns_sync", return_value=dns_result):
-            result = await Nip66._test_dns(relay, 5.0)
+        with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result):
+            result = await Nip66DnsMetadata.dns(relay, 5.0)
 
-        assert isinstance(result, Metadata)
-        assert result.data.get("dns_ips") == ["8.8.8.8"]
-        assert result.data.get("dns_ttl") == 300
-
-    @pytest.mark.asyncio
-    async def test_tor_raises_error(self, tor_relay):
-        """Raises Nip66TestError for Tor relay."""
-        with pytest.raises(Nip66TestError) as exc_info:
-            await Nip66._test_dns(tor_relay, 5.0)
-        assert "not applicable" in str(exc_info.value.cause)
-
-
-class TestTestHttp:
-    """Test _test_http() class method."""
+        assert isinstance(result, Nip66DnsMetadata)
+        assert result.data.dns_ips == ["8.8.8.8"]
+        assert result.data.dns_ttl == 300
 
     @pytest.mark.asyncio
-    async def test_clearnet_returns_http_data(self, relay):
-        """Returns HTTP data for clearnet relay."""
+    async def test_tor_raises_value_error(self, tor_relay):
+        """Raises ValueError for Tor relay (DNS not applicable)."""
+        with pytest.raises(ValueError, match="DNS resolve requires clearnet"):
+            await Nip66DnsMetadata.dns(tor_relay, 5.0)
+
+
+class TestHttpAsyncMethod:
+    """Test Nip66HttpMetadata.http() async class method."""
+
+    @pytest.mark.asyncio
+    async def test_clearnet_returns_http_metadata(self, relay):
+        """Returns Nip66HttpMetadata for clearnet relay."""
         http_result = {
             "http_server": "nginx/1.24.0",
             "http_powered_by": "Strfry",
@@ -1045,132 +1047,102 @@ class TestTestHttp:
         async def mock_check_http(*args, **kwargs):
             return http_result
 
-        with patch.object(Nip66, "_check_http", mock_check_http):
-            result = await Nip66._test_http(relay, 10.0)
+        with patch.object(Nip66HttpMetadata, "_http", mock_check_http):
+            result = await Nip66HttpMetadata.http(relay, 10.0)
 
-        assert isinstance(result, Metadata)
-        assert result.data.get("http_server") == "nginx/1.24.0"
-
-    @pytest.mark.asyncio
-    async def test_tor_without_proxy_raises_error(self, tor_relay):
-        """Raises Nip66TestError for Tor relay without proxy."""
-        with pytest.raises(Nip66TestError) as exc_info:
-            await Nip66._test_http(tor_relay, 10.0)
-        assert "requires proxy url" in str(exc_info.value.cause)
-
-
-class TestTestRttAndProbe:
-    """Test _test_rtt_and_probe() class method with connect_relay factory."""
+        assert isinstance(result, Nip66HttpMetadata)
+        assert result.data.http_server == "nginx/1.24.0"
 
     @pytest.mark.asyncio
-    async def test_clearnet_returns_rtt_and_probe_data(self, relay, mock_keys, mock_nostr_client):
-        """Returns RTT and probe data for clearnet relay using connect_relay factory."""
+    async def test_tor_without_proxy_raises_value_error(self, tor_relay):
+        """Raises ValueError for Tor relay without proxy."""
+        with pytest.raises(ValueError, match="overlay network .* requires proxy"):
+            await Nip66HttpMetadata.http(tor_relay, 10.0)
+
+
+class TestRttAsyncMethod:
+    """Test Nip66RttMetadata.rtt() async class method."""
+
+    @pytest.mark.asyncio
+    async def test_clearnet_returns_rtt_metadata(self, relay, mock_keys, mock_nostr_client):
+        """Returns Nip66RttMetadata for clearnet relay."""
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 
-        # Mock connect_relay to return our mock client
         async def mock_connect_relay(
             relay, keys=None, proxy_url=None, timeout=10.0, allow_insecure=True
         ):
             return mock_nostr_client
 
         with patch("utils.transport.connect_relay", side_effect=mock_connect_relay):
-            rtt_result, probe_result = await Nip66._test_rtt_and_probe(
+            result = await Nip66RttMetadata.rtt(
                 relay,
+                mock_keys,
+                mock_event_builder,
+                mock_read_filter,
                 timeout=10.0,
-                keys=mock_keys,
-                event_builder=mock_event_builder,
-                read_filter=mock_read_filter,
             )
 
-        # RTT data present
-        assert isinstance(rtt_result, Metadata)
-        assert rtt_result.data.get("rtt_open") is not None
-        # Check data present
-        assert isinstance(probe_result, Metadata)
-        assert probe_result.data.get("probe_open_success") is True
+        assert isinstance(result, Nip66RttMetadata)
+        assert result.data.rtt_open is not None
+        assert result.logs.open_success is True
 
     @pytest.mark.asyncio
-    async def test_connection_failure_returns_probe_with_failure(self, relay, mock_keys):
-        """Connection failure returns probe metadata with probe_open_success=False."""
+    async def test_connection_failure_returns_rtt_with_failure_logs(self, relay, mock_keys):
+        """Connection failure returns Nip66RttMetadata with failure logged."""
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 
-        # Mock connect_relay to raise an exception
         async def mock_connect_relay(
             relay, keys=None, proxy_url=None, timeout=10.0, allow_insecure=True
         ):
             raise TimeoutError("Connection refused")
 
         with patch("utils.transport.connect_relay", side_effect=mock_connect_relay):
-            rtt_result, probe_result = await Nip66._test_rtt_and_probe(
+            result = await Nip66RttMetadata.rtt(
                 relay,
+                mock_keys,
+                mock_event_builder,
+                mock_read_filter,
                 timeout=10.0,
-                keys=mock_keys,
-                event_builder=mock_event_builder,
-                read_filter=mock_read_filter,
             )
 
-        # RTT is None (connection failed)
-        assert rtt_result is None
-        # Check metadata captures the failure
-        assert isinstance(probe_result, Metadata)
-        assert probe_result.data.get("probe_open_success") is False
-        assert "Connection refused" in probe_result.data.get("probe_open_reason", "")
+        assert isinstance(result, Nip66RttMetadata)
+        assert result.logs.open_success is False
+        assert "Connection refused" in (result.logs.open_reason or "")
 
 
-class TestTest:
-    """Test test() class method."""
+class TestCreate:
+    """Test Nip66.create() class method."""
 
     @pytest.mark.asyncio
     async def test_returns_nip66_on_success(self, relay, mock_keys, mock_nostr_client):
-        """Returns Nip66 instance on successful test."""
-        rtt_data = {"rtt_open": 100, "rtt_read": 150}
-        check_data = {"probe_open_success": True, "probe_read_success": True}
-        dns_data = {"dns_ips": ["8.8.8.8"], "dns_ttl": 300}
+        """Returns Nip66 instance on successful create."""
+        rtt_metadata = Nip66RttMetadata(
+            data=Nip66RttData(rtt_open=100, rtt_read=150),
+            logs=Nip66RttLogs(open_success=True, read_success=True),
+        )
+        dns_metadata = Nip66DnsMetadata(
+            data=Nip66DnsData(dns_ips=["8.8.8.8"], dns_ttl=300),
+            logs=Nip66DnsLogs(success=True, reason=None),
+        )
 
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 
-        # _test_rtt_and_probe returns tuple of (rtt_metadata, probe_metadata)
-        # Other _test_* methods raise Nip66TestError on failure
         with (
             patch.object(
-                Nip66, "_test_dns", new_callable=AsyncMock, return_value=Metadata(dns_data)
+                Nip66DnsMetadata, "dns", new_callable=AsyncMock, return_value=dns_metadata
             ),
             patch.object(
-                Nip66,
-                "_test_rtt_and_probe",
-                new_callable=AsyncMock,
-                return_value=(Metadata(rtt_data), Metadata(check_data)),
+                Nip66RttMetadata, "rtt", new_callable=AsyncMock, return_value=rtt_metadata
             ),
-            # SSL, geo, net, http raise Nip66TestError (simulating failure)
-            patch.object(
-                Nip66,
-                "_test_ssl",
-                new_callable=AsyncMock,
-                side_effect=Nip66TestError(relay, ValueError("test")),
-            ),
-            patch.object(
-                Nip66,
-                "_test_geo",
-                new_callable=AsyncMock,
-                side_effect=Nip66TestError(relay, ValueError("test")),
-            ),
-            patch.object(
-                Nip66,
-                "_test_net",
-                new_callable=AsyncMock,
-                side_effect=Nip66TestError(relay, ValueError("test")),
-            ),
-            patch.object(
-                Nip66,
-                "_test_http",
-                new_callable=AsyncMock,
-                side_effect=Nip66TestError(relay, ValueError("test")),
-            ),
+            patch.object(Nip66SslMetadata, "ssl", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66GeoMetadata, "geo", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66NetMetadata, "net", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66HttpMetadata, "http", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.test(
+            result = await Nip66.create(
                 relay,
                 keys=mock_keys,
                 event_builder=mock_event_builder,
@@ -1178,93 +1150,77 @@ class TestTest:
             )
 
         assert isinstance(result, Nip66)
-        assert result.rtt_metadata.data.get("rtt_open") == 100
-        assert result.probe_metadata.data.get("probe_open_success") is True
-        assert result.dns_metadata.data.get("dns_ips") == ["8.8.8.8"]
+        assert result.rtt_metadata.data.rtt_open == 100
+        assert result.rtt_metadata.logs.open_success is True
+        assert result.dns_metadata.data.dns_ips == ["8.8.8.8"]
 
     @pytest.mark.asyncio
-    async def test_all_tests_fail_raises_error(self, relay, mock_keys):
-        """All tests failing raises Nip66TestError."""
+    async def test_all_tests_fail_returns_nip66_with_none_metadata(self, relay, mock_keys):
+        """All tests failing returns Nip66 with None metadata."""
         mock_event_builder = MagicMock()
         mock_read_filter = MagicMock()
 
-        # All _test_* methods raise Nip66TestError
-        test_error = Nip66TestError(relay, ValueError("test failed"))
         with (
-            patch.object(Nip66, "_test_dns", new_callable=AsyncMock, side_effect=test_error),
-            patch.object(
-                Nip66, "_test_rtt_and_probe", new_callable=AsyncMock, side_effect=test_error
-            ),
-            patch.object(Nip66, "_test_ssl", new_callable=AsyncMock, side_effect=test_error),
-            patch.object(Nip66, "_test_geo", new_callable=AsyncMock, side_effect=test_error),
-            patch.object(Nip66, "_test_net", new_callable=AsyncMock, side_effect=test_error),
-            patch.object(Nip66, "_test_http", new_callable=AsyncMock, side_effect=test_error),
-            pytest.raises(Nip66TestError),
+            patch.object(Nip66DnsMetadata, "dns", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66RttMetadata, "rtt", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66SslMetadata, "ssl", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66GeoMetadata, "geo", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66NetMetadata, "net", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66HttpMetadata, "http", new_callable=AsyncMock, return_value=None),
         ):
-            await Nip66.test(
+            result = await Nip66.create(
                 relay,
                 keys=mock_keys,
                 event_builder=mock_event_builder,
                 read_filter=mock_read_filter,
             )
 
+        assert isinstance(result, Nip66)
+        assert result.rtt_metadata is None
+        assert result.ssl_metadata is None
+        assert result.geo_metadata is None
+        assert result.net_metadata is None
+        assert result.dns_metadata is None
+        assert result.http_metadata is None
+
     @pytest.mark.asyncio
-    async def test_run_rtt_requires_keys_event_builder_and_read_filter(self, relay):
-        """run_rtt=True without keys/event_builder/read_filter raises Nip66TestError."""
-        # Disable all other tests so only RTT is attempted
-        # _test_rtt raises Nip66TestError for missing params, which then causes
-        # test() to raise Nip66TestError because no metadata was collected
-        with pytest.raises(Nip66TestError):
-            await Nip66.test(
-                relay,
-                run_rtt=True,
-                run_ssl=False,
-                run_geo=False,
-                run_dns=False,
-                run_http=False,
-                keys=None,
-                event_builder=None,
-                read_filter=None,
-            )
+    async def test_rtt_skipped_without_keys(self, relay):
+        """run_rtt=True without keys/event_builder/read_filter skips RTT."""
+        result = await Nip66.create(
+            relay,
+            run_rtt=True,
+            run_ssl=False,
+            run_geo=False,
+            run_net=False,
+            run_dns=False,
+            run_http=False,
+            keys=None,
+            event_builder=None,
+            read_filter=None,
+        )
+        assert isinstance(result, Nip66)
+        assert result.rtt_metadata is None
 
     @pytest.mark.asyncio
     async def test_can_skip_all_except_dns(self, relay):
-        """Can skip all tests except DNS - skipped tests are None."""
-        dns_data = {"dns_ips": ["8.8.8.8"], "dns_ttl": 300}
+        """Can skip all tests except DNS."""
+        dns_metadata = Nip66DnsMetadata(
+            data=Nip66DnsData(dns_ips=["8.8.8.8"], dns_ttl=300),
+            logs=Nip66DnsLogs(success=True, reason=None),
+        )
 
         with patch.object(
-            Nip66, "_test_dns", new_callable=AsyncMock, return_value=Metadata(dns_data)
+            Nip66DnsMetadata, "dns", new_callable=AsyncMock, return_value=dns_metadata
         ):
-            result = await Nip66.test(
+            result = await Nip66.create(
                 relay, run_rtt=False, run_ssl=False, run_geo=False, run_net=False, run_http=False
             )
 
         assert isinstance(result, Nip66)
-        # DNS has data
-        assert result.dns_metadata.data.get("dns_ips") == ["8.8.8.8"]
-        assert result.dns_metadata.data.get("dns_ttl") == 300
-        # Others are None
+        assert result.dns_metadata.data.dns_ips == ["8.8.8.8"]
+        assert result.dns_metadata.data.dns_ttl == 300
         assert result.rtt_metadata is None
-        assert result.probe_metadata is None
         assert result.ssl_metadata is None
         assert result.geo_metadata is None
         assert result.net_metadata is None
         assert result.http_metadata is None
-
-
-class TestNip66TestError:
-    """Test Nip66TestError exception."""
-
-    def test_error_message(self, relay):
-        """Error message contains relay URL and cause."""
-        cause = ValueError("Test error")
-        error = Nip66TestError(relay, cause)
-        assert "relay.example.com" in str(error)
-        assert "Test error" in str(error)
-
-    def test_error_attributes(self, relay):
-        """Error has relay and cause attributes."""
-        cause = ValueError("Test error")
-        error = Nip66TestError(relay, cause)
-        assert error.relay is relay
-        assert error.cause is cause
