@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import socket
 import ssl
-from typing import Any, ClassVar, Self
+from typing import Any, Self
 
 from core.logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata

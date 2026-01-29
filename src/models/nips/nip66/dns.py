@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, ClassVar, Self
+from typing import Any, Self
 
 import dns.resolver  # type: ignore[import-not-found]
 import tldextract

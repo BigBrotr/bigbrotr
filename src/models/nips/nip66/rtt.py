@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from core.logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
@@ -48,9 +48,9 @@ class Nip66RttMetadata(BaseMetadata):
         Raises:
             ValueError: If overlay network without proxy.
         """
-        from nostr_sdk import Filter, RelayUrl
+        from nostr_sdk import Filter, RelayUrl  # noqa: PLC0415
 
-        from utils.transport import connect_relay
+        from utils.transport import connect_relay  # noqa: PLC0415
 
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("rtt_started", relay=relay.url, timeout_s=timeout, proxy=proxy_url)

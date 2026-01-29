@@ -10,10 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from core.logger import Logger
 from models.metadata import Metadata
-from models.relay import Relay
-from models.relay_metadata import MetadataType, RelayMetadata
-
 from models.nips.base import DEFAULT_TIMEOUT
+from models.relay_metadata import MetadataType, RelayMetadata
 
 from .dns import Nip66DnsMetadata
 from .geo import Nip66GeoMetadata
@@ -26,6 +24,8 @@ from .ssl import Nip66SslMetadata
 if TYPE_CHECKING:
     import geoip2.database
     from nostr_sdk import EventBuilder, Filter, Keys
+
+    from models.relay import Relay
 
 
 logger = Logger("models.nip66")

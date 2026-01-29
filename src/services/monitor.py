@@ -27,7 +27,7 @@ import random
 import time
 import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Callable, ClassVar, Coroutine, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, NamedTuple, TypeVar
 
 import geoip2.database
 from nostr_sdk import EventBuilder, Filter, Keys, Kind, RelayUrl, Tag
@@ -35,7 +35,6 @@ from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer, model_v
 
 from core.base_service import BaseService, BaseServiceConfig
 from models import Nip11, Relay, RelayMetadata
-from models.relay_metadata import MetadataType
 from models.nips.nip66 import (
     Nip66DnsMetadata,
     Nip66GeoMetadata,
@@ -45,6 +44,7 @@ from models.nips.nip66 import (
     Nip66SslMetadata,
 )
 from models.relay import NetworkType
+from models.relay_metadata import MetadataType
 from utils.keys import KeysConfig
 from utils.network import NetworkConfig
 from utils.progress import BatchProgress
@@ -52,7 +52,11 @@ from utils.transport import create_client
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
     from core.brotr import Brotr
+
+_T = TypeVar("_T")
 
 
 def _parse_relays(v: list[str | Relay]) -> list[Relay]:
@@ -764,7 +768,7 @@ class Monitor(BaseService[MonitorConfig]):
             Metadata instance if successful, None if all retries failed.
         """
         max_retries = retry_config.max_retries
-        result: _T | None = None
+        result = None
 
         for attempt in range(max_retries + 1):
             try:
@@ -914,18 +918,20 @@ class Monitor(BaseService[MonitorConfig]):
                     )
 
                 # Geo test (requires city_reader, clearnet only)
-                if compute.nip66_geo and self._geo_reader and relay.network == NetworkType.CLEARNET:
+                geo_reader = self._geo_reader
+                if compute.nip66_geo and geo_reader and relay.network == NetworkType.CLEARNET:
                     geo_meta = await self._with_retry(
-                        lambda: Nip66GeoMetadata.geo(relay, self._geo_reader),
+                        lambda: Nip66GeoMetadata.geo(relay, geo_reader),
                         self._config.processing.retry.nip66_geo,
                         "nip66_geo",
                         relay.url,
                     )
 
                 # Net test (requires asn_reader, clearnet only)
-                if compute.nip66_net and self._asn_reader and relay.network == NetworkType.CLEARNET:
+                asn_reader = self._asn_reader
+                if compute.nip66_net and asn_reader and relay.network == NetworkType.CLEARNET:
                     net_meta = await self._with_retry(
-                        lambda: Nip66NetMetadata.net(relay, self._asn_reader),
+                        lambda: Nip66NetMetadata.net(relay, asn_reader),
                         self._config.processing.retry.nip66_net,
                         "nip66_net",
                         relay.url,

@@ -46,9 +46,7 @@ async def resolve_host(host: str) -> ResolvedHost:
 
     # Resolve IPv6
     try:
-        ipv6_result = await asyncio.to_thread(
-            socket.getaddrinfo, host, None, socket.AF_INET6
-        )
+        ipv6_result = await asyncio.to_thread(socket.getaddrinfo, host, None, socket.AF_INET6)
         if ipv6_result:
             ipv6 = str(ipv6_result[0][4][0])
     except Exception:

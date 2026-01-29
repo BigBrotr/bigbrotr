@@ -6,6 +6,7 @@ from typing import Any, ClassVar, Final, Self
 
 from pydantic import BaseModel, ConfigDict, StrictBool, model_validator
 
+
 # Default timeout for network operations (NIP-11 fetch, NIP-66 tests)
 DEFAULT_TIMEOUT: Final[float] = 10.0
 

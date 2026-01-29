@@ -13,7 +13,9 @@ Database mapping:
 
 Example:
     >>> relay_metadata = RelayMetadata(
-    ...     relay=relay, metadata=Metadata({"name": "My Relay"}), metadata_type="nip11_fetch"
+    ...     relay=relay,
+    ...     metadata=Metadata({"name": "My Relay"}),
+    ...     metadata_type="nip11_fetch",
     ... )
     >>> params = relay_metadata.to_db_params()  # RelayMetadataDbParams
 """
@@ -142,8 +144,7 @@ class RelayMetadata:
         Returns:
             RelayMetadata instance
         """
-        relay = Relay.from_db_params(
-            relay_url, relay_network, relay_discovered_at)
+        relay = Relay.from_db_params(relay_url, relay_network, relay_discovered_at)
         metadata = Metadata.from_db_params(metadata_json)
         return cls(
             relay=relay,

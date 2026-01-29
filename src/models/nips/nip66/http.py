@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ssl
-from typing import Any, ClassVar, Self
+from typing import Any, Self
 
 from core.logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
@@ -33,7 +33,7 @@ class Nip66HttpMetadata(BaseMetadata):
         proxy_url: str | None = None,
     ) -> dict[str, Any]:
         """Capture Server and X-Powered-By headers from WebSocket handshake."""
-        import aiohttp
+        import aiohttp  # noqa: PLC0415
 
         result: dict[str, Any] = {}
         captured_headers: dict[str, str] = {}
@@ -55,7 +55,7 @@ class Nip66HttpMetadata(BaseMetadata):
 
         connector: aiohttp.BaseConnector
         if proxy_url:
-            from aiohttp_socks import ProxyConnector
+            from aiohttp_socks import ProxyConnector  # noqa: PLC0415
 
             connector = ProxyConnector.from_url(proxy_url, ssl=ssl_context)
         else:

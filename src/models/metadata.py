@@ -162,8 +162,12 @@ class Metadata:
     @overload
     def _get(self, *keys: str, expected_type: type[T], default: T) -> T: ...
 
-    # type: ignore[assignment]
-    def _get(self, *keys: str, expected_type: type[T], default: T = _UNSET) -> T | None:
+    def _get(
+        self,
+        *keys: str,
+        expected_type: type[T],
+        default: T = _UNSET,  # type: ignore[assignment]
+    ) -> T | None:
         """
         Get value at any nesting depth with type checking.
 
