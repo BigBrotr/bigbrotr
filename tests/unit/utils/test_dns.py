@@ -67,13 +67,13 @@ class TestResolvedHostImmutable:
         """Cannot modify ipv4 after creation."""
         host = ResolvedHost(ipv4="192.168.1.1")
         with pytest.raises(AttributeError):
-            host.ipv4 = "10.0.0.1"  # type: ignore
+            host.ipv4 = "10.0.0.1"  # type: ignore[misc]
 
     def test_cannot_modify_ipv6(self):
         """Cannot modify ipv6 after creation."""
         host = ResolvedHost(ipv6="2001:db8::1")
         with pytest.raises(AttributeError):
-            host.ipv6 = "::1"  # type: ignore
+            host.ipv6 = "::1"  # type: ignore[misc]
 
 
 class TestResolvedHostHasIpProperty:
@@ -149,7 +149,13 @@ class TestResolveHostIpv6:
     async def test_resolves_ipv6(self):
         """Resolves IPv6 address from hostname."""
         mock_ipv6_result = [
-            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2606:2800:220:1:248:1893:25c8:1946", 0, 0, 0))
+            (
+                socket.AF_INET6,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                ("2606:2800:220:1:248:1893:25c8:1946", 0, 0, 0),
+            )
         ]
 
         with (
@@ -197,7 +203,13 @@ class TestResolveHostBoth:
     async def test_resolves_both(self):
         """Resolves both IPv4 and IPv6 addresses."""
         mock_ipv6_result = [
-            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2606:2800:220:1:248:1893:25c8:1946", 0, 0, 0))
+            (
+                socket.AF_INET6,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                ("2606:2800:220:1:248:1893:25c8:1946", 0, 0, 0),
+            )
         ]
 
         with (
@@ -258,9 +270,10 @@ class TestResolveHostEdgeCases:
         """Resolves localhost."""
         with (
             patch("socket.gethostbyname", return_value="127.0.0.1"),
-            patch("socket.getaddrinfo", return_value=[
-                (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 0, 0, 0))
-            ]),
+            patch(
+                "socket.getaddrinfo",
+                return_value=[(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 0, 0, 0))],
+            ),
         ):
             result = await resolve_host("localhost")
 
@@ -301,9 +314,7 @@ class TestResolveHostIndependence:
     @pytest.mark.asyncio
     async def test_ipv4_fails_ipv6_succeeds(self):
         """IPv4 failure doesn't affect IPv6 resolution."""
-        mock_ipv6_result = [
-            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:db8::1", 0, 0, 0))
-        ]
+        mock_ipv6_result = [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:db8::1", 0, 0, 0))]
 
         with (
             patch("socket.gethostbyname", side_effect=socket.gaierror("No IPv4")),

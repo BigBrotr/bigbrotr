@@ -325,7 +325,9 @@ class TestNip66RttLogsValidation:
 
     def test_write_success_with_reason_raises(self):
         """Write success with reason is invalid."""
-        with pytest.raises(ValueError, match="write_reason must be None when write_success is True"):
+        with pytest.raises(
+            ValueError, match="write_reason must be None when write_success is True"
+        ):
             Nip66RttLogs(
                 open_success=True,
                 write_success=True,
@@ -334,7 +336,9 @@ class TestNip66RttLogsValidation:
 
     def test_write_failure_without_reason_raises(self):
         """Write failure without reason is invalid."""
-        with pytest.raises(ValueError, match="write_reason is required when write_success is False"):
+        with pytest.raises(
+            ValueError, match="write_reason is required when write_success is False"
+        ):
             Nip66RttLogs(
                 open_success=True,
                 write_success=False,
@@ -343,7 +347,9 @@ class TestNip66RttLogsValidation:
 
     def test_open_fail_read_success_raises(self):
         """Open failure with read success is invalid (cascade constraint)."""
-        with pytest.raises(ValueError, match="read_success must be False when open_success is False"):
+        with pytest.raises(
+            ValueError, match="read_success must be False when open_success is False"
+        ):
             Nip66RttLogs(
                 open_success=False,
                 open_reason="connection refused",
@@ -352,7 +358,9 @@ class TestNip66RttLogsValidation:
 
     def test_open_fail_write_success_raises(self):
         """Open failure with write success is invalid (cascade constraint)."""
-        with pytest.raises(ValueError, match="write_success must be False when open_success is False"):
+        with pytest.raises(
+            ValueError, match="write_success must be False when open_success is False"
+        ):
             Nip66RttLogs(
                 open_success=False,
                 open_reason="connection refused",
@@ -1056,7 +1064,7 @@ class TestHttpAsyncMethod:
     @pytest.mark.asyncio
     async def test_tor_without_proxy_raises_value_error(self, tor_relay):
         """Raises ValueError for Tor relay without proxy."""
-        with pytest.raises(ValueError, match="overlay network .* requires proxy"):
+        with pytest.raises(ValueError, match=r"overlay network .* requires proxy"):
             await Nip66HttpMetadata.http(tor_relay, 10.0)
 
 

@@ -83,7 +83,7 @@ database:
         assert result["database"]["host"] == "localhost"
         assert result["database"]["port"] == 5432
         assert result["database"]["credentials"]["username"] == "admin"
-        assert result["database"]["credentials"]["password"] == "secret"
+        assert result["database"]["credentials"]["password"] == "secret"  # pragma: allowlist secret
 
     def test_deeply_nested(self, tmp_path: Path):
         """Loads deeply nested structures."""

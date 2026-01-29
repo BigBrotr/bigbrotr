@@ -270,7 +270,7 @@ class TestFinderInit:
 
     def test_config_class_attribute(self, mock_brotr: Brotr) -> None:
         """Test CONFIG_CLASS class attribute."""
-        assert Finder.CONFIG_CLASS == FinderConfig
+        assert FinderConfig == Finder.CONFIG_CLASS
 
 
 # ============================================================================

@@ -12,7 +12,7 @@ Tests cover:
 - Prometheus metrics integration
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -215,7 +215,7 @@ class TestValidator:
 
     def test_config_class(self, mock_validator_brotr: Brotr) -> None:
         """Test config class attribute."""
-        assert Validator.CONFIG_CLASS == ValidatorConfig
+        assert ValidatorConfig == Validator.CONFIG_CLASS
 
 
 # ============================================================================
@@ -236,9 +236,7 @@ class TestValidatorRun:
         assert validator._progress.failure == 0
 
     @pytest.mark.asyncio
-    async def test_cleanup_promoted_called_at_end_of_run(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    async def test_cleanup_promoted_called_at_end_of_run(self, mock_validator_brotr: Brotr) -> None:
         """Test cleanup of promoted candidates is called at end of run cycle."""
         mock_validator_brotr.pool.fetch = AsyncMock(
             side_effect=[[make_candidate_row("wss://relay.com")], []]
@@ -247,9 +245,7 @@ class TestValidatorRun:
 
         validator = Validator(brotr=mock_validator_brotr)
 
-        with patch(
-            "services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False
-        ):
+        with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False):
             await validator.run()
 
         # Cleanup promoted is called at end of run (not in _persist)
@@ -315,9 +311,7 @@ class TestChunkProcessing:
         config = ValidatorConfig(processing={"chunk_size": 100})
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
-        with patch(
-            "services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
-        ):
+        with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True):
             await validator.run()
 
         assert validator._progress.success == 150
@@ -348,9 +342,7 @@ class TestChunkProcessing:
         config = ValidatorConfig(processing={"chunk_size": 100, "max_candidates": 150})
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
-        with patch(
-            "services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
-        ):
+        with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True):
             await validator.run()
 
         assert validator._progress.success == 150
@@ -514,9 +506,7 @@ class TestErrorHandling:
         assert validator._progress.failure == 1
 
     @pytest.mark.asyncio
-    async def test_database_error_during_persist_logged(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
+    async def test_database_error_during_persist_logged(self, mock_validator_brotr: Brotr) -> None:
         """Test database errors during persist are logged."""
         mock_validator_brotr.pool.fetch = AsyncMock(
             side_effect=[[make_candidate_row("wss://relay.com")], []]
@@ -525,9 +515,7 @@ class TestErrorHandling:
 
         validator = Validator(brotr=mock_validator_brotr)
 
-        with patch(
-            "services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False
-        ):
+        with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False):
             await validator.run()
 
         assert validator._progress.failure == 1
@@ -541,9 +529,7 @@ class TestErrorHandling:
 
         validator = Validator(brotr=mock_validator_brotr)
 
-        with patch(
-            "services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False
-        ):
+        with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False):
             await validator.run()
 
         assert validator._progress.success == 0
@@ -561,9 +547,7 @@ class TestErrorHandling:
 
         validator = Validator(brotr=mock_validator_brotr)
 
-        with patch(
-            "services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
-        ):
+        with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True):
             await validator.run()
 
         total = validator._progress.success + validator._progress.failure
@@ -606,9 +590,7 @@ class TestPersistence:
 
         validator = Validator(brotr=mock_validator_brotr)
 
-        with patch(
-            "services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
-        ):
+        with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True):
             await validator.run()
 
         mock_validator_brotr.insert_relays.assert_called_once()
@@ -625,9 +607,7 @@ class TestPersistence:
 
         validator = Validator(brotr=mock_validator_brotr)
 
-        with patch(
-            "services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False
-        ):
+        with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False):
             await validator.run()
 
         mock_validator_brotr.upsert_service_data.assert_called_once()
@@ -648,9 +628,7 @@ class TestPersistence:
 
         validator = Validator(brotr=mock_validator_brotr)
 
-        with patch(
-            "services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False
-        ):
+        with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False):
             await validator.run()
 
         mock_validator_brotr.upsert_service_data.assert_called_once()

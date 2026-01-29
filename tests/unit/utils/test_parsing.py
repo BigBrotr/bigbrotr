@@ -314,9 +314,7 @@ class TestParseTypedDictListFiltering:
 
     def test_filters_multiple_invalid_types(self):
         """Multiple invalid types are all filtered."""
-        result = parse_typed_dict(
-            {"tags": ["valid", 1, 2.5, True, None, "", [], {}]}, ListSchema
-        )
+        result = parse_typed_dict({"tags": ["valid", 1, 2.5, True, None, "", [], {}]}, ListSchema)
         assert result["tags"] == ["valid"]
 
 

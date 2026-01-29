@@ -10,7 +10,7 @@ Tests:
 """
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -834,7 +834,7 @@ class TestMonitorInit:
 
     def test_config_class_attribute(self, mock_brotr: Brotr) -> None:
         """Test CONFIG_CLASS class attribute."""
-        assert Monitor.CONFIG_CLASS == MonitorConfig
+        assert MonitorConfig == Monitor.CONFIG_CLASS
 
     def test_service_name_attribute(self, mock_brotr: Brotr) -> None:
         """Test SERVICE_NAME class attribute."""

@@ -150,16 +150,20 @@ class TestLoadKeysFromEnvInvalidKeys:
     @pytest.mark.parametrize("invalid_key", INVALID_KEYS)
     def test_invalid_key_raises_error(self, invalid_key: str):
         """Test that invalid keys raise an exception."""
-        with patch.dict(os.environ, {"PRIVATE_KEY": invalid_key}):  # pragma: allowlist secret
-            with pytest.raises(BaseException):  # noqa: B017 - nostr_sdk raises various exceptions
-                load_keys_from_env("PRIVATE_KEY")
+        with (
+            patch.dict(os.environ, {"PRIVATE_KEY": invalid_key}),  # pragma: allowlist secret
+            pytest.raises(BaseException),  # noqa: B017 - nostr_sdk raises various exceptions
+        ):
+            load_keys_from_env("PRIVATE_KEY")
 
     def test_whitespace_key_raises_error(self):
         """Test that whitespace-only key raises an error."""
-        with patch.dict(os.environ, {"PRIVATE_KEY": "   "}):  # pragma: allowlist secret
-            # Whitespace is passed to Keys.parse which raises NostrSdkError
-            with pytest.raises(BaseException):  # noqa: B017 - nostr_sdk raises various exceptions
-                load_keys_from_env("PRIVATE_KEY")
+        # Whitespace is passed to Keys.parse which raises NostrSdkError
+        with (
+            patch.dict(os.environ, {"PRIVATE_KEY": "   "}),  # pragma: allowlist secret
+            pytest.raises(BaseException),  # noqa: B017 - nostr_sdk raises various exceptions
+        ):
+            load_keys_from_env("PRIVATE_KEY")
 
 
 class TestLoadKeysFromEnvCustomEnvVar:
@@ -197,9 +201,11 @@ class TestKeysConfigEnvironmentLoading:
 
     def test_raises_when_env_empty(self):
         """Test that ValidationError is raised when PRIVATE_KEY is empty."""
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: ""}):
-            with pytest.raises(Exception):  # noqa: B017
-                KeysConfig()
+        with (
+            patch.dict(os.environ, {ENV_PRIVATE_KEY: ""}),
+            pytest.raises(Exception),  # noqa: B017
+        ):
+            KeysConfig()
 
     def test_loads_hex_key_from_env(self):
         """Test that hex key is loaded from environment."""

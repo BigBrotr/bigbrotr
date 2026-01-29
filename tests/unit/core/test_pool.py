@@ -60,7 +60,7 @@ class TestDatabaseConfig:
             port=5433,
             database="mydb",
             user="myuser",
-            password="mypassword",
+            password="mypassword",  # pragma: allowlist secret
         )
 
         assert config.host == "custom.host.com"
@@ -169,11 +169,11 @@ class TestLimitsConfig:
 
     def test_max_size_greater_than_or_equal_to_min_size(self) -> None:
         """Test that max_size must be >= min_size."""
-        # Valid: max_size == min_size
+        # Valid case: equal sizes are allowed
         config = LimitsConfig(min_size=10, max_size=10)
         assert config.max_size == 10
 
-        # Invalid: max_size < min_size
+        # Invalid case: smaller max_size should fail
         with pytest.raises(ValidationError, match="max_size"):
             LimitsConfig(min_size=10, max_size=5)
 
@@ -269,11 +269,11 @@ class TestRetryConfig:
 
     def test_max_delay_greater_than_or_equal_to_initial(self) -> None:
         """Test that max_delay must be >= initial_delay."""
-        # Valid: max_delay == initial_delay
+        # Valid case: equal delays are allowed
         config = RetryConfig(initial_delay=5.0, max_delay=5.0)
         assert config.max_delay == 5.0
 
-        # Invalid: max_delay < initial_delay
+        # Invalid case: smaller max_delay should fail
         with pytest.raises(ValidationError, match="max_delay"):
             RetryConfig(initial_delay=5.0, max_delay=2.0)
 
@@ -353,7 +353,7 @@ class TestPoolConfig:
                 port=5433,
                 database="customdb",
                 user="customuser",
-                password="custompass",
+                password="custompass",  # pragma: allowlist secret
             ),
             limits=LimitsConfig(min_size=10, max_size=50),
             timeouts=TimeoutsConfig(acquisition=30.0),
@@ -808,9 +808,7 @@ class TestPoolAcquireHealthy:
         pool = Pool()
 
         unhealthy_conn = MagicMock()
-        unhealthy_conn.fetchval = AsyncMock(
-            side_effect=asyncpg.PostgresConnectionError("Dead")
-        )
+        unhealthy_conn.fetchval = AsyncMock(side_effect=asyncpg.PostgresConnectionError("Dead"))
 
         sleep_delays: list[float] = []
 
@@ -933,9 +931,7 @@ class TestPoolTransaction:
             assert conn is not None
 
     @pytest.mark.asyncio
-    async def test_transaction_not_connected_raises(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_transaction_not_connected_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that transaction() on unconnected pool raises RuntimeError."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         pool = Pool()
@@ -1084,16 +1080,12 @@ class TestPoolExecutemany:
     @pytest.mark.asyncio
     async def test_executemany_success(self, mock_pool: Pool) -> None:
         """Test executemany() with valid parameters."""
-        await mock_pool.executemany(
-            "INSERT INTO test VALUES ($1)", [(1,), (2,), (3,)]
-        )
+        await mock_pool.executemany("INSERT INTO test VALUES ($1)", [(1,), (2,), (3,)])
 
     @pytest.mark.asyncio
     async def test_executemany_with_timeout(self, mock_pool: Pool) -> None:
         """Test executemany() with custom timeout."""
-        await mock_pool.executemany(
-            "INSERT INTO test VALUES ($1)", [(1,)], timeout=30.0
-        )
+        await mock_pool.executemany("INSERT INTO test VALUES ($1)", [(1,)], timeout=30.0)
 
 
 # ============================================================================
@@ -1184,9 +1176,7 @@ class TestPoolContextManager:
     """Tests for Pool async context manager."""
 
     @pytest.mark.asyncio
-    async def test_context_manager_connects_on_enter(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_context_manager_connects_on_enter(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test context manager connects on entry."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         pool = Pool()
@@ -1198,9 +1188,7 @@ class TestPoolContextManager:
                 assert pool.is_connected is True
 
     @pytest.mark.asyncio
-    async def test_context_manager_closes_on_exit(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_context_manager_closes_on_exit(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test context manager closes on exit."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         pool = Pool()

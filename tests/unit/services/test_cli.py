@@ -125,9 +125,9 @@ class TestServiceRegistry:
         from core.base_service import BaseService
 
         for name, (service_class, _) in SERVICE_REGISTRY.items():
-            assert issubclass(
-                service_class, BaseService
-            ), f"{name} should be a BaseService subclass"
+            assert issubclass(service_class, BaseService), (
+                f"{name} should be a BaseService subclass"
+            )
 
     def test_config_paths_are_yaml_files(self) -> None:
         """Test all config paths end with .yaml."""
@@ -354,9 +354,7 @@ class TestSetupLogging:
 class TestLoadBrotr:
     """Tests for load_brotr function."""
 
-    def test_load_from_existing_file(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_load_from_existing_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test loading Brotr from existing config file."""
         monkeypatch.setenv("DB_PASSWORD", "testpass")
         config_file = tmp_path / "brotr.yaml"
@@ -422,9 +420,7 @@ class TestRunService:
     """Tests for run_service function."""
 
     @pytest.mark.asyncio
-    async def test_oneshot_service_success(
-        self, mock_brotr_for_cli: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_oneshot_service_success(self, mock_brotr_for_cli: Brotr, tmp_path: Path) -> None:
         """Test oneshot service completes successfully."""
         from services.seeder import Seeder
 
@@ -465,9 +461,7 @@ seed:
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_oneshot_service_failure(
-        self, mock_brotr_for_cli: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_oneshot_service_failure(self, mock_brotr_for_cli: Brotr, tmp_path: Path) -> None:
         """Test oneshot service failure returns 1."""
         from services.seeder import Seeder
 
@@ -532,9 +526,7 @@ discovery:
 """)
 
         # Mock run_forever to raise an exception
-        with patch.object(
-            Finder, "run_forever", AsyncMock(side_effect=Exception("Test error"))
-        ):
+        with patch.object(Finder, "run_forever", AsyncMock(side_effect=Exception("Test error"))):
             result = await run_service(
                 service_name="finder",
                 service_class=Finder,
@@ -600,9 +592,7 @@ metrics:
 """)
 
         with (
-            patch.object(
-                Finder, "run_forever", AsyncMock(side_effect=Exception("Test error"))
-            ),
+            patch.object(Finder, "run_forever", AsyncMock(side_effect=Exception("Test error"))),
             patch(
                 "services.__main__.start_metrics_server",
                 AsyncMock(return_value=mock_metrics_server),
@@ -634,9 +624,7 @@ metrics:
   enabled: true
 """)
 
-        with patch(
-            "services.__main__.start_metrics_server", AsyncMock()
-        ) as mock_start:
+        with patch("services.__main__.start_metrics_server", AsyncMock()) as mock_start:
             await run_service(
                 service_name="seeder",
                 service_class=Seeder,
@@ -688,12 +676,8 @@ discovery:
             )
 
             # Check SIGINT and SIGTERM handlers were registered
-            sigint_call = any(
-                call[0][0] == signal.SIGINT for call in mock_signal.call_args_list
-            )
-            sigterm_call = any(
-                call[0][0] == signal.SIGTERM for call in mock_signal.call_args_list
-            )
+            sigint_call = any(call[0][0] == signal.SIGINT for call in mock_signal.call_args_list)
+            sigterm_call = any(call[0][0] == signal.SIGTERM for call in mock_signal.call_args_list)
             assert sigint_call, "SIGINT handler should be registered"
             assert sigterm_call, "SIGTERM handler should be registered"
 
@@ -707,9 +691,7 @@ class TestMain:
     """Tests for main function."""
 
     @pytest.mark.asyncio
-    async def test_main_with_seeder(
-        self, mock_brotr_for_cli: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_main_with_seeder(self, mock_brotr_for_cli: Brotr, tmp_path: Path) -> None:
         """Test main function with seeder service."""
         config_file = tmp_path / "seeder.yaml"
         config_file.write_text("""
@@ -783,9 +765,7 @@ pool:
         assert result == 1
 
     @pytest.mark.asyncio
-    async def test_main_keyboard_interrupt(
-        self, mock_brotr_for_cli: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_main_keyboard_interrupt(self, mock_brotr_for_cli: Brotr, tmp_path: Path) -> None:
         """Test main handles KeyboardInterrupt."""
         brotr_config = tmp_path / "brotr.yaml"
         brotr_config.write_text("""
@@ -1059,12 +1039,11 @@ pool:
     def test_argument_help_text(self) -> None:
         """Test help text is available."""
         import io
-        import sys
 
         with (
             patch("sys.argv", ["prog", "--help"]),
             pytest.raises(SystemExit) as exc_info,
-            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch("sys.stdout", new_callable=io.StringIO),
         ):
             parse_args()
 

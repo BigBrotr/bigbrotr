@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -28,10 +28,6 @@ from models import EventRelay, Relay, RelayMetadata
 from models.event import Event
 from models.metadata import Metadata
 from models.relay_metadata import MetadataType
-
-
-if TYPE_CHECKING:
-    pass
 
 
 # ============================================================================
@@ -61,7 +57,7 @@ def mock_private_key(monkeypatch: pytest.MonkeyPatch) -> str:
 @pytest.fixture
 def mock_db_password(monkeypatch: pytest.MonkeyPatch) -> str:
     """Set up a mock database password in environment."""
-    password = "test_password"
+    password = "test_password"  # pragma: allowlist secret
     monkeypatch.setenv("DB_PASSWORD", password)
     return password
 
@@ -311,10 +307,7 @@ def sample_events_batch() -> list[EventRelay]:
 @pytest.fixture
 def sample_relays_batch() -> list[Relay]:
     """Generate a batch of sample Relay objects."""
-    return [
-        Relay(f"wss://relay{i}.example.com", discovered_at=1700000000)
-        for i in range(10)
-    ]
+    return [Relay(f"wss://relay{i}.example.com", discovered_at=1700000000) for i in range(10)]
 
 
 # ============================================================================
@@ -351,9 +344,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "slow: marks tests as slow running")
 
 
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Auto-mark tests based on location."""
     for item in items:
         if "integration" in str(item.fspath):

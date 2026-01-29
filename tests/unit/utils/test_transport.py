@@ -567,11 +567,10 @@ class TestInsecureWebSocketAdapterReceive:
     @pytest.mark.asyncio
     async def test_recv_timeout_returns_none(self):
         """Timeout returns None."""
-        import asyncio
 
         mock_ws = AsyncMock()
         mock_session = AsyncMock()
-        mock_ws.receive = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_ws.receive = AsyncMock(side_effect=TimeoutError())
 
         adapter = InsecureWebSocketAdapter(mock_ws, mock_session)
         result = await adapter.recv()
@@ -640,8 +639,6 @@ class TestInsecureWebSocketTransportConnect:
     async def test_connect_creates_ssl_context(self):
         """Connect creates an insecure SSL context."""
         from datetime import timedelta
-
-        import aiohttp
 
         from utils.transport import InsecureWebSocketTransport
 

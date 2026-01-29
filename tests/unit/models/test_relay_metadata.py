@@ -443,11 +443,13 @@ class TestEdgeCases:
 
     def test_with_complex_metadata(self, relay):
         """Works with complex nested metadata."""
-        complex_metadata = Metadata({
-            "name": "Test Relay",
-            "nested": {"deep": {"value": [1, 2, 3]}},
-            "tags": ["tag1", "tag2"],
-        })
+        complex_metadata = Metadata(
+            {
+                "name": "Test Relay",
+                "nested": {"deep": {"value": [1, 2, 3]}},
+                "tags": ["tag1", "tag2"],
+            }
+        )
         rm = RelayMetadata(relay, complex_metadata, "nip66_net", generated_at=1234567890)
         result = rm.to_db_params()
         parsed = json.loads(result.metadata_json)

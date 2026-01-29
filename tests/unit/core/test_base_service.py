@@ -17,7 +17,7 @@ Tests:
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from pydantic import Field, ValidationError
@@ -46,9 +46,7 @@ class ConcreteService(BaseService[ConcreteServiceConfig]):
     SERVICE_NAME = "test_service"
     CONFIG_CLASS = ConcreteServiceConfig
 
-    def __init__(
-        self, brotr: Brotr, config: ConcreteServiceConfig | None = None
-    ) -> None:
+    def __init__(self, brotr: Brotr, config: ConcreteServiceConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config or ConcreteServiceConfig())
         self.run_count = 0
         self.should_fail = False

@@ -15,7 +15,7 @@ Tests:
 """
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -452,7 +452,7 @@ class TestInsertEventsRelays:
     @pytest.mark.asyncio
     async def test_single_event_relay(self, mock_brotr: Brotr, sample_event: Any) -> None:
         """Test inserting single event-relay junction."""
-        inserted, skipped = await mock_brotr.insert_events_relays([sample_event])
+        inserted, _ = await mock_brotr.insert_events_relays([sample_event])
         assert inserted == 1
 
     @pytest.mark.asyncio
@@ -463,7 +463,7 @@ class TestInsertEventsRelays:
         mock_pool._mock_connection.fetchval = AsyncMock(  # type: ignore[attr-defined]
             return_value=len(sample_events_batch)
         )
-        inserted, skipped = await mock_brotr.insert_events_relays(sample_events_batch)
+        inserted, _ = await mock_brotr.insert_events_relays(sample_events_batch)
         assert inserted == len(sample_events_batch)
 
     @pytest.mark.asyncio

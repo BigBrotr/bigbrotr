@@ -250,9 +250,7 @@ class TestMetricsServerEndpoint:
         """Test server respects custom path configuration."""
         from aiohttp import ClientSession
 
-        config = MetricsConfig(
-            enabled=True, port=19880, host="127.0.0.1", path="/custom/prom"
-        )
+        config = MetricsConfig(enabled=True, port=19880, host="127.0.0.1", path="/custom/prom")
         server = MetricsServer(config)
 
         try:
@@ -260,15 +258,11 @@ class TestMetricsServerEndpoint:
 
             async with ClientSession() as session:
                 # Custom path should work
-                async with session.get(
-                    f"http://127.0.0.1:{config.port}/custom/prom"
-                ) as resp:
+                async with session.get(f"http://127.0.0.1:{config.port}/custom/prom") as resp:
                     assert resp.status == 200
 
                 # Default path should not work
-                async with session.get(
-                    f"http://127.0.0.1:{config.port}/metrics"
-                ) as resp:
+                async with session.get(f"http://127.0.0.1:{config.port}/metrics") as resp:
                     assert resp.status == 404
         finally:
             await server.stop()
@@ -420,53 +414,39 @@ class TestMetricUsage:
         """Test SERVICE_GAUGE can be set and observed."""
         SERVICE_GAUGE.labels(service="test_service", name="test_metric").set(42)
 
-        value = SERVICE_GAUGE.labels(
-            service="test_service", name="test_metric"
-        )._value.get()
+        value = SERVICE_GAUGE.labels(service="test_service", name="test_metric")._value.get()
         assert value == 42
 
     def test_gauge_set_float(self) -> None:
         """Test SERVICE_GAUGE accepts float values."""
         SERVICE_GAUGE.labels(service="test_service", name="float_metric").set(3.14)
 
-        value = SERVICE_GAUGE.labels(
-            service="test_service", name="float_metric"
-        )._value.get()
+        value = SERVICE_GAUGE.labels(service="test_service", name="float_metric")._value.get()
         assert value == 3.14
 
     def test_gauge_set_negative(self) -> None:
         """Test SERVICE_GAUGE accepts negative values."""
         SERVICE_GAUGE.labels(service="test_service", name="negative_metric").set(-10)
 
-        value = SERVICE_GAUGE.labels(
-            service="test_service", name="negative_metric"
-        )._value.get()
+        value = SERVICE_GAUGE.labels(service="test_service", name="negative_metric")._value.get()
         assert value == -10
 
     def test_counter_increment(self) -> None:
         """Test SERVICE_COUNTER can be incremented."""
-        initial = SERVICE_COUNTER.labels(
-            service="test_service", name="test_count"
-        )._value.get()
+        initial = SERVICE_COUNTER.labels(service="test_service", name="test_count")._value.get()
 
         SERVICE_COUNTER.labels(service="test_service", name="test_count").inc()
 
-        after = SERVICE_COUNTER.labels(
-            service="test_service", name="test_count"
-        )._value.get()
+        after = SERVICE_COUNTER.labels(service="test_service", name="test_count")._value.get()
         assert after == initial + 1
 
     def test_counter_increment_by_value(self) -> None:
         """Test SERVICE_COUNTER can be incremented by specific value."""
-        initial = SERVICE_COUNTER.labels(
-            service="test_service", name="count_by_value"
-        )._value.get()
+        initial = SERVICE_COUNTER.labels(service="test_service", name="count_by_value")._value.get()
 
         SERVICE_COUNTER.labels(service="test_service", name="count_by_value").inc(5)
 
-        after = SERVICE_COUNTER.labels(
-            service="test_service", name="count_by_value"
-        )._value.get()
+        after = SERVICE_COUNTER.labels(service="test_service", name="count_by_value")._value.get()
         assert after == initial + 5
 
     def test_histogram_observe(self) -> None:
@@ -488,12 +468,14 @@ class TestMetricUsage:
 
     def test_info_set_multiple_labels(self) -> None:
         """Test SERVICE_INFO accepts multiple label values."""
-        SERVICE_INFO.info({
-            "version": "2.0.0",
-            "service": "multi_label_test",
-            "environment": "test",
-            "build": "abc123",
-        })
+        SERVICE_INFO.info(
+            {
+                "version": "2.0.0",
+                "service": "multi_label_test",
+                "environment": "test",
+                "build": "abc123",
+            }
+        )
 
 
 class TestMetricDifferentServices:
@@ -504,12 +486,8 @@ class TestMetricDifferentServices:
         SERVICE_GAUGE.labels(service="service_a", name="shared_metric").set(10)
         SERVICE_GAUGE.labels(service="service_b", name="shared_metric").set(20)
 
-        value_a = SERVICE_GAUGE.labels(
-            service="service_a", name="shared_metric"
-        )._value.get()
-        value_b = SERVICE_GAUGE.labels(
-            service="service_b", name="shared_metric"
-        )._value.get()
+        value_a = SERVICE_GAUGE.labels(service="service_a", name="shared_metric")._value.get()
+        value_b = SERVICE_GAUGE.labels(service="service_b", name="shared_metric")._value.get()
 
         assert value_a == 10
         assert value_b == 20
@@ -520,12 +498,8 @@ class TestMetricDifferentServices:
         SERVICE_COUNTER.labels(service="counter_svc_a", name="unique_count").inc(5)
         SERVICE_COUNTER.labels(service="counter_svc_b", name="unique_count").inc(10)
 
-        value_a = SERVICE_COUNTER.labels(
-            service="counter_svc_a", name="unique_count"
-        )._value.get()
-        value_b = SERVICE_COUNTER.labels(
-            service="counter_svc_b", name="unique_count"
-        )._value.get()
+        value_a = SERVICE_COUNTER.labels(service="counter_svc_a", name="unique_count")._value.get()
+        value_b = SERVICE_COUNTER.labels(service="counter_svc_b", name="unique_count")._value.get()
 
         assert value_a == 5
         assert value_b == 10
@@ -539,12 +513,8 @@ class TestMetricDifferentNames:
         SERVICE_GAUGE.labels(service="name_test", name="metric_1").set(100)
         SERVICE_GAUGE.labels(service="name_test", name="metric_2").set(200)
 
-        value_1 = SERVICE_GAUGE.labels(
-            service="name_test", name="metric_1"
-        )._value.get()
-        value_2 = SERVICE_GAUGE.labels(
-            service="name_test", name="metric_2"
-        )._value.get()
+        value_1 = SERVICE_GAUGE.labels(service="name_test", name="metric_1")._value.get()
+        value_2 = SERVICE_GAUGE.labels(service="name_test", name="metric_2")._value.get()
 
         assert value_1 == 100
         assert value_2 == 200

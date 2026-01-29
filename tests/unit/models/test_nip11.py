@@ -5,17 +5,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
+from models.metadata import Metadata
 from models.nips.nip11 import (
     Nip11,
     Nip11FetchData,
     Nip11FetchDataFeeEntry,
     Nip11FetchDataFees,
     Nip11FetchDataLimitation,
+    Nip11FetchDataRetentionEntry,
     Nip11FetchLogs,
     Nip11FetchMetadata,
-    Nip11FetchDataRetentionEntry,
 )
-from models.metadata import Metadata
 from models.relay import Relay
 from models.relay_metadata import MetadataType
 
@@ -180,10 +180,12 @@ class TestNip11FetchDataLimitation:
 
     def test_from_dict_valid(self):
         """from_dict with valid data creates Nip11FetchDataLimitation."""
-        lim = Nip11FetchDataLimitation.from_dict({
-            "max_message_length": 65535,
-            "auth_required": True,
-        })
+        lim = Nip11FetchDataLimitation.from_dict(
+            {
+                "max_message_length": 65535,
+                "auth_required": True,
+            }
+        )
         assert lim.max_message_length == 65535
         assert lim.auth_required is True
         assert lim.max_subscriptions is None
@@ -191,7 +193,9 @@ class TestNip11FetchDataLimitation:
     def test_from_dict_roundtrip(self):
         """to_dict -> from_dict roundtrip preserves data."""
         original = Nip11FetchDataLimitation(
-            max_message_length=65535, max_subscriptions=20, auth_required=False,
+            max_message_length=65535,
+            max_subscriptions=20,
+            auth_required=False,
         )
         reconstructed = Nip11FetchDataLimitation.from_dict(original.to_dict())
         assert reconstructed == original
@@ -249,7 +253,9 @@ class TestNip11FetchDataRetentionEntry:
 
     def test_from_dict_valid(self):
         """from_dict with valid data creates Nip11FetchDataRetentionEntry."""
-        entry = Nip11FetchDataRetentionEntry.from_dict({"kinds": [1, [10000, 19999]], "time": 86400})
+        entry = Nip11FetchDataRetentionEntry.from_dict(
+            {"kinds": [1, [10000, 19999]], "time": 86400}
+        )
         # Pydantic converts [int, int] ranges to tuples internally
         assert entry.kinds == [1, (10000, 19999)]
         assert entry.time == 86400
@@ -308,7 +314,9 @@ class TestNip11FetchDataFeeEntry:
 
     def test_from_dict_valid(self):
         """from_dict with valid data creates Nip11FetchDataFeeEntry."""
-        entry = Nip11FetchDataFeeEntry.from_dict({"amount": 1000, "unit": "sats", "period": 2628003})
+        entry = Nip11FetchDataFeeEntry.from_dict(
+            {"amount": 1000, "unit": "sats", "period": 2628003}
+        )
         assert entry.amount == 1000
         assert entry.unit == "sats"
         assert entry.period == 2628003
@@ -353,11 +361,13 @@ class TestNip11FetchDataFees:
 
     def test_from_dict_valid(self):
         """from_dict with valid data creates Nip11FetchDataFees."""
-        fees = Nip11FetchDataFees.from_dict({
-            "admission": [{"amount": 1000, "unit": "sats"}],
-            "subscription": None,
-            "publication": None,
-        })
+        fees = Nip11FetchDataFees.from_dict(
+            {
+                "admission": [{"amount": 1000, "unit": "sats"}],
+                "subscription": None,
+                "publication": None,
+            }
+        )
         assert fees.admission is not None
         assert len(fees.admission) == 1
         assert fees.admission[0].amount == 1000
@@ -644,7 +654,7 @@ class TestNip11Create:
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.headers = {"Content-Type": "application/json"}
-        mock_response.content.read = AsyncMock(return_value=b'{}')
+        mock_response.content.read = AsyncMock(return_value=b"{}")
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -670,7 +680,7 @@ class TestNip11Create:
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.headers = {"Content-Type": "application/json"}
-        mock_response.content.read = AsyncMock(return_value=b'{}')
+        mock_response.content.read = AsyncMock(return_value=b"{}")
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -692,7 +702,7 @@ class TestNip11Create:
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.headers = {"Content-Type": "application/json"}
-        mock_response.content.read = AsyncMock(return_value=b'{}')
+        mock_response.content.read = AsyncMock(return_value=b"{}")
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -711,7 +721,11 @@ class TestNip11Create:
     @pytest.mark.asyncio
     async def test_valid_content_types_accepted(self, relay):
         """Both application/nostr+json and application/json are valid."""
-        for content_type in ["application/nostr+json", "application/json", "application/json; charset=utf-8"]:
+        for content_type in [
+            "application/nostr+json",
+            "application/json",
+            "application/json; charset=utf-8",
+        ]:
             mock_response = AsyncMock()
             mock_response.status = 200
             mock_response.headers = {"Content-Type": content_type}
@@ -735,7 +749,7 @@ class TestNip11Create:
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.headers = {"Content-Type": "text/html"}
-        mock_response.content.read = AsyncMock(return_value=b'<html>')
+        mock_response.content.read = AsyncMock(return_value=b"<html>")
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -756,7 +770,7 @@ class TestNip11Create:
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.headers = {"Content-Type": "application/json"}
-        mock_response.content.read = AsyncMock(return_value=b'x' * 100000)
+        mock_response.content.read = AsyncMock(return_value=b"x" * 100000)
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -777,7 +791,7 @@ class TestNip11Create:
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.headers = {"Content-Type": "application/json"}
-        mock_response.content.read = AsyncMock(return_value=b'not json')
+        mock_response.content.read = AsyncMock(return_value=b"not json")
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 

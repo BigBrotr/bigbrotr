@@ -182,7 +182,7 @@ class TestSeederInit:
 
     def test_config_class_attribute(self, mock_seeder_brotr: Brotr) -> None:
         """Test CONFIG_CLASS class attribute."""
-        assert Seeder.CONFIG_CLASS == SeederConfig
+        assert SeederConfig == Seeder.CONFIG_CLASS
 
     def test_logger_initialized(self, mock_seeder_brotr: Brotr) -> None:
         """Test logger is initialized."""
@@ -484,9 +484,7 @@ class TestSeedAsRelays:
         mock_seeder_brotr.insert_relays.assert_called()
 
     @pytest.mark.asyncio
-    async def test_seed_as_relays_batching(
-        self, mock_seeder_brotr: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_seed_as_relays_batching(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test seeding batches large relay lists."""
         # Create a large relay list
         seed_file = tmp_path / "seed.txt"
@@ -540,7 +538,9 @@ class TestSeederRun:
         await seeder.run()  # Should complete without error
 
     @pytest.mark.asyncio
-    async def test_run_logs_cycle_completion(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
+    async def test_run_logs_cycle_completion(
+        self, mock_seeder_brotr: Brotr, tmp_path: Path
+    ) -> None:
         """Test run logs cycle completion."""
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay.example.com\n")
