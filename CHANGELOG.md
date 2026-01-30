@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.0.1] - 2026-02-04
+
+Major refactoring release with new NIP models architecture, Python-side hash computation, and comprehensive documentation alignment.
+
+### Added
+- **NIP-11 subpackage** (`src/models/nips/nip11/`):
+  - `Nip11` main class with database serialization
+  - `Nip11FetchData` with relay info document structure
+  - `Nip11FetchLogs` for fetch status tracking
+  - HTTP fetch implementation with SSL fallback
+- **NIP-66 subpackage** (`src/models/nips/nip66/`):
+  - `Nip66` aggregate class with database serialization
+  - `Nip66RttMetadata` with WebSocket probe testing
+  - `Nip66SslMetadata` with certificate validation
+  - `Nip66GeoMetadata` with MaxMind GeoLite2 lookup
+  - `Nip66NetMetadata` with ASN lookup
+  - `Nip66DnsMetadata` with comprehensive record lookup
+  - `Nip66HttpMetadata` from WebSocket handshake
+  - Data and logs models for all metadata types
+- **NIP base classes** (`src/models/nips/base.py`) for content-addressed storage
+- **Async DNS utility** (`src/utils/dns.py`) with IPv4/IPv6 support
+- **Retry configuration** for all metadata types in Monitor
+- `py.typed` markers for nips subpackages
+
+### Changed
+- **Hash computation moved to Python**: SHA-256 hashing now performed in Python instead of PostgreSQL for better portability
+- **SQL schema updated**: All implementations (bigbrotr, lilbrotr, template) updated for BYTEA metadata id
+- **Monitor service refactored** to use new nips metadata classes
+- **Brotr updated** for Python-side metadata hash computation
+- **Logging standardized** across all models, utils, and services
+- **Default max_batch_size reduced** from 10000 to 1000
+- **Network config classes separated** to fix partial YAML override inheritance
+- **Metrics endpoint secured** with standardized ports
+
+### Fixed
+- Runtime imports for Pydantic models restored
+- Column name in `relay_metadata_latest` materialized view corrected
+- Null byte validation added to Event content
+- Logger-related issues resolved (#124, #78, #99, #141, #92)
+- Documentation aligned with actual codebase:
+  - BigBrotr Expert reference files updated for NIP subpackages
+  - Database column name corrected (`metadata.data` → `metadata.metadata`)
+  - BaseService constructor signature documented (config is optional)
+  - Version references aligned across all files
+
+---
+
 ## [3.0.0] - 2026-01-26
 
 Major release with four-layer architecture, expanded NIP-66 compliance, and comprehensive AI-assisted development tooling.
@@ -201,7 +248,8 @@ Initial prototype release.
 
 ---
 
-[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.1...HEAD
+[3.0.1]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/bigbrotr/bigbrotr/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/bigbrotr/bigbrotr/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/bigbrotr/bigbrotr/releases/tag/v1.0.0

@@ -324,8 +324,12 @@ class MyService(BaseService[MyServiceConfig]):
 ### Constructor
 
 ```python
-def __init__(self, brotr: Brotr, config: Optional[ConfigT] = None) -> None
+def __init__(self, brotr: Brotr, config: ConfigT | None = None) -> None
 ```
+
+**Parameters**:
+- `brotr`: Database interface instance (required)
+- `config`: Service configuration (optional). If `None`, creates default config via `CONFIG_CLASS()`.
 
 **Protected Attributes**:
 - `_brotr: Brotr` - Database interface

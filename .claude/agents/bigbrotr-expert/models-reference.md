@@ -4,8 +4,9 @@ Complete documentation for BigBrotr's data models (Relay, Event, EventRelay, Met
 
 ## Immutability Pattern
 
-All models use frozen dataclasses with `__new__` and `object.__setattr__` to enforce true immutability:
+Models use either frozen dataclasses or frozen Pydantic models:
 
+**Dataclass Pattern** (Relay, Event, EventRelay, Metadata, RelayMetadata):
 ```python
 @dataclass(frozen=True)
 class MyModel:
@@ -20,7 +21,14 @@ class MyModel:
         pass  # Required but empty
 ```
 
-This pattern prevents accidental mutation after creation.
+**Pydantic Pattern** (Nip11, Nip66, and all NIP submodels in `src/models/nips/`):
+```python
+class MyModel(BaseModel):
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+    field: str
+```
+
+Both patterns prevent accidental mutation after creation.
 
 ---
 
@@ -269,10 +277,14 @@ RelayMetadata(
 
 **Metadata Types**:
 ```python
-MetadataType = Literal[
-    "nip11", "nip66_rtt", "nip66_probe", "nip66_ssl",
-    "nip66_geo", "nip66_net", "nip66_dns", "nip66_http"
-]
+class MetadataType(StrEnum):
+    NIP11_FETCH = "nip11_fetch"
+    NIP66_RTT = "nip66_rtt"
+    NIP66_SSL = "nip66_ssl"
+    NIP66_GEO = "nip66_geo"
+    NIP66_NET = "nip66_net"
+    NIP66_DNS = "nip66_dns"
+    NIP66_HTTP = "nip66_http"
 ```
 
 ### Attributes
@@ -472,11 +484,10 @@ snapshot_at: int
 ### Methods
 
 ```python
-def to_relay_metadata() -> list[RelayMetadata]
+def to_relay_metadata_tuple() -> RelayNip66MetadataTuple
 ```
-Convert to list of RelayMetadata (up to 8 types):
-1. `nip66_rtt` - RTT and basic connectivity data
-2. `nip66_probe` - Detailed probe results
+Convert to NamedTuple of RelayMetadata (up to 7 types):
+1. `nip66_rtt` - RTT and basic connectivity data (includes probe results)
 3. `nip66_ssl` - SSL/TLS certificate data (clearnet only)
 4. `nip66_geo` - Geolocation data (clearnet only)
 5. `nip66_net` - Network information

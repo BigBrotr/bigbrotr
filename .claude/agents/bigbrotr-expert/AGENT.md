@@ -378,7 +378,7 @@ CREATE TABLE metadata (
 CREATE TABLE relay_metadata (
     relay_url TEXT REFERENCES relays(url) ON DELETE CASCADE,
     generated_at BIGINT NOT NULL,
-    type TEXT NOT NULL,                 -- nip11, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
+    type TEXT NOT NULL,                 -- nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
     metadata_id BYTEA REFERENCES metadata(id) ON DELETE CASCADE,
     PRIMARY KEY (relay_url, generated_at, type)
 );
@@ -595,19 +595,24 @@ async def test_myservice(mock_brotr):
 
 ### Adding a New Metadata Type
 
-1. **Extend `MetadataType` literal** in `src/models/relay_metadata.py`:
+1. **Extend `MetadataType` enum** in `src/models/relay_metadata.py`:
 ```python
-MetadataType = Literal[
-    "nip11", "nip66_rtt", "nip66_probe", "nip66_ssl",
-    "nip66_geo", "nip66_net", "nip66_dns", "nip66_http", "my_new_type"
-]
+class MetadataType(StrEnum):
+    NIP11_FETCH = "nip11_fetch"
+    NIP66_RTT = "nip66_rtt"
+    NIP66_SSL = "nip66_ssl"
+    NIP66_GEO = "nip66_geo"
+    NIP66_NET = "nip66_net"
+    NIP66_DNS = "nip66_dns"
+    NIP66_HTTP = "nip66_http"
+    MY_NEW_TYPE = "my_new_type"
 ```
 
 2. **Update database constraint** in `02_tables.sql`:
 ```sql
 ALTER TABLE relay_metadata DROP CONSTRAINT IF EXISTS relay_metadata_type_check;
 ALTER TABLE relay_metadata ADD CONSTRAINT relay_metadata_type_check
-    CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_probe', 'nip66_ssl',
+    CHECK (type IN ('nip11_fetch', 'nip66_rtt', 'nip66_ssl',
                     'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http', 'my_new_type'));
 ```
 

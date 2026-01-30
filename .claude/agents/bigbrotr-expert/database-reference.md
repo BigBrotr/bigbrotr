@@ -98,14 +98,14 @@ Unified storage for NIP-11 and NIP-66 metadata documents (content-addressed).
 
 ```sql
 CREATE TABLE metadata (
-    id      BYTEA   PRIMARY KEY,
-    data    JSONB   NOT NULL
+    id          BYTEA   PRIMARY KEY,
+    metadata    JSONB   NOT NULL
 );
 ```
 
 **Columns**:
 - `id`: SHA-256 hash of JSON data (computed by PostgreSQL)
-- `data`: Complete JSON document (NIP-11 or NIP-66)
+- `metadata`: Complete JSON document (NIP-11 or NIP-66)
 
 **Deduplication**: Multiple relays with identical metadata share the same record.
 
@@ -124,7 +124,7 @@ CREATE TABLE relay_metadata (
     PRIMARY KEY (relay_url, generated_at, type),
     FOREIGN KEY (relay_url)    REFERENCES relays(url)    ON DELETE CASCADE,
     FOREIGN KEY (metadata_id)  REFERENCES metadata(id)   ON DELETE CASCADE,
-    CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_probe', 'nip66_ssl',
+    CHECK (type IN ('nip11_fetch', 'nip66_rtt', 'nip66_ssl',
                     'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http'))
 );
 ```
@@ -132,7 +132,7 @@ CREATE TABLE relay_metadata (
 **Columns**:
 - `relay_url`: Reference to relays.url
 - `generated_at`: Unix timestamp when metadata was collected
-- `type`: Metadata type ('nip11', 'nip66_rtt', 'nip66_probe', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http')
+- `type`: Metadata type ('nip11_fetch', 'nip66_rtt', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http')
 - `metadata_id`: Reference to metadata.id
 
 **Purpose**: Tracks metadata changes over time. Each relay can have multiple snapshots per type.
@@ -245,7 +245,7 @@ FUNCTION insert_relay_metadata(
 ) RETURNS VOID
 ```
 
-**Hash Computation**: Metadata hash is computed in PostgreSQL using `sha256(convert_to(p_metadata_data::TEXT, 'UTF8'))`.
+**Hash Computation**: Metadata hash is computed in Python using `hashlib.sha256()` before insertion. The SQL function receives pre-computed hashes.
 
 **Usage**:
 ```sql
@@ -254,7 +254,7 @@ SELECT insert_relay_metadata(
     'clearnet',
     1700000000,
     1700000001,
-    'nip11',
+    'nip11_fetch',
     '{"name": "Test Relay", "supported_nips": [1, 2, 9, 11]}'::JSONB
 );
 ```
@@ -480,14 +480,14 @@ WHERE kind = 10002  -- NIP-65 relay list
 ```sql
 -- Get NIP-11 history for a relay
 SELECT
-    rm.snapshot_at,
-    m.data->>'name' AS relay_name,
-    m.data->'supported_nips' AS nips
+    rm.generated_at,
+    m.metadata->>'name' AS relay_name,
+    m.metadata->'supported_nips' AS nips
 FROM relay_metadata rm
 JOIN metadata m ON rm.metadata_id = m.id
 WHERE rm.relay_url = 'relay.example.com'
-  AND rm.type = 'nip11'
-ORDER BY rm.snapshot_at DESC;
+  AND rm.type = 'nip11_fetch'
+ORDER BY rm.generated_at DESC;
 ```
 
 ### Performance Analysis

@@ -166,21 +166,20 @@ Unified storage for NIP-11 and NIP-66 metadata documents with content-addressed 
 ```sql
 CREATE TABLE metadata (
     id BYTEA PRIMARY KEY,
-    data JSONB NOT NULL
+    metadata JSONB NOT NULL
 );
 ```
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | BYTEA (PK) | Content hash (SHA-256 of JSON data) |
-| `data` | JSONB | Complete JSON document (NIP-11 or NIP-66 data) |
+| `id` | BYTEA (PK) | Content hash (SHA-256 computed in Python) |
+| `metadata` | JSONB | Complete JSON document (NIP-11 or NIP-66 data) |
 
 **Deduplication**: Multiple relays with identical metadata share the same record. The hash is computed from the JSONB content, ensuring automatic deduplication.
 
 **Content Types**:
-- **NIP-11**: Relay information documents (name, description, supported NIPs, limitations, etc.)
-- **NIP-66 RTT**: Round-trip time measurements (open, read, write)
-- **NIP-66 Probe**: Probe results (is_openable, is_readable, is_writable)
+- **NIP-11 Fetch**: Relay information documents (name, description, supported NIPs, limitations, etc.)
+- **NIP-66 RTT**: Round-trip time measurements (open, read, write) and probe results
 - **NIP-66 SSL**: SSL/TLS certificate information
 - **NIP-66 Geo**: Geolocation data (country, city, coordinates, ASN)
 - **NIP-66 Net**: Network information (IP addresses, protocols)
@@ -198,7 +197,7 @@ CREATE TABLE relay_metadata (
     type TEXT NOT NULL,
     metadata_id BYTEA NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
     PRIMARY KEY (relay_url, generated_at, type),
-    CONSTRAINT relay_metadata_type_check CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_probe', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http'))
+    CONSTRAINT relay_metadata_type_check CHECK (type IN ('nip11_fetch', 'nip66_rtt', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http'))
 );
 ```
 
@@ -206,7 +205,7 @@ CREATE TABLE relay_metadata (
 |--------|------|-------------|
 | `relay_url` | TEXT (FK, PK) | Reference to relays table |
 | `generated_at` | BIGINT (PK) | Unix timestamp when metadata snapshot was collected |
-| `type` | TEXT (PK) | Metadata type: `nip11`, `nip66_rtt`, `nip66_probe`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, or `nip66_http` |
+| `type` | TEXT (PK) | Metadata type: `nip11_fetch`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, or `nip66_http` |
 | `metadata_id` | BYTEA (FK) | Reference to metadata table |
 
 **Note**: Each relay can have multiple metadata types per snapshot, allowing separate storage of NIP-11 info, RTT measurements, SSL data, and geolocation data.
@@ -359,7 +358,7 @@ CREATE OR REPLACE FUNCTION insert_relay_metadata(
 - `p_relay_network`: Network type (`clearnet`, `tor`, `i2p`, or `loki`)
 - `p_relay_discovered_at`: Relay discovery timestamp
 - `p_generated_at`: Metadata snapshot timestamp
-- `p_type`: Metadata type (`nip11`, `nip66_rtt`, `nip66_probe`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`)
+- `p_type`: Metadata type (`nip11_fetch`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`)
 - `p_metadata_data`: Complete metadata as JSONB
 
 **Deduplication Process**:
@@ -432,7 +431,7 @@ ORDER BY relay_url, type, generated_at DESC;
 SELECT rm.relay_url, m.data
 FROM relay_metadata_latest rm
 JOIN metadata m ON rm.metadata_id = m.id
-WHERE rm.type = 'nip11';
+WHERE rm.type = 'nip11_fetch';
 
 -- Get relays with recent RTT data
 SELECT rm.relay_url, m.data->>'rtt_open' AS rtt_open
