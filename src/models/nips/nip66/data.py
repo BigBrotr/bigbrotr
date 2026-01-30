@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
+
+from pydantic import StrictBool, StrictFloat, StrictInt  # noqa: TC002 - Pydantic needs at runtime
 
 from models.nips.base import BaseData
-
-
-if TYPE_CHECKING:
-    from pydantic import StrictBool, StrictFloat, StrictInt
 
 
 class Nip66RttData(BaseData):

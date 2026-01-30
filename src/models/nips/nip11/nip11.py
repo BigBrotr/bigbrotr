@@ -3,20 +3,16 @@
 from __future__ import annotations
 
 from time import time
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from models.metadata import Metadata
+from models.relay import Relay  # noqa: TC001 - Pydantic needs at runtime
 from models.relay_metadata import MetadataType, RelayMetadata
 
 from .fetch import Nip11FetchMetadata
-
-
-if TYPE_CHECKING:
-    from models.relay import Relay
-
-    from .logs import Nip11FetchLogs
+from .logs import Nip11FetchLogs  # noqa: TC001 - Pydantic needs at runtime
 
 
 class RelayNip11MetadataTuple(NamedTuple):
