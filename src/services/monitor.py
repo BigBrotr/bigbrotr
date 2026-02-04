@@ -23,18 +23,28 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import time
 import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, ClassVar, NamedTuple
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, NamedTuple, TypeVar
 
 import geoip2.database
 from nostr_sdk import EventBuilder, Filter, Keys, Kind, RelayUrl, Tag
 from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer, model_validator
 
 from core.base_service import BaseService, BaseServiceConfig
-from models import Nip11, Nip66, Relay, RelayMetadata
+from models import Nip11, Relay, RelayMetadata
+from models.nips.nip66 import (
+    Nip66DnsMetadata,
+    Nip66GeoMetadata,
+    Nip66HttpMetadata,
+    Nip66NetMetadata,
+    Nip66RttMetadata,
+    Nip66SslMetadata,
+)
 from models.relay import NetworkType
+from models.relay_metadata import MetadataType
 from utils.keys import KeysConfig
 from utils.network import NetworkConfig
 from utils.progress import BatchProgress
@@ -42,7 +52,11 @@ from utils.transport import create_client
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
     from core.brotr import Brotr
+
+_T = TypeVar("_T")
 
 
 def _parse_relays(v: list[str | Relay]) -> list[Relay]:
@@ -134,12 +148,34 @@ class MetadataFlags(BaseModel):
         ]
 
 
+class RetryConfig(BaseModel):
+    """Retry settings with exponential backoff for a single metadata operation."""
+
+    max_retries: int = Field(default=0, ge=0, le=10)
+    base_delay: float = Field(default=1.0, ge=0.1, le=10.0)
+    max_delay: float = Field(default=10.0, ge=1.0, le=60.0)
+    jitter: float = Field(default=0.5, ge=0.0, le=2.0)
+
+
+class MetadataRetryConfig(BaseModel):
+    """Retry settings for each metadata type."""
+
+    nip11: RetryConfig = Field(default_factory=RetryConfig)
+    nip66_rtt: RetryConfig = Field(default_factory=RetryConfig)
+    nip66_ssl: RetryConfig = Field(default_factory=RetryConfig)
+    nip66_geo: RetryConfig = Field(default_factory=RetryConfig)
+    nip66_net: RetryConfig = Field(default_factory=RetryConfig)
+    nip66_dns: RetryConfig = Field(default_factory=RetryConfig)
+    nip66_http: RetryConfig = Field(default_factory=RetryConfig)
+
+
 class ProcessingConfig(BaseModel):
     """Processing settings including what to compute and store."""
 
     chunk_size: int = Field(default=100, ge=10, le=1000)
     max_relays: int | None = Field(default=None, ge=1)
     nip11_max_size: int = Field(default=1_048_576, ge=1024, le=10_485_760)
+    retry: MetadataRetryConfig = Field(default_factory=MetadataRetryConfig)
     compute: MetadataFlags = Field(default_factory=MetadataFlags)
     store: MetadataFlags = Field(default_factory=MetadataFlags)
 
@@ -688,6 +724,89 @@ class Monitor(BaseService[MonitorConfig]):
 
         return successful, failed
 
+    _T = TypeVar("_T")
+
+    @staticmethod
+    def _get_success(result: Any) -> bool:
+        """Extract success status from metadata logs.
+
+        Handles both standard logs (success) and RTT logs (open_success).
+        """
+        logs = result.logs
+        if hasattr(logs, "success"):
+            return logs.success
+        if hasattr(logs, "open_success"):
+            return logs.open_success
+        return False
+
+    @staticmethod
+    def _get_reason(result: Any) -> str | None:
+        """Extract failure reason from metadata logs."""
+        logs = result.logs
+        if hasattr(logs, "reason"):
+            return logs.reason
+        if hasattr(logs, "open_reason"):
+            return logs.open_reason
+        return None
+
+    async def _with_retry(
+        self,
+        coro_factory: Callable[[], Coroutine[Any, Any, _T]],
+        retry_config: RetryConfig,
+        operation: str,
+        relay_url: str,
+    ) -> _T | None:
+        """Execute metadata fetch with exponential backoff retry.
+
+        Args:
+            coro_factory: Callable that creates a fresh coroutine each call.
+            retry_config: Retry configuration (max_retries, delays, jitter).
+            operation: Operation name for logging (e.g., "nip66_ssl").
+            relay_url: Relay URL for logging context.
+
+        Returns:
+            Metadata instance if successful, None if all retries failed.
+        """
+        max_retries = retry_config.max_retries
+        result = None
+
+        for attempt in range(max_retries + 1):
+            try:
+                result = await coro_factory()
+                if self._get_success(result):
+                    return result
+            except Exception as e:
+                # Precondition failures (wrong network type) - don't retry
+                self._logger.debug(
+                    f"{operation}_error",
+                    relay=relay_url,
+                    attempt=attempt + 1,
+                    error=str(e),
+                )
+                return None
+
+            # Network failure - retry if attempts remaining
+            if attempt < max_retries:
+                delay = min(retry_config.base_delay * (2**attempt), retry_config.max_delay)
+                jitter = random.uniform(0, retry_config.jitter)
+                await asyncio.sleep(delay + jitter)
+                self._logger.debug(
+                    f"{operation}_retry",
+                    relay=relay_url,
+                    attempt=attempt + 1,
+                    reason=self._get_reason(result) if result else None,
+                    delay_s=round(delay + jitter, 2),
+                )
+
+        # All retries exhausted
+        self._logger.debug(
+            f"{operation}_failed",
+            relay=relay_url,
+            attempts=max_retries + 1,
+            reason=self._get_reason(result) if result else None,
+        )
+        return result  # Return last result (has failure info in logs)
+
     async def _check_one(self, relay: Relay) -> CheckResult:
         """Perform health checks on a single relay.
 
@@ -720,65 +839,123 @@ class Monitor(BaseService[MonitorConfig]):
             compute = self._config.processing.compute
 
             nip11: Nip11 | None = None
-            nip66_meta = None
+            generated_at = int(time.time())
+
+            # Helper to convert metadata to RelayMetadata
+            def to_relay_meta(
+                meta: BaseModel | None, meta_type: MetadataType
+            ) -> RelayMetadata | None:
+                if meta is None:
+                    return None
+                from models.metadata import Metadata
+
+                return RelayMetadata(
+                    relay=relay,
+                    metadata=Metadata(meta.to_dict()),  # type: ignore[attr-defined]
+                    metadata_type=meta_type,
+                    generated_at=generated_at,
+                )
 
             try:
-                # NIP-11 check
+                # NIP-11 check (with retry)
                 if compute.nip11:
-                    nip11 = await Nip11.fetch(
-                        relay,
-                        timeout=timeout,
-                        max_size=self._config.processing.nip11_max_size,
-                        proxy_url=proxy_url,
+                    nip11 = await self._with_retry(
+                        lambda: Nip11.fetch(
+                            relay,
+                            timeout=timeout,
+                            max_size=self._config.processing.nip11_max_size,
+                            proxy_url=proxy_url,
+                        ),
+                        self._config.processing.retry.nip11,
+                        "nip11",
+                        relay.url,
                     )
 
-                # NIP-66 tests (RTT, Probe, SSL, Geo, Net, DNS, HTTP)
-                needs_rtt_probe = compute.nip66_rtt or compute.nip66_probe
-                keys = self._keys if needs_rtt_probe else None
+                # NIP-66 individual tests (each with its own retry config)
+                rtt_meta: Nip66RttMetadata | None = None
+                ssl_meta: Nip66SslMetadata | None = None
+                dns_meta: Nip66DnsMetadata | None = None
+                geo_meta: Nip66GeoMetadata | None = None
+                net_meta: Nip66NetMetadata | None = None
+                http_meta: Nip66HttpMetadata | None = None
 
-                # Build addressable test event (kind 30000 with d=relay_url)
-                # Replaceable per relay, can be read back to verify write
-                event_builder: EventBuilder | None = None
-                if needs_rtt_probe:
+                # RTT test (requires keys, event_builder, read_filter)
+                if compute.nip66_rtt and self._keys:
                     event_builder = EventBuilder(Kind(30000), "nip66-test").tags(
                         [Tag.parse(["d", relay.url])]
                     )
                     # Add POW if NIP-11 specifies minimum difficulty
-                    if nip11 and nip11.limitation:
+                    if nip11 and self._get_success(nip11) and nip11.limitation:
                         pow_difficulty = nip11.limitation.get("min_pow_difficulty", 0)
                         if pow_difficulty and pow_difficulty > 0:
                             event_builder = event_builder.pow(pow_difficulty)
+                    read_filter = Filter().limit(1)
+                    rtt_meta = await self._with_retry(
+                        lambda: Nip66RttMetadata.rtt(
+                            relay, self._keys, event_builder, read_filter, timeout, proxy_url
+                        ),
+                        self._config.processing.retry.nip66_rtt,
+                        "nip66_rtt",
+                        relay.url,
+                    )
 
-                read_filter = Filter().limit(1) if needs_rtt_probe else None
-                nip66 = await Nip66.test(
-                    relay=relay,
-                    timeout=timeout,
-                    keys=keys,
-                    event_builder=event_builder,
-                    read_filter=read_filter,
-                    city_reader=self._geo_reader,
-                    asn_reader=self._asn_reader,
-                    run_rtt=compute.nip66_rtt,
-                    run_probe=compute.nip66_probe,
-                    run_ssl=compute.nip66_ssl,
-                    run_geo=compute.nip66_geo,
-                    run_net=compute.nip66_net,
-                    run_dns=compute.nip66_dns,
-                    run_http=compute.nip66_http,
-                    proxy_url=proxy_url,
-                )
-                if nip66:
-                    nip66_meta = nip66.to_relay_metadata()
+                # SSL test (clearnet only)
+                if compute.nip66_ssl and relay.network == NetworkType.CLEARNET:
+                    ssl_meta = await self._with_retry(
+                        lambda: Nip66SslMetadata.ssl(relay, timeout),
+                        self._config.processing.retry.nip66_ssl,
+                        "nip66_ssl",
+                        relay.url,
+                    )
 
+                # DNS test (clearnet only)
+                if compute.nip66_dns and relay.network == NetworkType.CLEARNET:
+                    dns_meta = await self._with_retry(
+                        lambda: Nip66DnsMetadata.dns(relay, timeout),
+                        self._config.processing.retry.nip66_dns,
+                        "nip66_dns",
+                        relay.url,
+                    )
+
+                # Geo test (requires city_reader, clearnet only)
+                geo_reader = self._geo_reader
+                if compute.nip66_geo and geo_reader and relay.network == NetworkType.CLEARNET:
+                    geo_meta = await self._with_retry(
+                        lambda: Nip66GeoMetadata.geo(relay, geo_reader),
+                        self._config.processing.retry.nip66_geo,
+                        "nip66_geo",
+                        relay.url,
+                    )
+
+                # Net test (requires asn_reader, clearnet only)
+                asn_reader = self._asn_reader
+                if compute.nip66_net and asn_reader and relay.network == NetworkType.CLEARNET:
+                    net_meta = await self._with_retry(
+                        lambda: Nip66NetMetadata.net(relay, asn_reader),
+                        self._config.processing.retry.nip66_net,
+                        "nip66_net",
+                        relay.url,
+                    )
+
+                # HTTP test
+                if compute.nip66_http:
+                    http_meta = await self._with_retry(
+                        lambda: Nip66HttpMetadata.http(relay, timeout, proxy_url),
+                        self._config.processing.retry.nip66_http,
+                        "nip66_http",
+                        relay.url,
+                    )
+
+                # Convert NIP-11 (save even on failure for consistency with NIP-66)
                 result = CheckResult(
                     nip11=nip11.to_relay_metadata() if nip11 else None,
-                    rtt=nip66_meta.rtt if nip66_meta else None,
-                    probe=nip66_meta.probe if nip66_meta else None,
-                    ssl=nip66_meta.ssl if nip66_meta else None,
-                    geo=nip66_meta.geo if nip66_meta else None,
-                    net=nip66_meta.net if nip66_meta else None,
-                    dns=nip66_meta.dns if nip66_meta else None,
-                    http=nip66_meta.http if nip66_meta else None,
+                    rtt=to_relay_meta(rtt_meta, MetadataType.NIP66_RTT),
+                    probe=None,  # Probe is part of RTT logs, not separate
+                    ssl=to_relay_meta(ssl_meta, MetadataType.NIP66_SSL),
+                    geo=to_relay_meta(geo_meta, MetadataType.NIP66_GEO),
+                    net=to_relay_meta(net_meta, MetadataType.NIP66_NET),
+                    dns=to_relay_meta(dns_meta, MetadataType.NIP66_DNS),
+                    http=to_relay_meta(http_meta, MetadataType.NIP66_HTTP),
                 )
 
                 # Log result
@@ -1087,7 +1264,7 @@ class Monitor(BaseService[MonitorConfig]):
 
         # NIP-66 RTT tags
         if result.rtt and include.nip66_rtt:
-            rtt_data = result.rtt.metadata.data
+            rtt_data = result.rtt.metadata.metadata
             if rtt_data.get("rtt_open") is not None:
                 tags.append(Tag.parse(["rtt-open", str(rtt_data["rtt_open"])]))
             if rtt_data.get("rtt_read") is not None:
@@ -1097,7 +1274,7 @@ class Monitor(BaseService[MonitorConfig]):
 
         # NIP-66 SSL tags
         if result.ssl and include.nip66_ssl:
-            ssl_data = result.ssl.metadata.data
+            ssl_data = result.ssl.metadata.metadata
             ssl_valid = ssl_data.get("ssl_valid")
             if ssl_valid is not None:
                 tags.append(Tag.parse(["ssl", "valid" if ssl_valid else "!valid"]))
@@ -1110,7 +1287,7 @@ class Monitor(BaseService[MonitorConfig]):
 
         # NIP-66 Network tags
         if result.net and include.nip66_net:
-            net_data = result.net.metadata.data
+            net_data = result.net.metadata.metadata
             net_ip = net_data.get("net_ip")
             if net_ip:
                 tags.append(Tag.parse(["net-ip", net_ip]))
@@ -1126,7 +1303,7 @@ class Monitor(BaseService[MonitorConfig]):
 
         # NIP-66 Geo tags
         if result.geo and include.nip66_geo:
-            geo_data = result.geo.metadata.data
+            geo_data = result.geo.metadata.metadata
             geohash = geo_data.get("geohash")
             if geohash:
                 tags.append(Tag.parse(["g", geohash]))
@@ -1148,7 +1325,7 @@ class Monitor(BaseService[MonitorConfig]):
 
         # NIP-11 capability tags (self-reported by relay)
         if result.nip11 and include.nip11:
-            nip11_data = result.nip11.metadata.data
+            nip11_data = result.nip11.metadata.metadata
 
             # N tags: supported NIPs
             supported_nips = nip11_data.get("supported_nips")
@@ -1184,7 +1361,7 @@ class Monitor(BaseService[MonitorConfig]):
             pow_diff = limitation.get("min_pow_difficulty", 0)
 
             # Get probe results for verification (probe overrides NIP-11 claims)
-            probe_data = result.probe.metadata.data if result.probe else {}
+            probe_data = result.probe.metadata.metadata if result.probe else {}
             write_success = probe_data.get("probe_write_success")
             write_reason = (probe_data.get("probe_write_reason") or "").lower()
             read_success = probe_data.get("probe_read_success")

@@ -141,7 +141,7 @@ ON relay_metadata_latest USING btree (relay_url, type);
 
 -- Index: idx_relay_metadata_latest_type
 -- Purpose: Fast filtering by metadata type
--- Usage: WHERE type = 'nip11' or WHERE type = 'nip66_rtt'
+-- Usage: WHERE type = 'nip11_fetch' or WHERE type = 'nip66_rtt'
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_latest_type
 ON relay_metadata_latest USING btree (type);
 

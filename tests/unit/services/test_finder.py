@@ -5,6 +5,8 @@ Tests:
 - Configuration models (EventsConfig, ApiSourceConfig, ApiConfig, FinderConfig)
 - Finder service initialization
 - API fetching logic
+- Event scanning logic
+- Cursor persistence
 - Error handling
 """
 
@@ -42,6 +44,24 @@ class TestConcurrencyConfig:
         config = ConcurrencyConfig(max_parallel=10)
         assert config.max_parallel == 10
 
+    def test_max_parallel_bounds(self) -> None:
+        """Test max_parallel validation bounds."""
+        # Min bound
+        config_min = ConcurrencyConfig(max_parallel=1)
+        assert config_min.max_parallel == 1
+
+        # Max bound
+        config_max = ConcurrencyConfig(max_parallel=20)
+        assert config_max.max_parallel == 20
+
+        # Below min
+        with pytest.raises(ValueError):
+            ConcurrencyConfig(max_parallel=0)
+
+        # Above max
+        with pytest.raises(ValueError):
+            ConcurrencyConfig(max_parallel=21)
+
 
 # ============================================================================
 # EventsConfig Tests
@@ -67,6 +87,24 @@ class TestEventsConfig:
         """Test custom event kinds."""
         config = EventsConfig(kinds=[30303])
         assert config.kinds == [30303]
+
+    def test_batch_size_bounds(self) -> None:
+        """Test batch_size validation bounds."""
+        # Min bound
+        config_min = EventsConfig(batch_size=100)
+        assert config_min.batch_size == 100
+
+        # Max bound
+        config_max = EventsConfig(batch_size=10000)
+        assert config_max.batch_size == 10000
+
+        # Below min
+        with pytest.raises(ValueError):
+            EventsConfig(batch_size=50)
+
+        # Above max
+        with pytest.raises(ValueError):
+            EventsConfig(batch_size=20000)
 
 
 # ============================================================================
@@ -96,6 +134,16 @@ class TestApiSourceConfig:
         assert config.url == "https://custom.api.com"
         assert config.enabled is False
         assert config.timeout == 60.0
+
+    def test_timeout_bounds(self) -> None:
+        """Test timeout validation bounds."""
+        # Min bound
+        config_min = ApiSourceConfig(url="https://api.com", timeout=0.1)
+        assert config_min.timeout == 0.1
+
+        # Max bound
+        config_max = ApiSourceConfig(url="https://api.com", timeout=120.0)
+        assert config_max.timeout == 120.0
 
 
 # ============================================================================
@@ -135,6 +183,11 @@ class TestApiConfig:
         assert len(config.sources) == 2
         assert config.sources[0].url == "https://custom1.api.com"
 
+    def test_verify_ssl_disabled(self) -> None:
+        """Test SSL verification can be disabled."""
+        config = ApiConfig(verify_ssl=False)
+        assert config.verify_ssl is False
+
 
 # ============================================================================
 # FinderConfig Tests
@@ -164,6 +217,11 @@ class TestFinderConfig:
         assert config.interval == 7200.0
         assert config.events.enabled is False
         assert config.api.enabled is False
+
+    def test_concurrency_config(self) -> None:
+        """Test concurrency configuration."""
+        config = FinderConfig(concurrency=ConcurrencyConfig(max_parallel=15))
+        assert config.concurrency.max_parallel == 15
 
 
 # ============================================================================
@@ -206,6 +264,14 @@ class TestFinderInit:
         assert finder.config.interval == 1800.0
         assert finder.config.api.enabled is False
 
+    def test_service_name_class_attribute(self, mock_brotr: Brotr) -> None:
+        """Test SERVICE_NAME class attribute."""
+        assert Finder.SERVICE_NAME == "finder"
+
+    def test_config_class_attribute(self, mock_brotr: Brotr) -> None:
+        """Test CONFIG_CLASS class attribute."""
+        assert FinderConfig == Finder.CONFIG_CLASS
+
 
 # ============================================================================
 # Finder Run Tests
@@ -241,6 +307,20 @@ class TestFinderRun:
 
             mock_events.assert_called_once()
             mock_api.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_run_resets_found_relays(self, mock_brotr: Brotr) -> None:
+        """Test run resets found_relays counter at start."""
+        finder = Finder(brotr=mock_brotr)
+        finder._found_relays = 100  # Set previous value
+
+        with (
+            patch.object(finder, "_find_from_events", new_callable=AsyncMock),
+            patch.object(finder, "_find_from_api", new_callable=AsyncMock),
+        ):
+            await finder.run()
+            # Counter should be reset
+            assert finder._found_relays == 0
 
 
 # ============================================================================
@@ -397,6 +477,25 @@ class TestFinderFetchSingleApi:
         result = await finder._fetch_single_api(mock_session, source)
 
         assert len(result) == 0  # No relays extracted from dict response
+
+    @pytest.mark.asyncio
+    async def test_fetch_single_api_handles_empty_list(self, mock_brotr: Brotr) -> None:
+        """Test fetching handles empty list response."""
+        finder = Finder(brotr=mock_brotr)
+        source = ApiSourceConfig(url="https://api.example.com")
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json = AsyncMock(return_value=[])
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        result = await finder._fetch_single_api(mock_session, source)
+
+        assert len(result) == 0
 
 
 # ============================================================================
@@ -728,3 +827,62 @@ class TestFinderCursorPersistence:
 
         # Should return empty dict on error
         assert cursor == {}
+
+
+# ============================================================================
+# Validate Relay URL Tests
+# ============================================================================
+
+
+class TestValidateRelayUrl:
+    """Tests for Finder._validate_relay_url() method."""
+
+    def test_validate_valid_wss_url(self, mock_brotr: Brotr) -> None:
+        """Test validating valid wss:// URL."""
+        finder = Finder(brotr=mock_brotr)
+        result = finder._validate_relay_url("wss://relay.example.com")
+
+        assert result is not None
+        assert result.url == "wss://relay.example.com"
+
+    def test_validate_valid_ws_url(self, mock_brotr: Brotr) -> None:
+        """Test validating valid ws:// URL - clearnet is upgraded to wss://."""
+        finder = Finder(brotr=mock_brotr)
+        result = finder._validate_relay_url("ws://relay.example.com")
+
+        assert result is not None
+        # Clearnet URLs are automatically upgraded to wss://
+        assert result.url == "wss://relay.example.com"
+
+    def test_validate_invalid_url(self, mock_brotr: Brotr) -> None:
+        """Test validating invalid URL returns None."""
+        finder = Finder(brotr=mock_brotr)
+
+        assert finder._validate_relay_url("not-a-url") is None
+        assert finder._validate_relay_url("http://wrong-scheme.com") is None
+        assert finder._validate_relay_url("") is None
+        assert finder._validate_relay_url(None) is None  # type: ignore[arg-type]
+
+    def test_validate_tor_url(self, mock_brotr: Brotr) -> None:
+        """Test validating Tor .onion URL."""
+        finder = Finder(brotr=mock_brotr)
+        result = finder._validate_relay_url("ws://example.onion")
+
+        assert result is not None
+        assert "onion" in result.url
+
+    def test_validate_i2p_url(self, mock_brotr: Brotr) -> None:
+        """Test validating I2P .i2p URL."""
+        finder = Finder(brotr=mock_brotr)
+        result = finder._validate_relay_url("ws://example.i2p")
+
+        assert result is not None
+        assert "i2p" in result.url
+
+    def test_validate_strips_whitespace(self, mock_brotr: Brotr) -> None:
+        """Test validating strips whitespace."""
+        finder = Finder(brotr=mock_brotr)
+        result = finder._validate_relay_url("  wss://relay.example.com  ")
+
+        assert result is not None
+        assert result.url == "wss://relay.example.com"

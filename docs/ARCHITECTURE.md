@@ -112,8 +112,9 @@ This design allows:
 |   ├── event_relay.py   Event-relay junction                                 |
 |   ├── metadata.py      Generic metadata container                           |
 |   ├── relay_metadata.py RelayMetadata junction with MetadataType            |
-|   ├── nip11.py         NIP-11 relay information document                    |
-|   └── nip66.py         NIP-66 relay monitoring data                         |
+|   └── nips/            NIP model subpackages                                |
+|       ├── nip11/       NIP-11 relay information (data, fetch, logs, nip11)  |
+|       └── nip66/       NIP-66 monitoring (rtt, ssl, geo, net, dns, http)    |
 |                                                                              |
 |   Purpose: Immutable data structures, validation, database mapping           |
 +-----------------------------------------------------------------------------+
@@ -314,7 +315,7 @@ The models layer (`src/models/`) contains immutable data structures with validat
 | Type | Values |
 |------|--------|
 | `NetworkType` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
-| `MetadataType` | `nip11`, `nip66_rtt`, `nip66_probe`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
+| `MetadataType` | `nip11_fetch`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
 
 All models use `@dataclass(frozen=True)` for immutability and provide `to_db_params()` for database insertion.
 
@@ -722,7 +723,7 @@ async with brotr:           # Connect on enter, close on exit
 │                                    └─────────────────────────┘│
 └──────────────────────────────────────────────────────────────┘
 
-**Metadata Types**: `nip11`, `nip66_rtt`, `nip66_probe`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`
+**Metadata Types**: `nip11_fetch`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`
 ```
 
 ---

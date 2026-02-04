@@ -4,8 +4,11 @@ Pytest configuration and shared fixtures for BigBrotr tests.
 Provides:
 - Mock fixtures for Pool, Brotr, and asyncpg
 - Sample data fixtures for events, relays, and metadata
+- Environment variable fixtures for secrets
 - Custom pytest markers for test categorization
 """
+
+from __future__ import annotations
 
 import logging
 import sys
@@ -21,7 +24,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from core.brotr import Brotr
 from core.pool import Pool
-from models import EventRelay, Nip11, Nip66, Relay, RelayMetadata
+from models import EventRelay, Relay, RelayMetadata
+from models.event import Event
+from models.metadata import Metadata
+from models.relay_metadata import MetadataType
 
 
 # ============================================================================
@@ -33,6 +39,27 @@ from models import EventRelay, Nip11, Nip66, Relay, RelayMetadata
 def setup_logging() -> None:
     """Configure logging for tests."""
     logging.basicConfig(level=logging.DEBUG)
+
+
+# ============================================================================
+# Environment Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def mock_private_key(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Set up a mock private key in environment."""
+    key = "0" * 64
+    monkeypatch.setenv("PRIVATE_KEY", key)
+    return key
+
+
+@pytest.fixture
+def mock_db_password(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Set up a mock database password in environment."""
+    password = "test_password"  # pragma: allowlist secret
+    monkeypatch.setenv("DB_PASSWORD", password)
+    return password
 
 
 # ============================================================================
@@ -76,12 +103,12 @@ def mock_asyncpg_pool(mock_connection: MagicMock) -> MagicMock:
 
 @pytest.fixture
 def mock_pool(
-    mock_asyncpg_pool: MagicMock, mock_connection: MagicMock, monkeypatch: pytest.MonkeyPatch
+    mock_asyncpg_pool: MagicMock,
+    mock_connection: MagicMock,
+    mock_db_password: str,
 ) -> Pool:
     """Create a Pool with mocked internals."""
     from core.pool import DatabaseConfig, PoolConfig
-
-    monkeypatch.setenv("DB_PASSWORD", "test_password")
 
     config = PoolConfig(
         database=DatabaseConfig(
@@ -177,7 +204,7 @@ def brotr_config_dict() -> dict[str, Any]:
 # ============================================================================
 
 
-def _make_mock_event(
+def make_mock_event(
     event_id: str = "a" * 64,
     pubkey: str = "b" * 64,
     created_at: int = 1700000000,
@@ -196,7 +223,9 @@ def _make_mock_event(
     mock_event.created_at.return_value.as_secs.return_value = created_at
     mock_event.kind.return_value.as_u16.return_value = kind
     mock_event.content.return_value = content
-    mock_event.signature.return_value.to_hex.return_value = sig
+    # signature() returns hex string directly (not an object with to_hex())
+    mock_event.signature.return_value = sig
+    mock_event.verify.return_value = True
 
     # Mock tags
     mock_tags = []
@@ -209,75 +238,48 @@ def _make_mock_event(
     return mock_event
 
 
-def _create_nip11(relay: Relay, data: dict | None = None, generated_at: int = 1700000001) -> Nip11:
-    """Create a Nip11 instance using object.__new__ pattern."""
-    from models import Metadata
-
-    if data is None:
-        data = {
-            "name": "Test Relay",
-            "description": "A test relay for unit tests",
-            "supported_nips": [1, 2, 9, 11],
-        }
-    metadata = Metadata(data)
-    instance = object.__new__(Nip11)
-    object.__setattr__(instance, "relay", relay)
-    object.__setattr__(instance, "metadata", metadata)
-    object.__setattr__(instance, "generated_at", generated_at)
-    return instance
-
-
-def _create_nip66(
-    relay: Relay,
-    rtt_data: dict | None = None,
-    geo_data: dict | None = None,
-    generated_at: int = 1700000001,
-) -> Nip66:
-    """Create a Nip66 instance using object.__new__ pattern."""
-    from models import Metadata
-
-    if rtt_data is None:
-        rtt_data = {
-            "rtt_open": 120,
-            "rtt_read": 50,
-            "network": "clearnet",
-        }
-    rtt_metadata = Metadata(rtt_data)
-    geo_metadata = Metadata(geo_data) if geo_data else None
-
-    instance = object.__new__(Nip66)
-    object.__setattr__(instance, "relay", relay)
-    object.__setattr__(instance, "rtt_metadata", rtt_metadata)
-    object.__setattr__(instance, "geo_metadata", geo_metadata)
-    object.__setattr__(instance, "generated_at", generated_at)
-    return instance
-
-
 @pytest.fixture
 def sample_event() -> EventRelay:
     """Sample Nostr EventRelay for testing."""
-    event = _make_mock_event()
+    mock_nostr_event = make_mock_event()
+    event = Event(mock_nostr_event)
     relay = Relay("wss://relay.example.com", discovered_at=1700000000)
     return EventRelay(event=event, relay=relay, seen_at=1700000001)
 
 
 @pytest.fixture
 def sample_relay() -> Relay:
-    """Sample Relay for testing."""
+    """Sample clearnet Relay for testing."""
     return Relay("wss://relay.example.com", discovered_at=1700000000)
+
+
+@pytest.fixture
+def sample_tor_relay() -> Relay:
+    """Sample Tor relay for testing."""
+    return Relay("wss://example.onion", discovered_at=1700000000)
+
+
+@pytest.fixture
+def sample_i2p_relay() -> Relay:
+    """Sample I2P relay for testing."""
+    return Relay("wss://example.i2p", discovered_at=1700000000)
+
+
+@pytest.fixture
+def sample_loki_relay() -> Relay:
+    """Sample Lokinet relay for testing."""
+    return Relay("wss://example.loki", discovered_at=1700000000)
 
 
 @pytest.fixture
 def sample_metadata() -> RelayMetadata:
     """Sample RelayMetadata for testing."""
-    from models import Metadata
-
     relay = Relay("wss://relay.example.com", discovered_at=1700000000)
     metadata = Metadata({"name": "Test Relay", "supported_nips": [1, 2, 9, 11]})
     return RelayMetadata(
         relay=relay,
         metadata=metadata,
-        metadata_type="nip11",
+        metadata_type=MetadataType.NIP11_FETCH,
         generated_at=1700000001,
     )
 
@@ -288,10 +290,12 @@ def sample_events_batch() -> list[EventRelay]:
     relay = Relay("wss://relay.example.com", discovered_at=1700000000)
     return [
         EventRelay(
-            event=_make_mock_event(
-                event_id=f"{i:064x}",
-                created_at=1700000000 + i,
-                tags=[["e", "c" * 64]],
+            event=Event(
+                make_mock_event(
+                    event_id=f"{i:064x}",
+                    created_at=1700000000 + i,
+                    tags=[["e", "c" * 64]],
+                )
             ),
             relay=relay,
             seen_at=1700000001,
@@ -330,9 +334,13 @@ def create_mock_record(data: dict[str, Any]) -> MagicMock:
 def pytest_configure(config: pytest.Config) -> None:
     """Register custom markers."""
     config.addinivalue_line(
-        "markers", "integration: marks tests as integration tests requiring database"
+        "markers",
+        "integration: marks tests as integration tests requiring database",
     )
-    config.addinivalue_line("markers", "unit: marks tests as unit tests (no external dependencies)")
+    config.addinivalue_line(
+        "markers",
+        "unit: marks tests as unit tests (no external dependencies)",
+    )
     config.addinivalue_line("markers", "slow: marks tests as slow running")
 
 

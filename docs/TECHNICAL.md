@@ -1247,11 +1247,11 @@ CREATE INDEX idx_metadata_data ON metadata USING GIN(data jsonb_path_ops);
 CREATE TABLE relay_metadata (
     relay_url TEXT NOT NULL REFERENCES relays(url) ON DELETE CASCADE,
     generated_at BIGINT NOT NULL,
-    type TEXT NOT NULL,                 -- nip11, nip66_rtt, nip66_probe, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
+    type TEXT NOT NULL,                 -- nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
     metadata_id BYTEA NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
 
     PRIMARY KEY (relay_url, generated_at, type),
-    CHECK (type IN ('nip11', 'nip66_rtt', 'nip66_probe', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http'))
+    CHECK (type IN ('nip11_fetch', 'nip66_rtt', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http'))
 );
 
 CREATE INDEX idx_relay_metadata_type ON relay_metadata(type);

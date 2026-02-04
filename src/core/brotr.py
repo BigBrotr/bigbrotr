@@ -120,7 +120,7 @@ class Brotr:
             await brotr.insert_metadata(records=[metadata])
 
             # Insert relay metadata with relay and junction (cascade)
-            relay_metadata = RelayMetadata(relay, metadata=metadata, metadata_type="nip11")
+            relay_metadata = RelayMetadata(relay, metadata=metadata, metadata_type="nip11_fetch")
             await brotr.insert_relay_metadata(records=[relay_metadata])
     """
 
@@ -444,7 +444,7 @@ class Brotr:
         Insert metadata records using bulk insert with array parameters.
 
         Inserts only into the metadata table (content-addressed by hash).
-        Hash is computed in PostgreSQL using digest().
+        Hash (SHA-256) is computed in Python for deterministic deduplication.
         Use insert_relay_metadata with cascade=True to also insert relays and junctions.
 
         Args:
@@ -462,13 +462,19 @@ class Brotr:
 
         self._validate_batch_size(records, "insert_metadata")
 
-        # Pass only data, hash computed in DB
-        datas = [metadata.to_db_params().data_json for metadata in records]
+        # Hash computed in Python for deterministic deduplication
+        ids: list[bytes] = []
+        datas: list[str] = []
+        for metadata in records:
+            params = metadata.to_db_params()
+            ids.append(params.metadata_id)
+            datas.append(params.metadata_json)
 
         async with self.pool.transaction() as conn:
             inserted: int = (
                 await conn.fetchval(
-                    "SELECT metadata_insert($1)",
+                    "SELECT metadata_insert($1, $2)",
+                    ids,
                     datas,
                     timeout=self._config.timeouts.batch,
                 )
@@ -483,6 +489,8 @@ class Brotr:
     ) -> int:
         """
         Insert relay metadata using bulk insert with array parameters.
+
+        Hash (SHA-256) is computed in Python for deterministic deduplication.
 
         Args:
             records: List of RelayMetadata dataclass instances
@@ -502,14 +510,14 @@ class Brotr:
         self._validate_batch_size(records, "insert_relay_metadata")
 
         if cascade:
-            # Insert relays → metadata → relay_metadata (hash computed in DB)
+            # Insert relays → metadata → relay_metadata (hash computed in Python)
             all_params = [metadata.to_db_params() for metadata in records]
             columns = self._transpose_to_columns(all_params)
 
             async with self.pool.transaction() as conn:
                 inserted: int = (
                     await conn.fetchval(
-                        "SELECT relay_metadata_insert_cascade($1, $2, $3, $4, $5, $6)",
+                        "SELECT relay_metadata_insert_cascade($1, $2, $3, $4, $5, $6, $7)",
                         *columns,
                         timeout=self._config.timeouts.batch,
                     )
@@ -517,24 +525,28 @@ class Brotr:
                 )
         else:
             # Insert only into relay_metadata junction (FKs must exist)
-            # Hash is computed in PostgreSQL using digest()
+            # Hash computed in Python for deterministic deduplication
             relay_urls: list[str] = []
-            metadata_datas: list[str] = []
+            metadata_ids: list[bytes] = []
+            metadata_jsons: list[str] = []
             types: list[str] = []
             generated_ats: list[int] = []
 
             for record in records:
+                params = record.metadata.to_db_params()
                 relay_urls.append(record.relay.url)
-                metadata_datas.append(record.metadata.to_db_params().data_json)
+                metadata_ids.append(params.metadata_id)
+                metadata_jsons.append(params.metadata_json)
                 types.append(record.metadata_type)
                 generated_ats.append(record.generated_at)
 
             async with self.pool.transaction() as conn:
                 inserted = (
                     await conn.fetchval(
-                        "SELECT relay_metadata_insert($1, $2, $3, $4)",
+                        "SELECT relay_metadata_insert($1, $2, $3, $4, $5)",
                         relay_urls,
-                        metadata_datas,
+                        metadata_ids,
+                        metadata_jsons,
                         types,
                         generated_ats,
                         timeout=self._config.timeouts.batch,

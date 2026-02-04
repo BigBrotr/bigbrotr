@@ -10,7 +10,7 @@
 
 [project]
 name = "bigbrotr"
-version = "2.0.0"
+version = "3.0.1"
 description = "A modular Nostr data archiving and monitoring system"
 readme = "README.md"
 license = { text = "MIT" }

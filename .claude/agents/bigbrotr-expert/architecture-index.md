@@ -145,12 +145,14 @@ External Sources
 ```python
 # Constructor injection
 class MyService(BaseService[MyServiceConfig]):
-    def __init__(self, brotr: Brotr, config: MyServiceConfig):
-        super().__init__(config)
+    def __init__(self, brotr: Brotr, config: MyServiceConfig | None = None):
+        super().__init__(config)  # Defaults to CONFIG_CLASS() if None
         self._brotr = brotr  # Injected dependency
 
 # Usage
 service = MyService.from_yaml(config_path, brotr=brotr)
+# Or with default config:
+service = MyService(brotr=brotr)  # Uses MyServiceConfig()
 ```
 
 **Benefits:**

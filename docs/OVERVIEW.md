@@ -293,7 +293,7 @@ LIMIT 10;
 SELECT url, data->'supported_nips' as nips
 FROM relays r
 JOIN relay_metadata_latest rml ON r.url = rml.relay_url
-WHERE rml.type = 'nip11'
+WHERE rml.type = 'nip11_fetch'
   AND data->'supported_nips' @> '42';
 
 -- Events by kind distribution

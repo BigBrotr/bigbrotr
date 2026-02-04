@@ -64,12 +64,13 @@ Utils Layer (src/utils/)
         │
         ▼
 Models Layer (src/models/)
-  └── Event, Relay, EventRelay, Metadata, Nip11, Nip66, RelayMetadata, NetworkType, MetadataType
+  └── Event, Relay, EventRelay, Metadata, RelayMetadata, NetworkType, MetadataType
+  └── NIP models in subpackages: src/models/nips/nip11/, src/models/nips/nip66/
 ```
 
 **Note on Data Storage**: The `Nip11` and `Nip66` Python models are stored in the unified
 `metadata` table using content-addressed deduplication (SHA-256 hash). The `relay_metadata`
-table links relays to metadata records via the `type` column (`nip11`, `nip66_rtt`, `nip66_probe`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`).
+table links relays to metadata records via the `type` column (`nip11_fetch`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`).
 
 ### Core Components
 - **Pool** (`src/core/pool.py`): Async PostgreSQL client with asyncpg (connects via PGBouncer in Docker)
