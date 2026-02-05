@@ -11,14 +11,23 @@ Models:
     - RelayMetadata: Junction linking Relay to Metadata with type and timestamp
     - Nip11: NIP-11 relay information document
     - Nip66: NIP-66 relay monitoring data (RTT, SSL, GEO, DNS, HTTP)
+
+Recommended imports:
+    # NetworkType is in src/enums.py (shared location to avoid circular imports)
+    from utils.network import NetworkType
+
+    # For convenience, models re-exports NetworkType:
+    from models import Relay, NetworkType
 """
+
+from utils.network import NetworkType
 
 from .event import Event
 from .event_relay import EventRelay
 from .metadata import Metadata
 from .nips.nip11 import Nip11
 from .nips.nip66 import Nip66
-from .relay import NetworkType, Relay
+from .relay import Relay
 from .relay_metadata import MetadataType, RelayMetadata
 
 
