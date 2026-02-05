@@ -8,11 +8,11 @@ from typing import Any, NamedTuple
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from models.metadata import Metadata
-from models.relay import Relay  # noqa: TC001 - Pydantic needs at runtime
+from models.relay import Relay
 from models.relay_metadata import MetadataType, RelayMetadata
 
 from .fetch import Nip11FetchMetadata
-from .logs import Nip11FetchLogs  # noqa: TC001 - Pydantic needs at runtime
+from .logs import Nip11FetchLogs
 
 
 class RelayNip11MetadataTuple(NamedTuple):

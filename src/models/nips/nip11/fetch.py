@@ -1,18 +1,20 @@
-"""NIP-11 fetch metadata container with HTTP operations."""
+"""NIP-11 metadata container with HTTP operations."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import ssl
+from http import HTTPStatus
 from typing import Any, ClassVar, Self
 
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
-from core.logger import Logger
+from utils.network import NetworkType
+from logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
-from models.relay import NetworkType, Relay
+from models.relay import Relay
 
 from .data import Nip11FetchData
 from .logs import Nip11FetchLogs
@@ -62,7 +64,7 @@ class Nip11FetchMetadata(BaseMetadata):
                 timeout=aiohttp.ClientTimeout(total=timeout),
             ) as resp,
         ):
-            if resp.status != 200:
+            if resp.status != HTTPStatus.OK:
                 raise ValueError(f"HTTP {resp.status}")
 
             # Validate Content-Type per NIP-11

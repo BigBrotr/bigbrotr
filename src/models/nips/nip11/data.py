@@ -7,10 +7,12 @@ from typing import Any, ClassVar
 from pydantic import ConfigDict, Field, StrictBool, StrictInt
 
 from models.nips.base import BaseData
+from models.nips.parsing import FieldSpec
 
 
 # StrictInt: rejects bool (bool is subclass of int in Python)
 # tuple[StrictInt, StrictInt]: enforces exactly 2 elements for ranges
+_KIND_RANGE_LENGTH = 2
 KindRange = tuple[StrictInt, StrictInt]  # [start, end] range for event kinds
 
 
@@ -31,23 +33,29 @@ class Nip11FetchDataLimitation(BaseData):
     created_at_upper_limit: StrictInt | None = None
     default_limit: StrictInt | None = None
 
-    _INT_FIELDS: ClassVar[set[str]] = {
-        "max_message_length",
-        "max_subscriptions",
-        "max_limit",
-        "max_subid_length",
-        "max_event_tags",
-        "max_content_length",
-        "min_pow_difficulty",
-        "created_at_lower_limit",
-        "created_at_upper_limit",
-        "default_limit",
-    }
-    _BOOL_FIELDS: ClassVar[set[str]] = {
-        "auth_required",
-        "payment_required",
-        "restricted_writes",
-    }
+    _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
+        int_fields=frozenset(
+            {
+                "max_message_length",
+                "max_subscriptions",
+                "max_limit",
+                "max_subid_length",
+                "max_event_tags",
+                "max_content_length",
+                "min_pow_difficulty",
+                "created_at_lower_limit",
+                "created_at_upper_limit",
+                "default_limit",
+            }
+        ),
+        bool_fields=frozenset(
+            {
+                "auth_required",
+                "payment_required",
+                "restricted_writes",
+            }
+        ),
+    )
 
 
 class Nip11FetchDataRetentionEntry(BaseData):
@@ -76,14 +84,15 @@ class Nip11FetchDataRetentionEntry(BaseData):
             for item in data["kinds"]:
                 if isinstance(item, int) and not isinstance(item, bool):
                     kinds.append(item)
-                elif isinstance(item, list) and len(item) == 2:
-                    if (
-                        isinstance(item[0], int)
-                        and not isinstance(item[0], bool)
-                        and isinstance(item[1], int)
-                        and not isinstance(item[1], bool)
-                    ):
-                        kinds.append((item[0], item[1]))
+                elif (
+                    isinstance(item, list)
+                    and len(item) == _KIND_RANGE_LENGTH
+                    and isinstance(item[0], int)
+                    and not isinstance(item[0], bool)
+                    and isinstance(item[1], int)
+                    and not isinstance(item[1], bool)
+                ):
+                    kinds.append((item[0], item[1]))
             if kinds:
                 result["kinds"] = kinds
         # Parse time and count
@@ -107,9 +116,11 @@ class Nip11FetchDataFeeEntry(BaseData):
     period: StrictInt | None = None
     kinds: list[StrictInt] | None = None
 
-    _INT_FIELDS: ClassVar[set[str]] = {"amount", "period"}
-    _STR_FIELDS: ClassVar[set[str]] = {"unit"}
-    _INT_LIST_FIELDS: ClassVar[set[str]] = {"kinds"}
+    _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
+        int_fields=frozenset({"amount", "period"}),
+        str_fields=frozenset({"unit"}),
+        int_list_fields=frozenset({"kinds"}),
+    )
 
 
 class Nip11FetchDataFees(BaseData):
@@ -181,26 +192,32 @@ class Nip11FetchData(BaseData):
         """Relay's own pubkey (from NIP-11 'self' field)."""
         return self.self_pubkey
 
-    _STR_FIELDS: ClassVar[set[str]] = {
-        "name",
-        "description",
-        "banner",
-        "icon",
-        "pubkey",
-        "self",
-        "contact",
-        "software",
-        "version",
-        "privacy_policy",
-        "terms_of_service",
-        "posting_policy",
-        "payments_url",
-    }
-    _STR_LIST_FIELDS: ClassVar[set[str]] = {
-        "relay_countries",
-        "language_tags",
-        "tags",
-    }
+    _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
+        str_fields=frozenset(
+            {
+                "name",
+                "description",
+                "banner",
+                "icon",
+                "pubkey",
+                "self",
+                "contact",
+                "software",
+                "version",
+                "privacy_policy",
+                "terms_of_service",
+                "posting_policy",
+                "payments_url",
+            }
+        ),
+        str_list_fields=frozenset(
+            {
+                "relay_countries",
+                "language_tags",
+                "tags",
+            }
+        ),
+    )
 
     @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:
@@ -209,7 +226,7 @@ class Nip11FetchData(BaseData):
             return {}
         result: dict[str, Any] = {}
         # Parse string fields
-        for key in cls._STR_FIELDS:
+        for key in cls._FIELD_SPEC.str_fields:
             if key in data and isinstance(data[key], str):
                 result[key] = data[key]
         # Parse supported_nips (list of int)
@@ -236,7 +253,7 @@ class Nip11FetchData(BaseData):
             if fees:
                 result["fees"] = fees
         # Parse string list fields
-        for key in cls._STR_LIST_FIELDS:
+        for key in cls._FIELD_SPEC.str_list_fields:
             if key in data and isinstance(data[key], list):
                 items = [s for s in data[key] if isinstance(s, str)]
                 if items:
