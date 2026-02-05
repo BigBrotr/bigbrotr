@@ -12,11 +12,9 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, Field
 
-from core.base_service import BaseService, BaseServiceConfig
-from utils.network import NetworkType
+from core.service import BaseService, BaseServiceConfig, NetworkSemaphoreMixin
 from models import Relay
-from services.mixins import NetworkSemaphoreMixin
-from utils.network import NetworkConfig
+from utils.network import NetworkConfig, NetworkType
 from utils.progress import BatchProgress
 from utils.transport import is_nostr_relay
 

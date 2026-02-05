@@ -28,7 +28,7 @@ import aiohttp
 from nostr_sdk import RelayUrl
 from pydantic import BaseModel, Field
 
-from core.base_service import BaseService, BaseServiceConfig
+from core.service import BaseService, BaseServiceConfig
 from models import Relay
 
 
@@ -342,9 +342,9 @@ class Finder(BaseService[FinderConfig]):
             # Update cursor for this relay
             if chunk_last_seen_at is not None:
                 last_seen_at = chunk_last_seen_at
-                await self._brotr.upsert_service_data([
-                    (self.SERVICE_NAME, "cursor", relay_url, {"last_seen_at": last_seen_at})
-                ])
+                await self._brotr.upsert_service_data(
+                    [(self.SERVICE_NAME, "cursor", relay_url, {"last_seen_at": last_seen_at})]
+                )
 
             # Stop if chunk wasn't full
             if chunk_events < self._config.events.batch_size:

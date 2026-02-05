@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, Field
 
-from core.base_service import BaseService, BaseServiceConfig
+from core.service import BaseService, BaseServiceConfig
 from models import Relay
 
 

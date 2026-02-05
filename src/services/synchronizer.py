@@ -45,12 +45,11 @@ from nostr_sdk import (
 )
 from pydantic import BaseModel, Field, field_validator
 
-from core.base_service import BaseService, BaseServiceConfig
 from core.brotr import Brotr
-from utils.network import NetworkType
+from core.service import BaseService, BaseServiceConfig
 from models import Event, EventRelay, Relay
 from utils.keys import KeysConfig
-from utils.network import NetworkConfig
+from utils.network import NetworkConfig, NetworkType
 
 
 # =============================================================================
