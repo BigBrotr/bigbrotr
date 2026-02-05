@@ -18,8 +18,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from core import Brotr, Logger, start_metrics_server
+from core import Brotr, start_metrics_server
 from core.base_service import BaseService
+from logger import Logger
 
 from .finder import Finder
 from .monitor import Monitor
