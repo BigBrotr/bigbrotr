@@ -30,9 +30,29 @@ Example YAML Configuration:
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydantic import BaseModel, Field
 
-from models.relay import NetworkType
+
+class NetworkType(StrEnum):
+    """Network type constants for relay classification.
+
+    Used to categorize relays by their network connectivity:
+    - CLEARNET: Standard internet (requires TLS via wss://)
+    - TOR: Tor hidden services (.onion addresses, ws://)
+    - I2P: I2P network (.i2p addresses, ws://)
+    - LOKI: Lokinet (.loki addresses, ws://)
+    - LOCAL: Private/reserved addresses (rejected)
+    - UNKNOWN: Invalid or unrecognized format (rejected)
+    """
+
+    CLEARNET = "clearnet"
+    TOR = "tor"
+    I2P = "i2p"
+    LOKI = "loki"
+    LOCAL = "local"
+    UNKNOWN = "unknown"
 
 
 # =============================================================================
@@ -216,4 +236,4 @@ class NetworkConfig(BaseModel):
         Returns:
             Names of enabled networks (order matches field definition).
         """
-        return [name for name in self.model_fields if getattr(self, name).enabled]
+        return [name for name in type(self).model_fields if getattr(self, name).enabled]

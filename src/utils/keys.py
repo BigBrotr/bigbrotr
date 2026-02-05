@@ -72,9 +72,9 @@ def load_keys_from_env(env_var: str) -> Keys:
 class KeysConfig(BaseModel):
     """Pydantic configuration model for Nostr key management.
 
-    This model automatically loads Nostr keys from the PRIVATE_KEY environment
-    variable during validation. It is designed to be embedded in service
-    configuration models that require authentication capabilities.
+    This model automatically loads Nostr keys from an environment variable
+    during validation. The environment variable name is configurable via
+    the keys_env field.
 
     Services using this config:
         - Validator: For NIP-42 authentication during relay testing
@@ -82,25 +82,32 @@ class KeysConfig(BaseModel):
         - Synchronizer: For NIP-42 authentication when syncing events
 
     Attributes:
+        keys_env: Name of the environment variable containing the private key.
         keys: The nostr_sdk Keys instance loaded from environment.
             Contains both private and public keys for signing operations.
 
     Raises:
-        ValueError: If PRIVATE_KEY environment variable is not set or empty.
-        nostr_sdk.NostrError: If the key in PRIVATE_KEY is malformed.
+        ValueError: If the specified environment variable is not set or empty.
+        nostr_sdk.NostrError: If the key value is malformed.
 
     Example:
         >>> import os
         >>> os.environ["PRIVATE_KEY"] = "nsec1..."  # pragma: allowlist secret
         >>> config = KeysConfig()
         >>> print(config.keys.public_key().to_bech32())
+
+        >>> os.environ["MONITOR_KEY"] = "nsec1..."  # pragma: allowlist secret
+        >>> config = KeysConfig(keys_env="MONITOR_KEY")
     """
 
     model_config = {"arbitrary_types_allowed": True}
 
-    keys: Keys = Field(
-        description="Keys loaded from PRIVATE_KEY env (required)",
+    keys_env: str = Field(
+        default=ENV_PRIVATE_KEY,
+        min_length=1,
+        description="Environment variable name for private key",
     )
+    keys: Keys = Field(description="Keys loaded from keys_env (required)")
 
     @model_validator(mode="before")
     @classmethod
@@ -108,8 +115,8 @@ class KeysConfig(BaseModel):
         """Load keys from environment if not explicitly provided.
 
         This validator runs before field validation and automatically
-        populates the 'keys' field from the PRIVATE_KEY environment
-        variable when not provided in the input data.
+        populates the 'keys' field from the environment variable
+        specified by keys_env.
 
         Args:
             data: Input data for model construction.
@@ -118,5 +125,6 @@ class KeysConfig(BaseModel):
             Modified data dict with 'keys' field populated from environment.
         """
         if isinstance(data, dict) and "keys" not in data:
-            data["keys"] = load_keys_from_env(ENV_PRIVATE_KEY)
+            env_var = data.get("keys_env", ENV_PRIVATE_KEY)
+            data["keys"] = load_keys_from_env(env_var)
         return data

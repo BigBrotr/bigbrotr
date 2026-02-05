@@ -9,9 +9,7 @@ located in the implementations directory (e.g., implementations/bigbrotr/yaml/).
 
 Example:
     >>> from utils.yaml import load_yaml
-    >>> config = load_yaml(
-    ...     "/path/to/implementations/bigbrotr/yaml/services/finder.yaml"
-    ... )
+    >>> config = load_yaml("/path/to/implementations/bigbrotr/yaml/services/finder.yaml")
     >>> print(config.get("discovery", {}).get("limit", 100))
 """
 

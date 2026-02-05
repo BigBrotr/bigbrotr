@@ -48,6 +48,8 @@ from nostr_sdk import (
     ConnectionMode,
     ConnectionTarget,
     CustomWebSocketTransport,
+    Filter,
+    Kind,
     NostrSigner,
     RelayUrl,
     WebSocketAdapter,
@@ -56,13 +58,17 @@ from nostr_sdk import (
     uniffi_set_event_loop,
 )
 
-from core.logger import Logger
-from models.nips.base import DEFAULT_TIMEOUT
-from models.relay import NetworkType, Relay
-
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from nostr_sdk import Keys
+
+from utils.network import NetworkType
+from logger import Logger
+from models.nips.base import DEFAULT_TIMEOUT
+from models.relay import Relay
+
 
 logger = Logger("utils.transport")
 
@@ -142,7 +148,7 @@ if not isinstance(sys.stderr, _UniFFIStderrFilter):
 
 
 @contextlib.contextmanager
-def _suppress_stderr():
+def _suppress_stderr() -> Generator[None, None, None]:
     """Context manager to completely suppress all stderr output.
 
     Redirects stderr to /dev/null for the duration of the context.
@@ -198,7 +204,7 @@ def _is_ssl_error(error_message: str) -> bool:
 # --- Insecure WebSocket Transport (for clearnet relays with invalid certificates) ---
 
 
-class InsecureWebSocketAdapter(WebSocketAdapter):
+class InsecureWebSocketAdapter(WebSocketAdapter):  # type: ignore[misc]
     """WebSocket adapter using aiohttp with SSL verification disabled.
 
     This adapter implements the nostr-sdk WebSocketAdapter interface using
@@ -282,18 +288,14 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
         aiohttp session. Uses timeouts to prevent hanging if the server
         doesn't respond to the close handshake.
         """
-        try:
-            # Don't wait forever for close handshake - server may not respond
+        # Don't wait forever for close handshake - server may not respond
+        with contextlib.suppress(TimeoutError, Exception):
             await asyncio.wait_for(self._ws.close(), timeout=5.0)
-        except (TimeoutError, Exception):
-            pass
-        try:
+        with contextlib.suppress(TimeoutError, Exception):
             await asyncio.wait_for(self._session.close(), timeout=5.0)
-        except (TimeoutError, Exception):
-            pass
 
 
-class InsecureWebSocketTransport(CustomWebSocketTransport):
+class InsecureWebSocketTransport(CustomWebSocketTransport):  # type: ignore[misc]
     """Custom WebSocket transport with SSL certificate verification disabled.
 
     This transport is used as a fallback when connecting to clearnet relays
@@ -311,7 +313,7 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
     async def connect(
         self,
         url: str,
-        mode: ConnectionMode,
+        _mode: ConnectionMode,
         timeout: Duration,
     ) -> WebSocketAdapterWrapper:
         """Establish a WebSocket connection without SSL verification.
@@ -577,8 +579,6 @@ async def is_nostr_relay(
     Returns:
         True if relay speaks Nostr protocol, False otherwise.
     """
-    from nostr_sdk import Filter, Kind
-
     logger.debug("validation_started", relay=relay.url, timeout_s=timeout)
 
     # Overall timeout as safety net: connect + fetch + disconnect
@@ -617,8 +617,6 @@ async def is_nostr_relay(
 
         finally:
             if client is not None:
-                try:
-                    # Don't let disconnect hang the entire operation
+                # Don't let disconnect hang the entire operation
+                with contextlib.suppress(TimeoutError, Exception):
                     await asyncio.wait_for(client.disconnect(), timeout=10.0)
-                except (TimeoutError, Exception):
-                    pass
