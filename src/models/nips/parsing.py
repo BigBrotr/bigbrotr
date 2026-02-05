@@ -105,11 +105,10 @@ def parse_fields(data: dict[str, Any], spec: FieldSpec) -> dict[str, Any]:
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 result[key] = float(value)
 
-        elif key in spec.int_list_fields:
-            if isinstance(value, list):
-                int_items = [i for i in value if isinstance(i, int) and not isinstance(i, bool)]
-                if int_items:
-                    result[key] = int_items
+        elif key in spec.int_list_fields and isinstance(value, list):
+            int_items = [i for i in value if isinstance(i, int) and not isinstance(i, bool)]
+            if int_items:
+                result[key] = int_items
 
     return result
 
