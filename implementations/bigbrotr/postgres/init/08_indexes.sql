@@ -103,12 +103,12 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id
 ON relay_metadata USING btree (metadata_id);
 
 -- Index: idx_relay_metadata_url_type_generated (CRITICAL FOR VIEWS)
--- Purpose: Efficient window functions and latest metadata lookups per type
--- Usage: ROW_NUMBER() OVER (PARTITION BY relay_url, type ORDER BY generated_at DESC)
+-- Purpose: Efficient window functions and latest metadata lookups per metadata_type
+-- Usage: ROW_NUMBER() OVER (PARTITION BY relay_url, metadata_type ORDER BY generated_at DESC)
 -- Note: Powers the relay_metadata_latest view with index-only scans
--- Note: This index covers queries on (relay_url), (relay_url, type), and (relay_url, type, generated_at)
+-- Note: This index covers queries on (relay_url), (relay_url, metadata_type), and (relay_url, metadata_type, generated_at)
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_type_generated
-ON relay_metadata USING btree (relay_url, type, generated_at DESC);
+ON relay_metadata USING btree (relay_url, metadata_type, generated_at DESC);
 
 -- ============================================================================
 -- TABLE INDEXES: service_data
@@ -135,15 +135,15 @@ ON service_data USING btree (service_name, data_type);
 -- Index: idx_relay_metadata_latest_pk (CRITICAL FOR REFRESH CONCURRENTLY)
 -- Purpose: Unique index required for REFRESH MATERIALIZED VIEW CONCURRENTLY
 -- Usage: REFRESH MATERIALIZED VIEW CONCURRENTLY relay_metadata_latest
--- Note: Composite unique on (relay_url, type) matching view structure
+-- Note: Composite unique on (relay_url, metadata_type) matching view structure
 CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_metadata_latest_pk
-ON relay_metadata_latest USING btree (relay_url, type);
+ON relay_metadata_latest USING btree (relay_url, metadata_type);
 
 -- Index: idx_relay_metadata_latest_type
 -- Purpose: Fast filtering by metadata type
--- Usage: WHERE type = 'nip11_fetch' or WHERE type = 'nip66_rtt'
+-- Usage: WHERE metadata_type = 'nip11_fetch' or WHERE metadata_type = 'nip66_rtt'
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_latest_type
-ON relay_metadata_latest USING btree (type);
+ON relay_metadata_latest USING btree (metadata_type);
 
 -- ============================================================================
 -- MATERIALIZED VIEW INDEXES: events_statistics

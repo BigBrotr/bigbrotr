@@ -57,9 +57,9 @@ ON relay_metadata USING btree (generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id
 ON relay_metadata USING btree (metadata_id);
 
--- Latest per type: WHERE relay_url = ? AND type = ? ORDER BY generated_at DESC LIMIT 1
+-- Latest per metadata_type: WHERE relay_url = ? AND metadata_type = ? ORDER BY generated_at DESC LIMIT 1
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_type_generated
-ON relay_metadata USING btree (relay_url, type, generated_at DESC);
+ON relay_metadata USING btree (relay_url, metadata_type, generated_at DESC);
 
 -- ============================================================================
 -- INDEXES CREATED
