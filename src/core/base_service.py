@@ -19,10 +19,10 @@ from typing import Any, ClassVar, Generic, TypeVar, cast
 
 from pydantic import BaseModel, Field
 
+from logger import Logger
 from utils.yaml import load_yaml
 
 from .brotr import Brotr
-from .logger import Logger
 from .metrics import (
     CYCLE_DURATION_SECONDS,
     SERVICE_COUNTER,
@@ -251,8 +251,8 @@ class BaseService(ABC, Generic[ConfigT]):
     @classmethod
     def from_dict(cls, data: dict[str, Any], brotr: Brotr, **kwargs: Any) -> "BaseService[ConfigT]":
         """Create service from dictionary configuration."""
-        config = cls.CONFIG_CLASS(**data)
-        return cls(brotr=brotr, config=config, **kwargs)  # type: ignore[arg-type]
+        config = cast("ConfigT", cls.CONFIG_CLASS(**data))
+        return cls(brotr=brotr, config=config, **kwargs)
 
     # -------------------------------------------------------------------------
     # Context Manager
