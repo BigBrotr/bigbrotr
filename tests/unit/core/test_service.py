@@ -22,9 +22,9 @@ from unittest.mock import patch
 import pytest
 from pydantic import Field, ValidationError
 
-from core.service import BaseService, BaseServiceConfig
 from core.brotr import Brotr
 from core.metrics import MetricsConfig
+from core.service import BaseService, BaseServiceConfig
 
 
 # ============================================================================

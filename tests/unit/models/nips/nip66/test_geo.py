@@ -412,7 +412,9 @@ class TestNip66GeoMetadataGeoAsync:
 
         with (
             patch(
-                "models.nips.nip66.geo.resolve_host", new_callable=AsyncMock, return_value=mock_resolved
+                "models.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
             ),
             patch.object(Nip66GeoMetadata, "_geo", return_value=geo_result),
         ):
@@ -486,7 +488,9 @@ class TestNip66GeoMetadataGeoAsync:
 
         with (
             patch(
-                "models.nips.nip66.geo.resolve_host", new_callable=AsyncMock, return_value=mock_resolved
+                "models.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
             ),
             patch.object(Nip66GeoMetadata, "_geo", return_value={}),
         ):
@@ -509,7 +513,9 @@ class TestNip66GeoMetadataGeoAsync:
 
         with (
             patch(
-                "models.nips.nip66.geo.resolve_host", new_callable=AsyncMock, return_value=mock_resolved
+                "models.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
             ),
             patch.object(Nip66GeoMetadata, "_geo", side_effect=Exception("Database error")),
         ):
@@ -534,7 +540,9 @@ class TestNip66GeoMetadataGeoAsync:
 
         with (
             patch(
-                "models.nips.nip66.geo.resolve_host", new_callable=AsyncMock, return_value=mock_resolved
+                "models.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
             ),
             patch.object(Nip66GeoMetadata, "_geo", return_value=geo_result) as mock_geo,
         ):
@@ -558,7 +566,9 @@ class TestNip66GeoMetadataGeoAsync:
 
         with (
             patch(
-                "models.nips.nip66.geo.resolve_host", new_callable=AsyncMock, return_value=mock_resolved
+                "models.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
             ),
             patch.object(Nip66GeoMetadata, "_geo", return_value=geo_result) as mock_geo,
         ):

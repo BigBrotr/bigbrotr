@@ -62,7 +62,9 @@ class TestNip66HttpMetadataHttpAsync:
                     await on_request_end(MagicMock(), MagicMock(), mock_params)
 
                 session = MagicMock()
-                session.ws_connect = MagicMock(return_value=AsyncMock(__aenter__=mock_ws_connect_cm))
+                session.ws_connect = MagicMock(
+                    return_value=AsyncMock(__aenter__=mock_ws_connect_cm)
+                )
                 return session
 
             mock_client_session.return_value.__aenter__ = create_mock_session
@@ -151,9 +153,7 @@ class TestNip66HttpMetadataHttp:
         http_result = {"http_server": "nginx/1.24.0"}
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result):
-            result = await Nip66HttpMetadata.http(
-                relay, 10.0, proxy_url="socks5://localhost:9050"
-            )
+            result = await Nip66HttpMetadata.http(relay, 10.0, proxy_url="socks5://localhost:9050")
 
         assert isinstance(result, Nip66HttpMetadata)
 

@@ -194,7 +194,9 @@ class TestNip66NetMetadataNetAsync:
 
         with (
             patch(
-                "models.nips.nip66.net.resolve_host", new_callable=AsyncMock, return_value=mock_resolved
+                "models.nips.nip66.net.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
             ),
             patch.object(Nip66NetMetadata, "_net", return_value=net_result),
         ):
@@ -270,7 +272,9 @@ class TestNip66NetMetadataNetAsync:
 
         with (
             patch(
-                "models.nips.nip66.net.resolve_host", new_callable=AsyncMock, return_value=mock_resolved
+                "models.nips.nip66.net.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
             ),
             patch.object(Nip66NetMetadata, "_net", return_value={}),
         ):
@@ -300,7 +304,9 @@ class TestNip66NetMetadataNetAsync:
 
         with (
             patch(
-                "models.nips.nip66.net.resolve_host", new_callable=AsyncMock, return_value=mock_resolved
+                "models.nips.nip66.net.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
             ),
             patch.object(Nip66NetMetadata, "_net", return_value=net_result) as mock_net,
         ):
@@ -328,7 +334,9 @@ class TestNip66NetMetadataNetAsync:
 
         with (
             patch(
-                "models.nips.nip66.net.resolve_host", new_callable=AsyncMock, return_value=mock_resolved
+                "models.nips.nip66.net.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
             ),
             patch.object(Nip66NetMetadata, "_net", return_value=net_result),
         ):
