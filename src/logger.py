@@ -1,12 +1,15 @@
 """
 Structured Logging for BigBrotr.
 
+This module is placed at src/ root to avoid circular imports between core and models.
+Both layers can safely import from this module.
+
 Supports two output formats:
 - Key-value pairs (default): message key1=value1 key2="value with spaces"
 - JSON (for cloud/production): {"message": "...", "key1": "value1", ...}
 
 Usage:
-    from core.logger import Logger
+    from logger import Logger
 
     logger = Logger("finder")
     logger.info("started", cycle=1, count=42)
