@@ -333,31 +333,34 @@ class TestFromDbParams:
 
     def test_simple(self):
         """Reconstructs simple metadata."""
-        m = Metadata.from_db_params('{"name": "test"}')
+        params = MetadataDbParams(metadata_id=b"\x00" * 32, metadata_json='{"name": "test"}')
+        m = Metadata.from_db_params(params)
         assert m.metadata == {"name": "test"}
 
     def test_nested(self):
         """Reconstructs nested metadata."""
-        m = Metadata.from_db_params('{"a": {"b": [1, 2, 3]}}')
+        params = MetadataDbParams(metadata_id=b"\x00" * 32, metadata_json='{"a": {"b": [1, 2, 3]}}')
+        m = Metadata.from_db_params(params)
         assert m.metadata["a"]["b"] == [1, 2, 3]
 
     def test_empty(self):
         """Reconstructs empty metadata."""
-        m = Metadata.from_db_params("{}")
+        params = MetadataDbParams(metadata_id=b"\x00" * 32, metadata_json="{}")
+        m = Metadata.from_db_params(params)
         assert m.metadata == {}
 
     def test_roundtrip(self):
         """to_db_params -> from_db_params preserves metadata."""
         original = Metadata({"name": "test", "value": 123})
         params = original.to_db_params()
-        reconstructed = Metadata.from_db_params(params.metadata_json)
+        reconstructed = Metadata.from_db_params(params)
         assert reconstructed.metadata == original.metadata
 
     def test_roundtrip_nested(self):
         """Roundtrip preserves nested structures."""
         original = Metadata({"outer": {"inner": {"deep": [1, 2, 3]}}})
         params = original.to_db_params()
-        reconstructed = Metadata.from_db_params(params.metadata_json)
+        reconstructed = Metadata.from_db_params(params)
         assert reconstructed.metadata == original.metadata
 
 
@@ -401,7 +404,7 @@ class TestEdgeCases:
         data = {"name": "World", "japanese": "Nostr"}
         m = Metadata(data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params.metadata_json)
+        reconstructed = Metadata.from_db_params(params)
         assert reconstructed.metadata == data
 
     def test_large_data(self):
@@ -409,7 +412,7 @@ class TestEdgeCases:
         data = {"items": list(range(10000))}
         m = Metadata(data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params.metadata_json)
+        reconstructed = Metadata.from_db_params(params)
         assert reconstructed.metadata == data
 
     def test_special_json_characters(self):
@@ -417,7 +420,7 @@ class TestEdgeCases:
         data = {"text": 'Hello "World"\nNew line\ttab'}
         m = Metadata(data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params.metadata_json)
+        reconstructed = Metadata.from_db_params(params)
         assert reconstructed.metadata == data
 
     def test_null_values_filtered(self):
@@ -425,7 +428,7 @@ class TestEdgeCases:
         data = {"value": None, "nested": {"inner": None}, "real": "data"}
         m = Metadata(data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params.metadata_json)
+        reconstructed = Metadata.from_db_params(params)
         # None values and empty containers are filtered
         assert reconstructed.metadata == {"real": "data"}
         assert "value" not in reconstructed.metadata
@@ -436,7 +439,7 @@ class TestEdgeCases:
         data = {"true": True, "false": False}
         m = Metadata(data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params.metadata_json)
+        reconstructed = Metadata.from_db_params(params)
         assert reconstructed.metadata == data
         assert reconstructed.metadata["true"] is True
         assert reconstructed.metadata["false"] is False
@@ -446,7 +449,7 @@ class TestEdgeCases:
         data = {"int": 9007199254740992, "float": 3.14159}
         m = Metadata(data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params.metadata_json)
+        reconstructed = Metadata.from_db_params(params)
         assert reconstructed.metadata["int"] == 9007199254740992
         assert abs(reconstructed.metadata["float"] - 3.14159) < 1e-10
 
@@ -455,7 +458,7 @@ class TestEdgeCases:
         data = {"l1": {"l2": {"l3": {"l4": {"l5": "deep"}}}}}
         m = Metadata(data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params.metadata_json)
+        reconstructed = Metadata.from_db_params(params)
         assert reconstructed.metadata == data
 
     def test_empty_string_values(self):
@@ -463,7 +466,7 @@ class TestEdgeCases:
         data = {"empty": "", "nested": {"also_empty": ""}}
         m = Metadata(data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params.metadata_json)
+        reconstructed = Metadata.from_db_params(params)
         assert reconstructed.metadata["empty"] == ""
         assert reconstructed.metadata["nested"]["also_empty"] == ""
 

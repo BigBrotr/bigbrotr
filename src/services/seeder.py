@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, Field
 
-from core.base_service import BaseService, BaseServiceConfig
+from core.service import BaseService, BaseServiceConfig
 from models import Relay
 
 
@@ -42,7 +42,7 @@ class SeedConfig(BaseModel):
     file_path: str = Field(default="static/seed_relays.txt", description="Seed file path")
     to_validate: bool = Field(
         default=True,
-        description="If True, add as validation candidates. If False, insert directly into relays table.",
+        description="If True, add as candidates. If False, insert directly into relays.",
     )
 
 
@@ -111,13 +111,13 @@ class Seeder(BaseService[SeederConfig]):
 
         with path.open(encoding="utf-8") as f:
             for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
+                url = line.strip()
+                if not url or url.startswith("#"):
                     continue
                 try:
-                    relays.append(Relay(line))
+                    relays.append(Relay(url))
                 except Exception as e:
-                    self._logger.warning("relay_parse_failed", url=line, error=str(e))
+                    self._logger.warning("relay_parse_failed", url=url, error=str(e))
 
         return relays
 

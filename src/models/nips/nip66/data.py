@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from pydantic import StrictBool, StrictFloat, StrictInt  # noqa: TC002 - Pydantic needs at runtime
+from pydantic import StrictBool, StrictFloat, StrictInt
 
 from models.nips.base import BaseData
+from models.nips.parsing import FieldSpec
 
 
 class Nip66RttData(BaseData):
@@ -16,7 +17,9 @@ class Nip66RttData(BaseData):
     rtt_read: StrictInt | None = None
     rtt_write: StrictInt | None = None
 
-    _INT_FIELDS: ClassVar[set[str]] = {"rtt_open", "rtt_read", "rtt_write"}
+    _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
+        int_fields=frozenset({"rtt_open", "rtt_read", "rtt_write"}),
+    )
 
 
 class Nip66SslData(BaseData):
@@ -36,23 +39,29 @@ class Nip66SslData(BaseData):
     ssl_cipher: str | None = None
     ssl_cipher_bits: StrictInt | None = None
 
-    _BOOL_FIELDS: ClassVar[set[str]] = {"ssl_valid"}
-    _INT_FIELDS: ClassVar[set[str]] = {
-        "ssl_expires",
-        "ssl_not_before",
-        "ssl_version",
-        "ssl_cipher_bits",
-    }
-    _STR_FIELDS: ClassVar[set[str]] = {
-        "ssl_subject_cn",
-        "ssl_issuer",
-        "ssl_issuer_cn",
-        "ssl_serial",
-        "ssl_fingerprint",
-        "ssl_protocol",
-        "ssl_cipher",
-    }
-    _STR_LIST_FIELDS: ClassVar[set[str]] = {"ssl_san"}
+    _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
+        bool_fields=frozenset({"ssl_valid"}),
+        int_fields=frozenset(
+            {
+                "ssl_expires",
+                "ssl_not_before",
+                "ssl_version",
+                "ssl_cipher_bits",
+            }
+        ),
+        str_fields=frozenset(
+            {
+                "ssl_subject_cn",
+                "ssl_issuer",
+                "ssl_issuer_cn",
+                "ssl_serial",
+                "ssl_fingerprint",
+                "ssl_protocol",
+                "ssl_cipher",
+            }
+        ),
+        str_list_fields=frozenset({"ssl_san"}),
+    )
 
 
 class Nip66GeoData(BaseData):
@@ -73,20 +82,24 @@ class Nip66GeoData(BaseData):
     geohash: str | None = None
     geo_geoname_id: StrictInt | None = None
 
-    _BOOL_FIELDS: ClassVar[set[str]] = {"geo_is_eu"}
-    _INT_FIELDS: ClassVar[set[str]] = {"geo_accuracy", "geo_geoname_id"}
-    _FLOAT_FIELDS: ClassVar[set[str]] = {"geo_lat", "geo_lon"}
-    _STR_FIELDS: ClassVar[set[str]] = {
-        "geo_country",
-        "geo_country_name",
-        "geo_continent",
-        "geo_continent_name",
-        "geo_region",
-        "geo_city",
-        "geo_postal",
-        "geo_tz",
-        "geohash",
-    }
+    _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
+        bool_fields=frozenset({"geo_is_eu"}),
+        int_fields=frozenset({"geo_accuracy", "geo_geoname_id"}),
+        float_fields=frozenset({"geo_lat", "geo_lon"}),
+        str_fields=frozenset(
+            {
+                "geo_country",
+                "geo_country_name",
+                "geo_continent",
+                "geo_continent_name",
+                "geo_region",
+                "geo_city",
+                "geo_postal",
+                "geo_tz",
+                "geohash",
+            }
+        ),
+    )
 
 
 class Nip66NetData(BaseData):
@@ -99,14 +112,18 @@ class Nip66NetData(BaseData):
     net_network: str | None = None
     net_network_v6: str | None = None
 
-    _INT_FIELDS: ClassVar[set[str]] = {"net_asn"}
-    _STR_FIELDS: ClassVar[set[str]] = {
-        "net_ip",
-        "net_ipv6",
-        "net_asn_org",
-        "net_network",
-        "net_network_v6",
-    }
+    _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
+        int_fields=frozenset({"net_asn"}),
+        str_fields=frozenset(
+            {
+                "net_ip",
+                "net_ipv6",
+                "net_asn_org",
+                "net_network",
+                "net_network_v6",
+            }
+        ),
+    )
 
 
 class Nip66DnsData(BaseData):
@@ -119,9 +136,11 @@ class Nip66DnsData(BaseData):
     dns_ns: list[str] | None = None
     dns_ttl: StrictInt | None = None
 
-    _INT_FIELDS: ClassVar[set[str]] = {"dns_ttl"}
-    _STR_FIELDS: ClassVar[set[str]] = {"dns_cname", "dns_reverse"}
-    _STR_LIST_FIELDS: ClassVar[set[str]] = {"dns_ips", "dns_ips_v6", "dns_ns"}
+    _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
+        int_fields=frozenset({"dns_ttl"}),
+        str_fields=frozenset({"dns_cname", "dns_reverse"}),
+        str_list_fields=frozenset({"dns_ips", "dns_ips_v6", "dns_ns"}),
+    )
 
 
 class Nip66HttpData(BaseData):
@@ -130,4 +149,6 @@ class Nip66HttpData(BaseData):
     http_server: str | None = None
     http_powered_by: str | None = None
 
-    _STR_FIELDS: ClassVar[set[str]] = {"http_server", "http_powered_by"}
+    _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
+        str_fields=frozenset({"http_server", "http_powered_by"}),
+    )

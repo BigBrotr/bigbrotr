@@ -8,7 +8,6 @@ with automatic URL normalization and network type detection.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from time import time
 from typing import Any, ClassVar, NamedTuple
@@ -17,16 +16,7 @@ from rfc3986 import uri_reference
 from rfc3986.exceptions import UnpermittedComponentError, ValidationError
 from rfc3986.validators import Validator
 
-
-class NetworkType(StrEnum):
-    """Network type constants for relay classification."""
-
-    CLEARNET = "clearnet"
-    TOR = "tor"
-    I2P = "i2p"
-    LOKI = "loki"
-    LOCAL = "local"
-    UNKNOWN = "unknown"
+from utils.network import NetworkType
 
 
 class RelayDbParams(NamedTuple):
@@ -135,7 +125,11 @@ class Relay:
     ]
 
     def __post_init__(self) -> None:
-        """Parse and validate the raw URL, setting computed fields."""
+        """Parse and validate the raw URL, setting computed fields.
+
+        Also validates that to_db_params() succeeds, ensuring the model
+        is database-ready at creation time (fail-fast).
+        """
         # Remove null bytes (PostgreSQL rejects them in TEXT columns)
         raw = self.raw_url.replace("\x00", "") if "\x00" in self.raw_url else self.raw_url
         parsed = self._parse(raw)
@@ -152,6 +146,9 @@ class Relay:
         object.__setattr__(self, "host", parsed["host"])
         object.__setattr__(self, "port", parsed["port"])
         object.__setattr__(self, "path", parsed["path"])
+
+        # Validate database params conversion (fail-fast)
+        self.to_db_params()
 
     @staticmethod
     def _detect_network(host: str) -> NetworkType:
@@ -292,21 +289,15 @@ class Relay:
         )
 
     @classmethod
-    def from_db_params(
-        cls,
-        url: str,
-        network: str,  # noqa: ARG003
-        discovered_at: int,
-    ) -> Relay:
+    def from_db_params(cls, params: RelayDbParams) -> Relay:
         """
         Create a Relay from database parameters by re-parsing the URL.
 
         Args:
-            url: The relay URL with scheme (e.g., "wss://relay.example.com")
-            network: Network type ("clearnet", "tor", "i2p", "loki") - unused, recomputed
-            discovered_at: Unix timestamp when discovered
+            params: RelayDbParams containing url, network (ignored), and discovered_at.
+                    The network field is recomputed from the URL.
 
         Returns:
             Relay instance with the provided values
         """
-        return cls(url, discovered_at)
+        return cls(params.url, params.discovered_at)

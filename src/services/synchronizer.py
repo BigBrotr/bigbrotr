@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import contextlib
 import random
 import signal
 import time
@@ -44,12 +45,11 @@ from nostr_sdk import (
 )
 from pydantic import BaseModel, Field, field_validator
 
-from core.base_service import BaseService, BaseServiceConfig
 from core.brotr import Brotr
+from core.service import BaseService, BaseServiceConfig
 from models import Event, EventRelay, Relay
-from models.relay import NetworkType
 from utils.keys import KeysConfig
-from utils.network import NetworkConfig
+from utils.network import NetworkConfig, NetworkType
 
 
 # =============================================================================
@@ -92,8 +92,8 @@ def _get_worker_logger() -> logging.Logger:
     """Get or create logger for worker process with proper configuration."""
     global _WORKER_LOGGER
     if _WORKER_LOGGER is None:
-        import logging
-        import sys
+        import logging  # noqa: PLC0415 - Worker process needs fresh import after fork
+        import sys  # noqa: PLC0415 - Worker process needs fresh import after fork
 
         # Create worker-specific logger
         _WORKER_LOGGER = logging.getLogger(f"{_WORKER_SERVICE_NAME}.worker")
@@ -121,7 +121,7 @@ def _format_kv(kwargs: dict[str, Any]) -> str:
     Uses the shared format_kv_pairs utility for consistency with Logger class.
     Workers use no truncation to preserve full context in logs.
     """
-    from core.logger import format_kv_pairs
+    from logger import format_kv_pairs  # noqa: PLC0415 - Worker isolation
 
     return format_kv_pairs(kwargs, max_value_length=None)
 
@@ -138,7 +138,7 @@ def _worker_log(level: str, message: str, **kwargs: Any) -> None:
         message: Log message
         **kwargs: Additional key=value pairs to include
     """
-    import logging
+    import logging  # noqa: PLC0415 - Worker isolation
 
     logger = _get_worker_logger()
     log_level = getattr(logging, level.upper(), logging.INFO)
@@ -419,22 +419,18 @@ def _cleanup_worker_brotr() -> None:
     """
     global _WORKER_BROTR
     if _WORKER_BROTR is not None:
-        try:
-            # Create a new event loop for cleanup since the worker's loop may be closed
+        # Best effort cleanup - don't raise during process termination
+        with contextlib.suppress(Exception):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
                 loop.run_until_complete(_WORKER_BROTR.pool.close())
             finally:
                 loop.close()
-        except Exception:
-            # Best effort cleanup - don't raise during process termination
-            pass
-        finally:
-            _WORKER_BROTR = None
+        _WORKER_BROTR = None
 
 
-def _signal_handler(signum: int, frame: Any) -> None:
+def _signal_handler(signum: int, _frame: Any) -> None:
     """Signal handler that ensures cleanup before exit."""
     _cleanup_worker_brotr()
     # Re-raise with default handler for proper exit code
@@ -485,7 +481,7 @@ async def _get_worker_brotr(brotr_config: dict[str, Any]) -> Brotr:
 
 async def sync_relay_task(
     relay_url: str,
-    relay_network: str,
+    _relay_network: str,
     start_time: int,
     config_dict: dict[str, Any],
     brotr_config: dict[str, Any],
@@ -687,16 +683,15 @@ async def _insert_batch(
             _worker_log("DEBUG", "event_parse_error", relay=relay.url, error=str(e))
 
     total_inserted = 0
-    total_skipped = 0
 
     if event_relays:
         batch_size = brotr.config.batch.max_batch_size
         for i in range(0, len(event_relays), batch_size):
-            inserted, skipped = await brotr.insert_events_relays(event_relays[i : i + batch_size])
+            inserted = await brotr.insert_events_relays(event_relays[i : i + batch_size])
             total_inserted += inserted
-            total_skipped += skipped
 
-    return total_inserted, invalid_count, total_skipped
+    # Note: skipped is always 0 since validation now happens at model creation (fail-fast)
+    return total_inserted, invalid_count, 0
 
 
 async def _sync_relay_events(
@@ -725,9 +720,9 @@ async def _sync_relay_events(
     Returns:
         tuple[int, int, int]: (events_synchronized, invalid_events, skipped_events)
     """
-    from nostr_sdk import RelayUrl
+    from nostr_sdk import RelayUrl  # noqa: PLC0415 - Worker fresh import after fork
 
-    from utils.transport import create_client
+    from utils.transport import create_client  # noqa: PLC0415 - Worker fresh import
 
     events_synced = 0
     invalid_events = 0
@@ -767,10 +762,8 @@ async def _sync_relay_events(
     except Exception as e:
         _worker_log("WARNING", "sync_relay_error", relay=relay.url, error=str(e))
     finally:
-        try:
+        with contextlib.suppress(Exception):
             await client.shutdown()
-        except Exception:
-            pass
 
     return events_synced, invalid_events, skipped_events
 
@@ -1030,7 +1023,8 @@ class Synchronizer(BaseService[SynchronizerConfig]):
 
                 # Collect cursor update for batch upsert
                 # Save cursor even if 0 events - time window was successfully processed
-                try:
+                # Skip invalid URLs silently
+                with contextlib.suppress(Exception):
                     relay = Relay(url)
                     cursor_updates.append(
                         (
@@ -1040,8 +1034,6 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                             {"last_synced_at": new_time},
                         )
                     )
-                except Exception:
-                    pass  # Skip invalid URLs
 
         # Batch upsert all cursors
         if cursor_updates:

@@ -1,5 +1,5 @@
 """
-Unit tests for core.logger module.
+Unit tests for logger module.
 
 Tests:
 - Logger initialization with name, json_output, and max_value_length
@@ -18,8 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core import Logger
-from core.logger import format_kv_pairs
+from logger import Logger, format_kv_pairs
 
 
 # ============================================================================

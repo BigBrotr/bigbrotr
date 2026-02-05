@@ -8,7 +8,8 @@ deduplication (metadata hash computed in Python for determinism).
 Database mapping:
     - relay_url -> relays.url (FK)
     - generated_at -> relay_metadata.generated_at timestamp
-    - type -> MetadataType enum value (nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http)
+    - type -> MetadataType enum value
+      (nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http)
     - metadata_id -> metadata.id (FK, SHA-256 hash computed in Python)
 
 Example:
@@ -27,8 +28,8 @@ from enum import StrEnum
 from time import time
 from typing import NamedTuple
 
-from .metadata import Metadata
-from .relay import Relay
+from .metadata import Metadata, MetadataDbParams
+from .relay import Relay, RelayDbParams
 
 
 class MetadataType(StrEnum):
@@ -97,6 +98,10 @@ class RelayMetadata:
     metadata_type: MetadataType
     generated_at: int = field(default_factory=lambda: int(time()))
 
+    def __post_init__(self) -> None:
+        """Validate that to_db_params() succeeds (fail-fast)."""
+        self.to_db_params()
+
     def to_db_params(self) -> RelayMetadataDbParams:
         """
         Return database parameters for relay_metadata_insert_cascade procedure.
@@ -121,34 +126,31 @@ class RelayMetadata:
         )
 
     @classmethod
-    def from_db_params(
-        cls,
-        relay_url: str,
-        relay_network: str,
-        relay_discovered_at: int,
-        metadata_json: str,
-        metadata_type: MetadataType,
-        generated_at: int,
-    ) -> RelayMetadata:
+    def from_db_params(cls, params: RelayMetadataDbParams) -> RelayMetadata:
         """
         Create RelayMetadata from database parameters.
 
         Args:
-            relay_url: Relay URL with scheme (e.g., "wss://relay.example.com")
-            relay_network: Relay network type
-            relay_discovered_at: Relay discovery timestamp
-            metadata_json: JSON string of metadata
-            metadata_type: MetadataType enum value
-            generated_at: When metadata was collected
+            params: RelayMetadataDbParams containing all relay, metadata, and junction fields.
+                    The metadata_id is not used (hash is recomputed if needed).
 
         Returns:
             RelayMetadata instance
         """
-        relay = Relay.from_db_params(relay_url, relay_network, relay_discovered_at)
-        metadata = Metadata.from_db_params(metadata_json)
+        relay_params = RelayDbParams(
+            url=params.relay_url,
+            network=params.relay_network,
+            discovered_at=params.relay_discovered_at,
+        )
+        metadata_params = MetadataDbParams(
+            metadata_id=params.metadata_id,
+            metadata_json=params.metadata_json,
+        )
+        relay = Relay.from_db_params(relay_params)
+        metadata = Metadata.from_db_params(metadata_params)
         return cls(
             relay=relay,
             metadata=metadata,
-            metadata_type=metadata_type,
-            generated_at=generated_at,
+            metadata_type=params.metadata_type,
+            generated_at=params.generated_at,
         )

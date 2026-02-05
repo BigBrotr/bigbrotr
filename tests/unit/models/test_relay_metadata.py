@@ -318,47 +318,43 @@ class TestFromDbParams:
 
     def test_simple(self):
         """Reconstructs RelayMetadata from db params."""
-        rm = RelayMetadata.from_db_params(
+        params = RelayMetadataDbParams(
             relay_url="wss://relay.example.com",
             relay_network="clearnet",
             relay_discovered_at=1234567890,
+            metadata_id=b"\x00" * 32,
             metadata_json='{"name": "Test"}',
-            metadata_type="nip11_fetch",
+            metadata_type=MetadataType.NIP11_FETCH,
             generated_at=9999999999,
         )
+        rm = RelayMetadata.from_db_params(params)
         assert rm.relay.url == "wss://relay.example.com"
         assert rm.relay.network == NetworkType.CLEARNET
         assert rm.relay.discovered_at == 1234567890
         assert rm.metadata.metadata == {"name": "Test"}
-        assert rm.metadata_type == "nip11_fetch"
+        assert rm.metadata_type == MetadataType.NIP11_FETCH
         assert rm.generated_at == 9999999999
 
     def test_with_tor_relay(self):
         """Reconstructs with Tor relay."""
-        rm = RelayMetadata.from_db_params(
+        params = RelayMetadataDbParams(
             relay_url="ws://abc123.onion",
             relay_network="tor",
             relay_discovered_at=1234567890,
+            metadata_id=b"\x00" * 32,
             metadata_json="{}",
-            metadata_type="nip66_rtt",
+            metadata_type=MetadataType.NIP66_RTT,
             generated_at=1234567891,
         )
+        rm = RelayMetadata.from_db_params(params)
         assert rm.relay.network == NetworkType.TOR
         assert rm.relay.scheme == "ws"
 
     def test_roundtrip(self, relay, metadata):
         """to_db_params -> from_db_params preserves data."""
-        original = RelayMetadata(relay, metadata, "nip66_rtt", generated_at=1234567890)
+        original = RelayMetadata(relay, metadata, MetadataType.NIP66_RTT, generated_at=1234567890)
         params = original.to_db_params()
-        # from_db_params doesn't take metadata_id (it's computed from JSON)
-        reconstructed = RelayMetadata.from_db_params(
-            relay_url=params.relay_url,
-            relay_network=params.relay_network,
-            relay_discovered_at=params.relay_discovered_at,
-            metadata_json=params.metadata_json,
-            metadata_type=params.metadata_type,
-            generated_at=params.generated_at,
-        )
+        reconstructed = RelayMetadata.from_db_params(params)
         assert reconstructed.relay.url == original.relay.url
         assert reconstructed.relay.network == original.relay.network
         assert reconstructed.relay.discovered_at == original.relay.discovered_at
@@ -371,15 +367,7 @@ class TestFromDbParams:
         for mtype in MetadataType:
             original = RelayMetadata(relay, metadata, mtype, generated_at=1234567890)
             params = original.to_db_params()
-            # from_db_params doesn't take metadata_id (it's computed from JSON)
-            reconstructed = RelayMetadata.from_db_params(
-                relay_url=params.relay_url,
-                relay_network=params.relay_network,
-                relay_discovered_at=params.relay_discovered_at,
-                metadata_json=params.metadata_json,
-                metadata_type=params.metadata_type,
-                generated_at=params.generated_at,
-            )
+            reconstructed = RelayMetadata.from_db_params(params)
             assert reconstructed.metadata_type == mtype
 
 

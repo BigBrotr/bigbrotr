@@ -520,7 +520,8 @@ class TestFromDbParams:
 
     def test_simple_relay(self):
         """Reconstructs simple relay."""
-        r = Relay.from_db_params("wss://relay.example.com", "clearnet", 1234567890)
+        params = RelayDbParams("wss://relay.example.com", "clearnet", 1234567890)
+        r = Relay.from_db_params(params)
         assert r.url == "wss://relay.example.com"
         assert r.network == NetworkType.CLEARNET
         assert r.discovered_at == 1234567890
@@ -531,48 +532,54 @@ class TestFromDbParams:
 
     def test_with_port(self):
         """Reconstructs relay with port."""
-        r = Relay.from_db_params("wss://relay.example.com:8080", "clearnet", 1234567890)
+        params = RelayDbParams("wss://relay.example.com:8080", "clearnet", 1234567890)
+        r = Relay.from_db_params(params)
         assert r.host == "relay.example.com"
         assert r.port == 8080
         assert r.path is None
 
     def test_with_path(self):
         """Reconstructs relay with path."""
-        r = Relay.from_db_params("wss://relay.example.com/nostr", "clearnet", 1234567890)
+        params = RelayDbParams("wss://relay.example.com/nostr", "clearnet", 1234567890)
+        r = Relay.from_db_params(params)
         assert r.host == "relay.example.com"
         assert r.port is None
         assert r.path == "/nostr"
 
     def test_with_port_and_path(self):
         """Reconstructs relay with both port and path."""
-        r = Relay.from_db_params("wss://relay.example.com:8080/nostr", "clearnet", 1234567890)
+        params = RelayDbParams("wss://relay.example.com:8080/nostr", "clearnet", 1234567890)
+        r = Relay.from_db_params(params)
         assert r.host == "relay.example.com"
         assert r.port == 8080
         assert r.path == "/nostr"
 
     def test_ipv6(self):
         """Reconstructs IPv6 relay."""
-        r = Relay.from_db_params("wss://[2606:4700::1]:8080", "clearnet", 1234567890)
+        params = RelayDbParams("wss://[2606:4700::1]:8080", "clearnet", 1234567890)
+        r = Relay.from_db_params(params)
         assert r.host == "2606:4700::1"  # Host without brackets
         assert r.port == 8080
 
     def test_tor_network(self):
         """Reconstructs Tor relay with ws:// scheme."""
-        r = Relay.from_db_params("ws://abc123.onion", "tor", 1234567890)
+        params = RelayDbParams("ws://abc123.onion", "tor", 1234567890)
+        r = Relay.from_db_params(params)
         assert r.network == NetworkType.TOR
         assert r.scheme == "ws"
 
     def test_network_param_ignored(self):
         """Network param is ignored (recomputed from URL)."""
         # Pass wrong network, it gets recomputed
-        r = Relay.from_db_params("wss://relay.example.com", "tor", 1234567890)
+        params = RelayDbParams("wss://relay.example.com", "tor", 1234567890)
+        r = Relay.from_db_params(params)
         assert r.network == NetworkType.CLEARNET  # Recomputed, not from param
 
     def test_roundtrip(self):
         """to_db_params -> from_db_params preserves data."""
         original = Relay("wss://relay.example.com:8080/nostr", discovered_at=1234567890)
         params = original.to_db_params()
-        reconstructed = Relay.from_db_params(*params)
+        reconstructed = Relay.from_db_params(params)
         assert reconstructed.url == original.url
         assert reconstructed.network == original.network
         assert reconstructed.discovered_at == original.discovered_at
@@ -585,7 +592,7 @@ class TestFromDbParams:
         """Roundtrip works for Tor relay."""
         original = Relay("wss://abc123.onion", discovered_at=1234567890)
         params = original.to_db_params()
-        reconstructed = Relay.from_db_params(*params)
+        reconstructed = Relay.from_db_params(params)
         assert reconstructed.url == original.url
         assert reconstructed.network == original.network
         assert reconstructed.scheme == original.scheme

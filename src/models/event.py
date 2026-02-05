@@ -50,13 +50,20 @@ class Event:
     def __post_init__(self) -> None:
         """Validate event content for database compatibility.
 
+        Also validates that to_db_params() succeeds, ensuring the model
+        is database-ready at creation time (fail-fast).
+
         Raises:
-            ValueError: If content contains null bytes (PostgreSQL rejects them).
+            ValueError: If content contains null bytes (PostgreSQL rejects them)
+                       or if to_db_params() conversion fails.
         """
         if "\x00" in self._inner.content():
             raise ValueError(
                 f"Event {self._inner.id().to_hex()[:16]}... content contains null bytes"
             )
+
+        # Validate database params conversion (fail-fast)
+        self.to_db_params()
 
     def __getattr__(self, name: str) -> Any:
         """Delegate all attribute access to the wrapped NostrEvent."""
@@ -82,42 +89,28 @@ class Event:
         )
 
     @classmethod
-    def from_db_params(
-        cls,
-        event_id: bytes,
-        pubkey: bytes,
-        created_at: int,
-        kind: int,
-        tags_json: str,
-        content: str,
-        sig: bytes,
-    ) -> Event:
+    def from_db_params(cls, params: EventDbParams) -> Event:
         """
         Create an Event from database parameters.
 
         Args:
-            event_id: Event ID as bytes (32 bytes)
-            pubkey: Author public key as bytes (32 bytes)
-            created_at: Unix timestamp
-            kind: Event kind number
-            tags_json: JSON string of tags array
-            content: Event content
-            sig: Signature as bytes (64 bytes)
+            params: EventDbParams containing id, pubkey, created_at, kind,
+                    tags_json, content, and sig fields.
 
         Returns:
             Event instance wrapping a reconstructed NostrEvent
         """
-        tags = json.loads(tags_json)
+        tags = json.loads(params.tags_json)
         inner = NostrEvent.from_json(
             json.dumps(
                 {
-                    "id": event_id.hex(),
-                    "pubkey": pubkey.hex(),
-                    "created_at": created_at,
-                    "kind": kind,
+                    "id": params.id.hex(),
+                    "pubkey": params.pubkey.hex(),
+                    "created_at": params.created_at,
+                    "kind": params.kind,
                     "tags": tags,
-                    "content": content,
-                    "sig": sig.hex(),
+                    "content": params.content,
+                    "sig": params.sig.hex(),
                 }
             )
         )

@@ -20,9 +20,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from time import time
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple
 
-from .event import Event
+from .event import Event, EventDbParams
+from .relay import Relay, RelayDbParams
 
 
 class EventRelayDbParams(NamedTuple):
@@ -44,10 +45,6 @@ class EventRelayDbParams(NamedTuple):
     seen_at: int
 
 
-if TYPE_CHECKING:
-    from .relay import Relay
-
-
 @dataclass(frozen=True, slots=True)
 class EventRelay:
     """
@@ -62,6 +59,10 @@ class EventRelay:
     event: Event
     relay: Relay
     seen_at: int = field(default_factory=lambda: int(time()))
+
+    def __post_init__(self) -> None:
+        """Validate that to_db_params() succeeds (fail-fast)."""
+        self.to_db_params()
 
     def to_db_params(self) -> EventRelayDbParams:
         """
@@ -87,41 +88,47 @@ class EventRelay:
         )
 
     @classmethod
-    def from_db_params(
-        cls,
-        event_id: bytes,
-        pubkey: bytes,
-        created_at: int,
-        kind: int,
-        tags_json: str,
-        content: str,
-        sig: bytes,
-        relay_url: str,
-        relay_network: str,
-        relay_discovered_at: int,
-        seen_at: int,
-    ) -> EventRelay:
+    def from_db_params(cls, params: EventRelayDbParams) -> EventRelay:
         """
         Create an EventRelay from database parameters.
 
         Args:
-            event_id: Event ID as bytes
-            pubkey: Author public key as bytes
-            created_at: Event creation timestamp
-            kind: Event kind number
-            tags_json: JSON string of tags array
-            content: Event content
-            sig: Signature as bytes
-            relay_url: Relay URL with scheme (e.g., "wss://relay.example.com")
-            relay_network: Relay network type
-            relay_discovered_at: Relay discovery timestamp
-            seen_at: When event was seen on relay
+            params: EventRelayDbParams containing all event, relay, and junction fields.
 
         Returns:
             EventRelay instance
-        """
-        from .relay import Relay
 
-        event = Event.from_db_params(event_id, pubkey, created_at, kind, tags_json, content, sig)
-        relay = Relay.from_db_params(relay_url, relay_network, relay_discovered_at)
-        return cls(event, relay, seen_at)
+        Example::
+
+            params = EventRelayDbParams(
+                event_id=b"...",
+                pubkey=b"...",
+                created_at=1234567890,
+                kind=1,
+                tags_json="[]",
+                content="test",
+                sig=b"...",
+                relay_url="wss://relay.example.com",
+                relay_network="clearnet",
+                relay_discovered_at=1234567890,
+                seen_at=9999999999,
+            )
+            event_relay = EventRelay.from_db_params(params)
+        """
+        event_params = EventDbParams(
+            id=params.event_id,
+            pubkey=params.pubkey,
+            created_at=params.created_at,
+            kind=params.kind,
+            tags_json=params.tags_json,
+            content=params.content,
+            sig=params.sig,
+        )
+        relay_params = RelayDbParams(
+            url=params.relay_url,
+            network=params.relay_network,
+            discovered_at=params.relay_discovered_at,
+        )
+        event = Event.from_db_params(event_params)
+        relay = Relay.from_db_params(relay_params)
+        return cls(event, relay, params.seen_at)

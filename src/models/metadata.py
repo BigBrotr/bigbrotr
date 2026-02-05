@@ -70,9 +70,16 @@ class Metadata:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Sanitize metadata after initialization."""
+        """Sanitize metadata after initialization.
+
+        Also validates that to_db_params() succeeds, ensuring the model
+        is database-ready at creation time (fail-fast).
+        """
         sanitized = self._sanitize(self.metadata) if self.metadata else {}
         object.__setattr__(self, "metadata", sanitized)
+
+        # Validate database params conversion (fail-fast)
+        self.to_db_params()
 
     @classmethod
     def _sanitize(
@@ -220,15 +227,16 @@ class Metadata:
         return MetadataDbParams(metadata_id=content_hash, metadata_json=canonical)
 
     @classmethod
-    def from_db_params(cls, metadata_json: str) -> Metadata:
+    def from_db_params(cls, params: MetadataDbParams) -> Metadata:
         """
         Create a Metadata from database parameters.
 
         Args:
-            metadata_json: JSON string from PostgreSQL JSONB column
+            params: MetadataDbParams containing metadata_id and metadata_json.
+                    The metadata_id is not used (hash is recomputed if needed).
 
         Returns:
             Metadata instance with parsed metadata
         """
-        metadata = json.loads(metadata_json)
+        metadata = json.loads(params.metadata_json)
         return cls(metadata)

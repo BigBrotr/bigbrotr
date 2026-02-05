@@ -16,14 +16,13 @@ import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import asyncpg
 from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator, model_validator
 
+from logger import Logger
 from utils.yaml import load_yaml
-
-from .logger import Logger
 
 
 async def _init_connection(conn: asyncpg.Connection[asyncpg.Record]) -> None:
@@ -68,22 +67,24 @@ class DatabaseConfig(BaseModel):
     port: int = Field(default=5432, ge=1, le=65535, description="Database port")
     database: str = Field(default="bigbrotr", min_length=1, description="Database name")
     user: str = Field(default="admin", min_length=1, description="Database user")
-    password: SecretStr = Field(
-        default=None,  # type: ignore[assignment]
-        description="Database password (from DB_PASSWORD env if not provided)",
+    password_env: str = Field(
+        default="DB_PASSWORD",  # pragma: allowlist secret
+        min_length=1,
+        description="Environment variable name for database password",
     )
+    password: SecretStr = Field(description="Database password (loaded from password_env)")
 
-    @model_validator(mode="after")
-    def resolve_password(self) -> DatabaseConfig:
-        """Load password from DB_PASSWORD environment variable if not provided."""
-        if self.password is not None:
-            return self
-        value = os.getenv("DB_PASSWORD")  # pragma: allowlist secret
-        if not value:
-            raise ValueError("DB_PASSWORD environment variable not set")
-        # Use object.__setattr__ to bypass Pydantic's frozen model protection
-        object.__setattr__(self, "password", SecretStr(value))
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_password(cls, data: dict[str, Any]) -> dict[str, Any]:
+        """Load password from environment variable specified by password_env."""
+        if isinstance(data, dict) and "password" not in data:
+            env_var = data.get("password_env", "DB_PASSWORD")  # pragma: allowlist secret
+            value = os.getenv(env_var)
+            if not value:
+                raise ValueError(f"{env_var} environment variable not set")
+            data["password"] = SecretStr(value)
+        return data
 
 
 class LimitsConfig(BaseModel):
@@ -144,7 +145,7 @@ class ServerSettingsConfig(BaseModel):
 class PoolConfig(BaseModel):
     """Complete pool configuration."""
 
-    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    database: DatabaseConfig = Field(default_factory=lambda: DatabaseConfig.model_validate({}))
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     retry: RetryConfig = Field(default_factory=RetryConfig)
@@ -338,7 +339,11 @@ class Pool:
         """
         if not self._is_connected or self._pool is None:
             raise RuntimeError("Pool not connected. Call connect() first.")
-        return self._pool.acquire()
+        # asyncpg returns PoolAcquireContext which is compatible with AbstractAsyncContextManager
+        return cast(
+            "AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]",
+            self._pool.acquire(),
+        )
 
     @asynccontextmanager
     async def acquire_healthy(
@@ -374,7 +379,8 @@ class Pool:
                     # Health check - if fails, will raise and retry
                     await conn.fetchval("SELECT 1", timeout=health_check_timeout)
                     # Connection is healthy, yield it
-                    yield conn
+                    # asyncpg yields PoolConnectionProxy which is compatible with Connection
+                    yield cast("asyncpg.Connection[asyncpg.Record]", conn)
                     return
             except (asyncpg.PostgresError, OSError, TimeoutError) as e:
                 last_error = e
@@ -493,7 +499,9 @@ class Pool:
         Returns:
             List of Record objects (may be empty)
         """
-        return await self._execute_with_retry("fetch", query, args, timeout)
+        result = await self._execute_with_retry("fetch", query, args, timeout)
+        # _execute_with_retry returns Any due to dynamic dispatch; fetch() always returns list
+        return cast("list[asyncpg.Record]", result)
 
     async def fetchrow(
         self, query: str, *args: Any, timeout: float | None = None
@@ -511,7 +519,9 @@ class Pool:
         Returns:
             Single Record or None if no rows
         """
-        return await self._execute_with_retry("fetchrow", query, args, timeout)
+        result = await self._execute_with_retry("fetchrow", query, args, timeout)
+        # _execute_with_retry returns Any due to dynamic dispatch; fetchrow() returns Record | None
+        return cast("asyncpg.Record | None", result)
 
     async def fetchval(
         self, query: str, *args: Any, column: int = 0, timeout: float | None = None
@@ -546,7 +556,9 @@ class Pool:
         Returns:
             Status string (e.g., "INSERT 0 1", "UPDATE 5")
         """
-        return await self._execute_with_retry("execute", query, args, timeout)
+        result = await self._execute_with_retry("execute", query, args, timeout)
+        # _execute_with_retry returns Any due to dynamic dispatch; execute() returns str
+        return cast("str", result)
 
     async def executemany(
         self, query: str, args_list: list[tuple[Any, ...]], timeout: float | None = None

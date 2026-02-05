@@ -6,18 +6,110 @@ import asyncio
 from typing import Any, Self
 
 import geohash2
-import geoip2.database  # noqa: TC002 - used at runtime
+import geoip2.database
 
-from core.logger import Logger
+from logger import Logger
 from models.nips.base import BaseMetadata
-from models.relay import NetworkType, Relay
+from models.relay import Relay
 from utils.dns import resolve_host
+from utils.network import NetworkType
 
 from .data import Nip66GeoData
 from .logs import Nip66GeoLogs
 
 
 logger = Logger("models.nip66")
+
+
+class GeoExtractor:
+    """Helper class to extract fields from GeoIP2 City response."""
+
+    @staticmethod
+    def extract_country(response: Any) -> dict[str, Any]:
+        """Extract country-related fields (country, country_name, is_eu)."""
+        result: dict[str, Any] = {}
+
+        # Country code (prefer country, fallback to registered_country)
+        if response.country.iso_code:
+            result["geo_country"] = response.country.iso_code
+        elif response.registered_country.iso_code:
+            result["geo_country"] = response.registered_country.iso_code
+
+        # Country name
+        if response.country.name:
+            result["geo_country_name"] = response.country.name
+        elif response.registered_country.name:
+            result["geo_country_name"] = response.registered_country.name
+
+        # EU membership
+        is_eu = response.country.is_in_european_union
+        if is_eu is not None:
+            result["geo_is_eu"] = is_eu
+
+        return result
+
+    @staticmethod
+    def extract_administrative(response: Any) -> dict[str, Any]:
+        """Extract administrative fields (continent, city, region, postal)."""
+        result: dict[str, Any] = {}
+
+        # Continent
+        if response.continent.code:
+            result["geo_continent"] = response.continent.code
+        if response.continent.name:
+            result["geo_continent_name"] = response.continent.name
+
+        # City
+        if response.city.name:
+            result["geo_city"] = response.city.name
+        if response.city.geoname_id:
+            result["geo_geoname_id"] = response.city.geoname_id
+
+        # Region
+        if response.subdivisions:
+            region = response.subdivisions.most_specific.name
+            if region:
+                result["geo_region"] = region
+
+        # Postal code
+        if response.postal.code:
+            result["geo_postal"] = response.postal.code
+
+        return result
+
+    @staticmethod
+    def extract_location(response: Any) -> dict[str, Any]:
+        """Extract location fields (lat, lon, accuracy, tz, geohash)."""
+        result: dict[str, Any] = {}
+        loc = response.location
+
+        if loc.latitude is not None:
+            result["geo_lat"] = loc.latitude
+        if loc.longitude is not None:
+            result["geo_lon"] = loc.longitude
+        if loc.accuracy_radius is not None:
+            result["geo_accuracy"] = loc.accuracy_radius
+        if loc.time_zone:
+            result["geo_tz"] = loc.time_zone
+
+        # Generate geohash if coordinates available
+        if "geo_lat" in result and "geo_lon" in result:
+            result["geohash"] = geohash2.encode(
+                result["geo_lat"],
+                result["geo_lon"],
+                precision=9,
+            )
+
+        return result
+
+    @classmethod
+    def extract_all(cls, response: Any) -> dict[str, Any]:
+        """Extract all geo fields from response."""
+        result: dict[str, Any] = {}
+        result.update(cls.extract_country(response))
+        result.update(cls.extract_administrative(response))
+        result.update(cls.extract_location(response))
+        return result
 
 
 class Nip66GeoMetadata(BaseMetadata):
@@ -33,70 +125,12 @@ class Nip66GeoMetadata(BaseMetadata):
     @staticmethod
     def _geo(ip: str, city_reader: geoip2.database.Reader) -> dict[str, Any]:
         """Synchronous geolocation lookup."""
-        result: dict[str, Any] = {}
-
         try:
             response = city_reader.city(ip)
-
-            # Country
-            if response.country.iso_code:
-                result["geo_country"] = response.country.iso_code
-            elif response.registered_country.iso_code:
-                result["geo_country"] = response.registered_country.iso_code
-
-            if response.country.name:
-                result["geo_country_name"] = response.country.name
-            elif response.registered_country.name:
-                result["geo_country_name"] = response.registered_country.name
-
-            # EU membership
-            is_eu = response.country.is_in_european_union
-            if is_eu is not None:
-                result["geo_is_eu"] = is_eu
-
-            # Continent
-            if response.continent.code:
-                result["geo_continent"] = response.continent.code
-            if response.continent.name:
-                result["geo_continent_name"] = response.continent.name
-
-            # City
-            if response.city.name:
-                result["geo_city"] = response.city.name
-            if response.city.geoname_id:
-                result["geo_geoname_id"] = response.city.geoname_id
-
-            # Region
-            if response.subdivisions:
-                region = response.subdivisions.most_specific.name
-                if region:
-                    result["geo_region"] = region
-
-            # Postal
-            if response.postal.code:
-                result["geo_postal"] = response.postal.code
-
-            # Location
-            if response.location.latitude is not None:
-                result["geo_lat"] = response.location.latitude
-            if response.location.longitude is not None:
-                result["geo_lon"] = response.location.longitude
-            if response.location.accuracy_radius is not None:
-                result["geo_accuracy"] = response.location.accuracy_radius
-            if response.location.time_zone:
-                result["geo_tz"] = response.location.time_zone
-
-            # Generate geohash if coordinates available
-            if "geo_lat" in result and "geo_lon" in result:
-                result["geohash"] = geohash2.encode(
-                    result["geo_lat"],
-                    result["geo_lon"],
-                    precision=9,
-                )
+            return GeoExtractor.extract_all(response)
         except Exception as e:
             logger.debug("geo_geoip_lookup_error", ip=ip, error=str(e))
-
-        return result
+            return {}
 
     @classmethod
     async def geo(

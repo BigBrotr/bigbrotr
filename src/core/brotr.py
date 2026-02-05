@@ -22,16 +22,20 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import asyncpg
 from pydantic import BaseModel, Field, field_validator
 
-from models import Event, EventRelay, Metadata, Relay, RelayMetadata
-from models.event_relay import EventRelayDbParams
+from logger import Logger
 from utils.yaml import load_yaml
 
-from .logger import Logger
 from .pool import Pool
+
+
+# Minimum timeout value in seconds
+_MIN_TIMEOUT_SECONDS = 0.1
 
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from models import Event, EventRelay, Metadata, Relay, RelayMetadata
 
 
 # ============================================================================
@@ -70,8 +74,10 @@ class TimeoutsConfig(BaseModel):
     @classmethod
     def validate_timeout(cls, v: float | None) -> float | None:
         """Validate timeout: None (infinite) or >= 0.1 seconds."""
-        if v is not None and v < 0.1:
-            raise ValueError("Timeout must be None (infinite) or >= 0.1 seconds")
+        if v is not None and v < _MIN_TIMEOUT_SECONDS:
+            raise ValueError(
+                f"Timeout must be None (infinite) or >= {_MIN_TIMEOUT_SECONDS} seconds"
+            )
         return v
 
 
@@ -95,7 +101,8 @@ class Brotr:
     Uses composition: has a Pool (public property) for all connection operations.
     Implements async context manager for automatic pool lifecycle management.
 
-    All insert methods accept ONLY dataclass instances (Relay, Event, EventRelay, Metadata, RelayMetadata).
+    All insert methods accept ONLY dataclass instances:
+    Relay, Event, EventRelay, Metadata, RelayMetadata.
 
     Usage:
         from models import Relay, Event, EventRelay, Metadata, RelayMetadata
@@ -185,9 +192,8 @@ class Brotr:
     def _validate_batch_size(self, batch: list[Any], operation: str) -> None:
         """Validate batch size against maximum."""
         if len(batch) > self._config.batch.max_batch_size:
-            raise ValueError(
-                f"{operation} batch size ({len(batch)}) exceeds maximum ({self._config.batch.max_batch_size})"
-            )
+            max_size = self._config.batch.max_batch_size
+            raise ValueError(f"{operation} batch size ({len(batch)}) exceeds maximum ({max_size})")
 
     def _transpose_to_columns(self, params: Sequence[tuple[Any, ...]]) -> tuple[list[Any], ...]:
         """
@@ -273,7 +279,7 @@ class Brotr:
         Insert relays using bulk insert with array parameters.
 
         Args:
-            records: List of Relay dataclass instances
+            records: List of Relay dataclass instances (validated at creation)
 
         Returns:
             Number of relays inserted
@@ -300,10 +306,10 @@ class Brotr:
                 or 0
             )
 
-        self._logger.debug("relays_inserted", count=inserted, attempted=len(records))
+        self._logger.debug("relays_inserted", count=inserted, attempted=len(params))
         return inserted
 
-    async def insert_events(self, records: list[Event]) -> tuple[int, int]:
+    async def insert_events(self, records: list[Event]) -> int:
         """
         Insert events using bulk insert with array parameters.
 
@@ -311,40 +317,22 @@ class Brotr:
         cascade=True to also insert relays and event-relay junctions.
 
         Args:
-            records: List of Event instances
+            records: List of Event instances (validated at creation)
 
         Returns:
-            Tuple of (inserted, skipped) counts
+            Number of events inserted
 
         Raises:
             asyncpg.PostgresError: On database errors
             ValueError: On validation errors (batch size)
         """
         if not records:
-            return 0, 0
+            return 0
 
         self._validate_batch_size(records, "insert_events")
 
-        # Collect valid params and track skipped
-        valid_params: list[tuple[Any, ...]] = []
-        skipped = 0
-
-        for event in records:
-            try:
-                valid_params.append(event.to_db_params())
-            except (ValueError, TypeError) as ex:
-                skipped += 1
-                self._logger.warning(
-                    "invalid_event_skipped",
-                    error=str(ex),
-                    event_id=event.id().to_hex(),
-                )
-
-        if not valid_params:
-            self._logger.warning("all_events_invalid", total=len(records), skipped=skipped)
-            return 0, skipped
-
-        columns = self._transpose_to_columns(valid_params)
+        params = [event.to_db_params() for event in records]
+        columns = self._transpose_to_columns(params)
 
         async with self.pool.transaction() as conn:
             inserted: int = (
@@ -356,68 +344,44 @@ class Brotr:
                 or 0
             )
 
-        if skipped > 0:
-            self._logger.info("events_inserted_with_skipped", inserted=inserted, skipped=skipped)
-        else:
-            self._logger.debug("events_inserted", count=inserted, attempted=len(valid_params))
-        return inserted, skipped
+        self._logger.debug("events_inserted", count=inserted, attempted=len(params))
+        return inserted
 
-    async def insert_events_relays(
-        self, records: list[EventRelay], *, cascade: bool = True
-    ) -> tuple[int, int]:
+    async def insert_events_relays(self, records: list[EventRelay], cascade: bool = True) -> int:
         """
         Insert event-relay junctions using bulk insert with array parameters.
 
         Args:
-            records: List of EventRelay dataclass instances
+            records: List of EventRelay dataclass instances (validated at creation)
             cascade: If True (default), also inserts relays and events.
                      If False, inserts only into events_relays junction (FKs must exist).
 
         Returns:
-            Tuple of (inserted, skipped) counts
+            Number of event-relay junctions inserted
 
         Raises:
             asyncpg.PostgresError: On database errors
             ValueError: On validation errors (batch size)
         """
         if not records:
-            return 0, 0
+            return 0
 
         self._validate_batch_size(records, "insert_events_relays")
 
-        # Collect valid params and track skipped
-        valid_params: list[EventRelayDbParams] = []
-        skipped = 0
-
-        for event_relay in records:
-            try:
-                valid_params.append(event_relay.to_db_params())
-            except (ValueError, TypeError) as ex:
-                skipped += 1
-                self._logger.warning(
-                    "invalid_event_relay_skipped",
-                    error=str(ex),
-                    event_id=event_relay.event.id().to_hex(),
-                )
-
-        if not valid_params:
-            self._logger.warning("all_event_relays_invalid", total=len(records), skipped=skipped)
-            return 0, skipped
-
+        params = [event_relay.to_db_params() for event_relay in records]
         columns: tuple[list[Any], ...]
 
         if cascade:
             # Insert relays → events → events_relays
-            columns = self._transpose_to_columns(valid_params)
+            columns = self._transpose_to_columns(params)
             query = (
                 "SELECT events_relays_insert_cascade($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
             )
         else:
             # Insert only events_relays junction (event_id, relay_url, seen_at)
-            # Extract specific columns by name from EventRelayDbParams
-            event_ids = [p.event_id for p in valid_params]
-            relay_urls = [p.relay_url for p in valid_params]
-            seen_ats = [p.seen_at for p in valid_params]
+            event_ids = [p.event_id for p in params]
+            relay_urls = [p.relay_url for p in params]
+            seen_ats = [p.seen_at for p in params]
             query = "SELECT events_relays_insert($1, $2, $3)"
             columns = (event_ids, relay_urls, seen_ats)
 
@@ -426,18 +390,10 @@ class Brotr:
                 await conn.fetchval(query, *columns, timeout=self._config.timeouts.batch) or 0
             )
 
-        if skipped > 0:
-            self._logger.info(
-                "events_relays_inserted_with_skipped", inserted=inserted, skipped=skipped
-            )
-        else:
-            self._logger.debug(
-                "events_relays_inserted",
-                count=inserted,
-                attempted=len(valid_params),
-                cascade=cascade,
-            )
-        return inserted, skipped
+        self._logger.debug(
+            "events_relays_inserted", count=inserted, attempted=len(params), cascade=cascade
+        )
+        return inserted
 
     async def insert_metadata(self, records: list[Metadata]) -> int:
         """
@@ -448,7 +404,7 @@ class Brotr:
         Use insert_relay_metadata with cascade=True to also insert relays and junctions.
 
         Args:
-            records: List of Metadata dataclass instances
+            records: List of Metadata dataclass instances (validated at creation)
 
         Returns:
             Number of metadata records inserted
@@ -462,13 +418,9 @@ class Brotr:
 
         self._validate_batch_size(records, "insert_metadata")
 
-        # Hash computed in Python for deterministic deduplication
-        ids: list[bytes] = []
-        datas: list[str] = []
-        for metadata in records:
-            params = metadata.to_db_params()
-            ids.append(params.metadata_id)
-            datas.append(params.metadata_json)
+        params = [metadata.to_db_params() for metadata in records]
+        ids = [p.metadata_id for p in params]
+        datas = [p.metadata_json for p in params]
 
         async with self.pool.transaction() as conn:
             inserted: int = (
@@ -481,7 +433,7 @@ class Brotr:
                 or 0
             )
 
-        self._logger.debug("metadata_inserted", count=inserted, attempted=len(records))
+        self._logger.debug("metadata_inserted", count=inserted, attempted=len(params))
         return inserted
 
     async def insert_relay_metadata(
@@ -493,12 +445,12 @@ class Brotr:
         Hash (SHA-256) is computed in Python for deterministic deduplication.
 
         Args:
-            records: List of RelayMetadata dataclass instances
+            records: List of RelayMetadata dataclass instances (validated at creation)
             cascade: If True (default), also inserts relays and metadata records.
                      If False, inserts only into relay_metadata junction (FKs must exist).
 
         Returns:
-            Number of relay_metadata records inserted
+            Number of relay metadata records inserted
 
         Raises:
             asyncpg.PostgresError: On database errors
@@ -509,10 +461,11 @@ class Brotr:
 
         self._validate_batch_size(records, "insert_relay_metadata")
 
+        params = [record.to_db_params() for record in records]
+
         if cascade:
             # Insert relays → metadata → relay_metadata (hash computed in Python)
-            all_params = [metadata.to_db_params() for metadata in records]
-            columns = self._transpose_to_columns(all_params)
+            columns = self._transpose_to_columns(params)
 
             async with self.pool.transaction() as conn:
                 inserted: int = (
@@ -526,19 +479,11 @@ class Brotr:
         else:
             # Insert only into relay_metadata junction (FKs must exist)
             # Hash computed in Python for deterministic deduplication
-            relay_urls: list[str] = []
-            metadata_ids: list[bytes] = []
-            metadata_jsons: list[str] = []
-            types: list[str] = []
-            generated_ats: list[int] = []
-
-            for record in records:
-                params = record.metadata.to_db_params()
-                relay_urls.append(record.relay.url)
-                metadata_ids.append(params.metadata_id)
-                metadata_jsons.append(params.metadata_json)
-                types.append(record.metadata_type)
-                generated_ats.append(record.generated_at)
+            relay_urls = [p.relay_url for p in params]
+            metadata_ids = [p.metadata_id for p in params]
+            metadata_jsons = [p.metadata_json for p in params]
+            types = [p.metadata_type for p in params]
+            generated_ats = [p.generated_at for p in params]
 
             async with self.pool.transaction() as conn:
                 inserted = (
@@ -555,7 +500,10 @@ class Brotr:
                 )
 
         self._logger.debug(
-            "relay_metadata_inserted", count=inserted, attempted=len(records), cascade=cascade
+            "relay_metadata_inserted",
+            count=inserted,
+            attempted=len(params),
+            cascade=cascade,
         )
         return inserted
 

@@ -271,7 +271,8 @@ class TestToDbParams:
         """Delegates to event.to_db_params()."""
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         er.to_db_params()
-        mock_event.to_db_params.assert_called_once()
+        # Called twice: once in __post_init__ (fail-fast), once here
+        assert mock_event.to_db_params.call_count == 2
 
     def test_with_different_relay_networks(self, mock_event):
         """Works with different relay network types."""
@@ -293,7 +294,7 @@ class TestFromDbParams:
 
     def test_reconstructs_relay(self):
         """from_db_params should reconstruct relay correctly."""
-        er = EventRelay.from_db_params(
+        params = EventRelayDbParams(
             event_id=b"\xaa" * 32,
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
@@ -306,13 +307,14 @@ class TestFromDbParams:
             relay_discovered_at=1234567890,
             seen_at=9999999999,
         )
+        er = EventRelay.from_db_params(params)
         assert er.relay.url == "wss://relay.example.com"
         assert er.relay.network == NetworkType.CLEARNET
         assert er.relay.discovered_at == 1234567890
 
     def test_reconstructs_seen_at(self):
         """from_db_params preserves seen_at timestamp."""
-        er = EventRelay.from_db_params(
+        params = EventRelayDbParams(
             event_id=b"\xaa" * 32,
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
@@ -325,11 +327,12 @@ class TestFromDbParams:
             relay_discovered_at=1234567890,
             seen_at=9999999999,
         )
+        er = EventRelay.from_db_params(params)
         assert er.seen_at == 9999999999
 
     def test_with_tor_relay(self):
         """from_db_params works with Tor relay."""
-        er = EventRelay.from_db_params(
+        params = EventRelayDbParams(
             event_id=b"\xaa" * 32,
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
@@ -342,6 +345,7 @@ class TestFromDbParams:
             relay_discovered_at=1234567890,
             seen_at=1234567891,
         )
+        er = EventRelay.from_db_params(params)
         assert er.relay.network == NetworkType.TOR
         assert er.relay.scheme == "ws"
 

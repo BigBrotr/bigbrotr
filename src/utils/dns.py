@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 from dataclasses import dataclass
 
@@ -39,17 +40,13 @@ async def resolve_host(host: str) -> ResolvedHost:
     ipv6: str | None = None
 
     # Resolve IPv4
-    try:
+    with contextlib.suppress(Exception):
         ipv4 = await asyncio.to_thread(socket.gethostbyname, host)
-    except Exception:
-        pass
 
     # Resolve IPv6
-    try:
+    with contextlib.suppress(Exception):
         ipv6_result = await asyncio.to_thread(socket.getaddrinfo, host, None, socket.AF_INET6)
         if ipv6_result:
             ipv6 = str(ipv6_result[0][4][0])
-    except Exception:
-        pass
 
     return ResolvedHost(ipv4=ipv4, ipv6=ipv6)

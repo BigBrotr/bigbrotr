@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.0.2] - 2026-02-05
+
+Code quality and maintainability release with FieldSpec pattern, module reorganization, and comprehensive test restructuring.
+
+### Changed
+- **FieldSpec pattern**: Consolidated field parsing with `FieldSpec` dataclass for consistent validation and transformation across NIP models
+- **Module reorganization**:
+  - Moved `logger` module from `core/` to `src/` root for improved accessibility
+  - Renamed `base_service` to `service` and consolidated mixins
+  - Added `NetworkSemaphoreMixin` for simplified service code
+- **NIP-11 refactoring**:
+  - Migrated to FieldSpec pattern for improved type safety
+  - Simplified structure with keyword-only arguments in `create` method
+- **NIP-66 refactoring**:
+  - Migrated to FieldSpec pattern for improved code quality
+  - Extracted `GeoExtractor` helper class for geolocation logic
+  - Extracted `CertificateExtractor` helper class for SSL certificate parsing
+  - Decomposed RTT method into focused phase methods
+  - Added keyword-only arguments in `create` method
+- **Models**: Added fail-fast validation and unified `from_db_params` API across all models
+- **Core**: Improved type safety and simplified database operations
+- **Services**: Updated imports for module renames, simplified code structure
+- **Utils**: Moved `NetworkType` enum for better organization, improved configuration flexibility
+
+### Refactored
+- **Monitor service**: Updated NIP-11 API usage and decomposed tag building logic
+- **Test structure**:
+  - Renamed `test_cli.py` to `test_main.py`
+  - Renamed `test_base_service.py` to `test_service.py`
+  - Moved `test_logger.py` to match `src/logger.py` location
+  - Restructured NIP-11 tests into focused modules (`test_nip11.py`, `test_data.py`, `test_logs.py`, `test_fetch.py`)
+  - Restructured NIP-66 tests into focused modules (`test_nip66.py`, `test_rtt.py`, `test_ssl.py`, `test_geo.py`, `test_net.py`, `test_dns.py`, `test_http.py`, `test_logs.py`)
+  - Added comprehensive tests for `base.py` and `parsing.py`
+  - Updated tests for fail-fast validation and simplified return types
+
+### Style
+- Reordered imports per isort conventions
+- Combined nested if statements per ruff SIM102
+
+### Chore
+- Added EditorConfig for consistent coding styles
+- Cleaned up project configuration
+- Removed versioned release notes from repository
+- Removed auto-generated footer from agents README
+
+---
+
 ## [3.0.1] - 2026-02-04
 
 Major refactoring release with new NIP models architecture, Python-side hash computation, and comprehensive documentation alignment.
@@ -248,7 +295,8 @@ Initial prototype release.
 
 ---
 
-[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.1...HEAD
+[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.2...HEAD
+[3.0.2]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.1...v3.0.2
 [3.0.1]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/bigbrotr/bigbrotr/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/bigbrotr/bigbrotr/compare/v1.0.0...v2.0.0

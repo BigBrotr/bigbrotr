@@ -12,10 +12,9 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, Field
 
-from core.base_service import BaseService, BaseServiceConfig
+from core.service import BaseService, BaseServiceConfig, NetworkSemaphoreMixin
 from models import Relay
-from models.relay import NetworkType
-from utils.network import NetworkConfig
+from utils.network import NetworkConfig, NetworkType
 from utils.progress import BatchProgress
 from utils.transport import is_nostr_relay
 
@@ -48,7 +47,8 @@ class Candidate:
     @property
     def failed_attempts(self) -> int:
         """Return the number of failed validation attempts for this candidate."""
-        return self.data.get("failed_attempts", 0)
+        attempts: int = self.data.get("failed_attempts", 0)
+        return attempts
 
 
 # =============================================================================
@@ -104,7 +104,7 @@ class ValidatorConfig(BaseServiceConfig):
 # =============================================================================
 
 
-class Validator(BaseService[ValidatorConfig]):
+class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     """Validates relay candidates by checking if they speak the Nostr protocol.
 
     This service processes relay URLs discovered by the Finder service and determines
@@ -174,7 +174,7 @@ class Validator(BaseService[ValidatorConfig]):
                 service to continue with subsequent cycles.
         """
         self._progress.reset()
-        self._init_semaphores()
+        self._init_semaphores(self._config.networks)
 
         networks = self._config.networks.get_enabled_networks()
         self._logger.info(
@@ -203,23 +203,6 @@ class Validator(BaseService[ValidatorConfig]):
             chunks=self._progress.chunks,
             duration_s=self._progress.elapsed,
         )
-
-    def _init_semaphores(self) -> None:
-        """Initialize per-network concurrency semaphores.
-
-        Creates an asyncio.Semaphore for each network type (clearnet, tor, i2p)
-        to limit concurrent validation connections. This prevents overwhelming
-        network resources, especially important for Tor where too many simultaneous
-        connections can degrade performance.
-
-        The max_tasks value for each network is read from the configuration's
-        networks section. Semaphores are recreated each cycle to pick up any
-        configuration changes.
-        """
-        self._semaphores = {
-            network: asyncio.Semaphore(self._config.networks.get(network).max_tasks)
-            for network in NetworkType
-        }
 
     # -------------------------------------------------------------------------
     # Metrics

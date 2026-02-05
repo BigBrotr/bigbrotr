@@ -28,7 +28,7 @@ import aiohttp
 from nostr_sdk import RelayUrl
 from pydantic import BaseModel, Field
 
-from core.base_service import BaseService, BaseServiceConfig
+from core.service import BaseService, BaseServiceConfig
 from models import Relay
 
 
@@ -36,6 +36,14 @@ if TYPE_CHECKING:
     import ssl
 
     from core.brotr import Brotr
+
+
+# Nostr event kinds for relay discovery (NIP-01, NIP-02)
+_KIND_RECOMMEND_RELAY = 2  # Deprecated: NIP-01 recommend relay
+_KIND_CONTACTS = 3  # NIP-02 contact list with relay URLs
+
+# Minimum tag length (name + at least one value)
+_MIN_TAG_LENGTH = 2
 
 
 # =============================================================================
@@ -223,8 +231,8 @@ class Finder(BaseService[FinderConfig]):
         relays_found = 0
 
         # Load cursor for this relay
-        cursor = await self._load_relay_cursor(relay_url)
-        last_seen_at = cursor.get("last_seen_at", 0)
+        results = await self._brotr.get_service_data(self.SERVICE_NAME, "cursor", relay_url)
+        last_seen_at = results[0].get("value", {}).get("last_seen_at", 0) if results else 0
 
         # Query events from this relay after cursor position
         # Uses events_relays.seen_at for cursor to handle historical events correctly
@@ -276,7 +284,7 @@ class Finder(BaseService[FinderConfig]):
                 # Extract relay URLs from tags (r-tags)
                 if tags:
                     for tag in tags:
-                        if isinstance(tag, list) and len(tag) >= 2:
+                        if isinstance(tag, list) and len(tag) >= _MIN_TAG_LENGTH:
                             tag_name = tag[0]
                             if tag_name == "r":
                                 url = tag[1]
@@ -285,13 +293,13 @@ class Finder(BaseService[FinderConfig]):
                                     relays[validated.url] = validated
 
                 # Kind 2: content is the relay URL (deprecated NIP)
-                if kind == 2 and content:
+                if kind == _KIND_RECOMMEND_RELAY and content:
                     validated = self._validate_relay_url(content.strip())
                     if validated:
                         relays[validated.url] = validated
 
                 # Kind 3: content may be JSON with relay URLs as keys
-                if kind == 3 and content:
+                if kind == _KIND_CONTACTS and content:
                     try:
                         relay_data = json.loads(content)
                         if isinstance(relay_data, dict):
@@ -334,40 +342,15 @@ class Finder(BaseService[FinderConfig]):
             # Update cursor for this relay
             if chunk_last_seen_at is not None:
                 last_seen_at = chunk_last_seen_at
-                await self._save_relay_cursor(relay_url, last_seen_at)
+                await self._brotr.upsert_service_data(
+                    [(self.SERVICE_NAME, "cursor", relay_url, {"last_seen_at": last_seen_at})]
+                )
 
             # Stop if chunk wasn't full
             if chunk_events < self._config.events.batch_size:
                 break
 
         return events_scanned, relays_found
-
-    async def _load_relay_cursor(self, relay_url: str) -> dict[str, Any]:
-        """Load the event scanning cursor for a specific relay."""
-        try:
-            results = await self._brotr.get_service_data(
-                service_name="finder",
-                data_type="cursor",
-                key=relay_url,
-            )
-            if results:
-                value: dict[str, Any] = results[0].get("value", {})
-                return value
-        except Exception as e:
-            self._logger.warning(
-                "cursor_load_failed", error=str(e), error_type=type(e).__name__, relay=relay_url
-            )
-        return {}
-
-    async def _save_relay_cursor(self, relay_url: str, seen_at: int) -> None:
-        """Save the event scanning cursor for a specific relay."""
-        try:
-            cursor_data = {"last_seen_at": seen_at}
-            await self._brotr.upsert_service_data([("finder", "cursor", relay_url, cursor_data)])
-        except Exception as e:
-            self._logger.warning(
-                "cursor_save_failed", error=str(e), error_type=type(e).__name__, relay=relay_url
-            )
 
     def _validate_relay_url(self, url: str) -> Relay | None:
         """

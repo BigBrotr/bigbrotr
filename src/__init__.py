@@ -19,8 +19,10 @@ Example:
 
 __version__ = "2.0.0"
 
-# Models
 # Core
+# Logger (standalone module to avoid circular imports)
+from logger import Logger
+
 from .core import (
     BaseService,
     BatchConfig,
@@ -29,7 +31,6 @@ from .core import (
     BrotrTimeoutsConfig,
     ConfigT,
     DatabaseConfig,
-    Logger,
     Pool,
     PoolConfig,
     PoolLimitsConfig,
@@ -37,6 +38,8 @@ from .core import (
     RetryConfig,
     ServerSettingsConfig,
 )
+
+# Models
 from .models import (
     Event,
     EventRelay,
