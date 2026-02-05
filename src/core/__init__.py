@@ -5,15 +5,17 @@ Production-ready foundation components:
 - Pool: PostgreSQL connection pooling with asyncpg
 - Brotr: High-level database interface with stored procedures
 - BaseService: Generic base class for all services with typed config
-- Logger: Structured logging with JSON support
+
+Note: Logger is in src/logger.py (not in core) to avoid circular imports.
+      Import it directly: from logger import Logger
 
 Example:
-    from core import Pool, Brotr, Logger
+    from core import Pool, Brotr
+    from logger import Logger
 
     pool = Pool.from_yaml("config.yaml")
     brotr = Brotr(pool=pool)
 
-    # Using Brotr context manager (recommended)
     async with brotr:
         result = await brotr.insert_relays([...])
 """
@@ -33,7 +35,6 @@ from .brotr import (
 from .brotr import (
     TimeoutsConfig as BrotrTimeoutsConfig,
 )
-from .logger import Logger
 from .metrics import (
     CYCLE_DURATION_SECONDS,
     SERVICE_COUNTER,
@@ -71,7 +72,6 @@ __all__ = [
     "BrotrTimeoutsConfig",
     "ConfigT",
     "DatabaseConfig",
-    "Logger",
     "MetricsConfig",
     "MetricsServer",
     "Pool",
