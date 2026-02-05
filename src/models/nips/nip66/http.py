@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import ssl
+from types import SimpleNamespace
 from typing import Any, Self
 
-from core.logger import Logger
+import aiohttp
+from aiohttp_socks import ProxyConnector
+
+from utils.network import NetworkType
+from logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
-from models.relay import NetworkType, Relay
+from models.relay import Relay
 
 from .data import Nip66HttpData
 from .logs import Nip66HttpLogs
@@ -33,14 +38,12 @@ class Nip66HttpMetadata(BaseMetadata):
         proxy_url: str | None = None,
     ) -> dict[str, Any]:
         """Capture Server and X-Powered-By headers from WebSocket handshake."""
-        import aiohttp  # noqa: PLC0415
-
         result: dict[str, Any] = {}
         captured_headers: dict[str, str] = {}
 
         async def on_request_end(
             _session: aiohttp.ClientSession,
-            _ctx: aiohttp.tracing.SimpleNamespace,
+            _ctx: SimpleNamespace,
             params: aiohttp.TraceRequestEndParams,
         ) -> None:
             if params.response and params.response.headers:
@@ -55,8 +58,6 @@ class Nip66HttpMetadata(BaseMetadata):
 
         connector: aiohttp.BaseConnector
         if proxy_url:
-            from aiohttp_socks import ProxyConnector  # noqa: PLC0415
-
             connector = ProxyConnector.from_url(proxy_url, ssl=ssl_context)
         else:
             connector = aiohttp.TCPConnector(ssl=ssl_context)

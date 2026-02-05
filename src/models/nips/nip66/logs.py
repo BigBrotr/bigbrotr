@@ -19,7 +19,8 @@ class Nip66RttLogs(BaseModel):
     Validation rules:
         - open_success is required (mandatory field)
         - If open_success is False, read_success and write_success must also be False
-        - For each success/reason pair: if success=True, reason=None; if success=False, reason required
+        - For each success/reason pair: if success=True, reason=None;
+          if success=False, reason required
     """
 
     model_config = ConfigDict(frozen=True)

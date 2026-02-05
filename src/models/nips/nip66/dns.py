@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Self
+import contextlib
+from typing import TYPE_CHECKING, Any, Self, cast
 
-import dns.resolver  # type: ignore[import-not-found]
+import dns.resolver
 import tldextract
 
-from core.logger import Logger
+
+if TYPE_CHECKING:
+    from dns.rdtypes.ANY.CNAME import CNAME
+    from dns.rdtypes.ANY.NS import NS
+    from dns.rdtypes.ANY.PTR import PTR
+    from dns.rdtypes.IN.A import A
+    from dns.rdtypes.IN.AAAA import AAAA
+
+from utils.network import NetworkType
+from logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
-from models.relay import NetworkType, Relay
+from models.relay import Relay
 
 from .data import Nip66DnsData
 from .logs import Nip66DnsLogs
@@ -38,57 +48,47 @@ class Nip66DnsMetadata(BaseMetadata):
         resolver.lifetime = timeout
 
         # A records (IPv4)
-        try:
+        with contextlib.suppress(Exception):
             answers = resolver.resolve(host, "A")
-            ips = [rdata.address for rdata in answers]  # type: ignore[attr-defined]
+            ips = [cast("A", rdata).address for rdata in answers]
             if ips:
                 result["dns_ips"] = ips
                 if answers.rrset:
                     result["dns_ttl"] = answers.rrset.ttl
-        except Exception:
-            pass
 
         # AAAA records (IPv6)
-        try:
+        with contextlib.suppress(Exception):
             answers = resolver.resolve(host, "AAAA")
-            ips_v6 = [rdata.address for rdata in answers]  # type: ignore[attr-defined]
+            ips_v6 = [cast("AAAA", rdata).address for rdata in answers]
             if ips_v6:
                 result["dns_ips_v6"] = ips_v6
-        except Exception:
-            pass
 
         # CNAME record
-        try:
+        with contextlib.suppress(Exception):
             answers = resolver.resolve(host, "CNAME")
             for rdata in answers:
-                result["dns_cname"] = str(rdata.target).rstrip(".")  # type: ignore[attr-defined]
+                result["dns_cname"] = str(cast("CNAME", rdata).target).rstrip(".")
                 break
-        except Exception:
-            pass
 
         # NS records
-        try:
+        with contextlib.suppress(Exception):
             ext = tldextract.extract(host)
             if ext.domain and ext.suffix:
                 domain = f"{ext.domain}.{ext.suffix}"
                 answers = resolver.resolve(domain, "NS")
-                ns_list = [str(rdata.target).rstrip(".") for rdata in answers]  # type: ignore[attr-defined]
+                ns_list = [str(cast("NS", rdata).target).rstrip(".") for rdata in answers]
                 if ns_list:
                     result["dns_ns"] = ns_list
-        except Exception:
-            pass
 
         # Reverse DNS (PTR)
         if result.get("dns_ips"):
-            try:
+            with contextlib.suppress(Exception):
                 ip = result["dns_ips"][0]
                 reverse_name = dns.reversename.from_address(ip)
                 answers = resolver.resolve(reverse_name, "PTR")
                 for rdata in answers:
-                    result["dns_reverse"] = str(rdata.target).rstrip(".")  # type: ignore[attr-defined]
+                    result["dns_reverse"] = str(cast("PTR", rdata).target).rstrip(".")
                     break
-            except Exception:
-                pass
 
         return result
 

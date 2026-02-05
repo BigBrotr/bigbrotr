@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Self
 
-import geoip2.database  # noqa: TC002 - used at runtime
+import geoip2.database
 
-from core.logger import Logger
+from utils.network import NetworkType
+from logger import Logger
 from models.nips.base import BaseMetadata
-from models.relay import NetworkType, Relay
+from models.relay import Relay
 from utils.dns import resolve_host
 
 from .data import Nip66NetData
