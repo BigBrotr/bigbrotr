@@ -523,7 +523,7 @@ class TestNip11Construction:
 # =============================================================================
 
 
-class TestNip11DataAccess:
+class TestNip11FetchDataAccess:
     """Test Nip11 data access via fetch_metadata."""
 
     def test_logs_access(self, nip11):

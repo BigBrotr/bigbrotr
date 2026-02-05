@@ -400,14 +400,14 @@ class TestInsertRelays:
     @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
-        result = await mock_brotr.insert_relays([])
-        assert result == 0
+        inserted = await mock_brotr.insert_relays([])
+        assert inserted == 0
 
     @pytest.mark.asyncio
     async def test_single_relay(self, mock_brotr: Brotr, sample_relay: Any) -> None:
         """Test inserting single relay."""
-        result = await mock_brotr.insert_relays([sample_relay])
-        assert result == 1
+        inserted = await mock_brotr.insert_relays([sample_relay])
+        assert inserted == 1
 
     @pytest.mark.asyncio
     async def test_multiple_relays(
@@ -417,8 +417,8 @@ class TestInsertRelays:
         mock_pool._mock_connection.fetchval = AsyncMock(  # type: ignore[attr-defined]
             return_value=len(sample_relays_batch)
         )
-        result = await mock_brotr.insert_relays(sample_relays_batch)
-        assert result == len(sample_relays_batch)
+        inserted = await mock_brotr.insert_relays(sample_relays_batch)
+        assert inserted == len(sample_relays_batch)
 
 
 class TestInsertEvents:
@@ -426,17 +426,15 @@ class TestInsertEvents:
 
     @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
-        """Test that empty list returns (0, 0)."""
-        inserted, skipped = await mock_brotr.insert_events([])
+        """Test that empty list returns 0."""
+        inserted = await mock_brotr.insert_events([])
         assert inserted == 0
-        assert skipped == 0
 
     @pytest.mark.asyncio
     async def test_single_event(self, mock_brotr: Brotr, sample_event: Any) -> None:
         """Test inserting single event."""
-        inserted, skipped = await mock_brotr.insert_events([sample_event.event])
+        inserted = await mock_brotr.insert_events([sample_event.event])
         assert inserted == 1
-        assert skipped == 0
 
 
 class TestInsertEventsRelays:
@@ -444,15 +442,14 @@ class TestInsertEventsRelays:
 
     @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
-        """Test that empty list returns (0, 0)."""
-        inserted, skipped = await mock_brotr.insert_events_relays([])
+        """Test that empty list returns 0."""
+        inserted = await mock_brotr.insert_events_relays([])
         assert inserted == 0
-        assert skipped == 0
 
     @pytest.mark.asyncio
     async def test_single_event_relay(self, mock_brotr: Brotr, sample_event: Any) -> None:
         """Test inserting single event-relay junction."""
-        inserted, _ = await mock_brotr.insert_events_relays([sample_event])
+        inserted = await mock_brotr.insert_events_relays([sample_event])
         assert inserted == 1
 
     @pytest.mark.asyncio
@@ -463,7 +460,7 @@ class TestInsertEventsRelays:
         mock_pool._mock_connection.fetchval = AsyncMock(  # type: ignore[attr-defined]
             return_value=len(sample_events_batch)
         )
-        inserted, _ = await mock_brotr.insert_events_relays(sample_events_batch)
+        inserted = await mock_brotr.insert_events_relays(sample_events_batch)
         assert inserted == len(sample_events_batch)
 
     @pytest.mark.asyncio
@@ -496,8 +493,8 @@ class TestInsertMetadata:
     @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
-        result = await mock_brotr.insert_metadata([])
-        assert result == 0
+        inserted = await mock_brotr.insert_metadata([])
+        assert inserted == 0
 
 
 class TestInsertRelayMetadata:
@@ -506,14 +503,14 @@ class TestInsertRelayMetadata:
     @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
-        result = await mock_brotr.insert_relay_metadata([])
-        assert result == 0
+        inserted = await mock_brotr.insert_relay_metadata([])
+        assert inserted == 0
 
     @pytest.mark.asyncio
     async def test_single_metadata(self, mock_brotr: Brotr, sample_metadata: Any) -> None:
         """Test inserting single relay metadata."""
-        result = await mock_brotr.insert_relay_metadata([sample_metadata])
-        assert result == 1
+        inserted = await mock_brotr.insert_relay_metadata([sample_metadata])
+        assert inserted == 1
 
     @pytest.mark.asyncio
     async def test_cascade_true_default(

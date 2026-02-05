@@ -286,50 +286,61 @@ class TestSlots:
 
 
 class TestDelegation:
-    """Method delegation to wrapped NostrEvent via __getattr__."""
+    """Method delegation to wrapped NostrEvent via __getattr__.
+
+    Note: Most methods are now called twice during Event construction:
+    once in __post_init__ (fail-fast to_db_params validation) and once
+    when explicitly called in the test.
+    """
 
     def test_id_delegates(self, mock_nostr_event):
         """id() should delegate to wrapped event."""
         event = Event(mock_nostr_event)
         event.id()
-        mock_nostr_event.id.assert_called_once()
+        # Called twice: once in __post_init__ (to_db_params), once here
+        assert mock_nostr_event.id.call_count == 2
 
     def test_author_delegates(self, mock_nostr_event):
         """author() should delegate to wrapped event."""
         event = Event(mock_nostr_event)
         event.author()
-        mock_nostr_event.author.assert_called_once()
+        # Called twice: once in __post_init__ (to_db_params), once here
+        assert mock_nostr_event.author.call_count == 2
 
     def test_created_at_delegates(self, mock_nostr_event):
         """created_at() should delegate to wrapped event."""
         event = Event(mock_nostr_event)
         event.created_at()
-        mock_nostr_event.created_at.assert_called_once()
+        # Called twice: once in __post_init__ (to_db_params), once here
+        assert mock_nostr_event.created_at.call_count == 2
 
     def test_kind_delegates(self, mock_nostr_event):
         """kind() should delegate to wrapped event."""
         event = Event(mock_nostr_event)
         event.kind()
-        mock_nostr_event.kind.assert_called_once()
+        # Called twice: once in __post_init__ (to_db_params), once here
+        assert mock_nostr_event.kind.call_count == 2
 
     def test_tags_delegates(self, mock_nostr_event):
         """tags() should delegate to wrapped event."""
         event = Event(mock_nostr_event)
         event.tags()
-        mock_nostr_event.tags.assert_called_once()
+        # Called twice: once in __post_init__ (to_db_params), once here
+        assert mock_nostr_event.tags.call_count == 2
 
     def test_content_delegates(self, mock_nostr_event):
         """content() should delegate to wrapped event."""
         event = Event(mock_nostr_event)
         event.content()
-        # content() is called twice: once in __post_init__ (null byte check), once here
-        assert mock_nostr_event.content.call_count == 2
+        # Called 3x: once for null check, once in to_db_params, once here
+        assert mock_nostr_event.content.call_count == 3
 
     def test_signature_delegates(self, mock_nostr_event):
         """signature() should delegate to wrapped event."""
         event = Event(mock_nostr_event)
         event.signature()
-        mock_nostr_event.signature.assert_called_once()
+        # Called twice: once in __post_init__ (to_db_params), once here
+        assert mock_nostr_event.signature.call_count == 2
 
     def test_verify_delegates(self, mock_nostr_event):
         """verify() should delegate to wrapped event."""
