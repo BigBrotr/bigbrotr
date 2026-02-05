@@ -367,27 +367,23 @@ class TestRejection:
 # =============================================================================
 
 
-class TestNullByteSanitization:
-    """Null bytes are removed from URLs for PostgreSQL compatibility."""
+class TestNullByteValidation:
+    """Null bytes in URLs are rejected for PostgreSQL compatibility."""
 
-    def test_null_byte_in_host_removed(self):
-        """Null bytes in host are removed before parsing."""
-        # Without the null byte, this would be a valid URL
-        r = Relay("wss://relay\x00.example.com")
-        assert r.url == "wss://relay.example.com"
-        assert "\x00" not in r.url
+    def test_null_byte_in_host_rejected(self):
+        """Null bytes in host raise ValueError."""
+        with pytest.raises(ValueError, match="null bytes"):
+            Relay("wss://relay\x00.example.com")
 
-    def test_null_byte_in_path_removed(self):
-        """Null bytes in path are removed."""
-        r = Relay("wss://relay.example.com/path\x00here")
-        assert r.url == "wss://relay.example.com/pathhere"
-        assert "\x00" not in r.url
+    def test_null_byte_in_path_rejected(self):
+        """Null bytes in path raise ValueError."""
+        with pytest.raises(ValueError, match="null bytes"):
+            Relay("wss://relay.example.com/path\x00here")
 
-    def test_multiple_null_bytes_removed(self):
-        """Multiple null bytes are all removed."""
-        r = Relay("wss://\x00relay\x00.example\x00.com\x00")
-        assert r.url == "wss://relay.example.com"
-        assert "\x00" not in r.url
+    def test_multiple_null_bytes_rejected(self):
+        """Multiple null bytes raise ValueError."""
+        with pytest.raises(ValueError, match="null bytes"):
+            Relay("wss://\x00relay\x00.example\x00.com\x00")
 
     def test_url_without_null_bytes_unchanged(self):
         """URLs without null bytes are processed normally."""

@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from models import Relay, RelayMetadata
+from models.metadata import MetadataType
 from models.nips.nip66 import (
     Nip66,
     Nip66DnsData,
@@ -30,7 +31,6 @@ from models.nips.nip66 import (
     Nip66SslMetadata,
     RelayNip66MetadataTuple,
 )
-from models.relay_metadata import MetadataType
 
 
 class TestNip66Construction:
@@ -228,20 +228,20 @@ class TestNip66ToRelayMetadataTuple:
         assert isinstance(result.nip66_http, RelayMetadata)
 
     def test_correct_metadata_types(self, nip66_full: Nip66) -> None:
-        """Each RelayMetadata has correct type."""
+        """Each RelayMetadata has correct type via metadata.type."""
         result = nip66_full.to_relay_metadata_tuple()
-        assert result.nip66_rtt.metadata_type == MetadataType.NIP66_RTT
-        assert result.nip66_ssl.metadata_type == MetadataType.NIP66_SSL
-        assert result.nip66_geo.metadata_type == MetadataType.NIP66_GEO
-        assert result.nip66_net.metadata_type == MetadataType.NIP66_NET
-        assert result.nip66_dns.metadata_type == MetadataType.NIP66_DNS
-        assert result.nip66_http.metadata_type == MetadataType.NIP66_HTTP
+        assert result.nip66_rtt.metadata.type == MetadataType.NIP66_RTT
+        assert result.nip66_ssl.metadata.type == MetadataType.NIP66_SSL
+        assert result.nip66_geo.metadata.type == MetadataType.NIP66_GEO
+        assert result.nip66_net.metadata.type == MetadataType.NIP66_NET
+        assert result.nip66_dns.metadata.type == MetadataType.NIP66_DNS
+        assert result.nip66_http.metadata.type == MetadataType.NIP66_HTTP
 
     def test_returns_none_for_missing_metadata(self, nip66_rtt_only: Nip66) -> None:
         """Returns None for missing metadata types."""
         result = nip66_rtt_only.to_relay_metadata_tuple()
         assert isinstance(result.nip66_rtt, RelayMetadata)
-        assert result.nip66_rtt.metadata.metadata["data"]["rtt_open"] == 100
+        assert result.nip66_rtt.metadata.value["data"]["rtt_open"] == 100
         assert result.nip66_ssl is None
         assert result.nip66_geo is None
         assert result.nip66_net is None

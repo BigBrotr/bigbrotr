@@ -37,7 +37,7 @@ def mock_event():
         pubkey=b"\xbb" * 32,
         created_at=1234567890,
         kind=1,
-        tags_json='[["e","id"]]',
+        tags='[["e","id"]]',
         content="Hello",
         sig=b"\xcc" * 64,
     )
@@ -71,7 +71,7 @@ class TestEventRelayDbParams:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="Test",
             sig=b"\xcc" * 64,
             relay_url="wss://relay.example.com",
@@ -89,7 +89,7 @@ class TestEventRelayDbParams:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json='[["t","test"]]',
+            tags='[["t","test"]]',
             content="Content",
             sig=b"\xcc" * 64,
             relay_url="wss://relay.example.com",
@@ -102,7 +102,7 @@ class TestEventRelayDbParams:
         assert params.pubkey == b"\xbb" * 32
         assert params.created_at == 1234567890
         assert params.kind == 1
-        assert params.tags_json == '[["t","test"]]'
+        assert params.tags == '[["t","test"]]'
         assert params.content == "Content"
         assert params.sig == b"\xcc" * 64
         # Relay fields
@@ -119,7 +119,7 @@ class TestEventRelayDbParams:
             pubkey=b"\x01" * 32,
             created_at=1234567890,
             kind=7,
-            tags_json="[]",
+            tags="[]",
             content="",
             sig=b"\x02" * 64,
             relay_url="wss://test.relay",
@@ -131,7 +131,7 @@ class TestEventRelayDbParams:
         assert params[1] == b"\x01" * 32  # pubkey
         assert params[2] == 1234567890  # created_at
         assert params[3] == 7  # kind
-        assert params[4] == "[]"  # tags_json
+        assert params[4] == "[]"  # tags
         assert params[5] == ""  # content
         assert params[6] == b"\x02" * 64  # sig
         assert params[7] == "wss://test.relay"  # relay_url
@@ -146,7 +146,7 @@ class TestEventRelayDbParams:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="Test",
             sig=b"\xcc" * 64,
             relay_url="wss://relay.example.com",
@@ -249,7 +249,7 @@ class TestToDbParams:
         assert result.pubkey == b"\xbb" * 32
         assert result.created_at == 1234567890
         assert result.kind == 1
-        assert result.tags_json == '[["e","id"]]'
+        assert result.tags == '[["e","id"]]'
         assert result.content == "Hello"
         assert result.sig == b"\xcc" * 64
 
@@ -299,7 +299,7 @@ class TestFromDbParams:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="test",
             sig=b"\xcc" * 64,
             relay_url="wss://relay.example.com",
@@ -319,7 +319,7 @@ class TestFromDbParams:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="test",
             sig=b"\xcc" * 64,
             relay_url="wss://relay.example.com",
@@ -337,7 +337,7 @@ class TestFromDbParams:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="test",
             sig=b"\xcc" * 64,
             relay_url="ws://abc123.onion",
@@ -359,7 +359,7 @@ class TestFromDbParams:
         assert isinstance(params.pubkey, bytes)
         assert isinstance(params.created_at, int)
         assert isinstance(params.kind, int)
-        assert isinstance(params.tags_json, str)
+        assert isinstance(params.tags, str)
         assert isinstance(params.content, str)
         assert isinstance(params.sig, bytes)
         assert isinstance(params.relay_url, str)
@@ -404,7 +404,7 @@ class TestEquality:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="Hello",
             sig=b"\xcc" * 64,
         )
@@ -414,7 +414,7 @@ class TestEquality:
             pubkey=b"\xee" * 32,
             created_at=1234567891,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="World",
             sig=b"\xff" * 64,
         )

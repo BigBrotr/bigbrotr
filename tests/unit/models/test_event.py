@@ -129,7 +129,7 @@ class TestEventDbParams:
             pubkey=bytes.fromhex("b" * 64),
             created_at=1700000000,
             kind=1,
-            tags_json='[["e", "c"]]',
+            tags='[["e", "c"]]',
             content="Test",
             sig=bytes.fromhex("e" * 128),
         )
@@ -143,7 +143,7 @@ class TestEventDbParams:
             pubkey=b"\x01" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="Hello",
             sig=b"\x02" * 64,
         )
@@ -151,7 +151,7 @@ class TestEventDbParams:
         assert params.pubkey == b"\x01" * 32
         assert params.created_at == 1234567890
         assert params.kind == 1
-        assert params.tags_json == "[]"
+        assert params.tags == "[]"
         assert params.content == "Hello"
         assert params.sig == b"\x02" * 64
 
@@ -162,7 +162,7 @@ class TestEventDbParams:
             pubkey=b"\xbb" * 32,
             created_at=9999999999,
             kind=7,
-            tags_json='[["t","test"]]',
+            tags='[["t","test"]]',
             content="Content",
             sig=b"\xcc" * 64,
         )
@@ -170,7 +170,7 @@ class TestEventDbParams:
         assert params[1] == b"\xbb" * 32  # pubkey
         assert params[2] == 9999999999  # created_at
         assert params[3] == 7  # kind
-        assert params[4] == '[["t","test"]]'  # tags_json
+        assert params[4] == '[["t","test"]]'  # tags
         assert params[5] == "Content"  # content
         assert params[6] == b"\xcc" * 64  # sig
 
@@ -181,7 +181,7 @@ class TestEventDbParams:
             pubkey=b"\x01" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="Hello",
             sig=b"\x02" * 64,
         )
@@ -215,12 +215,24 @@ class TestConstruction:
 
 
 class TestNullByteValidation:
-    """Test rejection of events with null bytes in content."""
+    """Test rejection of events with null bytes in content or tags."""
 
     def test_rejects_content_with_null_byte(self, mock_nostr_event):
         """Event rejects content containing null bytes."""
         mock_nostr_event.content.return_value = "Hello\x00World"
-        with pytest.raises(ValueError, match="null bytes"):
+        with pytest.raises(ValueError, match="content contains null bytes"):
+            Event(mock_nostr_event)
+
+    def test_rejects_tags_with_null_byte(self, mock_nostr_event):
+        """Event rejects tags containing null bytes."""
+        # Create a tag with null byte in value
+        mock_tag = MagicMock()
+        mock_tag.as_vec.return_value = ["t", "tag\x00value"]
+        mock_tags = MagicMock()
+        mock_tags.to_vec.return_value = [mock_tag]
+        mock_nostr_event.tags.return_value = mock_tags
+
+        with pytest.raises(ValueError, match="tags contain null bytes"):
             Event(mock_nostr_event)
 
     def test_accepts_content_without_null_byte(self, mock_nostr_event):
@@ -297,8 +309,8 @@ class TestDelegation:
         """id() should delegate to wrapped event."""
         event = Event(mock_nostr_event)
         event.id()
-        # Called twice: once in __post_init__ (to_db_params), once here
-        assert mock_nostr_event.id.call_count == 2
+        # Called 3x: once for null check error msg, once in to_db_params, once here
+        assert mock_nostr_event.id.call_count == 3
 
     def test_author_delegates(self, mock_nostr_event):
         """author() should delegate to wrapped event."""
@@ -325,8 +337,8 @@ class TestDelegation:
         """tags() should delegate to wrapped event."""
         event = Event(mock_nostr_event)
         event.tags()
-        # Called twice: once in __post_init__ (to_db_params), once here
-        assert mock_nostr_event.tags.call_count == 2
+        # Called 3x: once for null check, once in to_db_params, once here
+        assert mock_nostr_event.tags.call_count == 3
 
     def test_content_delegates(self, mock_nostr_event):
         """content() should delegate to wrapped event."""
@@ -398,11 +410,11 @@ class TestToDbParams:
         assert isinstance(result.kind, int)
         assert result.kind == 1
 
-    def test_tags_json_is_valid_json(self, event):
-        """tags_json is valid JSON string."""
+    def test_tags_is_valid_json(self, event):
+        """tags is valid JSON string."""
         result = event.to_db_params()
-        assert isinstance(result.tags_json, str)
-        parsed = json.loads(result.tags_json)
+        assert isinstance(result.tags, str)
+        parsed = json.loads(result.tags)
         assert isinstance(parsed, list)
         assert parsed == [["e", "c" * 64], ["p", "d" * 64]]
 
@@ -423,7 +435,7 @@ class TestToDbParams:
         """Empty tags are serialized as empty JSON array."""
         event = Event(mock_nostr_event_empty_tags)
         result = event.to_db_params()
-        assert result.tags_json == "[]"
+        assert result.tags == "[]"
 
     def test_empty_content(self, mock_nostr_event_empty_tags):
         """Empty content is serialized as empty string."""
@@ -456,7 +468,7 @@ class TestFromDbParams:
         assert isinstance(params.pubkey, bytes)  # pubkey
         assert isinstance(params.created_at, int)  # created_at
         assert isinstance(params.kind, int)  # kind
-        assert isinstance(params.tags_json, str)  # tags_json
+        assert isinstance(params.tags, str)  # tags
         assert isinstance(params.content, str)  # content
         assert isinstance(params.sig, bytes)  # sig
 
@@ -549,7 +561,7 @@ class TestEdgeCases:
 
         event = Event(mock)
         params = event.to_db_params()
-        parsed_tags = json.loads(params.tags_json)
+        parsed_tags = json.loads(params.tags)
         assert len(parsed_tags) == 100
         assert parsed_tags[0] == ["t", "tag0"]
         assert parsed_tags[99] == ["t", "tag99"]
@@ -581,7 +593,7 @@ class TestEdgeCases:
 
         event = Event(mock)
         params = event.to_db_params()
-        parsed_tags = json.loads(params.tags_json)
+        parsed_tags = json.loads(params.tags)
         assert parsed_tags == [["a", "b", "c", "d", "e"]]
 
 

@@ -26,8 +26,7 @@ from core.brotr import Brotr
 from core.pool import Pool
 from models import EventRelay, Relay, RelayMetadata
 from models.event import Event
-from models.metadata import Metadata
-from models.relay_metadata import MetadataType
+from models.metadata import Metadata, MetadataType
 
 
 # ============================================================================
@@ -275,11 +274,13 @@ def sample_loki_relay() -> Relay:
 def sample_metadata() -> RelayMetadata:
     """Sample RelayMetadata for testing."""
     relay = Relay("wss://relay.example.com", discovered_at=1700000000)
-    metadata = Metadata({"name": "Test Relay", "supported_nips": [1, 2, 9, 11]})
+    metadata = Metadata(
+        type=MetadataType.NIP11_FETCH,
+        value={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
+    )
     return RelayMetadata(
         relay=relay,
         metadata=metadata,
-        metadata_type=MetadataType.NIP11_FETCH,
         generated_at=1700000001,
     )
 
