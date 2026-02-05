@@ -122,7 +122,7 @@ class TestServiceRegistry:
 
     def test_service_classes_are_base_service_subclasses(self) -> None:
         """Test all service classes inherit from BaseService."""
-        from core.base_service import BaseService
+        from core.service import BaseService
 
         for name, (service_class, _) in SERVICE_REGISTRY.items():
             assert issubclass(service_class, BaseService), (
