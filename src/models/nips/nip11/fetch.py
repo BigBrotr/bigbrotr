@@ -11,10 +11,10 @@ from typing import Any, ClassVar, Self
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
-from utils.network import NetworkType
 from logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
+from utils.network import NetworkType
 
 from .data import Nip11FetchData
 from .logs import Nip11FetchLogs

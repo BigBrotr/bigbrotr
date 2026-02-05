@@ -17,10 +17,10 @@ if TYPE_CHECKING:
     from dns.rdtypes.IN.A import A
     from dns.rdtypes.IN.AAAA import AAAA
 
-from utils.network import NetworkType
 from logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
+from utils.network import NetworkType
 
 from .data import Nip66DnsData
 from .logs import Nip66DnsLogs

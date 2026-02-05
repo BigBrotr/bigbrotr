@@ -64,10 +64,10 @@ if TYPE_CHECKING:
 
     from nostr_sdk import Keys
 
-from utils.network import NetworkType
 from logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT
 from models.relay import Relay
+from utils.network import NetworkType
 
 
 logger = Logger("utils.transport")
