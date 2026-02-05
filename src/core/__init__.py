@@ -22,11 +22,6 @@ Example:
 
 from utils.yaml import load_yaml
 
-from .base_service import (
-    BaseService,
-    BaseServiceConfig,
-    ConfigT,
-)
 from .brotr import (
     BatchConfig,
     Brotr,
@@ -57,6 +52,12 @@ from .pool import (
 from .pool import (
     TimeoutsConfig as PoolTimeoutsConfig,
 )
+from .service import (
+    BaseService,
+    BaseServiceConfig,
+    ConfigT,
+    NetworkSemaphoreMixin,
+)
 
 
 __all__ = [
@@ -74,6 +75,7 @@ __all__ = [
     "DatabaseConfig",
     "MetricsConfig",
     "MetricsServer",
+    "NetworkSemaphoreMixin",
     "Pool",
     "PoolConfig",
     "PoolLimitsConfig",

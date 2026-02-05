@@ -8,6 +8,9 @@ Provides abstract base class for all services with:
 - Graceful error handling with max consecutive failures
 - Prometheus metrics (automatic tracking in run_forever)
 
+Also provides mixins for common service patterns:
+- NetworkSemaphoreMixin: Per-network concurrency limiting
+
 Services that need state persistence should implement their own
 storage using dedicated database tables.
 """
@@ -15,11 +18,12 @@ storage using dedicated database tables.
 import asyncio
 import time
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Generic, TypeVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast
 
 from pydantic import BaseModel, Field
 
 from logger import Logger
+from utils.network import NetworkType
 from utils.yaml import load_yaml
 
 from .brotr import Brotr
@@ -30,6 +34,10 @@ from .metrics import (
     SERVICE_INFO,
     MetricsConfig,
 )
+
+
+if TYPE_CHECKING:
+    from utils.network import NetworkConfig
 
 
 # =============================================================================
@@ -318,3 +326,50 @@ class BaseService(ABC, Generic[ConfigT]):
         if not self._config.metrics.enabled:
             return
         SERVICE_COUNTER.labels(service=self.SERVICE_NAME, name=name).inc(value)
+
+
+# =============================================================================
+# Mixins
+# =============================================================================
+
+
+class NetworkSemaphoreMixin:
+    """Mixin for services that use per-network concurrency semaphores.
+
+    Provides methods to initialize and access asyncio semaphores that limit
+    concurrent operations per network type (clearnet, tor, i2p, loki).
+
+    Used by Validator and Monitor to prevent overwhelming network resources,
+    especially important for Tor where too many simultaneous connections
+    can degrade performance.
+
+    The _semaphores dict is created by _init_semaphores() and should be called
+    at the start of each run cycle to pick up configuration changes.
+    """
+
+    _semaphores: dict[NetworkType, asyncio.Semaphore]
+
+    def _init_semaphores(self, networks: "NetworkConfig") -> None:
+        """Initialize per-network concurrency semaphores.
+
+        Creates an asyncio.Semaphore for each network type with max_tasks
+        from the network configuration. Should be called at the start of
+        each run cycle to pick up configuration changes.
+
+        Args:
+            networks: Network configuration with max_tasks per network type.
+        """
+        self._semaphores = {
+            network: asyncio.Semaphore(networks.get(network).max_tasks) for network in NetworkType
+        }
+
+    def _get_semaphore(self, network: NetworkType) -> asyncio.Semaphore | None:
+        """Get the semaphore for a specific network type.
+
+        Args:
+            network: The network type to get the semaphore for.
+
+        Returns:
+            The semaphore for the network, or None if not found.
+        """
+        return self._semaphores.get(network)
