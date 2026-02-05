@@ -21,7 +21,7 @@ class EventDbParams(NamedTuple):
     pubkey: bytes
     created_at: int
     kind: int
-    tags_json: str
+    tags: str
     content: str
     sig: bytes
 
@@ -48,19 +48,26 @@ class Event:
     _inner: NostrEvent
 
     def __post_init__(self) -> None:
-        """Validate event content for database compatibility.
+        """Validate event for database compatibility.
 
         Also validates that to_db_params() succeeds, ensuring the model
         is database-ready at creation time (fail-fast).
 
         Raises:
-            ValueError: If content contains null bytes (PostgreSQL rejects them)
+            ValueError: If content or tags contain null bytes (PostgreSQL rejects them)
                        or if to_db_params() conversion fails.
         """
+        event_id = self._inner.id().to_hex()[:16]
+
+        # Check content for null bytes
         if "\x00" in self._inner.content():
-            raise ValueError(
-                f"Event {self._inner.id().to_hex()[:16]}... content contains null bytes"
-            )
+            raise ValueError(f"Event {event_id}... content contains null bytes")
+
+        # Check tags for null bytes
+        for tag in self._inner.tags().to_vec():
+            for value in tag.as_vec():
+                if "\x00" in value:
+                    raise ValueError(f"Event {event_id}... tags contain null bytes")
 
         # Validate database params conversion (fail-fast)
         self.to_db_params()
@@ -74,16 +81,16 @@ class Event:
         Convert to database parameters tuple.
 
         Returns:
-            EventDbParams with named fields: id, pubkey, created_at, kind, tags_json, content, sig
+            EventDbParams with named fields: id, pubkey, created_at, kind, tags, content, sig
         """
         inner = self._inner
-        tags = [list(tag.as_vec()) for tag in inner.tags().to_vec()]
+        tags_list = [list(tag.as_vec()) for tag in inner.tags().to_vec()]
         return EventDbParams(
             id=bytes.fromhex(inner.id().to_hex()),
             pubkey=bytes.fromhex(inner.author().to_hex()),
             created_at=inner.created_at().as_secs(),
             kind=inner.kind().as_u16(),
-            tags_json=json.dumps(tags),
+            tags=json.dumps(tags_list),
             content=inner.content(),
             sig=bytes.fromhex(inner.signature()),
         )
@@ -95,12 +102,12 @@ class Event:
 
         Args:
             params: EventDbParams containing id, pubkey, created_at, kind,
-                    tags_json, content, and sig fields.
+                    tags, content, and sig fields.
 
         Returns:
             Event instance wrapping a reconstructed NostrEvent
         """
-        tags = json.loads(params.tags_json)
+        tags = json.loads(params.tags)
         inner = NostrEvent.from_json(
             json.dumps(
                 {

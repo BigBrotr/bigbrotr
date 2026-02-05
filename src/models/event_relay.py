@@ -34,7 +34,7 @@ class EventRelayDbParams(NamedTuple):
     pubkey: bytes
     created_at: int
     kind: int
-    tags_json: str
+    tags: str
     content: str
     sig: bytes
     # Relay fields
@@ -78,7 +78,7 @@ class EventRelay:
             pubkey=e.pubkey,
             created_at=e.created_at,
             kind=e.kind,
-            tags_json=e.tags_json,
+            tags=e.tags,
             content=e.content,
             sig=e.sig,
             relay_url=r.url,
@@ -105,7 +105,7 @@ class EventRelay:
                 pubkey=b"...",
                 created_at=1234567890,
                 kind=1,
-                tags_json="[]",
+                tags="[]",
                 content="test",
                 sig=b"...",
                 relay_url="wss://relay.example.com",
@@ -120,7 +120,7 @@ class EventRelay:
             pubkey=params.pubkey,
             created_at=params.created_at,
             kind=params.kind,
-            tags_json=params.tags_json,
+            tags=params.tags,
             content=params.content,
             sig=params.sig,
         )

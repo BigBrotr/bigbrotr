@@ -129,10 +129,15 @@ class Relay:
 
         Also validates that to_db_params() succeeds, ensuring the model
         is database-ready at creation time (fail-fast).
+
+        Raises:
+            ValueError: If URL contains null bytes (PostgreSQL rejects them).
         """
-        # Remove null bytes (PostgreSQL rejects them in TEXT columns)
-        raw = self.raw_url.replace("\x00", "") if "\x00" in self.raw_url else self.raw_url
-        parsed = self._parse(raw)
+        # Reject null bytes (PostgreSQL rejects them in TEXT columns)
+        if "\x00" in self.raw_url:
+            raise ValueError("Relay URL contains null bytes")
+
+        parsed = self._parse(self.raw_url)
 
         if parsed["network"] == NetworkType.LOCAL:
             raise ValueError("Local addresses not allowed")
