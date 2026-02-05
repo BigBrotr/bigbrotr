@@ -1,12 +1,6 @@
-# ============================================================================
-# BigBrotr Project Configuration
-# ============================================================================
-#
-# A modular Nostr data archiving and monitoring system built with Python 3.11+
-# and PostgreSQL. Provides relay discovery, health monitoring (NIP-11/NIP-66),
-# and event synchronization with Tor network support.
-#
-# ============================================================================
+# =============================================================================
+# Project Metadata
+# =============================================================================
 
 [project]
 name = "bigbrotr"
@@ -16,7 +10,6 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [{ name = "BigBrotr Contributors" }]
-maintainers = [{ name = "BigBrotr Contributors" }]
 keywords = [
     "nostr",
     "archiving",
@@ -47,24 +40,39 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+# =============================================================================
+# Dependencies
+# =============================================================================
+
 dependencies = [
+    # HTTP client with SOCKS proxy support for Tor/I2P
     "aiohttp>=3.9.0",
     "aiohttp-socks>=0.9.0",
+    # Multiprocessing with async support (Synchronizer service)
     "aiomultiprocess>=0.9.1",
+    # PostgreSQL async driver
     "asyncpg>=0.29.0",
+    # DNS resolution (NIP-66 dns metadata)
     "dnspython>=2.5.0",
+    # Geolocation (NIP-66 geo/net metadata)
     "geoip2>=4.8.0",
     "geohash2>=1.1",
+    # Nostr protocol client (Rust FFI bindings)
     "nostr-sdk>=0.37.0",
+    # Metrics export
     "prometheus-client>=0.20.0",
+    # Configuration and validation
     "pydantic>=2.5.0",
     "PyYAML>=6.0.1",
+    # URL validation
     "rfc3986>=2.0.0",
     "tldextract>=5.1.0",
+    # Type hints backports
     "typing-extensions>=4.9.0",
 ]
 
 [project.optional-dependencies]
+# Development dependencies
 dev = [
     # Testing
     "pytest>=8.0.0",
@@ -86,7 +94,7 @@ dev = [
     "asyncpg-stubs>=0.30.0",
 ]
 
-# Documentation (optional)
+# Documentation dependencies
 docs = [
     "mkdocs>=1.6.0",
     "mkdocs-material>=9.5.0",
@@ -100,13 +108,9 @@ Documentation = "https://github.com/BigBrotr/bigbrotr#readme"
 Issues = "https://github.com/BigBrotr/bigbrotr/issues"
 Changelog = "https://github.com/BigBrotr/bigbrotr/blob/main/CHANGELOG.md"
 
-[project.scripts]
-# Entry points for CLI (if needed in the future)
-# bigbrotr = "services.__main__:main"
-
-# ============================================================================
+# =============================================================================
 # Build System
-# ============================================================================
+# =============================================================================
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
@@ -119,228 +123,183 @@ include = ["core*", "models*", "services*"]
 [tool.setuptools.package-data]
 "*" = ["py.typed"]
 
-# ============================================================================
+# =============================================================================
 # Pytest Configuration
-# ============================================================================
+# =============================================================================
 
 [tool.pytest.ini_options]
-minversion = "8.0"
 testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = [
-    "-v",
-    "--strict-markers",
-    "--strict-config",
-    "-ra",
-    "--tb=short",
-    "--durations=10",
-]
+addopts = ["-v", "--strict-markers", "--strict-config", "-ra", "--tb=short"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests requiring database",
     "unit: marks tests as unit tests (no external dependencies)",
 ]
-filterwarnings = [
-    "ignore::DeprecationWarning",
-    "ignore::PendingDeprecationWarning",
-]
 
-# ============================================================================
+# =============================================================================
 # Coverage Configuration
-# ============================================================================
+# =============================================================================
 
 [tool.coverage.run]
 source = ["src"]
 branch = true
-parallel = true
-omit = ["*/tests/*", "*/__pycache__/*", "*/.venv/*"]
 
 [tool.coverage.report]
 exclude_lines = [
     "pragma: no cover",
-    "def __repr__",
-    "raise NotImplementedError",
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.:",
     "@abstractmethod",
     "@overload",
-    "class .*\\bProtocol\\):",
-    "\\.\\.\\.",
+    "raise NotImplementedError",
 ]
 show_missing = true
-precision = 2
-fail_under = 0
 
-[tool.coverage.html]
-directory = "htmlcov"
-
-[tool.coverage.xml]
-output = "coverage.xml"
-
-# ============================================================================
-# Ruff Configuration (Linter + Formatter)
-# ============================================================================
-# Ruff is an extremely fast Python linter and formatter, written in Rust.
-# https://docs.astral.sh/ruff/
+# =============================================================================
+# Ruff Linter Configuration
+# =============================================================================
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
 src = ["src", "tests"]
-# Exclude common directories
-exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".git-rewrite",
-    ".hg",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pytype",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "venv",
-]
 
 [tool.ruff.lint]
 select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # Pyflakes
-    "I",   # isort
-    "B",   # flake8-bugbear
-    "C4",  # flake8-comprehensions
-    "UP",  # pyupgrade
-    "ARG", # flake8-unused-arguments
-    "SIM", # flake8-simplify
-    "TCH", # flake8-type-checking
-    "PTH", # flake8-use-pathlib
-    "ERA", # eradicate (commented-out code)
-    "PL",  # Pylint
-    "RUF", # Ruff-specific rules
-    "TID", # flake8-tidy-imports
-    "PIE", # flake8-pie
-    "PGH", # pygrep-hooks
-    "PERF", # Perflint
+    # === Core Rules ===
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+
+    # === Code Quality ===
+    "ARG",    # flake8-unused-arguments
+    "SIM",    # flake8-simplify
+    "TCH",    # flake8-type-checking
+    "PTH",    # flake8-use-pathlib
+    "ERA",    # eradicate (commented code)
+    "PL",     # pylint
+    "RUF",    # ruff-specific rules
+    "TID",    # flake8-tidy-imports
+    "PIE",    # flake8-pie
+    "PGH",    # pygrep-hooks
+    "PERF",   # perflint
+
+    # === Security & Best Practices ===
+    "S",      # flake8-bandit (security checks)
+    "A",      # flake8-builtins (no shadowing builtins)
+    "LOG",    # flake8-logging (logging best practices)
+    "ASYNC",  # flake8-async (async antipatterns)
 ]
+
 ignore = [
-    "E501",    # line too long (handled by formatter)
-    "PLR0911", # too many return statements
-    "PLR0912", # too many branches
-    "PLR0913", # too many arguments
-    "PLR0915", # too many statements
-    "PLR2004", # magic value comparison
-    "PLW0603", # global statement (required for multiprocess worker state)
-    "PLW2901", # loop variable overwritten
-    "ARG001",  # unused function argument (common in protocols/callbacks)
-    "ARG002",  # unused method argument
-    "SIM102",  # nested if (sometimes more readable)
-    "SIM105",  # contextlib.suppress doesn't work with async/await
-    "PERF203", # try-except in loop (acceptable for error handling)
-    "PERF401", # list.extend vs loop (not always clearer)
+    # --- Type Checking Imports ---
+    # Pydantic models require type annotations at runtime for validation.
+    # Moving these to TYPE_CHECKING blocks would break Pydantic.
+    "TC001",     # Move application import into TYPE_CHECKING block
+    "TC002",     # Move third-party import into TYPE_CHECKING block
+    "TC003",     # Move stdlib import into TYPE_CHECKING block
+
+    # --- Multiprocessing Global State ---
+    # Worker processes in Synchronizer need global state to share
+    # database connections across tasks within the same process.
+    # This is the standard pattern for aiomultiprocess workers.
+    "PLW0603",   # Using global statement to update variable
+
+    # --- Security False Positives ---
+    # S310: URL open for GeoIP database downloads from known GitHub URLs.
+    # These are trusted URLs for MaxMind GeoLite2 database mirrors.
+    "S310",      # Audit URL open for permitted schemes
+
+    # S311: random.uniform() for retry jitter timing.
+    # Not used for cryptographic purposes, just for backoff jitter.
+    "S311",      # Standard pseudo-random generators not suitable for crypto
+
+    # --- Async Patterns ---
+    # ASYNC109: Functions with timeout parameters are valid patterns
+    # for asyncpg and nostr-sdk which use explicit timeout args.
+    "ASYNC109",  # Async function with timeout parameter
 ]
+
+# -----------------------------------------------------------------------------
+# Pylint Limits
+# -----------------------------------------------------------------------------
+# These limits accommodate complex parsing functions and backward-compatible
+# factory methods. The codebase has been optimized but some complexity is
+# inherent to the domain (relay metadata parsing, event handling).
+
+[tool.ruff.lint.pylint]
+max-args = 20          # Nip66.create() has legacy backward-compat params
+max-branches = 20      # Complex parsers (DNS, NIP-11, event extraction)
+max-returns = 10       # Network detection functions
+max-statements = 60    # Main worker functions
+
+# -----------------------------------------------------------------------------
+# Per-File Ignores
+# -----------------------------------------------------------------------------
+# Only tests and notebooks have special ignores. Source code follows all rules.
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = [
-    "PLR2004", # magic value comparison in tests
-    "ARG001",  # unused arguments in fixtures
-    "ARG002",  # unused method arguments
-    "PLC0415", # import outside top-level (inline imports in fixtures)
-    "S101",    # assert statements
+    "S101",     # assert statements are expected in tests
+    "S104",     # binding to all interfaces in tests
+    "S105",     # hardcoded passwords in test fixtures
+    "S106",     # hardcoded passwords in function args
+    "S311",     # random in tests is fine
+    "E501",     # long lines in test assertions
+    "PLR2004",  # magic values in test assertions (expected values)
+    "ARG001",   # unused function arguments (fixtures)
+    "ARG002",   # unused method arguments (fixtures)
+    "PLC0415",  # imports inside test functions
+    "PERF401",  # list comprehensions in tests
 ]
-# Notebooks are demo/test scripts with different requirements
 "notebooks/*" = [
-    "E402",    # module-level import not at top (sys.path manipulation)
-    "I001",    # import block sorting (split by sys.path.insert)
-    "PLC0415", # import outside top-level (deferred imports)
-    "ERA001",  # commented-out code (examples and demos)
-    "F541",    # f-string without placeholders
-    "W293",    # blank line contains whitespace
-    "SIM115",  # context manager for opening files
-    "PTH108",  # os.unlink vs Path.unlink
-    "PGH003",  # type: ignore without code
+    "E402",     # module level import not at top
+    "I001",     # import sorting
+    "ERA001",   # commented code
+    "F541",     # unused variables
+    "W293",     # whitespace
+    "SIM115",   # context manager
+    "PTH108",   # os.unlink
+    "PGH003",   # type: ignore without code
 ]
-# TC001/TC002/TC003: These imports are used at runtime, not just for type hints
-"src/core/brotr.py" = ["TC001", "TC002"]
-"src/core/pool.py" = ["TC003"]
-# PLC0415: Deferred imports to avoid circular dependencies or heavy imports
-"src/models/nip11.py" = ["PLC0415"]
-"src/models/nip66.py" = ["PLC0415"]
-"src/models/event_relay.py" = ["PLC0415"]
-"src/services/monitor.py" = ["PLC0415"]
-"src/services/synchronizer.py" = ["PLC0415"]
-"src/utils/transport.py" = ["PLC0415"]
+
+# -----------------------------------------------------------------------------
+# Import Sorting
+# -----------------------------------------------------------------------------
 
 [tool.ruff.lint.isort]
-known-first-party = ["core", "models", "services"]
-force-single-line = false
+known-first-party = ["core", "enums", "logger", "models", "services", "utils"]
 lines-after-imports = 2
-section-order = [
-    "future",
-    "standard-library",
-    "third-party",
-    "first-party",
-    "local-folder",
-]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "parents"
 
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "auto"
-docstring-code-format = true
-docstring-code-line-length = 80
+# -----------------------------------------------------------------------------
+# Formatting
+# -----------------------------------------------------------------------------
 
-# ============================================================================
-# MyPy Configuration
-# ============================================================================
-# MyPy is a static type checker for Python.
-# https://mypy.readthedocs.io/
+[tool.ruff.format]
+docstring-code-format = true
+
+# =============================================================================
+# MyPy Type Checker Configuration
+# =============================================================================
 
 [tool.mypy]
 python_version = "3.11"
 mypy_path = "src"
 files = ["src"]
 explicit_package_bases = true
-
-# Strictness flags
-warn_return_any = false
-warn_unused_configs = true
-warn_redundant_casts = true
-warn_unused_ignores = false
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-check_untyped_defs = true
-no_implicit_optional = true
-strict_equality = true
-
-# Output
+strict = true
 show_error_codes = true
-show_error_context = true
-show_column_numbers = true
-pretty = true
-color_output = true
 
-# Error handling
-ignore_missing_imports = false
-
+# Third-party libraries without type stubs
 [[tool.mypy.overrides]]
 module = [
     "asyncpg.*",
@@ -356,12 +315,42 @@ module = [
 ]
 ignore_missing_imports = true
 
-# asyncpg stubs don't match runtime behavior perfectly
-[[tool.mypy.overrides]]
-module = "core.pool"
-disable_error_code = ["arg-type", "return-value", "union-attr", "misc", "assignment"]
-
-# Entry point module
+# Entry point modules
 [[tool.mypy.overrides]]
 module = "__main__.*"
 ignore_errors = true
+
+# =============================================================================
+# SQLFluff SQL Linter Configuration
+# =============================================================================
+
+[tool.sqlfluff.core]
+dialect = "postgres"
+templater = "raw"
+max_line_length = 120
+exclude_rules = [
+    "LT05",  # Line too long (handled by max_line_length)
+    "LT01",  # Trailing whitespace
+    "RF06",  # Unnecessary quoted identifier
+    "RF04",  # Unnecessary nested CASE
+    "ST05",  # JOIN condition on same line
+]
+
+[tool.sqlfluff.indentation]
+tab_space_size = 4
+
+# SQL capitalization policies
+[tool.sqlfluff.rules.capitalisation.keywords]
+capitalisation_policy = "upper"
+
+[tool.sqlfluff.rules.capitalisation.identifiers]
+capitalisation_policy = "lower"
+
+[tool.sqlfluff.rules.capitalisation.functions]
+capitalisation_policy = "upper"
+
+[tool.sqlfluff.rules.capitalisation.literals]
+capitalisation_policy = "upper"
+
+[tool.sqlfluff.rules.capitalisation.types]
+capitalisation_policy = "upper"
