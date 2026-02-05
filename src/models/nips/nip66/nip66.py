@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from logger import Logger
-from models.metadata import Metadata
+from models.metadata import Metadata, MetadataType
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
-from models.relay_metadata import MetadataType, RelayMetadata
+from models.relay_metadata import RelayMetadata
 
 from .dns import Nip66DnsMetadata
 from .geo import Nip66GeoMetadata
@@ -88,8 +88,7 @@ class Nip66(BaseModel):
                 return None
             return RelayMetadata(
                 relay=self.relay,
-                metadata=Metadata(metadata.to_dict()),
-                metadata_type=metadata_type,
+                metadata=Metadata(type=metadata_type, value=metadata.to_dict()),
                 generated_at=self.generated_at,
             )
 

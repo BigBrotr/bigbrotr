@@ -7,9 +7,9 @@ from typing import NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from models.metadata import Metadata
+from models.metadata import Metadata, MetadataType
 from models.relay import Relay
-from models.relay_metadata import MetadataType, RelayMetadata
+from models.relay_metadata import RelayMetadata
 
 from .fetch import Nip11FetchMetadata
 
@@ -52,8 +52,10 @@ class Nip11(BaseModel):
         if self.fetch_metadata is not None:
             nip11_fetch = RelayMetadata(
                 relay=self.relay,
-                metadata=Metadata(self.fetch_metadata.to_dict()),
-                metadata_type=MetadataType.NIP11_FETCH,
+                metadata=Metadata(
+                    type=MetadataType.NIP11_FETCH,
+                    value=self.fetch_metadata.to_dict(),
+                ),
                 generated_at=self.generated_at,
             )
         return RelayNip11MetadataTuple(nip11_fetch=nip11_fetch)

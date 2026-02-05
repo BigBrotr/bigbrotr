@@ -419,15 +419,15 @@ class Brotr:
         self._validate_batch_size(records, "insert_metadata")
 
         params = [metadata.to_db_params() for metadata in records]
-        ids = [p.metadata_id for p in params]
-        datas = [p.metadata_json for p in params]
+        ids = [p.id for p in params]
+        values = [p.value for p in params]
 
         async with self.pool.transaction() as conn:
             inserted: int = (
                 await conn.fetchval(
                     "SELECT metadata_insert($1, $2)",
                     ids,
-                    datas,
+                    values,
                     timeout=self._config.timeouts.batch,
                 )
                 or 0
@@ -481,8 +481,8 @@ class Brotr:
             # Hash computed in Python for deterministic deduplication
             relay_urls = [p.relay_url for p in params]
             metadata_ids = [p.metadata_id for p in params]
-            metadata_jsons = [p.metadata_json for p in params]
-            types = [p.metadata_type for p in params]
+            metadata_values = [p.metadata_value for p in params]
+            metadata_types = [p.metadata_type for p in params]
             generated_ats = [p.generated_at for p in params]
 
             async with self.pool.transaction() as conn:
@@ -491,8 +491,8 @@ class Brotr:
                         "SELECT relay_metadata_insert($1, $2, $3, $4, $5)",
                         relay_urls,
                         metadata_ids,
-                        metadata_jsons,
-                        types,
+                        metadata_values,
+                        metadata_types,
                         generated_ats,
                         timeout=self._config.timeouts.batch,
                     )

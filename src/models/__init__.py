@@ -24,11 +24,11 @@ from utils.network import NetworkType
 
 from .event import Event
 from .event_relay import EventRelay
-from .metadata import Metadata
+from .metadata import Metadata, MetadataType
 from .nips.nip11 import Nip11
 from .nips.nip66 import Nip66
 from .relay import Relay
-from .relay_metadata import MetadataType, RelayMetadata
+from .relay_metadata import RelayMetadata
 
 
 __all__ = [

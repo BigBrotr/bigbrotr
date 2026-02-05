@@ -41,7 +41,7 @@ from nostr_sdk import EventBuilder, Filter, Keys, Kind, RelayUrl, Tag
 from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer, model_validator
 
 from core.service import BaseService, BaseServiceConfig, NetworkSemaphoreMixin
-from models import Metadata, Nip11, Relay, RelayMetadata
+from models import Metadata, MetadataType, Nip11, Relay, RelayMetadata
 from models.nips.base import BaseMetadata
 from models.nips.nip66 import (
     Nip66DnsMetadata,
@@ -51,7 +51,6 @@ from models.nips.nip66 import (
     Nip66RttMetadata,
     Nip66SslMetadata,
 )
-from models.relay_metadata import MetadataType
 from utils.keys import KeysConfig
 from utils.network import NetworkConfig, NetworkType
 from utils.progress import BatchProgress
@@ -708,8 +707,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
                     return None
                 return RelayMetadata(
                     relay=relay,
-                    metadata=Metadata(meta.to_dict()),
-                    metadata_type=meta_type,
+                    metadata=Metadata(type=meta_type, value=meta.to_dict()),
                     generated_at=generated_at,
                 )
 
@@ -1044,7 +1042,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         """Add RTT-related tags (rtt-open, rtt-read, rtt-write)."""
         if not result.rtt or not include.nip66_rtt:
             return
-        rtt_data = result.rtt.metadata.metadata
+        rtt_data = result.rtt.metadata.value
         if rtt_data.get("rtt_open") is not None:
             tags.append(Tag.parse(["rtt-open", str(rtt_data["rtt_open"])]))
         if rtt_data.get("rtt_read") is not None:
@@ -1056,7 +1054,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         """Add SSL-related tags (ssl, ssl-expires, ssl-issuer)."""
         if not result.ssl or not include.nip66_ssl:
             return
-        ssl_data = result.ssl.metadata.metadata
+        ssl_data = result.ssl.metadata.value
         ssl_valid = ssl_data.get("ssl_valid")
         if ssl_valid is not None:
             tags.append(Tag.parse(["ssl", "valid" if ssl_valid else "!valid"]))
@@ -1071,7 +1069,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         """Add network tags (net-ip, net-ipv6, net-asn, net-asn-org)."""
         if not result.net or not include.nip66_net:
             return
-        net_data = result.net.metadata.metadata
+        net_data = result.net.metadata.value
         net_ip = net_data.get("net_ip")
         if net_ip:
             tags.append(Tag.parse(["net-ip", net_ip]))
@@ -1089,7 +1087,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         """Add geolocation tags (g, geo-country, geo-city, geo-lat, geo-lon, geo-tz)."""
         if not result.geo or not include.nip66_geo:
             return
-        geo_data = result.geo.metadata.metadata
+        geo_data = result.geo.metadata.value
         geohash = geo_data.get("geohash")
         if geohash:
             tags.append(Tag.parse(["g", geohash]))
@@ -1113,7 +1111,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         """Add NIP-11 capability tags (N, t, l, R, T)."""
         if not result.nip11 or not include.nip11:
             return
-        nip11_data = result.nip11.metadata.metadata
+        nip11_data = result.nip11.metadata.value
 
         # N tags: supported NIPs
         supported_nips = nip11_data.get("supported_nips")
@@ -1158,7 +1156,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         pow_diff = limitation.get("min_pow_difficulty", 0)
 
         # Get probe results for verification
-        probe_data = result.probe.metadata.metadata if result.probe else {}
+        probe_data = result.probe.metadata.value if result.probe else {}
         write_success = probe_data.get("probe_write_success")
         write_reason = (probe_data.get("probe_write_reason") or "").lower()
         read_success = probe_data.get("probe_read_success")
@@ -1227,7 +1225,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
     def _build_kind_30166(self, relay: Relay, result: CheckResult) -> EventBuilder:
         """Build Kind 30166 relay discovery event per NIP-66."""
         include = self._config.discovery.include
-        content = result.nip11.metadata.to_db_params()[0] if result.nip11 else ""
+        content = result.nip11.metadata.to_db_params().id if result.nip11 else ""
         tags: list[Tag] = [
             Tag.parse(["d", relay.url]),
             Tag.parse(["n", relay.network.value]),
