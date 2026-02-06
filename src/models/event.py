@@ -1,8 +1,9 @@
 """
-Nostr Event wrapper for BigBrotr.
+Immutable Nostr event wrapper with database serialization.
 
-Provides Event class that wraps nostr_sdk.Event with database conversion.
-Uses frozen dataclass with __getattr__ delegation to transparently proxy all NostrEvent methods.
+Wraps ``nostr_sdk.Event`` in a frozen dataclass that transparently delegates
+attribute access to the underlying SDK object while adding database conversion
+via ``to_db_params()`` and ``from_db_params()``.
 """
 
 from __future__ import annotations
@@ -15,92 +16,94 @@ from nostr_sdk import Event as NostrEvent
 
 
 class EventDbParams(NamedTuple):
-    """Database parameters for Event insert operations."""
+    """Positional parameters for the event database insert procedure."""
 
     id: bytes
     pubkey: bytes
     created_at: int
     kind: int
-    tags_json: str
+    tags: str
     content: str
     sig: bytes
 
 
 @dataclass(frozen=True, slots=True)
 class Event:
-    """
-    Immutable Nostr event wrapper with database conversion.
+    """Immutable Nostr event with database conversion.
 
-    Frozen dataclass that transparently proxies all NostrEvent methods via
-    __getattr__ and adds to_db_params() for database insertion.
+    All attribute access is transparently delegated to the inner
+    ``nostr_sdk.Event`` via ``__getattr__``, so SDK methods like
+    ``id()``, ``kind()``, and ``content()`` work directly.
 
-    Note:
-        Like all Python frozen dataclasses, immutability is enforced at the
-        normal API level. Direct calls to object.__setattr__() can bypass
-        this, but such usage is explicitly discouraged.
+    Validation is performed eagerly at construction time:
 
-    Example:
-        >>> event = Event(nostr_event)
-        >>> event.id()  # Delegated to nostr_event
-        >>> event.to_db_params()  # Added method
+    * Content and tag values are checked for null bytes, which
+      PostgreSQL TEXT columns reject.
+    * ``to_db_params()`` is called to ensure the event can be
+      serialized before it leaves the constructor (fail-fast).
+
+    Args:
+        _inner: The underlying ``nostr_sdk.Event`` instance.
+
+    Raises:
+        ValueError: If content or tags contain null bytes, or if
+            database parameter conversion fails.
     """
 
     _inner: NostrEvent
 
     def __post_init__(self) -> None:
-        """Validate event content for database compatibility.
+        """Validate the event for database compatibility on construction."""
+        event_id = self._inner.id().to_hex()[:16]
 
-        Also validates that to_db_params() succeeds, ensuring the model
-        is database-ready at creation time (fail-fast).
-
-        Raises:
-            ValueError: If content contains null bytes (PostgreSQL rejects them)
-                       or if to_db_params() conversion fails.
-        """
         if "\x00" in self._inner.content():
-            raise ValueError(
-                f"Event {self._inner.id().to_hex()[:16]}... content contains null bytes"
-            )
+            raise ValueError(f"Event {event_id}... content contains null bytes")
 
-        # Validate database params conversion (fail-fast)
+        for tag in self._inner.tags().to_vec():
+            for value in tag.as_vec():
+                if "\x00" in value:
+                    raise ValueError(f"Event {event_id}... tags contain null bytes")
+
+        # Ensure DB conversion succeeds at creation time
         self.to_db_params()
 
     def __getattr__(self, name: str) -> Any:
-        """Delegate all attribute access to the wrapped NostrEvent."""
+        """Delegate attribute access to the wrapped NostrEvent."""
         return getattr(self._inner, name)
 
     def to_db_params(self) -> EventDbParams:
-        """
-        Convert to database parameters tuple.
+        """Convert to positional parameters for the database insert procedure.
 
         Returns:
-            EventDbParams with named fields: id, pubkey, created_at, kind, tags_json, content, sig
+            EventDbParams with binary id/pubkey/sig, integer timestamps,
+            JSON-encoded tags, and raw content string.
         """
         inner = self._inner
-        tags = [list(tag.as_vec()) for tag in inner.tags().to_vec()]
+        tags_list = [list(tag.as_vec()) for tag in inner.tags().to_vec()]
         return EventDbParams(
             id=bytes.fromhex(inner.id().to_hex()),
             pubkey=bytes.fromhex(inner.author().to_hex()),
             created_at=inner.created_at().as_secs(),
             kind=inner.kind().as_u16(),
-            tags_json=json.dumps(tags),
+            tags=json.dumps(tags_list),
             content=inner.content(),
             sig=bytes.fromhex(inner.signature()),
         )
 
     @classmethod
     def from_db_params(cls, params: EventDbParams) -> Event:
-        """
-        Create an Event from database parameters.
+        """Reconstruct an Event from database parameters.
+
+        Converts the stored binary/integer fields back into a JSON
+        representation that ``nostr_sdk.Event.from_json()`` can parse.
 
         Args:
-            params: EventDbParams containing id, pubkey, created_at, kind,
-                    tags_json, content, and sig fields.
+            params: Database row values previously produced by ``to_db_params()``.
 
         Returns:
-            Event instance wrapping a reconstructed NostrEvent
+            A new Event wrapping the reconstructed NostrEvent.
         """
-        tags = json.loads(params.tags_json)
+        tags = json.loads(params.tags)
         inner = NostrEvent.from_json(
             json.dumps(
                 {

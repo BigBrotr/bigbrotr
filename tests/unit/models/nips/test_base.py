@@ -1,25 +1,4 @@
-"""Tests for models.nips.base module.
-
-Tests cover:
-- BaseData class:
-  - parse() method with type coercion
-  - parse() with non-dict input
-  - from_dict() for strict validation
-  - to_dict() excluding None values
-  - _FIELD_SPEC class variable inheritance
-
-- BaseMetadata class:
-  - from_dict() for strict validation
-  - to_dict() with nested object serialization
-  - Automatic nested to_dict() calls
-
-- BaseLogs class:
-  - success/reason semantic validation
-  - from_dict() for strict validation
-  - to_dict() excluding None values
-
-- DEFAULT_TIMEOUT constant
-"""
+"""Unit tests for BaseData, BaseMetadata, BaseLogs, and DEFAULT_TIMEOUT."""
 
 import pytest
 from pydantic import ValidationError
@@ -151,7 +130,6 @@ class TestBaseDataSubclass:
 
     def test_from_dict_validates_strictly(self, data_subclass):
         """from_dict() uses Pydantic strict validation."""
-        # This should work (Pydantic handles type checking)
         model = data_subclass.from_dict({"count": 10})
         assert model.count == 10
 
@@ -254,7 +232,6 @@ class TestBaseMetadata:
 
     def test_to_dict_excludes_none_values(self, metadata_subclass):
         """to_dict() excludes None values at top level."""
-        # Create a metadata class with optional field
 
         class TestData(BaseData):
             name: str | None = None
@@ -271,7 +248,7 @@ class TestBaseMetadata:
 
         model = TestMetadataWithOptional(
             data=TestData(name="Test"),
-            logs=None,  # None should be excluded
+            logs=None,
         )
         d = model.to_dict()
         assert d == {"data": {"name": "Test"}}
@@ -463,12 +440,10 @@ class TestBaseLogsSubclass:
 
     def test_subclass_inherits_validation(self, logs_subclass):
         """Subclass inherits success/reason semantic validation."""
-        # Valid
         logs = logs_subclass(success=True, elapsed_ms=100)
         assert logs.success is True
         assert logs.elapsed_ms == 100
 
-        # Invalid: reason with success=True
         with pytest.raises(ValidationError, match="reason must be None when success is True"):
             logs_subclass(success=True, reason="error", elapsed_ms=100)
 
@@ -520,7 +495,6 @@ class TestIntegration:
         """Test complete workflow: raw data -> parse -> create -> serialize."""
         MyData, MyLogs, MyMetadata = complete_model
 
-        # Raw data from external source (may have invalid types)
         raw_data = {
             "count": 10,
             "name": "Test",
@@ -528,16 +502,13 @@ class TestIntegration:
             "count_as_string": "not valid",
         }
 
-        # Parse data (filters invalid types)
         parsed = MyData.parse(raw_data)
         assert parsed == {"count": 10, "name": "Test"}
 
-        # Create model instances
         data = MyData.from_dict(parsed)
         logs = MyLogs(success=True, elapsed_ms=50)
         metadata = MyMetadata(data=data, logs=logs)
 
-        # Serialize back to dict
         result = metadata.to_dict()
         assert result == {
             "data": {"count": 10, "name": "Test"},
@@ -548,8 +519,7 @@ class TestIntegration:
         """Test failure workflow: operation fails -> create failure logs."""
         MyData, MyLogs, MyMetadata = complete_model
 
-        # Operation failed
-        data = MyData()  # Empty data
+        data = MyData()
         logs = MyLogs(success=False, reason="Connection timeout", elapsed_ms=10000)
         metadata = MyMetadata(data=data, logs=logs)
 
@@ -564,19 +534,14 @@ class TestIntegration:
         """Test roundtrip: create -> serialize -> deserialize -> compare."""
         MyData, MyLogs, MyMetadata = complete_model
 
-        # Create original
         original = MyMetadata(
             data=MyData(count=42, name="Roundtrip Test"),
             logs=MyLogs(success=True, elapsed_ms=100),
         )
 
-        # Serialize
         serialized = original.to_dict()
-
-        # Deserialize
         reconstructed = MyMetadata.from_dict(serialized)
 
-        # Compare
         assert reconstructed.data.count == original.data.count
         assert reconstructed.data.name == original.data.name
         assert reconstructed.logs.success == original.logs.success

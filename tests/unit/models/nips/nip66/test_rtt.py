@@ -84,7 +84,8 @@ class TestNip66RttMetadataTestOpen:
         assert rtt_open is not None
         assert isinstance(rtt_open, int)
         assert rtt_open >= 0
-        assert "open_success" not in logs  # Success not set in logs yet by _test_open
+        # _test_open only sets logs on failure; success is set by the caller
+        assert "open_success" not in logs
 
     @pytest.mark.asyncio
     async def test_connection_failure_returns_none_and_sets_logs(

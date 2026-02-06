@@ -1,4 +1,10 @@
-"""NIP-66 data models."""
+"""
+NIP-66 monitoring data models.
+
+Defines the typed Pydantic models for each NIP-66 monitoring test result:
+RTT (round-trip time), SSL certificate, geolocation, network/ASN,
+DNS resolution, and HTTP server headers.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +17,10 @@ from models.nips.parsing import FieldSpec
 
 
 class Nip66RttData(BaseData):
-    """RTT (Round-Trip Time) data per NIP-66."""
+    """Round-trip time measurements in milliseconds.
+
+    Captures connection open, event read, and event write latencies.
+    """
 
     rtt_open: StrictInt | None = None
     rtt_read: StrictInt | None = None
@@ -23,7 +32,11 @@ class Nip66RttData(BaseData):
 
 
 class Nip66SslData(BaseData):
-    """SSL/TLS certificate data per NIP-66."""
+    """SSL/TLS certificate details extracted from a relay connection.
+
+    Includes certificate identity, validity dates, Subject Alternative Names,
+    fingerprint, and negotiated cipher information.
+    """
 
     ssl_valid: StrictBool | None = None
     ssl_subject_cn: str | None = None
@@ -65,7 +78,11 @@ class Nip66SslData(BaseData):
 
 
 class Nip66GeoData(BaseData):
-    """Geolocation data per NIP-66."""
+    """Geolocation data derived from GeoIP database lookups.
+
+    Includes country, continent, city, coordinates, timezone, and a
+    geohash computed from latitude/longitude.
+    """
 
     geo_country: str | None = None
     geo_country_name: str | None = None
@@ -103,7 +120,11 @@ class Nip66GeoData(BaseData):
 
 
 class Nip66NetData(BaseData):
-    """Network/ASN data per NIP-66."""
+    """Network and ASN information from GeoIP ASN database lookups.
+
+    Includes resolved IP addresses, autonomous system number and
+    organization, and CIDR network ranges.
+    """
 
     net_ip: str | None = None
     net_ipv6: str | None = None
@@ -127,7 +148,11 @@ class Nip66NetData(BaseData):
 
 
 class Nip66DnsData(BaseData):
-    """DNS resolution data per NIP-66."""
+    """DNS resolution results for a relay hostname.
+
+    Includes A/AAAA records, CNAME, reverse DNS (PTR), nameservers,
+    and record TTL.
+    """
 
     dns_ips: list[str] | None = None
     dns_ips_v6: list[str] | None = None
@@ -144,7 +169,10 @@ class Nip66DnsData(BaseData):
 
 
 class Nip66HttpData(BaseData):
-    """HTTP headers data per NIP-66."""
+    """HTTP server headers captured during WebSocket handshake.
+
+    Records the ``Server`` and ``X-Powered-By`` response headers.
+    """
 
     http_server: str | None = None
     http_powered_by: str | None = None

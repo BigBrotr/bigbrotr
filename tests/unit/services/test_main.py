@@ -606,7 +606,6 @@ metrics:
                 once=False,
             )
 
-            # Metrics server should still be stopped
             mock_metrics_server.stop.assert_called_once()
 
     @pytest.mark.asyncio
@@ -709,7 +708,6 @@ pool:
     user: testuser
 """)
 
-        # Mock run_service to avoid complex service instantiation
         with (
             patch(
                 "sys.argv",
@@ -963,7 +961,6 @@ pool:
             assert result == 0
             mock_run.assert_called_once()
 
-            # Verify service_name and class match
             call_kwargs = mock_run.call_args[1]
             assert call_kwargs["service_name"] == "monitor"
             assert call_kwargs["service_class"] == expected_classes["monitor"]

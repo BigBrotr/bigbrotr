@@ -1,23 +1,21 @@
 # =============================================================================
-# Finder Service Configuration - Template with ALL Default Values
+# Finder Service Configuration Template (All Default Values)
 # =============================================================================
-#
-# The Finder service discovers new relay URLs from two sources:
-# 1. Database events - Scans stored events for relay URLs in tags
-# 2. External APIs - Fetches relay lists from public API endpoints
+# Discovers new relay URLs from two sources:
+#   1. Database events - Scans stored events for relay URLs in tags
+#   2. External APIs - Fetches relay lists from public API endpoints
 #
 # Discovered URLs are stored as candidates for the Validator service.
 #
 # Run mode: Continuous (runs every interval)
-# Dependencies: Seeder must complete first
+# Dependencies: Seeder must have run first
 # Configuration class: src/services/finder.py::FinderConfig
-#
 # =============================================================================
 
 # -----------------------------------------------------------------------------
 # Base Service Settings (inherited from BaseServiceConfig)
 # -----------------------------------------------------------------------------
-# Class: src/core/base_service.py::BaseServiceConfig
+# Class: src/core/service.py::BaseServiceConfig
 
 # Seconds between discovery cycles
 # Lower values = more frequent discovery, higher resource usage

@@ -52,7 +52,7 @@ python -c "from core import Pool, Brotr, BaseService, Logger; print('OK')"
 export DB_PASSWORD=test_password
 
 # Optional: Set for NIP-66 write tests
-export MONITOR_PRIVATE_KEY=your_hex_private_key
+export PRIVATE_KEY=your_hex_private_key
 ```
 
 ### Running Local Database
@@ -75,16 +75,55 @@ bigbrotr/
 ├── src/                              # Source code
 │   ├── __init__.py                   # Package root
 │   ├── core/                         # Core layer (foundation)
-│   │   ├── __init__.py               # Exports: Pool, Brotr, BaseService, Logger
-│   │   ├── pool.py                   # PostgreSQL connection pool (~410 lines)
-│   │   ├── brotr.py                  # Database interface (~430 lines)
-│   │   ├── base_service.py           # Abstract service base (~200 lines)
-│   │   └── logger.py                 # Structured logging (~50 lines)
+│   │   ├── __init__.py               # Exports: Pool, Brotr, BaseService, Logger, etc.
+│   │   ├── pool.py                   # PostgreSQL connection pool
+│   │   ├── brotr.py                  # Database interface
+│   │   ├── service.py                # Abstract service base
+│   │   ├── metrics.py                # Prometheus metrics endpoint
+│   │   └── logger.py                 # Structured key=value logging
+│   │
+│   ├── models/                       # Data models layer
+│   │   ├── __init__.py               # Exports: Event, Relay, Metadata, etc.
+│   │   ├── event.py                  # Immutable wrapper for nostr_sdk.Event
+│   │   ├── event_relay.py            # Junction model: Event <-> Relay
+│   │   ├── relay.py                  # Validated Nostr relay URL
+│   │   ├── metadata.py               # Content-addressed metadata payload
+│   │   ├── relay_metadata.py         # Junction: Relay <-> Metadata
+│   │   └── nips/                     # NIP-specific models
+│   │       ├── __init__.py
+│   │       ├── base.py               # Base NIP model
+│   │       ├── parsing.py            # NIP data parsing utilities
+│   │       ├── nip11/                # NIP-11 relay information
+│   │       │   ├── __init__.py
+│   │       │   ├── nip11.py
+│   │       │   ├── data.py
+│   │       │   ├── fetch.py
+│   │       │   └── logs.py
+│   │       └── nip66/                # NIP-66 relay monitoring
+│   │           ├── __init__.py
+│   │           ├── nip66.py
+│   │           ├── data.py
+│   │           ├── dns.py
+│   │           ├── geo.py
+│   │           ├── http.py
+│   │           ├── logs.py
+│   │           ├── net.py
+│   │           ├── rtt.py
+│   │           └── ssl.py
+│   │
+│   ├── utils/                        # Utilities layer
+│   │   ├── __init__.py
+│   │   ├── dns.py                    # DNS resolution utilities
+│   │   ├── keys.py                   # Key loading from environment
+│   │   ├── network.py                # NetworkType, NetworkConfig
+│   │   ├── progress.py               # BatchProgress tracking
+│   │   ├── transport.py              # Transport/client creation
+│   │   └── yaml.py                   # YAML loading utilities
 │   │
 │   └── services/                     # Service layer (business logic)
 │       ├── __init__.py               # Service exports
 │       ├── __main__.py               # CLI entry point
-│       ├── seeder.py            # Database bootstrap and seeding
+│       ├── seeder.py                 # Database bootstrap and seeding
 │       ├── finder.py                 # Relay URL discovery
 │       ├── validator.py              # Candidate relay validation
 │       ├── monitor.py                # Health monitoring (NIP-11/NIP-66)
@@ -96,7 +135,7 @@ bigbrotr/
 │   │   │   ├── core/brotr.yaml
 │   │   │   └── services/*.yaml
 │   │   ├── postgres/init/            # SQL schema (full storage)
-│   │   ├── data/seed_relays.txt      # 8,865 seed relay URLs
+│   │   ├── static/seed_relays.txt    # 8,865 seed relay URLs
 │   │   ├── pgbouncer/                # PGBouncer config
 │   │   ├── docker-compose.yaml       # Ports: 5432, 6432, 9050
 │   │   ├── Dockerfile
@@ -117,7 +156,7 @@ bigbrotr/
 │       ├── core/                     # Core layer tests
 │       │   ├── test_pool.py
 │       │   ├── test_brotr.py
-│       │   ├── test_base_service.py
+│       │   ├── test_service.py
 │       │   ├── test_metrics.py
 │       │   └── test_logger.py
 │       ├── models/                   # Models layer tests
@@ -126,32 +165,46 @@ bigbrotr/
 │       │   ├── test_event_relay.py
 │       │   ├── test_metadata.py
 │       │   ├── test_relay_metadata.py
-│       │   ├── test_nip11.py
-│       │   └── test_nip66.py
+│       │   └── nips/                 # NIP model tests
+│       │       ├── test_base.py
+│       │       ├── test_parsing.py
+│       │       ├── nip11/
+│       │       │   ├── test_nip11.py
+│       │       │   ├── test_data.py
+│       │       │   ├── test_fetch.py
+│       │       │   └── test_logs.py
+│       │       └── nip66/
+│       │           ├── test_nip66.py
+│       │           ├── test_data.py
+│       │           ├── test_dns.py
+│       │           ├── test_geo.py
+│       │           ├── test_http.py
+│       │           ├── test_logs.py
+│       │           ├── test_net.py
+│       │           ├── test_rtt.py
+│       │           └── test_ssl.py
 │       ├── services/                 # Services layer tests
 │       │   ├── test_seeder.py
 │       │   ├── test_finder.py
 │       │   ├── test_validator.py
 │       │   ├── test_monitor.py
 │       │   ├── test_synchronizer.py
-│       │   └── test_cli.py
+│       │   └── test_main.py
 │       └── utils/                    # Utils layer tests
+│           ├── test_dns.py
+│           ├── test_keys.py
 │           ├── test_network.py
-│           ├── test_parsing.py
+│           ├── test_progress.py
 │           ├── test_transport.py
-│           ├── test_yaml.py
-│           └── test_keys.py
+│           └── test_yaml.py
 │
 ├── docs/                             # Documentation
+│   ├── OVERVIEW.md
 │   ├── ARCHITECTURE.md
 │   ├── CONFIGURATION.md
 │   ├── DATABASE.md
 │   ├── DEVELOPMENT.md
-│   └── DEPLOYMENT.md
-│
-├── releases/                         # Release notes
-│   ├── v1.0.0.md
-│   └── v2.0.0.md
+│   └── TECHNICAL.md
 │
 ├── .github/                          # GitHub configuration
 │   ├── workflows/ci.yml              # CI pipeline
@@ -374,7 +427,7 @@ My Service - Description of what it does.
 
 from pydantic import Field
 
-from core.base_service import BaseService, BaseServiceConfig
+from core.service import BaseService, BaseServiceConfig
 from core.brotr import Brotr
 from core.logger import Logger
 
@@ -436,11 +489,11 @@ some_setting: "custom_value"
 
 ```python
 # src/services/__main__.py
-from services.myservice import MyService, MyServiceConfig
+from .myservice import MyService
 
 SERVICE_REGISTRY = {
     # ... existing services ...
-    "myservice": (MyService, MyServiceConfig),
+    "myservice": (MyService, YAML_BASE / "services" / "myservice.yaml"),
 }
 ```
 
@@ -557,13 +610,13 @@ ORDER BY created_at DESC
 LIMIT 10;
 
 -- Relay status (latest RTT data from last 24 hours)
-SELECT rm.relay_url, m.data->>'is_openable' AS openable,
-       m.data->>'is_readable' AS readable, m.data->>'is_writable' AS writable
+SELECT rm.relay_url, m.value->>'is_openable' AS openable,
+       m.value->>'is_readable' AS readable, m.value->>'is_writable' AS writable
 FROM relay_metadata_latest rm
 JOIN metadata m ON rm.metadata_id = m.id
-WHERE rm.type = 'nip66_rtt'
-  AND rm.snapshot_at > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')
-ORDER BY (m.data->>'is_openable')::boolean DESC;
+WHERE rm.metadata_type = 'nip66_rtt'
+  AND rm.generated_at > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')
+ORDER BY (m.value->>'is_openable')::boolean DESC;
 
 -- Event kind distribution
 SELECT * FROM kind_counts_total LIMIT 20;

@@ -296,23 +296,23 @@ relay = Relay("wss://relay.example.com")
 
 ### 7. Stored Procedures for Mutations
 
-**Pattern:** All database writes via stored procedures
+**Pattern:** All database writes via stored functions with bulk array parameters
 
 ```python
-# Python side (hardcoded procedure names)
+# Python side (bulk array parameters, single roundtrip)
 await pool.execute(
-    "CALL insert_event($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-    event_id, pubkey, created_at, kind, tags, content, sig,
-    relay_url, relay_network, relay_discovered_at, seen_at
+    "SELECT * FROM events_relays_insert_cascade($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+    relay_urls, relay_networks, relay_discovered_ats,
+    event_ids, pubkeys, created_ats, kinds, tags, contents, sigs,
+    seen_ats
 )
 
 # PostgreSQL side
-CREATE OR REPLACE PROCEDURE insert_event(...)
+CREATE OR REPLACE FUNCTION events_relays_insert_cascade(...)
+RETURNS TABLE(events_inserted INTEGER, relays_inserted INTEGER, junctions_inserted INTEGER)
 AS $$
 BEGIN
-    INSERT INTO relays VALUES (...) ON CONFLICT DO NOTHING;
-    INSERT INTO events VALUES (...) ON CONFLICT DO NOTHING;
-    INSERT INTO events_relays VALUES (...) ON CONFLICT DO NOTHING;
+    -- Calls base functions: relays_insert(), events_insert(), events_relays_insert()
 END;
 $$ LANGUAGE plpgsql;
 ```
@@ -330,13 +330,12 @@ $$ LANGUAGE plpgsql;
 **Pattern:** Deduplication via hashing
 
 ```python
-# PostgreSQL function
-CREATE OR REPLACE FUNCTION sha256(data JSONB) RETURNS BYTEA AS $$
-    SELECT digest(data::TEXT, 'sha256')
-$$ LANGUAGE SQL IMMUTABLE;
+# Python side (src/models/metadata.py)
+import hashlib
+content_hash = hashlib.sha256(canonical.encode("utf-8")).digest()
 
-# Stored procedure
-INSERT INTO metadata (id, data) VALUES (sha256($1), $1)
+# Stored procedure receives pre-computed hash
+INSERT INTO metadata (id, value) VALUES ($1, $2)
 ON CONFLICT (id) DO NOTHING;
 
 # Python usage
@@ -344,8 +343,8 @@ metadata = Metadata(data={"key": "value"})
 await brotr.insert_relay_metadata([
     RelayMetadata(
         relay=relay,
-        metadata=metadata,  # Hash computed in PostgreSQL
-        metadata_type="nip11",
+        metadata=metadata,  # Hash computed in Python before insertion
+        metadata_type="nip11_fetch",
         snapshot_at=timestamp
     )
 ])
@@ -354,7 +353,7 @@ await brotr.insert_relay_metadata([
 **Benefits:**
 - Automatic deduplication
 - ~90% space savings for repeated metadata
-- No application-side hashing
+- Hash computed in Python before insertion
 - Guaranteed uniqueness
 
 ---
@@ -592,12 +591,13 @@ candidates = await brotr.get_service_data("validator", "candidate")
 ```
 bigbrotr/
 ├── src/
+│   ├── __init__.py
 │   ├── core/                      # Core infrastructure
 │   │   ├── __init__.py
-│   │   ├── logger.py              # Structured logging
 │   │   ├── pool.py                # Connection pooling
 │   │   ├── brotr.py               # Database interface
-│   │   ├── base_service.py        # Service base class
+│   │   ├── service.py             # Service base class
+│   │   ├── logger.py              # Structured key=value logging
 │   │   └── metrics.py             # Prometheus metrics server
 │   │
 │   ├── models/                    # Data models
@@ -605,11 +605,22 @@ bigbrotr/
 │   │   ├── event.py               # Nostr event wrapper
 │   │   ├── relay.py               # Relay URL model
 │   │   ├── event_relay.py         # Event+Relay junction
-│   │   ├── keys.py                # Nostr keys wrapper
 │   │   ├── metadata.py            # JSONB metadata
-│   │   ├── nip11.py               # NIP-11 info doc
-│   │   ├── nip66.py               # NIP-66 monitoring
-│   │   └── relay_metadata.py      # Relay metadata junction
+│   │   ├── relay_metadata.py      # Relay metadata junction
+│   │   └── nips/                  # NIP model subpackages
+│   │       ├── base.py            # Base NIP model
+│   │       ├── parsing.py         # NIP data parsing
+│   │       ├── nip11/             # NIP-11 relay info
+│   │       └── nip66/             # NIP-66 monitoring
+│   │
+│   ├── utils/                     # Shared utilities
+│   │   ├── __init__.py
+│   │   ├── dns.py                 # DNS resolution
+│   │   ├── keys.py                # Nostr key management
+│   │   ├── network.py             # Network detection and proxy config
+│   │   ├── progress.py            # Batch progress tracking
+│   │   ├── transport.py           # HTTP/WebSocket transport helpers
+│   │   └── yaml.py                # YAML loading with env var support
 │   │
 │   └── services/                  # Business logic
 │       ├── __init__.py
@@ -643,10 +654,10 @@ bigbrotr/
     ├── conftest.py                # Shared fixtures
     └── unit/
         ├── core/
-        │   ├── test_logger.py
         │   ├── test_pool.py
         │   ├── test_brotr.py
-        │   └── test_base_service.py
+        │   ├── test_service.py
+        │   └── test_logger.py     # Logger tests
         ├── models/
         │   └── test_*.py
         ├── services/

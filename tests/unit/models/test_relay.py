@@ -1,18 +1,4 @@
-"""
-Unit tests for models.relay module.
-
-Tests:
-- Relay construction and URL validation
-- URL parsing and normalization (scheme, host, port, path)
-- Network type detection (clearnet, tor, i2p, loki, local, unknown)
-- Scheme enforcement (wss for clearnet, ws for overlay networks)
-- RelayDbParams NamedTuple structure
-- to_db_params() and from_db_params() serialization
-- Local/private address rejection
-- Immutability enforcement (frozen dataclass)
-- Equality and hashing
-- NetworkType StrEnum
-"""
+"""Unit tests for the Relay model, NetworkType enum, and RelayDbParams NamedTuple."""
 
 from dataclasses import FrozenInstanceError
 from time import time
@@ -185,7 +171,7 @@ class TestUrlParsing:
     def test_ipv6_address(self):
         """IPv6 address is parsed correctly."""
         r = Relay("wss://[2001:4860:4860::8888]")
-        assert r.host == "2001:4860:4860::8888"  # Brackets stripped
+        assert r.host == "2001:4860:4860::8888"
         assert r.network == NetworkType.CLEARNET
         assert r.url == "wss://[2001:4860:4860::8888]"
 
@@ -367,27 +353,23 @@ class TestRejection:
 # =============================================================================
 
 
-class TestNullByteSanitization:
-    """Null bytes are removed from URLs for PostgreSQL compatibility."""
+class TestNullByteValidation:
+    """Null bytes in URLs are rejected for PostgreSQL compatibility."""
 
-    def test_null_byte_in_host_removed(self):
-        """Null bytes in host are removed before parsing."""
-        # Without the null byte, this would be a valid URL
-        r = Relay("wss://relay\x00.example.com")
-        assert r.url == "wss://relay.example.com"
-        assert "\x00" not in r.url
+    def test_null_byte_in_host_rejected(self):
+        """Null bytes in host raise ValueError."""
+        with pytest.raises(ValueError, match="null bytes"):
+            Relay("wss://relay\x00.example.com")
 
-    def test_null_byte_in_path_removed(self):
-        """Null bytes in path are removed."""
-        r = Relay("wss://relay.example.com/path\x00here")
-        assert r.url == "wss://relay.example.com/pathhere"
-        assert "\x00" not in r.url
+    def test_null_byte_in_path_rejected(self):
+        """Null bytes in path raise ValueError."""
+        with pytest.raises(ValueError, match="null bytes"):
+            Relay("wss://relay.example.com/path\x00here")
 
-    def test_multiple_null_bytes_removed(self):
-        """Multiple null bytes are all removed."""
-        r = Relay("wss://\x00relay\x00.example\x00.com\x00")
-        assert r.url == "wss://relay.example.com"
-        assert "\x00" not in r.url
+    def test_multiple_null_bytes_rejected(self):
+        """Multiple null bytes raise ValueError."""
+        with pytest.raises(ValueError, match="null bytes"):
+            Relay("wss://\x00relay\x00.example\x00.com\x00")
 
     def test_url_without_null_bytes_unchanged(self):
         """URLs without null bytes are processed normally."""
@@ -558,7 +540,7 @@ class TestFromDbParams:
         """Reconstructs IPv6 relay."""
         params = RelayDbParams("wss://[2606:4700::1]:8080", "clearnet", 1234567890)
         r = Relay.from_db_params(params)
-        assert r.host == "2606:4700::1"  # Host without brackets
+        assert r.host == "2606:4700::1"
         assert r.port == 8080
 
     def test_tor_network(self):
@@ -569,11 +551,10 @@ class TestFromDbParams:
         assert r.scheme == "ws"
 
     def test_network_param_ignored(self):
-        """Network param is ignored (recomputed from URL)."""
-        # Pass wrong network, it gets recomputed
+        """Network param is ignored; network is recomputed from the URL."""
         params = RelayDbParams("wss://relay.example.com", "tor", 1234567890)
         r = Relay.from_db_params(params)
-        assert r.network == NetworkType.CLEARNET  # Recomputed, not from param
+        assert r.network == NetworkType.CLEARNET
 
     def test_roundtrip(self):
         """to_db_params -> from_db_params preserves data."""
@@ -628,7 +609,6 @@ class TestEquality:
         """Relay is hashable."""
         r1 = Relay("wss://relay.example.com", discovered_at=1234567890)
         r2 = Relay("wss://relay.example.com", discovered_at=1234567890)
-        # Same URL and timestamp -> same hash
         assert hash(r1) == hash(r2)
 
     def test_set_deduplication(self):
@@ -637,7 +617,7 @@ class TestEquality:
         r2 = Relay("wss://relay.example.com", discovered_at=1234567890)
         r3 = Relay("wss://other.relay.com", discovered_at=1234567890)
         s = {r1, r2, r3}
-        assert len(s) == 2  # r1 and r2 are duplicates
+        assert len(s) == 2
 
 
 # =============================================================================
@@ -651,12 +631,11 @@ class TestEdgeCases:
     def test_url_case_normalized(self):
         """URL host is case-normalized."""
         r = Relay("wss://RELAY.EXAMPLE.COM")
-        # RFC3986 normalization lowercases the host
         assert r.host == "relay.example.com"
 
     def test_long_hostname(self):
         """Long hostname is handled."""
-        long_subdomain = "a" * 63  # Max label length
+        long_subdomain = "a" * 63
         url = f"wss://{long_subdomain}.example.com"
         r = Relay(url)
         assert r.host == f"{long_subdomain}.example.com"
@@ -669,6 +648,5 @@ class TestEdgeCases:
     def test_default_port_80_for_ws(self):
         """Default port for ws:// overlay is 80."""
         r = Relay("wss://abc.onion:80")
-        # Port 80 is default for ws, should be omitted
         assert r.url == "ws://abc.onion"
         assert r.port == 80

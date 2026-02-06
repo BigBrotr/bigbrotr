@@ -319,7 +319,6 @@ class TestFinderRun:
             patch.object(finder, "_find_from_api", new_callable=AsyncMock),
         ):
             await finder.run()
-            # Counter should be reset
             assert finder._found_relays == 0
 
 
@@ -398,7 +397,6 @@ class TestFinderFindFromApi:
             mock_session.__aexit__ = AsyncMock(return_value=None)
             mock_session_cls.return_value = mock_session
 
-            # Should not raise
             await finder._find_from_api()
 
             assert finder._found_relays == 0
@@ -530,7 +528,6 @@ class TestFinderFindFromEvents:
             "seen_at": 1700000001,
         }[key]
 
-        # First call for relays, second for events per relay, third returns empty
         mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
         mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
         mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
@@ -538,14 +535,12 @@ class TestFinderFindFromEvents:
         finder = Finder(brotr=mock_brotr)
         await finder._find_from_events()
 
-        # Verify upsert was called with the extracted relay
         mock_brotr.upsert_service_data.assert_called()
-        # Check all upsert calls to find the candidate insertion (not cursor)
         all_urls = []
         for call in mock_brotr.upsert_service_data.call_args_list:
             records = call[0][0]
             for record in records:
-                if record[1] == "candidate":  # data_type == "candidate"
+                if record[1] == "candidate":
                     all_urls.append(record[2])
         assert any("relay.example.com" in url for url in all_urls)
 
@@ -570,14 +565,12 @@ class TestFinderFindFromEvents:
         finder = Finder(brotr=mock_brotr)
         await finder._find_from_events()
 
-        # Verify upsert was called
         mock_brotr.upsert_service_data.assert_called()
-        # Check all upsert calls to find the candidate insertion (not cursor)
         all_urls = []
         for call in mock_brotr.upsert_service_data.call_args_list:
             records = call[0][0]
             for record in records:
-                if record[1] == "candidate":  # data_type == "candidate"
+                if record[1] == "candidate":
                     all_urls.append(record[2])
         assert any("relay1.example.com" in url for url in all_urls)
         assert any("relay2.example.com" in url for url in all_urls)
@@ -604,12 +597,11 @@ class TestFinderFindFromEvents:
         await finder._find_from_events()
 
         mock_brotr.upsert_service_data.assert_called()
-        # Check all upsert calls to find the candidate insertion (not cursor)
         all_urls = []
         for call in mock_brotr.upsert_service_data.call_args_list:
             records = call[0][0]
             for record in records:
-                if record[1] == "candidate":  # data_type == "candidate"
+                if record[1] == "candidate":
                     all_urls.append(record[2])
         assert any("rtag-relay.com" in url for url in all_urls)
 
@@ -634,7 +626,6 @@ class TestFinderFindFromEvents:
         finder = Finder(brotr=mock_brotr)
         await finder._find_from_events()
 
-        # No valid URLs should be inserted
         assert finder._found_relays == 0
 
     @pytest.mark.asyncio
@@ -662,19 +653,17 @@ class TestFinderFindFromEvents:
         finder = Finder(brotr=mock_brotr)
         await finder._find_from_events()
 
-        # Only one unique URL should be inserted (plus cursor save)
-        # Find calls with candidates - check first record's data_type
         candidate_calls = [
             call
             for call in mock_brotr.upsert_service_data.call_args_list
-            if call[0][0] and call[0][0][0][1] == "candidate"  # First record's data_type
+            if call[0][0] and call[0][0][0][1] == "candidate"
         ]
         assert len(candidate_calls) == 1
-        # Records list should have exactly one record (the deduplicated URL)
         records = candidate_calls[0][0][0]
-        assert len(records) == 1  # One record (deduplicated from 3 duplicates)
-        assert len(records[0]) == 4  # Record is a 4-tuple: (service, type, key, value)
-        assert records[0][2] == "wss://duplicate.relay.com"  # The deduplicated URL
+        # Three duplicate URLs should collapse to a single candidate record
+        assert len(records) == 1
+        assert len(records[0]) == 4
+        assert records[0][2] == "wss://duplicate.relay.com"
 
     @pytest.mark.asyncio
     async def test_cursor_position_updated_after_scan(self, mock_brotr: Brotr) -> None:
@@ -697,7 +686,6 @@ class TestFinderFindFromEvents:
         finder = Finder(brotr=mock_brotr)
         await finder._find_from_events()
 
-        # Verify cursor was saved (upsert called for both candidate and cursor)
         upsert_calls = mock_brotr.upsert_service_data.call_args_list
         cursor_saved = any(
             call[0][0] and call[0][0][0][0] == "finder" and call[0][0][0][1] == "cursor"
@@ -711,7 +699,6 @@ class TestFinderFindFromEvents:
         mock_brotr.pool.fetch = AsyncMock(side_effect=Exception("Database connection error"))  # type: ignore[method-assign]
 
         finder = Finder(brotr=mock_brotr)
-        # Should not raise, should handle gracefully
         await finder._find_from_events()
 
         assert finder._found_relays == 0
@@ -740,7 +727,6 @@ class TestFinderFindFromEvents:
         finder = Finder(brotr=mock_brotr)
         await finder._find_from_events()
 
-        # Both clearnet and onion URLs should be processed
         mock_brotr.upsert_service_data.assert_called()
 
 
@@ -761,12 +747,11 @@ class TestValidateRelayUrl:
         assert result.url == "wss://relay.example.com"
 
     def test_validate_valid_ws_url(self, mock_brotr: Brotr) -> None:
-        """Test validating valid ws:// URL - clearnet is upgraded to wss://."""
+        """Clearnet ws:// URL is automatically upgraded to wss://."""
         finder = Finder(brotr=mock_brotr)
         result = finder._validate_relay_url("ws://relay.example.com")
 
         assert result is not None
-        # Clearnet URLs are automatically upgraded to wss://
         assert result.url == "wss://relay.example.com"
 
     def test_validate_invalid_url(self, mock_brotr: Brotr) -> None:

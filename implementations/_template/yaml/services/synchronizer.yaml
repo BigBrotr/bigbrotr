@@ -1,8 +1,8 @@
 # =============================================================================
-# Synchronizer Service Configuration - Template with ALL Default Values
+# Synchronizer Service Configuration Template (All Default Values)
 # =============================================================================
 #
-# The Synchronizer service fetches Nostr events from relays and stores them:
+# Fetches Nostr events from relays and stores them in the database:
 # 1. Selects readable relays from database (based on Monitor results)
 # 2. Opens WebSocket connections to relays
 # 3. Subscribes to events using configurable filters
@@ -23,7 +23,7 @@
 # -----------------------------------------------------------------------------
 # Base Service Settings (inherited from BaseServiceConfig)
 # -----------------------------------------------------------------------------
-# Class: src/core/base_service.py::BaseServiceConfig
+# Class: src/core/service.py::BaseServiceConfig
 
 # Seconds between synchronization cycles
 # Lower values = more frequent sync, higher resource usage

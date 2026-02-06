@@ -1,14 +1,18 @@
-"""
-Synchronizer Service for BigBrotr.
+"""Synchronizer service for BigBrotr.
 
-Synchronizes Nostr events from relays:
-- Connect to relays via WebSocket
-- Subscribe to event streams (REQ messages)
-- Parse and validate incoming events
-- Store events in database via Brotr
-- Multiprocessing support for high throughput using a dynamic queue
+Collects Nostr events from validated relays and stores them in the database.
+Supports both single-process and multi-process modes (via aiomultiprocess)
+for high-throughput event ingestion.
 
-Usage:
+Workflow:
+    1. Fetch relays from the database (optionally filtered by metadata age).
+    2. Load per-relay sync cursors from the service_data table.
+    3. Connect to each relay and fetch events since the last sync timestamp.
+    4. Validate event signatures and timestamps before insertion.
+    5. Update per-relay cursors for the next cycle.
+
+Usage::
+
     from core import Brotr
     from services import Synchronizer
 
@@ -17,7 +21,7 @@ Usage:
 
     async with brotr.pool:
         async with sync:
-            await sync.run_forever(interval=900)
+            await sync.run_forever()
 """
 
 from __future__ import annotations
@@ -56,40 +60,30 @@ from utils.network import NetworkConfig, NetworkType
 # Constants
 # =============================================================================
 
-# Nostr protocol constants
-HEX_STRING_LENGTH = 64
-EVENT_KIND_MAX = 65535
-
-# Batch sizes
-BATCH_CURSOR = 50
+HEX_STRING_LENGTH = 64  # Length of a hex-encoded Nostr ID (event, pubkey)
+EVENT_KIND_MAX = 65535  # Maximum valid event kind number
+BATCH_CURSOR = 50  # Cursor updates are flushed every N successful relays
 
 
 if TYPE_CHECKING:
     import logging
     from collections.abc import Iterator
 
-# Module constant for worker logging (workers can't access class attributes)
+# Worker processes cannot access class attributes, so these module-level
+# globals provide logging configuration and state for forked processes.
 _WORKER_SERVICE_NAME = "synchronizer"
-
-# Worker log level (set by main process before spawning workers, default: INFO)
-_WORKER_LOG_LEVEL = "INFO"
-
-# Worker-level logger instance (created once per worker process)
-_WORKER_LOGGER: logging.Logger | None = None
+_WORKER_LOG_LEVEL = "INFO"  # Set by main process before spawning workers
+_WORKER_LOGGER: logging.Logger | None = None  # Lazily created per worker
 
 
 def _set_worker_log_level(level: str) -> None:
-    """Set worker log level before spawning worker processes.
-
-    Args:
-        level: Log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    """
+    """Set the log level for worker processes (must be called before spawning)."""
     global _WORKER_LOG_LEVEL
     _WORKER_LOG_LEVEL = level.upper()
 
 
 def _get_worker_logger() -> logging.Logger:
-    """Get or create logger for worker process with proper configuration."""
+    """Get or lazily create a logger for the current worker process."""
     global _WORKER_LOGGER
     if _WORKER_LOGGER is None:
         import logging  # noqa: PLC0415 - Worker process needs fresh import after fork
@@ -116,27 +110,26 @@ def _get_worker_logger() -> logging.Logger:
 
 
 def _format_kv(kwargs: dict[str, Any]) -> str:
-    """Format kwargs as key=value pairs (wrapper for worker processes).
+    """Format kwargs as key=value pairs for worker log output.
 
-    Uses the shared format_kv_pairs utility for consistency with Logger class.
-    Workers use no truncation to preserve full context in logs.
+    Delegates to the shared ``format_kv_pairs`` utility for consistency
+    with the main Logger class. No value truncation in worker logs.
     """
-    from logger import format_kv_pairs  # noqa: PLC0415 - Worker isolation
+    from core.logger import format_kv_pairs  # noqa: PLC0415 - Worker isolation
 
     return format_kv_pairs(kwargs, max_value_length=None)
 
 
 def _worker_log(level: str, message: str, **kwargs: Any) -> None:
-    """
-    Log from worker process using Python logging module.
+    """Log a message from a worker process.
 
-    Configures logging per-process on first call for multiprocess compatibility.
-    Format is consistent with the main Logger class.
+    Initializes the worker logger on first call. Output format matches
+    the main Logger class for consistent log parsing.
 
     Args:
-        level: Log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        message: Log message
-        **kwargs: Additional key=value pairs to include
+        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+        message: Log message identifier.
+        **kwargs: Additional key=value pairs appended to the message.
     """
     import logging  # noqa: PLC0415 - Worker isolation
 
@@ -149,41 +142,28 @@ def _worker_log(level: str, message: str, **kwargs: Any) -> None:
 
 
 # =============================================================================
-# Configuration
-# =============================================================================
-
-
-# =============================================================================
 # Utilities
 # =============================================================================
 
 
 class EventBatch:
-    """
-    Batch container for Nostr events with time bounds.
+    """Bounded container for Nostr events within a time interval.
 
-    Used by Synchronizer to collect events within a time interval
-    and track min/max created_at timestamps.
+    Collects events whose ``created_at`` falls within ``[since, until]``
+    and tracks min/max timestamps. Raises ``OverflowError`` if the batch
+    limit is exceeded.
 
     Attributes:
-        since: Minimum timestamp (inclusive) for events in batch
-        until: Maximum timestamp (inclusive) for events in batch
-        limit: Maximum number of events allowed in batch
-        size: Current number of events in batch
-        events: List of Event objects in batch
-        min_created_at: Lowest created_at timestamp in batch (or None if empty)
-        max_created_at: Highest created_at timestamp in batch (or None if empty)
+        since: Inclusive lower bound timestamp.
+        until: Inclusive upper bound timestamp.
+        limit: Maximum number of events allowed.
+        size: Current event count.
+        events: Collected NostrEvent objects.
+        min_created_at: Earliest ``created_at`` in the batch (or None if empty).
+        max_created_at: Latest ``created_at`` in the batch (or None if empty).
     """
 
     def __init__(self, since: int, until: int, limit: int) -> None:
-        """
-        Initialize an EventBatch.
-
-        Args:
-            since: Minimum timestamp for events (inclusive)
-            until: Maximum timestamp for events (inclusive)
-            limit: Maximum number of events to store
-        """
         self.since = since
         self.until = until
         self.limit = limit
@@ -193,14 +173,13 @@ class EventBatch:
         self.max_created_at: int | None = None
 
     def append(self, event: NostrEvent) -> None:
-        """
-        Add an event to the batch if within time bounds.
+        """Add an event if its timestamp is within [since, until].
 
         Args:
-            event: NostrEvent to add to batch
+            event: NostrEvent to add.
 
         Raises:
-            OverflowError: If batch has reached its limit
+            OverflowError: If the batch has reached its size limit.
         """
         created_at = event.created_at().as_secs()
 
@@ -236,7 +215,7 @@ class EventBatch:
 
 
 class FilterConfig(BaseModel):
-    """Event filter configuration."""
+    """Nostr event filter configuration for sync subscriptions."""
 
     ids: list[str] | None = Field(default=None, description="Event IDs to sync (None = all)")
     kinds: list[int] | None = Field(default=None, description="Event kinds to sync (None = all)")
@@ -247,7 +226,7 @@ class FilterConfig(BaseModel):
     @field_validator("kinds", mode="after")
     @classmethod
     def validate_kinds(cls, v: list[int] | None) -> list[int] | None:
-        """Validate event kinds are within valid range (0-65535)."""
+        """Validate that all event kinds are within the valid range (0-65535)."""
         if v is None:
             return v
         for kind in v:
@@ -258,7 +237,7 @@ class FilterConfig(BaseModel):
     @field_validator("ids", "authors", mode="after")
     @classmethod
     def validate_hex_strings(cls, v: list[str] | None) -> list[str] | None:
-        """Validate hex strings are valid 64-character hex."""
+        """Validate that all entries are valid 64-character hex strings."""
         if v is None:
             return v
         for hex_str in v:
@@ -274,7 +253,7 @@ class FilterConfig(BaseModel):
 
 
 class TimeRangeConfig(BaseModel):
-    """Time range configuration for sync."""
+    """Time range configuration controlling the sync window boundaries."""
 
     default_start: int = Field(default=0, ge=0, description="Default start timestamp (0 = epoch)")
     use_relay_state: bool = Field(
@@ -289,10 +268,10 @@ class TimeRangeConfig(BaseModel):
 
 
 class SyncTimeoutsConfig(BaseModel):
-    """Per-relay sync timeout configuration.
+    """Per-relay sync timeout limits by network type.
 
-    The request timeout (WebSocket) comes from NetworkConfig.
-    This adds relay-level sync timeout (max time per relay).
+    These are the maximum total times allowed for syncing a single relay.
+    The per-request WebSocket timeout comes from ``NetworkConfig``.
     """
 
     relay_clearnet: float = Field(
@@ -309,7 +288,7 @@ class SyncTimeoutsConfig(BaseModel):
     )
 
     def get_relay_timeout(self, network: NetworkType) -> float:
-        """Get relay sync timeout for a network type."""
+        """Get the maximum sync duration for a relay on the given network."""
         if network == NetworkType.TOR:
             return self.relay_tor
         if network == NetworkType.I2P:
@@ -320,7 +299,7 @@ class SyncTimeoutsConfig(BaseModel):
 
 
 class ConcurrencyConfig(BaseModel):
-    """Concurrency configuration."""
+    """Concurrency settings for parallel relay connections and worker processes."""
 
     max_parallel: int = Field(
         default=10, ge=1, le=100, description="Max concurrent relay connections per process"
@@ -332,7 +311,7 @@ class ConcurrencyConfig(BaseModel):
 
 
 class SourceConfig(BaseModel):
-    """Configuration for relay source selection."""
+    """Configuration for selecting which relays to sync from."""
 
     from_database: bool = Field(default=True, description="Fetch relays from database")
     max_metadata_age: int = Field(
@@ -344,21 +323,21 @@ class SourceConfig(BaseModel):
 
 
 class RelayOverrideTimeouts(BaseModel):
-    """Override timeouts for a specific relay."""
+    """Per-relay timeout overrides (None means use the network default)."""
 
     request: float | None = None
     relay: float | None = None
 
 
 class RelayOverride(BaseModel):
-    """Override settings for specific relays."""
+    """Per-relay configuration overrides (e.g., for high-traffic relays)."""
 
     url: str
     timeouts: RelayOverrideTimeouts = Field(default_factory=RelayOverrideTimeouts)
 
 
 class SynchronizerConfig(BaseServiceConfig):
-    """Synchronizer configuration."""
+    """Synchronizer service configuration."""
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
     keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
@@ -378,19 +357,14 @@ class SynchronizerConfig(BaseServiceConfig):
 # Worker Logic (Pure Functions for Multiprocessing)
 # =============================================================================
 
-# Global variable for worker process DB connection
+# Per-worker-process database connection (lazily initialized, shared across tasks)
 _WORKER_BROTR: Brotr | None = None
 _WORKER_CLEANUP_REGISTERED: bool = False
 _WORKER_BROTR_LOCK: asyncio.Lock | None = None
 
 
 def _get_worker_lock() -> asyncio.Lock:
-    """
-    Get or create the asyncio.Lock for worker Brotr initialization.
-
-    The lock is created lazily on first access. This is safe because Lock()
-    creation is synchronous and atomic in Python's GIL.
-    """
+    """Get or lazily create the asyncio.Lock for worker Brotr initialization."""
     global _WORKER_BROTR_LOCK
     if _WORKER_BROTR_LOCK is None:
         _WORKER_BROTR_LOCK = asyncio.Lock()
@@ -398,12 +372,7 @@ def _get_worker_lock() -> asyncio.Lock:
 
 
 def _reset_worker_state() -> None:
-    """
-    Reset all worker globals to initial state.
-
-    Used for test isolation to ensure each test starts with clean state.
-    This prevents test pollution where one test's state affects another.
-    """
+    """Reset all worker globals to initial state (used for test isolation)."""
     global _WORKER_BROTR, _WORKER_CLEANUP_REGISTERED, _WORKER_BROTR_LOCK
     _WORKER_BROTR = None
     _WORKER_CLEANUP_REGISTERED = False
@@ -411,11 +380,9 @@ def _reset_worker_state() -> None:
 
 
 def _cleanup_worker_brotr() -> None:
-    """
-    Cleanup function to close the worker's database connection.
+    """Close the worker's database connection on process termination.
 
-    Called automatically when the worker process terminates via atexit or signal.
-    Uses asyncio.run() to properly close the async pool connection.
+    Registered via ``atexit`` and signal handlers for reliable cleanup.
     """
     global _WORKER_BROTR
     if _WORKER_BROTR is not None:
@@ -431,7 +398,7 @@ def _cleanup_worker_brotr() -> None:
 
 
 def _signal_handler(signum: int, _frame: Any) -> None:
-    """Signal handler that ensures cleanup before exit."""
+    """Signal handler that ensures database cleanup before worker exit."""
     _cleanup_worker_brotr()
     # Re-raise with default handler for proper exit code
     signal.signal(signum, signal.SIG_DFL)
@@ -439,17 +406,11 @@ def _signal_handler(signum: int, _frame: Any) -> None:
 
 
 async def _get_worker_brotr(brotr_config: dict[str, Any]) -> Brotr:
-    """
-    Get or initialize the global Brotr instance for the current worker process.
+    """Get or initialize the per-worker-process Brotr database connection.
 
-    This function manages a per-process database connection that is reused
-    across all tasks executed by the worker. The connection is automatically
-    cleaned up when the worker process terminates via atexit handler or signal.
-
-    Uses double-check locking pattern to prevent race conditions when multiple
-    async tasks call this function concurrently within the same worker process.
-    The pattern: check -> lock -> re-check -> initialize ensures only one
-    task performs initialization while others wait.
+    Uses double-check locking to prevent race conditions when multiple
+    async tasks within the same worker call this concurrently. The
+    connection is reused across all tasks and cleaned up on exit.
     """
     global _WORKER_BROTR, _WORKER_CLEANUP_REGISTERED
 
@@ -486,30 +447,30 @@ async def sync_relay_task(
     config_dict: dict[str, Any],
     brotr_config: dict[str, Any],
 ) -> tuple[str, int, int, int, int, bool]:
-    """
-    Standalone task to sync a single relay.
-    Designed to be run in a worker process.
+    """Sync events from a single relay (designed for worker processes).
+
+    Args:
+        relay_url: Relay WebSocket URL.
+        _relay_network: Network type string (unused, relay auto-detects).
+        start_time: Sync window start timestamp (since).
+        config_dict: Serialized SynchronizerConfig for cross-process transfer.
+        brotr_config: Serialized Brotr config for worker DB initialization.
 
     Returns:
-        tuple(relay_url, events_synced, invalid_events, skipped_events, new_end_time, success)
-        success is True if sync completed (even with 0 events), False on error/timeout
+        Tuple of (relay_url, events_synced, invalid_events, skipped_events,
+        new_end_time, success). Success is True if sync completed (even with
+        zero events), False on error or timeout.
     """
     try:
-        # Reconstruct Relay object (can't pickle Relay across processes)
+        # Reconstruct objects that cannot be pickled across process boundaries
         relay = Relay(relay_url)
-
-        # Reconstruct config object
         config = SynchronizerConfig(**config_dict)
-
-        # Get keys for NIP-42 auth (already loaded from env by KeysConfig)
         keys: Keys = config.keys.keys
 
-        # Get timeouts from unified network config
         network_type_config = config.networks.get(relay.network)
         request_timeout = network_type_config.timeout
         relay_timeout = config.sync_timeouts.get_relay_timeout(relay.network)
 
-        # Apply override if exists
         for override in config.overrides:
             if override.url == str(relay.url):
                 if override.timeouts.relay is not None:
@@ -518,10 +479,7 @@ async def sync_relay_task(
                     request_timeout = override.timeouts.request
                 break
 
-        # Get DB connection
         brotr = await _get_worker_brotr(brotr_config)
-
-        # Calculate end time (lookback window from now)
         end_time = int(time.time()) - config.time_range.lookback_seconds
 
         if start_time >= end_time:
@@ -573,15 +531,10 @@ async def sync_relay_task(
 
 
 def _create_filter(since: int, until: int, config: FilterConfig) -> Filter:
-    """
-    Create a Nostr filter from config using nostr-sdk.
+    """Build a nostr-sdk Filter from the given time range and filter configuration.
 
-    Supports standard filter fields plus tag filters:
-    - ids: Event IDs to filter
-    - kinds: Event kinds to filter
-    - authors: Author public keys to filter
-    - tags: Dict of {tag_letter: [values]} for tag filtering
-            e.g., {"e": ["event_id_hex"], "p": ["pubkey_hex"], "t": ["hashtag"]}
+    Supports standard fields (ids, kinds, authors) and tag filters specified
+    as ``{tag_letter: [values]}`` (e.g., ``{"e": ["event_id"], "t": ["hashtag"]}``).
     """
     f = (
         Filter()
@@ -597,16 +550,12 @@ def _create_filter(since: int, until: int, config: FilterConfig) -> Filter:
     if config.ids:
         f = f.ids(config.ids)
 
-    # Handle tag filters
-    # Tags are specified as {"tag_letter": ["value1", "value2"], ...}
-    # e.g., {"e": ["event_id"], "p": ["pubkey"], "t": ["hashtag"], "d": ["identifier"]}
+    # Tag filters: {"tag_letter": ["value1", "value2"], ...}
     if config.tags:
         for tag_letter, values in config.tags.items():
             if not values:
                 continue
 
-            # Convert single letter string to Alphabet enum
-            # Tag letters must be single lowercase a-z characters
             if len(tag_letter) == 1 and tag_letter.isalpha():
                 try:
                     alphabet = getattr(Alphabet, tag_letter.upper())
@@ -628,20 +577,20 @@ def _create_filter(since: int, until: int, config: FilterConfig) -> Filter:
 async def _insert_batch(
     batch: EventBatch, relay: Relay, brotr: Brotr, since: int, until: int
 ) -> tuple[int, int, int]:
-    """
-    Insert a batch of events into the database.
+    """Validate and insert a batch of events into the database.
 
-    Validates event signatures and timestamps before insertion.
+    Each event is verified for signature validity and timestamp range before
+    insertion. Invalid events are counted but not inserted.
 
     Args:
-        batch: EventBatch containing nostr-sdk Events
-        relay: Relay instance for the source relay
-        brotr: Database interface
-        since: Filter since timestamp (events must be >= this)
-        until: Filter until timestamp (events must be <= this)
+        batch: EventBatch containing nostr-sdk Events.
+        relay: Source relay for attribution.
+        brotr: Database interface.
+        since: Lower timestamp bound (events must be >= this).
+        until: Upper timestamp bound (events must be <= this).
 
     Returns:
-        tuple[int, int, int]: (events_inserted, events_invalid, events_skipped)
+        Tuple of (events_inserted, events_invalid, events_skipped).
     """
     if batch.is_empty():
         return 0, 0, 0
@@ -651,7 +600,6 @@ async def _insert_batch(
 
     for evt in batch:
         try:
-            # Validate event signature before processing
             if not evt.verify():
                 _worker_log(
                     "WARNING",
@@ -662,8 +610,7 @@ async def _insert_batch(
                 invalid_count += 1
                 continue
 
-            # Validate event timestamp is within requested filter range
-            # Relays can be buggy or malicious, so we don't trust them blindly
+            # Validate timestamp range (relays may return out-of-range events)
             event_timestamp = evt.created_at().as_secs()
             if event_timestamp < since or event_timestamp > until:
                 _worker_log(
@@ -690,7 +637,6 @@ async def _insert_batch(
             inserted = await brotr.insert_events_relays(event_relays[i : i + batch_size])
             total_inserted += inserted
 
-    # Note: skipped is always 0 since validation now happens at model creation (fail-fast)
     return total_inserted, invalid_count, 0
 
 
@@ -704,21 +650,20 @@ async def _sync_relay_events(
     brotr: Brotr,
     keys: Keys,
 ) -> tuple[int, int, int]:
-    """
-    Core sync algorithm for a single relay using nostr-sdk.
+    """Core sync algorithm: connect to a relay, fetch events, and insert into the database.
 
     Args:
-        relay: Relay instance to sync from
-        start_time: Start timestamp (since)
-        end_time: End timestamp (until)
-        filter_config: Event filter configuration
-        network_config: Network configuration for overlay networks (Tor, I2P, Loki)
-        request_timeout: Request timeout in seconds
-        brotr: Database interface
-        keys: Nostr keys for NIP-42 authentication
+        relay: Relay to sync from.
+        start_time: Inclusive start timestamp (since).
+        end_time: Inclusive end timestamp (until).
+        filter_config: Event filter configuration.
+        network_config: Network settings for proxy resolution.
+        request_timeout: Per-request WebSocket timeout in seconds.
+        brotr: Database interface for event insertion.
+        keys: Nostr keys for NIP-42 authentication.
 
     Returns:
-        tuple[int, int, int]: (events_synchronized, invalid_events, skipped_events)
+        Tuple of (events_synced, invalid_events, skipped_events).
     """
     from nostr_sdk import RelayUrl  # noqa: PLC0415 - Worker fresh import after fork
 
@@ -728,20 +673,14 @@ async def _sync_relay_events(
     invalid_events = 0
     skipped_events = 0
 
-    # Get proxy URL for overlay networks
     proxy_url = network_config.get_proxy_url(relay.network)
-
-    # Create client using transport utility
     client = create_client(keys, proxy_url)
     await client.add_relay(RelayUrl.parse(relay.url))
 
     try:
         await client.connect()
 
-        # Create filter for time range
         f = _create_filter(start_time, end_time, filter_config)
-
-        # Fetch events
         events = await client.fetch_events(f, timedelta(seconds=request_timeout))
         event_list = events.to_vec()
 
@@ -774,29 +713,18 @@ async def _sync_relay_events(
 
 
 class Synchronizer(BaseService[SynchronizerConfig]):
-    """
-    Event synchronization service.
+    """Event synchronization service.
 
-    Synchronizes Nostr events from validated relays:
-    - Connects to relays via WebSocket using nostr-sdk
-    - Subscribes to event streams with configurable filters
-    - Validates event signatures and timestamps
-    - Stores events in database via Brotr
-    - Supports multicore processing via aiomultiprocess for high throughput
+    Collects Nostr events from validated relays and stores them in the
+    database. Supports single-process and multi-process (aiomultiprocess)
+    modes for high-throughput ingestion.
 
     Workflow:
-    1. Fetch relays from database (requires recent Monitor check)
-    2. Load per-relay sync cursor from service_data table
-    3. Connect to relays and request events since last sync
-    4. Validate and insert events into database
-    5. Update per-relay cursor for next sync cycle
-
-    Configuration:
-        - filter: Event kinds, authors, tags to sync
-        - timeouts: Per-network (clearnet/tor) request and relay timeouts
-        - concurrency: Parallel connections and worker processes
-        - source: Relay selection criteria (metadata age, readability)
-        - overrides: Per-relay timeout overrides for high-traffic relays
+        1. Fetch relays from the database (plus any configured overrides).
+        2. Load per-relay sync cursors from service_data.
+        3. Connect to each relay and fetch events since the last sync.
+        4. Validate signatures and timestamps, then batch-insert events.
+        5. Update per-relay cursors for the next cycle.
     """
 
     SERVICE_NAME: ClassVar[str] = "synchronizer"
@@ -815,11 +743,10 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         self._invalid_events: int = 0
         self._skipped_events: int = 0
 
-        # Nostr keys for NIP-42 authentication
-        self._keys: Keys = self._config.keys.keys
+        self._keys: Keys = self._config.keys.keys  # For NIP-42 authentication
 
     async def run(self) -> None:
-        """Run synchronization cycle."""
+        """Execute one complete synchronization cycle across all relays."""
         cycle_start = time.time()
         self._synced_events = 0
         self._synced_relays = 0
@@ -827,10 +754,9 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         self._invalid_events = 0
         self._skipped_events = 0
 
-        # Fetch relays
         relays = await self._fetch_relays()
 
-        # Always add overrides if they are not in the list
+        # Merge configured relay overrides that are not already in the list
         known_urls = {str(r.url) for r in relays}
         for override in self._config.overrides:
             if override.url not in known_urls:
@@ -870,25 +796,23 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         )
 
     async def _run_single_process(self, relays: list[Relay]) -> None:
-        """Run sync in single process using shared sync algorithm."""
+        """Sync all relays concurrently in a single process."""
         semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel)
 
-        # Collect cursor updates for batch upsert (reduces DB round-trips)
+        # Batch cursor updates to reduce DB round-trips
         cursor_updates: list[tuple[str, str, str, dict[str, Any]]] = []
         cursor_lock = asyncio.Lock()
-        cursor_batch_size = BATCH_CURSOR  # Flush every N successful relays
+        cursor_batch_size = BATCH_CURSOR
 
-        # Lock for thread-safe counter increments (prevents race conditions)
+        # Lock for safe concurrent counter increments
         counter_lock = asyncio.Lock()
 
         async def worker(relay: Relay) -> None:
             async with semaphore:
-                # Get timeouts from unified network config
                 network_type_config = self._config.networks.get(relay.network)
                 request_timeout = network_type_config.timeout
                 relay_timeout = self._config.sync_timeouts.get_relay_timeout(relay.network)
 
-                # Apply override
                 for override in self._config.overrides:
                     if override.url == str(relay.url):
                         if override.timeouts.relay is not None:
@@ -920,14 +844,12 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                         _sync_with_timeout(), timeout=relay_timeout
                     )
 
-                    # Thread-safe counter updates
                     async with counter_lock:
                         self._synced_events += events_synced
                         self._invalid_events += invalid_events
                         self._skipped_events += skipped_events
                         self._synced_relays += 1
 
-                    # Collect cursor update for batch upsert
                     async with cursor_lock:
                         cursor_updates.append(
                             (
@@ -937,7 +859,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                                 {"last_synced_at": end_time},
                             )
                         )
-                        # Periodic checkpoint for crash resilience
+                        # Periodic flush for crash resilience
                         if len(cursor_updates) >= cursor_batch_size:
                             await self._brotr.upsert_service_data(cursor_updates.copy())
                             cursor_updates.clear()
@@ -955,7 +877,6 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         tasks = [worker(relay) for relay in relays]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Log any exceptions that escaped the worker's try/except
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 relay_url = relays[i].url if i < len(relays) else "unknown"
@@ -967,7 +888,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                 )
                 self._failed_relays += 1
 
-        # Final batch upsert for remaining cursors
+        # Flush remaining cursor updates
         if cursor_updates:
             try:
                 await self._brotr.upsert_service_data(cursor_updates)
@@ -979,12 +900,12 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                 )
 
     async def _run_multiprocess(self, relays: list[Relay]) -> None:
-        """Run sync using aiomultiprocess Pool (Queue-based balancing)."""
+        """Sync relays across multiple worker processes via aiomultiprocess.
 
-        # Set worker log level before spawning processes
+        Each worker maintains its own database connection. Tasks are
+        distributed via a queue for automatic load balancing.
+        """
         _set_worker_log_level(self._config.worker_log_level)
-
-        # Prepare tasks arguments
         tasks = []
         brotr_config_dump = {
             "pool": self._brotr.pool.config.model_dump(),
@@ -993,7 +914,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         }
         service_config_dump = self._config.model_dump()
 
-        # Batch fetch all cursors in one query (avoid N+1 pattern)
+        # Pre-fetch all cursors in one query to avoid N+1 pattern
         cursors = await self._fetch_all_cursors()
 
         for relay in relays:
@@ -1008,22 +929,18 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         ) as pool:
             results = await pool.starmap(sync_relay_task, tasks)
 
-        # Process results and collect cursor updates
         cursor_updates: list[tuple[str, str, str, dict[str, Any]]] = []
 
         for url, events, invalid, skipped, new_time, success in results:
-            # Track events regardless of success (partial sync may have inserted some)
+            # Track events even on failure (partial sync may have inserted some)
             self._synced_events += events
             self._invalid_events += invalid
             self._skipped_events += skipped
 
-            # Only count as synced relay if sync was successful
             if success:
                 self._synced_relays += 1
 
-                # Collect cursor update for batch upsert
-                # Save cursor even if 0 events - time window was successfully processed
-                # Skip invalid URLs silently
+                # Save cursor even for 0 events (time window was processed)
                 with contextlib.suppress(Exception):
                     relay = Relay(url)
                     cursor_updates.append(
@@ -1035,18 +952,16 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                         )
                     )
 
-        # Batch upsert all cursors
         if cursor_updates:
             await self._brotr.upsert_service_data(cursor_updates)
 
     async def _fetch_relays(self) -> list[Relay]:
-        """Fetch relays to sync from the relays table."""
+        """Fetch validated relays from the database for synchronization."""
         relays: list[Relay] = []
 
         if not self._config.source.from_database:
             return relays
 
-        # Fetch all validated relays from the relays table
         query = """
             SELECT url, network, discovered_at
             FROM relays
@@ -1067,15 +982,13 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         return relays
 
     async def _get_start_time(self, relay: Relay) -> int:
-        """
-        Get start timestamp for relay sync.
+        """Get the sync start timestamp for a relay from its stored cursor.
 
-        Reads cursor from service_data, falls back to default if none found.
+        Falls back to ``time_range.default_start`` if no cursor exists.
         """
         if not self._config.time_range.use_relay_state:
             return self._config.time_range.default_start
 
-        # Read cursor from service_data (O(1) lookup vs O(n) scan on events)
         cursors = await self._brotr.get_service_data(
             service_name="synchronizer",
             data_type="cursor",
@@ -1092,11 +1005,10 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         return self._config.time_range.default_start
 
     async def _fetch_all_cursors(self) -> dict[str, int]:
-        """
-        Batch fetch all relay cursors in one query.
+        """Batch-fetch all relay sync cursors in a single query.
 
-        Returns dict mapping relay URL to last_synced_at timestamp.
-        This avoids N+1 queries when preparing tasks for multiprocess sync.
+        Returns:
+            Dict mapping relay URL to ``last_synced_at`` timestamp.
         """
         if not self._config.time_range.use_relay_state:
             return {}
@@ -1111,15 +1023,14 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         return {r["data_key"]: r["cursor"] for r in records if r["cursor"] is not None}
 
     def _get_start_time_from_cache(self, relay: Relay, cursors: dict[str, int]) -> int:
-        """
-        Get start timestamp for relay from pre-fetched cursor cache.
+        """Look up the sync start timestamp from a pre-fetched cursor cache.
 
         Args:
-            relay: Relay to get start time for
-            cursors: Dict of relay URL -> last_synced_at from _fetch_all_cursors
+            relay: Relay to look up.
+            cursors: Pre-fetched map of relay URL to last_synced_at.
 
         Returns:
-            Start timestamp (cursor + 1 if found, else default_start)
+            ``cursor + 1`` if found, otherwise ``time_range.default_start``.
         """
         if not self._config.time_range.use_relay_state:
             return self._config.time_range.default_start

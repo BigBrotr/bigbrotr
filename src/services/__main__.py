@@ -1,13 +1,18 @@
-"""
-CLI Entry Point for BigBrotr Services.
+"""CLI entry point for BigBrotr services.
 
-Usage:
+Provides a unified command-line interface to run any BigBrotr service.
+Services can run in one-shot mode (``--once``) or continuously with a
+Prometheus metrics server.
+
+Usage::
+
     python -m services <service> [options]
 
-Examples:
-    python -m services seeder
-    python -m services finder
+Examples::
+
+    python -m services seeder --once
     python -m services finder --log-level DEBUG
+    python -m services monitor --config yaml/services/monitor.yaml
 """
 
 import argparse
@@ -19,8 +24,8 @@ from pathlib import Path
 from typing import Any
 
 from core import Brotr, start_metrics_server
+from core.logger import Logger
 from core.service import BaseService
-from logger import Logger
 
 from .finder import Finder
 from .monitor import Monitor
@@ -60,27 +65,29 @@ async def run_service(
     config_path: Path,
     once: bool,
 ) -> int:
-    """
-    Generic service runner.
+    """Run a service in one-shot or continuous mode.
+
+    In one-shot mode, the service runs a single cycle and exits.
+    In continuous mode, a Prometheus metrics server is started and the
+    service runs indefinitely until a shutdown signal is received.
 
     Args:
-        service_name: Name of the service (for logging)
-        service_class: Service class to instantiate
-        brotr: Brotr instance
-        config_path: Path to service config file
-        once: If True, run once and exit; if False, run continuously
+        service_name: Service identifier used for logging.
+        service_class: The BaseService subclass to instantiate.
+        brotr: Initialized Brotr database interface.
+        config_path: Path to the service's YAML configuration file.
+        once: If True, run a single cycle and exit. If False, run continuously.
 
     Returns:
-        Exit code (0 for success, 1 for failure)
+        Exit code: 0 for success, 1 for failure.
     """
-    # Create service instance
     if config_path.exists():
         service = service_class.from_yaml(str(config_path), brotr=brotr)
     else:
         logger.warning("config_not_found", path=str(config_path))
         service = service_class(brotr=brotr)
 
-    # One-shot mode: run once and exit (no metrics server)
+    # One-shot mode: single cycle, no metrics server
     if once:
         try:
             await service.run()
@@ -90,7 +97,7 @@ async def run_service(
             logger.error(f"{service_name}_failed", error=str(e))
             return 1
 
-    # Continuous mode: start metrics server and run forever
+    # Continuous mode: metrics server + indefinite operation
     metrics_config = service.config.metrics
     metrics_server = await start_metrics_server(metrics_config)
 
@@ -130,7 +137,7 @@ async def run_service(
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
+    """Parse command-line arguments for the service runner."""
     parser = argparse.ArgumentParser(
         prog="python -m services",
         description="BigBrotr Service Runner",
@@ -172,7 +179,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def setup_logging(level: str) -> None:
-    """Configure logging."""
+    """Configure the root logger with the specified level and format."""
     logging.basicConfig(
         level=getattr(logging, level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -181,7 +188,7 @@ def setup_logging(level: str) -> None:
 
 
 def load_brotr(config_path: Path) -> Brotr:
-    """Load Brotr from config file."""
+    """Load and return a Brotr instance from a YAML config file."""
     if config_path.exists():
         return Brotr.from_yaml(str(config_path))
 
@@ -190,18 +197,14 @@ def load_brotr(config_path: Path) -> Brotr:
 
 
 async def main() -> int:
-    """Main entry point."""
+    """Main entry point: parse args, initialize Brotr, and run the service."""
     args = parse_args()
     setup_logging(args.log_level)
 
-    # Get service info from registry
     service_class, default_config_path = SERVICE_REGISTRY[args.service]
     config_path = args.config if args.config else default_config_path
-
-    # Load brotr
     brotr = load_brotr(args.brotr_config)
 
-    # Run service
     try:
         async with brotr.pool:
             return await run_service(

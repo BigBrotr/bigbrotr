@@ -1,15 +1,15 @@
 # =============================================================================
-# Brotr Configuration - Template with ALL Default Values
+# Brotr Configuration Template (All Default Values)
 # =============================================================================
+# Database connection pool and operation settings. Copy this file to your
+# implementation directory and override only the values you need to change.
 #
-# This template shows ALL configuration options with their DEFAULT values.
-# Copy this file to your implementation and modify only what you need.
-#
-# Configuration classes: src/core/pool.py (Pool), src/core/brotr.py (Brotr)
+# Configuration classes:
+#   Pool:  src/core/pool.py (DatabaseConfig, LimitsConfig, TimeoutsConfig, etc.)
+#   Brotr: src/core/brotr.py (BatchConfig, TimeoutsConfig)
 #
 # Environment variables:
-#   - DB_PASSWORD: Required. Database password (never stored in YAML for security)
-#
+#   DB_PASSWORD: Required. Database password (never stored in YAML).
 # =============================================================================
 
 # -----------------------------------------------------------------------------

@@ -1,8 +1,10 @@
 """
-Relay model for BigBrotr.
+Validated Nostr relay URL with network type detection.
 
-Provides the Relay class for representing validated Nostr relay URLs
-with automatic URL normalization and network type detection.
+Parses, normalizes, and validates WebSocket relay URLs (``ws://`` or ``wss://``),
+automatically detecting the network type (clearnet, Tor, I2P, Lokinet) and
+enforcing the correct scheme for each network. Local and private IP addresses
+are rejected.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from utils.network import NetworkType
 
 
 class RelayDbParams(NamedTuple):
-    """Database parameters for Relay insert operations."""
+    """Positional parameters for the relay database insert procedure."""
 
     url: str
     network: str
@@ -29,40 +31,26 @@ class RelayDbParams(NamedTuple):
 
 @dataclass(frozen=True, slots=True)
 class Relay:
-    """
-    Immutable representation of a Nostr relay.
+    """Immutable representation of a Nostr relay.
 
-    Validates and normalizes WebSocket URLs (ws:// or wss://), auto-detecting
-    network type (clearnet, tor, i2p, loki). Rejects local/private addresses.
+    Validates and normalizes a WebSocket URL on construction, detecting the
+    network type from the hostname. The scheme is enforced per network:
 
-    The scheme is enforced based on network type:
-    - clearnet: wss:// (secure WebSocket)
-    - tor/i2p/loki: ws:// (overlay networks handle encryption)
+    * **clearnet** -- ``wss://`` (TLS required on the public internet)
+    * **tor / i2p / loki** -- ``ws://`` (encryption handled by the overlay)
 
     Attributes:
-        url: Normalized URL with scheme (e.g., "wss://relay.example.com:8080/path").
-        network: Detected network type ("clearnet", "tor", "i2p", "loki").
-        discovered_at: Unix timestamp when the relay was discovered.
-        scheme: URL scheme ("ws" or "wss"), enforced by network type.
-        host: Hostname or IP address.
-        port: Port number or None if using default (443 for wss, 80 for ws).
-        path: URL path or None.
-
-    Example:
-        >>> relay = Relay("ws://relay.example.com")  # clearnet gets upgraded to wss
-        >>> relay.url
-        'wss://relay.example.com'
-        >>> relay.scheme
-        'wss'
-
-        >>> tor_relay = Relay("wss://abc123.onion")  # tor gets downgraded to ws
-        >>> tor_relay.url
-        'ws://abc123.onion'
-        >>> tor_relay.scheme
-        'ws'
+        url: Fully normalized URL including scheme.
+        network: Detected ``NetworkType`` enum value.
+        scheme: URL scheme (``ws`` or ``wss``).
+        host: Hostname or IP address (brackets stripped for IPv6).
+        port: Explicit port number, or ``None`` when using the default.
+        path: URL path component, or ``None``.
+        discovered_at: Unix timestamp when the relay was first discovered.
 
     Raises:
-        ValueError: If URL is invalid, uses unsupported scheme, or is a local address.
+        ValueError: If the URL is malformed, uses an unsupported scheme,
+            resolves to a local/private address, or contains null bytes.
     """
 
     # Input fields
@@ -77,69 +65,71 @@ class Relay:
     port: int | None = field(init=False)
     path: str | None = field(init=False)
 
-    # Standard WebSocket ports
+    # Standard default ports for WebSocket schemes
     _PORT_WS: ClassVar[int] = 80
     _PORT_WSS: ClassVar[int] = 443
 
-    # Overlay network TLDs
+    # Overlay network TLD-to-NetworkType mapping
     _NETWORK_TLDS: ClassVar[dict[str, NetworkType]] = {
         ".onion": NetworkType.TOR,
         ".i2p": NetworkType.I2P,
         ".loki": NetworkType.LOKI,
     }
 
-    # Complete list of private/reserved IP networks per IANA registries
-    # https://www.iana.org/assignments/iana-ipv4-special-registry/
-    # https://www.iana.org/assignments/iana-ipv6-special-registry/
+    # IANA private/reserved IP ranges used to reject local addresses.
+    # References:
+    #   https://www.iana.org/assignments/iana-ipv4-special-registry/
+    #   https://www.iana.org/assignments/iana-ipv6-special-registry/
     _LOCAL_NETWORKS: ClassVar[list[IPv4Network | IPv6Network]] = [
-        # IPv4 Private/Reserved
-        ip_network("0.0.0.0/8"),  # "This host on this network" (RFC 1122)
-        ip_network("10.0.0.0/8"),  # Private-Use (RFC 1918)
-        ip_network("100.64.0.0/10"),  # Shared Address Space / CGNAT (RFC 6598)
-        ip_network("127.0.0.0/8"),  # Loopback (RFC 1122)
-        ip_network("169.254.0.0/16"),  # Link Local (RFC 3927)
-        ip_network("172.16.0.0/12"),  # Private-Use (RFC 1918)
-        ip_network("192.0.0.0/24"),  # IETF Protocol Assignments (RFC 6890)
-        ip_network("192.0.2.0/24"),  # Documentation TEST-NET-1 (RFC 5737)
-        ip_network("192.88.99.0/24"),  # 6to4 Relay Anycast (RFC 7526)
-        ip_network("192.168.0.0/16"),  # Private-Use (RFC 1918)
-        ip_network("198.18.0.0/15"),  # Benchmarking (RFC 2544)
-        ip_network("198.51.100.0/24"),  # Documentation TEST-NET-2 (RFC 5737)
-        ip_network("203.0.113.0/24"),  # Documentation TEST-NET-3 (RFC 5737)
-        ip_network("224.0.0.0/4"),  # Multicast (RFC 5771)
-        ip_network("240.0.0.0/4"),  # Reserved for Future Use (RFC 1112)
-        ip_network("255.255.255.255/32"),  # Limited Broadcast (RFC 919)
-        # IPv6 Private/Reserved
-        ip_network("::1/128"),  # Loopback (RFC 4291)
-        ip_network("::/128"),  # Unspecified (RFC 4291)
-        ip_network("::ffff:0:0/96"),  # IPv4-mapped (RFC 4291)
-        ip_network("64:ff9b::/96"),  # IPv4-IPv6 Translation (RFC 6052)
-        ip_network("100::/64"),  # Discard-Only (RFC 6666)
-        ip_network("2001::/32"),  # Teredo (RFC 4380)
-        ip_network("2001:2::/48"),  # Benchmarking (RFC 5180)
-        ip_network("2001:db8::/32"),  # Documentation (RFC 3849)
-        ip_network("2001:10::/28"),  # ORCHID (RFC 4843)
-        ip_network("fc00::/7"),  # Unique Local (RFC 4193)
-        ip_network("fe80::/10"),  # Link-Local Unicast (RFC 4291)
-        ip_network("ff00::/8"),  # Multicast (RFC 4291)
+        # IPv4
+        ip_network("0.0.0.0/8"),
+        ip_network("10.0.0.0/8"),
+        ip_network("100.64.0.0/10"),
+        ip_network("127.0.0.0/8"),
+        ip_network("169.254.0.0/16"),
+        ip_network("172.16.0.0/12"),
+        ip_network("192.0.0.0/24"),
+        ip_network("192.0.2.0/24"),
+        ip_network("192.88.99.0/24"),
+        ip_network("192.168.0.0/16"),
+        ip_network("198.18.0.0/15"),
+        ip_network("198.51.100.0/24"),
+        ip_network("203.0.113.0/24"),
+        ip_network("224.0.0.0/4"),
+        ip_network("240.0.0.0/4"),
+        ip_network("255.255.255.255/32"),
+        # IPv6
+        ip_network("::1/128"),
+        ip_network("::/128"),
+        ip_network("::ffff:0:0/96"),
+        ip_network("64:ff9b::/96"),
+        ip_network("100::/64"),
+        ip_network("2001::/32"),
+        ip_network("2001:2::/48"),
+        ip_network("2001:db8::/32"),
+        ip_network("2001:10::/28"),
+        ip_network("fc00::/7"),
+        ip_network("fe80::/10"),
+        ip_network("ff00::/8"),
     ]
 
     def __post_init__(self) -> None:
-        """Parse and validate the raw URL, setting computed fields.
+        """Parse and validate the raw URL, populating all computed fields.
 
-        Also validates that to_db_params() succeeds, ensuring the model
-        is database-ready at creation time (fail-fast).
+        Raises:
+            ValueError: If the URL is invalid, local, or contains null bytes.
         """
-        # Remove null bytes (PostgreSQL rejects them in TEXT columns)
-        raw = self.raw_url.replace("\x00", "") if "\x00" in self.raw_url else self.raw_url
-        parsed = self._parse(raw)
+        if "\x00" in self.raw_url:
+            raise ValueError("Relay URL contains null bytes")
+
+        parsed = self._parse(self.raw_url)
 
         if parsed["network"] == NetworkType.LOCAL:
             raise ValueError("Local addresses not allowed")
         if parsed["network"] == NetworkType.UNKNOWN:
             raise ValueError(f"Invalid host: '{parsed['host']}'")
 
-        # Use object.__setattr__ to bypass frozen restriction
+        # Bypass frozen restriction to set computed fields
         object.__setattr__(self, "url", f"{parsed['scheme']}://{parsed['url_without_scheme']}")
         object.__setattr__(self, "network", parsed["network"])
         object.__setattr__(self, "scheme", parsed["scheme"])
@@ -147,37 +137,23 @@ class Relay:
         object.__setattr__(self, "port", parsed["port"])
         object.__setattr__(self, "path", parsed["path"])
 
-        # Validate database params conversion (fail-fast)
+        # Ensure DB conversion succeeds at creation time
         self.to_db_params()
 
     @staticmethod
     def _detect_network(host: str) -> NetworkType:
-        """
-        Detect the network type from a hostname.
+        """Classify a hostname into a network type.
 
-        Analyzes the host string to determine which network it belongs to.
-        Checks for overlay network TLDs first, then validates IP addresses
-        against known local/private ranges, and finally validates domain format.
+        Checks overlay network TLDs first, then tests whether the host
+        is a known local/private IP, and finally validates standard
+        domain name format.
 
         Args:
-            host: Hostname to analyze (e.g., "relay.example.com", "xyz.onion", "192.168.1.1")
+            host: Hostname or IP address string to classify.
 
         Returns:
-            NetworkType enum value:
-            - CLEARNET: Standard domain or public IP address
-            - TOR: .onion address (Tor hidden service)
-            - I2P: .i2p address (I2P network)
-            - LOKI: .loki address (Lokinet)
-            - LOCAL: Private/reserved IP or localhost
-            - UNKNOWN: Invalid or unrecognized format
-
-        Examples:
-            >>> Relay._detect_network("relay.example.com")
-            NetworkType.CLEARNET
-            >>> Relay._detect_network("abcdef1234567890.onion")
-            NetworkType.TOR
-            >>> Relay._detect_network("127.0.0.1")
-            NetworkType.LOCAL
+            The detected NetworkType. Returns ``UNKNOWN`` for empty or
+            invalid hostnames, and ``LOCAL`` for private/reserved IPs.
         """
         if not host:
             return NetworkType.UNKNOWN
@@ -200,6 +176,7 @@ class Relay:
         except ValueError:
             pass
 
+        # Standard domain name: must contain a dot with valid labels
         if "." in host_bare:
             labels = host_bare.split(".")
             for label in labels:
@@ -211,17 +188,21 @@ class Relay:
 
     @staticmethod
     def _parse(raw: str) -> dict[str, Any]:
-        """
-        Parse and normalize a relay URL.
+        """Parse and normalize a raw relay URL string.
+
+        Validates the URI structure using RFC 3986, detects the network
+        type, enforces the correct WebSocket scheme, normalizes the path,
+        and strips default ports.
 
         Args:
-            raw: Raw URL string to parse.
+            raw: Raw URL string (e.g., ``"ws://relay.example.com:8080/path"``).
 
         Returns:
-            Dictionary with keys: url_without_scheme, scheme, host, port, path, network.
+            Dictionary containing ``url_without_scheme``, ``scheme``,
+            ``host``, ``port``, ``path``, and ``network``.
 
         Raises:
-            ValueError: If URL is invalid or uses unsupported scheme.
+            ValueError: If the scheme is not ``ws``/``wss`` or the URI is invalid.
         """
         uri = uri_reference(raw.strip()).normalize()
 
@@ -240,26 +221,22 @@ class Relay:
             raise ValueError(f"Invalid URL: {e}") from None
 
         port = int(uri.port) if uri.port else None
-
-        # Normalize host (strip brackets from IPv6)
         host = uri.host.strip("[]")
 
-        # Normalize path
+        # Collapse duplicate slashes and strip trailing slash
         path = uri.path or ""
         while "//" in path:
             path = path.replace("//", "/")
         path = path.rstrip("/") or None
 
-        # Detect network to determine final scheme
-        # - clearnet: wss:// (TLS required for public internet)
-        # - overlay networks (tor/i2p/loki): ws:// (encryption handled by overlay)
+        # Clearnet requires TLS; overlay networks handle encryption themselves
         network = Relay._detect_network(host)
         scheme = "wss" if network == NetworkType.CLEARNET else "ws"
 
-        # Format host for URL (add brackets back for IPv6)
+        # Re-bracket IPv6 addresses for the final URL
         formatted_host = f"[{host}]" if ":" in host else host
 
-        # Build URL without scheme, omitting default port for final scheme
+        # Omit the port when it matches the default for the scheme
         default_port = Relay._PORT_WSS if scheme == "wss" else Relay._PORT_WS
         if port and port != default_port:
             url_without_scheme = f"{formatted_host}:{port}{path or ''}"
@@ -276,11 +253,11 @@ class Relay:
         }
 
     def to_db_params(self) -> RelayDbParams:
-        """
-        Returns parameters for database insert.
+        """Convert to positional parameters for the database insert procedure.
 
         Returns:
-            RelayDbParams with named fields: url, network, discovered_at
+            RelayDbParams with the normalized URL, network name, and
+            discovery timestamp.
         """
         return RelayDbParams(
             url=self.url,
@@ -290,14 +267,15 @@ class Relay:
 
     @classmethod
     def from_db_params(cls, params: RelayDbParams) -> Relay:
-        """
-        Create a Relay from database parameters by re-parsing the URL.
+        """Reconstruct a Relay from database parameters.
+
+        The URL is re-parsed and re-validated; the ``network`` field in
+        *params* is not used directly because it is recomputed from the URL.
 
         Args:
-            params: RelayDbParams containing url, network (ignored), and discovered_at.
-                    The network field is recomputed from the URL.
+            params: Database row values previously produced by ``to_db_params()``.
 
         Returns:
-            Relay instance with the provided values
+            A new Relay instance.
         """
         return cls(params.url, params.discovered_at)

@@ -1,23 +1,19 @@
-"""Key loading utilities for BigBrotr.
+"""Nostr key management utilities for BigBrotr.
 
-This module provides utilities for loading Nostr cryptographic keys from
-environment variables. It supports both nsec1 (bech32) and hex format
-private keys.
+Provides functions and Pydantic models for loading Nostr cryptographic keys
+from environment variables. Supports both nsec1 (bech32) and hex-encoded
+private key formats.
 
-The module defines:
-    - ENV_PRIVATE_KEY: Default environment variable name for private keys
-    - load_keys_from_env: Function to load keys from environment
-    - KeysConfig: Pydantic model for automatic key loading in service configs
+Private keys must never be stored in configuration files or source code.
+Always use environment variables or a secure secret management system.
 
-Security Note:
-    Private keys should never be stored in configuration files or source code.
-    Always use environment variables or secure secret management systems.
+Example::
 
-Example:
-    >>> import os
-    >>> os.environ["PRIVATE_KEY"] = "nsec1..."  # pragma: allowlist secret
-    >>> keys = load_keys_from_env("PRIVATE_KEY")
-    >>> print(keys.public_key().to_bech32())
+    import os
+
+    os.environ["PRIVATE_KEY"] = "nsec1..."  # pragma: allowlist secret
+    keys = load_keys_from_env("PRIVATE_KEY")
+    print(keys.public_key().to_bech32())
 """
 
 from __future__ import annotations
@@ -29,35 +25,24 @@ from nostr_sdk import Keys
 from pydantic import BaseModel, Field, model_validator
 
 
-# Environment variable for private key (default name used by KeysConfig)
-ENV_PRIVATE_KEY = "PRIVATE_KEY"  # pragma: allowlist secret
+ENV_PRIVATE_KEY = "PRIVATE_KEY"  # pragma: allowlist secret  # Default env var name
 
 
 def load_keys_from_env(env_var: str) -> Keys:
     """Load Nostr keys from an environment variable.
 
-    Parses a private key from the specified environment variable. The key
-    can be in either nsec1 (bech32) or hex format. The function returns
-    a Keys object containing both the private and derived public key.
+    Parses a private key (nsec1 bech32 or 64-char hex) and returns a Keys
+    object containing both the private and derived public key.
 
     Args:
         env_var: Name of the environment variable containing the private key.
-            Supports both nsec1 bech32 format (e.g., "nsec1abc...") and
-            64-character hex format.
 
     Returns:
-        Keys: A nostr_sdk Keys instance with the private key and derived
-            public key ready for signing operations.
+        A nostr_sdk Keys instance ready for signing operations.
 
     Raises:
         ValueError: If the environment variable is not set or is empty.
         nostr_sdk.NostrError: If the key value is malformed or invalid.
-
-    Example:
-        >>> import os
-        >>> os.environ["MY_KEY"] = "nsec1..."
-        >>> keys = load_keys_from_env("MY_KEY")
-        >>> print(f"Public key: {keys.public_key().to_hex()}")
     """
     value = os.getenv(env_var)
 
@@ -70,34 +55,19 @@ def load_keys_from_env(env_var: str) -> Keys:
 
 
 class KeysConfig(BaseModel):
-    """Pydantic configuration model for Nostr key management.
+    """Pydantic model that auto-loads Nostr keys from an environment variable.
 
-    This model automatically loads Nostr keys from an environment variable
-    during validation. The environment variable name is configurable via
-    the keys_env field.
-
-    Services using this config:
-        - Validator: For NIP-42 authentication during relay testing
-        - Monitor: For signing NIP-66 relay monitoring events
-        - Synchronizer: For NIP-42 authentication when syncing events
+    The ``keys`` field is populated automatically during validation from
+    the environment variable named by ``keys_env``. Used by Validator,
+    Monitor, and Synchronizer services.
 
     Attributes:
-        keys_env: Name of the environment variable containing the private key.
-        keys: The nostr_sdk Keys instance loaded from environment.
-            Contains both private and public keys for signing operations.
+        keys_env: Environment variable name for the private key.
+        keys: Loaded nostr_sdk Keys instance (private + derived public key).
 
     Raises:
-        ValueError: If the specified environment variable is not set or empty.
+        ValueError: If the environment variable is not set or empty.
         nostr_sdk.NostrError: If the key value is malformed.
-
-    Example:
-        >>> import os
-        >>> os.environ["PRIVATE_KEY"] = "nsec1..."  # pragma: allowlist secret
-        >>> config = KeysConfig()
-        >>> print(config.keys.public_key().to_bech32())
-
-        >>> os.environ["MONITOR_KEY"] = "nsec1..."  # pragma: allowlist secret
-        >>> config = KeysConfig(keys_env="MONITOR_KEY")
     """
 
     model_config = {"arbitrary_types_allowed": True}
@@ -112,18 +82,7 @@ class KeysConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _load_keys_from_env(cls, data: Any) -> Any:
-        """Load keys from environment if not explicitly provided.
-
-        This validator runs before field validation and automatically
-        populates the 'keys' field from the environment variable
-        specified by keys_env.
-
-        Args:
-            data: Input data for model construction.
-
-        Returns:
-            Modified data dict with 'keys' field populated from environment.
-        """
+        """Auto-populate the ``keys`` field from the environment variable."""
         if isinstance(data, dict) and "keys" not in data:
             env_var = data.get("keys_env", ENV_PRIVATE_KEY)
             data["keys"] = load_keys_from_env(env_var)

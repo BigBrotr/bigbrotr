@@ -70,13 +70,9 @@ class TestNip66HttpMetadataHttpAsync:
             mock_client_session.return_value.__aenter__ = create_mock_session
             mock_client_session.return_value.__aexit__ = AsyncMock(return_value=None)
 
-            # Can't easily test internal _http due to complex aiohttp mocking
-            # Testing through the public interface instead
-
     @pytest.mark.asyncio
     async def test_captures_powered_by_header(self, relay: Relay) -> None:
         """Captures X-Powered-By header from WebSocket handshake."""
-        # Testing through public interface
         http_result = {
             "http_server": "nginx/1.24.0",
             "http_powered_by": "Strfry",
@@ -186,9 +182,8 @@ class TestNip66HttpMetadataHttp:
             await Nip66HttpMetadata.http(relay, None)
 
         mock_http.assert_called_once()
-        # Default timeout should be used
         call_args = mock_http.call_args
-        assert call_args[0][1] > 0  # Second positional arg is timeout
+        assert call_args[0][1] > 0
 
     @pytest.mark.asyncio
     async def test_passes_proxy_url_to_http(self, relay: Relay) -> None:

@@ -1,4 +1,10 @@
-"""NIP-66 RTT metadata container with test capabilities."""
+"""
+NIP-66 RTT metadata container with relay probe capabilities.
+
+Tests a relay's round-trip time by measuring connection open, event
+read, and event write latencies. Results are stored as millisecond
+integers alongside detailed logs for each phase.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 from nostr_sdk import Filter, RelayUrl
 
-from logger import Logger
+from core.logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
 from utils.network import NetworkType
@@ -27,7 +33,11 @@ logger = Logger("models.nip66")
 
 
 class Nip66RttMetadata(BaseMetadata):
-    """Container for RTT data and logs with test capabilities."""
+    """Container for RTT measurement data and multi-phase probe logs.
+
+    Provides the ``rtt()`` class method that connects to a relay and
+    measures open, read, and write round-trip times.
+    """
 
     data: Nip66RttData
     logs: Nip66RttLogs
@@ -47,10 +57,26 @@ class Nip66RttMetadata(BaseMetadata):
         proxy_url: str | None = None,
         allow_insecure: bool = True,
     ) -> Self:
-        """Test relay RTT (round-trip times) with probe results in logs.
+        """Test a relay's round-trip times across three phases.
+
+        Phases are executed sequentially: open -> read -> write.
+        If the open phase fails, read and write are marked as failed
+        with the same reason (cascading failure).
+
+        Args:
+            relay: Relay to test.
+            keys: Signing keys for the test event.
+            event_builder: Builder for the write test event.
+            read_filter: Subscription filter for the read test.
+            timeout: Connection timeout in seconds (default: 10.0).
+            proxy_url: Optional SOCKS5 proxy URL for overlay networks.
+            allow_insecure: Fall back to unverified SSL (default: True).
+
+        Returns:
+            An ``Nip66RttMetadata`` instance with measurement data and logs.
 
         Raises:
-            ValueError: If overlay network without proxy.
+            ValueError: If an overlay network relay has no proxy configured.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("rtt_started", relay=relay.url, timeout_s=timeout, proxy=proxy_url)
@@ -61,25 +87,24 @@ class Nip66RttMetadata(BaseMetadata):
         logs = cls._empty_logs()
         relay_url = RelayUrl.parse(relay.url)
 
-        # Phase 1: Test open connection
+        # Phase 1: Open connection
         client, open_rtt = await cls._test_open(
             relay, keys, proxy_url, timeout, allow_insecure, logs
         )
         if client is None:
-            # Open failed - logs already set by _test_open
             return cls._build_result(rtt_data, logs)
 
         rtt_data["rtt_open"] = open_rtt
         logs["open_success"] = True
 
         try:
-            # Phase 2: Test read capability
+            # Phase 2: Read capability
             read_result = await cls._test_read(client, read_filter, timeout, relay.url)
             rtt_data["rtt_read"] = read_result.get("rtt_read")
             logs["read_success"] = read_result["read_success"]
             logs["read_reason"] = read_result.get("read_reason")
 
-            # Phase 3: Test write capability
+            # Phase 3: Write capability
             write_result = await cls._test_write(
                 client, event_builder, relay_url, timeout, relay.url
             )
@@ -100,24 +125,28 @@ class Nip66RttMetadata(BaseMetadata):
         return cls._build_result(rtt_data, logs)
 
     # -------------------------------------------------------------------------
-    # Helper Methods
+    # Validation and Construction Helpers
     # -------------------------------------------------------------------------
 
     @staticmethod
     def _validate_network(relay: Relay, proxy_url: str | None) -> None:
-        """Validate that overlay networks have a proxy configured."""
+        """Ensure overlay network relays have a proxy configured.
+
+        Raises:
+            ValueError: If the relay is on an overlay network without a proxy.
+        """
         overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
         if proxy_url is None and relay.network in overlay_networks:
             raise ValueError(f"overlay network {relay.network.value} requires proxy")
 
     @staticmethod
     def _empty_rtt_data() -> dict[str, Any]:
-        """Return empty RTT data dictionary."""
+        """Return an initialized RTT data dictionary with all fields set to None."""
         return {"rtt_open": None, "rtt_read": None, "rtt_write": None}
 
     @staticmethod
     def _empty_logs() -> dict[str, Any]:
-        """Return empty logs dictionary."""
+        """Return an initialized logs dictionary with all fields set to None."""
         return {
             "open_success": None,
             "open_reason": None,
@@ -129,7 +158,7 @@ class Nip66RttMetadata(BaseMetadata):
 
     @classmethod
     def _build_result(cls, rtt_data: dict[str, Any], logs: dict[str, Any]) -> Self:
-        """Build the final Nip66RttMetadata result."""
+        """Construct the final Nip66RttMetadata from raw data and logs dicts."""
         return cls(
             data=Nip66RttData.model_validate(Nip66RttData.parse(rtt_data)),
             logs=Nip66RttLogs.model_validate(logs),
@@ -149,9 +178,11 @@ class Nip66RttMetadata(BaseMetadata):
         allow_insecure: bool,
         logs: dict[str, Any],
     ) -> tuple[Client | None, int | None]:
-        """Test open connection, return (client, rtt_ms) or (None, None) on failure.
+        """Test the WebSocket connection open phase.
 
-        On failure, sets open/read/write logs to indicate cascading failure.
+        On success, returns the connected client and the RTT in milliseconds.
+        On failure, sets cascading failure logs for all three phases and
+        returns (None, None).
         """
         from utils.transport import connect_relay  # noqa: PLC0415 - Avoid circular import
 
@@ -165,7 +196,7 @@ class Nip66RttMetadata(BaseMetadata):
         except Exception as e:
             reason = str(e)
             logger.debug("rtt_open_failed", relay=relay.url, reason=reason)
-            # Set cascading failure for all phases
+            # Cascading failure: mark all phases as failed
             logs["open_success"] = False
             logs["open_reason"] = reason
             logs["read_success"] = False
@@ -181,7 +212,11 @@ class Nip66RttMetadata(BaseMetadata):
         timeout: float,
         relay_url_str: str,
     ) -> dict[str, Any]:
-        """Test read capability, return result dict with read_success and optional rtt_read."""
+        """Test the read capability by streaming events with the given filter.
+
+        Returns a result dict with ``read_success``, ``read_reason``, and
+        ``rtt_read`` (milliseconds, only set on success).
+        """
         result: dict[str, Any] = {"read_success": False, "read_reason": None, "rtt_read": None}
 
         try:
@@ -212,7 +247,11 @@ class Nip66RttMetadata(BaseMetadata):
         timeout: float,
         relay_url_str: str,
     ) -> dict[str, Any]:
-        """Test write capability, return result dict with write_success and optional rtt_write."""
+        """Test the write capability by publishing an event and verifying storage.
+
+        Returns a result dict with ``write_success``, ``write_reason``, and
+        ``rtt_write`` (milliseconds, only set on verified success).
+        """
         result: dict[str, Any] = {"write_success": False, "write_reason": None, "rtt_write": None}
 
         try:
@@ -229,6 +268,7 @@ class Nip66RttMetadata(BaseMetadata):
                 logger.debug("rtt_write_rejected", relay=relay_url_str, reason=str(reason))
             elif output and relay_url in output.success:
                 logger.debug("rtt_write_accepted", relay=relay_url_str, rtt_write_ms=rtt_write)
+                # Verify the event can be retrieved back from the relay
                 verify_result = await Nip66RttMetadata._verify_write(
                     client, output.id, timeout, relay_url_str
                 )
@@ -253,7 +293,10 @@ class Nip66RttMetadata(BaseMetadata):
         timeout: float,
         relay_url_str: str,
     ) -> dict[str, Any]:
-        """Verify written event can be retrieved."""
+        """Verify that a previously written event can be retrieved.
+
+        Returns a dict with ``verified`` (bool) and ``reason`` (str or None).
+        """
         logger.debug("rtt_write_verifying", relay=relay_url_str, event_id=str(event_id))
         try:
             verify_filter = Filter().id(event_id).limit(1)
@@ -274,6 +317,6 @@ class Nip66RttMetadata(BaseMetadata):
 
     @staticmethod
     async def _cleanup(client: Client) -> None:
-        """Safely disconnect the client."""
+        """Disconnect the client, suppressing any errors."""
         with contextlib.suppress(Exception):
             await client.disconnect()

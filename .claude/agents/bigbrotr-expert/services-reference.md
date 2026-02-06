@@ -24,7 +24,7 @@ One-shot service for seeding the database with initial relay data from a seed fi
 # yaml/services/seeder.yaml
 seed:
   enabled: true
-  file_path: "data/seed_relays.txt"
+  file_path: "static/seed_relays.txt"
 ```
 
 **Configuration Models**:

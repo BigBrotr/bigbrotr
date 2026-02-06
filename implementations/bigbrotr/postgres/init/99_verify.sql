@@ -1,12 +1,12 @@
--- ============================================================================
--- BigBrotr Database Initialization Script
--- ============================================================================
--- File: 99_verify.sql
--- Description: Verification and completion notice
--- Dependencies: All previous initialization files
--- ============================================================================
+/*
+ * BigBrotr - 99_verify.sql
+ *
+ * Post-initialization verification script. Prints a summary of all created
+ * database objects to confirm successful schema setup.
+ *
+ * Dependencies: All previous initialization files (00-08)
+ */
 
--- Verify installation
 DO $$
 BEGIN
     RAISE NOTICE '============================================================================';
@@ -14,7 +14,7 @@ BEGIN
     RAISE NOTICE '============================================================================';
     RAISE NOTICE '';
     RAISE NOTICE 'Extensions:';
-    RAISE NOTICE '  btree_gin, pgcrypto';
+    RAISE NOTICE '  btree_gin, pg_stat_statements';
     RAISE NOTICE '';
     RAISE NOTICE 'Tables:';
     RAISE NOTICE '  relays, events, events_relays, metadata, relay_metadata, service_data';
@@ -45,7 +45,7 @@ BEGIN
     RAISE NOTICE '  relay_metadata_latest_refresh, events_statistics_refresh';
     RAISE NOTICE '  relays_statistics_refresh, kind_counts_total_refresh';
     RAISE NOTICE '  kind_counts_by_relay_refresh, pubkey_counts_total_refresh';
-    RAISE NOTICE '  pubkey_counts_by_relay_refresh';
+    RAISE NOTICE '  pubkey_counts_by_relay_refresh, refresh_all_statistics';
     RAISE NOTICE '';
     RAISE NOTICE '============================================================================';
 END $$;

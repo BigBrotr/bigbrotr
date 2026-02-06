@@ -1,14 +1,11 @@
--- ============================================================================
--- BigBrotr Database Initialization Script
--- ============================================================================
--- File: 05_views.sql
--- Description: Regular views (non-materialized)
--- Dependencies: 02_tables.sql
--- ============================================================================
+/*
+ * BigBrotr - 05_views.sql
+ *
+ * Regular (non-materialized) views for real-time query abstractions.
+ * Currently empty. Add views here when real-time data access is needed
+ * without the staleness trade-off of materialized views.
+ *
+ * Dependencies: 02_tables.sql
+ */
 
--- Currently no regular views defined.
--- Add views here as needed for real-time query abstractions.
-
--- ============================================================================
--- VIEWS CREATED
--- ============================================================================
+-- No regular views defined yet.

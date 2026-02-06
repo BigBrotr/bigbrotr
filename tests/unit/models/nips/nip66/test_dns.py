@@ -117,7 +117,8 @@ class TestNip66DnsMetadataDnsSync:
         with patch("dns.resolver.Resolver", return_value=mock_resolver):
             result = Nip66DnsMetadata._dns("example.com", 5.0)
 
-        assert result.get("dns_cname") == "dns.google"  # Trailing dot stripped
+        # Trailing dot is stripped from DNS names
+        assert result.get("dns_cname") == "dns.google"
 
     def test_resolves_ns_records(self) -> None:
         """Resolve NS records."""
@@ -147,7 +148,6 @@ class TestNip66DnsMetadataDnsSync:
 
         mock_resolver.resolve.side_effect = resolve_side_effect
 
-        # Mock tldextract
         mock_ext = MagicMock()
         mock_ext.domain = "example"
         mock_ext.suffix = "com"
@@ -286,7 +286,6 @@ class TestNip66DnsMetadataDnsAsync:
             await Nip66DnsMetadata.dns(relay, None)
 
         mock_dns.assert_called_once()
-        # Default timeout should be used (from base module)
         call_args = mock_dns.call_args
         assert call_args[0][1] > 0  # Second positional arg is timeout
 

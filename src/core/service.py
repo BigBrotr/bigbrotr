@@ -1,18 +1,17 @@
 """
-Base Service for BigBrotr Services.
+Abstract base class and mixins for long-running BigBrotr services.
 
-Provides abstract base class for all services with:
-- Logging
-- Lifecycle management (start/stop)
-- Factory methods (from_yaml/from_dict)
-- Graceful error handling with max consecutive failures
-- Prometheus metrics (automatic tracking in run_forever)
+``BaseService[ConfigT]`` provides the standard lifecycle for all services:
+structured logging, graceful shutdown via asyncio.Event, configurable
+interval-based cycling with ``run_forever()``, consecutive failure limits,
+and automatic Prometheus metrics tracking.
 
-Also provides mixins for common service patterns:
-- NetworkSemaphoreMixin: Per-network concurrency limiting
+Mixins:
+    NetworkSemaphoreMixin: Per-network asyncio semaphores for concurrency
+        limiting across clearnet, Tor, I2P, and Lokinet connections.
 
-Services that need state persistence should implement their own
-storage using dedicated database tables.
+Services persist operational state through the ``Brotr.upsert_service_data()``
+and ``Brotr.get_service_data()`` methods rather than in-memory storage.
 """
 
 import asyncio
@@ -22,11 +21,11 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast
 
 from pydantic import BaseModel, Field
 
-from logger import Logger
 from utils.network import NetworkType
 from utils.yaml import load_yaml
 
 from .brotr import Brotr
+from .logger import Logger
 from .metrics import (
     CYCLE_DURATION_SECONDS,
     SERVICE_COUNTER,
@@ -40,16 +39,17 @@ if TYPE_CHECKING:
     from utils.network import NetworkConfig
 
 
-# =============================================================================
+# ---------------------------------------------------------------------------
 # Base Configuration
-# =============================================================================
+# ---------------------------------------------------------------------------
 
 
 class BaseServiceConfig(BaseModel):
-    """
-    Base configuration for all continuous services.
+    """Base configuration shared by all services that run in a loop.
 
-    All services that run in a loop (via run_forever) should inherit from this.
+    Subclass this to add service-specific fields. The fields defined here
+    control the ``run_forever()`` cycle interval, failure tolerance, and
+    Prometheus metrics exposition.
     """
 
     interval: float = Field(
@@ -68,33 +68,27 @@ class BaseServiceConfig(BaseModel):
     )
 
 
-# Type variable for service configuration (bound to BaseServiceConfig for type safety)
+# Bound TypeVar ensuring all service configs inherit from BaseServiceConfig
 ConfigT = TypeVar("ConfigT", bound=BaseServiceConfig)
 
 
 class BaseService(ABC, Generic[ConfigT]):
-    """
-    Abstract base class for all BigBrotr services.
+    """Abstract base class for all BigBrotr services.
 
     Subclasses must:
-    - Set SERVICE_NAME class attribute
-    - Set CONFIG_CLASS for automatic config parsing
-    - Implement run() method for main service logic
+        1. Set ``SERVICE_NAME`` to a unique string identifier.
+        2. Set ``CONFIG_CLASS`` to their Pydantic config model.
+        3. Implement ``run()`` with the main service logic.
 
-    Services that need persistent state should implement their own
-    storage mechanism using dedicated database tables.
-
-    Class Attributes:
-        SERVICE_NAME: Unique identifier for the service (used in logging)
-        CONFIG_CLASS: Pydantic model class for configuration parsing
-
-    Instance Attributes:
-        _brotr: Database interface (access pool via _brotr.pool)
-        _config: Service configuration (Pydantic model, uses CONFIG_CLASS defaults if not provided)
-        _logger: Structured logger
-        _shutdown_event: Event for graceful shutdown (single source of truth)
-                        Not set = service is running
-                        Set = shutdown requested
+    Attributes:
+        SERVICE_NAME: Unique service identifier used in logging and metrics.
+        CONFIG_CLASS: Pydantic model class used by factory methods to parse
+            configuration from YAML/dict sources.
+        _brotr: Database interface; access the pool via ``_brotr.pool``.
+        _config: Typed service configuration (defaults from CONFIG_CLASS).
+        _logger: Structured logger named after the service.
+        _shutdown_event: Asyncio event controlling the run loop. Clear means
+            the service is running; set means shutdown was requested.
     """
 
     SERVICE_NAME: ClassVar[str] = "base_service"
@@ -106,44 +100,42 @@ class BaseService(ABC, Generic[ConfigT]):
             config if config is not None else cast("ConfigT", self.CONFIG_CLASS())
         )
         self._logger = Logger(self.SERVICE_NAME)
-        # Use shutdown event as single source of truth to avoid race conditions
-        # Event not set = service is running, Event set = shutdown requested
         self._shutdown_event = asyncio.Event()
 
     @property
     def config(self) -> ConfigT:
-        """Get service configuration (typed to CONFIG_CLASS)."""
+        """The typed service configuration (read-only)."""
         return self._config
 
     @abstractmethod
     async def run(self) -> None:
-        """Execute main service logic."""
+        """Execute one cycle of the service's main logic.
+
+        Called repeatedly by ``run_forever()``. Implementations should
+        perform a bounded unit of work and return. Long-running work
+        should periodically check ``self.is_running`` for early exit.
+        """
         ...
 
     def request_shutdown(self) -> None:
-        """
-        Request graceful shutdown (sync-safe for signal handlers).
+        """Request a graceful shutdown of the service.
 
-        Thread-safe: Setting an asyncio.Event is atomic and safe to call
-        from signal handlers or other threads.
+        Safe to call from signal handlers or other threads because
+        setting an asyncio.Event is atomic.
         """
         self._shutdown_event.set()
 
     @property
     def is_running(self) -> bool:
-        """
-        Check if service is running.
-
-        Returns True if shutdown has NOT been requested.
-        """
+        """Whether the service is still active (shutdown not yet requested)."""
         return not self._shutdown_event.is_set()
 
     async def wait(self, timeout: float) -> bool:
-        """
-        Wait for shutdown event or timeout.
+        """Wait for either a shutdown signal or a timeout to elapse.
 
-        Returns True if shutdown was requested, False if timeout expired.
-        Use in service loops for interruptible waits.
+        Returns True if shutdown was requested during the wait, or False
+        if the timeout expired normally. Use this instead of
+        ``asyncio.sleep()`` to enable interruptible waits.
         """
         try:
             await asyncio.wait_for(self._shutdown_event.wait(), timeout=timeout)
@@ -152,38 +144,31 @@ class BaseService(ABC, Generic[ConfigT]):
             return False
 
     async def run_forever(self) -> None:
+        """Run the service in an infinite loop with interval-based cycling.
+
+        Repeatedly calls ``run()``, sleeping for ``config.interval`` seconds
+        between cycles. Exits when shutdown is requested or when the
+        consecutive failure limit (``config.max_consecutive_failures``) is
+        reached. A value of 0 disables the failure limit.
+
+        Prometheus metrics tracked automatically:
+            - ``service_counter{name="cycles_success"}``: Successful cycles.
+            - ``service_counter{name="cycles_failed"}``: Failed cycles.
+            - ``service_counter{name="errors_{ExceptionType}"}``: By error type.
+            - ``service_gauge{name="consecutive_failures"}``: Current streak.
+            - ``service_gauge{name="last_cycle_timestamp"}``: Last success.
+            - ``cycle_duration_seconds``: Histogram of cycle durations.
+
+        The consecutive failure counter resets after each successful cycle.
+        ``CancelledError``, ``KeyboardInterrupt``, and ``SystemExit`` always
+        propagate immediately without being counted as failures.
         """
-        Run service continuously with interval between cycles.
-
-        Calls run() repeatedly until shutdown is requested or max consecutive
-        failures is reached. Each cycle is followed by an interruptible wait.
-
-        Automatically tracks Prometheus metrics:
-            - cycles_total: Counter of cycles by status (success/failed)
-            - cycle_duration_seconds: Histogram of cycle durations
-            - consecutive_failures: Gauge of current failure streak
-            - last_cycle_timestamp_seconds: Gauge of last successful cycle
-            - errors_total: Counter of errors by type
-
-        Reads from config:
-            - interval: Seconds to wait between run() cycles
-            - max_consecutive_failures: Stop after this many consecutive errors (0 = unlimited)
-
-        Example:
-            >>> async with MyService(brotr, config) as service:
-            ...     await service.run_forever()
-
-        Note:
-            - Use request_shutdown() to stop gracefully from signal handlers
-            - Consecutive failure counter resets after each successful run()
-            - CancelledError, KeyboardInterrupt, SystemExit propagate immediately
-        """
-        # Read from config (with fallback defaults for non-BaseServiceConfig)
+        # Fallback defaults ensure compatibility if config is not BaseServiceConfig
         interval = getattr(self._config, "interval", 300.0)
         max_consecutive_failures = getattr(self._config, "max_consecutive_failures", 5)
         metrics_enabled = self._config.metrics.enabled
 
-        # Set service info metric (static labels)
+        # Publish static service metadata once at startup
         if metrics_enabled:
             SERVICE_INFO.info({"service": self.SERVICE_NAME})
 
@@ -195,14 +180,12 @@ class BaseService(ABC, Generic[ConfigT]):
 
         consecutive_failures = 0
 
-        # Use is_running property which checks shutdown_event atomically
         while self.is_running:
             cycle_start = time.time()
 
             try:
                 await self.run()
 
-                # Success metrics (using generic SERVICE_COUNTER/GAUGE)
                 duration = time.time() - cycle_start
                 self.inc_counter("cycles_success")
                 if metrics_enabled:
@@ -210,17 +193,15 @@ class BaseService(ABC, Generic[ConfigT]):
                 self.set_gauge("last_cycle_timestamp", time.time())
                 self.set_gauge("consecutive_failures", 0)
 
-                consecutive_failures = 0  # Reset on success
+                consecutive_failures = 0
                 self._logger.info("cycle_completed", next_cycle_s=interval)
 
             except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
-                # Let these propagate to allow proper shutdown
-                raise
+                raise  # Always propagate shutdown signals
 
             except Exception as e:
                 consecutive_failures += 1
 
-                # Failure metrics (using generic SERVICE_COUNTER/GAUGE)
                 self.inc_counter("cycles_failed")
                 self.set_gauge("consecutive_failures", consecutive_failures)
                 self.inc_counter(f"errors_{type(e).__name__}")
@@ -253,12 +234,24 @@ class BaseService(ABC, Generic[ConfigT]):
 
     @classmethod
     def from_yaml(cls, config_path: str, brotr: Brotr, **kwargs: Any) -> "BaseService[ConfigT]":
-        """Create service from YAML configuration file."""
+        """Create a service instance from a YAML configuration file.
+
+        Args:
+            config_path: Path to the YAML file.
+            brotr: Database interface for the service.
+            **kwargs: Additional keyword arguments passed to the constructor.
+        """
         return cls.from_dict(load_yaml(config_path), brotr=brotr, **kwargs)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], brotr: Brotr, **kwargs: Any) -> "BaseService[ConfigT]":
-        """Create service from dictionary configuration."""
+        """Create a service instance from a configuration dictionary.
+
+        Args:
+            data: Configuration dictionary parsed into CONFIG_CLASS.
+            brotr: Database interface for the service.
+            **kwargs: Additional keyword arguments passed to the constructor.
+        """
         config = cast("ConfigT", cls.CONFIG_CLASS(**data))
         return cls(brotr=brotr, config=config, **kwargs)
 
@@ -267,15 +260,13 @@ class BaseService(ABC, Generic[ConfigT]):
     # -------------------------------------------------------------------------
 
     async def __aenter__(self) -> "BaseService[ConfigT]":
-        """Start service on context entry."""
-        # Clear shutdown event to mark service as running
+        """Mark the service as running on context entry."""
         self._shutdown_event.clear()
         self._logger.info("service_started")
         return self
 
     async def __aexit__(self, _exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
-        """Stop service on context exit."""
-        # Set shutdown event to mark service as stopped
+        """Signal shutdown on context exit."""
         self._shutdown_event.set()
         self._logger.info("service_stopped")
 
@@ -284,92 +275,74 @@ class BaseService(ABC, Generic[ConfigT]):
     # -------------------------------------------------------------------------
 
     def set_gauge(self, name: str, value: float) -> None:
-        """
-        Set a custom gauge metric for this service.
+        """Set a named gauge metric for this service.
 
-        Uses SERVICE_GAUGE with labels for service name and metric name.
-        Each service can track its own named values.
+        Records a point-in-time value via the shared ``SERVICE_GAUGE``
+        Prometheus metric with ``service`` and ``name`` labels.
+        No-op if metrics are disabled.
 
         Args:
-            name: Metric name (e.g., "pending", "active", "queue_size")
-            value: Numeric value to set
-
-        Example:
-            self.set_gauge("pending", 100)
-            # Creates: service_gauge{service="myservice", name="pending"} 100
-
-        Note:
-            No-op if metrics.enabled is False.
+            name: Metric name (e.g. "pending", "queue_size").
+            value: Current numeric value.
         """
         if not self._config.metrics.enabled:
             return
         SERVICE_GAUGE.labels(service=self.SERVICE_NAME, name=name).set(value)
 
     def inc_counter(self, name: str, value: float = 1) -> None:
-        """
-        Increment a custom counter metric for this service.
+        """Increment a named counter metric for this service.
 
-        Uses SERVICE_COUNTER with labels for service name and metric name.
-        Counters are cumulative and persist across cycles - use for totals.
+        Records a monotonically increasing total via the shared
+        ``SERVICE_COUNTER`` Prometheus metric. Counters persist across
+        cycles, making them suitable for cumulative totals.
+        No-op if metrics are disabled.
 
         Args:
-            name: Metric name (e.g., "total_processed", "total_promoted")
-            value: Amount to increment (default: 1)
-
-        Example:
-            self.inc_counter("total_promoted", 5)
-            # Increments: service_counter{service="myservice", name="total_promoted"} by 5
-
-        Note:
-            No-op if metrics.enabled is False.
+            name: Metric name (e.g. "total_processed", "total_promoted").
+            value: Amount to increment (default: 1).
         """
         if not self._config.metrics.enabled:
             return
         SERVICE_COUNTER.labels(service=self.SERVICE_NAME, name=name).inc(value)
 
 
-# =============================================================================
+# ---------------------------------------------------------------------------
 # Mixins
-# =============================================================================
+# ---------------------------------------------------------------------------
 
 
 class NetworkSemaphoreMixin:
-    """Mixin for services that use per-network concurrency semaphores.
+    """Mixin providing per-network concurrency semaphores.
 
-    Provides methods to initialize and access asyncio semaphores that limit
-    concurrent operations per network type (clearnet, tor, i2p, loki).
+    Creates an ``asyncio.Semaphore`` for each network type (clearnet, Tor,
+    I2P, Lokinet) to cap the number of simultaneous connections. This is
+    especially important for overlay networks like Tor, where excessive
+    concurrency degrades circuit performance.
 
-    Used by Validator and Monitor to prevent overwhelming network resources,
-    especially important for Tor where too many simultaneous connections
-    can degrade performance.
-
-    The _semaphores dict is created by _init_semaphores() and should be called
-    at the start of each run cycle to pick up configuration changes.
+    Call ``_init_semaphores()`` at the start of each run cycle to pick up
+    any configuration changes to ``max_tasks`` values.
     """
 
     _semaphores: dict[NetworkType, asyncio.Semaphore]
 
     def _init_semaphores(self, networks: "NetworkConfig") -> None:
-        """Initialize per-network concurrency semaphores.
-
-        Creates an asyncio.Semaphore for each network type with max_tasks
-        from the network configuration. Should be called at the start of
-        each run cycle to pick up configuration changes.
+        """Create a semaphore for each network type from the configuration.
 
         Args:
-            networks: Network configuration with max_tasks per network type.
+            networks: Network configuration providing ``max_tasks`` per
+                network type.
         """
         self._semaphores = {
             network: asyncio.Semaphore(networks.get(network).max_tasks) for network in NetworkType
         }
 
     def _get_semaphore(self, network: NetworkType) -> asyncio.Semaphore | None:
-        """Get the semaphore for a specific network type.
+        """Look up the concurrency semaphore for a network type.
 
         Args:
-            network: The network type to get the semaphore for.
+            network: The network type to retrieve the semaphore for.
 
         Returns:
-            The semaphore for the network, or None if not found.
+            The semaphore, or None if the network has not been initialized.
         """
         return self._semaphores.get(network)

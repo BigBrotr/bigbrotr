@@ -1,6 +1,6 @@
-# AI Agents for BigBrotr
+# Agents for BigBrotr
 
-This folder contains **31 AI agents** (29 generic + 2 BigBrotr-specific) selected to support the development of BigBrotr - an enterprise-grade system for archiving and monitoring the Nostr ecosystem.
+This folder contains **31 agents** (29 generic + 2 BigBrotr-specific) supporting the development of BigBrotr, a modular system for archiving and monitoring the Nostr ecosystem.
 
 ## BigBrotr Tech Stack
 
@@ -136,29 +136,26 @@ nostr-expert/
 
 ---
 
-## Critical BigBrotr Areas to Improve
+## Key BigBrotr Development Areas
 
-Based on project analysis, these agents are particularly useful for:
+Agents particularly useful for specific BigBrotr concerns:
 
 1. **Multiprocessing Complexity** (`debugger`, `python-pro`)
    - Synchronizer uses aiomultiprocess with worker processes
-   - Possible race conditions and memory issues
+   - Race conditions and memory management
 
 2. **Connection Pool Tuning** (`postgres-pro`, `database-optimizer`)
-   - 10 worker processes with 20 max connections
-   - Potential contention under load
+   - Multiple worker processes sharing connection pool
+   - Contention and pool sizing under load
 
 3. **WebSocket Reliability** (`websocket-engineer`, `chaos-engineer`)
-   - No circuit breaker pattern implemented
-   - No adaptive timeout
+   - Relay connection stability and timeout handling
 
 4. **Integration Testing** (`test-automator`, `qa-expert`)
-   - Unit tests present, minimal integration tests
-   - No end-to-end pipeline tests
+   - Unit tests present (1776+), minimal integration tests
 
 5. **Monitoring & Observability** (`sre-engineer`, `devops-engineer`)
-   - No Prometheus metrics
-   - No health check endpoints
+   - Prometheus MetricsServer available, room for more instrumentation
 
 ---
 

@@ -1,23 +1,18 @@
-"""BigBrotr utility functions.
+"""BigBrotr utility package.
 
-This module provides shared utility functions and configuration classes used
-across the BigBrotr codebase. It re-exports commonly used utilities for
-convenient imports.
+Re-exports commonly used utilities for convenient imports across the codebase:
 
-Exported utilities:
-    - BatchProgress: Dataclass for tracking batch processing progress
-    - KeysConfig: Pydantic model for Nostr key configuration
-    - load_keys_from_env: Load Nostr keys from environment variables
-    - NetworkConfig: Unified network configuration for all services
-    - ClearnetConfig, TorConfig, I2pConfig, LokiConfig: Per-network configs
-    - NetworkTypeConfig: Type alias for any network-specific config
-    - create_client: Factory for creating Nostr clients
-    - load_yaml: Load YAML configuration files
+- **Configuration**: ``load_yaml``, ``NetworkConfig``, ``KeysConfig``
+- **Transport**: ``create_client`` (Nostr client factory)
+- **DNS**: ``resolve_host``, ``ResolvedHost``
+- **Progress**: ``BatchProgress`` (batch processing tracker)
+- **Network types**: ``ClearnetConfig``, ``TorConfig``, ``I2pConfig``, ``LokiConfig``
 
-Example:
-    >>> from utils import load_yaml, create_client, KeysConfig
-    >>> config = load_yaml("/path/to/config.yaml")
-    >>> client = create_client(keys=None, proxy_url=None)
+Example::
+
+    from utils import load_yaml, create_client, NetworkConfig
+
+    config = load_yaml("yaml/services/finder.yaml")
 """
 
 from utils.dns import ResolvedHost, resolve_host

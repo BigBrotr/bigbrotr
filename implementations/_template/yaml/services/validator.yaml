@@ -1,23 +1,20 @@
 # =============================================================================
-# Validator Service Configuration - Template with ALL Default Values
+# Validator Service Configuration Template (All Default Values)
 # =============================================================================
-#
-# The Validator service tests candidate relay URLs before adding them to the
-# relays table. It performs WebSocket connection tests to verify relays are
-# accessible and responsive.
+# Tests candidate relay URLs via WebSocket before adding them to the relays
+# table. Verifies that relays are accessible and responsive.
 #
 # Workflow: cleanup -> fetch chunk -> validate in parallel -> persist -> repeat
 #
 # Run mode: Continuous (runs every interval)
 # Dependencies: Seeder/Finder must have added candidates
 # Configuration class: src/services/validator.py::ValidatorConfig
-#
 # =============================================================================
 
 # -----------------------------------------------------------------------------
 # Base Service Settings (inherited from BaseServiceConfig)
 # -----------------------------------------------------------------------------
-# Class: src/core/base_service.py::BaseServiceConfig
+# Class: src/core/service.py::BaseServiceConfig
 
 # Seconds between validation cycles
 # Lower values = more frequent validation, higher resource usage

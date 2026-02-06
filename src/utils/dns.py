@@ -1,4 +1,8 @@
-"""DNS resolution utilities."""
+"""DNS resolution utilities for BigBrotr.
+
+Provides async hostname resolution for both IPv4 (A record) and IPv6 (AAAA record)
+addresses. Used by the Monitor service for relay DNS checks and IP geolocation.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +14,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class ResolvedHost:
-    """Result of hostname resolution with IPv4 and IPv6 addresses."""
+    """Immutable result of hostname resolution containing IPv4 and IPv6 addresses."""
 
     ipv4: str | None = None
     ipv6: str | None = None
@@ -22,19 +26,17 @@ class ResolvedHost:
 
 
 async def resolve_host(host: str) -> ResolvedHost:
-    """Resolve hostname to IPv4 and IPv6 addresses.
+    """Resolve a hostname to IPv4 and IPv6 addresses asynchronously.
 
-    Attempts to resolve both IPv4 (A record) and IPv6 (AAAA record) addresses.
-    Each resolution is independent - failure of one doesn't affect the other.
-
-    Note: This function does not log internally. Callers are responsible for
-    logging resolution results if needed.
+    Performs independent A and AAAA record lookups using the system resolver
+    via ``asyncio.to_thread``. Failure of one address family does not affect
+    the other.
 
     Args:
-        host: Hostname to resolve.
+        host: Hostname to resolve (e.g., ``"relay.damus.io"``).
 
     Returns:
-        ResolvedHost with resolved addresses (None for failed resolutions).
+        ResolvedHost with resolved addresses (None for failed lookups).
     """
     ipv4: str | None = None
     ipv6: str | None = None

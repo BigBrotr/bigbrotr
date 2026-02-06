@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.0.2-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.0.3-blue?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/postgresql-16+-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
@@ -12,36 +12,32 @@
   <strong>A Modular Nostr Data Archiving and Monitoring System</strong>
 </p>
 
-<p align="center">
-  <em>Enterprise-grade infrastructure for indexing, monitoring, and analyzing the Nostr protocol ecosystem</em>
-</p>
-
 ---
 
 ## Overview
 
-BigBrotr is a production-ready, modular system for archiving and monitoring the [Nostr protocol](https://nostr.com) ecosystem. Built with Python and PostgreSQL, it provides comprehensive tools for relay discovery, health monitoring, and event synchronization across clearnet and overlay networks.
+BigBrotr is a production-ready system for archiving and monitoring the [Nostr protocol](https://nostr.com) ecosystem. Built with Python and PostgreSQL, it provides relay discovery, health monitoring, and event synchronization across clearnet and overlay networks.
 
 ### Key Features
 
-- **Relay Discovery** - Automatically discover Nostr relays from public APIs and seed lists
-- **Health Monitoring** - Continuous NIP-11 and NIP-66 compliance testing with RTT measurements
-- **Event Synchronization** - High-performance multicore event collection with incremental sync
-- **Multi-Network Support** - Clearnet, Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay connectivity
-- **Data Deduplication** - Content-addressed storage for NIP-11/NIP-66 documents
-- **Prometheus Metrics** - Built-in metrics server for service monitoring with Grafana dashboards
-- **SQL Analytics** - Pre-built views for statistics, event analysis, and relay metrics
-- **Docker Ready** - Complete containerized deployment with PostgreSQL, Prometheus, Grafana, and Tor
+- **Relay Discovery** -- Automatically discover Nostr relays from public APIs and seed lists
+- **Health Monitoring** -- Continuous NIP-11 and NIP-66 compliance testing with RTT measurements
+- **Event Synchronization** -- High-performance multicore event collection with incremental sync
+- **Multi-Network Support** -- Clearnet, Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay connectivity
+- **Data Deduplication** -- Content-addressed storage for NIP-11/NIP-66 documents (SHA-256)
+- **Prometheus Metrics** -- Built-in metrics server for Grafana dashboards
+- **SQL Analytics** -- Pre-built views for statistics, event analysis, and relay metrics
+- **Docker Ready** -- Complete containerized deployment with PostgreSQL, Prometheus, Grafana, and Tor
 
-### Design Philosophy
+### Design Principles
 
-| Principle | Implementation |
-|-----------|----------------|
-| **Four-Layer Architecture** | Core -> Utils -> Models -> Services -> Implementation (config-driven) |
-| **Dependency Injection** | Services receive database interface via constructor for testability |
-| **Configuration-Driven** | YAML configuration with Pydantic validation, minimal hardcoding |
-| **Type Safety** | Full type hints with strict mypy checking throughout codebase |
-| **Async-First** | Built on asyncio, asyncpg, and aiohttp for maximum concurrency |
+| Principle | Description |
+|-----------|-------------|
+| **Four-Layer Architecture** | Implementation > Services > Core > Utils > Models |
+| **Dependency Injection** | Services receive database interface via constructor |
+| **Configuration-Driven** | YAML configuration with Pydantic validation |
+| **Type Safety** | Full type hints with strict mypy checking |
+| **Async-First** | Built on asyncio, asyncpg, and aiohttp |
 
 ---
 
@@ -149,10 +145,10 @@ BigBrotr uses a four-layer architecture that separates concerns and enables flex
 | Component | Description | Key Features |
 |-----------|-------------|--------------|
 | **Pool** | PostgreSQL connection pooling | Async pooling with asyncpg, retry with backoff, health checks |
-| **Brotr** | High-level database interface | Stored procedure wrappers, batch operations, hex-to-BYTEA conversion |
+| **Brotr** | High-level database interface | Stored procedure wrappers, bulk array operations, configurable timeouts |
 | **BaseService** | Abstract service base class | State persistence, lifecycle management, Prometheus metrics integration |
 | **MetricsServer** | Prometheus metrics endpoint | HTTP /metrics endpoint, per-service gauges and counters |
-| **Logger** | Structured logging wrapper | Key=value formatting, configurable levels |
+| **Logger** | Structured logging | Key=value formatting, configurable levels |
 
 ### Services
 
@@ -163,8 +159,8 @@ BigBrotr uses a four-layer architecture that separates concerns and enables flex
 | **Validator** | Complete | Candidate relay testing with streaming architecture and multi-network support |
 | **Monitor** | Complete | NIP-11/NIP-66 health monitoring with SSL validation and geolocation |
 | **Synchronizer** | Complete | Multicore event synchronization with incremental sync |
-| **API** | Planned (config stub) | REST API endpoints with OpenAPI documentation |
-| **DVM** | Planned (config stub) | NIP-90 Data Vending Machine protocol support |
+| **API** | Planned | REST API endpoints with OpenAPI documentation |
+| **DVM** | Planned | NIP-90 Data Vending Machine protocol support |
 
 For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -172,7 +168,7 @@ For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITE
 
 ## Implementations
 
-The four-layer architecture enables multiple deployment configurations from the same codebase. Two implementations are included:
+The four-layer architecture enables multiple deployment configurations from the same codebase.
 
 ### BigBrotr (Full-Featured)
 
@@ -196,7 +192,7 @@ A lightweight implementation that indexes all events but omits storage-heavy fie
 
 | Feature | Description |
 |---------|-------------|
-| **Essential Metadata** | Stores id, pubkey, created_at, kind, sig (omits tags/content, saves ~60% disk space) |
+| **Essential Metadata** | Stores id, pubkey, created_at, kind, sig (omits tags/content, saves ~60% disk) |
 | **Clearnet Only** | Overlay networks disabled by default |
 | **Lower Concurrency** | 5 parallel connections for reduced resource usage |
 | **Monitoring** | Prometheus (9091), Grafana (3001), PostgreSQL (5433), PGBouncer (6433) |
@@ -207,8 +203,6 @@ docker-compose up -d
 ```
 
 ### Creating Custom Implementations
-
-You can create your own implementation for specific use cases:
 
 ```bash
 # Copy an existing implementation
@@ -241,16 +235,12 @@ Common customization scenarios:
 
 The Seeder runs once at startup to seed the database:
 
-- Parses and validates relay URLs from `data/seed_relays.txt`
+- Parses and validates relay URLs from `static/seed_relays.txt`
 - Stores URLs as candidates in `service_data` table
 - Network type (clearnet/tor) is auto-detected from URL
 
 ```bash
-# Run manually
 python -m services seeder
-
-# Check logs
-docker-compose logs seeder
 ```
 
 ### Finder
@@ -265,29 +255,8 @@ The Finder service discovers new Nostr relays:
 - Runs continuously with configurable intervals
 
 ```bash
-# Run with default config
 python -m services finder
-
-# Run with custom config
-python -m services finder --config yaml/services/finder.yaml
-
-# Debug mode
 python -m services finder --log-level DEBUG
-```
-
-**Configuration highlights** (`yaml/services/finder.yaml`):
-```yaml
-interval: 3600.0  # 1 hour between discovery cycles
-
-api:
-  enabled: true
-  sources:
-    - url: https://api.nostr.watch/v1/online
-      enabled: true
-      timeout: 30.0
-    - url: https://api.nostr.watch/v1/offline
-      enabled: true
-      timeout: 30.0
 ```
 
 ### Validator
@@ -303,31 +272,7 @@ The Validator service tests candidates discovered by Finder and Seeder:
 - Uses probabilistic selection based on retry count
 
 ```bash
-# Run with default config
 python -m services validator
-```
-
-**Configuration highlights** (`yaml/services/validator.yaml`):
-```yaml
-interval: 28800.0  # 8 hours between validation cycles
-
-processing:
-  max_candidates: null  # Process all candidates each cycle
-
-cleanup:
-  enabled: true
-  max_failures: 100  # Remove after 100 failed attempts
-
-networks:
-  clearnet:
-    enabled: true
-    max_tasks: 50
-    timeout: 10.0
-  tor:
-    enabled: true
-    proxy_url: "socks5://tor:9050"
-    max_tasks: 10
-    timeout: 30.0
 ```
 
 ### Monitor
@@ -339,47 +284,15 @@ The Monitor service continuously evaluates relay health:
 - Fetches NIP-11 relay information documents
 - Tests NIP-66 capabilities (openable, readable, writable)
 - Measures round-trip times (RTT) for all operations
-- Supports Tor proxy for .onion relays
+- Validates SSL certificates and performs geolocation
 - Deduplicates NIP-11/NIP-66 documents via content hashing
-- Processes relays concurrently with configurable parallelism
+- Supports Tor proxy for .onion relays
 
 ```bash
-# Run with default config
 python -m services monitor
 
 # With NIP-66 write tests (requires Nostr private key)
-MONITOR_PRIVATE_KEY=<hex_private_key> python -m services monitor
-```
-
-**Configuration highlights** (`yaml/services/monitor.yaml`):
-```yaml
-interval: 3600.0  # 1 hour between monitoring cycles
-
-metrics:
-  enabled: true
-  port: 8003
-
-networks:
-  clearnet:
-    enabled: true
-    max_tasks: 50
-    timeout: 30.0
-  tor:
-    enabled: true
-    proxy_url: "socks5://tor:9050"
-    max_tasks: 10
-    timeout: 60.0
-
-checks:
-  open: true      # WebSocket connection test
-  read: true      # REQ/EOSE subscription test
-  write: true     # EVENT/OK publication test (requires PRIVATE_KEY)
-  nip11: true     # Fetch NIP-11 relay info
-  ssl: true       # Validate SSL certificate
-  geo: true       # Geolocate relay IP
-
-concurrency:
-  batch_size: 50  # relays per database batch
+PRIVATE_KEY=<hex_private_key> python -m services monitor
 ```
 
 ### Synchronizer
@@ -393,52 +306,13 @@ The Synchronizer is the core data collection engine:
 - **Incremental Sync**: Tracks per-relay timestamps for efficient updates
 - **Per-Relay Overrides**: Custom timeouts for high-traffic relays
 - **Tor Proxy Support**: SOCKS5 proxy for .onion relay synchronization
-- **Network-Aware**: Different timeouts for clearnet vs Tor relays
 - **Graceful Shutdown**: Clean worker process termination
 
 ```bash
-# Run with default config
 python -m services synchronizer
 ```
 
-**Configuration highlights** (`yaml/services/synchronizer.yaml`):
-```yaml
-interval: 900.0  # 15 minutes between sync cycles
-
-metrics:
-  enabled: true
-  port: 8004
-
-networks:
-  clearnet:
-    enabled: true
-    max_tasks: 10
-    timeout: 30.0
-  tor:
-    enabled: true
-    proxy_url: "socks5://tor:9050"
-    max_tasks: 5
-    timeout: 60.0
-
-filter:
-  kinds: null     # null = all event kinds
-  limit: 500      # events per request
-
-sync_timeouts:
-  relay_clearnet: 1800.0  # 30 min max per relay
-  relay_tor: 3600.0       # 60 min for Tor relays
-
-concurrency:
-  max_parallel: 10  # concurrent connections per process
-  max_processes: 4  # worker processes
-
-# Per-relay overrides
-overrides:
-  - url: "wss://relay.damus.io"
-    timeouts:
-      request: 60.0
-      relay: 7200.0  # 2 hours for high-traffic relay
-```
+For service configuration details, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ---
 
@@ -451,7 +325,7 @@ BigBrotr uses a YAML-driven configuration system with Pydantic validation.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DB_PASSWORD` | **Yes** | PostgreSQL database password |
-| `PRIVATE_KEY` | **Yes** for Monitor/Sync | Nostr private key (hex or nsec format) for NIP-66 write tests and NIP-42 auth |
+| `PRIVATE_KEY` | **Yes** for Monitor/Sync | Nostr private key (hex or nsec) for NIP-66 write tests and NIP-42 auth |
 | `GRAFANA_PASSWORD` | No | Grafana admin password (defaults to admin) |
 
 ### Configuration Files
@@ -462,7 +336,7 @@ implementations/bigbrotr/yaml/
 │   └── brotr.yaml              # Database pool and connection settings
 └── services/
     ├── seeder.yaml             # Seed file path
-    ├── finder.yaml         # API sources, discovery intervals
+    ├── finder.yaml             # API sources, discovery intervals
     ├── validator.yaml          # Validation settings, Tor proxy
     ├── monitor.yaml            # Health check settings, Tor config
     └── synchronizer.yaml       # Sync filters, timeouts, concurrency
@@ -499,16 +373,20 @@ BigBrotr uses PostgreSQL 16+ with PGBouncer connection pooling and asyncpg async
 | `pubkey_counts_total` | Event counts by public key |
 | `pubkey_counts_by_relay` | Event counts by pubkey per relay |
 
-### Stored Procedures
+### Stored Functions
 
 | Function | Purpose |
 |----------|---------|
-| `insert_event` | Atomic insert of event + relay + junction record |
-| `insert_relay` | Idempotent relay insertion |
-| `insert_relay_metadata` | Insert with automatic NIP-11/NIP-66 deduplication |
-| `delete_orphan_events` | Cleanup events without relay associations |
-| `delete_orphan_metadata` | Cleanup unreferenced metadata records |
-| `delete_failed_candidates` | Cleanup validator candidates exceeding max attempts |
+| `relays_insert` | Bulk insert relays (array parameters) |
+| `events_insert` | Bulk insert events (array parameters) |
+| `metadata_insert` | Bulk insert metadata with content-addressed deduplication |
+| `events_relays_insert_cascade` | Atomic bulk insert of events + relays + junctions |
+| `relay_metadata_insert_cascade` | Atomic bulk insert of relays + metadata + junctions |
+| `service_data_upsert` | Bulk upsert service operational data |
+| `service_data_get` | Retrieve service data with optional key filter |
+| `service_data_delete` | Bulk delete service data records |
+| `orphan_events_delete` | Cleanup events without relay associations |
+| `orphan_metadata_delete` | Cleanup unreferenced metadata records |
 
 For complete database documentation, see [docs/DATABASE.md](docs/DATABASE.md).
 
@@ -564,8 +442,6 @@ python -m services monitor &
 python -m services synchronizer &
 ```
 
-For complete deployment documentation, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
-
 ---
 
 ## Development
@@ -573,51 +449,32 @@ For complete deployment documentation, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.
 ### Setup Development Environment
 
 ```bash
-# Clone and setup
 git clone https://github.com/bigbrotr/bigbrotr.git
 cd bigbrotr
 
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install all dependencies
 pip install -r requirements.txt -r requirements-dev.txt
-
-# Install pre-commit hooks
 pre-commit install
 ```
 
 ### Running Tests
 
 ```bash
-# Run all tests
-pytest tests/ -v
-
-# Run with coverage
-pytest tests/ --cov=src --cov-report=html
-
-# Run specific test file
-pytest tests/unit/services/test_synchronizer.py -v
-
-# Run tests matching pattern
-pytest -k "health_check" -v
+pytest tests/ -v                             # All tests
+pytest tests/ --cov=src --cov-report=html    # With coverage
+pytest tests/unit/services/test_synchronizer.py -v  # Single file
+pytest -k "health_check" -v                  # Pattern match
 ```
 
 ### Code Quality
 
 ```bash
-# Linting
-ruff check src/ tests/
-
-# Formatting
-ruff format src/ tests/
-
-# Type checking
-mypy src/
-
-# Run all pre-commit hooks
-pre-commit run --all-files
+ruff check src/ tests/      # Linting
+ruff format src/ tests/      # Formatting
+mypy src/                    # Type checking
+pre-commit run --all-files   # All pre-commit hooks
 ```
 
 ### Project Structure
@@ -625,18 +482,42 @@ pre-commit run --all-files
 ```
 bigbrotr/
 ├── src/
+│   ├── __init__.py
 │   ├── core/                          # Foundation layer
 │   │   ├── __init__.py
 │   │   ├── pool.py                    # PostgreSQL connection pool
 │   │   ├── brotr.py                   # Database interface
-│   │   ├── base_service.py            # Abstract service base
-│   │   └── logger.py                  # Structured logging
+│   │   ├── service.py                 # Abstract service base
+│   │   ├── metrics.py                 # Prometheus metrics server
+│   │   └── logger.py                  # Structured key=value logging
+│   │
+│   ├── utils/                         # Shared utilities
+│   │   ├── __init__.py
+│   │   ├── dns.py                     # DNS resolution
+│   │   ├── keys.py                    # Nostr key management
+│   │   ├── network.py                 # Network detection and proxy config
+│   │   ├── progress.py                # Batch progress tracking
+│   │   ├── transport.py               # HTTP/WebSocket transport helpers
+│   │   └── yaml.py                    # YAML loading with env var support
+│   │
+│   ├── models/                        # Data models
+│   │   ├── __init__.py
+│   │   ├── event.py                   # Nostr event model
+│   │   ├── relay.py                   # Relay URL model
+│   │   ├── event_relay.py             # Event-relay junction
+│   │   ├── metadata.py                # Content-addressed metadata
+│   │   ├── relay_metadata.py          # Relay-metadata junction
+│   │   └── nips/                      # NIP model subpackages
+│   │       ├── base.py                # Base NIP model
+│   │       ├── parsing.py             # NIP data parsing utilities
+│   │       ├── nip11/                 # NIP-11 relay information
+│   │       └── nip66/                 # NIP-66 monitoring data
 │   │
 │   └── services/                      # Service layer
 │       ├── __init__.py
 │       ├── __main__.py                # CLI entry point
 │       ├── seeder.py                  # Relay seeding
-│       ├── finder.py              # Relay discovery
+│       ├── finder.py                  # Relay discovery
 │       ├── validator.py               # Relay validation
 │       ├── monitor.py                 # Health monitoring
 │       └── synchronizer.py            # Event sync
@@ -645,7 +526,7 @@ bigbrotr/
 │   ├── bigbrotr/                      # Full-featured implementation
 │   │   ├── yaml/                      # Configuration files
 │   │   ├── postgres/init/             # SQL schema (full storage)
-│   │   ├── data/seed_relays.txt       # 8,865 seed relay URLs
+│   │   ├── static/seed_relays.txt     # 8,865 seed relay URLs
 │   │   ├── docker-compose.yaml
 │   │   └── Dockerfile
 │   │
@@ -659,26 +540,18 @@ bigbrotr/
 │   ├── conftest.py                    # Shared fixtures
 │   ├── unit/                          # Unit tests
 │   │   ├── core/                      # Core layer tests
-│   │   ├── services/                  # Service layer tests
-│   │   └── models/                    # Models tests
+│   │   ├── utils/                     # Utils layer tests
+│   │   ├── models/                    # Models tests (incl. nips/)
+│   │   └── services/                  # Service layer tests
 │   └── integration/                   # Integration tests (planned)
 │
 ├── docs/                              # Documentation
+│   ├── OVERVIEW.md
 │   ├── ARCHITECTURE.md
 │   ├── CONFIGURATION.md
 │   ├── DATABASE.md
-│   ├── DEPLOYMENT.md
-│   └── DEVELOPMENT.md
-│
-├── releases/                          # Release notes
-│   ├── v1.0.0.md
-│   ├── v2.0.0.md
-│   └── v3.0.0-draft.md
-│
-├── .github/                           # GitHub configuration
-│   ├── workflows/ci.yml               # CI pipeline
-│   ├── ISSUE_TEMPLATE/                # Issue templates
-│   └── PULL_REQUEST_TEMPLATE.md
+│   ├── DEVELOPMENT.md
+│   └── TECHNICAL.md
 │
 ├── CHANGELOG.md                       # Version history
 ├── CONTRIBUTING.md                    # Contribution guide
@@ -700,9 +573,9 @@ For complete development documentation, see [docs/DEVELOPMENT.md](docs/DEVELOPME
 |------------|---------|---------|
 | **Python** | 3.11+ | Primary programming language |
 | **PostgreSQL** | 16+ | Primary data storage |
-| **asyncpg** | 0.30.0 | Async PostgreSQL driver with native connection pooling |
+| **asyncpg** | 0.30.0 | Async PostgreSQL driver |
 | **Pydantic** | 2.10.4 | Configuration validation and serialization |
-| **aiohttp** | 3.13.2 | Async HTTP client for API calls |
+| **aiohttp** | 3.13.2 | Async HTTP client |
 | **aiohttp-socks** | 0.10.1 | SOCKS5 proxy support for overlay networks |
 | **aiomultiprocess** | 0.9.1 | Multicore async processing |
 | **nostr-sdk** | 0.39.0 | Nostr protocol library (rust-nostr PyO3 bindings) |
@@ -726,7 +599,7 @@ For complete development documentation, see [docs/DEVELOPMENT.md](docs/DEVELOPME
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 Quick start:
 
@@ -735,9 +608,9 @@ Quick start:
 3. Write tests for new functionality
 4. Ensure all tests pass: `pytest tests/ -v`
 5. Run code quality checks: `pre-commit run --all-files`
-6. Submit a pull request to `develop` (or `main` for releases)
+6. Submit a pull request to `develop`
 
-For security issues, please see [SECURITY.md](SECURITY.md).
+For security issues, see [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -755,7 +628,7 @@ For security issues, please see [SECURITY.md](SECURITY.md).
 - [x] Grafana dashboards for monitoring
 - [x] Multi-network support (Clearnet, Tor, I2P, Lokinet)
 - [x] Docker Compose deployment
-- [x] Unit test suite (708 tests)
+- [x] Unit test suite (1776 tests)
 - [x] Pre-commit hooks and CI configuration
 
 ### Planned
@@ -776,13 +649,7 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 
 ## Links
 
-- [Nostr Protocol](https://nostr.com) - Learn about Nostr
-- [NIPs Repository](https://github.com/nostr-protocol/nips) - Nostr Implementation Possibilities
-- [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md) - Relay Information Document
-- [NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md) - Relay Discovery and Monitoring
-
----
-
-<p align="center">
-  <strong>Built for the Nostr ecosystem</strong>
-</p>
+- [Nostr Protocol](https://nostr.com) -- Learn about Nostr
+- [NIPs Repository](https://github.com/nostr-protocol/nips) -- Nostr Implementation Possibilities
+- [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md) -- Relay Information Document
+- [NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md) -- Relay Discovery and Monitoring

@@ -1,7 +1,8 @@
-"""NIP models package.
+"""
+NIP model implementations for NIP-11 and NIP-66.
 
-Re-exports Nip11 and Nip66 for API compatibility.
-Also exports base classes for inheritance.
+Re-exports the top-level ``Nip11`` and ``Nip66`` classes along with the
+shared base classes used for inheritance across all NIP data models.
 """
 
 from models.nips.base import BaseData, BaseLogs, BaseMetadata

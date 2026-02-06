@@ -1,4 +1,11 @@
-"""NIP-66 main class and database tuple."""
+"""
+Top-level NIP-66 model with factory method and database serialization.
+
+Orchestrates all NIP-66 monitoring tests (RTT, SSL, GEO, NET, DNS, HTTP)
+via the ``create()`` async factory method, and provides
+``to_relay_metadata_tuple()`` for converting results into database-ready
+``RelayMetadata`` records.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +15,11 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from logger import Logger
-from models.metadata import Metadata
+from core.logger import Logger
+from models.metadata import Metadata, MetadataType
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
-from models.relay_metadata import MetadataType, RelayMetadata
+from models.relay_metadata import RelayMetadata
 
 from .dns import Nip66DnsMetadata
 from .geo import Nip66GeoMetadata
@@ -31,7 +38,11 @@ logger = Logger("models.nip66")
 
 
 class RelayNip66MetadataTuple(NamedTuple):
-    """Tuple of RelayMetadata records for database storage."""
+    """Database-ready tuple of NIP-66 RelayMetadata records.
+
+    Each field is ``None`` if the corresponding test was not run or
+    was not applicable to the relay's network type.
+    """
 
     nip66_rtt: RelayMetadata | None
     nip66_ssl: RelayMetadata | None
@@ -42,25 +53,25 @@ class RelayNip66MetadataTuple(NamedTuple):
 
 
 class Nip66(BaseModel):
-    """
-    Immutable NIP-66 relay monitoring data.
+    """NIP-66 relay monitoring data.
 
-    Tests relay capabilities (open, read, write) and collects monitoring metrics
-    including round-trip times, SSL certificate data, DNS records, HTTP headers,
-    network info, and geolocation info.
+    Collects relay capability metrics including round-trip times, SSL
+    certificate details, DNS records, HTTP headers, network/ASN info,
+    and geolocation. Created via the ``create()`` async factory method.
 
-    Always created via create() - never returns None.
-    Check individual metadata fields for availability.
+    Each metadata field is ``None`` when the corresponding test was
+    skipped (disabled via flag, missing dependency, or inapplicable
+    network type).
 
     Attributes:
-        relay: The Relay being monitored.
-        rtt_metadata: RTT data with probe logs (optional, requires keys/event_builder/read_filter).
-        ssl_metadata: SSL/TLS certificate data (optional, clearnet wss:// only).
-        geo_metadata: Geolocation data (optional, requires GeoIP City database).
-        net_metadata: Network data (optional, requires GeoIP ASN database).
-        dns_metadata: DNS resolution data (optional, clearnet only).
-        http_metadata: HTTP headers data (optional, from WebSocket upgrade).
-        generated_at: Unix timestamp when monitoring was performed (default: now).
+        relay: The relay being monitored.
+        rtt_metadata: RTT probe results (requires keys, event_builder, read_filter).
+        ssl_metadata: SSL/TLS certificate data (clearnet only).
+        geo_metadata: Geolocation data (requires GeoIP City database).
+        net_metadata: Network/ASN data (requires GeoIP ASN database).
+        dns_metadata: DNS resolution data (clearnet only).
+        http_metadata: HTTP server headers.
+        generated_at: Unix timestamp of when monitoring was performed.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -75,11 +86,16 @@ class Nip66(BaseModel):
     generated_at: StrictInt = Field(default_factory=lambda: int(time()), ge=0)
 
     # -------------------------------------------------------------------------
-    # Serialization
+    # Database Serialization
     # -------------------------------------------------------------------------
 
     def to_relay_metadata_tuple(self) -> RelayNip66MetadataTuple:
-        """Convert to RelayNip66MetadataTuple for database storage."""
+        """Convert to a tuple of RelayMetadata records for database storage.
+
+        Returns:
+            A ``RelayNip66MetadataTuple`` with one ``RelayMetadata`` per test
+            that produced results, or ``None`` for tests that were skipped.
+        """
 
         def make(
             metadata: BaseMetadata | None, metadata_type: MetadataType
@@ -88,8 +104,7 @@ class Nip66(BaseModel):
                 return None
             return RelayMetadata(
                 relay=self.relay,
-                metadata=Metadata(metadata.to_dict()),
-                metadata_type=metadata_type,
+                metadata=Metadata(type=metadata_type, value=metadata.to_dict()),
                 generated_at=self.generated_at,
             )
 
@@ -114,72 +129,53 @@ class Nip66(BaseModel):
         timeout: float | None = None,
         proxy_url: str | None = None,
         allow_insecure: bool = True,
-        # Flags for which tests to run (all enabled by default)
         run_rtt: bool = True,
         run_ssl: bool = True,
         run_geo: bool = True,
         run_net: bool = True,
         run_dns: bool = True,
         run_http: bool = True,
-        # RTT test parameters (all 3 required for RTT test)
         keys: Keys | None = None,
         event_builder: EventBuilder | None = None,
         read_filter: Filter | None = None,
-        # GeoIP readers (optional)
         city_reader: geoip2.database.Reader | None = None,
         asn_reader: geoip2.database.Reader | None = None,
     ) -> Nip66:
-        """
-        Create NIP-66 monitoring data by testing relay.
+        """Run monitoring tests against a relay and collect results.
 
-        All tests are enabled by default. Disable specific tests via run_* flags.
+        All tests are enabled by default. Individual tests can be disabled
+        via the ``run_*`` flags. Some tests require additional parameters
+        (keys for RTT, GeoIP readers for geo/net) and are silently skipped
+        when those parameters are not provided.
 
         Args:
-            relay: Relay object to test
-            timeout: Connection timeout in seconds (default: 10.0)
-            proxy_url: Optional SOCKS5 proxy URL for overlay networks (Tor, I2P, Loki)
-            allow_insecure: If True (default), fallback to insecure transport for
-                clearnet relays with invalid SSL certificates.
-            run_rtt: Run RTT test (default: True).
-            run_ssl: Run SSL test (default: True).
-            run_geo: Run geo test (default: True).
-            run_net: Run net test (default: True).
-            run_dns: Run DNS test (default: True).
-            run_http: Run HTTP test (default: True).
-            keys: Keys for signing RTT test events.
-            event_builder: EventBuilder for RTT write test.
-            read_filter: Filter for RTT read test.
-            city_reader: GeoLite2-City database reader (for geo test).
-            asn_reader: GeoLite2-ASN database reader (for net test).
+            relay: Relay to test.
+            timeout: Connection timeout in seconds (default: 10.0).
+            proxy_url: Optional SOCKS5 proxy URL for overlay networks.
+            allow_insecure: Fall back to unverified SSL for clearnet relays
+                with invalid certificates (default: True).
+            run_rtt: Enable the RTT probe test.
+            run_ssl: Enable the SSL certificate test.
+            run_geo: Enable the geolocation lookup test.
+            run_net: Enable the network/ASN lookup test.
+            run_dns: Enable the DNS resolution test.
+            run_http: Enable the HTTP header extraction test.
+            keys: Signing keys for RTT write test events.
+            event_builder: Builder for the RTT write test event.
+            read_filter: Subscription filter for the RTT read test.
+            city_reader: GeoLite2-City database reader for geo test.
+            asn_reader: GeoLite2-ASN database reader for net test.
 
         Returns:
-            Nip66 instance with test results
-
-        Raises:
-            ValueError: If test is not applicable (e.g., clearnet-only test on overlay relay)
-
-        Example::
-
-            nip66 = await Nip66.create(
-                relay,
-                keys=keys,
-                event_builder=eb,
-                read_filter=rf,
-                city_reader=city,
-                asn_reader=asn,
-            )
-
-            if nip66.rtt_metadata:
-                print(f"Open RTT: {nip66.rtt_metadata.data.rtt_open}ms")
+            A populated ``Nip66`` instance with test results.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("create_started", relay=relay.url, timeout_s=timeout)
 
-        # Build tasks using *Metadata.method() calls
         tasks: list[Any] = []
         task_names: list[str] = []
 
-        # RTT requires all 3 parameters
+        # RTT requires all three parameters (keys, event_builder, read_filter)
         if run_rtt and keys and event_builder and read_filter:
             tasks.append(
                 Nip66RttMetadata.rtt(
@@ -217,7 +213,7 @@ class Nip66(BaseModel):
         logger.debug("create_running", tests=task_names)
         results = await asyncio.gather(*tasks)
 
-        # Map results to metadata fields
+        # Map each result to its corresponding metadata field
         metadata_map: dict[str, Any] = {}
         for name, result in zip(task_names, results, strict=True):
             logger.debug("create_task_succeeded", test=name)

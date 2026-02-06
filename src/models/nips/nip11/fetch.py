@@ -1,4 +1,10 @@
-"""NIP-11 metadata container with HTTP operations."""
+"""
+NIP-11 metadata container with HTTP fetch capabilities.
+
+Pairs ``Nip11FetchData`` with ``Nip11FetchLogs`` and provides the
+``fetch()`` class method that performs the actual HTTP request to
+retrieve a relay's NIP-11 information document.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +17,7 @@ from typing import Any, ClassVar, Self
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
-from logger import Logger
+from core.logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
 from utils.network import NetworkType
@@ -24,16 +30,20 @@ logger = Logger("models.nip11")
 
 
 class Nip11FetchMetadata(BaseMetadata):
-    """Container for NIP-11 data and fetch logs with HTTP fetch capabilities."""
+    """Container for NIP-11 fetch data and operation logs.
+
+    Provides the ``fetch()`` class method for retrieving a relay's NIP-11
+    document over HTTP(S). The result always contains both a data object
+    and a logs object -- check ``logs.success`` for the operation status.
+    """
 
     data: Nip11FetchData
     logs: Nip11FetchLogs
 
-    # Fetch defaults
-    _FETCH_MAX_SIZE: ClassVar[int] = 65536  # 64 KB
+    _FETCH_MAX_SIZE: ClassVar[int] = 65536  # 64 KB response size limit
 
     # -------------------------------------------------------------------------
-    # Fetch - HTTP Operations
+    # HTTP Fetch Implementation
     # -------------------------------------------------------------------------
 
     @staticmethod
@@ -45,10 +55,23 @@ class Nip11FetchMetadata(BaseMetadata):
         ssl_context: ssl.SSLContext | bool,
         proxy_url: str | None = None,
     ) -> dict[str, Any]:
-        """Execute HTTP fetch with given SSL context.
+        """Execute a single HTTP GET request and return the parsed JSON body.
 
-        Returns raw dict from relay.
-        Raises on failure (caught by caller).
+        Args:
+            http_url: Full HTTP(S) URL to fetch.
+            headers: HTTP request headers.
+            timeout: Request timeout in seconds.
+            max_size: Maximum allowed response body size in bytes.
+            ssl_context: SSL context or boolean for TLS configuration.
+            proxy_url: Optional SOCKS5 proxy URL.
+
+        Returns:
+            Parsed JSON dictionary from the relay response.
+
+        Raises:
+            ValueError: If the response status is not 200, the Content-Type
+                is invalid, the body exceeds *max_size*, or the body is not
+                a JSON object.
         """
         connector: aiohttp.BaseConnector
         if proxy_url:
@@ -67,13 +90,12 @@ class Nip11FetchMetadata(BaseMetadata):
             if resp.status != HTTPStatus.OK:
                 raise ValueError(f"HTTP {resp.status}")
 
-            # Validate Content-Type per NIP-11
+            # NIP-11 requires application/nostr+json or application/json
             content_type = resp.headers.get("Content-Type", "")
             content_type_lower = content_type.lower().split(";")[0].strip()
             if content_type_lower not in ("application/nostr+json", "application/json"):
                 raise ValueError(f"Invalid Content-Type: {content_type}")
 
-            # Read with size limit
             body = await resp.content.read(max_size + 1)
             if len(body) > max_size:
                 raise ValueError(f"Response too large: {len(body)} > {max_size}")
@@ -93,42 +115,37 @@ class Nip11FetchMetadata(BaseMetadata):
         proxy_url: str | None = None,
         allow_insecure: bool = True,
     ) -> Self:
-        """
-        Fetch NIP-11 document and return metadata.
+        """Fetch the NIP-11 information document from a relay.
 
-        Connects via HTTP(S) with Accept: application/nostr+json header,
-        validates the response, and parses into Nip11FetchMetadata.
+        Connects via HTTP(S) with the ``Accept: application/nostr+json``
+        header per the NIP-11 specification.
 
-        Always returns Nip11FetchMetadata - never raises, never None.
-        Check .logs.success for fetch status.
+        SSL strategy:
 
-        SSL handling:
-            - Clearnet HTTPS: Verify first, fallback if allow_insecure=True
-            - Overlay (Tor/I2P/Loki): Always insecure (encryption via overlay)
-            - HTTP: No SSL
+        * **Clearnet HTTPS** -- Verify certificate first; on failure,
+          fall back to insecure if *allow_insecure* is True.
+        * **Overlay networks** -- Always use an insecure SSL context
+          (the overlay provides encryption).
+        * **HTTP** -- No SSL.
+
+        This method never raises and never returns None. Check
+        ``logs.success`` for the operation outcome.
 
         Args:
-            relay: Relay to fetch from
-            timeout: Request timeout in seconds (default: 10.0)
-            max_size: Max response size in bytes (default: 64KB)
-            proxy_url: Optional SOCKS5 proxy URL
-            allow_insecure: Fallback to insecure on cert errors (default: True)
+            relay: Relay to fetch from.
+            timeout: Request timeout in seconds (default: 10.0).
+            max_size: Maximum response size in bytes (default: 64 KB).
+            proxy_url: Optional SOCKS5 proxy URL for overlay networks.
+            allow_insecure: Fall back to unverified SSL on certificate
+                errors (default: True).
 
         Returns:
-            Nip11FetchMetadata - check .logs.success for status
-
-        Example::
-
-            metadata = await Nip11FetchMetadata.fetch(relay)
-            if metadata.logs.success:
-                print(f"Name: {metadata.data.name}")
-            else:
-                print(f"Failed: {metadata.logs.reason}")
+            An ``Nip11FetchMetadata`` instance with data and logs.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         max_size = max_size if max_size is not None else cls._FETCH_MAX_SIZE
 
-        # Build HTTP URL
+        # Build the HTTP URL from the relay's WebSocket URL components
         protocol = "https" if relay.scheme == "wss" else "http"
         formatted_host = f"[{relay.host}]" if ":" in relay.host else relay.host
         default_port = 443 if protocol == "https" else 80
@@ -153,6 +170,7 @@ class Nip11FetchMetadata(BaseMetadata):
                 data = await cls._fetch(http_url, headers, timeout, max_size, False, proxy_url)
 
             else:
+                # HTTPS: try verified first, optionally fall back to insecure
                 try:
                     data = await cls._fetch(http_url, headers, timeout, max_size, True, proxy_url)
                 except aiohttp.ClientConnectorCertificateError:

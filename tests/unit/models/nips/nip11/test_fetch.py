@@ -1,20 +1,4 @@
-"""Tests for NIP-11 fetch module (Nip11FetchMetadata).
-
-Tests cover:
-- Nip11FetchMetadata container class
-- from_dict() and to_dict() serialization
-- fetch() class method for HTTP operations:
-  - Success scenarios (200 OK, valid JSON)
-  - Error handling (4xx, 5xx, connection errors)
-  - Content-Type validation
-  - Response size limits
-  - JSON parsing errors
-  - URL construction (wss->https, ws->http, IPv6, ports, paths)
-  - Timeout handling
-  - Proxy support
-  - SSL handling (secure, fallback, overlay networks)
-  - Network-specific behavior (clearnet, Tor, I2P, Lokinet)
-"""
+"""Unit tests for Nip11FetchMetadata container and fetch() HTTP operations."""
 
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -600,7 +584,6 @@ class TestNip11FetchMetadataUrlConstruction:
 
         call_args = session.get.call_args
         url = call_args[0][0]
-        # Verify IPv6 address is bracketed in URL
         assert "[2607:f8b0:4000::1]" in url
 
 
@@ -729,7 +712,6 @@ class TestNip11FetchMetadataTimeout:
 
         call_args = session.get.call_args
         timeout = call_args[1]["timeout"]
-        # Default timeout is 10.0 seconds
         assert timeout.total == 10.0
 
     @pytest.mark.asyncio
@@ -779,7 +761,6 @@ class TestNip11FetchMetadataDataParsing:
 
         assert result.logs.success is True
         assert result.data.name == "Test"
-        # Bools and strings filtered from supported_nips
         assert result.data.supported_nips == [1, 11]
 
     @pytest.mark.asyncio

@@ -25,26 +25,26 @@ from utils.yaml import load_yaml
 
 
 class TestLoadYamlSimpleFiles:
-    """load_yaml() with simple YAML files."""
+    """Tests for load_yaml() with simple YAML files."""
 
-    def test_simple_key_value(self, tmp_path: Path):
-        """Loads simple key-value pairs."""
+    def test_simple_key_value(self, tmp_path: Path) -> None:
+        """Test loading simple key-value pairs."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("name: test\ncount: 42\n")
 
         result = load_yaml(str(yaml_file))
         assert result == {"name": "test", "count": 42}
 
-    def test_single_key(self, tmp_path: Path):
-        """Loads single key-value."""
+    def test_single_key(self, tmp_path: Path) -> None:
+        """Test loading single key-value."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("key: value\n")
 
         result = load_yaml(str(yaml_file))
         assert result == {"key": "value"}
 
-    def test_multiple_types(self, tmp_path: Path):
-        """Loads various data types."""
+    def test_multiple_types(self, tmp_path: Path) -> None:
+        """Test loading various data types."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text(
             """
@@ -63,10 +63,10 @@ timeout: 30.5
 
 
 class TestLoadYamlNestedStructures:
-    """load_yaml() with nested YAML structures."""
+    """Tests for load_yaml() with nested YAML structures."""
 
-    def test_nested_dict(self, tmp_path: Path):
-        """Loads nested dictionary structures."""
+    def test_nested_dict(self, tmp_path: Path) -> None:
+        """Test loading nested dictionary structures."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text(
             """
@@ -85,8 +85,8 @@ database:
         assert result["database"]["credentials"]["username"] == "admin"
         assert result["database"]["credentials"]["password"] == "secret"  # pragma: allowlist secret
 
-    def test_deeply_nested(self, tmp_path: Path):
-        """Loads deeply nested structures."""
+    def test_deeply_nested(self, tmp_path: Path) -> None:
+        """Test loading deeply nested structures."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text(
             """
@@ -103,10 +103,10 @@ level1:
 
 
 class TestLoadYamlLists:
-    """load_yaml() with list structures."""
+    """Tests for load_yaml() with list structures."""
 
-    def test_simple_list(self, tmp_path: Path):
-        """Loads simple list."""
+    def test_simple_list(self, tmp_path: Path) -> None:
+        """Test loading simple list."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text(
             """
@@ -124,8 +124,8 @@ relays:
             "wss://relay3.example.com",
         ]
 
-    def test_list_of_dicts(self, tmp_path: Path):
-        """Loads list of dictionaries."""
+    def test_list_of_dicts(self, tmp_path: Path) -> None:
+        """Test loading list of dictionaries."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text(
             """
@@ -142,8 +142,8 @@ servers:
         assert result["servers"][0]["name"] == "server1"
         assert result["servers"][1]["host"] == "10.0.0.2"
 
-    def test_inline_list(self, tmp_path: Path):
-        """Loads inline list syntax."""
+    def test_inline_list(self, tmp_path: Path) -> None:
+        """Test loading inline list syntax."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("tags: [nostr, relay, bigbrotr]\n")
 
@@ -152,10 +152,10 @@ servers:
 
 
 class TestLoadYamlMixedStructures:
-    """load_yaml() with mixed structures."""
+    """Tests for load_yaml() with mixed structures."""
 
-    def test_mixed_types_and_structures(self, tmp_path: Path):
-        """Loads complex mixed structure."""
+    def test_mixed_types_and_structures(self, tmp_path: Path) -> None:
+        """Test loading complex mixed structure."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text(
             """
@@ -190,34 +190,34 @@ settings:
 
 
 class TestLoadYamlEmptyFiles:
-    """load_yaml() with empty files."""
+    """Tests for load_yaml() with empty files."""
 
-    def test_empty_file_returns_empty_dict(self, tmp_path: Path):
-        """Empty file returns empty dict."""
+    def test_empty_file_returns_empty_dict(self, tmp_path: Path) -> None:
+        """Test empty file returns empty dict."""
         yaml_file = tmp_path / "empty.yaml"
         yaml_file.write_text("")
 
         result = load_yaml(str(yaml_file))
         assert result == {}
 
-    def test_whitespace_only_returns_empty_dict(self, tmp_path: Path):
-        """Whitespace-only file returns empty dict."""
+    def test_whitespace_only_returns_empty_dict(self, tmp_path: Path) -> None:
+        """Test whitespace-only file returns empty dict."""
         yaml_file = tmp_path / "whitespace.yaml"
         yaml_file.write_text("   \n\n   \n")
 
         result = load_yaml(str(yaml_file))
         assert result == {}
 
-    def test_comments_only_returns_empty_dict(self, tmp_path: Path):
-        """Comments-only file returns empty dict."""
+    def test_comments_only_returns_empty_dict(self, tmp_path: Path) -> None:
+        """Test comments-only file returns empty dict."""
         yaml_file = tmp_path / "comments.yaml"
         yaml_file.write_text("# This is a comment\n# Another comment\n")
 
         result = load_yaml(str(yaml_file))
         assert result == {}
 
-    def test_document_marker_only(self, tmp_path: Path):
-        """Document markers only returns empty dict."""
+    def test_document_marker_only(self, tmp_path: Path) -> None:
+        """Test document markers only returns empty dict."""
         yaml_file = tmp_path / "markers.yaml"
         yaml_file.write_text("---\n...\n")
 
@@ -231,25 +231,25 @@ class TestLoadYamlEmptyFiles:
 
 
 class TestLoadYamlFileNotFound:
-    """load_yaml() with non-existent files."""
+    """Tests for load_yaml() with non-existent files."""
 
-    def test_raises_file_not_found(self):
-        """Raises FileNotFoundError for non-existent file."""
+    def test_raises_file_not_found(self) -> None:
+        """Test FileNotFoundError for non-existent file."""
         with pytest.raises(FileNotFoundError) as exc_info:
             load_yaml("/nonexistent/path/config.yaml")
 
         assert "Config file not found" in str(exc_info.value)
         assert "/nonexistent/path/config.yaml" in str(exc_info.value)
 
-    def test_raises_for_missing_file_in_existing_dir(self, tmp_path: Path):
-        """Raises FileNotFoundError for missing file in existing directory."""
+    def test_raises_for_missing_file_in_existing_dir(self, tmp_path: Path) -> None:
+        """Test FileNotFoundError for missing file in existing directory."""
         with pytest.raises(FileNotFoundError) as exc_info:
             load_yaml(str(tmp_path / "missing.yaml"))
 
         assert "Config file not found" in str(exc_info.value)
 
-    def test_error_includes_path(self):
-        """Error message includes the path that was not found."""
+    def test_error_includes_path(self) -> None:
+        """Test error message includes the path that was not found."""
         path = "/some/specific/path/config.yaml"
         with pytest.raises(FileNotFoundError) as exc_info:
             load_yaml(path)
@@ -263,34 +263,34 @@ class TestLoadYamlFileNotFound:
 
 
 class TestLoadYamlPathHandling:
-    """load_yaml() path handling."""
+    """Tests for load_yaml() path handling."""
 
-    def test_string_path(self, tmp_path: Path):
-        """Accepts string path."""
+    def test_string_path(self, tmp_path: Path) -> None:
+        """Test accepting string path."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("key: value\n")
 
         result = load_yaml(str(yaml_file))
         assert result == {"key": "value"}
 
-    def test_absolute_path(self, tmp_path: Path):
-        """Accepts absolute path."""
+    def test_absolute_path(self, tmp_path: Path) -> None:
+        """Test accepting absolute path."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("key: value\n")
 
         result = load_yaml(str(yaml_file.absolute()))
         assert result == {"key": "value"}
 
-    def test_yml_extension(self, tmp_path: Path):
-        """Accepts .yml extension."""
+    def test_yml_extension(self, tmp_path: Path) -> None:
+        """Test accepting .yml extension."""
         yaml_file = tmp_path / "config.yml"
         yaml_file.write_text("key: value\n")
 
         result = load_yaml(str(yaml_file))
         assert result == {"key": "value"}
 
-    def test_no_extension(self, tmp_path: Path):
-        """Accepts file without extension."""
+    def test_no_extension(self, tmp_path: Path) -> None:
+        """Test accepting file without extension."""
         yaml_file = tmp_path / "config"
         yaml_file.write_text("key: value\n")
 
@@ -304,26 +304,26 @@ class TestLoadYamlPathHandling:
 
 
 class TestLoadYamlSpecialValues:
-    """load_yaml() handles special YAML values."""
+    """Tests for load_yaml() handling of special YAML values."""
 
-    def test_null_value(self, tmp_path: Path):
-        """Parses null value."""
+    def test_null_value(self, tmp_path: Path) -> None:
+        """Test parsing null value."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("value: null\n")
 
         result = load_yaml(str(yaml_file))
         assert result["value"] is None
 
-    def test_tilde_null(self, tmp_path: Path):
-        """Parses tilde as null."""
+    def test_tilde_null(self, tmp_path: Path) -> None:
+        """Test parsing tilde as null."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("value: ~\n")
 
         result = load_yaml(str(yaml_file))
         assert result["value"] is None
 
-    def test_boolean_values(self, tmp_path: Path):
-        """Parses various boolean representations."""
+    def test_boolean_values(self, tmp_path: Path) -> None:
+        """Test parsing various boolean representations."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text(
             """
@@ -344,8 +344,8 @@ off_value: off
         assert result["on_value"] is True
         assert result["off_value"] is False
 
-    def test_multiline_string_literal(self, tmp_path: Path):
-        """Parses literal block scalar (|)."""
+    def test_multiline_string_literal(self, tmp_path: Path) -> None:
+        """Test parsing literal block scalar (|)."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text(
             """
@@ -360,8 +360,8 @@ description: |
         assert "multiline string" in result["description"]
         assert "\n" in result["description"]
 
-    def test_multiline_string_folded(self, tmp_path: Path):
-        """Parses folded block scalar (>)."""
+    def test_multiline_string_folded(self, tmp_path: Path) -> None:
+        """Test parsing folded block scalar (>)."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text(
             """
@@ -378,10 +378,10 @@ description: >
 
 
 class TestLoadYamlNumericValues:
-    """load_yaml() with numeric values."""
+    """Tests for load_yaml() with numeric values."""
 
-    def test_integer(self, tmp_path: Path):
-        """Parses integer value."""
+    def test_integer(self, tmp_path: Path) -> None:
+        """Test parsing integer value."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("count: 42\n")
 
@@ -389,8 +389,8 @@ class TestLoadYamlNumericValues:
         assert result["count"] == 42
         assert isinstance(result["count"], int)
 
-    def test_float(self, tmp_path: Path):
-        """Parses float value."""
+    def test_float(self, tmp_path: Path) -> None:
+        """Test parsing float value."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("ratio: 3.14159\n")
 
@@ -398,8 +398,8 @@ class TestLoadYamlNumericValues:
         assert result["ratio"] == pytest.approx(3.14159)
         assert isinstance(result["ratio"], float)
 
-    def test_negative_numbers(self, tmp_path: Path):
-        """Parses negative numbers."""
+    def test_negative_numbers(self, tmp_path: Path) -> None:
+        """Test parsing negative numbers."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("temperature: -10\noffset: -1.5\n")
 
@@ -407,10 +407,9 @@ class TestLoadYamlNumericValues:
         assert result["temperature"] == -10
         assert result["offset"] == -1.5
 
-    def test_scientific_notation(self, tmp_path: Path):
-        """Parses scientific notation."""
+    def test_scientific_notation(self, tmp_path: Path) -> None:
+        """Test parsing scientific notation."""
         yaml_file = tmp_path / "config.yaml"
-        # YAML 1.1 (used by PyYAML) requires proper float format
         yaml_file.write_text("large: 1.0e+6\nsmall: 1.0e-6\n")
 
         result = load_yaml(str(yaml_file))
@@ -419,26 +418,26 @@ class TestLoadYamlNumericValues:
 
 
 class TestLoadYamlUnicode:
-    """load_yaml() with Unicode content."""
+    """Tests for load_yaml() with Unicode content."""
 
-    def test_unicode_content(self, tmp_path: Path):
-        """Loads Unicode content."""
+    def test_unicode_content(self, tmp_path: Path) -> None:
+        """Test loading Unicode content."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("message: Hello World\n", encoding="utf-8")
 
         result = load_yaml(str(yaml_file))
         assert result["message"] == "Hello World"
 
-    def test_emoji(self, tmp_path: Path):
-        """Loads emoji content."""
+    def test_emoji(self, tmp_path: Path) -> None:
+        """Test loading emoji content."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("icon: Test Content\n", encoding="utf-8")
 
         result = load_yaml(str(yaml_file))
         assert result["icon"] == "Test Content"
 
-    def test_chinese_characters(self, tmp_path: Path):
-        """Loads Chinese characters."""
+    def test_chinese_characters(self, tmp_path: Path) -> None:
+        """Test loading Chinese characters."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("greeting: Hello\n", encoding="utf-8")
 
@@ -452,26 +451,26 @@ class TestLoadYamlUnicode:
 
 
 class TestLoadYamlInvalidSyntax:
-    """load_yaml() with invalid YAML syntax."""
+    """Tests for load_yaml() with invalid YAML syntax."""
 
-    def test_invalid_indentation(self, tmp_path: Path):
-        """Raises YAMLError for invalid indentation."""
+    def test_invalid_indentation(self, tmp_path: Path) -> None:
+        """Test YAMLError for invalid indentation."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("parent:\n  child: value\n invalid: bad\n")
 
         with pytest.raises(yaml.YAMLError):
             load_yaml(str(yaml_file))
 
-    def test_duplicate_keys_last_wins(self, tmp_path: Path):
-        """Duplicate keys - last value wins (YAML 1.1 behavior)."""
+    def test_duplicate_keys_last_wins(self, tmp_path: Path) -> None:
+        """Test duplicate keys -- last value wins (YAML 1.1 behavior)."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("key: first\nkey: second\n")
 
         result = load_yaml(str(yaml_file))
         assert result["key"] == "second"
 
-    def test_colon_without_space(self, tmp_path: Path):
-        """Colon without space may be treated as string."""
+    def test_colon_without_space(self, tmp_path: Path) -> None:
+        """Test colon without space may be treated as string."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text("url: http://example.com\n")
 
@@ -485,10 +484,10 @@ class TestLoadYamlInvalidSyntax:
 
 
 class TestLoadYamlAnchorsAliases:
-    """load_yaml() with YAML anchors and aliases."""
+    """Tests for load_yaml() with YAML anchors and aliases."""
 
-    def test_anchor_and_alias(self, tmp_path: Path):
-        """Parses anchors and aliases."""
+    def test_anchor_and_alias(self, tmp_path: Path) -> None:
+        """Test parsing anchors and aliases."""
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text(
             """
@@ -504,8 +503,8 @@ production:
 
         result = load_yaml(str(yaml_file))
         assert result["defaults"]["timeout"] == 30
-        assert result["production"]["timeout"] == 60  # Overridden
-        assert result["production"]["retries"] == 3  # Inherited
+        assert result["production"]["timeout"] == 60
+        assert result["production"]["retries"] == 3
 
 
 # =============================================================================
@@ -514,14 +513,12 @@ production:
 
 
 class TestLoadYamlSecurity:
-    """load_yaml() security (uses safe_load)."""
+    """Tests that load_yaml() uses safe_load to prevent code execution."""
 
-    def test_safe_load_prevents_arbitrary_objects(self, tmp_path: Path):
-        """safe_load prevents Python object instantiation."""
+    def test_safe_load_prevents_arbitrary_objects(self, tmp_path: Path) -> None:
+        """Test safe_load prevents Python object instantiation."""
         yaml_file = tmp_path / "config.yaml"
-        # This would create a Python tuple if using unsafe load
         yaml_file.write_text("value: !!python/tuple [1, 2, 3]\n")
 
-        # safe_load should raise an error for Python-specific tags
         with pytest.raises(yaml.YAMLError):
             load_yaml(str(yaml_file))

@@ -1,79 +1,41 @@
 """
-RelayMetadata junction model for BigBrotr.
+Junction model linking a Relay to a Metadata record.
 
-Represents a time-series snapshot linking a Relay to its Metadata by type.
-Used for storing NIP-11 and NIP-66 monitoring data with content-addressed
-deduplication (metadata hash computed in Python for determinism).
-
-Database mapping:
-    - relay_url -> relays.url (FK)
-    - generated_at -> relay_metadata.generated_at timestamp
-    - type -> MetadataType enum value
-      (nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http)
-    - metadata_id -> metadata.id (FK, SHA-256 hash computed in Python)
-
-Example:
-    >>> relay_metadata = RelayMetadata(
-    ...     relay=relay,
-    ...     metadata=Metadata({"name": "My Relay"}),
-    ...     metadata_type="nip11_fetch",
-    ... )
-    >>> params = relay_metadata.to_db_params()  # RelayMetadataDbParams
+Maps to the ``relay_metadata`` table, representing a time-series snapshot
+that associates a relay with a specific metadata payload. Metadata records
+are deduplicated via content-addressed hashing (SHA-256 computed in Python).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
 from time import time
 from typing import NamedTuple
 
-from .metadata import Metadata, MetadataDbParams
+from .metadata import Metadata, MetadataDbParams, MetadataType
 from .relay import Relay, RelayDbParams
 
 
-class MetadataType(StrEnum):
-    """Metadata type constants matching database CHECK constraint.
-
-    Supported types:
-        - nip11_fetch: NIP-11 relay information document (HTTP fetch)
-        - nip66_rtt: NIP-66 round-trip time measurements
-        - nip66_ssl: NIP-66 SSL certificate information
-        - nip66_geo: NIP-66 geolocation data
-        - nip66_net: NIP-66 network information
-        - nip66_dns: NIP-66 DNS resolution data
-        - nip66_http: NIP-66 HTTP header information
-    """
-
-    NIP11_FETCH = "nip11_fetch"
-    NIP66_RTT = "nip66_rtt"
-    NIP66_SSL = "nip66_ssl"
-    NIP66_GEO = "nip66_geo"
-    NIP66_NET = "nip66_net"
-    NIP66_DNS = "nip66_dns"
-    NIP66_HTTP = "nip66_http"
-
-
 class RelayMetadataDbParams(NamedTuple):
-    """Database parameters for RelayMetadata insert operations.
+    """Positional parameters for the relay-metadata junction insert procedure.
 
     Attributes:
         relay_url: Relay WebSocket URL.
-        relay_network: Network type (clearnet, tor, i2p, lokinet).
-        relay_discovered_at: Unix timestamp when relay was discovered.
-        metadata_id: SHA-256 hash (32 bytes) computed in Python.
-        metadata_json: Canonical JSON string for JSONB storage.
-        metadata_type: Type of metadata (nip11_fetch, nip66_*, etc.).
-        generated_at: Unix timestamp when metadata was collected.
+        relay_network: Network type string (clearnet, tor, i2p, loki).
+        relay_discovered_at: Unix timestamp of relay discovery.
+        metadata_id: SHA-256 content hash (32 bytes).
+        metadata_value: Canonical JSON string for JSONB storage.
+        metadata_type: Metadata type discriminator.
+        generated_at: Unix timestamp when the metadata was collected.
     """
 
     # Relay fields
     relay_url: str
     relay_network: str
     relay_discovered_at: int
-    # Metadata fields (hash computed in Python)
+    # Metadata fields
     metadata_id: bytes
-    metadata_json: str
+    metadata_value: str
     # Junction fields
     metadata_type: MetadataType
     generated_at: int
@@ -81,37 +43,30 @@ class RelayMetadataDbParams(NamedTuple):
 
 @dataclass(frozen=True, slots=True)
 class RelayMetadata:
-    """
-    Immutable relay metadata junction record.
+    """Immutable junction record linking a Relay to a Metadata payload.
 
-    Represents a row in the `relay_metadata` table:
-    - relay_url: Foreign key to relays.url
-    - generated_at: Unix timestamp when metadata was collected
-    - type: Metadata type (see MetadataType enum)
-    - metadata_id: Foreign key to metadata.id
+    The ``metadata_type`` is carried by the ``Metadata`` object and written
+    to the junction table to allow type-filtered queries.
 
-    Links a Relay to a Metadata object with timestamp and type context.
+    Attributes:
+        relay: The relay this metadata belongs to.
+        metadata: The metadata payload (with type and content hash).
+        generated_at: Unix timestamp when the metadata was collected (defaults to now).
     """
 
     relay: Relay
     metadata: Metadata
-    metadata_type: MetadataType
     generated_at: int = field(default_factory=lambda: int(time()))
 
     def __post_init__(self) -> None:
-        """Validate that to_db_params() succeeds (fail-fast)."""
+        """Validate database parameter conversion at construction time (fail-fast)."""
         self.to_db_params()
 
     def to_db_params(self) -> RelayMetadataDbParams:
-        """
-        Return database parameters for relay_metadata_insert_cascade procedure.
-
-        The metadata hash (SHA-256) is computed in Python for deterministic
-        deduplication across all environments.
+        """Convert to positional parameters for the cascade insert procedure.
 
         Returns:
-            RelayMetadataDbParams with named fields for relay, metadata (with hash),
-            type, and timestamp.
+            RelayMetadataDbParams combining relay, metadata, and junction fields.
         """
         r = self.relay.to_db_params()
         m = self.metadata.to_db_params()
@@ -119,23 +74,24 @@ class RelayMetadata:
             relay_url=r.url,
             relay_network=r.network,
             relay_discovered_at=r.discovered_at,
-            metadata_id=m.metadata_id,
-            metadata_json=m.metadata_json,
-            metadata_type=self.metadata_type,
+            metadata_id=m.id,
+            metadata_value=m.value,
+            metadata_type=m.type,
             generated_at=self.generated_at,
         )
 
     @classmethod
     def from_db_params(cls, params: RelayMetadataDbParams) -> RelayMetadata:
-        """
-        Create RelayMetadata from database parameters.
+        """Reconstruct a RelayMetadata from database parameters.
 
         Args:
-            params: RelayMetadataDbParams containing all relay, metadata, and junction fields.
-                    The metadata_id is not used (hash is recomputed if needed).
+            params: Database row values previously produced by ``to_db_params()``.
 
         Returns:
-            RelayMetadata instance
+            A new RelayMetadata instance.
+
+        Raises:
+            ValueError: If the metadata content hash does not match (integrity check).
         """
         relay_params = RelayDbParams(
             url=params.relay_url,
@@ -143,14 +99,14 @@ class RelayMetadata:
             discovered_at=params.relay_discovered_at,
         )
         metadata_params = MetadataDbParams(
-            metadata_id=params.metadata_id,
-            metadata_json=params.metadata_json,
+            id=params.metadata_id,
+            value=params.metadata_value,
+            type=params.metadata_type,
         )
         relay = Relay.from_db_params(relay_params)
         metadata = Metadata.from_db_params(metadata_params)
         return cls(
             relay=relay,
             metadata=metadata,
-            metadata_type=params.metadata_type,
             generated_at=params.generated_at,
         )

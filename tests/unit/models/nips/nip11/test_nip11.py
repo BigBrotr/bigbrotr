@@ -1,28 +1,4 @@
-"""Tests for the main Nip11 class and RelayNip11MetadataTuple.
-
-Tests cover:
-- Nip11 construction
-  - With fetch_metadata
-  - With fetch_metadata=None
-  - With default generated_at
-  - With explicit generated_at
-  - Validation (negative generated_at, invalid relay)
-- Nip11 data access
-  - Accessing fetch_metadata fields
-  - Accessing nested data
-- Nip11 serialization
-  - to_relay_metadata_tuple() method
-- Nip11.create() factory method
-  - Success scenarios
-  - Error handling
-  - URL scheme handling
-  - Accept header verification
-  - Content-Type validation
-- RelayNip11MetadataTuple NamedTuple
-  - Construction
-  - Field access
-  - Tuple unpacking
-"""
+"""Unit tests for Nip11 class, Nip11.create() factory, and RelayNip11MetadataTuple."""
 
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -30,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from models.metadata import Metadata
+from models.metadata import Metadata, MetadataType
 from models.nips.nip11 import (
     Nip11,
     Nip11FetchData,
@@ -39,7 +15,6 @@ from models.nips.nip11 import (
 )
 from models.nips.nip11.nip11 import RelayNip11MetadataTuple
 from models.relay import Relay
-from models.relay_metadata import MetadataType
 
 
 # =============================================================================
@@ -218,7 +193,7 @@ class TestNip11Serialization:
         """to_relay_metadata_tuple returns RelayMetadata for nip11_fetch."""
         result = nip11.to_relay_metadata_tuple()
         assert result.nip11_fetch is not None
-        assert result.nip11_fetch.metadata_type == MetadataType.NIP11_FETCH
+        assert result.nip11_fetch.metadata.type == MetadataType.NIP11_FETCH
         assert result.nip11_fetch.relay is nip11.relay
         assert result.nip11_fetch.generated_at == nip11.generated_at
 
@@ -227,8 +202,8 @@ class TestNip11Serialization:
         result = nip11.to_relay_metadata_tuple()
         metadata = result.nip11_fetch.metadata
         assert isinstance(metadata, Metadata)
-        assert metadata.metadata["data"]["name"] == "Test Relay"
-        assert metadata.metadata["logs"]["success"] is True
+        assert metadata.value["data"]["name"] == "Test Relay"
+        assert metadata.value["logs"]["success"] is True
 
     def test_to_relay_metadata_tuple_none_fetch_metadata(self, nip11_no_fetch_metadata: Nip11):
         """to_relay_metadata_tuple returns None for nip11_fetch when fetch_metadata is None."""
@@ -678,7 +653,6 @@ class TestNip11CreateParameters:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        # Return data larger than custom limit
         response.content.read = AsyncMock(return_value=b"x" * 2000)
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
@@ -706,37 +680,31 @@ class TestNip11Integration:
         complete_nip11_data: dict[str, Any],
     ):
         """Full workflow: construct -> access data -> serialize."""
-        # Construct
         fetch_data = Nip11FetchData.from_dict(complete_nip11_data)
         fetch_logs = Nip11FetchLogs(success=True)
         fetch_metadata = Nip11FetchMetadata(data=fetch_data, logs=fetch_logs)
         nip11 = Nip11(relay=relay, fetch_metadata=fetch_metadata, generated_at=1234567890)
 
-        # Access data
         assert nip11.fetch_metadata.data.name == "Test Relay"
         assert nip11.fetch_metadata.data.supported_nips == [1, 11, 42, 65]
 
-        # Serialize
         result = nip11.to_relay_metadata_tuple()
         assert result.nip11_fetch is not None
-        assert result.nip11_fetch.metadata.metadata["data"]["name"] == "Test Relay"
+        assert result.nip11_fetch.metadata.value["data"]["name"] == "Test Relay"
 
     def test_full_workflow_failure(self, relay: Relay):
         """Full workflow with failed fetch."""
-        # Construct failed result
         fetch_data = Nip11FetchData()
         fetch_logs = Nip11FetchLogs(success=False, reason="Connection timeout")
         fetch_metadata = Nip11FetchMetadata(data=fetch_data, logs=fetch_logs)
         nip11 = Nip11(relay=relay, fetch_metadata=fetch_metadata, generated_at=1234567890)
 
-        # Access data
         assert nip11.fetch_metadata.logs.success is False
         assert nip11.fetch_metadata.data.name is None
 
-        # Serialize
         result = nip11.to_relay_metadata_tuple()
         assert result.nip11_fetch is not None
-        assert result.nip11_fetch.metadata.metadata["logs"]["success"] is False
+        assert result.nip11_fetch.metadata.value["logs"]["success"] is False
 
     def test_roundtrip_through_metadata(
         self,
@@ -744,20 +712,15 @@ class TestNip11Integration:
         complete_nip11_data: dict[str, Any],
     ):
         """Verify data survives roundtrip through Metadata."""
-        # Create original
         fetch_data = Nip11FetchData.from_dict(complete_nip11_data)
         fetch_logs = Nip11FetchLogs(success=True)
         fetch_metadata = Nip11FetchMetadata(data=fetch_data, logs=fetch_logs)
         nip11 = Nip11(relay=relay, fetch_metadata=fetch_metadata)
 
-        # Serialize to RelayMetadata
         result = nip11.to_relay_metadata_tuple()
-        metadata_dict = result.nip11_fetch.metadata.metadata
-
-        # Reconstruct fetch_metadata from dict
+        metadata_dict = result.nip11_fetch.metadata.value
         reconstructed = Nip11FetchMetadata.from_dict(metadata_dict)
 
-        # Verify key fields
         assert reconstructed.data.name == fetch_data.name
         assert reconstructed.data.supported_nips == fetch_data.supported_nips
         assert reconstructed.logs.success == fetch_logs.success

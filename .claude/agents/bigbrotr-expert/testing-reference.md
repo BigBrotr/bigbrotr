@@ -11,7 +11,7 @@ tests/
 |   +-- core/                    # Core layer tests
 |   |   +-- test_pool.py
 |   |   +-- test_brotr.py
-|   |   +-- test_base_service.py
+|   |   +-- test_service.py
 |   |   +-- test_logger.py
 |   +-- services/                # Service layer tests
 |   |   +-- test_seeder.py
@@ -476,7 +476,7 @@ async def test_insert_events(mock_brotr, sample_events_batch):
     assert mock_brotr.pool._mock_connection.executemany.called
 ```
 
-**test_base_service.py**:
+**test_service.py**:
 ```python
 import pytest
 from core import BaseService

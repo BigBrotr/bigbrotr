@@ -1,7 +1,24 @@
-"""Validates relay candidates by checking if they speak Nostr protocol.
+"""Validator service for BigBrotr.
 
-Valid candidates are promoted to the relays table. Invalid ones have their
-failure counter incremented and will be retried in future cycles.
+Validates relay candidates discovered by the Finder service by checking whether
+they speak the Nostr protocol via WebSocket. Valid candidates are promoted to
+the relays table; invalid ones have their failure counter incremented and are
+retried in future cycles.
+
+Validation criteria: a candidate is valid if it accepts a WebSocket connection
+and responds to a Nostr REQ message with EOSE, EVENT, NOTICE, or AUTH.
+
+Usage::
+
+    from core import Brotr
+    from services import Validator
+
+    brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
+    validator = Validator.from_yaml("yaml/services/validator.yaml", brotr=brotr)
+
+    async with brotr.pool:
+        async with validator:
+            await validator.run_forever()
 """
 
 from __future__ import annotations
@@ -32,13 +49,12 @@ if TYPE_CHECKING:
 class Candidate:
     """Relay candidate pending validation.
 
-    Wraps a Relay object with its associated service_data metadata, providing
-    convenient access to validation state like failure counts.
+    Wraps a Relay object with its service_data metadata, providing
+    convenient access to validation state (e.g., failure count).
 
     Attributes:
-        relay: The Relay object containing URL and network information.
-        data: Dictionary of metadata from service_data table, including
-            'network' and 'failed_attempts' fields.
+        relay: Relay object with URL and network information.
+        data: Metadata from the service_data table (network, failed_attempts, etc.).
     """
 
     relay: Relay
@@ -60,10 +76,9 @@ class ProcessingConfig(BaseModel):
     """Candidate processing settings.
 
     Attributes:
-        chunk_size: Number of candidates to fetch and validate per iteration.
-            Larger chunks reduce database round-trips but increase memory usage.
-        max_candidates: Optional limit on total candidates processed per cycle.
-            When None, processes all available candidates.
+        chunk_size: Candidates to fetch and validate per iteration. Larger
+            chunks reduce DB round-trips but increase memory usage.
+        max_candidates: Optional cap on total candidates per cycle (None = all).
     """
 
     chunk_size: int = Field(default=100, ge=10, le=1000)
@@ -73,8 +88,8 @@ class ProcessingConfig(BaseModel):
 class CleanupConfig(BaseModel):
     """Exhausted candidate cleanup settings.
 
-    Controls removal of candidates that have failed validation too many times,
-    preventing permanently broken relays from consuming resources indefinitely.
+    Removes candidates that have exceeded the maximum failure threshold,
+    preventing permanently broken relays from consuming resources.
 
     Attributes:
         enabled: Whether to enable exhausted candidate cleanup.
@@ -86,13 +101,7 @@ class CleanupConfig(BaseModel):
 
 
 class ValidatorConfig(BaseServiceConfig):
-    """Validator service configuration.
-
-    Attributes:
-        networks: Network-specific settings (timeouts, proxies, concurrency).
-        processing: Chunk size and candidate limits for validation cycles.
-        cleanup: Settings for removing exhausted candidates.
-    """
+    """Validator service configuration."""
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
@@ -107,48 +116,27 @@ class ValidatorConfig(BaseServiceConfig):
 class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     """Validates relay candidates by checking if they speak the Nostr protocol.
 
-    This service processes relay URLs discovered by the Finder service and determines
-    whether they are valid Nostr relays. Valid relays are promoted to the main relays
-    table, while invalid ones have their failure counter incremented for retry in
-    future cycles.
-
-    Validation Criteria:
-        A relay is considered valid if it:
-        1. Accepts a WebSocket connection at its URL
-        2. Responds to a Nostr REQ message within the configured timeout
-        3. Returns a valid Nostr response (EOSE, EVENT, or NOTICE)
+    Processes candidate URLs discovered by the Finder service. Valid relays are
+    promoted to the relays table; invalid ones have their failure counter
+    incremented for retry in future cycles.
 
     Workflow:
-        1. Reset cycle state and initialize per-network concurrency semaphores
-        2. Clean up stale candidates (URLs already in relays table)
-        3. Optionally clean up exhausted candidates (exceeded max failure threshold)
-        4. Count available candidates for enabled networks
-        5. Process candidates in configurable chunks:
-           a. Fetch chunk ordered by failed_attempts ASC, updated_at ASC
-           b. Validate each candidate concurrently (respecting network semaphores)
-           c. Persist results: promote valid relays, increment failure count for invalid
-        6. Emit metrics and log completion statistics
+        1. Initialize per-network concurrency semaphores.
+        2. Clean up stale candidates (URLs already in the relays table).
+        3. Optionally remove exhausted candidates (exceeded max failures).
+        4. Process remaining candidates in configurable chunks:
+           a. Fetch chunk ordered by failure count ASC, then age ASC.
+           b. Validate concurrently (respecting per-network semaphores).
+           c. Promote valid relays; increment failure count for invalid ones.
+        5. Emit Prometheus metrics and log completion statistics.
 
-    Network Support:
-        - Clearnet (wss://): Direct WebSocket connections
-        - Tor (wss://*.onion): Connections via SOCKS5 proxy (configurable)
-        - I2P (wss://*.i2p): Connections via HTTP proxy (configurable)
-
-    Attributes:
-        SERVICE_NAME: Service identifier for configuration and logging.
-        CONFIG_CLASS: Pydantic configuration model class.
+    Network support: clearnet (direct), Tor (.onion via SOCKS5), I2P (.i2p via SOCKS5).
     """
 
     SERVICE_NAME: ClassVar[str] = "validator"
     CONFIG_CLASS: ClassVar[type[ValidatorConfig]] = ValidatorConfig
 
     def __init__(self, brotr: Brotr, config: ValidatorConfig | None = None) -> None:
-        """Initialize the Validator service.
-
-        Args:
-            brotr: Database interface for relay and service_data operations.
-            config: Optional configuration. If None, loads from YAML file.
-        """
         super().__init__(brotr=brotr, config=config)
         self._config: ValidatorConfig
         self._semaphores: dict[NetworkType, asyncio.Semaphore] = {}
@@ -161,17 +149,9 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     async def run(self) -> None:
         """Execute one complete validation cycle.
 
-        Orchestrates the full validation workflow: cleanup, counting, processing,
-        and metrics emission. Each cycle processes candidates in chunks to manage
-        memory and provide progress feedback.
-
-        The cycle respects the `is_running` flag and will exit early if the service
-        is stopped. It also respects `max_candidates` configuration to limit the
-        number of candidates processed per cycle.
-
-        Raises:
-            Exception: Database errors are logged but not raised to allow the
-                service to continue with subsequent cycles.
+        Orchestrates cleanup, candidate counting, chunk-based processing, and
+        metrics emission. Respects ``is_running`` for graceful shutdown and
+        ``max_candidates`` for per-cycle limits.
         """
         self._progress.reset()
         self._init_semaphores(self._config.networks)
@@ -209,16 +189,10 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     # -------------------------------------------------------------------------
 
     def _emit_metrics(self) -> None:
-        """Emit Prometheus metrics reflecting current cycle state.
+        """Emit Prometheus gauge metrics for the current cycle state.
 
-        Updates gauge metrics for monitoring dashboards:
-            - total: Total candidates available at cycle start
-            - processed: Candidates processed (cumulative in cycle)
-            - success: Relays that passed validation (cumulative in cycle)
-            - failure: Relays that failed validation (cumulative in cycle)
-
-        Called after cleanup/counting, after each chunk, and at cycle completion
-        to provide real-time visibility into validation progress.
+        Updates total, processed, success, and failure gauges. Called after
+        cleanup, after each chunk, and at cycle completion.
         """
         self.set_gauge("total", self._progress.total)
         self.set_gauge("processed", self._progress.processed)
@@ -232,16 +206,9 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     async def _cleanup_stale(self) -> None:
         """Remove candidates whose URLs already exist in the relays table.
 
-        Stale candidates occur when:
-            - A relay was validated by another process/cycle
-            - A relay was manually added to the relays table
-            - The Finder re-discovered an already-validated relay
-
-        This cleanup prevents wasted validation attempts and ensures the
-        candidate pool only contains URLs not yet in the relays table.
-
-        Increments the 'total_stale_removed' counter metric when candidates
-        are removed.
+        Stale candidates appear when a relay was validated by another cycle,
+        manually added, or re-discovered by the Finder. Removing them prevents
+        wasted validation attempts.
         """
         result = await self._brotr.pool.execute(
             """
@@ -260,17 +227,8 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     async def _cleanup_exhausted(self) -> None:
         """Remove candidates that have exceeded the maximum failure threshold.
 
-        When enabled via configuration, this removes candidates that have failed
-        validation too many times (default: 100 attempts). This prevents
-        permanently broken or non-existent relays from consuming validation
-        resources indefinitely.
-
-        The threshold is configurable via cleanup.max_failures. Setting
-        cleanup.enabled to False disables this cleanup entirely, allowing
-        unlimited retry attempts.
-
-        Increments the 'total_exhausted_removed' counter metric when candidates
-        are removed.
+        Prevents permanently broken relays from consuming validation resources.
+        Controlled by ``cleanup.enabled`` and ``cleanup.max_failures``.
         """
         if not self._config.cleanup.enabled:
             return
@@ -296,26 +254,14 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
 
     @staticmethod
     def _parse_delete_result(result: str | None) -> int:
-        """Parse the row count from a PostgreSQL DELETE command result.
-
-        PostgreSQL returns DELETE results in the format 'DELETE N' where N is
-        the number of rows affected. This method extracts that count.
+        """Extract the row count from a PostgreSQL DELETE result string.
 
         Args:
-            result: The raw result string from asyncpg execute(), typically
-                in the format 'DELETE N'. May be None if the query failed.
+            result: Raw result from asyncpg execute() in ``'DELETE N'`` format,
+                or None if the query failed.
 
         Returns:
-            The number of rows deleted, or 0 if the result is None, empty,
-            or cannot be parsed.
-
-        Examples:
-            >>> Validator._parse_delete_result("DELETE 5")
-            5
-            >>> Validator._parse_delete_result("DELETE 0")
-            0
-            >>> Validator._parse_delete_result(None)
-            0
+            Number of deleted rows, or 0 if unparseable.
         """
         if not result:
             return 0
@@ -325,18 +271,13 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
             return 0
 
     async def _count_candidates(self, networks: list[str]) -> int:
-        """Count the total number of pending candidates for the specified networks.
-
-        Queries the service_data table to count candidates whose network type
-        matches one of the enabled networks. This count is used for progress
-        reporting and metrics.
+        """Count pending candidates for the specified networks.
 
         Args:
-            networks: List of enabled network type strings (e.g., ['clearnet', 'tor']).
+            networks: Enabled network type strings (e.g., ``['clearnet', 'tor']``).
 
         Returns:
-            Total count of candidates matching the specified networks.
-            Returns 0 if no candidates exist or if the query fails.
+            Total count of matching candidates, or 0 if none exist.
         """
         row = await self._brotr.pool.fetchrow(
             """
@@ -358,18 +299,12 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     async def _process_all(self, networks: list[str]) -> None:
         """Process all pending candidates in configurable chunks.
 
-        Iteratively fetches and validates candidates until one of these conditions:
-            - No more candidates remain
-            - max_candidates limit is reached (if configured)
-            - Service is stopped (is_running becomes False)
-
-        Each iteration fetches a chunk of candidates, validates them concurrently,
-        persists the results, and emits progress metrics. Chunk size is configurable
-        to balance memory usage against database round-trips.
+        Iterates until no candidates remain, the ``max_candidates`` limit is
+        reached, or the service is stopped. Each chunk is fetched, validated
+        concurrently, and persisted in a single iteration.
 
         Args:
-            networks: List of enabled network type strings to process.
-                If empty, logs a warning and returns immediately.
+            networks: Enabled network type strings to process.
         """
         if not networks:
             self._logger.warning("no_networks_enabled")
@@ -409,27 +344,18 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
             )
 
     async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Candidate]:
-        """Fetch the next chunk of candidates for validation.
+        """Fetch the next chunk of candidates ordered by priority.
 
-        Retrieves candidates from the service_data table, ordered to prioritize:
-            1. Candidates with fewer failed attempts (more likely to succeed)
-            2. Older candidates (FIFO within same failure count)
-
-        Only fetches candidates updated before the cycle start time to avoid
-        re-processing candidates that were just updated in this cycle.
+        Prioritizes candidates with fewer failures (more likely to succeed),
+        then by age (FIFO within the same failure count). Only fetches
+        candidates updated before the cycle start to avoid reprocessing.
 
         Args:
-            networks: List of enabled network type strings to fetch.
-            limit: Maximum number of candidates to return in this chunk.
+            networks: Enabled network type strings to fetch.
+            limit: Maximum candidates to return.
 
         Returns:
-            List of Candidate objects ready for validation. May be empty if no
-            candidates remain or all have been processed this cycle.
-
-        Note:
-            Stale candidates (URLs already in relays table) are cleaned up at the
-            start of each cycle by _cleanup_stale(), so no subquery filter is
-            needed here.
+            List of Candidate objects, possibly empty if none remain.
         """
         rows = await self._brotr.pool.fetch(
             """
@@ -464,20 +390,14 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     ) -> tuple[list[Relay], list[Candidate]]:
         """Validate a chunk of candidates concurrently.
 
-        Creates validation tasks for all candidates and awaits them together
-        using asyncio.gather. Each validation respects network-specific
-        semaphores to limit concurrency.
-
-        Updates the progress counters (processed, success, failure) as results
-        are processed.
+        Runs all validations via ``asyncio.gather`` with per-network semaphores
+        and updates progress counters as results arrive.
 
         Args:
-            candidates: List of Candidate objects to validate.
+            candidates: Candidates to validate.
 
         Returns:
-            A tuple of (valid_relays, invalid_candidates) where:
-                - valid_relays: List of Relay objects that passed validation
-                - invalid_candidates: List of Candidate objects that failed
+            Tuple of (valid_relays, invalid_candidates).
         """
         tasks = [self._validate_one(c) for c in candidates]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -497,22 +417,16 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
         return valid, invalid
 
     async def _validate_one(self, candidate: Candidate) -> bool:
-        """Validate a single relay candidate using the Nostr protocol.
+        """Validate a single relay candidate by connecting and testing the Nostr protocol.
 
-        Attempts to connect to the relay and verify it speaks Nostr by:
-            1. Establishing a WebSocket connection (with proxy for Tor/I2P)
-            2. Sending a REQ message with an impossible filter
-            3. Expecting a valid Nostr response (EOSE, EVENT, or NOTICE)
-
-        Uses the network-specific semaphore to limit concurrent connections.
-        Timeouts and proxy settings are determined by the relay's network type.
+        Uses the network-specific semaphore and proxy settings. Returns True
+        if the relay responds to a Nostr REQ message, False otherwise.
 
         Args:
-            candidate: The Candidate object containing the relay to validate.
+            candidate: Candidate to validate.
 
         Returns:
-            True if the relay is a valid Nostr relay, False otherwise.
-            Returns False for unknown network types or any exceptions.
+            True if the relay speaks Nostr protocol, False otherwise.
         """
         relay = candidate.relay
         semaphore = self._semaphores.get(relay.network)
@@ -536,21 +450,13 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     async def _persist_results(self, valid: list[Relay], invalid: list[Candidate]) -> None:
         """Persist validation results to the database.
 
-        For invalid candidates:
-            - Increments the failed_attempts counter in their service_data record
-            - This allows prioritization by failure count in future cycles
-
-        For valid relays:
-            - Inserts them into the relays table via brotr.insert_relays()
-            - Deletes their candidate records from service_data
-            - Logs each promotion with URL and network type
-
-        Errors during persistence are logged but do not raise exceptions,
-        allowing the cycle to continue processing other results.
+        Invalid candidates have their failure counter incremented for
+        prioritization in future cycles. Valid relays are inserted into
+        the relays table and their candidate records are deleted.
 
         Args:
-            valid: List of Relay objects that passed validation.
-            invalid: List of Candidate objects that failed validation.
+            valid: Relays that passed validation.
+            invalid: Candidates that failed validation.
         """
         # Update failed candidates
         if invalid:

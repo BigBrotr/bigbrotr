@@ -1,31 +1,24 @@
 """Unified network configuration for all BigBrotr services.
 
-This module provides Pydantic configuration models for managing network-specific
-settings across different relay network types (clearnet, Tor, I2P, Lokinet).
+Provides Pydantic models for managing per-network settings (clearnet, Tor, I2P,
+Lokinet). Each network type has its own config class with sensible defaults,
+allowing partial YAML overrides (e.g., setting only ``tor.enabled: true``
+inherits the default ``proxy_url``).
 
-Each network type has its own configuration class with appropriate defaults,
-allowing partial YAML overrides to work correctly (e.g., setting only
-`tor.enabled: true` inherits the default `proxy_url`).
+Per-network config fields:
+    - ``enabled``: Whether to process relays on this network.
+    - ``proxy_url``: SOCKS5 proxy URL for overlay networks.
+    - ``max_tasks``: Maximum concurrent connections.
+    - ``timeout``: Connection timeout in seconds.
 
-Network Types:
-    - clearnet: Standard internet relays (wss://example.com)
-    - tor: Tor hidden service relays (.onion addresses)
-    - i2p: I2P network relays (.i2p addresses)
-    - loki: Lokinet relays (.loki addresses)
+Example YAML::
 
-Configuration Fields:
-    - enabled: Whether to process relays on this network
-    - proxy_url: SOCKS5 proxy for overlay networks (Tor, I2P, Loki)
-    - max_tasks: Concurrent connection limit (for parallel services)
-    - timeout: Connection timeout in seconds
-
-Example YAML Configuration:
     networks:
       clearnet:
         enabled: true
-        max_tasks: 100       # Override only max_tasks
+        max_tasks: 100
       tor:
-        enabled: true        # Override only enabled, inherits proxy_url default
+        enabled: true  # Inherits default proxy_url
 """
 
 from __future__ import annotations
@@ -36,15 +29,10 @@ from pydantic import BaseModel, Field
 
 
 class NetworkType(StrEnum):
-    """Network type constants for relay classification.
+    """Network type enum for relay classification.
 
-    Used to categorize relays by their network connectivity:
-    - CLEARNET: Standard internet (requires TLS via wss://)
-    - TOR: Tor hidden services (.onion addresses, ws://)
-    - I2P: I2P network (.i2p addresses, ws://)
-    - LOKI: Lokinet (.loki addresses, ws://)
-    - LOCAL: Private/reserved addresses (rejected)
-    - UNKNOWN: Invalid or unrecognized format (rejected)
+    Values: CLEARNET (wss://), TOR (.onion), I2P (.i2p), LOKI (.loki),
+    LOCAL (private/rejected), UNKNOWN (invalid/rejected).
     """
 
     CLEARNET = "clearnet"
@@ -63,14 +51,8 @@ class NetworkType(StrEnum):
 class ClearnetConfig(BaseModel):
     """Configuration for clearnet (standard internet) relays.
 
-    Clearnet relays are accessed directly without a proxy. They typically
-    support high concurrency and have short timeouts.
-
-    Defaults:
-        enabled: True
-        proxy_url: None (no proxy needed)
-        max_tasks: 50 (high concurrency)
-        timeout: 10.0s (short timeout)
+    Direct connections without a proxy. Supports high concurrency with
+    short timeouts.
     """
 
     enabled: bool = True
@@ -82,14 +64,8 @@ class ClearnetConfig(BaseModel):
 class TorConfig(BaseModel):
     """Configuration for Tor (.onion) relays.
 
-    Tor relays require a SOCKS5 proxy to access the Tor network. They have
-    lower concurrency limits and longer timeouts due to network latency.
-
-    Defaults:
-        enabled: False
-        proxy_url: socks5://tor:9050
-        max_tasks: 10 (lower concurrency)
-        timeout: 30.0s (longer timeout)
+    Requires a SOCKS5 proxy. Lower concurrency and longer timeouts due
+    to Tor network latency.
     """
 
     enabled: bool = False
@@ -101,14 +77,8 @@ class TorConfig(BaseModel):
 class I2pConfig(BaseModel):
     """Configuration for I2P (.i2p) relays.
 
-    I2P relays require a SOCKS5 proxy to access the I2P network. They have
-    the lowest concurrency limits and longest timeouts due to network latency.
-
-    Defaults:
-        enabled: False
-        proxy_url: socks5://i2p:4447
-        max_tasks: 5 (lowest concurrency)
-        timeout: 45.0s (longest timeout)
+    Requires a SOCKS5 proxy. Lowest concurrency and longest timeouts due
+    to I2P network latency.
     """
 
     enabled: bool = False
@@ -120,14 +90,7 @@ class I2pConfig(BaseModel):
 class LokiConfig(BaseModel):
     """Configuration for Lokinet (.loki) relays.
 
-    Lokinet relays require a SOCKS5 proxy to access the Lokinet network.
-    Note: Lokinet is only supported on Linux.
-
-    Defaults:
-        enabled: False
-        proxy_url: socks5://lokinet:1080
-        max_tasks: 5 (lower concurrency)
-        timeout: 30.0s (longer timeout)
+    Requires a SOCKS5 proxy. Note: Lokinet is only supported on Linux.
     """
 
     enabled: bool = False
@@ -136,7 +99,7 @@ class LokiConfig(BaseModel):
     timeout: float = Field(default=30.0, ge=1.0, le=120.0)
 
 
-# Type alias for any network-specific config (for type hints)
+# Union type for any network-specific configuration
 NetworkTypeConfig = ClearnetConfig | TorConfig | I2pConfig | LokiConfig
 
 
@@ -148,28 +111,16 @@ NetworkTypeConfig = ClearnetConfig | TorConfig | I2pConfig | LokiConfig
 class NetworkConfig(BaseModel):
     """Unified network configuration container for all BigBrotr services.
 
-    This model aggregates per-network settings into a single configuration
-    object. It provides convenience methods for querying network settings
-    and is designed to be embedded in service configuration models.
+    Aggregates per-network settings with convenience methods for querying
+    enabled state, proxy URLs, and network-specific configs. Designed to
+    be embedded in service configuration models.
 
-    Each network type uses its own configuration class with appropriate defaults,
-    allowing partial YAML overrides to work correctly.
+    Example::
 
-    Attributes:
-        clearnet: Settings for standard internet relays.
-        tor: Settings for Tor .onion relays.
-        i2p: Settings for I2P .i2p relays.
-        loki: Settings for Lokinet .loki relays.
-
-    Example:
-        >>> config = NetworkConfig(
-        ...     clearnet=ClearnetConfig(max_tasks=100),
-        ...     tor=TorConfig(enabled=True),  # Inherits proxy_url default
-        ... )
-        >>> config.is_enabled(NetworkType.TOR)
-        True
-        >>> config.get_proxy_url(NetworkType.TOR)
-        'socks5://tor:9050'
+        config = NetworkConfig(tor=TorConfig(enabled=True))
+        config.is_enabled(NetworkType.TOR)  # True
+        config.get_proxy_url(NetworkType.TOR)  # 'socks5://tor:9050'
+        config.get_enabled_networks()  # ['clearnet', 'tor']
     """
 
     clearnet: ClearnetConfig = Field(default_factory=ClearnetConfig)

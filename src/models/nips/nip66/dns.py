@@ -1,4 +1,9 @@
-"""NIP-66 DNS metadata container with resolve capabilities."""
+"""
+NIP-66 DNS metadata container with resolution capabilities.
+
+Performs comprehensive DNS resolution for a relay hostname, including
+A, AAAA, CNAME, NS, and PTR record lookups. Clearnet relays only.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +22,7 @@ if TYPE_CHECKING:
     from dns.rdtypes.IN.A import A
     from dns.rdtypes.IN.AAAA import AAAA
 
-from logger import Logger
+from core.logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
 from utils.network import NetworkType
@@ -30,18 +35,35 @@ logger = Logger("models.nip66")
 
 
 class Nip66DnsMetadata(BaseMetadata):
-    """Container for DNS data and logs with resolve capabilities."""
+    """Container for DNS resolution data and operation logs.
+
+    Provides the ``dns()`` class method that performs a comprehensive
+    set of DNS queries (A, AAAA, CNAME, NS, reverse PTR) for a relay
+    hostname.
+    """
 
     data: Nip66DnsData
     logs: Nip66DnsLogs
 
     # -------------------------------------------------------------------------
-    # DNS Resolve
+    # DNS Resolution
     # -------------------------------------------------------------------------
 
     @staticmethod
     def _dns(host: str, timeout: float) -> dict[str, Any]:
-        """Synchronous comprehensive DNS resolution."""
+        """Perform synchronous DNS resolution across multiple record types.
+
+        Individual record lookups are wrapped in exception suppression so
+        that a failure in one type does not prevent the others from being
+        collected.
+
+        Args:
+            host: Hostname to resolve.
+            timeout: Resolver timeout in seconds.
+
+        Returns:
+            Dictionary of DNS fields (IPs, CNAME, NS, PTR, TTL).
+        """
         result: dict[str, Any] = {}
         resolver = dns.resolver.Resolver()
         resolver.timeout = timeout
@@ -70,7 +92,7 @@ class Nip66DnsMetadata(BaseMetadata):
                 result["dns_cname"] = str(cast("CNAME", rdata).target).rstrip(".")
                 break
 
-        # NS records
+        # NS records (resolved against the registered domain)
         with contextlib.suppress(Exception):
             ext = tldextract.extract(host)
             if ext.domain and ext.suffix:
@@ -80,7 +102,7 @@ class Nip66DnsMetadata(BaseMetadata):
                 if ns_list:
                     result["dns_ns"] = ns_list
 
-        # Reverse DNS (PTR)
+        # Reverse DNS (PTR) using the first resolved IPv4 address
         if result.get("dns_ips"):
             with contextlib.suppress(Exception):
                 ip = result["dns_ips"][0]
@@ -98,10 +120,20 @@ class Nip66DnsMetadata(BaseMetadata):
         relay: Relay,
         timeout: float | None = None,
     ) -> Self:
-        """Resolve DNS records for relay.
+        """Resolve DNS records for a clearnet relay.
+
+        Runs the synchronous DNS resolver in a thread pool to avoid
+        blocking the event loop.
+
+        Args:
+            relay: Clearnet relay to resolve.
+            timeout: Resolver timeout in seconds (default: 10.0).
+
+        Returns:
+            An ``Nip66DnsMetadata`` instance with resolution data and logs.
 
         Raises:
-            ValueError: If non-clearnet relay.
+            ValueError: If the relay is not on the clearnet network.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("dns_testing", relay=relay.url, timeout_s=timeout)

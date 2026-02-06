@@ -1,13 +1,14 @@
 # =============================================================================
 # Brotr Configuration (BigBrotr)
 # =============================================================================
+# Database connection and operation settings for the BigBrotr implementation.
 # Only values that differ from defaults are specified here.
 # See _template/yaml/core/brotr.yaml for all options and documentation.
 # =============================================================================
 
 pool:
   database:
-    host: pgbouncer              # Docker service name (default: localhost)
-    database: bigbrotr           # Implementation database name
+    host: pgbouncer              # Docker service name for connection pooling
+    database: bigbrotr           # Implementation-specific database name
   server_settings:
-    application_name: bigbrotr   # For pg_stat_activity identification
+    application_name: bigbrotr   # Identifies connections in pg_stat_activity

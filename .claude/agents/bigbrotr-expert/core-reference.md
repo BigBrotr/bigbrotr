@@ -210,7 +210,7 @@ Insert relays atomically. Returns count of inserted relays.
 ```python
 async def insert_relay_metadata(records: list[RelayMetadata]) -> int
 ```
-Insert relay metadata atomically. Hash computed by PostgreSQL. Returns count.
+Insert relay metadata atomically. Hash computed in Python via `hashlib.sha256()`. Returns count.
 
 ### Service Data Operations
 
@@ -287,7 +287,7 @@ async with brotr:
 
 ## BaseService - Service Base Class
 
-**Location**: `src/core/base_service.py`
+**Location**: `src/core/service.py`
 
 Abstract base class for all services with lifecycle management.
 
@@ -422,7 +422,7 @@ Structured key-value logger with optional JSON output.
 ### Constructor
 
 ```python
-from core import Logger
+from core.logger import Logger
 
 logger = Logger("service_name")  # Key-value output
 json_logger = Logger("service_name", json_output=True)  # JSON output

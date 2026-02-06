@@ -1,4 +1,10 @@
-"""NIP-11 data models."""
+"""
+NIP-11 relay information data models.
+
+Defines the typed Pydantic models that represent the fields of a NIP-11
+relay information document, including server limitations, retention policies,
+and fee schedules.
+"""
 
 from __future__ import annotations
 
@@ -10,14 +16,16 @@ from models.nips.base import BaseData
 from models.nips.parsing import FieldSpec
 
 
-# StrictInt: rejects bool (bool is subclass of int in Python)
-# tuple[StrictInt, StrictInt]: enforces exactly 2 elements for ranges
+# Exactly two integers representing an inclusive [start, end] event kind range.
 _KIND_RANGE_LENGTH = 2
-KindRange = tuple[StrictInt, StrictInt]  # [start, end] range for event kinds
+KindRange = tuple[StrictInt, StrictInt]
 
 
 class Nip11FetchDataLimitation(BaseData):
-    """Server limitations per NIP-11."""
+    """Server-imposed limitations advertised in the NIP-11 document.
+
+    All fields are optional; relays may omit any or all of them.
+    """
 
     max_message_length: StrictInt | None = None
     max_subscriptions: StrictInt | None = None
@@ -59,10 +67,10 @@ class Nip11FetchDataLimitation(BaseData):
 
 
 class Nip11FetchDataRetentionEntry(BaseData):
-    """Single retention policy entry per NIP-11.
+    """Single retention policy entry from a NIP-11 document.
 
-    NOTE: This class overrides parse() because 'kinds' can be a list of
-    ints or [int, int] ranges (tuples), which requires special handling.
+    The ``kinds`` field can contain plain integers or ``[start, end]``
+    range pairs, requiring custom parsing logic in ``parse()``.
     """
 
     kinds: list[StrictInt | KindRange] | None = None
@@ -71,14 +79,18 @@ class Nip11FetchDataRetentionEntry(BaseData):
 
     @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:
-        """Parse arbitrary data into a valid dict for this model.
+        """Parse a retention entry, handling mixed int/range kinds lists.
 
-        Special handling for 'kinds' which can be int or [int, int] ranges.
+        Args:
+            data: Raw dictionary for a single retention entry.
+
+        Returns:
+            Validated dictionary with ``kinds``, ``time``, and ``count``.
         """
         if not isinstance(data, dict):
             return {}
         result: dict[str, Any] = {}
-        # Parse kinds: list of int or [int, int] ranges
+
         if "kinds" in data and isinstance(data["kinds"], list):
             kinds: list[int | tuple[int, int]] = []
             for item in data["kinds"]:
@@ -95,7 +107,7 @@ class Nip11FetchDataRetentionEntry(BaseData):
                     kinds.append((item[0], item[1]))
             if kinds:
                 result["kinds"] = kinds
-        # Parse time and count
+
         for key in ("time", "count"):
             if key in data:
                 value = data[key]
@@ -104,12 +116,12 @@ class Nip11FetchDataRetentionEntry(BaseData):
         return result
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dict. Uses mode='json' to convert tuples to lists."""
+        """Serialize to a dictionary, converting tuples to lists for JSON."""
         return self.model_dump(exclude_none=True, mode="json")
 
 
 class Nip11FetchDataFeeEntry(BaseData):
-    """Single fee entry per NIP-11."""
+    """Single fee entry (admission, subscription, or publication)."""
 
     amount: StrictInt | None = None
     unit: str | None = None
@@ -124,10 +136,10 @@ class Nip11FetchDataFeeEntry(BaseData):
 
 
 class Nip11FetchDataFees(BaseData):
-    """Fee schedules per NIP-11.
+    """Fee schedule categories from a NIP-11 document.
 
-    NOTE: This class overrides parse() because it contains nested
-    Nip11FetchDataFeeEntry objects that need custom parsing.
+    Contains nested lists of ``Nip11FetchDataFeeEntry`` objects for
+    admission, subscription, and publication fees.
     """
 
     admission: list[Nip11FetchDataFeeEntry] | None = None
@@ -136,25 +148,32 @@ class Nip11FetchDataFees(BaseData):
 
     @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:
-        """Parse arbitrary data with nested fee entries."""
+        """Parse fee schedule data with nested fee entry objects.
+
+        Args:
+            data: Raw dictionary containing fee category lists.
+
+        Returns:
+            Validated dictionary with non-empty fee entry lists.
+        """
         if not isinstance(data, dict):
             return {}
         result: dict[str, Any] = {}
         for key in ("admission", "subscription", "publication"):
             if key in data and isinstance(data[key], list):
                 entries = [Nip11FetchDataFeeEntry.parse(e) for e in data[key]]
-                entries = [e for e in entries if e]  # Remove empty dicts
+                entries = [e for e in entries if e]
                 if entries:
                     result[key] = entries
         return result
 
 
 class Nip11FetchData(BaseData):
-    """Complete NIP-11 data structure.
+    """Complete NIP-11 relay information document.
 
-    NOTE: This class overrides parse() because it contains nested objects
-    (limitation, retention, fees) that need custom parsing. It also overrides
-    to_dict() to use by_alias=True for the 'self' field serialization.
+    Overrides ``parse()`` to handle nested objects (limitation, retention,
+    fees) and ``to_dict()`` to use ``by_alias=True`` for the ``self``
+    field, which maps to ``self_pubkey`` internally.
     """
 
     model_config = ConfigDict(frozen=True, populate_by_name=True)
@@ -189,7 +208,7 @@ class Nip11FetchData(BaseData):
 
     @property
     def self(self) -> str | None:
-        """Relay's own pubkey (from NIP-11 'self' field)."""
+        """Relay's own public key from the NIP-11 ``self`` field."""
         return self.self_pubkey
 
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
@@ -221,38 +240,48 @@ class Nip11FetchData(BaseData):
 
     @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:
-        """Parse arbitrary data into a valid dict for this model."""
+        """Parse a complete NIP-11 document with nested sub-objects.
+
+        Handles string fields, supported_nips list, and nested limitation,
+        retention, and fees objects.
+
+        Args:
+            data: Raw dictionary from the relay HTTP response.
+
+        Returns:
+            Validated dictionary suitable for model construction.
+        """
         if not isinstance(data, dict):
             return {}
         result: dict[str, Any] = {}
-        # Parse string fields
+
         for key in cls._FIELD_SPEC.str_fields:
             if key in data and isinstance(data[key], str):
                 result[key] = data[key]
-        # Parse supported_nips (list of int)
+
         if "supported_nips" in data and isinstance(data["supported_nips"], list):
             nips = [
                 n for n in data["supported_nips"] if isinstance(n, int) and not isinstance(n, bool)
             ]
             if nips:
                 result["supported_nips"] = nips
-        # Parse limitation (object)
+
         if "limitation" in data:
             limitation = Nip11FetchDataLimitation.parse(data["limitation"])
             if limitation:
                 result["limitation"] = limitation
-        # Parse retention (list of objects)
+
         if "retention" in data and isinstance(data["retention"], list):
             entries = [Nip11FetchDataRetentionEntry.parse(e) for e in data["retention"]]
             entries = [e for e in entries if e]
             if entries:
                 result["retention"] = entries
-        # Parse fees (object)
+
         if "fees" in data:
             fees = Nip11FetchDataFees.parse(data["fees"])
             if fees:
                 result["fees"] = fees
-        # Parse string list fields
+
         for key in cls._FIELD_SPEC.str_list_fields:
             if key in data and isinstance(data[key], list):
                 items = [s for s in data[key] if isinstance(s, str)]
@@ -261,5 +290,5 @@ class Nip11FetchData(BaseData):
         return result
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dict. Uses by_alias for 'self' field serialization."""
+        """Serialize to a dictionary using field aliases (``self`` instead of ``self_pubkey``)."""
         return self.model_dump(exclude_none=True, by_alias=True)

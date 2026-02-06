@@ -1,14 +1,4 @@
-"""Tests for NIP-11 logs models (Nip11FetchLogs).
-
-Tests cover:
-- Nip11FetchLogs inherits from BaseLogs
-- Semantic validation (success/reason consistency)
-- Constructor validation (type checking)
-- from_dict() method for strict validation
-- to_dict() method excluding None values
-- Frozen model immutability
-- Roundtrip serialization (to_dict -> from_dict)
-"""
+"""Unit tests for Nip11FetchLogs model."""
 
 import pytest
 from pydantic import ValidationError

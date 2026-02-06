@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from logger import Logger, format_kv_pairs
+from core.logger import Logger, format_kv_pairs
 
 
 # ============================================================================

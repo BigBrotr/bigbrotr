@@ -1,52 +1,58 @@
--- ============================================================================
--- BigBrotr Database Initialization Script
--- ============================================================================
--- File: 06_materialized_views.sql
--- Description: Materialized views for pre-computed statistics and lookups
--- Dependencies: 02_tables.sql
--- ============================================================================
+/*
+ * BigBrotr - 06_materialized_views.sql
+ *
+ * Materialized views for pre-computed statistics and lookups. These provide
+ * fast read access to aggregate data that would be expensive to compute on
+ * every query. Each view has a corresponding refresh function in
+ * 07_functions_refresh.sql and a unique index for REFRESH CONCURRENTLY
+ * in 08_indexes.sql.
+ *
+ * Dependencies: 02_tables.sql
+ */
 
--- ============================================================================
--- MATERIALIZED VIEW: relay_metadata_latest
--- ============================================================================
--- Description: Latest metadata record per relay and type (unpivoted)
--- Refresh: Once daily via cron or manual call to relay_metadata_latest_refresh()
--- Performance: Uses DISTINCT ON for efficient latest-per-group selection
+
+-- ==========================================================================
+-- relay_metadata_latest: Most recent metadata per relay and check type
+-- ==========================================================================
+-- Returns one row per (relay_url, metadata_type) combination, containing
+-- the latest snapshot. Uses DISTINCT ON with descending generated_at to
+-- efficiently select the most recent record per group.
 --
--- Structure: One row per (relay_url, type) combination
--- Columns: relay_url, type, generated_at, metadata_id, metadata
+-- Refresh: Daily via relay_metadata_latest_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS relay_metadata_latest AS
-SELECT DISTINCT ON (rm.relay_url, rm.type)
+SELECT DISTINCT ON (rm.relay_url, rm.metadata_type)
     rm.relay_url,
-    rm.type,
+    rm.metadata_type,
     rm.generated_at,
     rm.metadata_id,
-    m.metadata
+    m.value
 FROM relay_metadata AS rm
 INNER JOIN metadata AS m ON rm.metadata_id = m.id
-ORDER BY rm.relay_url ASC, rm.type ASC, rm.generated_at DESC;
+ORDER BY rm.relay_url ASC, rm.metadata_type ASC, rm.generated_at DESC;
 
 COMMENT ON MATERIALIZED VIEW relay_metadata_latest IS
-'Latest metadata per relay and type. One row per (relay_url, type). Refresh via relay_metadata_latest_refresh().';
+'Latest metadata per relay and check type. Refresh via relay_metadata_latest_refresh().';
 
--- ============================================================================
--- MATERIALIZED VIEW: events_statistics
--- ============================================================================
--- Description: Global statistics about events in the database
--- Purpose: Provides key metrics about events with correct NIP-01 categories
--- Refresh: Periodically via events_statistics_refresh()
--- Performance: Fast lookups, single-row result
+
+-- ==========================================================================
+-- events_statistics: Global event counts and time-based metrics
+-- ==========================================================================
+-- Single-row view with aggregate statistics across all events, broken down
+-- by NIP-01 event category (regular, replaceable, ephemeral, addressable)
+-- and time windows (1h, 24h, 7d, 30d).
 --
--- NIP-01 Event Categories:
---   Regular:      kind 1, 2, 4-44, 1000-9999 (stored, not replaced)
---   Replaceable:  kind 0, 3, 10000-19999 (latest only per pubkey)
---   Ephemeral:    kind 20000-29999 (not stored by relays)
---   Addressable:  kind 30000-39999 (latest only per pubkey+d-tag)
+-- NIP-01 event categories:
+--   Regular:     kind 1, 2, 4-44, 1000-9999 (stored indefinitely)
+--   Replaceable: kind 0, 3, 10000-19999 (latest per pubkey replaces older)
+--   Ephemeral:   kind 20000-29999 (not persisted by relays)
+--   Addressable: kind 30000-39999 (latest per pubkey+d-tag replaces older)
+--
+-- Refresh: Hourly via events_statistics_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS events_statistics AS
 SELECT
-    1 AS id,  -- Dummy unique key for REFRESH CONCURRENTLY
+    1 AS id,  -- Dummy unique key required for REFRESH CONCURRENTLY
     COUNT(*) AS total_events,
     COUNT(DISTINCT pubkey) AS unique_pubkeys,
     COUNT(DISTINCT kind) AS unique_kinds,
@@ -78,7 +84,7 @@ SELECT
         WHERE kind >= 30000 AND kind <= 39999
     ) AS addressable_events,
 
-    -- Time-based metrics
+    -- Rolling time-window counts
     COUNT(*) FILTER (
         WHERE created_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '1 hour')
     ) AS events_last_hour,
@@ -95,15 +101,18 @@ SELECT
 FROM events;
 
 COMMENT ON MATERIALIZED VIEW events_statistics IS
-'Global event statistics with correct NIP-01 event categories. Refresh via events_statistics_refresh().';
+'Global event statistics with NIP-01 category breakdowns. Refresh via events_statistics_refresh().';
 
--- ============================================================================
--- MATERIALIZED VIEW: relays_statistics
--- ============================================================================
--- Description: Per-relay statistics with event counts and performance metrics
--- Purpose: Provides detailed metrics for each relay
--- Refresh: Periodically via relays_statistics_refresh()
--- Performance: Optimized with LATERAL joins for recent RTT measurements
+
+-- ==========================================================================
+-- relays_statistics: Per-relay event counts and performance metrics
+-- ==========================================================================
+-- One row per relay with event counts, unique author counts, and averaged
+-- round-trip times from the last 10 NIP-66 RTT measurements. The LATERAL
+-- subquery efficiently fetches only the 10 most recent RTT records per relay
+-- without scanning the entire relay_metadata table.
+--
+-- Refresh: Daily via relays_statistics_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS relays_statistics AS
 WITH res AS (
@@ -132,19 +141,18 @@ SELECT
 
 FROM relays AS r
 
--- Event statistics per relay
 LEFT JOIN res ON r.url = res.relay_url
 
--- Performance metrics: average of last 10 RTT measurements
+-- LATERAL join: compute average RTT from the 10 most recent measurements
 LEFT JOIN LATERAL (
     SELECT
-        ROUND(AVG((m.metadata ->> 'rtt_open')::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
-        ROUND(AVG((m.metadata ->> 'rtt_read')::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
-        ROUND(AVG((m.metadata ->> 'rtt_write')::INTEGER)::NUMERIC, 2) AS avg_rtt_write
+        ROUND(AVG((m.value ->> 'rtt_open')::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
+        ROUND(AVG((m.value ->> 'rtt_read')::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
+        ROUND(AVG((m.value ->> 'rtt_write')::INTEGER)::NUMERIC, 2) AS avg_rtt_write
     FROM (
         SELECT rm.metadata_id
         FROM relay_metadata AS rm
-        WHERE rm.relay_url = r.url AND rm.type = 'nip66_rtt'
+        WHERE rm.relay_url = r.url AND rm.metadata_type = 'nip66_rtt'
         ORDER BY rm.generated_at DESC
         LIMIT 10
     ) AS recent
@@ -154,15 +162,16 @@ LEFT JOIN LATERAL (
 ORDER BY r.url;
 
 COMMENT ON MATERIALIZED VIEW relays_statistics IS
-'Per-relay statistics including event counts and avg RTT from last 10 checks. Refresh via relays_statistics_refresh().';
+'Per-relay statistics with event counts and avg RTT from last 10 checks. Refresh via relays_statistics_refresh().';
 
--- ============================================================================
--- MATERIALIZED VIEW: kind_counts_total
--- ============================================================================
--- Description: Aggregated count of events by kind across all relays
--- Purpose: Quick overview of event type distribution
--- Refresh: Periodically via kind_counts_total_refresh()
--- Performance: Fast lookups with kind index
+
+-- ==========================================================================
+-- kind_counts_total: Event count distribution by kind (global)
+-- ==========================================================================
+-- Aggregated event counts per NIP-01 kind across all relays. Useful for
+-- understanding the overall composition of the event archive.
+--
+-- Refresh: Daily via kind_counts_total_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS kind_counts_total AS
 SELECT
@@ -176,13 +185,14 @@ ORDER BY event_count DESC;
 COMMENT ON MATERIALIZED VIEW kind_counts_total IS
 'Total event counts by kind across all relays. Refresh via kind_counts_total_refresh().';
 
--- ============================================================================
--- MATERIALIZED VIEW: kind_counts_by_relay
--- ============================================================================
--- Description: Detailed count of events by kind and relay
--- Purpose: Analyze event type distribution per relay
--- Refresh: Periodically via kind_counts_by_relay_refresh()
--- Performance: Fast lookups with (kind, relay_url) composite index
+
+-- ==========================================================================
+-- kind_counts_by_relay: Event count distribution by kind and relay
+-- ==========================================================================
+-- Per-relay breakdown of event kinds. Helps identify which relays specialize
+-- in certain event types or have unusual kind distributions.
+--
+-- Refresh: Daily via kind_counts_by_relay_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS kind_counts_by_relay AS
 SELECT
@@ -198,13 +208,14 @@ ORDER BY e.kind ASC, event_count DESC;
 COMMENT ON MATERIALIZED VIEW kind_counts_by_relay IS
 'Event counts by kind for each relay. Refresh via kind_counts_by_relay_refresh().';
 
--- ============================================================================
--- MATERIALIZED VIEW: pubkey_counts_total
--- ============================================================================
--- Description: Aggregated count of events by pubkey across all relays
--- Purpose: Quick overview of author activity
--- Refresh: Periodically via pubkey_counts_total_refresh()
--- Performance: Fast lookups with pubkey_hex index
+
+-- ==========================================================================
+-- pubkey_counts_total: Author activity counts (global)
+-- ==========================================================================
+-- Aggregated activity metrics per public key across all relays. The pubkey
+-- is hex-encoded for easier display and joining with application data.
+--
+-- Refresh: Daily via pubkey_counts_total_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS pubkey_counts_total AS
 SELECT
@@ -220,14 +231,14 @@ ORDER BY event_count DESC;
 COMMENT ON MATERIALIZED VIEW pubkey_counts_total IS
 'Total event counts by public key across all relays. Refresh via pubkey_counts_total_refresh().';
 
--- ============================================================================
--- MATERIALIZED VIEW: pubkey_counts_by_relay
--- ============================================================================
--- Description: Detailed count of events by pubkey and relay
--- Purpose: Analyze author activity distribution per relay
--- Refresh: Periodically via pubkey_counts_by_relay_refresh()
--- Performance: Fast lookups with (pubkey_hex, relay_url) composite index
--- Note: Removed ARRAY_AGG(kinds_used) for performance - query events table if needed
+
+-- ==========================================================================
+-- pubkey_counts_by_relay: Author activity counts per relay
+-- ==========================================================================
+-- Per-relay breakdown of author activity. Useful for analyzing which relays
+-- specific authors publish to most frequently.
+--
+-- Refresh: Daily via pubkey_counts_by_relay_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS pubkey_counts_by_relay AS
 SELECT
@@ -244,7 +255,3 @@ ORDER BY e.pubkey ASC, event_count DESC;
 
 COMMENT ON MATERIALIZED VIEW pubkey_counts_by_relay IS
 'Event counts by public key for each relay. Refresh via pubkey_counts_by_relay_refresh().';
-
--- ============================================================================
--- MATERIALIZED VIEWS CREATED
--- ============================================================================

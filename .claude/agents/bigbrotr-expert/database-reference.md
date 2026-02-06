@@ -5,8 +5,9 @@ Complete PostgreSQL schema documentation for BigBrotr including tables, stored p
 ## Schema Overview
 
 BigBrotr uses PostgreSQL 15+ with extensions for efficient Nostr data storage:
-- `pgcrypto`: SHA-256 hashing for content-addressed metadata
 - `btree_gin`: GIN indexes for tag arrays
+
+**Note**: SHA-256 hashing for content-addressed metadata is computed in Python (no pgcrypto dependency).
 
 **Key Design Principles**:
 - Content-addressed storage for deduplication
@@ -99,13 +100,13 @@ Unified storage for NIP-11 and NIP-66 metadata documents (content-addressed).
 ```sql
 CREATE TABLE metadata (
     id          BYTEA   PRIMARY KEY,
-    metadata    JSONB   NOT NULL
+    value       JSONB   NOT NULL
 );
 ```
 
 **Columns**:
-- `id`: SHA-256 hash of JSON data (computed by PostgreSQL)
-- `metadata`: Complete JSON document (NIP-11 or NIP-66)
+- `id`: SHA-256 hash of JSON data (computed in Python via `hashlib.sha256()`)
+- `value`: Complete JSON document (NIP-11 or NIP-66)
 
 **Deduplication**: Multiple relays with identical metadata share the same record.
 
@@ -119,23 +120,21 @@ Time-series metadata snapshots linking relays to metadata records.
 CREATE TABLE relay_metadata (
     relay_url       TEXT    NOT NULL,
     generated_at    BIGINT  NOT NULL,
-    type            TEXT    NOT NULL,
+    metadata_type   TEXT    NOT NULL,
     metadata_id     BYTEA   NOT NULL,
-    PRIMARY KEY (relay_url, generated_at, type),
+    PRIMARY KEY (relay_url, generated_at, metadata_type),
     FOREIGN KEY (relay_url)    REFERENCES relays(url)    ON DELETE CASCADE,
-    FOREIGN KEY (metadata_id)  REFERENCES metadata(id)   ON DELETE CASCADE,
-    CHECK (type IN ('nip11_fetch', 'nip66_rtt', 'nip66_ssl',
-                    'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http'))
+    FOREIGN KEY (metadata_id)  REFERENCES metadata(id)   ON DELETE CASCADE
 );
 ```
 
 **Columns**:
 - `relay_url`: Reference to relays.url
 - `generated_at`: Unix timestamp when metadata was collected
-- `type`: Metadata type ('nip11_fetch', 'nip66_rtt', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http')
+- `metadata_type`: Metadata type ('nip11_fetch', 'nip66_rtt', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http')
 - `metadata_id`: Reference to metadata.id
 
-**Purpose**: Tracks metadata changes over time. Each relay can have multiple snapshots per type.
+**Purpose**: Tracks metadata changes over time. Each relay can have multiple snapshots per metadata_type.
 
 ---
 
@@ -168,151 +167,158 @@ CREATE TABLE service_data (
 
 ---
 
-## Stored Procedures
+## Stored Functions
 
-### insert_event
+All functions use bulk array parameters for efficient single-roundtrip operations.
 
-Atomically inserts event + relay + junction record.
+### Level 1: Base Functions (single table)
+
+### relays_insert
+
+Bulk insert relay records.
 
 ```sql
-FUNCTION insert_event(
-    p_event_id              BYTEA,
-    p_pubkey                BYTEA,
-    p_created_at            BIGINT,
-    p_kind                  INTEGER,
-    p_tags                  JSONB,
-    p_content               TEXT,
-    p_sig                   BYTEA,
-    p_relay_url             TEXT,
-    p_relay_network         TEXT,
-    p_relay_discovered_at   BIGINT,
-    p_seen_at               BIGINT
-) RETURNS VOID
+FUNCTION relays_insert(
+    p_urls TEXT[],
+    p_networks TEXT[],
+    p_discovered_ats BIGINT[]
+) RETURNS INTEGER
 ```
 
-**Idempotency**: Uses `ON CONFLICT DO NOTHING` on all inserts.
+**Idempotency**: Uses `ON CONFLICT DO NOTHING`. Returns number of rows inserted.
 
-**Usage**:
+---
+
+### events_insert
+
+Bulk insert event records.
+
 ```sql
-SELECT insert_event(
-    decode('abc123...', 'hex'),   -- event_id
-    decode('def456...', 'hex'),   -- pubkey
-    1700000000,                    -- created_at
-    1,                             -- kind
-    '[]'::JSONB,                   -- tags
-    'Hello Nostr',                 -- content
-    decode('789ghi...', 'hex'),   -- sig
-    'relay.example.com',           -- relay_url
-    'clearnet',                    -- relay_network
-    1700000000,                    -- relay_discovered_at
-    1700000001                     -- seen_at
-);
+FUNCTION events_insert(
+    p_ids BYTEA[],
+    p_pubkeys BYTEA[],
+    p_created_ats BIGINT[],
+    p_kinds INTEGER[],
+    p_tags JSONB[],
+    p_contents TEXT[],
+    p_sigs BYTEA[]
+) RETURNS INTEGER
 ```
 
 ---
 
-### insert_relay
+### metadata_insert
 
-Inserts a validated relay record.
+Bulk insert metadata with content-addressed deduplication (hash computed in Python).
 
 ```sql
-FUNCTION insert_relay(
-    p_url           TEXT,
-    p_network       TEXT,
-    p_discovered_at BIGINT
-) RETURNS VOID
+FUNCTION metadata_insert(
+    p_ids BYTEA[],
+    p_values JSONB[]
+) RETURNS INTEGER
 ```
 
-**Usage**:
+**Hash Computation**: Metadata hash is computed in Python using `hashlib.sha256()` before insertion.
+
+---
+
+### service_data_upsert
+
+Bulk upsert service operational data.
+
 ```sql
-SELECT insert_relay('relay.example.com', 'clearnet', 1700000000);
+FUNCTION service_data_upsert(
+    p_service_names TEXT[],
+    p_data_types TEXT[],
+    p_data_keys TEXT[],
+    p_datas JSONB[],
+    p_updated_ats BIGINT[]
+) RETURNS INTEGER
 ```
 
 ---
 
-### insert_relay_metadata
+### service_data_get
 
-Inserts relay metadata with automatic deduplication.
+Retrieve service data with optional key filter.
 
 ```sql
-FUNCTION insert_relay_metadata(
-    p_relay_url         TEXT,
-    p_relay_network     TEXT,
-    p_relay_discovered_at BIGINT,
-    p_snapshot_at       BIGINT,
-    p_type              TEXT,
-    p_metadata_data     JSONB
-) RETURNS VOID
-```
-
-**Hash Computation**: Metadata hash is computed in Python using `hashlib.sha256()` before insertion. The SQL function receives pre-computed hashes.
-
-**Usage**:
-```sql
-SELECT insert_relay_metadata(
-    'relay.example.com',
-    'clearnet',
-    1700000000,
-    1700000001,
-    'nip11_fetch',
-    '{"name": "Test Relay", "supported_nips": [1, 2, 9, 11]}'::JSONB
-);
+FUNCTION service_data_get(
+    p_service_name TEXT,
+    p_data_type TEXT,
+    p_data_key TEXT DEFAULT NULL
+) RETURNS TABLE
 ```
 
 ---
 
-### upsert_service_data
+### service_data_delete
 
-Upserts a service data record.
+Bulk delete service data records.
 
 ```sql
-FUNCTION upsert_service_data(
-    p_service_name  TEXT,
-    p_data_type     TEXT,
-    p_key           TEXT,
-    p_value         JSONB,
-    p_updated_at    BIGINT
-) RETURNS VOID
-```
-
-**Usage**:
-```sql
-SELECT upsert_service_data(
-    'finder',
-    'candidate',
-    'relay.example.com',
-    '{}'::JSONB,
-    1700000000
-);
+FUNCTION service_data_delete(
+    p_service_names TEXT[],
+    p_data_types TEXT[],
+    p_data_keys TEXT[]
+) RETURNS INTEGER
 ```
 
 ---
 
-### delete_service_data
+### Level 2: Cascade Functions (multi-table)
 
-Deletes a service data record.
+### events_relays_insert_cascade
+
+Atomic bulk insert of events + relays + junction records.
 
 ```sql
-FUNCTION delete_service_data(
-    p_service_name  TEXT,
-    p_data_type     TEXT,
-    p_key           TEXT
-) RETURNS VOID
+FUNCTION events_relays_insert_cascade(
+    -- relay arrays
+    p_relay_urls TEXT[],
+    p_relay_networks TEXT[],
+    p_relay_discovered_ats BIGINT[],
+    -- event arrays
+    p_event_ids BYTEA[],
+    p_pubkeys BYTEA[],
+    p_created_ats BIGINT[],
+    p_kinds INTEGER[],
+    p_tags JSONB[],
+    p_contents TEXT[],
+    p_sigs BYTEA[],
+    -- junction arrays
+    p_seen_ats BIGINT[]
+) RETURNS TABLE(events_inserted INTEGER, relays_inserted INTEGER, junctions_inserted INTEGER)
 ```
 
 ---
 
-### Maintenance Procedures
+### relay_metadata_insert_cascade
 
-**delete_orphan_metadata()**: Removes metadata records not referenced by any relay_metadata. Returns count.
+Atomic bulk insert of relays + metadata + junction records.
 
-**delete_orphan_events()**: Removes events not referenced by any events_relays. Returns count.
+```sql
+FUNCTION relay_metadata_insert_cascade(
+    -- relay arrays
+    p_relay_urls TEXT[],
+    p_relay_networks TEXT[],
+    p_relay_discovered_ats BIGINT[],
+    -- metadata arrays
+    p_metadata_ids BYTEA[],
+    p_metadata_values JSONB[],
+    -- junction arrays
+    p_generated_ats BIGINT[],
+    p_metadata_types TEXT[]
+) RETURNS TABLE(relays_inserted INTEGER, metadata_inserted INTEGER, junctions_inserted INTEGER)
+```
 
-**cleanup_failed_candidates(p_max_attempts INTEGER DEFAULT 10)**: Removes validator candidates with failed_attempts >= threshold. Returns count.
+---
 
-**cleanup_old_metadata_snapshots(p_keep_count INTEGER DEFAULT 30)**: Keeps only the N most recent metadata snapshots per relay+type. Returns count.
+### Maintenance Functions
 
-**run_maintenance(p_keep_metadata_snapshots INTEGER DEFAULT 30, p_max_candidate_attempts INTEGER DEFAULT 10)**: Runs all maintenance tasks. Returns table of (task, deleted_count).
+**orphan_metadata_delete()**: Removes metadata records not referenced by any relay_metadata. Returns count.
+
+**orphan_events_delete()**: Removes events not referenced by any events_relays. Returns count.
 
 **refresh_relay_metadata_latest()**: Refreshes the relay_metadata_latest materialized view concurrently.
 
@@ -330,7 +336,6 @@ Latest NIP-11 and NIP-66 data per relay.
 - `relay_url`, `network`, `discovered_at`
 - `nip11_at`, `nip11_id`, `nip11_data`
 - `nip66_rtt_at`, `nip66_rtt_id`, `nip66_rtt_data`
-- `nip66_probe_at`, `nip66_probe_id`, `nip66_probe_data`
 - `nip66_ssl_at`, `nip66_ssl_id`, `nip66_ssl_data`
 - `nip66_geo_at`, `nip66_geo_id`, `nip66_geo_data`
 - `nip66_net_at`, `nip66_net_id`, `nip66_net_data`
@@ -481,12 +486,12 @@ WHERE kind = 10002  -- NIP-65 relay list
 -- Get NIP-11 history for a relay
 SELECT
     rm.generated_at,
-    m.metadata->>'name' AS relay_name,
-    m.metadata->'supported_nips' AS nips
+    m.value->>'name' AS relay_name,
+    m.value->'supported_nips' AS nips
 FROM relay_metadata rm
 JOIN metadata m ON rm.metadata_id = m.id
 WHERE rm.relay_url = 'relay.example.com'
-  AND rm.type = 'nip11_fetch'
+  AND rm.metadata_type = 'nip11_fetch'
 ORDER BY rm.generated_at DESC;
 ```
 
@@ -579,7 +584,7 @@ The Seeder service verifies schema on startup:
 ```sql
 -- Check extensions
 SELECT extname FROM pg_extension
-WHERE extname IN ('pgcrypto', 'btree_gin');
+WHERE extname IN ('btree_gin');
 
 -- Check tables
 SELECT table_name FROM information_schema.tables

@@ -1,12 +1,4 @@
-"""Shared fixtures for NIP-11 tests.
-
-Provides reusable fixtures for:
-- Relay instances (clearnet, Tor, I2P, Lokinet, IPv6)
-- Complete and minimal NIP-11 data dictionaries
-- Nip11FetchData, Nip11FetchLogs, and Nip11FetchMetadata instances
-- Nip11 instances with various configurations
-- Mock HTTP responses for fetch testing
-"""
+"""Shared fixtures for NIP-11 tests."""
 
 from __future__ import annotations
 
@@ -60,7 +52,6 @@ def relay_with_port_and_path() -> Relay:
 @pytest.fixture
 def tor_relay() -> Relay:
     """Tor (.onion) relay fixture."""
-    # Valid v3 onion address (56 chars)
     return Relay("ws://abc123xyz789abc123xyz789abc123xyz789abc123xyz789abcdefgh.onion")
 
 
@@ -78,8 +69,7 @@ def loki_relay() -> Relay:
 
 @pytest.fixture
 def ipv6_relay() -> Relay:
-    """IPv6 relay fixture using a public IPv6 address."""
-    # Use a valid public IPv6 address (Google's public DNS)
+    """IPv6 relay fixture using a public address."""
     return Relay("wss://[2607:f8b0:4000::1]:8080")
 
 

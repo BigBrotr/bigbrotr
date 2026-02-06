@@ -1,15 +1,4 @@
-"""
-Unit tests for models.event_relay module.
-
-Tests:
-- EventRelay construction from Event and Relay
-- EventRelayDbParams NamedTuple structure (11 fields)
-- to_db_params() serialization for database bulk insert
-- from_db_params() deserialization from database
-- seen_at timestamp handling (default vs explicit)
-- Immutability enforcement (frozen dataclass)
-- Equality behavior
-"""
+"""Unit tests for the EventRelay model and EventRelayDbParams NamedTuple."""
 
 from dataclasses import FrozenInstanceError
 from time import time
@@ -37,7 +26,7 @@ def mock_event():
         pubkey=b"\xbb" * 32,
         created_at=1234567890,
         kind=1,
-        tags_json='[["e","id"]]',
+        tags='[["e","id"]]',
         content="Hello",
         sig=b"\xcc" * 64,
     )
@@ -71,7 +60,7 @@ class TestEventRelayDbParams:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="Test",
             sig=b"\xcc" * 64,
             relay_url="wss://relay.example.com",
@@ -89,7 +78,7 @@ class TestEventRelayDbParams:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json='[["t","test"]]',
+            tags='[["t","test"]]',
             content="Content",
             sig=b"\xcc" * 64,
             relay_url="wss://relay.example.com",
@@ -97,19 +86,16 @@ class TestEventRelayDbParams:
             relay_discovered_at=1000000000,
             seen_at=2000000000,
         )
-        # Event fields
         assert params.event_id == b"\xaa" * 32
         assert params.pubkey == b"\xbb" * 32
         assert params.created_at == 1234567890
         assert params.kind == 1
-        assert params.tags_json == '[["t","test"]]'
+        assert params.tags == '[["t","test"]]'
         assert params.content == "Content"
         assert params.sig == b"\xcc" * 64
-        # Relay fields
         assert params.relay_url == "wss://relay.example.com"
         assert params.relay_network == "clearnet"
         assert params.relay_discovered_at == 1000000000
-        # Junction field
         assert params.seen_at == 2000000000
 
     def test_field_access_by_index(self):
@@ -119,7 +105,7 @@ class TestEventRelayDbParams:
             pubkey=b"\x01" * 32,
             created_at=1234567890,
             kind=7,
-            tags_json="[]",
+            tags="[]",
             content="",
             sig=b"\x02" * 64,
             relay_url="wss://test.relay",
@@ -127,17 +113,17 @@ class TestEventRelayDbParams:
             relay_discovered_at=1111111111,
             seen_at=2222222222,
         )
-        assert params[0] == b"\x00" * 32  # event_id
-        assert params[1] == b"\x01" * 32  # pubkey
-        assert params[2] == 1234567890  # created_at
-        assert params[3] == 7  # kind
-        assert params[4] == "[]"  # tags_json
-        assert params[5] == ""  # content
-        assert params[6] == b"\x02" * 64  # sig
-        assert params[7] == "wss://test.relay"  # relay_url
-        assert params[8] == "tor"  # relay_network
-        assert params[9] == 1111111111  # relay_discovered_at
-        assert params[10] == 2222222222  # seen_at
+        assert params[0] == b"\x00" * 32
+        assert params[1] == b"\x01" * 32
+        assert params[2] == 1234567890
+        assert params[3] == 7
+        assert params[4] == "[]"
+        assert params[5] == ""
+        assert params[6] == b"\x02" * 64
+        assert params[7] == "wss://test.relay"
+        assert params[8] == "tor"
+        assert params[9] == 1111111111
+        assert params[10] == 2222222222
 
     def test_immutability(self):
         """EventRelayDbParams is immutable (NamedTuple)."""
@@ -146,7 +132,7 @@ class TestEventRelayDbParams:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="Test",
             sig=b"\xcc" * 64,
             relay_url="wss://relay.example.com",
@@ -249,7 +235,7 @@ class TestToDbParams:
         assert result.pubkey == b"\xbb" * 32
         assert result.created_at == 1234567890
         assert result.kind == 1
-        assert result.tags_json == '[["e","id"]]'
+        assert result.tags == '[["e","id"]]'
         assert result.content == "Hello"
         assert result.sig == b"\xcc" * 64
 
@@ -271,7 +257,7 @@ class TestToDbParams:
         """Delegates to event.to_db_params()."""
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         er.to_db_params()
-        # Called twice: once in __post_init__ (fail-fast), once here
+        # 2x: __post_init__ fail-fast validation, explicit call
         assert mock_event.to_db_params.call_count == 2
 
     def test_with_different_relay_networks(self, mock_event):
@@ -279,7 +265,6 @@ class TestToDbParams:
         tor_relay = Relay("wss://abc123.onion", discovered_at=1234567890)
         er = EventRelay(mock_event, tor_relay, seen_at=1234567890)
         result = er.to_db_params()
-        # Tor relay uses ws:// scheme
         assert result.relay_url == "ws://abc123.onion"
         assert result.relay_network == "tor"
 
@@ -299,7 +284,7 @@ class TestFromDbParams:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="test",
             sig=b"\xcc" * 64,
             relay_url="wss://relay.example.com",
@@ -319,7 +304,7 @@ class TestFromDbParams:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="test",
             sig=b"\xcc" * 64,
             relay_url="wss://relay.example.com",
@@ -337,7 +322,7 @@ class TestFromDbParams:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="test",
             sig=b"\xcc" * 64,
             relay_url="ws://abc123.onion",
@@ -354,12 +339,11 @@ class TestFromDbParams:
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         params = er.to_db_params()
         assert len(params) == 11
-        # Verify types match from_db_params signature
         assert isinstance(params.event_id, bytes)
         assert isinstance(params.pubkey, bytes)
         assert isinstance(params.created_at, int)
         assert isinstance(params.kind, int)
-        assert isinstance(params.tags_json, str)
+        assert isinstance(params.tags, str)
         assert isinstance(params.content, str)
         assert isinstance(params.sig, bytes)
         assert isinstance(params.relay_url, str)
@@ -404,7 +388,7 @@ class TestEquality:
             pubkey=b"\xbb" * 32,
             created_at=1234567890,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="Hello",
             sig=b"\xcc" * 64,
         )
@@ -414,7 +398,7 @@ class TestEquality:
             pubkey=b"\xee" * 32,
             created_at=1234567891,
             kind=1,
-            tags_json="[]",
+            tags="[]",
             content="World",
             sig=b"\xff" * 64,
         )

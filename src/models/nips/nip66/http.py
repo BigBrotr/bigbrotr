@@ -1,4 +1,10 @@
-"""NIP-66 HTTP metadata container with check capabilities."""
+"""
+NIP-66 HTTP metadata container with header extraction capabilities.
+
+Captures ``Server`` and ``X-Powered-By`` HTTP headers from the WebSocket
+upgrade handshake response. Supports both clearnet and overlay network
+relays (overlay networks require a SOCKS5 proxy).
+"""
 
 from __future__ import annotations
 
@@ -9,7 +15,7 @@ from typing import Any, Self
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
-from logger import Logger
+from core.logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
 from utils.network import NetworkType
@@ -22,13 +28,18 @@ logger = Logger("models.nip66")
 
 
 class Nip66HttpMetadata(BaseMetadata):
-    """Container for HTTP data and logs with check capabilities."""
+    """Container for HTTP header data and extraction logs.
+
+    Provides the ``http()`` class method that initiates a WebSocket
+    connection and captures server identification headers from the
+    upgrade response.
+    """
 
     data: Nip66HttpData
     logs: Nip66HttpLogs
 
     # -------------------------------------------------------------------------
-    # HTTP Check
+    # HTTP Header Extraction
     # -------------------------------------------------------------------------
 
     @staticmethod
@@ -37,7 +48,19 @@ class Nip66HttpMetadata(BaseMetadata):
         timeout: float,
         proxy_url: str | None = None,
     ) -> dict[str, Any]:
-        """Capture Server and X-Powered-By headers from WebSocket handshake."""
+        """Capture Server and X-Powered-By headers from a WebSocket handshake.
+
+        Uses aiohttp trace hooks to intercept response headers during the
+        WebSocket connection upgrade.
+
+        Args:
+            relay: Relay to connect to.
+            timeout: Connection timeout in seconds.
+            proxy_url: Optional SOCKS5 proxy URL.
+
+        Returns:
+            Dictionary with ``http_server`` and/or ``http_powered_by``.
+        """
         result: dict[str, Any] = {}
         captured_headers: dict[str, str] = {}
 
@@ -52,6 +75,7 @@ class Nip66HttpMetadata(BaseMetadata):
         trace_config = aiohttp.TraceConfig()
         trace_config.on_request_end.append(on_request_end)
 
+        # Use a non-validating SSL context to connect regardless of cert status
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
@@ -91,15 +115,22 @@ class Nip66HttpMetadata(BaseMetadata):
         timeout: float | None = None,
         proxy_url: str | None = None,
     ) -> Self:
-        """Extract HTTP headers from WebSocket handshake.
+        """Extract HTTP headers from a relay's WebSocket handshake response.
+
+        Args:
+            relay: Relay to connect to.
+            timeout: Connection timeout in seconds (default: 10.0).
+            proxy_url: Optional SOCKS5 proxy URL (required for overlay networks).
+
+        Returns:
+            An ``Nip66HttpMetadata`` instance with header data and logs.
 
         Raises:
-            ValueError: If overlay network without proxy.
+            ValueError: If an overlay network relay has no proxy configured.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("http_testing", relay=relay.url, timeout_s=timeout, proxy=proxy_url)
 
-        # Overlay networks require proxy
         overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
         if proxy_url is None and relay.network in overlay_networks:
             raise ValueError(f"overlay network {relay.network.value} requires proxy")

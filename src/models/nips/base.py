@@ -1,4 +1,13 @@
-"""Base classes shared across NIP models."""
+"""
+Shared base classes for all NIP data, metadata, and log models.
+
+Provides three Pydantic base classes that define the common interface
+and behavior inherited by NIP-11 and NIP-66 model hierarchies:
+
+    BaseData        Frozen model with declarative field parsing via ``FieldSpec``.
+    BaseMetadata    Container pairing a data object with a logs object.
+    BaseLogs        Operation log with success/reason semantic validation.
+"""
 
 from __future__ import annotations
 
@@ -9,40 +18,37 @@ from pydantic import BaseModel, ConfigDict, StrictBool, model_validator
 from models.nips.parsing import FieldSpec, parse_fields
 
 
-# Default timeout for network operations (NIP-11 fetch, NIP-66 tests)
+# Default timeout (seconds) for network operations (NIP-11 fetch, NIP-66 tests)
 DEFAULT_TIMEOUT: Final[float] = 10.0
 
 
 class BaseData(BaseModel):
-    """Base class for NIP data models with parsing capabilities.
+    """Base class for NIP data models with declarative field parsing.
 
-    Subclasses define field types via _FIELD_SPEC class variable:
-        - int_fields: fields that should be int (not bool)
-        - bool_fields: fields that should be bool
-        - str_fields: fields that should be str
-        - str_list_fields: fields that should be list[str]
-        - float_fields: fields that should be float (accepts int, converts)
-        - int_list_fields: fields that should be list[int]
+    Subclasses declare a ``_FIELD_SPEC`` class variable that maps field
+    names to their expected types. The ``parse()`` class method uses this
+    spec to coerce raw data into valid constructor arguments, silently
+    dropping values that fail type checks.
 
-    The generic parse() method handles all these field types automatically.
-    Subclasses can override parse() for custom parsing (e.g., nested objects).
-
-    This class is inherited by:
-        - Nip11Data, Nip11DataLimitation, Nip11DataRetentionEntry, etc.
-        - Nip66RttData, Nip66SslData, Nip66GeoData, etc.
+    Subclasses may override ``parse()`` for custom logic (e.g., nested objects).
     """
 
     model_config = ConfigDict(frozen=True)
 
-    # Subclasses define this to specify field types for parsing
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec()
 
     @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:
-        """Parse arbitrary data into a valid dict for this model.
+        """Parse arbitrary data into validated constructor arguments.
 
-        Handles type coercion and validation based on _FIELD_SPEC.
-        Invalid values are silently dropped (not raised as errors).
+        Invalid or unrecognized values are silently dropped rather than
+        raising errors, making this safe for untrusted relay responses.
+
+        Args:
+            data: Raw dictionary from an external source.
+
+        Returns:
+            A cleaned dictionary containing only valid fields.
         """
         if not isinstance(data, dict):
             return {}
@@ -50,42 +56,39 @@ class BaseData(BaseModel):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        """Create from dict with strict validation."""
+        """Create an instance from a dictionary with strict validation."""
         return cls.model_validate(data)
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dict for serialization, excluding None values."""
+        """Serialize to a dictionary, excluding fields with ``None`` values."""
         return self.model_dump(exclude_none=True)
 
 
 class BaseMetadata(BaseModel):
-    """Base class for metadata containers (data + logs pairs).
+    """Base class for metadata containers that pair data with operation logs.
 
-    Provides standard from_dict() and to_dict() methods for containers
-    that hold a data object and a logs object.
-
-    The to_dict() method automatically detects nested objects with to_dict()
-    methods and calls them for proper serialization. This eliminates the need
-    for subclasses to override to_dict().
-
-    This class is inherited by:
-        - Nip11FetchMetadata
-        - Nip66RttMetadata, Nip66SslMetadata, Nip66GeoMetadata, etc.
+    Provides standard ``from_dict()`` and ``to_dict()`` methods. The
+    ``to_dict()`` implementation automatically delegates to nested
+    objects that define their own ``to_dict()`` method, so subclasses
+    do not need to override it.
     """
 
     model_config = ConfigDict(frozen=True)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Self:
-        """Create from dict with strict validation."""
+        """Create an instance from a dictionary with strict validation."""
         return cls.model_validate(raw)
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dict, calling nested to_dict() methods.
+        """Serialize to a dictionary, delegating to nested ``to_dict()`` methods.
 
-        Iterates over model fields and:
-        - Calls to_dict() on objects that have it (data, logs)
-        - Excludes None values
+        Iterates over model fields and calls ``to_dict()`` on any nested
+        object that supports it (e.g., data and logs sub-models).
+        ``None`` values are excluded.
+
+        Returns:
+            A dictionary suitable for JSON serialization or database storage.
         """
         result: dict[str, Any] = {}
         for key in type(self).model_fields:
@@ -100,15 +103,13 @@ class BaseMetadata(BaseModel):
 
 
 class BaseLogs(BaseModel):
-    """Base class for operation logs with success/reason semantic validation.
+    """Base class for operation logs with success/reason validation.
 
-    Validation rules:
-        - If success=True, reason must be None
-        - If success=False, reason is required (non-None string)
+    Enforces semantic consistency between the ``success`` flag and the
+    ``reason`` message:
 
-    This class is inherited by:
-        - Nip11FetchLogs
-        - Nip66BaseLogs (and its subclasses: Nip66SslLogs, Nip66GeoLogs, etc.)
+    * When ``success=True``, ``reason`` must be ``None``.
+    * When ``success=False``, ``reason`` is required (non-None string).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -118,7 +119,7 @@ class BaseLogs(BaseModel):
 
     @model_validator(mode="after")
     def validate_semantic(self) -> Self:
-        """Validate success/reason consistency."""
+        """Enforce success/reason consistency."""
         if self.success and self.reason is not None:
             raise ValueError("reason must be None when success is True")
         if not self.success and self.reason is None:
@@ -127,9 +128,9 @@ class BaseLogs(BaseModel):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        """Create from dict with strict validation."""
+        """Create an instance from a dictionary with strict validation."""
         return cls.model_validate(data)
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dict for serialization, excluding None values."""
+        """Serialize to a dictionary, excluding fields with ``None`` values."""
         return self.model_dump(exclude_none=True)
