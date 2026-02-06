@@ -1,13 +1,12 @@
 # BigBrotr Expert Agent
 
-You are a BigBrotr development expert specialized in:
+## Expertise Areas
+
 - **Core architecture** (Pool, Brotr, BaseService, Logger)
 - **Service development** (Seeder, Finder, Validator, Monitor, Synchronizer)
 - **Data models** (Event, Relay, Metadata, Nip11, Nip66, NetworkType, MetadataType)
 - **Database design** (PostgreSQL schema, stored procedures, views)
 - **Testing** (unit tests, fixtures, mocking patterns)
-
-Your primary task is to develop, troubleshoot, and extend the BigBrotr codebase with deep understanding of all components.
 
 ---
 
@@ -45,11 +44,9 @@ BigBrotr is a modular Nostr data archiving and monitoring system built with:
 +-------------------------------------------------------+
 |  Core Layer (src/core/)                               |
 |  +------+ +-------+ +-------------+ +--------+        |
-|  | pool | | brotr | | base_service| | logger |        |
-|  +------+ +-------+ +-------------+ +--------+        |
-|                    +---------+                        |
-|                    | metrics |                        |
-|                    +---------+                        |
+|  +------+ +-------+ +-------------+ +---------+       |
+|  | pool | | brotr | |   service   | | metrics |       |
+|  +------+ +-------+ +-------------+ +---------+       |
 +-------------------------+-----------------------------+
                           |
                           v
@@ -190,7 +187,7 @@ rows = await brotr.pool.fetch("SELECT url FROM relays WHERE network = $1", "tor"
 
 ---
 
-### BaseService (`src/core/base_service.py`)
+### BaseService (`src/core/service.py`)
 
 Abstract base class for all services with lifecycle management.
 
@@ -278,9 +275,9 @@ logger_json.info("started", version="1.0")
 
 ```python
 from pydantic import Field
-from src.core.base_service import BaseService, BaseServiceConfig
-from src.core.brotr import Brotr
-from src.core.logger import Logger
+from core.service import BaseService, BaseServiceConfig
+from core.brotr import Brotr
+from core.logger import Logger
 
 class MyServiceConfig(BaseServiceConfig):
     interval: float = Field(ge=60.0, description="Seconds between cycles")
@@ -368,8 +365,8 @@ CREATE TABLE events_relays (
 **metadata** (Content-addressed):
 ```sql
 CREATE TABLE metadata (
-    id BYTEA PRIMARY KEY,               -- SHA-256 of data
-    data JSONB NOT NULL
+    id BYTEA PRIMARY KEY,               -- SHA-256 of value (computed in Python via hashlib)
+    value JSONB NOT NULL
 );
 ```
 
@@ -378,9 +375,9 @@ CREATE TABLE metadata (
 CREATE TABLE relay_metadata (
     relay_url TEXT REFERENCES relays(url) ON DELETE CASCADE,
     generated_at BIGINT NOT NULL,
-    type TEXT NOT NULL,                 -- nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
+    metadata_type TEXT NOT NULL,         -- nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
     metadata_id BYTEA REFERENCES metadata(id) ON DELETE CASCADE,
-    PRIMARY KEY (relay_url, generated_at, type)
+    PRIMARY KEY (relay_url, generated_at, metadata_type)
 );
 ```
 
@@ -407,19 +404,19 @@ SELECT insert_event(
     relay_url, relay_network, relay_discovered_at, seen_at
 );
 
--- Atomic relay insert
-SELECT insert_relay(url, network, discovered_at);
+-- Bulk relay insert (array parameters)
+SELECT relays_insert(urls[], networks[], discovered_ats[]);
 
--- Atomic metadata insert (content-addressed)
-SELECT insert_relay_metadata(
-    relay_url, relay_network, relay_discovered_at,
-    snapshot_at, metadata_type, metadata_data
+-- Bulk metadata insert with cascade (relays + metadata + junctions)
+SELECT * FROM relay_metadata_insert_cascade(
+    relay_urls[], relay_networks[], relay_discovered_ats[],
+    metadata_ids[], metadata_values[],
+    generated_ats[], metadata_types[]
 );
 
 -- Cleanup orphans
-SELECT delete_orphan_events();
-SELECT delete_orphan_metadata();
-SELECT delete_failed_candidates(max_attempts);
+SELECT orphan_events_delete();
+SELECT orphan_metadata_delete();
 
 -- Service state
 SELECT upsert_service_data(service_name, data_type, data_key, data, updated_at);
@@ -595,7 +592,7 @@ async def test_myservice(mock_brotr):
 
 ### Adding a New Metadata Type
 
-1. **Extend `MetadataType` enum** in `src/models/relay_metadata.py`:
+1. **Extend `MetadataType` enum** in `src/models/metadata.py` (inner class `Metadata.Type`):
 ```python
 class MetadataType(StrEnum):
     NIP11_FETCH = "nip11_fetch"
@@ -804,15 +801,14 @@ class Relay:
 
 ### Content-Addressed Storage
 
-Deduplication via hashing:
+Deduplication via SHA-256 hashing computed in Python:
 ```python
-# PostgreSQL function
-CREATE OR REPLACE FUNCTION sha256(data JSONB) RETURNS BYTEA AS $$
-    SELECT digest(data::TEXT, 'sha256')
-$$ LANGUAGE SQL IMMUTABLE;
+# Python side (src/models/metadata.py)
+import hashlib
+content_hash = hashlib.sha256(canonical.encode("utf-8")).digest()
 
-# Stored procedure
-INSERT INTO metadata (id, data) VALUES (sha256($1), $1)
+# Stored procedure receives pre-computed hash
+INSERT INTO metadata (id, value) VALUES ($1, $2)
 ON CONFLICT (id) DO NOTHING;
 ```
 
@@ -844,7 +840,7 @@ async def wait(self, timeout: float) -> bool:
 
 ### Password Management
 
-✅ **Correct:**
+**Correct:**
 ```python
 # Load from environment only
 password = os.getenv("DB_PASSWORD")
@@ -852,7 +848,7 @@ if not password:
     raise ValueError("DB_PASSWORD not set")
 ```
 
-❌ **Incorrect:**
+**Incorrect:**
 ```python
 # Never hardcode
 password = "my_password"
@@ -863,7 +859,7 @@ config = {"password": "my_password"}
 
 ### SQL Injection Prevention
 
-✅ **Correct:**
+**Correct:**
 ```python
 # Parameterized queries
 await pool.fetch("SELECT * FROM relays WHERE network = $1", network)
@@ -872,7 +868,7 @@ await pool.fetch("SELECT * FROM relays WHERE network = $1", network)
 await pool.execute("CALL insert_relay($1, $2, $3)", url, network, timestamp)
 ```
 
-❌ **Incorrect:**
+**Incorrect:**
 ```python
 # String concatenation
 await pool.fetch(f"SELECT * FROM relays WHERE network = '{network}'")
@@ -880,7 +876,7 @@ await pool.fetch(f"SELECT * FROM relays WHERE network = '{network}'")
 
 ### Relay URL Validation
 
-✅ **Correct:**
+**Correct:**
 ```python
 from src.models.relay import Relay
 
@@ -890,7 +886,7 @@ except ValueError as e:
     logger.error("invalid_url", url=raw, error=str(e))
 ```
 
-❌ **Incorrect:**
+**Incorrect:**
 ```python
 # No validation
 relay_url = user_input
@@ -903,14 +899,14 @@ await pool.execute("INSERT INTO relays VALUES ($1)", relay_url)
 
 ### Batch Operations
 
-✅ **Efficient:**
+**Efficient:**
 ```python
 # Batch insert
 events = [EventRelay(...) for _ in range(1000)]
 inserted, skipped = await brotr.insert_events(events)
 ```
 
-❌ **Inefficient:**
+**Inefficient:**
 ```python
 # Individual inserts
 for event in events:
@@ -919,7 +915,7 @@ for event in events:
 
 ### Connection Pooling
 
-✅ **Efficient:**
+**Efficient:**
 ```python
 # Reuse pool connections
 async with pool.acquire() as conn:
@@ -927,7 +923,7 @@ async with pool.acquire() as conn:
         await conn.fetch(query)
 ```
 
-❌ **Inefficient:**
+**Inefficient:**
 ```python
 # New connection per query
 for query in queries:
@@ -937,7 +933,7 @@ for query in queries:
 
 ### Concurrency Limits
 
-✅ **Safe:**
+**Safe:**
 ```python
 # Bounded concurrency
 sem = asyncio.Semaphore(max_parallel)
@@ -945,7 +941,7 @@ async with sem:
     await check_relay(relay)
 ```
 
-❌ **Unsafe:**
+**Unsafe:**
 ```python
 # Unbounded concurrency (resource exhaustion)
 tasks = [check_relay(r) for r in relays]  # All at once!
@@ -961,7 +957,7 @@ await asyncio.gather(*tasks)
 - **SQL safety:** All mutations via stored procedures with positional parameters
 - **Immutability:** Data models use frozen dataclasses
 - **Cursor pagination:** Composite (created_at, id) for deterministic ordering
-- **Content addressing:** Metadata deduplicated by SHA-256 hash
+- **Content addressing:** Metadata deduplicated by SHA-256 hash (computed in Python via `hashlib.sha256()`)
 - **Graceful shutdown:** asyncio.Event as single source of truth
 - **Nostr validation:** Events validated by nostr-sdk (cryptographic verification)
 - **Tor support:** SOCKS5 proxy for .onion relays
@@ -969,52 +965,11 @@ await asyncio.gather(*tasks)
 
 ---
 
-## Response Guidelines
+## Key File Locations
 
-### For Architecture Questions
-
-1. Explain the four-layer separation
-2. Describe component relationships
-3. Reference design patterns
-4. Show code examples
-
-### For Bug Fixes
-
-1. Identify the layer (Core/Service/Implementation)
-2. Check error handling patterns
-3. Verify async/await usage
-4. Test with unit tests
-5. Ensure backward compatibility
-
-### For New Features
-
-1. Determine appropriate layer
-2. Follow existing patterns
-3. Add configuration support
-4. Write comprehensive tests
-5. Update documentation
-
-### For Performance Issues
-
-1. Profile with asyncio debugging
-2. Check connection pool metrics
-3. Review batch sizes
-4. Verify concurrency limits
-5. Consider materialized views
-
----
-
-## Accessing Project Files
-
-When you need details:
-
-1. **Core layer:** `src/core/<module>.py`
-2. **Services:** `src/services/<service>.py`
-3. **Models:** `src/models/<model>.py`
-4. **SQL schema:** `implementations/bigbrotr/postgres/init/`
-5. **Tests:** `tests/<layer>/test_<module>.py`
-6. **Config examples:** `implementations/bigbrotr/yaml/`
-
----
-
-This agent provides comprehensive BigBrotr expertise for development, troubleshooting, testing, and extension of all components in the codebase.
+- **Core layer:** `src/core/pool.py`, `src/core/brotr.py`, `src/core/service.py`, `src/core/logger.py`, `src/core/metrics.py`
+- **Services:** `src/services/<service>.py`
+- **Models:** `src/models/<model>.py` (MetadataType is inner class `Metadata.Type` in `src/models/metadata.py`)
+- **SQL schema:** `implementations/bigbrotr/postgres/init/`
+- **Tests:** `tests/unit/<layer>/test_<module>.py`
+- **Config examples:** `implementations/bigbrotr/yaml/`
