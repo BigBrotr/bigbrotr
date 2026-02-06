@@ -522,7 +522,6 @@ class TestNip11:
         assert metadata_tuple.nip11_fetch is not None
         assert metadata_tuple.nip11_fetch.metadata.type == "nip11_fetch"
         assert metadata_tuple.nip11_fetch.relay == relay
-        # Metadata is nested under "data" key (from to_dict())
         assert metadata_tuple.nip11_fetch.metadata.value["data"]["name"] == "Test"
 
     def test_additional_properties(self) -> None:
@@ -549,7 +548,6 @@ class TestNip66:
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(relay)
 
-        # No metadata when not provided
         assert nip66.rtt_metadata is None
         assert nip66.ssl_metadata is None
         assert nip66.geo_metadata is None
@@ -559,7 +557,6 @@ class TestNip66:
         relay = Relay("wss://relay.example.com")
         nip66 = _create_nip66(relay, rtt_data={"rtt_open": 100, "rtt_read": 50})
 
-        # Access via data attributes
         assert nip66.rtt_metadata is not None
         assert nip66.rtt_metadata.data.rtt_open == 100
         assert nip66.rtt_metadata.data.rtt_read == 50
@@ -575,7 +572,6 @@ class TestNip66:
         assert metadata_tuple.nip66_rtt is not None
         assert metadata_tuple.nip66_rtt.metadata.type == "nip66_rtt"
         assert metadata_tuple.nip66_rtt.relay == relay
-        # Metadata is nested under "data" key (from to_dict())
         assert metadata_tuple.nip66_rtt.metadata.value["data"]["rtt_open"] == 100
         assert metadata_tuple.nip66_ssl is None
         assert metadata_tuple.nip66_geo is None
@@ -596,7 +592,6 @@ class TestNip66:
 
         assert metadata_tuple.nip66_rtt is not None
         assert metadata_tuple.nip66_rtt.metadata.type == "nip66_rtt"
-        # Metadata is nested under "data" key (from to_dict())
         assert metadata_tuple.nip66_rtt.metadata.value["data"]["rtt_open"] == 100
         assert metadata_tuple.nip66_ssl is None
         assert metadata_tuple.nip66_geo is not None
@@ -622,7 +617,6 @@ class TestNip66:
         assert metadata_tuple.nip66_rtt.metadata.type == "nip66_rtt"
         assert metadata_tuple.nip66_ssl is not None
         assert metadata_tuple.nip66_ssl.metadata.type == "nip66_ssl"
-        # Metadata is nested under "data" key (from to_dict())
         assert metadata_tuple.nip66_ssl.metadata.value["data"]["ssl_valid"] is True
         assert metadata_tuple.nip66_ssl.metadata.value["data"]["ssl_issuer"] == "Let's Encrypt"
         assert metadata_tuple.nip66_geo is None
@@ -644,7 +638,6 @@ class TestNip66:
         assert metadata_tuple.nip66_rtt is not None
         assert metadata_tuple.nip66_net is not None
         assert metadata_tuple.nip66_net.metadata.type == "nip66_net"
-        # Metadata is nested under "data" key (from to_dict())
         assert metadata_tuple.nip66_net.metadata.value["data"]["net_ip"] == "8.8.8.8"
         assert metadata_tuple.nip66_net.metadata.value["data"]["net_asn"] == 15169
 
@@ -697,14 +690,12 @@ class TestNip66:
         assert metadata_tuple.nip66_rtt.metadata.type == "nip66_rtt"
         assert metadata_tuple.nip66_ssl is not None
         assert metadata_tuple.nip66_ssl.metadata.type == "nip66_ssl"
-        # Metadata is nested under "data" key (from to_dict())
         assert metadata_tuple.nip66_ssl.metadata.value["data"]["ssl_valid"] is True
         assert metadata_tuple.nip66_ssl.metadata.value["data"]["ssl_issuer"] == "Let's Encrypt"
         assert metadata_tuple.nip66_geo is not None
         assert metadata_tuple.nip66_geo.metadata.type == "nip66_geo"
         assert metadata_tuple.nip66_geo.metadata.value["data"]["geohash"] == "abc123"
         assert metadata_tuple.nip66_geo.metadata.value["data"]["geo_country"] == "US"
-        # Net, DNS and HTTP are also present
         assert metadata_tuple.nip66_net is not None
         assert metadata_tuple.nip66_dns is not None
         assert metadata_tuple.nip66_http is not None
@@ -738,7 +729,6 @@ class TestNip66:
             rtt_data={"rtt_open": 100},
         )
 
-        # Probe data is now in RTT logs
         assert nip66.rtt_metadata is not None
         assert nip66.rtt_metadata.logs.open_success is True
 
@@ -782,14 +772,13 @@ class TestRelayMetadataType:
 
         params = rm.to_db_params()
 
-        # 7 params: relay_url, network, discovered_at, metadata_id, metadata_value, type, generated_at
         assert len(params) == 7
-        assert params[0] == "wss://relay.example.com"  # relay_url with scheme
-        assert params[1] == "clearnet"  # network
-        assert isinstance(params[3], bytes) and len(params[3]) == 32  # metadata_id (SHA-256)
-        assert params[4] == metadata_obj.to_db_params().value  # metadata as JSON string
-        assert params[5] == "nip66_rtt"  # metadata_type
-        assert params[6] == 1700000001  # generated_at
+        assert params[0] == "wss://relay.example.com"
+        assert params[1] == "clearnet"
+        assert isinstance(params[3], bytes) and len(params[3]) == 32
+        assert params[4] == metadata_obj.to_db_params().value
+        assert params[5] == "nip66_rtt"
+        assert params[6] == 1700000001
 
 
 # ============================================================================
@@ -962,10 +951,8 @@ class TestMonitorFetchChunk:
         monitor._progress.reset()
         await monitor._fetch_chunk(["clearnet"], 50)
 
-        # Verify limit was passed to fetch call
-        # Args: query, networks, threshold, limit
         call_args = mock_brotr.pool.fetch.call_args  # type: ignore[attr-defined]
-        assert call_args[0][3] == 50  # Fourth positional arg is the limit
+        assert call_args[0][3] == 50
 
 
 # ============================================================================

@@ -1,20 +1,4 @@
-"""Tests for NIP-11 data models.
-
-Tests cover:
-- Nip11FetchDataLimitation: server limitations per NIP-11
-- Nip11FetchDataRetentionEntry: retention policy entries
-- Nip11FetchDataFeeEntry: fee entries
-- Nip11FetchDataFees: fee schedules
-- Nip11FetchData: complete NIP-11 data structure
-
-Each class is tested for:
-- Constructor validation (type checking)
-- from_dict() method for strict validation
-- to_dict() method with None exclusion
-- parse() method for type coercion
-- Roundtrip serialization (to_dict -> from_dict)
-- Edge cases (empty lists, unicode, self property)
-"""
+"""Unit tests for NIP-11 data models (limitation, retention, fees, fetch data)."""
 
 from typing import Any
 
@@ -336,7 +320,6 @@ class TestNip11FetchDataRetentionEntryToDict:
         """to_dict converts tuples to lists for JSON serialization."""
         entry = Nip11FetchDataRetentionEntry(kinds=[1, (10000, 19999)])
         d = entry.to_dict()
-        # mode='json' converts tuples to lists
         assert d == {"kinds": [1, [10000, 19999]]}
 
 
@@ -730,7 +713,7 @@ class TestNip11FetchDataToDict:
         data = Nip11FetchData(name="Test")
         d = data.to_dict()
         assert "name" in d
-        assert "description" not in d  # None values excluded
+        assert "description" not in d
 
 
 class TestNip11FetchDataRoundtrip:

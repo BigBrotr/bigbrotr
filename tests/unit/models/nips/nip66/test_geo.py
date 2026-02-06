@@ -133,7 +133,7 @@ class TestGeoExtractorExtractAdministrative:
         response.city.name = None
         response.city.geoname_id = None
         response.postal.code = None
-        # Create a mock subdivisions that is truthy and has most_specific
+        # Subdivisions must be truthy to trigger region extraction
         mock_subdivisions = MagicMock()
         mock_subdivisions.__bool__ = MagicMock(return_value=True)
         mock_subdivisions.most_specific.name = "California"
@@ -179,7 +179,6 @@ class TestGeoExtractorExtractAdministrative:
         response.city.name = "Berlin"
         response.city.geoname_id = 2950159
         response.postal.code = "10115"
-        # Create a mock subdivisions that is truthy and has most_specific
         mock_subdivisions = MagicMock()
         mock_subdivisions.__bool__ = MagicMock(return_value=True)
         mock_subdivisions.most_specific.name = "Berlin"
@@ -398,12 +397,10 @@ class TestNip66GeoMetadataGeoAsync:
         """Returns Nip66GeoMetadata for clearnet relay with city reader."""
         mock_city_reader = MagicMock()
 
-        # Mock resolve_host to return IP
         mock_resolved = MagicMock()
         mock_resolved.ipv4 = "8.8.8.8"
         mock_resolved.ipv6 = None
 
-        # Mock _geo to return geo data
         geo_result = {
             "geo_country": "US",
             "geo_country_name": "United States",
@@ -548,7 +545,6 @@ class TestNip66GeoMetadataGeoAsync:
         ):
             await Nip66GeoMetadata.geo(relay, mock_city_reader)
 
-        # Should use IPv4
         mock_geo.assert_called_once_with("8.8.8.8", mock_city_reader)
 
     @pytest.mark.asyncio
@@ -574,5 +570,4 @@ class TestNip66GeoMetadataGeoAsync:
         ):
             await Nip66GeoMetadata.geo(relay, mock_city_reader)
 
-        # Should use IPv6
         mock_geo.assert_called_once_with("2001:4860:4860::8888", mock_city_reader)

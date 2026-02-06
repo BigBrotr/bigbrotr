@@ -1,14 +1,4 @@
-"""
-Unit tests for models.event module.
-
-Tests:
-- Event construction from nostr_sdk.Event
-- Immutability enforcement (frozen dataclass with __slots__)
-- Transparent attribute delegation via __getattr__
-- to_db_params() serialization for database insert
-- from_db_params() deserialization from database
-- EventDbParams NamedTuple structure and fields
-"""
+"""Unit tests for the Event model and EventDbParams NamedTuple."""
 
 import json
 from dataclasses import FrozenInstanceError
@@ -26,40 +16,25 @@ from models.event import Event, EventDbParams
 
 @pytest.fixture
 def mock_nostr_event():
-    """Create a mock nostr_sdk.Event with proper method chains.
-
-    Configures all required method chains for Event.to_db_params():
-    - id() -> to_hex() -> 64-char hex string
-    - author() -> to_hex() -> 64-char hex string
-    - created_at() -> as_secs() -> int timestamp
-    - kind() -> as_u16() -> int event kind
-    - tags() -> to_vec() -> list of mock tags with as_vec()
-    - content() -> string
-    - signature() -> 128-char hex string
-    """
+    """Create a mock nostr_sdk.Event with all method chains configured."""
     mock = MagicMock()
 
-    # Mock id() -> returns object with to_hex()
     mock_id = MagicMock()
     mock_id.to_hex.return_value = "a" * 64
     mock.id.return_value = mock_id
 
-    # Mock author() -> returns object with to_hex()
     mock_author = MagicMock()
     mock_author.to_hex.return_value = "b" * 64
     mock.author.return_value = mock_author
 
-    # Mock created_at() -> returns object with as_secs()
     mock_created_at = MagicMock()
     mock_created_at.as_secs.return_value = 1700000000
     mock.created_at.return_value = mock_created_at
 
-    # Mock kind() -> returns object with as_u16()
     mock_kind = MagicMock()
     mock_kind.as_u16.return_value = 1
     mock.kind.return_value = mock_kind
 
-    # Mock tags() -> returns object with to_vec() -> list of tag objects
     mock_tag1 = MagicMock()
     mock_tag1.as_vec.return_value = ["e", "c" * 64]
     mock_tag2 = MagicMock()
@@ -68,10 +43,7 @@ def mock_nostr_event():
     mock_tags.to_vec.return_value = [mock_tag1, mock_tag2]
     mock.tags.return_value = mock_tags
 
-    # Mock content() -> returns string directly
     mock.content.return_value = "Hello, Nostr!"
-
-    # Mock signature() -> returns hex string directly
     mock.signature.return_value = "e" * 128
 
     return mock
@@ -166,13 +138,13 @@ class TestEventDbParams:
             content="Content",
             sig=b"\xcc" * 64,
         )
-        assert params[0] == b"\xaa" * 32  # id
-        assert params[1] == b"\xbb" * 32  # pubkey
-        assert params[2] == 9999999999  # created_at
-        assert params[3] == 7  # kind
-        assert params[4] == '[["t","test"]]'  # tags
-        assert params[5] == "Content"  # content
-        assert params[6] == b"\xcc" * 64  # sig
+        assert params[0] == b"\xaa" * 32
+        assert params[1] == b"\xbb" * 32
+        assert params[2] == 9999999999
+        assert params[3] == 7
+        assert params[4] == '[["t","test"]]'
+        assert params[5] == "Content"
+        assert params[6] == b"\xcc" * 64
 
     def test_immutability(self):
         """EventDbParams is immutable (NamedTuple)."""
@@ -203,9 +175,8 @@ class TestConstruction:
         assert event._inner is mock_nostr_event
 
     def test_construction_preserves_reference(self, mock_nostr_event):
-        """Event stores reference to the original NostrEvent."""
+        """Event stores reference to the original NostrEvent, not a copy."""
         event = Event(mock_nostr_event)
-        # Same object, not a copy
         assert event._inner is mock_nostr_event
 
 
@@ -225,7 +196,6 @@ class TestNullByteValidation:
 
     def test_rejects_tags_with_null_byte(self, mock_nostr_event):
         """Event rejects tags containing null bytes."""
-        # Create a tag with null byte in value
         mock_tag = MagicMock()
         mock_tag.as_vec.return_value = ["t", "tag\x00value"]
         mock_tags = MagicMock()
@@ -246,7 +216,7 @@ class TestNullByteValidation:
         mock_nostr_event.content.return_value = "Bad\x00Content"
         with pytest.raises(ValueError) as exc_info:
             Event(mock_nostr_event)
-        # Event ID starts with 'a' * 64, so first 16 chars are 'a' * 16
+        # Truncated event ID (first 16 hex chars) should appear in the error
         assert "aaaaaaaaaaaaaaaa" in str(exc_info.value)
 
 
@@ -300,58 +270,54 @@ class TestSlots:
 class TestDelegation:
     """Method delegation to wrapped NostrEvent via __getattr__.
 
-    Note: Most methods are now called twice during Event construction:
-    once in __post_init__ (fail-fast to_db_params validation) and once
-    when explicitly called in the test.
+    Most methods are called multiple times because __post_init__ performs
+    fail-fast validation via to_db_params() and null byte checks.
     """
 
     def test_id_delegates(self, mock_nostr_event):
-        """id() should delegate to wrapped event."""
+        """id() delegates to wrapped event."""
         event = Event(mock_nostr_event)
         event.id()
-        # Called 3x: once for null check error msg, once in to_db_params, once here
+        # 3x: null check, to_db_params in __post_init__, explicit call
         assert mock_nostr_event.id.call_count == 3
 
     def test_author_delegates(self, mock_nostr_event):
-        """author() should delegate to wrapped event."""
+        """author() delegates to wrapped event."""
         event = Event(mock_nostr_event)
         event.author()
-        # Called twice: once in __post_init__ (to_db_params), once here
+        # 2x: to_db_params in __post_init__, explicit call
         assert mock_nostr_event.author.call_count == 2
 
     def test_created_at_delegates(self, mock_nostr_event):
-        """created_at() should delegate to wrapped event."""
+        """created_at() delegates to wrapped event."""
         event = Event(mock_nostr_event)
         event.created_at()
-        # Called twice: once in __post_init__ (to_db_params), once here
         assert mock_nostr_event.created_at.call_count == 2
 
     def test_kind_delegates(self, mock_nostr_event):
-        """kind() should delegate to wrapped event."""
+        """kind() delegates to wrapped event."""
         event = Event(mock_nostr_event)
         event.kind()
-        # Called twice: once in __post_init__ (to_db_params), once here
         assert mock_nostr_event.kind.call_count == 2
 
     def test_tags_delegates(self, mock_nostr_event):
-        """tags() should delegate to wrapped event."""
+        """tags() delegates to wrapped event."""
         event = Event(mock_nostr_event)
         event.tags()
-        # Called 3x: once for null check, once in to_db_params, once here
+        # 3x: null check, to_db_params in __post_init__, explicit call
         assert mock_nostr_event.tags.call_count == 3
 
     def test_content_delegates(self, mock_nostr_event):
-        """content() should delegate to wrapped event."""
+        """content() delegates to wrapped event."""
         event = Event(mock_nostr_event)
         event.content()
-        # Called 3x: once for null check, once in to_db_params, once here
+        # 3x: null check, to_db_params in __post_init__, explicit call
         assert mock_nostr_event.content.call_count == 3
 
     def test_signature_delegates(self, mock_nostr_event):
-        """signature() should delegate to wrapped event."""
+        """signature() delegates to wrapped event."""
         event = Event(mock_nostr_event)
         event.signature()
-        # Called twice: once in __post_init__ (to_db_params), once here
         assert mock_nostr_event.signature.call_count == 2
 
     def test_verify_delegates(self, mock_nostr_event):
@@ -462,15 +428,14 @@ class TestFromDbParams:
         """to_db_params output can be used with from_db_params."""
         params = event.to_db_params()
 
-        # Verify params structure matches from_db_params signature
         assert len(params) == 7
-        assert isinstance(params.id, bytes)  # event_id
-        assert isinstance(params.pubkey, bytes)  # pubkey
-        assert isinstance(params.created_at, int)  # created_at
-        assert isinstance(params.kind, int)  # kind
-        assert isinstance(params.tags, str)  # tags
-        assert isinstance(params.content, str)  # content
-        assert isinstance(params.sig, bytes)  # sig
+        assert isinstance(params.id, bytes)
+        assert isinstance(params.pubkey, bytes)
+        assert isinstance(params.created_at, int)
+        assert isinstance(params.kind, int)
+        assert isinstance(params.tags, str)
+        assert isinstance(params.content, str)
+        assert isinstance(params.sig, bytes)
 
 
 # =============================================================================
@@ -499,7 +464,7 @@ class TestEdgeCases:
         mock_tags = MagicMock()
         mock_tags.to_vec.return_value = []
         mock.tags.return_value = mock_tags
-        mock.content.return_value = "x" * 100000  # 100KB content
+        mock.content.return_value = "x" * 100000
         mock.signature.return_value = "e" * 128
 
         event = Event(mock)
@@ -549,7 +514,6 @@ class TestEdgeCases:
         mock.content.return_value = "Test"
         mock.signature.return_value = "e" * 128
 
-        # Create 100 tags
         mock_tags_list = []
         for i in range(100):
             tag = MagicMock()
@@ -584,7 +548,6 @@ class TestEdgeCases:
         mock.content.return_value = "Test"
         mock.signature.return_value = "e" * 128
 
-        # Tag with multiple elements
         mock_tag = MagicMock()
         mock_tag.as_vec.return_value = ["a", "b", "c", "d", "e"]
         mock_tags = MagicMock()

@@ -435,10 +435,9 @@ class TestNip66SslMetadataSslAsync:
         with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result) as mock_ssl:
             await Nip66SslMetadata.ssl(relay, 10.0)
 
-        # Check that _ssl was called with port 443
         mock_ssl.assert_called_once()
         call_args = mock_ssl.call_args
-        assert call_args[0][1] == 443  # Second positional arg is port
+        assert call_args[0][1] == 443
 
     @pytest.mark.asyncio
     async def test_uses_explicit_port(self, relay_with_port: Relay) -> None:
@@ -471,6 +470,5 @@ class TestNip66SslMetadataSslAsync:
             await Nip66SslMetadata.ssl(relay, None)
 
         mock_ssl.assert_called_once()
-        # Default timeout from base module should be used
         call_args = mock_ssl.call_args
-        assert call_args[0][2] > 0  # Third positional arg is timeout
+        assert call_args[0][2] > 0

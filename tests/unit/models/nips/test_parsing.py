@@ -1,16 +1,4 @@
-"""Tests for models.nips.parsing module.
-
-Tests cover:
-- FieldSpec dataclass construction and defaults
-- parse_fields function with all field types:
-  - int_fields (rejects bool)
-  - bool_fields
-  - str_fields
-  - str_list_fields (filters invalid elements)
-  - float_fields (converts int to float, rejects bool)
-  - int_list_fields (filters invalid elements, rejects bool)
-- Edge cases (empty data, mixed valid/invalid, unknown fields)
-"""
+"""Unit tests for FieldSpec dataclass and parse_fields function."""
 
 import pytest
 
@@ -91,9 +79,7 @@ class TestFieldSpecImmutability:
     def test_is_hashable(self):
         """FieldSpec is hashable due to frozen=True."""
         spec = FieldSpec(int_fields=frozenset({"count"}))
-        # Should not raise - hashable objects can be used in sets/dicts
         assert hash(spec) is not None
-        # Can be used as dict key
         d = {spec: "value"}
         assert d[spec] == "value"
 
@@ -606,7 +592,6 @@ class TestParseFieldsRealWorld:
             "max_limit": 5000,
             "auth_required": False,
             "payment_required": True,
-            # Invalid types
             "invalid_int": "large",
             "invalid_bool": "yes",
         }
@@ -633,8 +618,8 @@ class TestParseFieldsRealWorld:
             "version": "1.0.0",
             "relay_countries": ["US", "DE"],
             "language_tags": ["en", "de"],
-            "tags": ["bitcoin", 123],  # 123 should be filtered
-            "supported_nips": [1, 11, True, 42],  # True should be filtered
+            "tags": ["bitcoin", 123],
+            "supported_nips": [1, 11, True, 42],
         }
         result = parse_fields(data, spec)
         assert result == {
@@ -678,11 +663,11 @@ class TestParseFieldsRealWorld:
             int_fields=frozenset({"dns_ttl"}),
         )
         data = {
-            "dns_ips": ["8.8.8.8", "8.8.4.4", 123],  # 123 should be filtered
+            "dns_ips": ["8.8.8.8", "8.8.4.4", 123],
             "dns_ips_v6": ["2001:4860:4860::8888"],
             "dns_cname": "dns.google",
             "dns_reverse": "dns.google",
-            "dns_ns": ["ns1.google.com", None, "ns2.google.com"],  # None filtered
+            "dns_ns": ["ns1.google.com", None, "ns2.google.com"],
             "dns_ttl": 300,
         }
         result = parse_fields(data, spec)

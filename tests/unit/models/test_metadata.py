@@ -1,16 +1,4 @@
-"""
-Unit tests for models.metadata module.
-
-Tests:
-- Metadata construction from dict
-- Sanitization of non-JSON-compatible data
-- Type-safe accessor methods (_get with nesting and defaults)
-- MetadataDbParams NamedTuple structure
-- to_db_params() serialization for PostgreSQL JSONB
-- from_db_params() deserialization
-- Immutability enforcement (frozen dataclass)
-- Equality behavior
-"""
+"""Unit tests for the Metadata model, MetadataType enum, and MetadataDbParams NamedTuple."""
 
 import json
 from dataclasses import FrozenInstanceError
@@ -131,8 +119,7 @@ class TestConstruction:
         assert m.value["number"] == 42
         assert m.value["float"] == 3.14
         assert m.value["bool"] is True
-        # None values are filtered out for deterministic hashing
-        assert "null" not in m.value
+        assert "null" not in m.value  # None values filtered for deterministic hashing
 
 
 # =============================================================================
@@ -261,7 +248,6 @@ class TestSanitize:
 
     def test_non_string_keys_skipped(self):
         """Non-string keys are filtered out during sanitization."""
-        # Note: We need to sanitize manually since sorted() fails on mixed types
         m = Metadata(type=MetadataType.NIP11_FETCH, value={"key": "value"})
         params = m.to_db_params()
         parsed = json.loads(params.value)
@@ -276,7 +262,6 @@ class TestSanitize:
         m = Metadata(type=MetadataType.NIP11_FETCH, value={"valid": "ok", "invalid": Custom()})
         params = m.to_db_params()
         parsed = json.loads(params.value)
-        # Non-serializable becomes None, and None is filtered for deterministic hashing
         assert parsed == {"valid": "ok"}
 
     def test_null_bytes_rejected(self):
@@ -343,7 +328,6 @@ class TestFromDbParams:
 
     def test_simple(self):
         """Reconstructs simple metadata."""
-        # Hash for '{"name": "test"}' (canonical JSON)
         hash_bytes = bytes.fromhex(
             "7d9fd2051fc32b32feab10946fab6bb91426ab7e39aa5439289ed892864aa91d"  # pragma: allowlist secret
         )
@@ -356,7 +340,6 @@ class TestFromDbParams:
 
     def test_nested(self):
         """Reconstructs nested metadata."""
-        # Hash for '{"a": {"b": [1, 2, 3]}}' (canonical JSON)
         hash_bytes = bytes.fromhex(
             "345cbac42064615b5c54e4b502193eb847ce94a9c62ad47a463fe43d99226e3c"  # pragma: allowlist secret
         )
@@ -369,7 +352,6 @@ class TestFromDbParams:
 
     def test_empty(self):
         """Reconstructs empty metadata."""
-        # Hash for '{}' (empty JSON object)
         hash_bytes = bytes.fromhex(
             "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"  # pragma: allowlist secret
         )
@@ -468,10 +450,9 @@ class TestEdgeCases:
         m = Metadata(type=MetadataType.NIP11_FETCH, value=data)
         params = m.to_db_params()
         reconstructed = Metadata.from_db_params(params)
-        # None values and empty containers are filtered
         assert reconstructed.value == {"real": "data"}
         assert "value" not in reconstructed.value
-        assert "nested" not in reconstructed.value  # becomes empty, then filtered
+        assert "nested" not in reconstructed.value
 
     def test_boolean_values(self):
         """Boolean values are preserved."""
@@ -547,7 +528,6 @@ class TestNormalization:
         """Dict keys are sorted for deterministic output."""
         m1 = Metadata(type=MetadataType.NIP11_FETCH, value={"z": 1, "a": 2, "m": 3})
         m2 = Metadata(type=MetadataType.NIP11_FETCH, value={"a": 2, "m": 3, "z": 1})
-        # Both should produce identical JSON
         assert m1.to_db_params().value == m2.to_db_params().value
 
     def test_hash_consistency_empty_containers(self):

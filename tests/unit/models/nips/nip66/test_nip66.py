@@ -514,11 +514,10 @@ class TestNip66Create:
                 proxy_url="socks5://localhost:9050",
             )
 
-        # Check that rtt was called with the proxy_url
         mock_rtt.assert_called_once()
         call_args = mock_rtt.call_args
-        # RTT is called with positional args: relay, keys, event_builder, read_filter, timeout, proxy_url, allow_insecure
-        assert call_args[0][5] == "socks5://localhost:9050"  # proxy_url is 6th positional arg
+        # Positional args: relay, keys, event_builder, read_filter, timeout, proxy_url, allow_insecure
+        assert call_args[0][5] == "socks5://localhost:9050"
 
     @pytest.mark.asyncio
     async def test_all_disabled_returns_empty_nip66(self, relay: Relay) -> None:

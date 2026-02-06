@@ -390,7 +390,6 @@ class TestSynchronizerFetchRelays:
         relays = await sync._fetch_relays()
 
         assert len(relays) == 2
-        # relays is now list[Relay], url is RelayUrl
         assert "relay1.example.com" in str(relays[0].url)
         assert "relay2.example.com" in str(relays[1].url)
 
@@ -412,7 +411,6 @@ class TestSynchronizerFetchRelays:
         relays = await sync._fetch_relays()
 
         assert len(relays) == 1
-        # relays is now list[Relay], url is RelayUrl
         assert "valid.relay.com" in str(relays[0].url)
 
 
@@ -440,7 +438,6 @@ class TestSynchronizerGetStartTime:
     @pytest.mark.asyncio
     async def test_get_start_time_from_service_data(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test get start time from service_data cursor."""
-        # Mock get_service_data to return a cursor
         mock_synchronizer_brotr.get_service_data = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"value": {"last_synced_at": 12000}}]
         )
@@ -459,7 +456,6 @@ class TestSynchronizerGetStartTime:
     @pytest.mark.asyncio
     async def test_get_start_time_no_cursor(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test get start time when no cursor exists."""
-        # Mock get_service_data to return empty list (no cursor)
         mock_synchronizer_brotr.get_service_data = AsyncMock(  # type: ignore[attr-defined]
             return_value=[]
         )

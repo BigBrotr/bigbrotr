@@ -148,7 +148,7 @@ class TestNip66NetMetadataNetSync:
 
         result = Nip66NetMetadata._net("8.8.8.8", "2001:4860:4860::8888", mock_asn_reader)
 
-        # ASN should come from IPv4 (first lookup)
+        # IPv4 lookup runs first, so its ASN takes precedence
         assert result["net_asn"] == 15169
         assert result["net_asn_org"] == "GOOGLE"
 

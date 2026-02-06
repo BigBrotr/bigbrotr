@@ -1,18 +1,4 @@
-"""
-Unit tests for models.relay module.
-
-Tests:
-- Relay construction and URL validation
-- URL parsing and normalization (scheme, host, port, path)
-- Network type detection (clearnet, tor, i2p, loki, local, unknown)
-- Scheme enforcement (wss for clearnet, ws for overlay networks)
-- RelayDbParams NamedTuple structure
-- to_db_params() and from_db_params() serialization
-- Local/private address rejection
-- Immutability enforcement (frozen dataclass)
-- Equality and hashing
-- NetworkType StrEnum
-"""
+"""Unit tests for the Relay model, NetworkType enum, and RelayDbParams NamedTuple."""
 
 from dataclasses import FrozenInstanceError
 from time import time
@@ -185,7 +171,7 @@ class TestUrlParsing:
     def test_ipv6_address(self):
         """IPv6 address is parsed correctly."""
         r = Relay("wss://[2001:4860:4860::8888]")
-        assert r.host == "2001:4860:4860::8888"  # Brackets stripped
+        assert r.host == "2001:4860:4860::8888"
         assert r.network == NetworkType.CLEARNET
         assert r.url == "wss://[2001:4860:4860::8888]"
 
@@ -554,7 +540,7 @@ class TestFromDbParams:
         """Reconstructs IPv6 relay."""
         params = RelayDbParams("wss://[2606:4700::1]:8080", "clearnet", 1234567890)
         r = Relay.from_db_params(params)
-        assert r.host == "2606:4700::1"  # Host without brackets
+        assert r.host == "2606:4700::1"
         assert r.port == 8080
 
     def test_tor_network(self):
@@ -565,11 +551,10 @@ class TestFromDbParams:
         assert r.scheme == "ws"
 
     def test_network_param_ignored(self):
-        """Network param is ignored (recomputed from URL)."""
-        # Pass wrong network, it gets recomputed
+        """Network param is ignored; network is recomputed from the URL."""
         params = RelayDbParams("wss://relay.example.com", "tor", 1234567890)
         r = Relay.from_db_params(params)
-        assert r.network == NetworkType.CLEARNET  # Recomputed, not from param
+        assert r.network == NetworkType.CLEARNET
 
     def test_roundtrip(self):
         """to_db_params -> from_db_params preserves data."""
@@ -624,7 +609,6 @@ class TestEquality:
         """Relay is hashable."""
         r1 = Relay("wss://relay.example.com", discovered_at=1234567890)
         r2 = Relay("wss://relay.example.com", discovered_at=1234567890)
-        # Same URL and timestamp -> same hash
         assert hash(r1) == hash(r2)
 
     def test_set_deduplication(self):
@@ -633,7 +617,7 @@ class TestEquality:
         r2 = Relay("wss://relay.example.com", discovered_at=1234567890)
         r3 = Relay("wss://other.relay.com", discovered_at=1234567890)
         s = {r1, r2, r3}
-        assert len(s) == 2  # r1 and r2 are duplicates
+        assert len(s) == 2
 
 
 # =============================================================================
@@ -647,12 +631,11 @@ class TestEdgeCases:
     def test_url_case_normalized(self):
         """URL host is case-normalized."""
         r = Relay("wss://RELAY.EXAMPLE.COM")
-        # RFC3986 normalization lowercases the host
         assert r.host == "relay.example.com"
 
     def test_long_hostname(self):
         """Long hostname is handled."""
-        long_subdomain = "a" * 63  # Max label length
+        long_subdomain = "a" * 63
         url = f"wss://{long_subdomain}.example.com"
         r = Relay(url)
         assert r.host == f"{long_subdomain}.example.com"
@@ -665,6 +648,5 @@ class TestEdgeCases:
     def test_default_port_80_for_ws(self):
         """Default port for ws:// overlay is 80."""
         r = Relay("wss://abc.onion:80")
-        # Port 80 is default for ws, should be omitted
         assert r.url == "ws://abc.onion"
         assert r.port == 80

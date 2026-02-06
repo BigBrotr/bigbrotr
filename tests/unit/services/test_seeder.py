@@ -204,17 +204,16 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path="nonexistent/file.txt"))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder._seed()  # Should not raise, logs warning
+        await seeder._seed()
 
     @pytest.mark.asyncio
     async def test_seed_success_as_candidates(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
     ) -> None:
-        """Test successful relay seeding as validation candidates."""
+        """Seed relays as validation candidates (to_validate=True)."""
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay1.example.com\nwss://relay2.example.com\n")
 
-        # Mock fetch to return both URLs as new
         mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
                 {"url": "wss://relay1.example.com"},
@@ -228,12 +227,11 @@ class TestSeedRelays:
 
         await seeder._seed()
 
-        # Verify upsert_service_data was called
         mock_seeder_brotr.upsert_service_data.assert_called()
 
     @pytest.mark.asyncio
     async def test_seed_success_as_relays(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
-        """Test successful relay seeding directly into relays table."""
+        """Seed relays directly into relays table (to_validate=False)."""
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay1.example.com\nwss://relay2.example.com\n")
 
@@ -244,7 +242,6 @@ class TestSeedRelays:
 
         await seeder._seed()
 
-        # Verify insert_relays was called
         mock_seeder_brotr.insert_relays.assert_called()
 
     @pytest.mark.asyncio
@@ -255,7 +252,6 @@ class TestSeedRelays:
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("# Comment\n\nwss://relay.example.com\n# Another comment\n")
 
-        # Mock fetch to return the URL as new
         mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://relay.example.com"}]
         )
@@ -272,7 +268,6 @@ class TestSeedRelays:
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("invalid-url\nwss://valid.relay.com\nnot-a-relay\n")
 
-        # Mock fetch to return the valid URL as new
         mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://valid.relay.com"}]
         )
@@ -292,7 +287,7 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder._seed()  # Should not raise
+        await seeder._seed()
 
     @pytest.mark.asyncio
     async def test_seed_all_exist(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
@@ -300,7 +295,6 @@ class TestSeedRelays:
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay.example.com\n")
 
-        # Mock fetch to return empty (all relays already exist)
         mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[]
         )
@@ -308,7 +302,7 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder._seed()  # Should not raise
+        await seeder._seed()
 
 
 # ============================================================================
@@ -450,7 +444,6 @@ class TestSeedAsCandidates:
 
         await seeder._seed_as_candidates(relays)
 
-        # Verify upsert was called with network info
         call_args = mock_seeder_brotr.upsert_service_data.call_args[0][0]
         networks = [record[3]["network"] for record in call_args]
         assert "clearnet" in networks
@@ -501,7 +494,6 @@ class TestSeedAsRelays:
 
         await seeder._seed_as_relays(relays)
 
-        # Should be called multiple times for batching
         assert mock_seeder_brotr.insert_relays.call_count >= 2
 
 
@@ -519,7 +511,7 @@ class TestSeederRun:
         config = SeederConfig(seed=SeedConfig(file_path="nonexistent.txt"))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder.run()  # Should not raise, logs warning
+        await seeder.run()
 
     @pytest.mark.asyncio
     async def test_run_success(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
@@ -535,7 +527,7 @@ class TestSeederRun:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder.run()  # Should complete without error
+        await seeder.run()
 
     @pytest.mark.asyncio
     async def test_run_logs_cycle_completion(
@@ -581,7 +573,6 @@ class TestSeederErrorHandling:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        # Should raise since DB error is not caught in _seed_as_candidates
         with pytest.raises(Exception, match="Database error"):
             await seeder._seed()
 
@@ -601,6 +592,5 @@ class TestSeederErrorHandling:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        # Should not raise
         relays = seeder._parse_seed_file(seed_file)
-        assert len(relays) == 1  # Only valid relay parsed
+        assert len(relays) == 1

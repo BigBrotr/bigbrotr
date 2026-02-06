@@ -1,16 +1,4 @@
-"""
-Unit tests for models.relay_metadata module.
-
-Tests:
-- RelayMetadata construction from Relay and Metadata
-- MetadataType StrEnum (nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http)
-- RelayMetadataDbParams NamedTuple structure (7 fields)
-- to_db_params() serialization for bulk insert
-- from_db_params() deserialization
-- generated_at timestamp handling (default vs explicit)
-- Immutability enforcement (frozen dataclass)
-- Equality behavior
-"""
+"""Unit tests for the RelayMetadata model and RelayMetadataDbParams NamedTuple."""
 
 import json
 from dataclasses import FrozenInstanceError
@@ -144,13 +132,13 @@ class TestRelayMetadataDbParams:
             metadata_type="nip66_ssl",
             generated_at=2222222222,
         )
-        assert params[0] == "ws://abc.onion"  # relay_url
-        assert params[1] == "tor"  # relay_network
-        assert params[2] == 1111111111  # relay_discovered_at
-        assert params[3] == test_hash  # metadata_id
-        assert params[4] == "{}"  # metadata_value
-        assert params[5] == "nip66_ssl"  # metadata_type
-        assert params[6] == 2222222222  # generated_at
+        assert params[0] == "ws://abc.onion"
+        assert params[1] == "tor"
+        assert params[2] == 1111111111
+        assert params[3] == test_hash
+        assert params[4] == "{}"
+        assert params[5] == "nip66_ssl"
+        assert params[6] == 2222222222
 
     def test_immutability(self):
         """RelayMetadataDbParams is immutable (NamedTuple)."""
@@ -275,14 +263,11 @@ class TestToDbParams:
         metadata = Metadata(type=MetadataType.NIP66_RTT, value={"name": "Test", "value": 42})
         rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=9999999999)
         result = rm.to_db_params()
-        # Relay fields
         assert result.relay_url == "wss://relay.example.com:8080/nostr"
         assert result.relay_network == "clearnet"
         assert result.relay_discovered_at == 1234567890
-        # Metadata field (JSON)
         parsed = json.loads(result.metadata_value)
         assert parsed == {"name": "Test", "value": 42}
-        # Type and timestamp
         assert result.metadata_type == "nip66_rtt"
         assert result.generated_at == 9999999999
 
@@ -315,7 +300,6 @@ class TestFromDbParams:
 
     def test_simple(self):
         """Reconstructs RelayMetadata from db params."""
-        # Hash for '{"name": "Test"}' (canonical JSON)
         hash_bytes = bytes.fromhex(
             "fc3a123bb54a65eb81ea264de3811bae8a86f092df2f1f99d1fd1a5817c395b3"  # pragma: allowlist secret
         )
@@ -338,7 +322,6 @@ class TestFromDbParams:
 
     def test_with_tor_relay(self):
         """Reconstructs with Tor relay."""
-        # Hash for '{}' (empty JSON object)
         hash_bytes = bytes.fromhex(
             "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"  # pragma: allowlist secret
         )

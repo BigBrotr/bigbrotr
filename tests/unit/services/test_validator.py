@@ -248,9 +248,7 @@ class TestValidatorRun:
         with patch("services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False):
             await validator.run()
 
-        # Cleanup promoted is called at end of run (not in _persist)
         assert mock_validator_brotr.pool.execute.called
-        # Check that the cleanup query was called
         calls = mock_validator_brotr.pool.execute.call_args_list
         cleanup_called = any("data_key IN (SELECT url FROM relays)" in str(c) for c in calls)
         assert cleanup_called
@@ -684,7 +682,6 @@ class TestCleanup:
         validator = Validator(brotr=mock_validator_brotr, config=config)
         await validator._cleanup_exhausted()
 
-        # cleanup_exhausted should not execute anything when disabled
         mock_validator_brotr.pool._mock_connection.execute.assert_not_called()
 
     @pytest.mark.asyncio
@@ -693,7 +690,6 @@ class TestCleanup:
         mock_validator_brotr.pool.execute = AsyncMock(side_effect=Exception("DB error"))
 
         validator = Validator(brotr=mock_validator_brotr)
-        # cleanup_stale does not catch errors - they propagate up
         with pytest.raises(Exception, match="DB error"):
             await validator._cleanup_stale()
 
