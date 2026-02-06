@@ -1,4 +1,10 @@
-"""NIP-66 geo metadata container with lookup capabilities."""
+"""
+NIP-66 geolocation metadata container with GeoIP lookup capabilities.
+
+Resolves a relay's hostname to an IP address and performs a GeoIP City
+database lookup to determine geographic location, including country,
+city, coordinates, and a computed geohash. Clearnet relays only.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +14,7 @@ from typing import Any, Self
 import geohash2
 import geoip2.database
 
-from logger import Logger
+from core.logger import Logger
 from models.nips.base import BaseMetadata
 from models.relay import Relay
 from utils.dns import resolve_host
@@ -22,26 +28,24 @@ logger = Logger("models.nip66")
 
 
 class GeoExtractor:
-    """Helper class to extract fields from GeoIP2 City response."""
+    """Extracts structured geolocation fields from a GeoIP2 City response."""
 
     @staticmethod
     def extract_country(response: Any) -> dict[str, Any]:
-        """Extract country-related fields (country, country_name, is_eu)."""
+        """Extract country code, name, and EU membership status."""
         result: dict[str, Any] = {}
 
-        # Country code (prefer country, fallback to registered_country)
+        # Prefer the physical country; fall back to registered country
         if response.country.iso_code:
             result["geo_country"] = response.country.iso_code
         elif response.registered_country.iso_code:
             result["geo_country"] = response.registered_country.iso_code
 
-        # Country name
         if response.country.name:
             result["geo_country_name"] = response.country.name
         elif response.registered_country.name:
             result["geo_country_name"] = response.registered_country.name
 
-        # EU membership
         is_eu = response.country.is_in_european_union
         if is_eu is not None:
             result["geo_is_eu"] = is_eu
@@ -50,28 +54,24 @@ class GeoExtractor:
 
     @staticmethod
     def extract_administrative(response: Any) -> dict[str, Any]:
-        """Extract administrative fields (continent, city, region, postal)."""
+        """Extract continent, city, region, postal code, and geoname ID."""
         result: dict[str, Any] = {}
 
-        # Continent
         if response.continent.code:
             result["geo_continent"] = response.continent.code
         if response.continent.name:
             result["geo_continent_name"] = response.continent.name
 
-        # City
         if response.city.name:
             result["geo_city"] = response.city.name
         if response.city.geoname_id:
             result["geo_geoname_id"] = response.city.geoname_id
 
-        # Region
         if response.subdivisions:
             region = response.subdivisions.most_specific.name
             if region:
                 result["geo_region"] = region
 
-        # Postal code
         if response.postal.code:
             result["geo_postal"] = response.postal.code
 
@@ -79,7 +79,7 @@ class GeoExtractor:
 
     @staticmethod
     def extract_location(response: Any) -> dict[str, Any]:
-        """Extract location fields (lat, lon, accuracy, tz, geohash)."""
+        """Extract latitude, longitude, accuracy radius, timezone, and geohash."""
         result: dict[str, Any] = {}
         loc = response.location
 
@@ -92,7 +92,7 @@ class GeoExtractor:
         if loc.time_zone:
             result["geo_tz"] = loc.time_zone
 
-        # Generate geohash if coordinates available
+        # Compute geohash from coordinates when both are available
         if "geo_lat" in result and "geo_lon" in result:
             result["geohash"] = geohash2.encode(
                 result["geo_lat"],
@@ -104,7 +104,7 @@ class GeoExtractor:
 
     @classmethod
     def extract_all(cls, response: Any) -> dict[str, Any]:
-        """Extract all geo fields from response."""
+        """Extract all geolocation fields from a GeoIP2 City response."""
         result: dict[str, Any] = {}
         result.update(cls.extract_country(response))
         result.update(cls.extract_administrative(response))
@@ -113,18 +113,30 @@ class GeoExtractor:
 
 
 class Nip66GeoMetadata(BaseMetadata):
-    """Container for Geo data and logs with lookup capabilities."""
+    """Container for geolocation data and lookup logs.
+
+    Provides the ``geo()`` class method that resolves the relay hostname,
+    performs a GeoIP City lookup, and extracts location fields.
+    """
 
     data: Nip66GeoData
     logs: Nip66GeoLogs
 
     # -------------------------------------------------------------------------
-    # Geo Lookup
+    # Geolocation Lookup
     # -------------------------------------------------------------------------
 
     @staticmethod
     def _geo(ip: str, city_reader: geoip2.database.Reader) -> dict[str, Any]:
-        """Synchronous geolocation lookup."""
+        """Perform a synchronous GeoIP City database lookup.
+
+        Args:
+            ip: Resolved IP address string.
+            city_reader: Open GeoLite2-City database reader.
+
+        Returns:
+            Dictionary of geolocation fields, or empty dict on error.
+        """
         try:
             response = city_reader.city(ip)
             return GeoExtractor.extract_all(response)
@@ -138,10 +150,20 @@ class Nip66GeoMetadata(BaseMetadata):
         relay: Relay,
         city_reader: geoip2.database.Reader,
     ) -> Self:
-        """Lookup geolocation for relay.
+        """Perform a geolocation lookup for a clearnet relay.
+
+        Resolves the relay hostname to an IP (preferring IPv4), then
+        queries the GeoIP City database in a thread pool.
+
+        Args:
+            relay: Clearnet relay to geolocate.
+            city_reader: Open GeoLite2-City database reader.
+
+        Returns:
+            An ``Nip66GeoMetadata`` instance with location data and logs.
 
         Raises:
-            ValueError: If non-clearnet relay.
+            ValueError: If the relay is not on the clearnet network.
         """
         logger.debug("geo_testing", relay=relay.url)
 
@@ -150,7 +172,6 @@ class Nip66GeoMetadata(BaseMetadata):
 
         logs: dict[str, Any] = {"success": False, "reason": None}
 
-        # Resolve hostname to IP (prefer IPv4 for geo lookup)
         resolved = await resolve_host(relay.host)
         ip = resolved.ipv4 or resolved.ipv6
 

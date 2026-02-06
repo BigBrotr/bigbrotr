@@ -1,19 +1,8 @@
 """
-EventRelay junction model for BigBrotr.
+Junction model linking an Event to the Relay where it was observed.
 
-Represents an Event seen on a specific Relay at a specific time, mapping to
-the `events_relays` junction table in the database. This model enables tracking
-of event provenance (which relay an event was received from and when).
-
-Database mapping:
-    - event_id -> events.id (FK)
-    - relay_url -> relays.url (FK)
-    - seen_at -> timestamp when event was first seen on this relay
-
-Example:
-    >>> from models import Event, EventRelay, Relay
-    >>> event_relay = EventRelay(Event(nostr_event), relay)
-    >>> params = event_relay.to_db_params()  # EventRelayDbParams for insert
+Maps to the ``events_relays`` table in the database, recording which
+relay an event was received from and when it was first seen there.
 """
 
 from __future__ import annotations
@@ -27,7 +16,11 @@ from .relay import Relay, RelayDbParams
 
 
 class EventRelayDbParams(NamedTuple):
-    """Database parameters for EventRelay insert operations."""
+    """Positional parameters for the event-relay junction insert procedure.
+
+    Combines fields from the event, relay, and the junction timestamp
+    into a single flat tuple for the database stored procedure.
+    """
 
     # Event fields
     event_id: bytes
@@ -47,13 +40,12 @@ class EventRelayDbParams(NamedTuple):
 
 @dataclass(frozen=True, slots=True)
 class EventRelay:
-    """
-    Immutable representation of an Event seen on a Relay.
+    """Immutable record of an Event observed on a specific Relay.
 
     Attributes:
-        event: The wrapped Nostr event
-        relay: The relay where the event was seen
-        seen_at: Unix timestamp when event was first seen (defaults to now)
+        event: The Nostr event that was observed.
+        relay: The relay where the event was seen.
+        seen_at: Unix timestamp of when the event was first seen (defaults to now).
     """
 
     event: Event
@@ -61,15 +53,14 @@ class EventRelay:
     seen_at: int = field(default_factory=lambda: int(time()))
 
     def __post_init__(self) -> None:
-        """Validate that to_db_params() succeeds (fail-fast)."""
+        """Validate database parameter conversion at construction time (fail-fast)."""
         self.to_db_params()
 
     def to_db_params(self) -> EventRelayDbParams:
-        """
-        Convert to database parameters.
+        """Convert to positional parameters for the database insert procedure.
 
         Returns:
-            EventRelayDbParams with named fields for event, relay, and seen_at
+            EventRelayDbParams combining event, relay, and junction fields.
         """
         e = self.event.to_db_params()
         r = self.relay.to_db_params()
@@ -89,31 +80,16 @@ class EventRelay:
 
     @classmethod
     def from_db_params(cls, params: EventRelayDbParams) -> EventRelay:
-        """
-        Create an EventRelay from database parameters.
+        """Reconstruct an EventRelay from database parameters.
+
+        Splits the flat parameter tuple back into separate Event and Relay
+        instances via their respective ``from_db_params()`` methods.
 
         Args:
-            params: EventRelayDbParams containing all event, relay, and junction fields.
+            params: Database row values previously produced by ``to_db_params()``.
 
         Returns:
-            EventRelay instance
-
-        Example::
-
-            params = EventRelayDbParams(
-                event_id=b"...",
-                pubkey=b"...",
-                created_at=1234567890,
-                kind=1,
-                tags="[]",
-                content="test",
-                sig=b"...",
-                relay_url="wss://relay.example.com",
-                relay_network="clearnet",
-                relay_discovered_at=1234567890,
-                seen_at=9999999999,
-            )
-            event_relay = EventRelay.from_db_params(params)
+            A new EventRelay instance.
         """
         event_params = EventDbParams(
             id=params.event_id,

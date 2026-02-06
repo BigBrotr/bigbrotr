@@ -1,4 +1,10 @@
-"""NIP-11 main class and database tuple."""
+"""
+Top-level NIP-11 model with factory method and database serialization.
+
+Wraps the ``Nip11FetchMetadata`` container and provides ``create()`` for
+fetching a relay's information document, and ``to_relay_metadata_tuple()``
+for converting the result into database-ready ``RelayMetadata`` records.
+"""
 
 from __future__ import annotations
 
@@ -15,25 +21,21 @@ from .fetch import Nip11FetchMetadata
 
 
 class RelayNip11MetadataTuple(NamedTuple):
-    """Tuple of RelayMetadata records for database storage."""
+    """Database-ready tuple of NIP-11 RelayMetadata records."""
 
     nip11_fetch: RelayMetadata | None
 
 
 class Nip11(BaseModel):
-    """
-    Immutable NIP-11 relay information document.
+    """NIP-11 relay information document.
 
-    Fetches relay information via HTTP with Accept: application/nostr+json header.
-    Raw JSON is parsed and validated into typed Pydantic models.
-
-    Always created via create() - never returns None.
-    Check individual metadata fields for availability.
+    Created via the ``create()`` async factory method, which fetches the
+    relay's information document over HTTP and packages the result.
 
     Attributes:
-        relay: The Relay this document belongs to.
-        fetch_metadata: Container with data and logs (optional, from HTTP fetch).
-        generated_at: Unix timestamp when created (default: now, must be >= 0).
+        relay: The relay this document belongs to.
+        fetch_metadata: Fetch data and logs (None if fetch was not attempted).
+        generated_at: Unix timestamp of when the document was fetched.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -43,11 +45,16 @@ class Nip11(BaseModel):
     generated_at: StrictInt = Field(default_factory=lambda: int(time()), ge=0)
 
     # -------------------------------------------------------------------------
-    # Serialization
+    # Database Serialization
     # -------------------------------------------------------------------------
 
     def to_relay_metadata_tuple(self) -> RelayNip11MetadataTuple:
-        """Convert to RelayNip11MetadataTuple for database storage."""
+        """Convert to a tuple of RelayMetadata records for database storage.
+
+        Returns:
+            A ``RelayNip11MetadataTuple`` with the fetch metadata wrapped in
+            a ``RelayMetadata`` junction record, or ``None`` if no fetch was performed.
+        """
         nip11_fetch: RelayMetadata | None = None
         if self.fetch_metadata is not None:
             nip11_fetch = RelayMetadata(
@@ -74,27 +81,21 @@ class Nip11(BaseModel):
         proxy_url: str | None = None,
         allow_insecure: bool = True,
     ) -> Nip11:
-        """
-        Create NIP-11 data by fetching relay information document.
+        """Fetch a relay's NIP-11 document and return a populated Nip11 instance.
 
-        Always returns Nip11 - never raises, never None.
-        Check individual metadata fields for availability.
+        This method never raises and never returns None. Check
+        ``fetch_metadata.logs.success`` for the outcome.
 
         Args:
             relay: Relay to fetch from.
-            timeout: Request timeout in seconds (default: 10.0).
-            max_size: Max response size in bytes (default: 64KB).
-            proxy_url: Optional SOCKS5 proxy URL.
-            allow_insecure: Fallback to insecure on cert errors (default: True).
+            timeout: HTTP request timeout in seconds (default: 10.0).
+            max_size: Maximum response body size in bytes (default: 64 KB).
+            proxy_url: Optional SOCKS5 proxy URL for overlay networks.
+            allow_insecure: Fall back to unverified SSL on certificate
+                errors (default: True).
 
         Returns:
-            Nip11 instance with fetch results.
-
-        Example::
-
-            nip11 = await Nip11.create(relay)
-            if nip11.fetch_metadata and nip11.fetch_metadata.logs.success:
-                print(f"Name: {nip11.fetch_metadata.data.name}")
+            A new ``Nip11`` instance containing the fetch results.
         """
         fetch_metadata = await Nip11FetchMetadata.fetch(
             relay, timeout, max_size, proxy_url, allow_insecure

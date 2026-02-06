@@ -1,26 +1,14 @@
 """
-Content-addressed metadata payload for BigBrotr.
+Content-addressed metadata payload with SHA-256 deduplication.
 
-Provides a generic Metadata class for storing arbitrary JSON-compatible data
-with type classification. The content hash (SHA-256) is computed from the value
-only (not including type) for deterministic deduplication.
+Stores arbitrary JSON-compatible data with a type classification
+(``MetadataType``). A deterministic content hash is computed from the
+canonical JSON representation of the value, enabling content-addressed
+deduplication in PostgreSQL.
 
-Features:
-    - `type` field for metadata classification (MetadataType enum)
-    - `value` field for any JSON-compatible dict
-    - Type-safe accessor methods with defaults
-    - JSON sanitization and normalization for PostgreSQL JSONB storage
-    - Deterministic content hashing (SHA-256) computed once at init (from value only)
-    - Immutable frozen dataclass design with cached computed values
-
-The Metadata class is agnostic about the structure of `value`. Higher-level
-classes (Nip11, Nip66) define their own conventions for what goes in `value`.
-
-Example:
-    >>> m = Metadata(type=MetadataType.NIP11_FETCH, value={"name": "My Relay"})
-    >>> name = m._get("name", expected_type=str)  # "My Relay"
-    >>> params = m.to_db_params()  # MetadataDbParams for database insertion
-    >>> content_hash = m.content_hash  # SHA-256 hash for deduplication (from value)
+The ``Metadata`` class is agnostic about the internal structure of
+``value``; higher-level models such as ``Nip11`` and ``Nip66`` define
+their own conventions for what goes inside it.
 """
 
 from __future__ import annotations
@@ -34,16 +22,17 @@ from typing import Any, ClassVar, NamedTuple, TypeVar, overload
 
 
 class MetadataType(StrEnum):
-    """Metadata type constants matching database CHECK constraint.
+    """Metadata type identifiers matching the database CHECK constraint.
 
-    Supported types:
-        - nip11_fetch: NIP-11 relay information document (HTTP fetch)
-        - nip66_rtt: NIP-66 round-trip time measurements
-        - nip66_ssl: NIP-66 SSL certificate information
-        - nip66_geo: NIP-66 geolocation data
-        - nip66_net: NIP-66 network information
-        - nip66_dns: NIP-66 DNS resolution data
-        - nip66_http: NIP-66 HTTP header information
+    Each value corresponds to a specific data source or monitoring test:
+
+    * ``nip11_fetch`` -- NIP-11 relay information document (HTTP fetch)
+    * ``nip66_rtt``   -- NIP-66 round-trip time measurements
+    * ``nip66_ssl``   -- NIP-66 SSL/TLS certificate information
+    * ``nip66_geo``   -- NIP-66 geolocation data
+    * ``nip66_net``   -- NIP-66 network and ASN information
+    * ``nip66_dns``   -- NIP-66 DNS resolution data
+    * ``nip66_http``  -- NIP-66 HTTP header information
     """
 
     NIP11_FETCH = "nip11_fetch"
@@ -56,12 +45,12 @@ class MetadataType(StrEnum):
 
 
 class MetadataDbParams(NamedTuple):
-    """Database parameters for Metadata insert operations.
+    """Positional parameters for the metadata database insert procedure.
 
     Attributes:
-        id: SHA-256 hash (32 bytes) computed in Python for deduplication.
-        value: Canonical JSON string for JSONB storage.
-        type: Metadata type (nip11_fetch, nip66_*, etc.).
+        id: SHA-256 content hash (32 bytes) used as the primary key.
+        value: Canonical JSON string for PostgreSQL JSONB storage.
+        type: Metadata type discriminator.
     """
 
     id: bytes
@@ -75,24 +64,18 @@ _UNSET: object = object()  # Sentinel for missing default in _get()
 
 @dataclass(frozen=True, slots=True)
 class Metadata:
-    """
-    Immutable typed metadata payload with deterministic content hashing.
+    """Immutable metadata payload with deterministic content hashing.
 
-    Generic container for any JSON-compatible dict with type classification.
-    The content hash (SHA-256) is computed once at creation time using canonical
-    JSON serialization (sorted keys, no whitespace) for deterministic deduplication.
-    Note: The hash is computed from `value` only, not including `type`.
+    On construction, the ``value`` dict is sanitized (null values and
+    empty containers removed, keys sorted) and a canonical JSON string
+    is produced. The SHA-256 hash of that string serves as a
+    content-addressed identifier for deduplication.
+
+    The hash is derived from ``value`` only -- ``type`` is not included.
 
     Attributes:
-        type: Metadata type (MetadataType enum).
-        value: JSON-compatible dict with the actual data.
-
-    Value is sanitized and normalized once in __post_init__:
-        - Removes None values and empty containers ({}, [])
-        - Sorts keys for deterministic serialization
-        - Rejects strings containing NUL characters (raises ValueError)
-
-    Computed values (canonical JSON and hash) are cached for efficiency.
+        type: The metadata classification (see ``MetadataType``).
+        value: Sanitized JSON-compatible dictionary.
     """
 
     _DEFAULT_MAX_DEPTH: ClassVar[int] = 50
@@ -105,12 +88,10 @@ class Metadata:
     _content_hash: bytes = field(default=b"", init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        """Sanitize value and compute cached values once at creation."""
-        # Sanitize value
+        """Sanitize the value dict and compute the canonical JSON and hash."""
         sanitized = self._sanitize(self.value) if self.value else {}
         object.__setattr__(self, "value", sanitized)
 
-        # Compute and cache canonical JSON
         canonical = json.dumps(
             sanitized,
             sort_keys=True,
@@ -119,28 +100,25 @@ class Metadata:
         )
         object.__setattr__(self, "_canonical_json", canonical)
 
-        # Compute and cache content hash
         content_hash = hashlib.sha256(canonical.encode("utf-8")).digest()
         object.__setattr__(self, "_content_hash", content_hash)
 
     @classmethod
     def _sanitize(cls, obj: Any, max_depth: int | None = None, _depth: int = 0) -> Any:
-        """
-        Recursively sanitize to JSON-compatible types with normalization.
+        """Recursively normalize an object for deterministic JSON serialization.
 
-        Normalization ensures deterministic hashing for content-addressed storage:
-            - Removes None values from dicts
-            - Removes empty dicts {} and empty lists []
-            - Sorts dict keys for consistent serialization
+        * Removes ``None`` values and empty containers (``{}``, ``[]``).
+        * Sorts dictionary keys for consistent ordering.
+        * Rejects strings containing null bytes (PostgreSQL incompatible).
+        * Non-serializable types are replaced with ``None``.
 
         Args:
-            obj: Object to sanitize
-            max_depth: Maximum depth limit (None = use default, default = 50)
-            _depth: Current recursion depth (internal use)
+            obj: The value to sanitize.
+            max_depth: Maximum recursion depth (defaults to 50).
+            _depth: Current recursion depth (internal use).
 
         Returns:
-            Sanitized and normalized object. Empty containers and None become None.
-            Non-serializable values become None.
+            The sanitized object, or ``None`` for unserializable values.
 
         Raises:
             ValueError: If any string contains null bytes.
@@ -181,7 +159,7 @@ class Metadata:
 
     @staticmethod
     def _is_empty(v: Any) -> bool:
-        """Check if a value should be filtered out (None or empty container)."""
+        """Return True if the value is None or an empty container."""
         if v is None:
             return True
         if isinstance(v, dict) and not v:
@@ -201,21 +179,20 @@ class Metadata:
         expected_type: builtins.type[T],
         default: T = _UNSET,  # type: ignore[assignment]
     ) -> T | None:
-        """
-        Get value at any nesting depth with type checking.
+        """Retrieve a nested value with type checking.
+
+        Traverses the ``value`` dict using the given key path and returns
+        the leaf value if it matches ``expected_type``.
 
         Args:
-            *keys: Path to the value (e.g., "name" or "nested", "field")
-            expected_type: Expected type of the value
-            default: Default value if missing/wrong type (None if not provided)
+            *keys: Key path into the nested dict (e.g., ``"config", "timeout"``).
+            expected_type: Required type for the returned value.
+            default: Fallback if the path is missing or the type is wrong.
+                Defaults to ``None`` when not specified.
 
         Returns:
-            The value if found and type matches, otherwise default (or None)
-
-        Examples:
-            >>> metadata._get("name", expected_type=str)
-            >>> metadata._get("config", "timeout", expected_type=int)
-            >>> metadata._get("enabled", expected_type=bool, default=False)
+            The value at the key path if it matches ``expected_type``,
+            otherwise *default*.
         """
         current: Any = self.value
         for key in keys:
@@ -230,38 +207,33 @@ class Metadata:
 
     @property
     def content_hash(self) -> bytes:
-        """SHA-256 hash of canonical JSON for content-addressed storage.
+        """SHA-256 digest of the canonical JSON representation.
 
-        The hash is computed once at creation time from the canonical JSON
-        representation (sorted keys, no whitespace) to ensure identical
-        semantic data produces identical hashes.
+        Computed once at construction time. Identical semantic data always
+        produces the same 32-byte hash.
 
         Returns:
-            32-byte SHA-256 digest suitable for PostgreSQL BYTEA.
+            32-byte SHA-256 digest suitable for PostgreSQL BYTEA columns.
         """
         return self._content_hash
 
     @property
     def canonical_json(self) -> str:
-        """Canonical JSON representation of value.
+        """Canonical JSON string used for hashing and JSONB storage.
 
-        Canonical format:
-            - Sorted keys
-            - No whitespace (compact separators)
-            - UTF-8 encoding
+        Format: sorted keys, compact separators, UTF-8 encoding.
 
         Returns:
-            JSON string suitable for PostgreSQL JSONB storage.
+            Deterministic JSON string of the sanitized value.
         """
         return self._canonical_json
 
     def to_db_params(self) -> MetadataDbParams:
-        """Returns parameters for database insert.
-
-        Uses pre-computed cached values for efficiency.
+        """Convert to positional parameters for the database insert procedure.
 
         Returns:
-            MetadataDbParams with content hash (id), canonical JSON (value), and type.
+            MetadataDbParams with the content hash as ``id``, the canonical
+            JSON as ``value``, and the metadata type.
         """
         return MetadataDbParams(
             id=self._content_hash,
@@ -271,22 +243,23 @@ class Metadata:
 
     @classmethod
     def from_db_params(cls, params: MetadataDbParams) -> Metadata:
-        """
-        Create a Metadata from database parameters.
+        """Reconstruct a Metadata instance from database parameters.
+
+        Re-parses the stored JSON and verifies that the recomputed hash
+        matches the stored ``id`` to detect data corruption.
 
         Args:
-            params: MetadataDbParams containing id, value, and type.
+            params: Database row values previously produced by ``to_db_params()``.
 
         Returns:
-            Metadata instance with parsed value and type.
+            A new Metadata instance.
 
         Raises:
-            ValueError: If the computed hash doesn't match id.
+            ValueError: If the recomputed hash does not match ``params.id``.
         """
         value_dict = json.loads(params.value)
         instance = cls(type=params.type, value=value_dict)
 
-        # Validate hash integrity
         if instance._content_hash != params.id:
             raise ValueError(
                 f"Hash mismatch: computed {instance._content_hash.hex()}, "
@@ -297,25 +270,24 @@ class Metadata:
 
     @classmethod
     def from_json(cls, metadata_type: MetadataType, json_str: str) -> Metadata:
-        """
-        Create a Metadata from a JSON string.
+        """Create a Metadata instance from a raw JSON string.
 
         Args:
-            metadata_type: Type of metadata.
-            json_str: JSON string to parse.
+            metadata_type: The type classification for this metadata.
+            json_str: JSON string to parse into the value dict.
 
         Returns:
-            Metadata instance with parsed value and type.
+            A new Metadata instance.
 
         Raises:
-            json.JSONDecodeError: If JSON is invalid.
+            json.JSONDecodeError: If *json_str* is not valid JSON.
         """
         return cls(type=metadata_type, value=json.loads(json_str))
 
     def __bool__(self) -> bool:
-        """Return True if value is non-empty."""
+        """Return True if the value dict is non-empty."""
         return bool(self.value)
 
     def __len__(self) -> int:
-        """Return the number of top-level keys in value."""
+        """Return the number of top-level keys in the value dict."""
         return len(self.value)
