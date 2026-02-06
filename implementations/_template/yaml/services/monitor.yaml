@@ -1,30 +1,28 @@
 # =============================================================================
-# Monitor Service Configuration - Template with ALL Default Values
+# Monitor Service Configuration Template (All Default Values)
 # =============================================================================
-#
-# The Monitor service performs health checks on validated relays:
-# 1. Tests WebSocket connectivity (open)
-# 2. Tests subscription capability (read)
-# 3. Tests event publication (write, requires PRIVATE_KEY)
-# 4. Fetches NIP-11 relay info document
-# 5. Validates SSL/TLS certificate
-# 6. Measures DNS resolution time
-# 7. Geolocates relay IP address
-# 8. Stores results as NIP-66 metadata
+# Performs health checks on validated relays:
+#   1. WebSocket connectivity test (open)
+#   2. Subscription capability test (read)
+#   3. Event publication test (write, requires PRIVATE_KEY)
+#   4. NIP-11 relay information document fetch
+#   5. SSL/TLS certificate validation
+#   6. DNS resolution timing
+#   7. IP geolocation lookup
+#   8. Results stored as NIP-66 metadata
 #
 # Run mode: Continuous (runs every interval)
 # Dependencies: Validator must have validated relays first
 # Configuration class: src/services/monitor.py::MonitorConfig
 #
 # Environment variables:
-#   - PRIVATE_KEY: Required for write tests and NIP-66 publishing
-#
+#   PRIVATE_KEY: Required for write tests and NIP-66 event publishing.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
 # Base Service Settings (inherited from BaseServiceConfig)
 # -----------------------------------------------------------------------------
-# Class: src/core/base_service.py::BaseServiceConfig
+# Class: src/core/service.py::BaseServiceConfig
 
 # Seconds between monitoring cycles
 # Lower values = more frequent monitoring, higher resource usage

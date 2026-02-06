@@ -1,21 +1,15 @@
 # =============================================================================
-# Seeder Service Configuration - Template with ALL Default Values
+# Seeder Service Configuration Template (All Default Values)
 # =============================================================================
-#
-# The Seeder service loads initial relay URLs from a seed file and stores them
-# as candidates for the Validator service. This bootstraps relay discovery.
+# Loads initial relay URLs from a seed file and stores them as candidates
+# for the Validator service. This bootstraps the relay discovery pipeline.
 #
 # Run mode: One-shot (runs once at startup, then exits)
-# Dependencies: None (runs first in service chain)
+# Dependencies: None (first service in the chain)
 # Configuration class: src/services/seeder.py::SeederConfig
 #
-# NOTE: As a one-shot service, the Seeder does NOT use:
-#   - interval (no continuous cycling)
-#   - max_consecutive_failures (single run)
-#   - metrics (exits before Prometheus can scrape)
-#
-# These fields exist in BaseServiceConfig but are ignored for one-shot services.
-#
+# Note: As a one-shot service, the Seeder ignores interval,
+# max_consecutive_failures, and metrics settings from BaseServiceConfig.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
