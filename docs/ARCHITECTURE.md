@@ -23,7 +23,7 @@ BigBrotr follows a four-layer architecture that separates concerns and enables m
 
 1. **Core Layer** - Reusable infrastructure components with zero business logic
 2. **Service Layer** - Business logic and service orchestration
-3. **Utils Layer** - Shared utilities (network, parsing, transport, YAML, keys)
+3. **Utils Layer** - Shared utilities (dns, network, transport, YAML, keys)
 4. **Models Layer** - Immutable data structures with validation and database mapping
 5. **Implementation Layer** - Deployment-specific configuration and customization
 
@@ -78,9 +78,9 @@ This design allows:
 |   src/core/                                                                  |
 |   ├── pool.py          PostgreSQL connection pooling                        |
 |   ├── brotr.py         Database interface + stored procedures               |
-|   ├── base_service.py  Abstract service base class                          |
+|   ├── service.py       Abstract service base class                          |
 |   ├── metrics.py       Prometheus metrics server                            |
-|   └── logger.py        Structured logging                                   |
+|   └── logger.py        Structured key=value logging                         |
 |                                                                              |
 |   Purpose: Reusable foundation, zero business logic                          |
 +----------------------------------+------------------------------------------+
@@ -91,8 +91,8 @@ This design allows:
 |                              UTILS LAYER                                     |
 |                                                                              |
 |   src/utils/                                                                 |
+|   ├── dns.py           DNS resolution utilities                             |
 |   ├── network.py       Network detection and proxy configuration            |
-|   ├── parsing.py       URL and data parsing utilities                       |
 |   ├── transport.py     HTTP/WebSocket transport helpers                     |
 |   ├── yaml.py          YAML loading with environment variable support       |
 |   ├── keys.py          Nostr key management utilities                       |
@@ -187,35 +187,41 @@ finally:
 - Timeout configuration per operation type
 - Context manager (delegates to Pool)
 
-**Stored Functions** (hardcoded for security):
-```python
-FUNC_INSERT_EVENT = "insert_event"
-FUNC_INSERT_RELAY = "insert_relay"
-FUNC_INSERT_RELAY_METADATA = "insert_relay_metadata"
-FUNC_DELETE_ORPHAN_EVENTS = "delete_orphan_events"
-FUNC_DELETE_ORPHAN_METADATA = "delete_orphan_metadata"
-FUNC_DELETE_FAILED_CANDIDATES = "delete_failed_candidates"
-```
+**Stored Functions** (array-based bulk operations):
+- `relays_insert` - Bulk insert relays
+- `events_insert` - Bulk insert events
+- `metadata_insert` - Bulk insert metadata (hash computed in Python)
+- `events_relays_insert` - Bulk insert event-relay junctions
+- `events_relays_insert_cascade` - Atomic bulk insert events + relays + junctions
+- `relay_metadata_insert` - Bulk insert relay-metadata junctions
+- `relay_metadata_insert_cascade` - Atomic bulk insert relays + metadata + junctions
+- `service_data_upsert/get/delete` - Service data operations
+- `orphan_events_delete` - Cleanup orphaned events
+- `orphan_metadata_delete` - Cleanup unreferenced metadata
 
 **Usage**:
 ```python
 brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
 
 async with brotr:
-    # Insert events
-    count = await brotr.insert_events(events_list)
-
     # Insert relays
     count = await brotr.insert_relays(relays_list)
 
-    # Insert metadata with deduplication
-    count = await brotr.insert_relay_metadata(metadata_list)
+    # Insert events
+    count = await brotr.insert_events(events_list)
+
+    # Insert events with relays (cascade)
+    count = await brotr.insert_events_relays(event_relays_list)
+
+    # Insert relay metadata (cascade)
+    count = await brotr.insert_relay_metadata(relay_metadata_list)
 
     # Cleanup orphaned records
-    result = await brotr.cleanup_orphans()
+    deleted = await brotr.delete_orphan_events()
+    deleted = await brotr.delete_orphan_metadata()
 ```
 
-### BaseService (`base_service.py`)
+### BaseService (`service.py`)
 
 **Purpose**: Abstract base class for all services.
 
@@ -259,7 +265,7 @@ class BaseService(ABC, Generic[ConfigT]):
         pass
 ```
 
-### Logger (`logger.py`)
+### Logger (`core/logger.py`)
 
 **Purpose**: Structured logging wrapper with key=value formatting.
 
@@ -283,8 +289,8 @@ The utils layer (`src/utils/`) provides shared utilities used across core and se
 
 | Module | Purpose |
 |--------|---------|
+| `dns.py` | DNS resolution utilities |
 | `network.py` | Network detection and proxy configuration |
-| `parsing.py` | URL and data parsing utilities |
 | `transport.py` | HTTP/WebSocket transport helpers |
 | `yaml.py` | YAML loading with environment variable support |
 | `keys.py` | Nostr key management utilities |
@@ -487,7 +493,7 @@ implementations/bigbrotr/
 ├── grafana/
 │   ├── provisioning/            # Dashboard and datasource provisioning
 │   └── dashboards/              # Pre-built dashboards
-├── data/
+├── static/
 │   └── seed_relays.txt          # 8,865 initial relay URLs
 ├── docker-compose.yaml          # Ports: 5432, 6432 (PGBouncer), 9090, 3000, 9050
 ├── Dockerfile
@@ -609,11 +615,7 @@ service = MyService(brotr=mock_brotr)
 ```python
 class Brotr:
     def __init__(self, pool: Pool | None = None, ...):
-        self._pool = pool or Pool(...)
-
-    @property
-    def pool(self) -> Pool:
-        return self._pool
+        self.pool = pool or Pool(...)
 ```
 
 Benefits:
@@ -719,7 +721,8 @@ async with brotr:           # Connect on enter, close on exit
 │                                    ┌─────────────────────────┐│
 │                                    │ Insert relay_metadata   ││
 │                                    │ (links relay to metadata││
-│                                    │  by type and hash ID)   ││
+│                                    │  by metadata_type and   ││
+│                                    │  hash ID)               ││
 │                                    └─────────────────────────┘│
 └──────────────────────────────────────────────────────────────┘
 

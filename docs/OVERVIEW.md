@@ -1,14 +1,14 @@
-# BigBrotr: Nostr Network Intelligence Platform
+# BigBrotr: Project Overview
 
-**A powerful, modular system for archiving, monitoring, and analyzing the Nostr protocol ecosystem.**
+A modular system for archiving, monitoring, and analyzing the Nostr protocol ecosystem.
 
 ---
 
 ## What is BigBrotr?
 
-BigBrotr is a comprehensive data intelligence platform for the Nostr network. It automatically discovers relays, monitors their health and capabilities, and archives events across the decentralized social network—giving you complete visibility into the Nostr ecosystem.
+BigBrotr is a data intelligence platform for the Nostr network. It automatically discovers relays, monitors their health and capabilities, and archives events across the decentralized network -- providing complete visibility into the Nostr ecosystem.
 
-Think of it as your personal observatory for the Nostr universe: discovering new relays as they come online, tracking their reliability and features, and building a complete archive of network activity.
+It operates as a personal observatory for the Nostr network: discovering new relays as they appear, tracking their reliability and features, and building a complete archive of network activity.
 
 ---
 
@@ -16,23 +16,23 @@ Think of it as your personal observatory for the Nostr universe: discovering new
 
 ### The Problem
 
-The Nostr network is inherently decentralized with thousands of relays scattered across the internet. This creates challenges:
+The Nostr network is decentralized with thousands of relays scattered across the internet. This creates challenges:
 
 - **Discovery**: How do you find all available relays?
 - **Reliability**: Which relays are actually online and working?
 - **Capabilities**: What features does each relay support?
-- **Data Preservation**: How do you ensure important events aren't lost?
+- **Data Preservation**: How do you ensure events are not lost?
 - **Analytics**: How do you understand network-wide patterns?
 
 ### The Solution
 
-BigBrotr solves these challenges with an automated, always-on system that:
+BigBrotr addresses these challenges with an automated, always-on system that:
 
 1. **Discovers** relays from multiple sources (APIs, network events, relay lists)
-2. **Validates** each relay to ensure it's accessible and functional
+2. **Validates** each relay to confirm it is accessible and functional
 3. **Monitors** relay health, performance, and supported features (NIP-11, NIP-66)
 4. **Archives** events from across the network for analysis and preservation
-5. **Tracks** changes over time with historical metadata
+5. **Tracks** changes over time with historical metadata snapshots
 
 All running autonomously with minimal configuration.
 
@@ -40,27 +40,27 @@ All running autonomously with minimal configuration.
 
 ## Key Features
 
-### 🔍 Automatic Relay Discovery
+### Automatic Relay Discovery
 
 - **API Integration**: Pulls relay lists from services like nostr.watch
 - **Event Mining**: Extracts relay URLs from kind 2, 3, and 10002 events
 - **Network Scanning**: Discovers relays mentioned in user profiles and relay lists
-- **Continuous Operation**: Runs 24/7 finding new relays as they appear
+- **Continuous Operation**: Runs around the clock, finding new relays as they appear
 
-### ✅ Intelligent Validation
+### Intelligent Validation
 
-- **Connection Testing**: Verifies each relay is actually reachable
+- **Connection Testing**: Verifies each relay is reachable
 - **WebSocket Validation**: Tests real Nostr protocol communication
 - **Tor Support**: First-class support for .onion relays via SOCKS5
-- **Retry Logic**: Smart retry with exponential backoff for flaky networks
+- **Retry Logic**: Smart retry with exponential backoff for unreliable networks
 - **NIP-42 Authentication**: Handles authenticated relay access
 
-### 📊 Comprehensive Monitoring
+### Comprehensive Monitoring
 
 **NIP-11 Compliance**: Fetches relay information documents
 - Name, description, operator contact
 - Supported NIPs (protocol features)
-- Limitations (max event size, rate limits, etc.)
+- Limitations (max event size, rate limits)
 - Payment requirements and fees
 
 **NIP-66 Monitoring**: Advanced health checks
@@ -71,7 +71,7 @@ All running autonomously with minimal configuration.
 - **Geolocation**: Maps relay physical locations (country, city, coordinates)
 - **Event Publishing**: Publishes monitoring data as Nostr events (kind 30166)
 
-### 💾 Event Archiving
+### Event Archiving
 
 - **Multiprocessing**: Uses all CPU cores for high-throughput collection
 - **Filter Support**: Customize which event kinds to archive
@@ -79,54 +79,54 @@ All running autonomously with minimal configuration.
 - **Junction Tracking**: Records which relays host which events
 - **Timestamp Preservation**: Maintains original event metadata
 
-### 🗄️ Flexible Storage
+### Flexible Storage
 
 Two deployment modes to match your needs:
 
 **BigBrotr (Full)**: Complete event storage
 - All event fields: tags, content, signatures
 - Full-text search and complex queries
-- Maximum data retention (~100% storage)
+- Maximum data retention
 
 **LilBrotr (Lightweight)**: Essential metadata only
 - Event IDs, authors, kinds, timestamps
 - 60% less disk space
 - Fast queries for event discovery
-- Perfect for relay monitoring focus
+- Ideal for relay monitoring focus
 
-### 🌐 Privacy-First Design
+### Multi-Network Support
 
 - **Tor Integration**: Built-in SOCKS5 proxy support for .onion relays
-- **Network Detection**: Automatically identifies Tor, I2P, Loki networks
-- **Separate Timeouts**: Optimized settings for clearnet vs. Tor
-- **No Leaks**: Local IP addresses rejected from database
+- **Network Detection**: Automatically identifies Tor, I2P, Lokinet addresses
+- **Separate Timeouts**: Optimized settings for clearnet vs. overlay networks
+- **Address Filtering**: Local/private IP addresses rejected from database
 
 ---
 
 ## Use Cases
 
-### 🔬 Researchers
+### Researchers
 
 - **Network Analysis**: Study relay distribution, growth patterns, and censorship resistance
 - **Event Archaeology**: Analyze historical Nostr events and user behavior
 - **Protocol Evolution**: Track NIP adoption across the network
 - **Relay Economics**: Monitor payment requirements and fee structures
 
-### 🏗️ Relay Operators
+### Relay Operators
 
 - **Competitive Intelligence**: See what features other relays offer
 - **Performance Benchmarking**: Compare your relay's RTT against the network
-- **Network Health**: Monitor the overall ecosystem you're part of
+- **Network Health**: Monitor the overall ecosystem
 - **Discovery**: Get your relay indexed and monitored automatically
 
-### 👨‍💻 Client Developers
+### Client Developers
 
 - **Relay Selection**: Find the best relays for your users based on real metrics
 - **Fallback Discovery**: Maintain lists of reliable backup relays
 - **Feature Detection**: Query which relays support specific NIPs
 - **Geographic Distribution**: Route users to nearby relays
 
-### 📈 Network Observers
+### Network Observers
 
 - **Real-Time Dashboard**: Track relay count, event volume, network growth
 - **Outage Detection**: Identify when relays go offline
@@ -140,28 +140,28 @@ Two deployment modes to match your needs:
 BigBrotr operates as a suite of autonomous services that work together:
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    BigBrotr Pipeline                     │
-└─────────────────────────────────────────────────────────┘
-
-1. FINDER
-   ↓ Discovers relay URLs from APIs and events
-   ↓ Stores candidates for validation
-
-2. VALIDATOR
-   ↓ Tests WebSocket connections
-   ↓ Validates relay functionality
-   ↓ Inserts working relays to database
-
-3. MONITOR
-   ↓ Performs NIP-11/NIP-66 health checks
-   ↓ Measures RTT, SSL, DNS, geolocation
-   ↓ Publishes monitoring events
-
-4. SYNCHRONIZER
-   ↓ Connects to validated relays
-   ↓ Archives events in parallel
-   ↓ Tracks event-relay relationships
+1. SEEDER
+   | Seeds initial relay URLs from static file
+   | Stores candidates for validation (one-shot)
+   v
+2. FINDER
+   | Discovers relay URLs from APIs and events
+   | Stores candidates for validation
+   v
+3. VALIDATOR
+   | Tests WebSocket connections
+   | Validates relay functionality
+   | Inserts working relays to database
+   v
+4. MONITOR
+   | Performs NIP-11/NIP-66 health checks
+   | Measures RTT, SSL, DNS, geolocation
+   | Publishes monitoring events
+   v
+5. SYNCHRONIZER
+   | Connects to validated relays
+   | Archives events in parallel
+   | Tracks event-relay relationships
 ```
 
 Each service runs independently and can be scaled separately based on your needs.
@@ -196,7 +196,7 @@ Each service runs independently and can be scaled separately based on your needs
 ### Developer-Friendly
 
 - **Modular Design**: Easy to add new services
-- **Comprehensive Tests**: Unit tests with >80% coverage
+- **Comprehensive Tests**: Unit tests with high coverage
 - **Type Hints**: Full mypy type checking
 - **Pre-commit Hooks**: Automatic code quality enforcement
 - **Clear Documentation**: Architecture guides and API references
@@ -205,11 +205,11 @@ Each service runs independently and can be scaled separately based on your needs
 
 ## Getting Started
 
-### Quick Start (5 minutes)
+### Quick Start
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/bigbrotr.git
+git clone https://github.com/bigbrotr/bigbrotr.git
 cd bigbrotr/implementations/bigbrotr
 
 # Configure
@@ -223,7 +223,7 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-That's it! BigBrotr will:
+BigBrotr will:
 1. Initialize the database schema
 2. Load seed relays
 3. Start discovering new relays
@@ -249,10 +249,8 @@ cd implementations/myproject
 
 ### Single Server
 
-Perfect for personal projects or small networks:
-- 4 CPU cores
-- 8GB RAM
-- 100GB+ SSD storage
+Suitable for personal projects or small networks:
+- 4 CPU cores, 8GB RAM, 100GB+ SSD
 - PostgreSQL + PGBouncer + Tor
 - All services on one machine
 
@@ -263,7 +261,6 @@ For high-volume archiving or large networks:
 - Multiple synchronizer workers across machines
 - Load-balanced monitor instances
 - Centralized finder/validator
-- Petabyte-scale storage potential
 
 ### Cloud-Native
 
@@ -271,15 +268,13 @@ Deploy on any platform:
 - AWS (RDS + ECS/Fargate)
 - Google Cloud (Cloud SQL + GKE)
 - DigitalOcean (Managed Postgres + Droplets)
-- Kubernetes manifests included
+- Kubernetes
 
 ---
 
 ## Data Access
 
-All data is stored in PostgreSQL and accessible via:
-
-### SQL Queries
+All data is stored in PostgreSQL and accessible via SQL:
 
 ```sql
 -- Find most popular relays by event count
@@ -303,19 +298,10 @@ GROUP BY kind
 ORDER BY count DESC;
 ```
 
-### REST API (Coming Soon)
+### Planned Data Access
 
-Query relays, events, and monitoring data via HTTP API.
-
-### GraphQL (Planned)
-
-Flexible queries with real-time subscriptions.
-
-### Data Export
-
-- CSV/JSON dumps
-- Nostr event streams
-- PostgreSQL logical replication
+- **REST API**: Query relays, events, and monitoring data via HTTP
+- **Data Export**: CSV/JSON dumps, PostgreSQL logical replication
 
 ---
 
@@ -330,85 +316,19 @@ BigBrotr publishes its monitoring data as Nostr events:
 
 ---
 
-## Community & Support
+## About the Name
 
-### Open Source
-
-BigBrotr is free and open-source software:
-- MIT License
-- Community contributions welcome
-- Public roadmap and issue tracker
-
-### Documentation
-
-- Architecture guides
-- API references
-- Service development tutorials
-- Database schema documentation
-- Testing patterns
-
-### Support Channels
-
-- GitHub Issues: Bug reports and feature requests
-- GitHub Discussions: Questions and community help
-- Documentation: Comprehensive guides and examples
-
----
-
-## Roadmap
-
-### Short-term (Q1 2025)
-
-- [ ] REST API for data access
-- [ ] Real-time event streaming
-- [ ] Web dashboard for monitoring
-- [ ] Export tools (CSV, JSON, Parquet)
-
-### Medium-term (Q2-Q3 2025)
-
-- [ ] GraphQL API
-- [ ] Advanced analytics (network graphs, event flows)
-- [ ] Machine learning relay scoring
-- [ ] Automated relay classification
-
-### Long-term (Q4 2025+)
-
-- [ ] Distributed archiving network
-- [ ] IPFS/Torrent event distribution
-- [ ] Historical event replay
-- [ ] Network simulation tools
-
----
-
-## Why "BigBrotr"?
-
-The name is a playful twist on "Big Brother"—but with a key difference:
+The name is a playful twist on "Big Brother" -- but with a key difference:
 
 - **Transparent**: All code is open-source
 - **Decentralized**: You run your own instance
 - **Permissionless**: No central authority controls the data
 - **Privacy-Respecting**: Tor support and local-only processing
 
-BigBrotr watches the Nostr network, but it's *your* observer, under *your* control, serving *your* needs.
+BigBrotr watches the Nostr network, but it is *your* observer, under *your* control, serving *your* needs.
 
 ---
 
 ## License
 
-MIT License - see [LICENSE](../LICENSE) for details.
-
----
-
-## Get Involved
-
-- ⭐ Star the repository
-- 🐛 Report bugs and request features
-- 💻 Contribute code and documentation
-- 💬 Join discussions and help others
-- 📢 Share your BigBrotr use case
-
----
-
-**Built with ❤️ for the Nostr community**
-
-*Decentralized social networking deserves decentralized infrastructure.*
+MIT License -- see [LICENSE](../LICENSE) for details.

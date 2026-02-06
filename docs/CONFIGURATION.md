@@ -198,11 +198,11 @@ timeouts:
 # Note: Network type (clearnet/tor) is auto-detected from URL
 # Note: Duplicate URLs are filtered server-side (existing relays and candidates skipped)
 # Note: File paths are relative to the working directory:
-#       - Docker: /app (so data/seed_relays.txt = /app/data/seed_relays.txt)
+#       - Docker: /app (so static/seed_relays.txt = /app/static/seed_relays.txt)
 #       - Local: run from implementations/bigbrotr/
 seed:
-  enabled: true                     # Enable relay seeding
-  file_path: data/seed_relays.txt   # Path to seed file
+  enabled: true                       # Enable relay seeding
+  file_path: static/seed_relays.txt   # Path to seed file
 ```
 
 **Note**: The Seeder is a one-shot service that seeds relay URLs as candidates. It does not perform schema verification - the SQL initialization scripts handle schema creation.

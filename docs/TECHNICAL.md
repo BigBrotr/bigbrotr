@@ -1,6 +1,6 @@
-# BigBrotr: Technical Architecture
+# Technical Architecture
 
-**Comprehensive technical documentation for developers, architects, and contributors.**
+Comprehensive technical documentation for developers, architects, and contributors.
 
 ---
 
@@ -246,69 +246,68 @@ def metrics(self) -> Dict[str, Any]:
 
 #### Architecture
 
-Uses **stored procedures** exclusively for mutations to prevent SQL injection and ensure atomic operations.
+Uses **stored functions** exclusively for mutations to prevent SQL injection and ensure atomic operations.
 
 ```
 +---------------------------------------------------+
 |                      Brotr                        |
 +---------------------------------------------------+
 | Attributes:                                       |
-|   _pool: Pool                                     |
+|   pool: Pool                                      |
 |   config: BrotrConfig                             |
 +---------------------------------------------------+
 | Methods:                                          |
-|   + insert_events(records) -> (int, int)          |
+|   + insert_events(records) -> int                 |
 |   + insert_relays(records) -> int                 |
 |   + insert_relay_metadata(records) -> int         |
-|   + cleanup_orphans(include_relays) -> Dict       |
+|   + delete_orphan_events() -> int                 |
+|   + delete_orphan_metadata() -> int               |
 |   + upsert_service_data(records) -> int           |
 |   + get_service_data(service, type, key) -> List  |
 |   + delete_service_data(keys) -> int              |
-|   + refresh_metadata_latest() -> None             |
-|   + pool -> Pool (public property)                |
+|   + refresh_matview(view_name) -> None            |
 +---------------------------------------------------+
 ```
 
-#### Stored Procedure Pattern
+#### Stored Function Pattern
 
-All mutations follow this pattern:
+All mutations follow this pattern -- extract arrays from model objects and pass them to bulk database functions:
 
 ```python
 async def insert_events(
     self,
     records: list[EventRelay]
-) -> tuple[int, int]:
-    """Insert events atomically via stored procedure."""
+) -> int:
+    """Insert events atomically via stored function with array parameters."""
 
     # Validate batch size
     if len(records) > self.config.batch.max_batch_size:
         raise ValueError(f"Batch size {len(records)} exceeds limit")
 
-    # Extract database parameters
-    params_list = []
-    skipped = 0
-
-    for record in records:
-        try:
-            params_list.append(record.to_db_params())
-        except Exception as e:
-            # Skip invalid records without failing batch
-            skipped += 1
-            continue
-
-    # Execute stored procedure
-    await self._pool.executemany(
-        """
-        CALL insert_event(
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-        )
-        """,
-        params_list,
-        timeout=self.config.timeouts.batch,
+    # Extract array parameters from records
+    ids, pubkeys, created_ats, kinds, tags_list, relay_urls, sigs = (
+        [], [], [], [], [], [], []
     )
 
-    inserted = len(params_list)
-    return (inserted, skipped)
+    for record in records:
+        params = record.to_db_params()
+        ids.append(params[0])
+        pubkeys.append(params[1])
+        created_ats.append(params[2])
+        kinds.append(params[3])
+        tags_list.append(params[4])
+        relay_urls.append(params[5])
+        sigs.append(params[6])
+
+    # Execute bulk stored function with array parameters
+    async with self.pool.acquire() as conn:
+        inserted = await conn.fetchval(
+            "SELECT events_relays_insert_cascade($1, $2, $3, $4, $5, $6, $7)",
+            ids, pubkeys, created_ats, kinds, tags_list, relay_urls, sigs,
+            timeout=self.config.timeouts.batch,
+        )
+
+    return inserted
 ```
 
 #### Service State Management
@@ -329,31 +328,29 @@ async def upsert_service_data(
     Returns:
         Count of upserted records
     """
-    params_list = [
-        (service_name, data_type, key, json.dumps(value),
-         int(time.time()))
-        for service_name, data_type, key, value in records
-    ]
+    # Extract array parameters from records
+    service_names, data_types, keys, values = [], [], [], []
+    for service_name, data_type, key, value in records:
+        service_names.append(service_name)
+        data_types.append(data_type)
+        keys.append(key)
+        values.append(json.dumps(value))
 
-    await self._pool.executemany(
-        """
-        INSERT INTO services (service_name, data_type, key, value, updated_at)
-        VALUES ($1, $2, $3, $4::jsonb, $5)
-        ON CONFLICT (service_name, data_type, key)
-        DO UPDATE SET value = EXCLUDED.value,
-                     updated_at = EXCLUDED.updated_at
-        """,
-        params_list,
-    )
+    # Execute stored function with array parameters
+    async with self.pool.acquire() as conn:
+        upserted = await conn.fetchval(
+            "SELECT service_data_upsert($1, $2, $3, $4)",
+            service_names, data_types, keys, values,
+        )
 
-    return len(params_list)
+    return upserted
 ```
 
 ---
 
 ### BaseService: Service Lifecycle
 
-**File**: `src/core/base_service.py`
+**File**: `src/core/service.py`
 
 #### Architecture
 
@@ -364,7 +361,6 @@ async def upsert_service_data(
 | Class Variables:                                  |
 |   SERVICE_NAME: ClassVar[str]                     |
 |   CONFIG_CLASS: ClassVar[Type[BaseModel]]         |
-|   MAX_CONSECUTIVE_FAILURES: ClassVar[int]         |
 +---------------------------------------------------+
 | Attributes:                                       |
 |   config: ConfigT                                 |
@@ -832,7 +828,7 @@ async def run(self):
         SELECT r.url, r.network
         FROM relays r
         LEFT JOIN relay_metadata rm ON r.url = rm.relay_url
-            AND rm.type = 'nip66_rtt'
+            AND rm.metadata_type = 'nip66_rtt'
         WHERE rm.generated_at IS NULL
            OR rm.generated_at < $1
         ORDER BY rm.generated_at ASC NULLS FIRST
@@ -1001,13 +997,12 @@ async def run(self):
         all_events.extend(events)
 
     if all_events:
-        inserted, skipped = await self._brotr.insert_events(all_events)
+        inserted = await self._brotr.insert_events(all_events)
         logger.info(
             "sync_complete",
             relay_count=len(relays),
             event_count=len(all_events),
             inserted=inserted,
-            skipped=skipped,
         )
 ```
 
@@ -1233,13 +1228,13 @@ CREATE INDEX idx_events_relays_seen_at ON events_relays(seen_at DESC);
 **metadata**: Content-addressed deduplication
 ```sql
 CREATE TABLE metadata (
-    id BYTEA PRIMARY KEY,               -- SHA-256 of data
-    data JSONB NOT NULL,
+    id BYTEA PRIMARY KEY,               -- SHA-256 of value
+    value JSONB NOT NULL,
 
     CHECK (octet_length(id) = 32)
 );
 
-CREATE INDEX idx_metadata_data ON metadata USING GIN(data jsonb_path_ops);
+CREATE INDEX idx_metadata_value ON metadata USING GIN(value jsonb_path_ops);
 ```
 
 **relay_metadata**: Time-series metadata
@@ -1247,16 +1242,16 @@ CREATE INDEX idx_metadata_data ON metadata USING GIN(data jsonb_path_ops);
 CREATE TABLE relay_metadata (
     relay_url TEXT NOT NULL REFERENCES relays(url) ON DELETE CASCADE,
     generated_at BIGINT NOT NULL,
-    type TEXT NOT NULL,                 -- nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
+    metadata_type TEXT NOT NULL,        -- nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
     metadata_id BYTEA NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
 
-    PRIMARY KEY (relay_url, generated_at, type),
-    CHECK (type IN ('nip11_fetch', 'nip66_rtt', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http'))
+    PRIMARY KEY (relay_url, generated_at, metadata_type),
+    CHECK (metadata_type IN ('nip11_fetch', 'nip66_rtt', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http'))
 );
 
-CREATE INDEX idx_relay_metadata_type ON relay_metadata(type);
+CREATE INDEX idx_relay_metadata_metadata_type ON relay_metadata(metadata_type);
 CREATE INDEX idx_relay_metadata_generated_at ON relay_metadata(generated_at DESC);
-CREATE INDEX idx_relay_metadata_relay_type_time ON relay_metadata(relay_url, type, generated_at DESC);
+CREATE INDEX idx_relay_metadata_relay_type_time ON relay_metadata(relay_url, metadata_type, generated_at DESC);
 ```
 
 **service_data**: Per-service operational data
@@ -1279,99 +1274,144 @@ CREATE INDEX idx_service_data_service_type ON service_data(service_name, data_ty
 
 ### Stored Functions
 
-**insert_event**: Atomic event insertion
+All stored functions use **bulk array parameters** for efficient batch operations. Hash computation for content-addressed storage is performed in Python (SHA-256), not in PostgreSQL.
+
+**relays_insert**: Bulk relay insertion
 ```sql
-CREATE OR REPLACE FUNCTION insert_event(
-    p_event_id BYTEA,
-    p_pubkey BYTEA,
-    p_created_at BIGINT,
-    p_kind INTEGER,
-    p_tags JSONB,
-    p_content TEXT,
-    p_sig BYTEA,
-    p_relay_url TEXT,
-    p_relay_network TEXT,
-    p_relay_discovered_at BIGINT,
-    p_seen_at BIGINT
+CREATE OR REPLACE FUNCTION relays_insert(
+    p_urls TEXT[],
+    p_networks TEXT[],
+    p_discovered_ats BIGINT[]
 )
-RETURNS VOID
+RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_inserted INTEGER;
 BEGIN
-    -- Insert relay (idempotent)
-    INSERT INTO relays (url, network, discovered_at)
-    VALUES (p_relay_url, p_relay_network, p_relay_discovered_at)
-    ON CONFLICT (url) DO NOTHING;
+    WITH ins AS (
+        INSERT INTO relays (url, network, discovered_at)
+        SELECT unnest(p_urls), unnest(p_networks), unnest(p_discovered_ats)
+        ON CONFLICT (url) DO NOTHING
+        RETURNING 1
+    )
+    SELECT count(*) INTO v_inserted FROM ins;
 
-    -- Insert event (idempotent)
-    INSERT INTO events (id, pubkey, created_at, kind, tags, content, sig)
-    VALUES (p_event_id, p_pubkey, p_created_at, p_kind, p_tags, p_content, p_sig)
-    ON CONFLICT (id) DO NOTHING;
-
-    -- Insert junction (idempotent)
-    INSERT INTO events_relays (event_id, relay_url, seen_at)
-    VALUES (p_event_id, p_relay_url, p_seen_at)
-    ON CONFLICT (event_id, relay_url) DO NOTHING;
+    RETURN v_inserted;
 END;
 $$;
 ```
 
-**insert_relay_metadata**: Content-addressed metadata
+**events_insert**: Bulk event insertion
 ```sql
-CREATE OR REPLACE FUNCTION insert_relay_metadata(
-    p_relay_url TEXT,
-    p_relay_network TEXT,
-    p_relay_discovered_at BIGINT,
-    p_generated_at BIGINT,
-    p_type TEXT,
-    p_metadata_data JSONB
+CREATE OR REPLACE FUNCTION events_insert(
+    p_ids BYTEA[],
+    p_pubkeys BYTEA[],
+    p_created_ats BIGINT[],
+    p_kinds INTEGER[],
+    p_tags JSONB[],
+    p_contents TEXT[],
+    p_sigs BYTEA[]
 )
-RETURNS VOID
+RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    v_metadata_id BYTEA;
+    v_inserted INTEGER;
 BEGIN
-    -- Compute content-addressed hash from JSONB data
-    v_metadata_id := digest(p_metadata_data::TEXT, 'sha256');
+    WITH ins AS (
+        INSERT INTO events (id, pubkey, created_at, kind, tags, content, sig)
+        SELECT unnest(p_ids), unnest(p_pubkeys), unnest(p_created_ats),
+               unnest(p_kinds), unnest(p_tags), unnest(p_contents), unnest(p_sigs)
+        ON CONFLICT (id) DO NOTHING
+        RETURNING 1
+    )
+    SELECT count(*) INTO v_inserted FROM ins;
 
-    -- Ensure relay exists (idempotent)
-    INSERT INTO relays (url, network, discovered_at)
-    VALUES (p_relay_url, p_relay_network, p_relay_discovered_at)
-    ON CONFLICT (url) DO NOTHING;
-
-    -- Upsert metadata (deduplicated by content hash)
-    INSERT INTO metadata (id, data)
-    VALUES (v_metadata_id, p_metadata_data)
-    ON CONFLICT (id) DO NOTHING;
-
-    -- Insert relay_metadata junction (idempotent)
-    INSERT INTO relay_metadata (relay_url, generated_at, type, metadata_id)
-    VALUES (p_relay_url, p_generated_at, p_type, v_metadata_id)
-    ON CONFLICT (relay_url, generated_at, type) DO NOTHING;
+    RETURN v_inserted;
 END;
 $$;
+```
+
+**metadata_insert**: Bulk content-addressed metadata insertion
+```sql
+CREATE OR REPLACE FUNCTION metadata_insert(
+    p_ids BYTEA[],
+    p_values JSONB[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_inserted INTEGER;
+BEGIN
+    WITH ins AS (
+        INSERT INTO metadata (id, value)
+        SELECT unnest(p_ids), unnest(p_values)
+        ON CONFLICT (id) DO NOTHING
+        RETURNING 1
+    )
+    SELECT count(*) INTO v_inserted FROM ins;
+
+    RETURN v_inserted;
+END;
+$$;
+```
+
+**events_relays_insert_cascade**: Bulk event+relay+junction insertion (cascade)
+```sql
+-- Inserts relays, events, and events_relays junction in one atomic operation.
+-- Returns count of inserted event-relay pairs.
+CREATE OR REPLACE FUNCTION events_relays_insert_cascade(
+    p_event_ids BYTEA[],
+    p_pubkeys BYTEA[],
+    p_created_ats BIGINT[],
+    p_kinds INTEGER[],
+    p_tags JSONB[],
+    p_relay_urls TEXT[],
+    p_sigs BYTEA[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$ ... $$;
+```
+
+**relay_metadata_insert_cascade**: Bulk metadata+junction insertion (cascade)
+```sql
+-- Inserts relays, metadata, and relay_metadata junction in one atomic operation.
+-- Hash (metadata id) is computed in Python and passed as parameter.
+-- Returns count of inserted relay-metadata pairs.
+CREATE OR REPLACE FUNCTION relay_metadata_insert_cascade(
+    p_relay_urls TEXT[],
+    p_generated_ats BIGINT[],
+    p_metadata_types TEXT[],
+    p_metadata_ids BYTEA[],
+    p_metadata_values JSONB[]
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$ ... $$;
 ```
 
 ---
 
 ### Materialized View
 
-**relay_metadata_latest**: Latest metadata per relay per type
+**relay_metadata_latest**: Latest metadata per relay per metadata_type
 ```sql
 CREATE MATERIALIZED VIEW relay_metadata_latest AS
-SELECT DISTINCT ON (relay_url, type)
+SELECT DISTINCT ON (relay_url, metadata_type)
     relay_url,
-    type,
+    metadata_type,
     generated_at,
     metadata_id
 FROM relay_metadata
-ORDER BY relay_url, type, generated_at DESC;
+ORDER BY relay_url, metadata_type, generated_at DESC;
 
 CREATE UNIQUE INDEX idx_relay_metadata_latest_pkey
-    ON relay_metadata_latest(relay_url, type);
+    ON relay_metadata_latest(relay_url, metadata_type);
 
--- Refresh daily via cron
+-- Refresh via Brotr.refresh_matview()
 REFRESH MATERIALIZED VIEW CONCURRENTLY relay_metadata_latest;
 ```
 
@@ -1406,49 +1446,57 @@ LIMIT $3
 
 **Problem**: Repeated metadata wastes space
 
-**Solution**: Hash-based deduplication
+**Solution**: Hash-based deduplication (SHA-256 computed in Python)
+
+```python
+# Python side: compute content-addressed hash
+import hashlib
+metadata_id = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).digest()
+```
 
 ```sql
--- Compute hash from content
-v_metadata_id := digest(p_data::TEXT, 'sha256');
-
--- Insert only if new
-INSERT INTO metadata (id, data)
-VALUES (v_metadata_id, p_data)
+-- Insert only if new (hash passed as parameter)
+INSERT INTO metadata (id, value)
+VALUES (p_metadata_id, p_value)
 ON CONFLICT (id) DO NOTHING;
 ```
 
 **Benefits**:
 - Automatic deduplication (~90% space savings for NIP-11)
-- No application-side hashing
+- Hash computed in Python (no pgcrypto dependency)
 - Query by content hash
 - Immutable storage (can't modify existing)
 
 ---
 
-### 3. Stored Procedures for Mutations
+### 3. Stored Functions for Mutations
 
 **Problem**: SQL injection, non-atomic operations
 
-**Solution**: All writes via stored procedures
+**Solution**: All writes via stored functions with array parameters
 
 ```python
-# Python side: hardcoded procedure names
-await pool.execute("CALL insert_event($1, $2, ...)", ...)
+# Python side: hardcoded function names with array parameters
+inserted = await conn.fetchval(
+    "SELECT events_relays_insert_cascade($1, $2, $3, $4, $5, $6, $7)",
+    ids, pubkeys, created_ats, kinds, tags_list, relay_urls, sigs,
+)
 
-# PostgreSQL side: atomic multi-table insert
-CREATE PROCEDURE insert_event(...) AS $$
+# PostgreSQL side: atomic multi-table bulk insert
+CREATE FUNCTION events_relays_insert_cascade(...) RETURNS INTEGER AS $$
 BEGIN
-    INSERT INTO relays ... ON CONFLICT DO NOTHING;
-    INSERT INTO events ... ON CONFLICT DO NOTHING;
-    INSERT INTO events_relays ... ON CONFLICT DO NOTHING;
+    -- Insert relays ... ON CONFLICT DO NOTHING;
+    -- Insert events ... ON CONFLICT DO NOTHING;
+    -- Insert events_relays ... ON CONFLICT DO NOTHING;
+    RETURN v_inserted;
 END;
 $$;
 ```
 
 **Benefits**:
-- No SQL injection (procedure names hardcoded)
+- No SQL injection (function names hardcoded)
 - Atomic operations (transaction semantics)
+- Bulk array parameters for efficient batch inserts
 - Database-side validation
 - Consistent error handling
 
@@ -1556,17 +1604,17 @@ while service.is_running:
 
 ### SQL Injection Prevention
 
-✅ **Parameterized queries**:
+**Parameterized queries**:
 ```python
 await pool.fetch("SELECT * FROM relays WHERE network = $1", network)
 ```
 
-✅ **Stored procedures**:
+**Stored functions**:
 ```python
-await pool.execute("CALL insert_event($1, $2, ...)", ...)
+await conn.fetchval("SELECT events_relays_insert_cascade($1, $2, ...)", ...)
 ```
 
-❌ **Never string concatenation**:
+**Never use string concatenation**:
 ```python
 # WRONG
 await pool.fetch(f"SELECT * FROM relays WHERE network = '{network}'")
@@ -1576,14 +1624,14 @@ await pool.fetch(f"SELECT * FROM relays WHERE network = '{network}'")
 
 ### Password Management
 
-✅ **Environment variables only**:
+**Environment variables only**:
 ```python
 password = os.getenv("DB_PASSWORD")
 if not password:
     raise ValueError("DB_PASSWORD not set")
 ```
 
-❌ **Never in config files**:
+**Never in config files**:
 ```yaml
 # WRONG
 database:
@@ -1594,7 +1642,7 @@ database:
 
 ### Relay URL Validation
 
-✅ **RFC 3986 parsing**:
+**RFC 3986 parsing**:
 ```python
 relay = Relay(raw_url)  # Validates in __new__
 ```
@@ -1609,7 +1657,7 @@ relay = Relay(raw_url)  # Validates in __new__
 
 ### Nostr Event Validation
 
-✅ **Cryptographic verification via nostr-sdk**:
+**Cryptographic verification via nostr-sdk**:
 ```python
 event = NostrEvent.from_json(raw_json)
 # Signature verification built-in
@@ -1625,19 +1673,19 @@ event = NostrEvent.from_json(raw_json)
 
 ### Tor Network Security
 
-✅ **SOCKS5 proxy**:
+**SOCKS5 proxy**:
 ```python
 if relay.network == "tor":
     opts = ClientOptions().proxy("socks5://127.0.0.1:9050")
 ```
 
-✅ **Separate timeouts**:
+**Separate timeouts**:
 ```python
 timeout = (tor_timeout if relay.network == "tor"
            else clearnet_timeout)
 ```
 
-✅ **No IP leaks**:
+**No IP leaks**:
 - Local addresses rejected
 - Network type enforced
 - Proxy required for .onion
@@ -1762,7 +1810,7 @@ events_inserted = Counter('bigbrotr_events_inserted_total', 'Events inserted')
 event_insert_duration = Histogram('bigbrotr_event_insert_seconds', 'Insert duration')
 
 with event_insert_duration.time():
-    inserted, skipped = await brotr.insert_events(events)
+    inserted = await brotr.insert_events(events)
     events_inserted.inc(inserted)
 ```
 
@@ -1779,14 +1827,14 @@ with event_insert_duration.time():
 BigBrotr is a production-ready, scalable platform for Nostr network intelligence. Its modular architecture, async-first design, and comprehensive monitoring make it suitable for both personal projects and large-scale deployments.
 
 **Key Strengths**:
-- ✅ Modular four-layer architecture
-- ✅ Async-first with high concurrency
-- ✅ Multiprocessing for CPU-bound tasks
-- ✅ Immutable data models with validation
-- ✅ Content-addressed deduplication
-- ✅ Graceful shutdown and error handling
-- ✅ Comprehensive test coverage
-- ✅ Production-ready deployment patterns
+- Modular four-layer architecture
+- Async-first with high concurrency
+- Multiprocessing for CPU-bound tasks
+- Immutable data models with validation
+- Content-addressed deduplication
+- Graceful shutdown and error handling
+- Comprehensive test coverage
+- Production-ready deployment patterns
 
 **For Developers**:
 - Clear separation of concerns
@@ -1811,4 +1859,4 @@ BigBrotr is a production-ready, scalable platform for Nostr network intelligence
 
 ---
 
-**Built for the decentralized future.** 🚀
+**Built for the decentralized future.**

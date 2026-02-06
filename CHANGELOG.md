@@ -16,7 +16,7 @@ Code quality and maintainability release with FieldSpec pattern, module reorgani
 ### Changed
 - **FieldSpec pattern**: Consolidated field parsing with `FieldSpec` dataclass for consistent validation and transformation across NIP models
 - **Module reorganization**:
-  - Moved `logger` module from `core/` to `src/` root for improved accessibility
+  - Logger now at `src/core/logger.py`, imported as `from core.logger import Logger`
   - Renamed `base_service` to `service` and consolidated mixins
   - Added `NetworkSemaphoreMixin` for simplified service code
 - **NIP-11 refactoring**:
@@ -38,7 +38,7 @@ Code quality and maintainability release with FieldSpec pattern, module reorgani
 - **Test structure**:
   - Renamed `test_cli.py` to `test_main.py`
   - Renamed `test_base_service.py` to `test_service.py`
-  - Moved `test_logger.py` to match `src/logger.py` location
+  - Moved `test_logger.py` to `tests/unit/core/` to match `src/core/logger.py` location
   - Restructured NIP-11 tests into focused modules (`test_nip11.py`, `test_data.py`, `test_logs.py`, `test_fetch.py`)
   - Restructured NIP-66 tests into focused modules (`test_nip66.py`, `test_rtt.py`, `test_ssl.py`, `test_geo.py`, `test_net.py`, `test_dns.py`, `test_http.py`, `test_logs.py`)
   - Added comprehensive tests for `base.py` and `parsing.py`
