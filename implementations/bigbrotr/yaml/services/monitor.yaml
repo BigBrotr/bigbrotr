@@ -14,7 +14,7 @@ metrics:
 
 processing:
   retry:
-    nip11:
+    nip11_fetch:
       max_retries: 3               # Retry failed NIP-11 info document fetches
     nip66_rtt:
       max_retries: 2               # Retry failed round-trip time measurements

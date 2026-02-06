@@ -344,9 +344,8 @@ discovery:
   enabled: true
   interval: 3600                  # Re-check interval (Range: >= 60)
   include:                        # Metadata to include in Kind 30166 events
-    nip11: true
+    nip11_fetch: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
@@ -367,18 +366,16 @@ geo:
 processing:
   chunk_size: 100                 # Relays per batch (Range: 10-1000)
   compute:                        # What metadata to compute
-    nip11: true
+    nip11_fetch: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
     nip66_dns: true
     nip66_http: true
   store:                          # What to store in database
-    nip11: true
+    nip11_fetch: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true

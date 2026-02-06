@@ -132,7 +132,6 @@ class CheckResult(NamedTuple):
     Attributes:
         nip11: NIP-11 relay information document (name, description, pubkey, etc.).
         rtt: Round-trip times for open/read/write operations in milliseconds.
-        probe: Read/write capability probe results (success/failure and reason).
         ssl: SSL certificate validation (valid, expiry timestamp, issuer).
         geo: Geolocation data (country, city, coordinates, timezone, geohash).
         net: Network information (IP address, ASN, organization).
@@ -142,7 +141,6 @@ class CheckResult(NamedTuple):
 
     nip11: RelayMetadata | None
     rtt: RelayMetadata | None
-    probe: RelayMetadata | None
     ssl: RelayMetadata | None
     geo: RelayMetadata | None
     net: RelayMetadata | None
@@ -158,9 +156,8 @@ class CheckResult(NamedTuple):
 class MetadataFlags(BaseModel):
     """Boolean flags controlling which metadata types to compute, store, or publish."""
 
-    nip11: bool = Field(default=True)
+    nip11_fetch: bool = Field(default=True)
     nip66_rtt: bool = Field(default=True)
-    nip66_probe: bool = Field(default=True)
     nip66_ssl: bool = Field(default=True)
     nip66_geo: bool = Field(default=True)
     nip66_net: bool = Field(default=True)
@@ -188,7 +185,7 @@ class RetryConfig(BaseModel):
 class MetadataRetryConfig(BaseModel):
     """Per-metadata-type retry settings."""
 
-    nip11: RetryConfig = Field(default_factory=RetryConfig)
+    nip11_fetch: RetryConfig = Field(default_factory=RetryConfig)
     nip66_rtt: RetryConfig = Field(default_factory=RetryConfig)
     nip66_ssl: RetryConfig = Field(default_factory=RetryConfig)
     nip66_geo: RetryConfig = Field(default_factory=RetryConfig)
@@ -691,7 +688,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         Returns:
             CheckResult with metadata for each completed check (None if skipped/failed).
         """
-        empty = CheckResult(None, None, None, None, None, None, None, None)
+        empty = CheckResult(None, None, None, None, None, None, None)
 
         semaphore = self._semaphores.get(relay.network)
         if semaphore is None:
@@ -719,7 +716,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
                 )
 
             try:
-                if compute.nip11:
+                if compute.nip11_fetch:
                     nip11 = await self._with_retry(
                         lambda: Nip11.create(
                             relay,
@@ -727,8 +724,8 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
                             max_size=self._config.processing.nip11_max_size,
                             proxy_url=proxy_url,
                         ),
-                        self._config.processing.retry.nip11,
-                        "nip11",
+                        self._config.processing.retry.nip11_fetch,
+                        "nip11_fetch",
                         relay.url,
                     )
 
@@ -804,7 +801,6 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
                 result = CheckResult(
                     nip11=nip11.to_relay_metadata_tuple().nip11_fetch if nip11 else None,
                     rtt=to_relay_meta(rtt_meta, MetadataType.NIP66_RTT),
-                    probe=None,
                     ssl=to_relay_meta(ssl_meta, MetadataType.NIP66_SSL),
                     geo=to_relay_meta(geo_meta, MetadataType.NIP66_GEO),
                     net=to_relay_meta(net_meta, MetadataType.NIP66_NET),
@@ -845,12 +841,10 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         if successful:
             metadata: list[RelayMetadata] = []
             for _, result in successful:
-                if result.nip11 and store.nip11:
+                if result.nip11 and store.nip11_fetch:
                     metadata.append(result.nip11)
                 if result.rtt and store.nip66_rtt:
                     metadata.append(result.rtt)
-                if result.probe and store.nip66_probe:
-                    metadata.append(result.probe)
                 if result.ssl and store.nip66_ssl:
                     metadata.append(result.ssl)
                 if result.geo and store.nip66_geo:
@@ -1017,7 +1011,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
             tags.append(Tag.parse(["timeout", "open", timeout_ms]))
             tags.append(Tag.parse(["timeout", "read", timeout_ms]))
             tags.append(Tag.parse(["timeout", "write", timeout_ms]))
-        if include.nip11:
+        if include.nip11_fetch:
             tags.append(Tag.parse(["timeout", "nip11", timeout_ms]))
         if include.nip66_ssl:
             tags.append(Tag.parse(["timeout", "ssl", timeout_ms]))
@@ -1027,7 +1021,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
             tags.append(Tag.parse(["c", "open"]))
             tags.append(Tag.parse(["c", "read"]))
             tags.append(Tag.parse(["c", "write"]))
-        if include.nip11:
+        if include.nip11_fetch:
             tags.append(Tag.parse(["c", "nip11"]))
         if include.nip66_ssl:
             tags.append(Tag.parse(["c", "ssl"]))
@@ -1113,7 +1107,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
 
     def _add_nip11_tags(self, tags: list[Tag], result: CheckResult, include: MetadataFlags) -> None:
         """Add NIP-11-derived capability tags: N (NIPs), t (topics), l (languages), R, T."""
-        if not result.nip11 or not include.nip11:
+        if not result.nip11 or not include.nip11_fetch:
             return
         nip11_data = result.nip11.metadata.value
 
@@ -1152,34 +1146,34 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         nip11_data: dict[str, Any],
         supported_nips: list[int] | None,
     ) -> None:
-        """Add R (requirement) and T (type) tags by combining NIP-11 data with probe results."""
+        """Add R (requirement) and T (type) tags by combining NIP-11 data with RTT probe logs."""
         limitation = nip11_data.get("limitation") or {}
         nip11_auth = limitation.get("auth_required", False)
         nip11_payment = limitation.get("payment_required", False)
         nip11_writes = limitation.get("restricted_writes", False)
         pow_diff = limitation.get("min_pow_difficulty", 0)
 
-        # Get probe results for verification
-        probe_data = result.probe.metadata.value if result.probe else {}
-        write_success = probe_data.get("probe_write_success")
-        write_reason = (probe_data.get("probe_write_reason") or "").lower()
-        read_success = probe_data.get("probe_read_success")
-        read_reason = (probe_data.get("probe_read_reason") or "").lower()
+        # Get probe results from RTT logs for verification
+        rtt_logs = result.rtt.metadata.value.get("logs", {}) if result.rtt else {}
+        write_success = rtt_logs.get("write_success")
+        write_reason = (rtt_logs.get("write_reason") or "").lower()
+        read_success = rtt_logs.get("read_success")
+        read_reason = (rtt_logs.get("read_reason") or "").lower()
 
-        # Determine actual restrictions from probe results
+        # Determine actual restrictions from RTT probe results
         if write_success is False and write_reason:
-            probe_auth = "auth" in write_reason
-            probe_payment = "pay" in write_reason or "paid" in write_reason
-            probe_writes = not probe_auth and not probe_payment
+            rtt_auth = "auth" in write_reason
+            rtt_payment = "pay" in write_reason or "paid" in write_reason
+            rtt_writes = not rtt_auth and not rtt_payment
         else:
-            probe_auth = False
-            probe_payment = False
-            probe_writes = False
+            rtt_auth = False
+            rtt_payment = False
+            rtt_writes = False
 
         # Final determination
-        auth = bool(nip11_auth or probe_auth)
-        payment = bool(nip11_payment or probe_payment)
-        writes = False if write_success is True else bool(nip11_writes or probe_writes)
+        auth = bool(nip11_auth or rtt_auth)
+        payment = bool(nip11_payment or rtt_payment)
+        writes = False if write_success is True else bool(nip11_writes or rtt_writes)
         read_auth = read_success is False and "auth" in read_reason
 
         # R tags

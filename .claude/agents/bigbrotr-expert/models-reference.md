@@ -318,7 +318,7 @@ metadata = Metadata({"name": "Test", "supported_nips": [1, 2]})
 record = RelayMetadata(
     relay=relay,
     metadata=metadata,
-    metadata_type="nip11",
+    metadata_type="nip11_fetch",
     snapshot_at=1700000001
 )
 

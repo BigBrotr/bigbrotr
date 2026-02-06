@@ -811,7 +811,7 @@ class ChecksConfig:
     open: bool = True      # WebSocket connection
     read: bool = True      # REQ/EOSE subscription
     write: bool = True     # EVENT/OK publication
-    nip11: bool = True     # Info document fetch
+    nip11_fetch: bool = True  # Info document fetch
     ssl: bool = True       # Certificate validation
     dns: bool = True       # DNS resolution timing
     geo: bool = True       # Geolocation lookup
@@ -1245,8 +1245,7 @@ CREATE TABLE relay_metadata (
     metadata_type TEXT NOT NULL,        -- nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
     metadata_id BYTEA NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
 
-    PRIMARY KEY (relay_url, generated_at, metadata_type),
-    CHECK (metadata_type IN ('nip11_fetch', 'nip66_rtt', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http'))
+    PRIMARY KEY (relay_url, generated_at, metadata_type)
 );
 
 CREATE INDEX idx_relay_metadata_metadata_type ON relay_metadata(metadata_type);

@@ -61,9 +61,8 @@ class TestMetadataFlags:
         """Test all flags enabled by default."""
         flags = MetadataFlags()
 
-        assert flags.nip11 is True
+        assert flags.nip11_fetch is True
         assert flags.nip66_rtt is True
-        assert flags.nip66_probe is True
         assert flags.nip66_ssl is True
         assert flags.nip66_geo is True
         assert flags.nip66_net is True
@@ -77,14 +76,12 @@ class TestMetadataFlags:
         assert flags.nip66_geo is False
         assert flags.nip66_net is False
         assert flags.nip66_rtt is True
-        assert flags.nip66_probe is True
 
     def test_all_flags_disabled(self) -> None:
         """Test disabling all flags."""
         flags = MetadataFlags(
-            nip11=False,
+            nip11_fetch=False,
             nip66_rtt=False,
-            nip66_probe=False,
             nip66_ssl=False,
             nip66_geo=False,
             nip66_net=False,
@@ -92,9 +89,8 @@ class TestMetadataFlags:
             nip66_http=False,
         )
 
-        assert flags.nip11 is False
+        assert flags.nip11_fetch is False
         assert flags.nip66_rtt is False
-        assert flags.nip66_probe is False
         assert flags.nip66_ssl is False
         assert flags.nip66_geo is False
         assert flags.nip66_net is False
@@ -116,8 +112,8 @@ class TestProcessingConfig:
 
         assert config.chunk_size == 100
         assert config.nip11_max_size == 1048576
-        assert config.compute.nip11 is True
-        assert config.store.nip11 is True
+        assert config.compute.nip11_fetch is True
+        assert config.store.nip11_fetch is True
 
     def test_custom_values(self) -> None:
         """Test custom processing config."""
@@ -225,7 +221,7 @@ class TestDiscoveryConfig:
 
         assert config.enabled is True
         assert config.interval == 3600
-        assert config.include.nip11 is True
+        assert config.include.nip11_fetch is True
         assert config.relays == []
 
     def test_custom_values(self) -> None:
@@ -1065,10 +1061,10 @@ class TestMonitorPersistResults:
 
         # Create CheckResult with rtt metadata
         result1 = CheckResult(
-            nip11=None, rtt=rtt1, probe=None, ssl=None, geo=None, net=None, dns=None, http=None
+            nip11=None, rtt=rtt1, ssl=None, geo=None, net=None, dns=None, http=None
         )
         result2 = CheckResult(
-            nip11=None, rtt=rtt2, probe=None, ssl=None, geo=None, net=None, dns=None, http=None
+            nip11=None, rtt=rtt2, ssl=None, geo=None, net=None, dns=None, http=None
         )
 
         successful = [(relay1, result1), (relay2, result2)]

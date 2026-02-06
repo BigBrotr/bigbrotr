@@ -22,7 +22,7 @@ from typing import Any, ClassVar, NamedTuple, TypeVar, overload
 
 
 class MetadataType(StrEnum):
-    """Metadata type identifiers matching the database CHECK constraint.
+    """Metadata type identifiers stored in the ``relay_metadata.metadata_type`` column.
 
     Each value corresponds to a specific data source or monitoring test:
 

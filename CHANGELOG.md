@@ -146,10 +146,9 @@ Major release with four-layer architecture, expanded NIP-66 compliance, and comp
   - `SERVICE_GAUGE` - Point-in-time values with labels
   - `SERVICE_COUNTER` - Cumulative counters with labels
   - `CYCLE_DURATION_SECONDS` - Histogram for cycle duration percentiles
-- **MetadataType expanded** from 4 to 8 types:
-  - `nip11` - NIP-11 relay information document
+- **MetadataType expanded** from 4 to 7 types:
+  - `nip11_fetch` - NIP-11 relay information document
   - `nip66_rtt` - Round-trip time measurements
-  - `nip66_probe` - Connectivity probe results (openable, readable, writable)
   - `nip66_ssl` - SSL certificate information
   - `nip66_geo` - Geolocation data
   - `nip66_net` - Network information (ASN, ISP)

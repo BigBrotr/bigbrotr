@@ -113,11 +113,7 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
 
     PRIMARY KEY (relay_url, generated_at, metadata_type),
     FOREIGN KEY (relay_url) REFERENCES relays (url) ON DELETE CASCADE,
-    FOREIGN KEY (metadata_id) REFERENCES metadata (id) ON DELETE CASCADE,
-
-    CONSTRAINT relay_metadata_type_check CHECK (
-        metadata_type IN ('nip11_fetch', 'nip66_rtt', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http')
-    )
+    FOREIGN KEY (metadata_id) REFERENCES metadata (id) ON DELETE CASCADE
 );
 
 COMMENT ON TABLE relay_metadata IS 'Time-series relay metadata snapshots linking relays to metadata documents';

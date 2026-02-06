@@ -339,7 +339,7 @@ networks:
     timeout: 60.0
 
 # Nostr keys for NIP-66 write tests (loaded from PRIVATE_KEY env)
-# Required for: write tests (nip66_probe), publishing events
+# Required for: write tests, publishing events
 keys:
   # Keys are loaded from environment variable, no config needed here
 
@@ -352,9 +352,8 @@ discovery:
   enabled: true
   interval: 3600                 # Re-check interval (Range: >= 60)
   include:                       # Metadata to include in events
-    nip11: true
+    nip11_fetch: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
@@ -379,18 +378,16 @@ geo:
 processing:
   chunk_size: 100                # Relays per batch (Range: 10-1000)
   compute:                       # What metadata to compute
-    nip11: true
+    nip11_fetch: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
     nip66_dns: true
     nip66_http: true
   store:                         # What to store in database
-    nip11: true
+    nip11_fetch: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
