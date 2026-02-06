@@ -1,10 +1,14 @@
 """
-BigBrotr - A modular Nostr data archiving and monitoring system.
+BigBrotr - Modular Nostr data archiving and monitoring system.
 
-Three-layer architecture:
-    models: First-class types (Relay, Event, EventRelay, Nip11, Nip66, etc.)
-    core: Foundation components (Pool, Brotr, BaseService, Logger)
-    services: Service implementations (Seeder, Finder, Validator, Monitor, Synchronizer)
+Provides relay discovery, health monitoring (NIP-11/NIP-66), and event
+synchronization with multi-network support (clearnet, Tor, I2P, Lokinet).
+
+Architecture layers (bottom to top):
+    models:   Data types (Relay, Event, EventRelay, Metadata, Nip11, Nip66)
+    utils:    Shared utilities (NetworkConfig, BatchProgress, YAML loading)
+    core:     Foundation (Pool, Brotr, BaseService, Logger, MetricsServer)
+    services: Implementations (Seeder, Finder, Validator, Monitor, Synchronizer)
 
 Example:
     from src import Brotr, Pool, Finder
@@ -19,10 +23,7 @@ Example:
 
 __version__ = "2.0.0"
 
-# Core
-# Logger (standalone module to avoid circular imports)
-from logger import Logger
-
+# Core layer: connection pooling, database interface, base service, logging
 from .core import (
     BaseService,
     BatchConfig,
@@ -31,6 +32,7 @@ from .core import (
     BrotrTimeoutsConfig,
     ConfigT,
     DatabaseConfig,
+    Logger,
     Pool,
     PoolConfig,
     PoolLimitsConfig,
@@ -39,7 +41,7 @@ from .core import (
     ServerSettingsConfig,
 )
 
-# Models
+# Models layer: domain types and database-mapped dataclasses
 from .models import (
     Event,
     EventRelay,
@@ -52,7 +54,7 @@ from .models import (
     RelayMetadata,
 )
 
-# Services
+# Services layer: long-running service implementations with configurations
 from .services import (
     Finder,
     FinderConfig,

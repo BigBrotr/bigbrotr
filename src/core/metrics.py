@@ -1,23 +1,20 @@
 """
-Prometheus Metrics.
+Prometheus metrics collection and HTTP exposition.
 
-Provides production-ready metrics collection and exposition:
-- Common metrics for all services (cycles, items, errors, duration)
-- MetricsConfig for YAML configuration
-- MetricsServer for HTTP exposition
+Defines module-level metric objects (singletons, thread-safe) that are shared
+across all services. ``BaseService.run_forever()`` automatically records cycle
+counts, durations, and failure streaks. Services add custom metrics through
+``set_gauge()`` and ``inc_counter()`` on the base class.
 
-Design principles:
-- Metrics defined at module level (singleton pattern, thread-safe)
-- Labels for service differentiation, not separate metrics
-- Uses prometheus_client directly (no custom wrappers)
-- Async HTTP server using aiohttp (already a project dependency)
+The ``MetricsServer`` provides an async HTTP endpoint (via aiohttp) for
+Prometheus scraping. Configuration is handled through ``MetricsConfig``,
+which can be embedded in any service's YAML configuration.
 
-Usage:
-    from core.metrics import start_metrics_server
-
-    # Common metrics are updated automatically by BaseService.run_forever()
-    # Start server (handled by service entrypoint)
-    server = await start_metrics_server(config)
+Architecture:
+    SERVICE_INFO:               Static metadata set once at startup.
+    SERVICE_GAUGE:              Point-in-time values (current state).
+    SERVICE_COUNTER:            Cumulative totals (monotonically increasing).
+    CYCLE_DURATION_SECONDS:     Histogram for latency percentiles (p50/p95/p99).
 """
 
 from __future__ import annotations
@@ -34,20 +31,17 @@ from prometheus_client import (
 from pydantic import BaseModel, Field
 
 
-# =============================================================================
+# ---------------------------------------------------------------------------
 # Configuration
-# =============================================================================
+# ---------------------------------------------------------------------------
 
 
 class MetricsConfig(BaseModel):
-    """
-    Prometheus metrics configuration.
+    """Configuration for the Prometheus metrics endpoint.
 
-    Attributes:
-        enabled: Enable metrics collection and HTTP server
-        port: HTTP port for /metrics endpoint
-        host: HTTP bind address (0.0.0.0 for container environments)
-        path: URL path for metrics endpoint
+    Set ``host`` to ``"0.0.0.0"`` in container environments to allow
+    external scraping. The endpoint is only started when ``enabled``
+    is True.
     """
 
     enabled: bool = Field(default=False, description="Enable metrics collection")
@@ -56,28 +50,17 @@ class MetricsConfig(BaseModel):
     path: str = Field(default="/metrics", description="Metrics endpoint path")
 
 
-# =============================================================================
-# Common Service Metrics
-# =============================================================================
-#
-# Simplified metrics architecture:
-# - SERVICE_INFO: Static metadata (set once at startup)
-# - SERVICE_GAUGE: Point-in-time values (current state)
-# - SERVICE_COUNTER: Cumulative totals (monotonically increasing)
-# - CYCLE_DURATION_SECONDS: Histogram for percentiles (p50/p95/p99)
-#
-# BaseService.run_forever() automatically tracks cycles via SERVICE_COUNTER
-# and SERVICE_GAUGE. Services add their own metrics using set_gauge()/inc_counter().
-# =============================================================================
+# ---------------------------------------------------------------------------
+# Common Service Metrics (auto-tracked by BaseService.run_forever)
+# ---------------------------------------------------------------------------
 
-# Service information (static labels set once at startup)
+# Static service metadata (set once at startup)
 SERVICE_INFO = Info(
     "service",
     "Service information and metadata",
 )
 
-# Histogram for cycle duration - kept separate for percentile calculations
-# Cannot be replaced with gauge/counter as histograms provide p50/p95/p99
+# Cycle duration histogram for latency percentile calculations (p50/p95/p99)
 CYCLE_DURATION_SECONDS = Histogram(
     "cycle_duration_seconds",
     "Duration of service cycle in seconds",
@@ -86,24 +69,17 @@ CYCLE_DURATION_SECONDS = Histogram(
 )
 
 
-# =============================================================================
-# Generic Service Metrics
-# =============================================================================
+# ---------------------------------------------------------------------------
+# Generic Label-Based Metrics (used by services via set_gauge/inc_counter)
 #
-# All service metrics flow through these two generic metrics with labels.
-# This provides a consistent interface while allowing flexibility.
+# Automatic labels (BaseService.run_forever):
+#   gauge:   consecutive_failures, last_cycle_timestamp
+#   counter: cycles_success, cycles_failed, errors_{type}
 #
-# Automatic metrics (set by BaseService.run_forever()):
-#   - service_gauge{name="consecutive_failures"} - current failure streak
-#   - service_gauge{name="last_cycle_timestamp"} - unix timestamp of last cycle
-#   - service_counter{name="cycles_success"} - successful cycles
-#   - service_counter{name="cycles_failed"} - failed cycles
-#   - service_counter{name="errors_{type}"} - errors by type
-#
-# Service-specific metrics (examples):
-#   - service_gauge{service="validator", name="candidates"} - pending candidates
-#   - service_counter{service="validator", name="total_promoted"} - promoted relays
-# =============================================================================
+# Service-specific labels (examples):
+#   gauge:   {service="validator", name="candidates"}
+#   counter: {service="validator", name="total_promoted"}
+# ---------------------------------------------------------------------------
 
 SERVICE_GAUGE = Gauge(
     "service_gauge",
@@ -118,25 +94,19 @@ SERVICE_COUNTER = Counter(
 )
 
 
-# =============================================================================
+# ---------------------------------------------------------------------------
 # HTTP Server
-# =============================================================================
+# ---------------------------------------------------------------------------
 
 
 class MetricsServer:
-    """
-    Async HTTP server for Prometheus metrics endpoint.
+    """Async HTTP server exposing a Prometheus-compatible /metrics endpoint.
 
-    Uses aiohttp for async compatibility with the rest of the codebase.
-    The metrics endpoint path is configurable via MetricsConfig.path
-    (defaults to "/metrics").
-
-    Endpoints:
-        {config.path} - Prometheus scraping endpoint (default: /metrics)
+    Built on aiohttp for compatibility with the async service architecture.
+    The endpoint path is configurable via ``MetricsConfig.path``.
 
     Example:
-        config = MetricsConfig(port=8001, path="/custom/metrics")
-        server = MetricsServer(config)
+        server = MetricsServer(MetricsConfig(port=8001))
         await server.start()
         # ... service runs ...
         await server.stop()
@@ -147,16 +117,11 @@ class MetricsServer:
         self._runner: web.AppRunner | None = None
 
     async def start(self) -> None:
-        """
-        Start the metrics HTTP server.
+        """Start listening for Prometheus scrape requests.
 
-        Creates an aiohttp web application with the metrics endpoint and
-        starts listening on the configured host and port. If metrics are
-        disabled in the configuration, this method returns immediately
-        without starting any server.
-
-        The server runs in the background and serves Prometheus metrics
-        at the configured path (default: /metrics).
+        Returns immediately (no-op) if metrics are disabled in the
+        configuration. Otherwise, binds an aiohttp server to the
+        configured host and port.
 
         Raises:
             OSError: If the port is already in use or binding fails.
@@ -178,19 +143,17 @@ class MetricsServer:
         await site.start()
 
     async def stop(self) -> None:
-        """
-        Stop the metrics HTTP server and release resources.
+        """Stop the HTTP server and release resources.
 
-        Gracefully shuts down the aiohttp runner and cleans up all
-        associated resources. Safe to call multiple times or if the
-        server was never started (no-op in those cases).
+        Idempotent: safe to call if the server was never started or
+        has already been stopped.
         """
         if self._runner:
             await self._runner.cleanup()
 
     @staticmethod
     async def _handle_metrics(_request: web.Request) -> web.Response:
-        """Handle /metrics endpoint for Prometheus scraping."""
+        """Serve the latest Prometheus metrics in exposition format."""
         output = generate_latest()
         return web.Response(
             body=output,
@@ -201,14 +164,14 @@ class MetricsServer:
 async def start_metrics_server(
     config: MetricsConfig | None = None,
 ) -> MetricsServer:
-    """
-    Start metrics server with given or default configuration.
+    """Convenience function to create and start a metrics server.
 
     Args:
         config: Metrics configuration. Uses defaults if not provided.
 
     Returns:
-        Running MetricsServer instance. Call stop() on shutdown.
+        A running MetricsServer instance. Caller should call ``stop()``
+        during shutdown to release the bound port.
     """
     config = config or MetricsConfig()
     server = MetricsServer(config)

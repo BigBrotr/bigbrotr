@@ -1,12 +1,24 @@
 """
-PostgreSQL Connection Pool using asyncpg.
+Async PostgreSQL connection pool built on asyncpg.
 
-Manages database connections with:
-- Async pooling with configurable sizes
-- Automatic retry with exponential backoff
-- PGBouncer compatibility
-- Structured logging
-- Context manager support
+Manages a pool of database connections with configurable size limits, automatic
+retry with exponential backoff on connection failures, health-checked connection
+acquisition, and transactional context managers. Compatible with PGBouncer for
+connection multiplexing in containerized deployments.
+
+All query methods (fetch, fetchrow, fetchval, execute, executemany) retry
+automatically on transient connection errors (InterfaceError,
+ConnectionDoesNotExistError) but do not retry on query-level errors such as
+syntax errors or constraint violations.
+
+Example:
+    pool = Pool.from_yaml("config.yaml")
+
+    async with pool:
+        rows = await pool.fetch("SELECT * FROM relays LIMIT 10")
+
+        async with pool.transaction() as conn:
+            await conn.execute("INSERT INTO relays ...")
 """
 
 from __future__ import annotations
@@ -21,22 +33,18 @@ from typing import Any, ClassVar, cast
 import asyncpg
 from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator, model_validator
 
-from logger import Logger
 from utils.yaml import load_yaml
+
+from .logger import Logger
 
 
 async def _init_connection(conn: asyncpg.Connection[asyncpg.Record]) -> None:
-    """
-    Initialize connection with JSON codecs for JSONB support.
+    """Register JSON/JSONB codecs on a new connection.
 
-    Registers custom type codecs that enable transparent serialization and
-    deserialization of Python dicts to PostgreSQL JSON/JSONB types. Without
-    these codecs, asyncpg would require manual JSON encoding/decoding for
-    every query involving JSON columns.
-
-    This allows passing Python dicts directly as query parameters and
-    receiving them back as dicts from query results, eliminating the need
-    for explicit json.dumps()/json.loads() calls throughout the codebase.
+    Called automatically by asyncpg for each new connection in the pool.
+    Enables transparent serialization of Python dicts to PostgreSQL JSON/JSONB
+    columns and deserialization back to dicts, so callers never need to call
+    ``json.dumps()``/``json.loads()`` manually.
 
     Args:
         conn: The asyncpg connection to configure.
@@ -55,13 +63,18 @@ async def _init_connection(conn: asyncpg.Connection[asyncpg.Record]) -> None:
     )
 
 
-# ============================================================================
+# ---------------------------------------------------------------------------
 # Configuration Models
-# ============================================================================
+# ---------------------------------------------------------------------------
 
 
 class DatabaseConfig(BaseModel):
-    """Database connection configuration."""
+    """PostgreSQL connection parameters.
+
+    The password is loaded from the environment variable named by
+    ``password_env`` (default: ``DB_PASSWORD``). It is never read from
+    configuration files directly.
+    """
 
     host: str = Field(default="localhost", min_length=1, description="Database hostname")
     port: int = Field(default=5432, ge=1, le=65535, description="Database port")
@@ -77,7 +90,7 @@ class DatabaseConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def resolve_password(cls, data: dict[str, Any]) -> dict[str, Any]:
-        """Load password from environment variable specified by password_env."""
+        """Resolve the database password from the environment variable."""
         if isinstance(data, dict) and "password" not in data:
             env_var = data.get("password_env", "DB_PASSWORD")  # pragma: allowlist secret
             value = os.getenv(env_var)
@@ -88,7 +101,12 @@ class DatabaseConfig(BaseModel):
 
 
 class LimitsConfig(BaseModel):
-    """Pool size and resource limits."""
+    """Connection pool size and resource limits.
+
+    Controls the minimum and maximum number of connections maintained by
+    the pool, the query count before a connection is recycled, and the
+    idle timeout before an unused connection is closed.
+    """
 
     min_size: int = Field(default=5, ge=1, le=100, description="Minimum connections")
     max_size: int = Field(default=20, ge=1, le=200, description="Maximum connections")
@@ -108,14 +126,17 @@ class LimitsConfig(BaseModel):
 
 
 class TimeoutsConfig(BaseModel):
-    """Pool timeout configuration."""
+    """Timeout settings for pool operations (in seconds)."""
 
     acquisition: float = Field(default=10.0, ge=0.1, description="Connection acquisition timeout")
     health_check: float = Field(default=5.0, ge=0.1, description="Health check timeout")
 
 
 class RetryConfig(BaseModel):
-    """Retry configuration for connection failures."""
+    """Retry strategy for failed connection attempts.
+
+    Supports both exponential and linear backoff between retries.
+    """
 
     max_attempts: int = Field(default=3, ge=1, le=10, description="Max retry attempts")
     initial_delay: float = Field(default=1.0, ge=0.1, description="Initial retry delay")
@@ -133,7 +154,11 @@ class RetryConfig(BaseModel):
 
 
 class ServerSettingsConfig(BaseModel):
-    """PostgreSQL server settings."""
+    """PostgreSQL server-side session settings.
+
+    These are sent as ``server_settings`` when creating the asyncpg pool
+    and apply to every connection in the pool.
+    """
 
     application_name: str = Field(default="bigbrotr", description="Application name")
     timezone: str = Field(default="UTC", description="Timezone")
@@ -143,7 +168,11 @@ class ServerSettingsConfig(BaseModel):
 
 
 class PoolConfig(BaseModel):
-    """Complete pool configuration."""
+    """Aggregate configuration for the connection pool.
+
+    Groups all pool-related settings: database credentials, connection
+    limits, timeouts, retry strategy, and PostgreSQL server settings.
+    """
 
     database: DatabaseConfig = Field(default_factory=lambda: DatabaseConfig.model_validate({}))
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
@@ -152,40 +181,41 @@ class PoolConfig(BaseModel):
     server_settings: ServerSettingsConfig = Field(default_factory=ServerSettingsConfig)
 
 
-# ============================================================================
+# ---------------------------------------------------------------------------
 # Pool Class
-# ============================================================================
+# ---------------------------------------------------------------------------
 
 
 class Pool:
-    """
-    PostgreSQL connection pool manager.
+    """Async PostgreSQL connection pool manager.
 
-    Features:
-    - Async connection pooling with asyncpg
-    - Automatic retry with exponential backoff
-    - Structured logging
-    - Context manager support
+    Wraps ``asyncpg.Pool`` to provide retry logic, health-checked connection
+    acquisition, and transactional context managers. Connections are initialized
+    with JSON/JSONB codecs for transparent dict serialization.
 
-    Usage:
+    Supports two construction patterns: direct instantiation with a
+    ``PoolConfig`` object, or factory methods ``from_yaml()``/``from_dict()``
+    for configuration-driven setup.
+
+    Example:
         pool = Pool.from_yaml("config.yaml")
 
         async with pool:
-            result = await pool.fetch("SELECT * FROM events LIMIT 10")
+            rows = await pool.fetch("SELECT * FROM events LIMIT 10")
 
             async with pool.transaction() as conn:
                 await conn.execute("INSERT INTO ...")
     """
 
-    _DEFAULT_RETRY_BASE_DELAY: ClassVar[float] = 0.1  # seconds, for exponential backoff
+    _DEFAULT_RETRY_BASE_DELAY: ClassVar[float] = 0.1  # Base delay for exponential backoff
     _DEFAULT_MAX_RETRIES: ClassVar[int] = 3
 
     def __init__(self, config: PoolConfig | None = None) -> None:
-        """
-        Initialize pool.
+        """Initialize pool with optional configuration.
 
         Args:
-            config: Pool configuration (uses defaults if not provided)
+            config: Pool configuration. If not provided, uses defaults
+                which read ``DB_PASSWORD`` from the environment.
         """
         self._config = config or PoolConfig()
         self._pool: asyncpg.Pool[asyncpg.Record] | None = None
@@ -195,30 +225,29 @@ class Pool:
 
     @classmethod
     def from_yaml(cls, config_path: str) -> Pool:
-        """
-        Create pool from YAML configuration file.
+        """Create a Pool from a YAML configuration file.
 
         Args:
-            config_path: Path to YAML configuration file
+            config_path: Path to the YAML configuration file.
 
         Returns:
-            Pool instance configured from file
+            A configured Pool instance (not yet connected).
 
         Raises:
-            FileNotFoundError: If config file does not exist
+            FileNotFoundError: If the configuration file does not exist.
         """
         return cls.from_dict(load_yaml(config_path))
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> Pool:
-        """
-        Create pool from dictionary configuration.
+        """Create a Pool from a configuration dictionary.
 
         Args:
-            config_dict: Configuration dictionary with pool settings
+            config_dict: Dictionary with pool settings matching
+                PoolConfig field names.
 
         Returns:
-            Pool instance configured from dictionary
+            A configured Pool instance (not yet connected).
         """
         config = PoolConfig(**config_dict)
         return cls(config=config)
@@ -228,11 +257,14 @@ class Pool:
     # -------------------------------------------------------------------------
 
     async def connect(self) -> None:
-        """
-        Establish pool with retry logic.
+        """Create the asyncpg connection pool with retry on failure.
+
+        Uses exponential or linear backoff (per RetryConfig) between attempts.
+        Thread-safe: guarded by an internal asyncio lock to prevent concurrent
+        pool creation.
 
         Raises:
-            ConnectionError: If all retry attempts fail
+            ConnectionError: If all retry attempts are exhausted.
         """
         async with self._connection_lock:
             if self._is_connected:
@@ -303,10 +335,10 @@ class Pool:
                         )
 
     async def close(self) -> None:
-        """
-        Close pool and release all connections.
+        """Close the pool and release all connections.
 
-        Safe to call multiple times. Logs closure status.
+        Idempotent: safe to call multiple times. Always resets internal
+        state even if the underlying close raises an exception.
         """
         async with self._connection_lock:
             if self._pool is not None:
@@ -322,16 +354,13 @@ class Pool:
     # -------------------------------------------------------------------------
 
     def acquire(self) -> AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]:
-        """
-        Acquire a connection from the pool.
+        """Acquire a connection from the pool.
 
-        Returns:
-            An async context manager that yields an asyncpg Connection.
-            The connection is automatically returned to the pool when
-            the context manager exits.
+        Returns an async context manager; the connection is automatically
+        returned to the pool when the context exits.
 
         Raises:
-            RuntimeError: If pool is not connected.
+            RuntimeError: If the pool has not been connected yet.
 
         Example:
             async with pool.acquire() as conn:
@@ -339,7 +368,7 @@ class Pool:
         """
         if not self._is_connected or self._pool is None:
             raise RuntimeError("Pool not connected. Call connect() first.")
-        # asyncpg returns PoolAcquireContext which is compatible with AbstractAsyncContextManager
+        # asyncpg's PoolAcquireContext is duck-type compatible with AbstractAsyncContextManager
         return cast(
             "AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]",
             self._pool.acquire(),
@@ -351,18 +380,21 @@ class Pool:
         max_retries: int | None = None,
         health_check_timeout: float | None = None,
     ) -> AsyncIterator[asyncpg.Connection[asyncpg.Record]]:
-        """
-        Acquire a health-checked connection.
+        """Acquire a connection that has passed a ``SELECT 1`` health check.
 
-        Validates connection health before returning. Retries on failure.
+        Validates each acquired connection before yielding it. On failure,
+        retries with exponential backoff to avoid overwhelming the database.
 
         Args:
-            max_retries: Max attempts to acquire healthy connection
-            health_check_timeout: Timeout for health check query
+            max_retries: Maximum attempts to acquire a healthy connection.
+                Defaults to ``_DEFAULT_MAX_RETRIES``.
+            health_check_timeout: Timeout in seconds for the health check
+                query. Defaults to the configured ``timeouts.health_check``.
 
         Raises:
-            RuntimeError: If pool is not connected
-            ConnectionError: If all retry attempts fail
+            RuntimeError: If the pool has not been connected yet.
+            ConnectionError: If no healthy connection can be acquired
+                after all retry attempts.
         """
         if not self._is_connected or self._pool is None:
             raise RuntimeError("Pool not connected. Call connect() first.")
@@ -376,10 +408,9 @@ class Pool:
         for attempt in range(max_retries):
             try:
                 async with self._pool.acquire() as conn:
-                    # Health check - if fails, will raise and retry
+                    # Validate the connection is responsive
                     await conn.fetchval("SELECT 1", timeout=health_check_timeout)
-                    # Connection is healthy, yield it
-                    # asyncpg yields PoolConnectionProxy which is compatible with Connection
+                    # PoolConnectionProxy is duck-type compatible with Connection
                     yield cast("asyncpg.Connection[asyncpg.Record]", conn)
                     return
             except (asyncpg.PostgresError, OSError, TimeoutError) as e:
@@ -390,7 +421,7 @@ class Pool:
                     max_retries=max_retries,
                     error=str(e),
                 )
-                # Add backoff delay between retries to avoid thundering herd
+                # Exponential backoff between retries to avoid thundering herd
                 if attempt < max_retries - 1:
                     delay = self._DEFAULT_RETRY_BASE_DELAY * (2**attempt)
                     await asyncio.sleep(delay)
@@ -402,26 +433,20 @@ class Pool:
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[asyncpg.Connection[asyncpg.Record]]:
-        """
-        Acquire connection with transaction management.
+        """Acquire a connection with an active database transaction.
 
-        Provides a connection wrapped in a database transaction. The
-        transaction is automatically committed when the context manager
-        exits normally, or rolled back if an exception occurs.
-
-        Returns:
-            An async context manager that yields an asyncpg Connection
-            with an active transaction.
+        The transaction commits automatically on normal exit and rolls back
+        if an exception propagates out of the context manager.
 
         Raises:
-            RuntimeError: If pool is not connected.
+            RuntimeError: If the pool has not been connected yet.
             asyncpg.PostgresError: On database errors (triggers rollback).
 
         Example:
             async with pool.transaction() as conn:
                 await conn.execute("INSERT INTO events ...")
                 await conn.execute("INSERT INTO relays ...")
-                # Both inserts commit together, or rollback on error
+                # Both succeed together or roll back on error.
         """
         async with self.acquire() as conn, conn.transaction():
             yield conn
@@ -439,11 +464,22 @@ class Pool:
         max_retries: int | None = None,
         **kwargs: Any,
     ) -> Any:
-        """
-        Execute a query operation with retry logic for transient errors.
+        """Execute a named asyncpg operation with retry on transient errors.
 
-        Retries on connection errors (InterfaceError, ConnectionDoesNotExistError)
-        with exponential backoff. Does NOT retry on query errors (syntax, constraint).
+        Retries only on connection-level errors (InterfaceError,
+        ConnectionDoesNotExistError) with exponential backoff. Query-level
+        errors (syntax, constraint violations) propagate immediately.
+
+        Args:
+            operation: Name of the asyncpg connection method (e.g. "fetch").
+            query: SQL query string with $1, $2, ... placeholders.
+            args: Positional query parameters.
+            timeout: Query timeout in seconds (None = no timeout).
+            max_retries: Override the default retry count.
+            **kwargs: Additional keyword arguments passed to the operation.
+
+        Returns:
+            The result of the asyncpg operation.
         """
         if max_retries is None:
             max_retries = self._DEFAULT_MAX_RETRIES
@@ -478,7 +514,7 @@ class Pool:
                 )
                 raise
 
-        # Should not reach here, but satisfy type checker
+        # Unreachable in practice, but satisfies the type checker
         if last_error:
             raise last_error
         raise RuntimeError("Unexpected state in _execute_with_retry")
@@ -486,92 +522,82 @@ class Pool:
     async def fetch(
         self, query: str, *args: Any, timeout: float | None = None
     ) -> list[asyncpg.Record]:
-        """
-        Execute query and fetch all results.
-
-        Retries on transient connection errors with exponential backoff.
+        """Execute a query and return all matching rows.
 
         Args:
-            query: SQL query string with $1, $2, ... placeholders
-            *args: Query parameters
-            timeout: Query timeout in seconds (None = no timeout)
+            query: SQL query with $1, $2, ... placeholders.
+            *args: Query parameters.
+            timeout: Query timeout in seconds (None = no timeout).
 
         Returns:
-            List of Record objects (may be empty)
+            List of asyncpg Record objects. Empty list if no rows match.
         """
         result = await self._execute_with_retry("fetch", query, args, timeout)
-        # _execute_with_retry returns Any due to dynamic dispatch; fetch() always returns list
+        # Dynamic dispatch returns Any; narrow to the actual fetch() return type
         return cast("list[asyncpg.Record]", result)
 
     async def fetchrow(
         self, query: str, *args: Any, timeout: float | None = None
     ) -> asyncpg.Record | None:
-        """
-        Execute query and fetch single row.
-
-        Retries on transient connection errors with exponential backoff.
+        """Execute a query and return the first row.
 
         Args:
-            query: SQL query string with $1, $2, ... placeholders
-            *args: Query parameters
-            timeout: Query timeout in seconds (None = no timeout)
+            query: SQL query with $1, $2, ... placeholders.
+            *args: Query parameters.
+            timeout: Query timeout in seconds (None = no timeout).
 
         Returns:
-            Single Record or None if no rows
+            A single asyncpg Record, or None if the query returns no rows.
         """
         result = await self._execute_with_retry("fetchrow", query, args, timeout)
-        # _execute_with_retry returns Any due to dynamic dispatch; fetchrow() returns Record | None
+        # Dynamic dispatch returns Any; narrow to the actual fetchrow() return type
         return cast("asyncpg.Record | None", result)
 
     async def fetchval(
         self, query: str, *args: Any, column: int = 0, timeout: float | None = None
     ) -> Any:
-        """
-        Execute query and fetch single value.
-
-        Retries on transient connection errors with exponential backoff.
+        """Execute a query and return a single scalar value.
 
         Args:
-            query: SQL query string with $1, $2, ... placeholders
-            *args: Query parameters
-            column: Column index to fetch (default: 0)
-            timeout: Query timeout in seconds (None = no timeout)
+            query: SQL query with $1, $2, ... placeholders.
+            *args: Query parameters.
+            column: Zero-based column index to extract (default: 0).
+            timeout: Query timeout in seconds (None = no timeout).
 
         Returns:
-            Single value from first row, or None if no rows
+            The value from the specified column of the first row,
+            or None if the query returns no rows.
         """
         return await self._execute_with_retry("fetchval", query, args, timeout, column=column)
 
     async def execute(self, query: str, *args: Any, timeout: float | None = None) -> str:
-        """
-        Execute query without returning results.
-
-        Retries on transient connection errors with exponential backoff.
+        """Execute a query and return the command status tag.
 
         Args:
-            query: SQL query string with $1, $2, ... placeholders
-            *args: Query parameters
-            timeout: Query timeout in seconds (None = no timeout)
+            query: SQL query with $1, $2, ... placeholders.
+            *args: Query parameters.
+            timeout: Query timeout in seconds (None = no timeout).
 
         Returns:
-            Status string (e.g., "INSERT 0 1", "UPDATE 5")
+            PostgreSQL command status string (e.g. "INSERT 0 1", "UPDATE 5").
         """
         result = await self._execute_with_retry("execute", query, args, timeout)
-        # _execute_with_retry returns Any due to dynamic dispatch; execute() returns str
+        # Dynamic dispatch returns Any; narrow to the actual execute() return type
         return cast("str", result)
 
     async def executemany(
         self, query: str, args_list: list[tuple[Any, ...]], timeout: float | None = None
     ) -> None:
-        """
-        Execute query multiple times with different parameters.
+        """Execute a query repeatedly with different parameter sets.
 
-        Retries on transient connection errors with exponential backoff.
+        Implemented separately from ``_execute_with_retry`` because asyncpg's
+        ``executemany`` accepts an iterable of argument tuples rather than
+        variadic positional args.
 
         Args:
-            query: SQL query string with $1, $2, ... placeholders
-            args_list: List of parameter tuples for each execution
-            timeout: Query timeout in seconds (None = no timeout)
+            query: SQL query with $1, $2, ... placeholders.
+            args_list: List of parameter tuples, one per execution.
+            timeout: Query timeout in seconds (None = no timeout).
         """
         max_retries = self._DEFAULT_MAX_RETRIES
         last_error: Exception | None = None
@@ -614,33 +640,23 @@ class Pool:
 
     @property
     def is_connected(self) -> bool:
-        """Check if pool is connected."""
+        """Whether the pool has an active connection to the database."""
         return self._is_connected
 
     @property
     def config(self) -> PoolConfig:
-        """Get configuration."""
+        """The pool configuration (read-only)."""
         return self._config
 
     @property
     def metrics(self) -> dict[str, Any]:
-        """
-        Get pool metrics for monitoring.
+        """Snapshot of pool statistics for monitoring dashboards.
 
         Returns:
-            Dictionary with pool statistics:
-            - size: Current number of connections in pool
-            - idle_size: Number of idle (available) connections
-            - min_size: Configured minimum pool size
-            - max_size: Configured maximum pool size
-            - free_size: Number of connections available for acquisition
-            - utilization: Percentage of pool in use (0.0-1.0)
-            - is_connected: Whether pool is connected
-
-        Example:
-            >>> pool.metrics
-            {'size': 10, 'idle_size': 8, 'min_size': 5, 'max_size': 20,
-             'free_size': 8, 'utilization': 0.2, 'is_connected': True}
+            Dictionary with keys: ``size``, ``idle_size``, ``min_size``,
+            ``max_size``, ``free_size``, ``utilization`` (0.0-1.0),
+            and ``is_connected``. Returns zeroed metrics if the pool
+            is not connected.
         """
         disconnected = {
             "size": 0,
@@ -652,7 +668,7 @@ class Pool:
             "is_connected": False,
         }
 
-        # Capture local reference to avoid race condition with close()
+        # Local reference prevents race with concurrent close() calls
         pool = self._pool
         if not self._is_connected or pool is None:
             return disconnected
@@ -675,10 +691,10 @@ class Pool:
                 "is_connected": True,
             }
         except asyncpg.InterfaceError:
-            # Expected: pool was closed between check and access
+            # Pool was closed between the check and the method calls
             return disconnected
         except Exception as e:
-            # Unexpected error - log but don't crash monitoring
+            # Log unexpected errors but never crash the monitoring path
             self._logger.warning("metrics_error", error=str(e))
             return disconnected
 
@@ -687,7 +703,7 @@ class Pool:
     # -------------------------------------------------------------------------
 
     async def __aenter__(self) -> Pool:
-        """Async context manager entry."""
+        """Connect the pool on context entry."""
         await self.connect()
         return self
 
@@ -697,10 +713,10 @@ class Pool:
         exc_val: BaseException | None,
         exc_tb: Any | None,
     ) -> None:
-        """Async context manager exit."""
+        """Close the pool on context exit."""
         await self.close()
 
     def __repr__(self) -> str:
-        """String representation."""
+        """Return a human-readable representation with host and connection status."""
         db = self._config.database
         return f"Pool(host={db.host}, database={db.database}, connected={self._is_connected})"

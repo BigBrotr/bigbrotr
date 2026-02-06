@@ -1,23 +1,21 @@
 """
-BigBrotr Core Layer.
+Core layer providing the foundation for all BigBrotr services.
 
-Production-ready foundation components:
-- Pool: PostgreSQL connection pooling with asyncpg
-- Brotr: High-level database interface with stored procedures
-- BaseService: Generic base class for all services with typed config
-
-Note: Logger is in src/logger.py (not in core) to avoid circular imports.
-      Import it directly: from logger import Logger
+Components:
+    Pool:           Async PostgreSQL connection pool with retry and health checks.
+    Brotr:          High-level database interface wrapping stored procedures.
+    BaseService:    Abstract generic base class for services with typed config.
+    Logger:         Structured logger supporting key=value and JSON output.
+    MetricsServer:  Prometheus HTTP endpoint for metrics exposition.
 
 Example:
-    from core import Pool, Brotr
-    from logger import Logger
+    from core import Pool, Brotr, Logger
 
     pool = Pool.from_yaml("config.yaml")
     brotr = Brotr(pool=pool)
 
     async with brotr:
-        result = await brotr.insert_relays([...])
+        await brotr.insert_relays([...])
 """
 
 from utils.yaml import load_yaml
@@ -30,6 +28,7 @@ from .brotr import (
 from .brotr import (
     TimeoutsConfig as BrotrTimeoutsConfig,
 )
+from .logger import Logger, format_kv_pairs
 from .metrics import (
     CYCLE_DURATION_SECONDS,
     SERVICE_COUNTER,
@@ -73,6 +72,7 @@ __all__ = [
     "BrotrTimeoutsConfig",
     "ConfigT",
     "DatabaseConfig",
+    "Logger",
     "MetricsConfig",
     "MetricsServer",
     "NetworkSemaphoreMixin",
@@ -82,6 +82,7 @@ __all__ = [
     "PoolTimeoutsConfig",
     "RetryConfig",
     "ServerSettingsConfig",
+    "format_kv_pairs",
     "load_yaml",
     "start_metrics_server",
 ]
