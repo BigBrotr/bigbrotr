@@ -14,7 +14,7 @@ BEGIN
     RAISE NOTICE '============================================================================';
     RAISE NOTICE '';
     RAISE NOTICE 'Extensions:';
-    RAISE NOTICE '  btree_gin, pgcrypto';
+    RAISE NOTICE '  btree_gin, pg_stat_statements';
     RAISE NOTICE '';
     RAISE NOTICE 'Tables:';
     RAISE NOTICE '  relays, events, events_relays, metadata, relay_metadata, service_data';

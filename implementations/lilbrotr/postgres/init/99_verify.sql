@@ -12,7 +12,7 @@ BEGIN
     RAISE NOTICE 'LilBrotr Schema Initialized (Lightweight Storage)';
     RAISE NOTICE '============================================================================';
     RAISE NOTICE '';
-    RAISE NOTICE 'Extensions: btree_gin, pgcrypto';
+    RAISE NOTICE 'Extensions: btree_gin';
     RAISE NOTICE '';
     RAISE NOTICE 'Tables:';
     RAISE NOTICE '  - relays';

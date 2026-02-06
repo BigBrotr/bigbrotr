@@ -65,7 +65,7 @@ implementations/myimpl/
 
 | Component | Files |
 |-----------|-------|
-| Extensions | `btree_gin`, `pgcrypto` |
+| Extensions | `btree_gin` |
 | Tables | `relays`, `events`, `events_relays`, `metadata`, `relay_metadata`, `service_data` |
 | CRUD Functions | `*_insert`, `*_insert_cascade`, `service_data_*` |
 | Cleanup Functions | `orphan_*_delete` |

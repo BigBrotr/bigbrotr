@@ -12,7 +12,7 @@ BEGIN
     RAISE NOTICE 'BigBrotr Implementation Template - Schema Initialized';
     RAISE NOTICE '============================================================================';
     RAISE NOTICE '';
-    RAISE NOTICE 'Extensions: btree_gin, pgcrypto';
+    RAISE NOTICE 'Extensions: btree_gin';
     RAISE NOTICE '';
     RAISE NOTICE 'Tables:';
     RAISE NOTICE '  - relays';
