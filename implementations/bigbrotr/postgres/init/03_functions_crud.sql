@@ -1,37 +1,41 @@
--- ============================================================================
--- BigBrotr Database Initialization Script
--- ============================================================================
--- File: 03_functions_crud.sql
--- Description: CRUD Functions organized by table (base + cascade)
--- Dependencies: 02_tables.sql
--- ============================================================================
---
--- STRUCTURE:
---   Level 1 (Base): Single-table operations
---     - relays_insert()
---     - events_insert()
---     - metadata_insert()
---     - events_relays_insert()      (requires FK to exist)
---     - relay_metadata_insert()     (requires FK to exist)
---     - service_data_upsert/get/delete()
---
---   Level 2 (Cascade): Multi-table operations (call base functions internally)
---     - events_relays_insert_cascade()   → relays + events + events_relays
---     - relay_metadata_insert_cascade()  → relays + metadata + relay_metadata
---
--- ============================================================================
+/*
+ * BigBrotr - 03_functions_crud.sql
+ *
+ * CRUD stored functions for bulk data operations. Organized in two levels:
+ *
+ *   Level 1 (Base) - Single-table operations:
+ *     relays_insert, events_insert, metadata_insert,
+ *     events_relays_insert, relay_metadata_insert,
+ *     service_data_upsert, service_data_get, service_data_delete
+ *
+ *   Level 2 (Cascade) - Multi-table atomic operations that call Level 1:
+ *     events_relays_insert_cascade  -> relays + events + events_relays
+ *     relay_metadata_insert_cascade -> relays + metadata + relay_metadata
+ *
+ * All functions use array parameters for bulk operations via unnest(),
+ * and ON CONFLICT DO NOTHING for idempotent inserts.
+ *
+ * Dependencies: 02_tables.sql
+ */
 
 
--- ============================================================================
--- LEVEL 1: BASE FUNCTIONS (single table)
--- ============================================================================
+-- ==========================================================================
+-- LEVEL 1: BASE FUNCTIONS (single-table operations)
+-- ==========================================================================
 
--- ----------------------------------------------------------------------------
--- relays_insert
--- ----------------------------------------------------------------------------
--- Description: Bulk insert relay records
--- Parameters: Arrays of relay URL, network type, discovery timestamp
--- Returns: Number of rows inserted
+
+/*
+ * relays_insert(TEXT[], TEXT[], BIGINT[]) -> INTEGER
+ *
+ * Bulk-inserts relay records. Existing relays (by URL) are silently skipped.
+ *
+ * Parameters:
+ *   p_urls            - Array of relay WebSocket URLs
+ *   p_networks        - Array of network types (clearnet, tor, i2p, loki)
+ *   p_discovered_ats  - Array of Unix discovery timestamps
+ *
+ * Returns: Number of newly inserted rows
+ */
 CREATE OR REPLACE FUNCTION relays_insert(
     p_urls TEXT[],
     p_networks TEXT[],
@@ -56,12 +60,24 @@ COMMENT ON FUNCTION relays_insert(TEXT[], TEXT[], BIGINT[]) IS
 'Bulk insert relays, returns number of rows inserted';
 
 
--- ----------------------------------------------------------------------------
--- events_insert
--- ----------------------------------------------------------------------------
--- Description: Bulk insert event records (FK to relays NOT checked here)
--- Parameters: Arrays of event fields
--- Returns: Number of rows inserted
+/*
+ * events_insert(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[]) -> INTEGER
+ *
+ * Bulk-inserts Nostr events. Duplicate events (by id) are silently skipped.
+ * Foreign key references to relays are NOT enforced here; use the cascade
+ * version if relays may not exist yet.
+ *
+ * Parameters:
+ *   p_event_ids    - Array of 32-byte event hashes
+ *   p_pubkeys      - Array of 32-byte author public keys
+ *   p_created_ats  - Array of Unix creation timestamps
+ *   p_kinds        - Array of NIP-01 event kinds
+ *   p_tags         - Array of JSONB tag arrays
+ *   p_contents     - Array of event content strings
+ *   p_sigs         - Array of 64-byte Schnorr signatures
+ *
+ * Returns: Number of newly inserted rows
+ */
 CREATE OR REPLACE FUNCTION events_insert(
     p_event_ids BYTEA[],
     p_pubkeys BYTEA[],
@@ -98,13 +114,19 @@ COMMENT ON FUNCTION events_insert(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[]
 'Bulk insert events, returns number of rows inserted';
 
 
--- ----------------------------------------------------------------------------
--- metadata_insert
--- ----------------------------------------------------------------------------
--- Description: Bulk insert metadata records (content-addressed by hash)
--- Parameters: Arrays of pre-computed SHA-256 hashes and JSON values
--- Returns: Number of rows inserted
--- Note: Hash is computed in Python for deterministic deduplication
+/*
+ * metadata_insert(BYTEA[], JSONB[]) -> INTEGER
+ *
+ * Bulk-inserts content-addressed metadata records. The SHA-256 hash (id) is
+ * pre-computed in the application layer for deterministic deduplication.
+ * Duplicate hashes are silently skipped.
+ *
+ * Parameters:
+ *   p_ids     - Array of pre-computed SHA-256 hashes (32 bytes)
+ *   p_values  - Array of JSON metadata documents
+ *
+ * Returns: Number of newly inserted rows
+ */
 DROP FUNCTION IF EXISTS metadata_insert(JSONB[]);
 CREATE OR REPLACE FUNCTION metadata_insert(
     p_ids BYTEA[],
@@ -126,16 +148,23 @@ END;
 $$;
 
 COMMENT ON FUNCTION metadata_insert(BYTEA[], JSONB[]) IS
-'Bulk insert metadata records (content-addressed), returns number of rows inserted';
+'Bulk insert content-addressed metadata records, returns number of rows inserted';
 
 
--- ----------------------------------------------------------------------------
--- events_relays_insert
--- ----------------------------------------------------------------------------
--- Description: Bulk insert event-relay junction records (FK must exist)
--- Parameters: Arrays of event_id, relay_url, seen_at
--- Returns: Number of rows inserted
--- Notes: Will fail if FK references don't exist - use cascade version if needed
+/*
+ * events_relays_insert(BYTEA[], TEXT[], BIGINT[]) -> INTEGER
+ *
+ * Bulk-inserts event-relay junction records. Both the referenced event and
+ * relay MUST already exist; use events_relays_insert_cascade() if they
+ * may not exist yet.
+ *
+ * Parameters:
+ *   p_event_ids   - Array of event hashes (must exist in events table)
+ *   p_relay_urls  - Array of relay URLs (must exist in relays table)
+ *   p_seen_ats    - Array of Unix first-seen timestamps
+ *
+ * Returns: Number of newly inserted rows
+ */
 CREATE OR REPLACE FUNCTION events_relays_insert(
     p_event_ids BYTEA[],
     p_relay_urls TEXT[],
@@ -160,14 +189,25 @@ COMMENT ON FUNCTION events_relays_insert(BYTEA[], TEXT[], BIGINT[]) IS
 'Bulk insert event-relay junctions, returns number of rows inserted';
 
 
--- ----------------------------------------------------------------------------
--- relay_metadata_insert
--- ----------------------------------------------------------------------------
--- Description: Bulk insert relay-metadata junction records (FK must exist)
--- Parameters: Arrays of relay_url, metadata_id (hash), metadata_value, type, generated_at
--- Returns: Number of rows inserted
--- Notes: Will fail if FK references don't exist - use cascade version if needed
--- Note: Hash is computed in Python for deterministic deduplication
+/*
+ * relay_metadata_insert(TEXT[], BYTEA[], JSONB[], TEXT[], BIGINT[]) -> INTEGER
+ *
+ * Bulk-inserts relay-metadata junction records. Both the referenced relay
+ * and metadata MUST already exist; use relay_metadata_insert_cascade()
+ * if they may not exist yet.
+ *
+ * The p_metadata_values parameter is accepted for interface compatibility
+ * but is not used in the INSERT (metadata rows are inserted separately).
+ *
+ * Parameters:
+ *   p_relay_urls       - Array of relay URLs (must exist in relays table)
+ *   p_metadata_ids     - Array of metadata SHA-256 hashes (must exist in metadata table)
+ *   p_metadata_values  - Array of JSON values (unused, kept for interface compatibility)
+ *   p_metadata_types   - Array of check types (nip11_fetch, nip66_rtt, etc.)
+ *   p_generated_ats    - Array of Unix collection timestamps
+ *
+ * Returns: Number of newly inserted rows
+ */
 DROP FUNCTION IF EXISTS relay_metadata_insert(TEXT[], JSONB[], TEXT[], BIGINT[]);
 CREATE OR REPLACE FUNCTION relay_metadata_insert(
     p_relay_urls TEXT[],
@@ -182,6 +222,7 @@ AS $$
 DECLARE
     row_count INTEGER;
 BEGIN
+    -- Unnest aliases: u=relay_url, id=metadata_id, t=metadata_type, g=generated_at
     INSERT INTO relay_metadata (relay_url, generated_at, metadata_type, metadata_id)
     SELECT u, g, t, id
     FROM unnest(p_relay_urls, p_metadata_ids, p_metadata_types, p_generated_ats) AS x(u, id, t, g)
@@ -196,19 +237,21 @@ COMMENT ON FUNCTION relay_metadata_insert(TEXT[], BYTEA[], JSONB[], TEXT[], BIGI
 'Bulk insert relay-metadata junctions, returns number of rows inserted';
 
 
--- ============================================================================
--- LEVEL 2: CASCADE FUNCTIONS (multi-table, call base functions)
--- ============================================================================
+-- ==========================================================================
+-- LEVEL 2: CASCADE FUNCTIONS (multi-table atomic operations)
+-- ==========================================================================
 
--- ----------------------------------------------------------------------------
--- events_relays_insert_cascade
--- ----------------------------------------------------------------------------
--- Description: Bulk insert events with relays and junctions atomically
--- Parameters: Arrays of event fields, relay info, and seen_at timestamps
--- Returns: Number of junction rows inserted (events_relays)
--- Notes:
---   - Reuses relays_insert() and events_insert() for DRY principle
---   - If you customize events_insert(), changes automatically apply here too
+
+/*
+ * events_relays_insert_cascade(...) -> INTEGER
+ *
+ * Atomically inserts relays, events, and their junction records in a single
+ * transaction. Delegates to relays_insert() and events_insert() internally,
+ * so customizations to those base functions automatically apply here.
+ *
+ * Parameters: Arrays of event fields + relay fields + seen_at timestamps
+ * Returns: Number of junction rows inserted in events_relays
+ */
 CREATE OR REPLACE FUNCTION events_relays_insert_cascade(
     p_event_ids BYTEA[],
     p_pubkeys BYTEA[],
@@ -228,13 +271,13 @@ AS $$
 DECLARE
     row_count INTEGER;
 BEGIN
-    -- Insert relays (reuse base function)
+    -- Ensure relay records exist before inserting junction rows
     PERFORM relays_insert(p_relay_urls, p_relay_networks, p_relay_discovered_ats);
 
-    -- Insert events (reuse base function - customize events_insert, not here)
+    -- Ensure event records exist (customize events_insert, not this function)
     PERFORM events_insert(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags, p_contents, p_sigs);
 
-    -- Insert junction records
+    -- Insert junction records, deduplicating within the batch via DISTINCT ON
     INSERT INTO events_relays (event_id, relay_url, seen_at)
     SELECT DISTINCT ON (event_id, relay_url) event_id, relay_url, seen_at
     FROM unnest(p_event_ids, p_relay_urls, p_seen_ats) AS t(event_id, relay_url, seen_at)
@@ -246,17 +289,19 @@ END;
 $$;
 
 COMMENT ON FUNCTION events_relays_insert_cascade(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[], TEXT[], TEXT[], BIGINT[], BIGINT[]) IS
-'Bulk insert events with relays and junctions atomically, returns junction count';
+'Atomically insert events with relays and junctions, returns junction row count';
 
 
--- ----------------------------------------------------------------------------
--- relay_metadata_insert_cascade
--- ----------------------------------------------------------------------------
--- Description: Bulk insert relay metadata with relays and junctions atomically
--- Returns: Number of junction rows inserted (relay_metadata)
--- Notes:
---   - Reuses relays_insert() and metadata_insert() for DRY principle
---   - Hash is computed in Python for deterministic deduplication
+/*
+ * relay_metadata_insert_cascade(...) -> INTEGER
+ *
+ * Atomically inserts relays, metadata documents, and their junction records
+ * in a single transaction. Delegates to relays_insert() and metadata_insert()
+ * internally.
+ *
+ * Parameters: Arrays of relay fields + metadata fields + types + timestamps
+ * Returns: Number of junction rows inserted in relay_metadata
+ */
 DROP FUNCTION IF EXISTS relay_metadata_insert_cascade(TEXT[], TEXT[], BIGINT[], JSONB[], TEXT[], BIGINT[]);
 CREATE OR REPLACE FUNCTION relay_metadata_insert_cascade(
     p_relay_urls TEXT[],
@@ -273,13 +318,13 @@ AS $$
 DECLARE
     row_count INTEGER;
 BEGIN
-    -- Insert relays (reuse base function)
+    -- Ensure relay records exist before inserting junction rows
     PERFORM relays_insert(p_relay_urls, p_relay_networks, p_relay_discovered_ats);
 
-    -- Insert metadata (reuse base function with pre-computed hashes)
+    -- Ensure metadata records exist (using pre-computed content hashes)
     PERFORM metadata_insert(p_metadata_ids, p_metadata_values);
 
-    -- Insert junction records (use pre-computed hashes)
+    -- Insert junction records with unnest aliases: u=url, id=hash, t=type, g=timestamp
     INSERT INTO relay_metadata (relay_url, generated_at, metadata_type, metadata_id)
     SELECT u, g, t, id
     FROM unnest(p_relay_urls, p_metadata_ids, p_metadata_types, p_generated_ats) AS x(u, id, t, g)
@@ -291,21 +336,28 @@ END;
 $$;
 
 COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT[], TEXT[], BIGINT[], BYTEA[], JSONB[], TEXT[], BIGINT[]) IS
-'Bulk insert relay metadata atomically, returns junction count';
+'Atomically insert relay metadata with relays and junctions, returns junction row count';
 
 
--- ============================================================================
+-- ==========================================================================
 -- SERVICE DATA FUNCTIONS
--- ============================================================================
+-- ==========================================================================
 
--- ----------------------------------------------------------------------------
--- service_data_upsert
--- ----------------------------------------------------------------------------
--- Description: Bulk upsert service data records (for candidates, cursors, state, etc.)
--- Parameters: Arrays of service_name, data_type, data_key, data (JSONB), updated_at
--- Returns: VOID
--- Note: Uses DISTINCT ON to handle duplicates within same batch, last value wins
---       Full replacement semantics: new data completely replaces existing data
+
+/*
+ * service_data_upsert(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[]) -> VOID
+ *
+ * Bulk upsert (insert or replace) service state records. When a record with
+ * the same (service_name, data_type, data_key) already exists, its data and
+ * timestamp are fully replaced. DISTINCT ON deduplicates within the batch.
+ *
+ * Parameters:
+ *   p_service_names  - Array of service identifiers
+ *   p_data_types     - Array of data categories
+ *   p_data_keys      - Array of unique keys within each service+type
+ *   p_datas          - Array of JSONB payloads
+ *   p_updated_ats    - Array of Unix update timestamps
+ */
 CREATE OR REPLACE FUNCTION service_data_upsert(
     p_service_names TEXT[],
     p_data_types TEXT[],
@@ -335,15 +387,23 @@ END;
 $$;
 
 COMMENT ON FUNCTION service_data_upsert(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[]) IS
-'Bulk upsert service data records with dedup and full replacement';
+'Bulk upsert service data with deduplication and full replacement semantics';
 
 
--- ----------------------------------------------------------------------------
--- service_data_get
--- ----------------------------------------------------------------------------
--- Description: Retrieves service data records with optional key filter
--- Parameters: service_name, data_type, optional data_key
--- Returns: TABLE of (data_key, data, updated_at)
+/*
+ * service_data_get(TEXT, TEXT, TEXT) -> TABLE(data_key, data, updated_at)
+ *
+ * Retrieves service data records. When p_data_key is provided, returns the
+ * single matching record. When NULL, returns all records for the given
+ * service and data type, ordered by update timestamp ascending.
+ *
+ * Parameters:
+ *   p_service_name  - Service identifier
+ *   p_data_type     - Data category
+ *   p_data_key      - Specific key to retrieve (NULL for all records)
+ *
+ * Returns: Table of (data_key TEXT, data JSONB, updated_at BIGINT)
+ */
 CREATE OR REPLACE FUNCTION service_data_get(
     p_service_name TEXT,
     p_data_type TEXT,
@@ -375,15 +435,22 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION service_data_get IS 'Retrieves service data records with optional key filter';
+COMMENT ON FUNCTION service_data_get IS
+'Retrieve service data records, optionally filtered by key';
 
 
--- ----------------------------------------------------------------------------
--- service_data_delete
--- ----------------------------------------------------------------------------
--- Description: Bulk delete service data records
--- Parameters: Arrays of service_name, data_type, data_key
--- Returns: Number of rows deleted
+/*
+ * service_data_delete(TEXT[], TEXT[], TEXT[]) -> INTEGER
+ *
+ * Bulk-deletes service data records matching the given composite keys.
+ *
+ * Parameters:
+ *   p_service_names  - Array of service identifiers
+ *   p_data_types     - Array of data categories
+ *   p_data_keys      - Array of unique keys
+ *
+ * Returns: Number of rows deleted
+ */
 CREATE OR REPLACE FUNCTION service_data_delete(
     p_service_names TEXT[],
     p_data_types TEXT[],
@@ -412,22 +479,3 @@ $$;
 
 COMMENT ON FUNCTION service_data_delete(TEXT[], TEXT[], TEXT[]) IS
 'Bulk delete service data records, returns number of rows deleted';
-
-
--- ============================================================================
--- CRUD FUNCTIONS CREATED
--- ============================================================================
--- Level 1 (Base):
---   - relays_insert
---   - events_insert
---   - metadata_insert
---   - events_relays_insert
---   - relay_metadata_insert
---   - service_data_upsert
---   - service_data_get
---   - service_data_delete
---
--- Level 2 (Cascade):
---   - events_relays_insert_cascade
---   - relay_metadata_insert_cascade
--- ============================================================================

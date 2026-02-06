@@ -1,29 +1,25 @@
--- ============================================================================
--- BigBrotr Implementation Template - Cleanup Functions
--- ============================================================================
--- File: 04_functions_cleanup.sql
--- Purpose: Database cleanup functions for data integrity and maintenance
--- Dependencies: 02_tables.sql
--- Customization: None - these functions are mandatory
--- ============================================================================
---
--- These functions maintain data integrity by removing orphaned records.
--- Called by Brotr.cleanup_orphan_*() methods and scheduled maintenance jobs.
---
--- ============================================================================
+/*
+ * Template - 04_functions_cleanup.sql
+ *
+ * Cleanup functions that remove orphaned records to maintain data integrity.
+ * These should be run periodically or after bulk deletions from parent tables.
+ * Called by Brotr.cleanup_orphan_*() methods in the application layer.
+ *
+ * Dependencies: 02_tables.sql
+ * Customization: None required -- these functions are mandatory.
+ */
 
 
--- ----------------------------------------------------------------------------
--- orphan_metadata_delete
--- Description: Removes metadata records not referenced by any relay_metadata
--- Purpose: Cleanup unused metadata after old snapshots are deleted
--- Returns: BIGINT (number of deleted rows)
--- Usage: SELECT orphan_metadata_delete();
--- Notes:
---   - Safe to run anytime (no side effects on valid data)
---   - Should be called periodically or after bulk deletions
---   - Called by Brotr.cleanup_orphan_metadata()
--- ----------------------------------------------------------------------------
+/*
+ * orphan_metadata_delete() -> BIGINT
+ *
+ * Removes metadata records that have no references in relay_metadata.
+ * This happens when old metadata snapshots are deleted but their underlying
+ * content-addressed documents remain. Safe to run at any time.
+ *
+ * Returns: Number of deleted rows
+ * Schedule: Daily, or after bulk relay_metadata deletions
+ */
 CREATE OR REPLACE FUNCTION orphan_metadata_delete()
 RETURNS BIGINT
 LANGUAGE plpgsql
@@ -41,20 +37,20 @@ END;
 $$;
 
 COMMENT ON FUNCTION orphan_metadata_delete() IS
-'Deletes metadata records without relay_metadata references';
+'Delete metadata records not referenced by any relay_metadata row';
 
 
--- ----------------------------------------------------------------------------
--- orphan_events_delete
--- Description: Removes events that have no associated relay references
--- Purpose: Maintains data integrity (events must have >= 1 relay association)
--- Returns: BIGINT (number of deleted rows)
--- Usage: SELECT orphan_events_delete();
--- Notes:
---   - Ensures every event is associated with at least one relay
---   - Should be called after relay deletions
---   - Called by Brotr.cleanup_orphan_events()
--- ----------------------------------------------------------------------------
+/*
+ * orphan_events_delete() -> BIGINT
+ *
+ * Removes events that have no associated relay in events_relays. This
+ * enforces the invariant that every event must be associated with at least
+ * one relay. Orphans can appear when a relay is deleted via CASCADE on
+ * events_relays but the event itself remains.
+ *
+ * Returns: Number of deleted rows
+ * Schedule: Daily, or after relay deletions
+ */
 CREATE OR REPLACE FUNCTION orphan_events_delete()
 RETURNS BIGINT
 LANGUAGE plpgsql
@@ -72,18 +68,4 @@ END;
 $$;
 
 COMMENT ON FUNCTION orphan_events_delete() IS
-'Deletes events without relay associations (maintains 1:N relationship)';
-
-
--- ============================================================================
--- CLEANUP FUNCTIONS SUMMARY
--- ============================================================================
---
--- orphan_metadata_delete    : Remove unreferenced metadata records
--- orphan_events_delete      : Remove events without relay associations
---
--- Recommended schedule:
---   - orphan_metadata_delete: Daily or after bulk relay_metadata deletions
---   - orphan_events_delete: Daily or after relay deletions
---
--- ============================================================================
+'Delete events without any relay association (maintains 1:N invariant)';

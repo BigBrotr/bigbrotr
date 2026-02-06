@@ -1,18 +1,21 @@
--- ============================================================================
--- BigBrotr Database Initialization Script
--- ============================================================================
--- File: 07_functions_refresh.sql
--- Description: Refresh Functions for materialized views
--- Dependencies: 06_materialized_views.sql
--- ============================================================================
+/*
+ * BigBrotr - 07_functions_refresh.sql
+ *
+ * Refresh functions for materialized views. Each function wraps
+ * REFRESH MATERIALIZED VIEW CONCURRENTLY, which rebuilds the view data
+ * without blocking concurrent reads. Requires a unique index on each
+ * materialized view (created in 08_indexes.sql).
+ *
+ * Dependencies: 06_materialized_views.sql
+ */
 
--- ============================================================================
--- Function: relay_metadata_latest_refresh
--- ============================================================================
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT relay_metadata_latest_refresh();
--- Schedule: Daily via cron or application scheduler
 
+/*
+ * relay_metadata_latest_refresh() -> VOID
+ *
+ * Refreshes the relay_metadata_latest view concurrently.
+ * Schedule: Daily via cron or application scheduler.
+ */
 CREATE OR REPLACE FUNCTION relay_metadata_latest_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
@@ -23,15 +26,15 @@ END;
 $$;
 
 COMMENT ON FUNCTION relay_metadata_latest_refresh() IS
-'Refreshes relay_metadata_latest materialized view concurrently. Schedule daily.';
+'Refresh relay_metadata_latest concurrently. Schedule daily.';
 
--- ============================================================================
--- Function: events_statistics_refresh
--- ============================================================================
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT events_statistics_refresh();
--- Schedule: Hourly or as needed
 
+/*
+ * events_statistics_refresh() -> VOID
+ *
+ * Refreshes the events_statistics view concurrently.
+ * Schedule: Hourly or as needed for dashboard accuracy.
+ */
 CREATE OR REPLACE FUNCTION events_statistics_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
@@ -42,15 +45,15 @@ END;
 $$;
 
 COMMENT ON FUNCTION events_statistics_refresh() IS
-'Refreshes events_statistics materialized view concurrently.';
+'Refresh events_statistics concurrently.';
 
--- ============================================================================
--- Function: relays_statistics_refresh
--- ============================================================================
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT relays_statistics_refresh();
--- Schedule: Daily or as needed
 
+/*
+ * relays_statistics_refresh() -> VOID
+ *
+ * Refreshes the relays_statistics view concurrently.
+ * Schedule: Daily or as needed.
+ */
 CREATE OR REPLACE FUNCTION relays_statistics_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
@@ -61,15 +64,15 @@ END;
 $$;
 
 COMMENT ON FUNCTION relays_statistics_refresh() IS
-'Refreshes relays_statistics materialized view concurrently.';
+'Refresh relays_statistics concurrently.';
 
--- ============================================================================
--- Function: kind_counts_total_refresh
--- ============================================================================
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT kind_counts_total_refresh();
--- Schedule: Daily or as needed
 
+/*
+ * kind_counts_total_refresh() -> VOID
+ *
+ * Refreshes the kind_counts_total view concurrently.
+ * Schedule: Daily or as needed.
+ */
 CREATE OR REPLACE FUNCTION kind_counts_total_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
@@ -80,15 +83,15 @@ END;
 $$;
 
 COMMENT ON FUNCTION kind_counts_total_refresh() IS
-'Refreshes kind_counts_total materialized view concurrently.';
+'Refresh kind_counts_total concurrently.';
 
--- ============================================================================
--- Function: kind_counts_by_relay_refresh
--- ============================================================================
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT kind_counts_by_relay_refresh();
--- Schedule: Daily or as needed
 
+/*
+ * kind_counts_by_relay_refresh() -> VOID
+ *
+ * Refreshes the kind_counts_by_relay view concurrently.
+ * Schedule: Daily or as needed.
+ */
 CREATE OR REPLACE FUNCTION kind_counts_by_relay_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
@@ -99,15 +102,15 @@ END;
 $$;
 
 COMMENT ON FUNCTION kind_counts_by_relay_refresh() IS
-'Refreshes kind_counts_by_relay materialized view concurrently.';
+'Refresh kind_counts_by_relay concurrently.';
 
--- ============================================================================
--- Function: pubkey_counts_total_refresh
--- ============================================================================
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT pubkey_counts_total_refresh();
--- Schedule: Daily or as needed
 
+/*
+ * pubkey_counts_total_refresh() -> VOID
+ *
+ * Refreshes the pubkey_counts_total view concurrently.
+ * Schedule: Daily or as needed.
+ */
 CREATE OR REPLACE FUNCTION pubkey_counts_total_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
@@ -118,15 +121,15 @@ END;
 $$;
 
 COMMENT ON FUNCTION pubkey_counts_total_refresh() IS
-'Refreshes pubkey_counts_total materialized view concurrently.';
+'Refresh pubkey_counts_total concurrently.';
 
--- ============================================================================
--- Function: pubkey_counts_by_relay_refresh
--- ============================================================================
--- Description: Refreshes the materialized view concurrently (non-blocking)
--- Usage: SELECT pubkey_counts_by_relay_refresh();
--- Schedule: Daily or as needed
 
+/*
+ * pubkey_counts_by_relay_refresh() -> VOID
+ *
+ * Refreshes the pubkey_counts_by_relay view concurrently.
+ * Schedule: Daily or as needed.
+ */
 CREATE OR REPLACE FUNCTION pubkey_counts_by_relay_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
@@ -137,21 +140,23 @@ END;
 $$;
 
 COMMENT ON FUNCTION pubkey_counts_by_relay_refresh() IS
-'Refreshes pubkey_counts_by_relay materialized view concurrently.';
+'Refresh pubkey_counts_by_relay concurrently.';
 
--- ============================================================================
--- Function: refresh_all_statistics
--- ============================================================================
--- Description: Refreshes all statistics materialized views in optimal order
--- Usage: SELECT refresh_all_statistics();
--- Schedule: Daily maintenance window
 
+/*
+ * refresh_all_statistics() -> VOID
+ *
+ * Refreshes all materialized views in dependency order. The metadata view
+ * is refreshed first because relays_statistics depends on it for RTT data.
+ * Best run during a maintenance window due to the aggregate I/O cost.
+ *
+ * Schedule: Daily maintenance window.
+ */
 CREATE OR REPLACE FUNCTION refresh_all_statistics()
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    -- Refresh in order of dependency and size
     PERFORM relay_metadata_latest_refresh();
     PERFORM events_statistics_refresh();
     PERFORM relays_statistics_refresh();
@@ -163,8 +168,4 @@ END;
 $$;
 
 COMMENT ON FUNCTION refresh_all_statistics() IS
-'Refreshes all statistics materialized views. Use during maintenance windows.';
-
--- ============================================================================
--- REFRESH FUNCTIONS CREATED
--- ============================================================================
+'Refresh all materialized views in dependency order. Run during maintenance windows.';

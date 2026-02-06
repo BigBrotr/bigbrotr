@@ -1,17 +1,23 @@
--- ============================================================================
--- BigBrotr Database Initialization Script
--- ============================================================================
--- File: 04_functions_cleanup.sql
--- Description: Cleanup Functions for data integrity and maintenance
--- Dependencies: 02_tables.sql
--- ============================================================================
+/*
+ * BigBrotr - 04_functions_cleanup.sql
+ *
+ * Cleanup functions that remove orphaned records to maintain data integrity.
+ * These should be run periodically or after bulk deletions from parent tables.
+ *
+ * Dependencies: 02_tables.sql
+ */
 
--- Function: orphan_metadata_delete
--- Description: Removes metadata records that are not referenced by any relay_metadata
--- Purpose: Cleanup unused metadata data after old snapshots are removed
--- Returns: BIGINT (number of deleted rows)
--- Usage: SELECT orphan_metadata_delete();
--- Note: Should be called periodically or after bulk relay_metadata deletions
+
+/*
+ * orphan_metadata_delete() -> BIGINT
+ *
+ * Removes metadata records that have no references in relay_metadata.
+ * This happens when old metadata snapshots are deleted but their underlying
+ * content-addressed documents remain. Safe to run at any time.
+ *
+ * Returns: Number of deleted rows
+ * Schedule: Daily, or after bulk relay_metadata deletions
+ */
 CREATE OR REPLACE FUNCTION orphan_metadata_delete()
 RETURNS BIGINT
 LANGUAGE plpgsql
@@ -28,14 +34,21 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION orphan_metadata_delete() IS 'Deletes metadata records without relay_metadata references';
+COMMENT ON FUNCTION orphan_metadata_delete() IS
+'Delete metadata records not referenced by any relay_metadata row';
 
--- Function: orphan_events_delete
--- Description: Removes events that have no associated relay references
--- Purpose: Maintains data integrity constraint (events must have >=1 relay)
--- Returns: BIGINT (number of deleted rows)
--- Usage: SELECT orphan_events_delete();
--- Note: Should be called after relay deletions
+
+/*
+ * orphan_events_delete() -> BIGINT
+ *
+ * Removes events that have no associated relay in events_relays. This
+ * enforces the invariant that every event must be associated with at least
+ * one relay. Orphans can appear when a relay is deleted via CASCADE on
+ * events_relays but the event itself remains.
+ *
+ * Returns: Number of deleted rows
+ * Schedule: Daily, or after relay deletions
+ */
 CREATE OR REPLACE FUNCTION orphan_events_delete()
 RETURNS BIGINT
 LANGUAGE plpgsql
@@ -52,8 +65,5 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION orphan_events_delete() IS 'Deletes events without relay associations (maintains 1:N relationship)';
-
--- ============================================================================
--- CLEANUP FUNCTIONS CREATED
--- ============================================================================
+COMMENT ON FUNCTION orphan_events_delete() IS
+'Delete events without any relay association (maintains 1:N invariant)';

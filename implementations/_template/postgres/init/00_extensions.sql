@@ -1,20 +1,14 @@
--- ============================================================================
--- BigBrotr Implementation Template - PostgreSQL Extensions
--- ============================================================================
--- File: 00_extensions.sql
--- Purpose: Required PostgreSQL extensions for BigBrotr functionality
--- Dependencies: None (runs first)
--- Customization: None - these extensions are mandatory
--- ============================================================================
+/*
+ * Template - 00_extensions.sql
+ *
+ * PostgreSQL extensions required for BigBrotr functionality.
+ * This script runs first during database initialization.
+ *
+ * Dependencies: None
+ * Customization: None required -- these extensions are mandatory.
+ */
 
--- Extension: btree_gin
--- Purpose: Enables GIN (Generalized Inverted Index) support for btree-comparable types
--- Usage: Required for efficient array containment queries on events.tagvalues column
--- Note: Powers the idx_events_tagvalues index for fast tag-based event filtering
+-- Enables GIN index support for btree-comparable types (TEXT[], INTEGER[], etc.).
+-- Required for the idx_events_tagvalues GIN index, which powers fast
+-- array containment queries (WHERE tagvalues @> ARRAY['value']) on events.
 CREATE EXTENSION IF NOT EXISTS btree_gin;
-
--- ============================================================================
--- EXTENSIONS SUMMARY
--- ============================================================================
--- btree_gin  : Tag-based event filtering with GIN indexes
--- ============================================================================

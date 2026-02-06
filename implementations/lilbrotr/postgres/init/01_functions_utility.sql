@@ -1,26 +1,31 @@
--- ============================================================================
--- LilBrotr Database Initialization Script
--- ============================================================================
--- File: 01_functions_utility.sql
--- Description: Utility Functions
--- Dependencies: 00_extensions.sql
--- ============================================================================
+/*
+ * LilBrotr - 01_functions_utility.sql
+ *
+ * Utility functions for tag value extraction. Unlike BigBrotr, LilBrotr
+ * does not use a generated column; instead, events_insert() calls this
+ * function at insert time and stores the result in the tagvalues column.
+ *
+ * Dependencies: 00_extensions.sql
+ */
 
--- Function: tags_to_tagvalues
--- Description: Extracts single-character tag keys and their values from JSONB array
--- Purpose: Computes tag values array for GIN indexing (called by events_insert)
--- Note: LilBrotr computes tagvalues at insert time, unlike BigBrotr's generated column
---
--- Example Input:  [["e", "abc123"], ["p", "def456"], ["relay", "wss://..."]]
--- Example Output: ARRAY['abc123', 'def456']
--- Note: "relay" is excluded because key length > 1
+/*
+ * tags_to_tagvalues(JSONB) -> TEXT[]
+ *
+ * Extracts tag values from a Nostr event's JSONB tag array, keeping only
+ * values from single-character tag keys (per NIP-01 convention: "e", "p",
+ * "t", etc.). Multi-character keys like "relay" are excluded because they
+ * are non-standard for filtering purposes.
+ *
+ * Called by events_insert() to compute tagvalues at insert time, since
+ * LilBrotr does not store the full tags JSONB column.
+ *
+ * Example:
+ *   Input:  [["e", "abc123"], ["p", "def456"], ["relay", "wss://..."]]
+ *   Output: ARRAY['abc123', 'def456']
+ */
 CREATE OR REPLACE FUNCTION tags_to_tagvalues(JSONB)
 RETURNS TEXT[]
 LANGUAGE SQL
 IMMUTABLE
 RETURNS NULL ON NULL INPUT
 AS 'SELECT array_agg(t->>1) FROM (SELECT jsonb_array_elements($1) AS t)s WHERE length(t->>0) = 1;';
-
--- ============================================================================
--- UTILITY FUNCTIONS CREATED
--- ============================================================================
