@@ -1,18 +1,25 @@
-"""
-Finder Service for BigBrotr.
+"""Finder service for BigBrotr.
 
-Discovers Nostr relay URLs from:
-- External APIs (nostr.watch and similar)
-- Database events (NIP-65 relay lists, contact lists, r-tags)
+Discovers Nostr relay URLs from two sources:
 
-Usage:
+1. **External APIs** -- Public endpoints like nostr.watch that list relays.
+2. **Database events** -- Relay URLs extracted from stored Nostr events:
+   - Kind 2 (deprecated): ``content`` field contains a relay URL.
+   - Kind 3 (NIP-02): ``content`` is JSON with relay URLs as keys.
+   - Kind 10002 (NIP-65): ``r`` tags contain relay URLs.
+   - Any event with ``r`` tags.
+
+Discovered URLs are inserted as validation candidates for the Validator service.
+
+Usage::
+
     from core import Brotr
     from services import Finder
 
     brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
     finder = Finder.from_yaml("yaml/services/finder.yaml", brotr=brotr)
 
-    async with brotr:
+    async with brotr.pool:
         async with finder:
             await finder.run_forever()
 """
@@ -52,17 +59,16 @@ _MIN_TAG_LENGTH = 2
 
 
 class ConcurrencyConfig(BaseModel):
-    """Concurrency configuration for parallel API fetching."""
+    """Concurrency limits for parallel API requests."""
 
     max_parallel: int = Field(default=5, ge=1, le=20, description="Maximum concurrent API requests")
 
 
 class EventsConfig(BaseModel):
-    """
-    Event scanning configuration - discovers relay URLs from stored events.
+    """Event scanning configuration for discovering relay URLs from stored events.
 
-    NOTE: This feature requires a full schema with tags/tagvalues/content columns.
-    Set enabled=false for LilBrotr or minimal schema implementations.
+    Requires a full database schema with ``tags``, ``tagvalues``, and ``content``
+    columns. Set ``enabled=false`` for minimal-schema implementations (e.g., LilBrotr).
     """
 
     enabled: bool = Field(
@@ -106,7 +112,7 @@ class ApiConfig(BaseModel):
 
 
 class FinderConfig(BaseServiceConfig):
-    """Finder configuration."""
+    """Finder service configuration."""
 
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     events: EventsConfig = Field(default_factory=EventsConfig)
@@ -119,15 +125,10 @@ class FinderConfig(BaseServiceConfig):
 
 
 class Finder(BaseService[FinderConfig]):
-    """
-    Relay discovery service.
+    """Relay discovery service.
 
-    Discovers Nostr relay URLs from:
-    - External APIs (nostr.watch, etc.)
-    - Database events:
-        - Kind 2 (deprecated): Recommend Relay
-        - Kind 3 (NIP-02): Contact list with relay hints
-        - Kind 10002 (NIP-65): Relay list metadata with r-tags
+    Discovers Nostr relay URLs from external APIs and stored database events,
+    then inserts them as validation candidates for the Validator service.
     """
 
     SERVICE_NAME: ClassVar[str] = "finder"
@@ -147,11 +148,10 @@ class Finder(BaseService[FinderConfig]):
     # -------------------------------------------------------------------------
 
     async def run(self) -> None:
-        """
-        Run single discovery cycle.
+        """Execute a single discovery cycle across all configured sources.
 
-        Discovers relay URLs from configured sources (APIs, event scanning).
-        Call via run_forever() for continuous operation.
+        Scans stored events and fetches external APIs (in that order) to
+        discover relay URLs. Use ``run_forever()`` for continuous operation.
         """
         cycle_start = time.time()
         self._found_relays = 0
@@ -168,19 +168,12 @@ class Finder(BaseService[FinderConfig]):
         self._logger.info("cycle_completed", found=self._found_relays, duration_s=round(elapsed, 2))
 
     async def _find_from_events(self) -> None:
-        """
-        Discover relay URLs from database events using per-relay cursor-based pagination.
+        """Discover relay URLs from stored events using per-relay cursor pagination.
 
-        For each relay in the relays table, scans events from events_relays using
-        a cursor based on seen_at timestamp. This ensures that when Synchronizer
-        inserts historical events, Finder will still process them since each relay
-        has its own independent cursor.
-
-        Scans events for relay URLs in:
-        - Kind 2: content field contains relay URL (deprecated)
-        - Kind 3: content field may contain JSON with relay URLs
-        - Kind 10002: r-tags contain relay URLs (NIP-65)
-        - Any event: r-tags may contain relay URLs
+        Iterates over all relays in the database and scans their associated events
+        for relay URLs embedded in tags and content fields. Each relay maintains
+        its own cursor (based on ``seen_at`` timestamp) so that historical events
+        inserted by the Synchronizer are still processed.
         """
         total_events_scanned = 0
         total_relays_found = 0
@@ -375,27 +368,27 @@ class Finder(BaseService[FinderConfig]):
             return None
 
     async def _find_from_api(self) -> None:
-        """Discover relay URLs from external APIs."""
-        # Dict of unique relay URLs discovered (url -> Relay for deduplication)
-        relays: dict[str, Relay] = {}
+        """Discover relay URLs from configured external API endpoints.
+
+        Fetches each enabled API source sequentially (with a configurable delay
+        between requests), deduplicates the results, and inserts discovered
+        URLs as validation candidates.
+        """
+        relays: dict[str, Relay] = {}  # url -> Relay for deduplication
         sources_checked = 0
 
-        # Create SSL context based on configuration
-        # verify_ssl=True (default): Use system CA bundle
-        # verify_ssl=False: Disable verification (for testing/internal APIs only)
+        # SSL context: True uses system CA bundle, False disables verification
         ssl_context: ssl.SSLContext | bool = True
         if not self._config.api.verify_ssl:
             ssl_context = False
             self._logger.warning("ssl_verification_disabled")
 
-        # Create connector with SSL configuration
         connector = aiohttp.TCPConnector(ssl=ssl_context)
 
-        # Reuse a single ClientSession for all API requests (connection pooling)
+        # Reuse a single session for connection pooling across all API requests
         async with aiohttp.ClientSession(connector=connector) as session:
             enabled_sources = [s for s in self._config.api.sources if s.enabled]
             for i, source in enumerate(enabled_sources):
-                # Check for graceful shutdown before each API call
                 if not self.is_running:
                     self._logger.info("api_discovery_interrupted", reason="shutdown")
                     break
@@ -410,7 +403,7 @@ class Finder(BaseService[FinderConfig]):
 
                     self._logger.debug("api_fetched", url=source.url, count=len(source_relays))
 
-                    # Don't delay after last source
+                    # Rate-limit between API requests (skip delay after the last source)
                     if self._config.api.delay_between_requests > 0 and i < len(enabled_sources) - 1:
                         await asyncio.sleep(self._config.api.delay_between_requests)
 
@@ -422,8 +415,7 @@ class Finder(BaseService[FinderConfig]):
                         url=source.url,
                     )
 
-        # Insert discovered relays as candidates for validation
-        # service_name='validator' so Validator service picks them up
+        # Insert as validation candidates (service_name='validator')
         if relays:
             try:
                 now = int(time.time())
@@ -452,23 +444,23 @@ class Finder(BaseService[FinderConfig]):
     async def _fetch_single_api(
         self, session: aiohttp.ClientSession, source: ApiSourceConfig
     ) -> list[RelayUrl]:
-        """
-        Fetch relay URLs from a single API source.
+        """Fetch relay URLs from a single API endpoint.
+
+        Expects the API to return a JSON array of relay URL strings.
 
         Args:
-            session: Reusable aiohttp ClientSession
-            source: API source configuration
+            session: Shared aiohttp ClientSession for connection pooling.
+            source: API source configuration (URL, timeout, enabled).
 
         Returns:
-            List of validated RelayUrl objects
+            List of parsed RelayUrl objects from the API response.
         """
         relays: list[RelayUrl] = []
 
-        # Apply granular timeouts: connect within 10s, read within configured total
         timeout = aiohttp.ClientTimeout(
             total=source.timeout,
-            connect=min(10.0, source.timeout),  # Connection timeout
-            sock_read=source.timeout,  # Read timeout per socket operation
+            connect=min(10.0, source.timeout),
+            sock_read=source.timeout,
         )
         async with session.get(source.url, timeout=timeout) as resp:
             resp.raise_for_status()

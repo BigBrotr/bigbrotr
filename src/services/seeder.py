@@ -1,10 +1,15 @@
-"""
-Seeder Service for BigBrotr.
+"""Seeder service for BigBrotr.
 
-Seeds initial relay data as candidates for validation.
-This is a one-shot service that runs once at startup.
+Seeds initial relay URLs into the database as candidates for validation.
+This is a one-shot service intended to run once at startup to bootstrap
+the relay discovery pipeline.
 
-Usage:
+Relay URLs are read from a text file (one URL per line) and can be
+inserted either as validation candidates (picked up by Validator) or
+directly into the relays table.
+
+Usage::
+
     from core import Brotr
     from services import Seeder
 
@@ -37,7 +42,7 @@ if TYPE_CHECKING:
 
 
 class SeedConfig(BaseModel):
-    """Seed data configuration."""
+    """Configuration for seed data source and insertion mode."""
 
     file_path: str = Field(default="static/seed_relays.txt", description="Seed file path")
     to_validate: bool = Field(
@@ -47,7 +52,7 @@ class SeedConfig(BaseModel):
 
 
 class SeederConfig(BaseServiceConfig):
-    """Seeder configuration."""
+    """Seeder service configuration."""
 
     seed: SeedConfig = Field(default_factory=SeedConfig)
 
@@ -58,11 +63,13 @@ class SeederConfig(BaseServiceConfig):
 
 
 class Seeder(BaseService[SeederConfig]):
-    """
-    Database seeding service.
+    """Database seeding service.
 
-    Seeds initial relay data as candidates for validation.
-    This is a one-shot service - run once at startup.
+    Reads relay URLs from a seed file and inserts them into the database.
+    URLs can be added as validation candidates (for Validator to process)
+    or inserted directly into the relays table.
+
+    This is a one-shot service; call ``run()`` once at startup.
     """
 
     SERVICE_NAME: ClassVar[str] = "seeder"
@@ -80,7 +87,7 @@ class Seeder(BaseService[SeederConfig]):
     # -------------------------------------------------------------------------
 
     async def run(self) -> None:
-        """Run seeding sequence."""
+        """Execute the full seeding sequence: parse file and insert relays."""
         self._logger.info(
             "cycle_started",
             file=self._config.seed.file_path,
@@ -122,7 +129,7 @@ class Seeder(BaseService[SeederConfig]):
         return relays
 
     async def _seed(self) -> None:
-        """Load and insert seed relay data."""
+        """Load seed file and dispatch to the appropriate insertion method."""
         path = Path(self._config.seed.file_path)
 
         if not path.exists():
@@ -142,10 +149,10 @@ class Seeder(BaseService[SeederConfig]):
             await self._seed_as_relays(relays)
 
     async def _seed_as_candidates(self, relays: list[Relay]) -> None:
-        """
-        Add relays as validation candidates.
+        """Add relays as validation candidates in the service_data table.
 
-        Filters against both relays table and existing candidates in service_data.
+        Filters out URLs that already exist in the relays table or are
+        already registered as candidates, preventing duplicate work.
         """
         all_urls = [relay.url for relay in relays]
 
@@ -192,10 +199,9 @@ class Seeder(BaseService[SeederConfig]):
         self._logger.info("candidates_inserted", count=len(new_urls))
 
     async def _seed_as_relays(self, relays: list[Relay]) -> None:
-        """
-        Insert relays directly into relays table.
+        """Insert relays directly into the relays table.
 
-        Uses ON CONFLICT DO NOTHING, so duplicates are silently skipped.
+        Uses ON CONFLICT DO NOTHING so duplicates are silently skipped.
         """
         batch_size = self._brotr.config.batch.max_batch_size
         inserted = 0

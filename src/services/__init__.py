@@ -1,31 +1,29 @@
-"""
-BigBrotr Services Package.
+"""BigBrotr services package.
 
-Service implementations that build on the core layer:
-- Seeder: Seed initial relay data for validation
-- Finder: Relay discovery from events and APIs
-- Validator: Candidate relay validation
-- Monitor: Relay health monitoring
-- Synchronizer: Event synchronization
+Provides the five service implementations that build on the core layer:
 
-All services inherit from BaseService for consistent:
-- Logging
-- Lifecycle management (start/stop)
-- Context manager support
+- **Seeder**: One-shot seeding of initial relay URLs for validation.
+- **Finder**: Continuous relay URL discovery from external APIs and stored events.
+- **Validator**: Validates candidate relays by testing if they speak Nostr protocol.
+- **Monitor**: Comprehensive relay health monitoring with NIP-11 and NIP-66 checks.
+- **Synchronizer**: High-throughput event collection from relays via multiprocessing.
 
-Example:
-    from core import Pool, Brotr
-    from services import Seeder, Finder, Validator, Monitor, Synchronizer
+All services inherit from ``BaseService`` and share a consistent interface for
+logging, lifecycle management (start/stop), and async context manager support.
+
+Example::
+
+    from core import Brotr
+    from services import Seeder, Finder
 
     brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
-
-    async with brotr:
-        # Run seeder
+    async with brotr.pool:
+        # One-shot seeding
         seeder = Seeder(brotr=brotr)
         await seeder.run()
 
-        # Run finder with context manager
-        finder = Finder(brotr=brotr)
+        # Continuous discovery
+        finder = Finder.from_yaml("yaml/services/finder.yaml", brotr=brotr)
         async with finder:
             await finder.run_forever()
 """
