@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.0.3] - 2026-02-06
+
+Documentation-focused release with comprehensive docstring rewrites, standardized file headers, and cleaned up project documentation.
+
+### Documentation
+- **Core layer**: Rewrote docstrings for all core modules (pool, brotr, service, metrics, logger)
+- **Models layer**: Rewrote docstrings for all data model modules
+- **Services layer**: Rewrote docstrings for services and utilities
+- **SQL**: Rewrote SQL file headers and function documentation
+- **YAML**: Standardized YAML configuration file headers
+- **Tests**: Cleaned up test documentation and removed redundant comments
+- **Project docs**: Rewrote project documentation and cleaned up markdown files
+- **Agents**: Fixed outdated references and cleaned up agent knowledge base
+
+### Chore
+- Updated secrets baseline line numbers
+
+---
+
 ## [3.0.2] - 2026-02-05
 
 Code quality and maintainability release with FieldSpec pattern, module reorganization, and comprehensive test restructuring.
@@ -295,7 +314,8 @@ Initial prototype release.
 
 ---
 
-[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.2...HEAD
+[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.3...HEAD
+[3.0.3]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.2...v3.0.3
 [3.0.2]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.1...v3.0.2
 [3.0.1]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/bigbrotr/bigbrotr/compare/v2.0.0...v3.0.0
