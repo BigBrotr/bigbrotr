@@ -56,11 +56,11 @@ Service Layer (src/services/)
         |
         v
 Core Layer (src/core/)
-  └── pool.py, brotr.py, service.py, metrics.py, logger.py
+  └── pool.py, brotr.py, queries.py, service.py (BatchProgress), metrics.py, logger.py
         |
         v
 Utils Layer (src/utils/)
-  └── BatchProgress, NetworkConfig, KeysConfig, create_client, load_yaml, resolve_host
+  └── NetworkConfig, KeysConfig, create_client, load_yaml, resolve_host
         |
         v
 Models Layer (src/models/)
@@ -73,8 +73,9 @@ Models Layer (src/models/)
 
 ### Core Components
 
-- **Pool** (`src/core/pool.py`): Async PostgreSQL client with asyncpg (connects via PGBouncer in Docker)
-- **Brotr** (`src/core/brotr.py`): Database interface with stored procedure wrappers
+- **Pool** (`src/core/pool.py`): Async PostgreSQL client with asyncpg and unified `RetryConfig` (max_attempts, initial_delay, max_delay, exponential_backoff) for connect, query retry, and acquire_healthy (connects via PGBouncer in Docker)
+- **Brotr** (`src/core/brotr.py`): Generic database facade with private `_pool`; exposes `fetch()`, `fetchrow()`, `fetchval()`, `execute()`, `transaction()`, and `pool_config` property. Zero domain logic — all SQL lives in `core/queries.py`
+- **Queries** (`src/core/queries.py`): All domain-specific SQL queries. Services import query functions instead of writing inline SQL. Each function accepts a `Brotr` instance as first parameter
 - **BaseService** (`src/core/service.py`): Abstract service base with state persistence and lifecycle management
 - **BaseServiceConfig** (`src/core/service.py`): Base configuration class for all services
 - **MetricsServer** (`src/core/metrics.py`): Prometheus HTTP metrics endpoint
@@ -94,12 +95,20 @@ Models Layer (src/models/)
 
 - Services receive `Brotr` via constructor (dependency injection)
 - All services inherit from `BaseService[ConfigClass]`
-- Configuration uses Pydantic models with YAML loading
+- Services import query functions from `core.queries` — zero inline SQL in service files
+- Services use `async with brotr:` for lifecycle (NOT `async with brotr.pool:`)
+- Atomic operations use `self._brotr.transaction()` (e.g., `promote_candidates` in queries.py)
+- Configuration uses Pydantic models with YAML loading (`from utils.yaml import load_yaml`)
 - Passwords loaded from `DB_PASSWORD` environment variable only
 - Keys loaded from `PRIVATE_KEY` environment variable (required for Monitor write tests)
 - Services use `NetworkConfig` for unified network settings (Tor, I2P, Lokinet)
-- Services use `BatchProgress` for tracking batch processing progress
+- Services use `BatchProgress` (from `core.service`) for tracking batch processing progress
 - Monitor uses `CheckResult` NamedTuple for health check results
+- Monitor runs health checks in parallel via `asyncio.gather` (SSL, DNS, Geo, Net, HTTP)
+- Monitor wraps blocking I/O with `asyncio.to_thread` (GeoLite2 downloads, Reader init)
+- All models cache `to_db_params()` result in `__post_init__` — no repeated allocation
+- Models and Utils layers have zero core dependencies (use stdlib `logging` only)
+- `BrotrConfig` has two fields: `batch` (BatchConfig) and `timeouts` (TimeoutsConfig)
 
 ## Adding a New Service
 
