@@ -17,9 +17,9 @@ from typing import TYPE_CHECKING, Any, Self
 
 from nostr_sdk import Filter, RelayUrl
 
+from models.constants import NetworkType
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
-from utils.network import NetworkType
 
 from .data import Nip66RttData
 from .logs import Nip66RttLogs

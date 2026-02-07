@@ -7,6 +7,7 @@ Tests:
 - Relay selection logic
 - Metadata batch insertion
 - NIP-66 data classes
+- Kind 30166 tag builder methods
 """
 
 from pathlib import Path
@@ -16,7 +17,8 @@ import pytest
 
 from core.brotr import Brotr
 from models import Nip11, Nip66, Relay, RelayMetadata
-from models.relay import NetworkType
+from models.constants import NetworkType
+from services.common.configs import ClearnetConfig, NetworkConfig, TorConfig
 from services.monitor import (
     AnnouncementConfig,
     CheckResult,
@@ -29,7 +31,6 @@ from services.monitor import (
     ProfileConfig,
     PublishingConfig,
 )
-from utils.network import ClearnetConfig, NetworkConfig, TorConfig
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
@@ -1156,3 +1157,204 @@ class TestMonitorNetworkConfiguration:
         enabled = monitor._config.networks.get_enabled_networks()
         assert "clearnet" in enabled
         assert "tor" in enabled
+
+
+# ============================================================================
+# Tag Builder Tests
+# ============================================================================
+
+
+class TestTagBuilders:
+    """Tests for Kind 30166 tag builder methods.
+
+    These verify that tag builders correctly extract fields from the nested
+    ``{"data": {...}, "logs": {...}}`` structure produced by BaseMetadata.to_dict().
+    """
+
+    @pytest.fixture
+    def monitor(self, mock_brotr: Brotr) -> Monitor:
+        """Create a Monitor with all metadata flags enabled."""
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(),
+                store=MetadataFlags(),
+            ),
+            discovery=DiscoveryConfig(include=MetadataFlags()),
+        )
+        return Monitor(brotr=mock_brotr, config=config)
+
+    @staticmethod
+    def _make_relay_metadata(
+        metadata_type: str,
+        value: dict,
+    ) -> RelayMetadata:
+        """Build a RelayMetadata with the given nested value dict."""
+        from models import MetadataType
+        from models.metadata import Metadata
+
+        relay = Relay("wss://relay.example.com")
+        return RelayMetadata(
+            relay=relay,
+            metadata=Metadata(type=MetadataType(metadata_type), value=value),
+            generated_at=1700000000,
+        )
+
+    def test_add_rtt_tags_extracts_from_data(self, monitor: Monitor) -> None:
+        """Test _add_rtt_tags extracts RTT values from nested data dict."""
+        rm = self._make_relay_metadata(
+            "nip66_rtt",
+            {
+                "data": {"rtt_open": 45, "rtt_read": 120, "rtt_write": 85},
+                "logs": {"open_success": True},
+            },
+        )
+        result = CheckResult(nip11=None, rtt=rm, ssl=None, geo=None, net=None, dns=None, http=None)
+        tags: list = []
+        monitor._add_rtt_tags(tags, result, MetadataFlags())
+
+        tag_map = {t.as_vec()[0]: t.as_vec()[1] for t in tags}
+        assert tag_map["rtt-open"] == "45"
+        assert tag_map["rtt-read"] == "120"
+        assert tag_map["rtt-write"] == "85"
+
+    def test_add_ssl_tags_extracts_from_data(self, monitor: Monitor) -> None:
+        """Test _add_ssl_tags extracts SSL values from nested data dict."""
+        rm = self._make_relay_metadata(
+            "nip66_ssl",
+            {
+                "data": {
+                    "ssl_valid": True,
+                    "ssl_expires": 1735689600,
+                    "ssl_issuer": "Let's Encrypt",
+                },
+                "logs": {"success": True},
+            },
+        )
+        result = CheckResult(nip11=None, rtt=None, ssl=rm, geo=None, net=None, dns=None, http=None)
+        tags: list = []
+        monitor._add_ssl_tags(tags, result, MetadataFlags())
+
+        tag_map = {t.as_vec()[0]: t.as_vec()[1] for t in tags}
+        assert tag_map["ssl"] == "valid"
+        assert tag_map["ssl-expires"] == "1735689600"
+        assert tag_map["ssl-issuer"] == "Let's Encrypt"
+
+    def test_add_net_tags_extracts_from_data(self, monitor: Monitor) -> None:
+        """Test _add_net_tags extracts network values from nested data dict."""
+        rm = self._make_relay_metadata(
+            "nip66_net",
+            {
+                "data": {"net_ip": "1.2.3.4", "net_asn": 13335, "net_asn_org": "Cloudflare"},
+                "logs": {"success": True},
+            },
+        )
+        result = CheckResult(nip11=None, rtt=None, ssl=None, geo=None, net=rm, dns=None, http=None)
+        tags: list = []
+        monitor._add_net_tags(tags, result, MetadataFlags())
+
+        tag_map = {t.as_vec()[0]: t.as_vec()[1] for t in tags}
+        assert tag_map["net-ip"] == "1.2.3.4"
+        assert tag_map["net-asn"] == "13335"
+        assert tag_map["net-asn-org"] == "Cloudflare"
+
+    def test_add_geo_tags_extracts_from_data(self, monitor: Monitor) -> None:
+        """Test _add_geo_tags extracts geolocation values from nested data dict."""
+        rm = self._make_relay_metadata(
+            "nip66_geo",
+            {
+                "data": {
+                    "geohash": "u33dc",
+                    "geo_country": "DE",
+                    "geo_city": "Frankfurt",
+                    "geo_lat": 50.1109,
+                    "geo_lon": 8.6821,
+                    "geo_tz": "Europe/Berlin",
+                },
+                "logs": {"success": True},
+            },
+        )
+        result = CheckResult(nip11=None, rtt=None, ssl=None, geo=rm, net=None, dns=None, http=None)
+        tags: list = []
+        monitor._add_geo_tags(tags, result, MetadataFlags())
+
+        tag_map = {t.as_vec()[0]: t.as_vec()[1] for t in tags}
+        assert tag_map["g"] == "u33dc"
+        assert tag_map["geo-country"] == "DE"
+        assert tag_map["geo-city"] == "Frankfurt"
+        assert tag_map["geo-lat"] == "50.1109"
+        assert tag_map["geo-lon"] == "8.6821"
+        assert tag_map["geo-tz"] == "Europe/Berlin"
+
+    def test_add_nip11_tags_extracts_from_data(self, monitor: Monitor) -> None:
+        """Test _add_nip11_tags extracts NIP-11 values from nested data dict."""
+        rm = self._make_relay_metadata(
+            "nip11_fetch",
+            {
+                "data": {"supported_nips": [1, 11, 50], "tags": ["social", "chat"]},
+                "logs": {"success": True},
+            },
+        )
+        result = CheckResult(nip11=rm, rtt=None, ssl=None, geo=None, net=None, dns=None, http=None)
+        tags: list = []
+        monitor._add_nip11_tags(tags, result, MetadataFlags())
+
+        tag_vecs = [t.as_vec() for t in tags]
+        nip_tags = [(v[0], v[1]) for v in tag_vecs if v[0] == "N"]
+        assert ("N", "1") in nip_tags
+        assert ("N", "11") in nip_tags
+        assert ("N", "50") in nip_tags
+
+        topic_tags = [(v[0], v[1]) for v in tag_vecs if v[0] == "t"]
+        assert ("t", "social") in topic_tags
+        assert ("t", "chat") in topic_tags
+
+    def test_rtt_tags_empty_when_data_missing(self, monitor: Monitor) -> None:
+        """Test that tag builders produce no tags when data key is absent."""
+        rm = self._make_relay_metadata(
+            "nip66_rtt",
+            {
+                "logs": {"open_success": False},
+            },
+        )
+        result = CheckResult(nip11=None, rtt=rm, ssl=None, geo=None, net=None, dns=None, http=None)
+        tags: list = []
+        monitor._add_rtt_tags(tags, result, MetadataFlags())
+
+        assert tags == []
+
+    def test_requirement_tags_use_logs_for_probe(self, monitor: Monitor) -> None:
+        """Test _add_requirement_and_type_tags reads probe logs from 'logs' key."""
+        rtt_rm = self._make_relay_metadata(
+            "nip66_rtt",
+            {
+                "data": {"rtt_open": 45, "rtt_read": 120},
+                "logs": {"write_success": False, "write_reason": "auth-required: NIP-42"},
+            },
+        )
+        nip11_rm = self._make_relay_metadata(
+            "nip11_fetch",
+            {
+                "data": {"supported_nips": [1, 42], "limitation": {"auth_required": True}},
+                "logs": {"success": True},
+            },
+        )
+        result = CheckResult(
+            nip11=nip11_rm,
+            rtt=rtt_rm,
+            ssl=None,
+            geo=None,
+            net=None,
+            dns=None,
+            http=None,
+        )
+        tags: list = []
+        monitor._add_requirement_and_type_tags(
+            tags,
+            result,
+            {"supported_nips": [1, 42], "limitation": {"auth_required": True}},
+            [1, 42],
+        )
+
+        tag_vecs = [t.as_vec() for t in tags]
+        req_tags = [v for v in tag_vecs if v[0] == "R"]
+        assert any("auth" in v[1] for v in req_tags)

@@ -12,11 +12,11 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from utils.network import NetworkType
+from models.constants import NetworkType
 
 
 if TYPE_CHECKING:
-    from utils.network import NetworkConfig
+    from .configs import NetworkConfig
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from models.relay import NetworkType, Relay
+from models.constants import NetworkType
+from models.relay import Relay
 from utils.transport import (
     InsecureWebSocketAdapter,
     InsecureWebSocketTransport,

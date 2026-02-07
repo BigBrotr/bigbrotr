@@ -1,4 +1,4 @@
-"""Unified network configuration for all BigBrotr services.
+"""Shared configuration models for BigBrotr services.
 
 Provides Pydantic models for managing per-network settings (clearnet, Tor, I2P,
 Lokinet). Each network type has its own config class with sensible defaults,
@@ -23,24 +23,9 @@ Example YAML::
 
 from __future__ import annotations
 
-from enum import StrEnum
-
 from pydantic import BaseModel, Field
 
-
-class NetworkType(StrEnum):
-    """Network type enum for relay classification.
-
-    Values: CLEARNET (wss://), TOR (.onion), I2P (.i2p), LOKI (.loki),
-    LOCAL (private/rejected), UNKNOWN (invalid/rejected).
-    """
-
-    CLEARNET = "clearnet"
-    TOR = "tor"
-    I2P = "i2p"
-    LOKI = "loki"
-    LOCAL = "local"
-    UNKNOWN = "unknown"
+from models.constants import NetworkType
 
 
 # =============================================================================

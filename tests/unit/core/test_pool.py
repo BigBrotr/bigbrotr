@@ -367,6 +367,25 @@ class TestPoolConfig:
         assert config.retry.max_attempts == 5
         assert config.server_settings.application_name == "custom_app"
 
+    def test_model_dump_excludes_password(self) -> None:
+        """Test that model_dump with exclude omits the password field.
+
+        Workers inherit the DB_PASSWORD environment variable, so the password
+        should never be serialized through IPC (SA-002).
+        """
+        config = PoolConfig(
+            database=DatabaseConfig(
+                host="db.host",
+                password="secret123",  # pragma: allowlist secret
+            ),
+        )
+
+        dump = config.model_dump(exclude={"database": {"password"}})
+
+        assert "password" not in dump["database"]
+        assert dump["database"]["host"] == "db.host"
+        assert dump["database"]["password_env"] == "DB_PASSWORD"  # pragma: allowlist secret
+
 
 # ============================================================================
 # Pool Initialization Tests

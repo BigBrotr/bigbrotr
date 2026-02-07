@@ -52,9 +52,10 @@ from pydantic import BaseModel, Field, field_validator
 from core.base_service import BaseService, BaseServiceConfig
 from core.brotr import Brotr
 from models import Event, EventRelay, Relay
+from models.constants import NetworkType
 from utils.keys import KeysConfig
-from utils.network import NetworkConfig, NetworkType
 
+from .common.configs import NetworkConfig
 from .common.constants import DataType, ServiceName
 from .common.queries import get_all_relays, get_all_service_cursors
 
@@ -396,7 +397,7 @@ def _cleanup_worker_brotr() -> None:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(_WORKER_BROTR._pool.close())
+                loop.run_until_complete(_WORKER_BROTR.close())
             finally:
                 loop.close()
         _WORKER_BROTR = None
@@ -428,7 +429,7 @@ async def _get_worker_brotr(brotr_config: dict[str, Any]) -> Brotr:
         # Re-check after acquiring lock (another task may have initialized)
         if _WORKER_BROTR is None:
             _WORKER_BROTR = Brotr.from_dict(brotr_config)
-            await _WORKER_BROTR._pool.connect()
+            await _WORKER_BROTR.connect()
 
             # Register cleanup handlers only once per worker process
             if not _WORKER_CLEANUP_REGISTERED:
@@ -909,7 +910,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         _set_worker_log_level(self._config.worker_log_level)
         tasks = []
         brotr_config_dump = {
-            "pool": self._brotr.pool_config.model_dump(),
+            "pool": self._brotr.pool_config.model_dump(exclude={"database": {"password"}}),
             "batch": self._brotr.config.batch.model_dump(),
             "timeouts": self._brotr.config.timeouts.model_dump(),
         }

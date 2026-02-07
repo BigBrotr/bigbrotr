@@ -7,8 +7,8 @@ from time import time
 import pytest
 
 from models import Relay, RelayMetadata
+from models.constants import NetworkType
 from models.metadata import Metadata, MetadataType
-from models.relay import NetworkType
 from models.relay_metadata import RelayMetadataDbParams
 
 

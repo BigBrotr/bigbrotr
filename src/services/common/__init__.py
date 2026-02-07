@@ -1,14 +1,21 @@
 """Shared infrastructure for all BigBrotr services.
 
-This package provides three stable modules:
+This package provides four stable modules:
 
+- **configs**: ``NetworkConfig`` and per-network configuration models.
 - **constants**: ``ServiceName`` and ``DataType`` enumerations.
 - **mixins**: ``BatchProgressMixin`` and ``NetworkSemaphoreMixin``.
 - **queries**: Domain-specific SQL query functions.
-
-Future additions go *into* existing modules rather than creating new files.
 """
 
+from .configs import (
+    ClearnetConfig,
+    I2pConfig,
+    LokiConfig,
+    NetworkConfig,
+    NetworkTypeConfig,
+    TorConfig,
+)
 from .constants import DataType, ServiceName
 from .mixins import BatchProgress, BatchProgressMixin, NetworkSemaphoreMixin
 from .queries import (
@@ -31,9 +38,15 @@ from .queries import (
 __all__ = [
     "BatchProgress",
     "BatchProgressMixin",
+    "ClearnetConfig",
     "DataType",
+    "I2pConfig",
+    "LokiConfig",
+    "NetworkConfig",
     "NetworkSemaphoreMixin",
+    "NetworkTypeConfig",
     "ServiceName",
+    "TorConfig",
     "count_candidates",
     "count_relays_due_for_check",
     "delete_exhausted_candidates",

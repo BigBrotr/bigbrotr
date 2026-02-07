@@ -12,8 +12,8 @@ on the mixin classes that compose it.
 import asyncio
 from unittest.mock import MagicMock
 
+from models.constants import NetworkType
 from services.common.mixins import BatchProgress, BatchProgressMixin, NetworkSemaphoreMixin
-from utils.network import NetworkType
 
 
 # =============================================================================

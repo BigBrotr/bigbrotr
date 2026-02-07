@@ -18,7 +18,7 @@ from rfc3986 import uri_reference
 from rfc3986.exceptions import UnpermittedComponentError, ValidationError
 from rfc3986.validators import Validator
 
-from utils.network import NetworkType
+from .constants import NetworkType
 
 
 class RelayDbParams(NamedTuple):
@@ -223,6 +223,12 @@ class Relay:
             raise ValueError("Invalid scheme: must be ws or wss") from None
         except ValidationError as e:
             raise ValueError(f"Invalid URL: {e}") from None
+
+        # Relay URLs must not contain query strings or fragments
+        if uri.query:
+            raise ValueError(f"Relay URL must not contain a query string: ?{uri.query}")
+        if uri.fragment:
+            raise ValueError(f"Relay URL must not contain a fragment: #{uri.fragment}")
 
         port = int(uri.port) if uri.port else None
         host = uri.host.strip("[]")

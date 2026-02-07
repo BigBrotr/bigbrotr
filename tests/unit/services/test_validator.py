@@ -17,13 +17,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from core.brotr import Brotr
+from services.common.configs import ClearnetConfig, I2pConfig, LokiConfig, NetworkConfig, TorConfig
 from services.validator import (
     CleanupConfig,
     ProcessingConfig,
     Validator,
     ValidatorConfig,
 )
-from utils.network import ClearnetConfig, I2pConfig, LokiConfig, NetworkConfig, TorConfig
 
 
 # ============================================================================
@@ -250,7 +250,9 @@ class TestValidatorRun:
 
         assert mock_validator_brotr._pool.execute.called
         calls = mock_validator_brotr._pool.execute.call_args_list
-        cleanup_called = any("data_key IN (SELECT url FROM relays)" in str(c) for c in calls)
+        cleanup_called = any(
+            "EXISTS (SELECT 1 FROM relays r WHERE r.url = data_key)" in str(c) for c in calls
+        )
         assert cleanup_called
 
     @pytest.mark.asyncio
@@ -666,7 +668,7 @@ class TestCleanup:
         mock_validator_brotr._pool.execute.assert_called_once()
         query = mock_validator_brotr._pool.execute.call_args[0][0]
         assert "DELETE FROM service_data" in query
-        assert "data_key IN (SELECT url FROM relays)" in query
+        assert "EXISTS (SELECT 1 FROM relays r WHERE r.url = data_key)" in query
 
     @pytest.mark.asyncio
     async def test_cleanup_exhausted_when_enabled(self, mock_validator_brotr: Brotr) -> None:

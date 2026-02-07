@@ -12,11 +12,10 @@ representing Nostr protocol entities and their database mappings:
     Nip11           NIP-11 relay information document (fetched via HTTP).
     Nip66           NIP-66 relay monitoring data (RTT, SSL, GEO, DNS, HTTP, NET).
 
-NetworkType is defined in ``utils.network`` and re-exported here for convenience.
+NetworkType is defined in ``models.constants`` and re-exported here for convenience.
 """
 
-from utils.network import NetworkType
-
+from .constants import NetworkType
 from .event import Event
 from .event_relay import EventRelay
 from .metadata import Metadata, MetadataType

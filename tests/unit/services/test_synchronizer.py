@@ -17,7 +17,8 @@ import pytest
 
 from core.brotr import Brotr, BrotrConfig, TimeoutsConfig
 from models import Relay
-from models.relay import NetworkType
+from models.constants import NetworkType
+from services.common.configs import NetworkConfig, TorConfig
 from services.synchronizer import (
     ConcurrencyConfig,
     EventBatch,
@@ -28,7 +29,6 @@ from services.synchronizer import (
     SyncTimeoutsConfig,
     TimeRangeConfig,
 )
-from utils.network import NetworkConfig, TorConfig
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)

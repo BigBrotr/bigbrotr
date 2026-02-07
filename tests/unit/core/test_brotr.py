@@ -10,6 +10,7 @@ Tests:
 - Service data operations (upsert_service_data, get_service_data, delete_service_data)
 - Cleanup operations (delete_orphan_events, delete_orphan_metadata)
 - Materialized view refresh operations (refresh_matview)
+- Explicit lifecycle methods (connect, close)
 - Context manager support
 """
 
@@ -678,6 +679,90 @@ class TestDeleteOrphanMetadata:
 # ============================================================================
 
 
+class TestBrotrQueryOperations:
+    """Tests for Brotr query facade methods (fetch, fetchrow, fetchval, execute)."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that fetch() delegates to pool.fetch() with default timeout."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        brotr = Brotr()
+
+        with patch.object(brotr._pool, "fetch", new_callable=AsyncMock, return_value=[]) as mock:
+            result = await brotr.fetch("SELECT 1")
+            mock.assert_called_once_with("SELECT 1", timeout=brotr._config.timeouts.query)
+            assert result == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_passes_args_and_custom_timeout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that fetch() passes query args and custom timeout."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        brotr = Brotr()
+
+        with patch.object(brotr._pool, "fetch", new_callable=AsyncMock, return_value=[]) as mock:
+            await brotr.fetch("SELECT $1", "arg1", timeout=5.0)
+            mock.assert_called_once_with("SELECT $1", "arg1", timeout=5.0)
+
+    @pytest.mark.asyncio
+    async def test_fetchrow_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that fetchrow() delegates to pool.fetchrow() with default timeout."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        brotr = Brotr()
+
+        with patch.object(
+            brotr._pool, "fetchrow", new_callable=AsyncMock, return_value=None
+        ) as mock:
+            result = await brotr.fetchrow("SELECT 1")
+            mock.assert_called_once_with("SELECT 1", timeout=brotr._config.timeouts.query)
+            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetchval_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that fetchval() delegates to pool.fetchval() with default timeout."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        brotr = Brotr()
+
+        with patch.object(brotr._pool, "fetchval", new_callable=AsyncMock, return_value=42) as mock:
+            result = await brotr.fetchval("SELECT count(*)")
+            mock.assert_called_once_with("SELECT count(*)", timeout=brotr._config.timeouts.query)
+            assert result == 42
+
+    @pytest.mark.asyncio
+    async def test_execute_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that execute() delegates to pool.execute() with default timeout."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        brotr = Brotr()
+
+        with patch.object(
+            brotr._pool, "execute", new_callable=AsyncMock, return_value="DELETE 5"
+        ) as mock:
+            result = await brotr.execute("DELETE FROM relays WHERE url = $1", "wss://x")
+            mock.assert_called_once_with(
+                "DELETE FROM relays WHERE url = $1",
+                "wss://x",
+                timeout=brotr._config.timeouts.query,
+            )
+            assert result == "DELETE 5"
+
+    @pytest.mark.asyncio
+    async def test_execute_with_custom_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that execute() passes custom timeout to pool."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        brotr = Brotr()
+
+        with patch.object(
+            brotr._pool, "execute", new_callable=AsyncMock, return_value="INSERT 0 1"
+        ) as mock:
+            await brotr.execute("INSERT INTO relays VALUES ($1)", "wss://x", timeout=10.0)
+            mock.assert_called_once_with(
+                "INSERT INTO relays VALUES ($1)",
+                "wss://x",
+                timeout=10.0,
+            )
+
+
 # ============================================================================
 # Refresh Operations Tests
 # ============================================================================
@@ -703,6 +788,51 @@ class TestRefreshMatview:
         """Test that SQL injection attempts are prevented by procedure name regex."""
         with pytest.raises(ValueError, match="Invalid procedure name"):
             await mock_brotr.refresh_matview("events_statistics; DROP TABLE events;")
+
+
+# ============================================================================
+# Lifecycle Tests
+# ============================================================================
+
+
+class TestBrotrLifecycle:
+    """Tests for Brotr explicit connect/close lifecycle methods."""
+
+    @pytest.mark.asyncio
+    async def test_connect_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that connect() delegates to pool.connect()."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        brotr = Brotr()
+
+        with patch.object(brotr._pool, "connect", new_callable=AsyncMock) as mock_connect:
+            await brotr.connect()
+            mock_connect.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_close_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that close() delegates to pool.close()."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        brotr = Brotr()
+
+        with patch.object(brotr._pool, "close", new_callable=AsyncMock) as mock_close:
+            await brotr.close()
+            mock_close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_context_manager_delegates_to_connect_close(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that async context manager delegates to connect/close."""
+        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        brotr = Brotr()
+
+        with (
+            patch.object(brotr, "connect", new_callable=AsyncMock) as mock_connect,
+            patch.object(brotr, "close", new_callable=AsyncMock) as mock_close,
+        ):
+            async with brotr:
+                mock_connect.assert_called_once()
+            mock_close.assert_called_once()
 
 
 # ============================================================================

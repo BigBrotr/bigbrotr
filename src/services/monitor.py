@@ -32,6 +32,7 @@ import asyncio
 import contextlib
 import json
 import random
+import shutil
 import time
 import urllib.request
 from pathlib import Path
@@ -43,6 +44,7 @@ from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer, model_v
 
 from core.base_service import BaseService, BaseServiceConfig
 from models import Metadata, MetadataType, Nip11, Relay, RelayMetadata
+from models.constants import NetworkType
 from models.nips.base import BaseMetadata
 from models.nips.nip66 import (
     Nip66DnsMetadata,
@@ -53,9 +55,9 @@ from models.nips.nip66 import (
     Nip66SslMetadata,
 )
 from utils.keys import KeysConfig
-from utils.network import NetworkConfig, NetworkType
 from utils.transport import create_client
 
+from .common.configs import NetworkConfig
 from .common.constants import DataType, ServiceName
 from .common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
 from .common.queries import count_relays_due_for_check, fetch_relays_due_for_check
@@ -106,18 +108,21 @@ RelayList = Annotated[
 ]
 
 
-def _download_geolite_db(url: str, dest: Path) -> None:
+def _download_geolite_db(url: str, dest: Path, timeout: float = 60.0) -> None:
     """Download a GeoLite2 database file from GitHub mirror.
 
     Args:
         url: Download URL for the .mmdb file.
         dest: Local path to save the database.
+        timeout: Socket timeout in seconds for the HTTP request.
 
     Raises:
-        urllib.error.URLError: If download fails.
+        urllib.error.URLError: If download fails or times out.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    urllib.request.urlretrieve(url, dest)
+    request = urllib.request.Request(url)
+    with urllib.request.urlopen(request, timeout=timeout) as response, dest.open("wb") as out:
+        shutil.copyfileobj(response, out)
 
 
 # =============================================================================
@@ -696,6 +701,73 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         )
         return result
 
+    @staticmethod
+    def _safe_result(results: dict[str, Any], key: str) -> Any:
+        """Extract a successful result from asyncio.gather output.
+
+        Returns None if the key is absent or the result is an exception.
+        """
+        value = results.get(key)
+        if value is None or isinstance(value, BaseException):
+            return None
+        return value
+
+    def _build_parallel_checks(
+        self,
+        relay: Relay,
+        compute: MetadataFlags,
+        timeout: float,
+        proxy_url: str | None,
+    ) -> dict[str, Any]:
+        """Build a dict of coroutines for independent health checks.
+
+        Each entry maps a check name to a retry-wrapped coroutine. Only
+        checks that are enabled in ``compute`` and applicable to the
+        relay's network type are included.
+        """
+        tasks: dict[str, Any] = {}
+
+        if compute.nip66_ssl and relay.network == NetworkType.CLEARNET:
+            tasks["ssl"] = self._with_retry(
+                lambda: Nip66SslMetadata.ssl(relay, timeout),
+                self._config.processing.retry.nip66_ssl,
+                "nip66_ssl",
+                relay.url,
+            )
+        if compute.nip66_dns and relay.network == NetworkType.CLEARNET:
+            tasks["dns"] = self._with_retry(
+                lambda: Nip66DnsMetadata.dns(relay, timeout),
+                self._config.processing.retry.nip66_dns,
+                "nip66_dns",
+                relay.url,
+            )
+        if compute.nip66_geo and self._geo_reader and relay.network == NetworkType.CLEARNET:
+            geo_reader = self._geo_reader
+            precision = self._config.processing.geohash_precision
+            tasks["geo"] = self._with_retry(
+                lambda: Nip66GeoMetadata.geo(relay, geo_reader, precision),
+                self._config.processing.retry.nip66_geo,
+                "nip66_geo",
+                relay.url,
+            )
+        if compute.nip66_net and self._asn_reader and relay.network == NetworkType.CLEARNET:
+            asn_reader = self._asn_reader
+            tasks["net"] = self._with_retry(
+                lambda: Nip66NetMetadata.net(relay, asn_reader),
+                self._config.processing.retry.nip66_net,
+                "nip66_net",
+                relay.url,
+            )
+        if compute.nip66_http:
+            tasks["http"] = self._with_retry(
+                lambda: Nip66HttpMetadata.http(relay, timeout, proxy_url),
+                self._config.processing.retry.nip66_http,
+                "nip66_http",
+                relay.url,
+            )
+
+        return tasks
+
     async def _check_one(self, relay: Relay) -> CheckResult:
         """Perform all configured health checks on a single relay.
 
@@ -747,11 +819,6 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
                     )
 
                 rtt_meta: Nip66RttMetadata | None = None
-                ssl_meta: Nip66SslMetadata | None = None
-                dns_meta: Nip66DnsMetadata | None = None
-                geo_meta: Nip66GeoMetadata | None = None
-                net_meta: Nip66NetMetadata | None = None
-                http_meta: Nip66HttpMetadata | None = None
 
                 # RTT test: open/read/write round-trip times
                 if compute.nip66_rtt:
@@ -774,89 +841,28 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
                     )
 
                 # Run independent checks (SSL, DNS, Geo, Net, HTTP) in parallel
-                geo_reader = self._geo_reader
-                asn_reader = self._asn_reader
-                precision = self._config.processing.geohash_precision
+                parallel_tasks = self._build_parallel_checks(relay, compute, timeout, proxy_url)
 
-                parallel_tasks: dict[str, Any] = {}
-                if compute.nip66_ssl and relay.network == NetworkType.CLEARNET:
-                    parallel_tasks["ssl"] = self._with_retry(
-                        lambda: Nip66SslMetadata.ssl(relay, timeout),
-                        self._config.processing.retry.nip66_ssl,
-                        "nip66_ssl",
-                        relay.url,
-                    )
-                if compute.nip66_dns and relay.network == NetworkType.CLEARNET:
-                    parallel_tasks["dns"] = self._with_retry(
-                        lambda: Nip66DnsMetadata.dns(relay, timeout),
-                        self._config.processing.retry.nip66_dns,
-                        "nip66_dns",
-                        relay.url,
-                    )
-                if compute.nip66_geo and geo_reader and relay.network == NetworkType.CLEARNET:
-                    parallel_tasks["geo"] = self._with_retry(
-                        lambda: Nip66GeoMetadata.geo(relay, geo_reader, precision),
-                        self._config.processing.retry.nip66_geo,
-                        "nip66_geo",
-                        relay.url,
-                    )
-                if compute.nip66_net and asn_reader and relay.network == NetworkType.CLEARNET:
-                    parallel_tasks["net"] = self._with_retry(
-                        lambda: Nip66NetMetadata.net(relay, asn_reader),
-                        self._config.processing.retry.nip66_net,
-                        "nip66_net",
-                        relay.url,
-                    )
-                if compute.nip66_http:
-                    parallel_tasks["http"] = self._with_retry(
-                        lambda: Nip66HttpMetadata.http(relay, timeout, proxy_url),
-                        self._config.processing.retry.nip66_http,
-                        "nip66_http",
-                        relay.url,
-                    )
-
+                gathered: dict[str, Any] = {}
                 if parallel_tasks:
-                    results = dict(
+                    gathered = dict(
                         zip(
                             parallel_tasks.keys(),
                             await asyncio.gather(*parallel_tasks.values(), return_exceptions=True),
                             strict=True,
                         )
                     )
-                    ssl_meta = (
-                        results["ssl"]
-                        if "ssl" in results and not isinstance(results["ssl"], BaseException)
-                        else None
-                    )
-                    dns_meta = (
-                        results["dns"]
-                        if "dns" in results and not isinstance(results["dns"], BaseException)
-                        else None
-                    )
-                    geo_meta = (
-                        results["geo"]
-                        if "geo" in results and not isinstance(results["geo"], BaseException)
-                        else None
-                    )
-                    net_meta = (
-                        results["net"]
-                        if "net" in results and not isinstance(results["net"], BaseException)
-                        else None
-                    )
-                    http_meta = (
-                        results["http"]
-                        if "http" in results and not isinstance(results["http"], BaseException)
-                        else None
-                    )
 
                 result = CheckResult(
                     nip11=nip11.to_relay_metadata_tuple().nip11_fetch if nip11 else None,
                     rtt=to_relay_meta(rtt_meta, MetadataType.NIP66_RTT),
-                    ssl=to_relay_meta(ssl_meta, MetadataType.NIP66_SSL),
-                    geo=to_relay_meta(geo_meta, MetadataType.NIP66_GEO),
-                    net=to_relay_meta(net_meta, MetadataType.NIP66_NET),
-                    dns=to_relay_meta(dns_meta, MetadataType.NIP66_DNS),
-                    http=to_relay_meta(http_meta, MetadataType.NIP66_HTTP),
+                    ssl=to_relay_meta(self._safe_result(gathered, "ssl"), MetadataType.NIP66_SSL),
+                    geo=to_relay_meta(self._safe_result(gathered, "geo"), MetadataType.NIP66_GEO),
+                    net=to_relay_meta(self._safe_result(gathered, "net"), MetadataType.NIP66_NET),
+                    dns=to_relay_meta(self._safe_result(gathered, "dns"), MetadataType.NIP66_DNS),
+                    http=to_relay_meta(
+                        self._safe_result(gathered, "http"), MetadataType.NIP66_HTTP
+                    ),
                 )
 
                 if any(result):
@@ -1103,7 +1109,7 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         """Add round-trip time tags: rtt-open, rtt-read, rtt-write."""
         if not result.rtt or not include.nip66_rtt:
             return
-        rtt_data = result.rtt.metadata.value
+        rtt_data = result.rtt.metadata.value.get("data", {})
         if rtt_data.get("rtt_open") is not None:
             tags.append(Tag.parse(["rtt-open", str(rtt_data["rtt_open"])]))
         if rtt_data.get("rtt_read") is not None:
@@ -1115,7 +1121,7 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         """Add SSL certificate tags: ssl, ssl-expires, ssl-issuer."""
         if not result.ssl or not include.nip66_ssl:
             return
-        ssl_data = result.ssl.metadata.value
+        ssl_data = result.ssl.metadata.value.get("data", {})
         ssl_valid = ssl_data.get("ssl_valid")
         if ssl_valid is not None:
             tags.append(Tag.parse(["ssl", "valid" if ssl_valid else "!valid"]))
@@ -1130,7 +1136,7 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         """Add network information tags: net-ip, net-ipv6, net-asn, net-asn-org."""
         if not result.net or not include.nip66_net:
             return
-        net_data = result.net.metadata.value
+        net_data = result.net.metadata.value.get("data", {})
         net_ip = net_data.get("net_ip")
         if net_ip:
             tags.append(Tag.parse(["net-ip", net_ip]))
@@ -1148,7 +1154,7 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         """Add geolocation tags: g (geohash), geo-country, geo-city, geo-lat, geo-lon, geo-tz."""
         if not result.geo or not include.nip66_geo:
             return
-        geo_data = result.geo.metadata.value
+        geo_data = result.geo.metadata.value.get("data", {})
         geohash = geo_data.get("geohash")
         if geohash:
             tags.append(Tag.parse(["g", geohash]))
@@ -1172,7 +1178,7 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         """Add NIP-11-derived capability tags: N (NIPs), t (topics), l (languages), R, T."""
         if not result.nip11 or not include.nip11_fetch:
             return
-        nip11_data = result.nip11.metadata.value
+        nip11_data = result.nip11.metadata.value.get("data", {})
 
         # N tags: supported NIPs
         supported_nips = nip11_data.get("supported_nips")

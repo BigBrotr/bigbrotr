@@ -69,10 +69,11 @@ async def filter_new_relay_urls(
     rows = await brotr.fetch(
         """
         SELECT url FROM unnest($1::text[]) AS url
-        WHERE url NOT IN (SELECT r.url FROM relays r)
-          AND url NOT IN (
-              SELECT data_key FROM service_data
-              WHERE service_name = $2 AND data_type = $3
+        WHERE NOT EXISTS (SELECT 1 FROM relays r WHERE r.url = url)
+          AND NOT EXISTS (
+              SELECT 1 FROM service_data sd
+              WHERE sd.service_name = $2 AND sd.data_type = $3
+                AND sd.data_key = url
           )
         """,
         urls,
@@ -347,7 +348,7 @@ async def delete_stale_candidates(brotr: Brotr, *, timeout: float | None = None)
         DELETE FROM service_data
         WHERE service_name = $1
           AND data_type = $2
-          AND data_key IN (SELECT url FROM relays)
+          AND EXISTS (SELECT 1 FROM relays r WHERE r.url = data_key)
         """,
         ServiceName.VALIDATOR,
         DataType.CANDIDATE,

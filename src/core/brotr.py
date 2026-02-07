@@ -757,19 +757,31 @@ class Brotr:
         self._logger.debug("matview_refreshed", view=view_name)
 
     # -------------------------------------------------------------------------
+    # Lifecycle
+    # -------------------------------------------------------------------------
+
+    async def connect(self) -> None:
+        """Connect the underlying pool. Idempotent."""
+        await self._pool.connect()
+        self._logger.debug("session_started")
+
+    async def close(self) -> None:
+        """Close the underlying pool. Idempotent."""
+        self._logger.debug("session_ending")
+        await self._pool.close()
+
+    # -------------------------------------------------------------------------
     # Context Manager
     # -------------------------------------------------------------------------
 
     async def __aenter__(self) -> Brotr:
         """Connect the underlying pool on context entry."""
-        await self._pool.connect()
-        self._logger.debug("session_started")
+        await self.connect()
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Close the underlying pool on context exit."""
-        self._logger.debug("session_ending")
-        await self._pool.close()
+        await self.close()
 
     def __repr__(self) -> str:
         """Return a human-readable representation with host and connection status."""

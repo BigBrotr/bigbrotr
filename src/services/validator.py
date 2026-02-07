@@ -31,9 +31,10 @@ from pydantic import BaseModel, Field
 
 from core.base_service import BaseService, BaseServiceConfig
 from models import Relay
-from utils.network import NetworkConfig, NetworkType
+from models.constants import NetworkType
 from utils.transport import is_nostr_relay
 
+from .common.configs import NetworkConfig
 from .common.constants import DataType, ServiceName
 from .common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
 from .common.queries import (

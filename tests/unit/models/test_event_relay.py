@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from models import Event, EventRelay, Relay
+from models.constants import NetworkType
 from models.event import EventDbParams
 from models.event_relay import EventRelayDbParams
-from models.relay import NetworkType
 
 
 # =============================================================================

@@ -5,7 +5,8 @@ from time import time
 
 import pytest
 
-from models.relay import NetworkType, Relay, RelayDbParams
+from models.constants import NetworkType
+from models.relay import Relay, RelayDbParams
 
 
 # =============================================================================
@@ -375,6 +376,16 @@ class TestNullByteValidation:
         """URLs without null bytes are processed normally."""
         r = Relay("wss://relay.example.com:8080/path")
         assert r.url == "wss://relay.example.com:8080/path"
+
+    def test_query_string_rejected(self):
+        """Relay URLs with query strings are rejected."""
+        with pytest.raises(ValueError, match="query string"):
+            Relay("wss://relay.example.com?key=value")
+
+    def test_fragment_rejected(self):
+        """Relay URLs with fragments are rejected."""
+        with pytest.raises(ValueError, match="fragment"):
+            Relay("wss://relay.example.com#section")
 
 
 # =============================================================================

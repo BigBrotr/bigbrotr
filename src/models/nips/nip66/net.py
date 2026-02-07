@@ -14,10 +14,10 @@ from typing import Any, Self
 
 import geoip2.database
 
+from models.constants import NetworkType
 from models.nips.base import BaseMetadata
 from models.relay import Relay
 from utils.dns import resolve_host
-from utils.network import NetworkType
 
 from .data import Nip66NetData
 from .logs import Nip66NetLogs

@@ -571,7 +571,7 @@ class TestDeleteStaleCandidates:
         assert "DELETE FROM service_data" in sql
         assert "service_name = $1" in sql
         assert "data_type = $2" in sql
-        assert "data_key IN (SELECT url FROM relays)" in sql
+        assert "EXISTS (SELECT 1 FROM relays r WHERE r.url = data_key)" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == DataType.CANDIDATE
         assert args[1]["timeout"] == 10.0

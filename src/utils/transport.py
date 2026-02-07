@@ -60,8 +60,8 @@ if TYPE_CHECKING:
 
     from nostr_sdk import Keys
 
+from models.constants import NetworkType
 from models.relay import Relay
-from utils.network import NetworkType
 
 
 DEFAULT_TIMEOUT = 10.0

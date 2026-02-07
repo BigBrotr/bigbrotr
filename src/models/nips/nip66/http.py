@@ -16,9 +16,9 @@ from typing import Any, Self
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
+from models.constants import NetworkType
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
-from utils.network import NetworkType
 
 from .data import Nip66HttpData
 from .logs import Nip66HttpLogs

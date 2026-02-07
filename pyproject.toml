@@ -155,6 +155,7 @@ exclude_lines = [
     "@overload",
     "raise NotImplementedError",
 ]
+fail_under = 85
 show_missing = true
 
 # =============================================================================

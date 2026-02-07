@@ -23,9 +23,9 @@ if TYPE_CHECKING:
     from dns.rdtypes.IN.A import A
     from dns.rdtypes.IN.AAAA import AAAA
 
+from models.constants import NetworkType
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
-from utils.network import NetworkType
 
 from .data import Nip66DnsData
 from .logs import Nip66DnsLogs
