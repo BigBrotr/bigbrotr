@@ -350,7 +350,7 @@ async def upsert_service_data(
 
 ### BaseService: Service Lifecycle
 
-**File**: `src/core/service.py`
+**File**: `src/core/base_service.py`
 
 #### Architecture
 

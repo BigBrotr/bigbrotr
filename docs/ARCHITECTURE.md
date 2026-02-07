@@ -5,7 +5,7 @@ This document provides a comprehensive overview of BigBrotr's architecture, desi
 ## Table of Contents
 
 - [Overview](#overview)
-- [Four-Layer Architecture](#four-layer-architecture)
+- [Three-Tier Architecture](#three-tier-architecture)
 - [Core Layer](#core-layer)
 - [Service Layer](#service-layer)
 - [Utils Layer](#utils-layer)
@@ -19,25 +19,36 @@ This document provides a comprehensive overview of BigBrotr's architecture, desi
 
 ## Overview
 
-BigBrotr follows a four-layer architecture that separates concerns and enables maximum flexibility:
+BigBrotr organizes its five sub-layers into three conceptual tiers:
+
+| Tier | Layers | Role |
+|------|--------|------|
+| **Foundation** | Core + Models | Stable infrastructure and data structures -- rarely changes |
+| **Active** | Services + Utils | Business logic, queries, mixins, constants -- where new features land |
+| **Implementation** | Implementations | Deployment-specific configuration and customization |
+
+The five sub-layers within those tiers are:
 
 1. **Core Layer** - Reusable infrastructure components with zero business logic
-2. **Service Layer** - Business logic and service orchestration
-3. **Utils Layer** - Shared utilities (dns, network, transport, YAML, keys)
-4. **Models Layer** - Immutable data structures with validation and database mapping
+2. **Models Layer** - Immutable data structures with validation and database mapping
+3. **Service Layer** - Business logic, shared infrastructure, and service orchestration
+4. **Utils Layer** - Shared utilities (dns, network, transport, YAML, keys)
 5. **Implementation Layer** - Deployment-specific configuration and customization
 
 This design allows:
 - Multiple deployments from the same codebase
 - Easy testing through dependency injection
 - Configuration-driven behavior without code changes
-- Clear separation between infrastructure and business logic
+- Clear separation between stable foundation and evolving business logic
 
 ---
 
-## Four-Layer Architecture
+## Three-Tier Architecture
 
 ```
+  IMPLEMENTATION TIER
+ =====================
+
 +-----------------------------------------------------------------------------+
 |                           IMPLEMENTATION LAYER                               |
 |                                                                              |
@@ -57,35 +68,28 @@ This design allows:
                                    |
                                    | Uses
                                    v
+
+  ACTIVE TIER
+ =============
+
 +-----------------------------------------------------------------------------+
 |                             SERVICE LAYER                                    |
 |                                                                              |
 |   src/services/                                                              |
-|   ├── seeder.py        Relay seeding for validation                         |
-|   ├── finder.py        Relay URL discovery from APIs and events             |
-|   ├── validator.py     Candidate relay validation                           |
-|   ├── monitor.py       Relay health monitoring (NIP-11/NIP-66)              |
-|   └── synchronizer.py  Event collection and sync                            |
+|   ├── common/           Shared service infrastructure                       |
+|   │   ├── constants.py  ServiceName and DataType StrEnum enumerations       |
+|   │   ├── mixins.py     BatchProgressMixin, NetworkSemaphoreMixin           |
+|   │   └── queries.py    13 domain-specific SQL query functions              |
+|   ├── seeder.py         Relay seeding for validation                        |
+|   ├── finder.py         Relay URL discovery from APIs and events            |
+|   ├── validator.py      Candidate relay validation                          |
+|   ├── monitor.py        Relay health monitoring (NIP-11/NIP-66)             |
+|   └── synchronizer.py   Event collection and sync                           |
 |                                                                              |
 |   Purpose: Business logic, service coordination, data transformation         |
 +----------------------------------+------------------------------------------+
                                    |
                                    | Leverages
-                                   v
-+-----------------------------------------------------------------------------+
-|                              CORE LAYER                                      |
-|                                                                              |
-|   src/core/                                                                  |
-|   ├── pool.py          PostgreSQL connection pooling                        |
-|   ├── brotr.py         Database interface + stored procedures               |
-|   ├── service.py       Abstract service base class                          |
-|   ├── metrics.py       Prometheus metrics server                            |
-|   └── logger.py        Structured key=value logging                         |
-|                                                                              |
-|   Purpose: Reusable foundation, zero business logic                          |
-+----------------------------------+------------------------------------------+
-                                   |
-                                   | Uses
                                    v
 +-----------------------------------------------------------------------------+
 |                              UTILS LAYER                                     |
@@ -95,10 +99,28 @@ This design allows:
 |   ├── network.py       Network detection and proxy configuration            |
 |   ├── transport.py     HTTP/WebSocket transport helpers                     |
 |   ├── yaml.py          YAML loading with environment variable support       |
-|   ├── keys.py          Nostr key management utilities                       |
-|   └── progress.py      Progress tracking utilities                          |
+|   └── keys.py          Nostr key management utilities                       |
 |                                                                              |
 |   Purpose: Shared utilities used across core and services                    |
++----------------------------------+------------------------------------------+
+                                   |
+                                   | Uses
+                                   v
+
+  FOUNDATION TIER
+ =================
+
++-----------------------------------------------------------------------------+
+|                              CORE LAYER                                      |
+|                                                                              |
+|   src/core/                                                                  |
+|   ├── pool.py           PostgreSQL connection pooling                       |
+|   ├── brotr.py          Database interface + stored procedures              |
+|   ├── base_service.py   Abstract service base class                         |
+|   ├── metrics.py        Prometheus metrics server                           |
+|   └── logger.py         Structured key=value logging                        |
+|                                                                              |
+|   Purpose: Reusable foundation, zero business logic                          |
 +----------------------------------+------------------------------------------+
                                    |
                                    | Uses
@@ -122,13 +144,13 @@ This design allows:
 
 ### Layer Responsibilities
 
-| Layer | Responsibility | Changes When |
-|-------|----------------|--------------|
-| **Core** | Infrastructure, abstractions | Rarely - foundation is stable |
-| **Service** | Business logic, orchestration | Feature additions, protocol updates |
-| **Utils** | Shared utilities, helpers | When adding cross-cutting functionality |
-| **Models** | Data structures, validation | Schema changes, new data types |
-| **Implementation** | Configuration, customization | Per-deployment or environment |
+| Tier | Layer | Responsibility | Changes When |
+|------|-------|----------------|--------------|
+| **Foundation** | Core | Infrastructure, abstractions | Rarely -- foundation is stable |
+| **Foundation** | Models | Data structures, validation | Schema changes, new data types |
+| **Active** | Services | Business logic, shared queries, mixins, constants | Feature additions, protocol updates |
+| **Active** | Utils | Shared utilities, helpers | When adding cross-cutting functionality |
+| **Implementation** | Implementations | Configuration, customization | Per-deployment or environment |
 
 ---
 
@@ -221,7 +243,7 @@ async with brotr:
     deleted = await brotr.delete_orphan_metadata()
 ```
 
-### BaseService (`service.py`)
+### BaseService (`base_service.py`)
 
 **Purpose**: Abstract base class for all services.
 
@@ -294,7 +316,6 @@ The utils layer (`src/utils/`) provides shared utilities used across core and se
 | `transport.py` | HTTP/WebSocket transport helpers |
 | `yaml.py` | YAML loading with environment variable support |
 | `keys.py` | Nostr key management utilities |
-| `progress.py` | Progress tracking utilities |
 
 These utilities are stateless functions and classes that can be imported by any layer above Models.
 
@@ -361,6 +382,18 @@ class MyService(BaseService[MyServiceConfig]):
         # Business logic here
         pass
 ```
+
+### Shared Service Infrastructure (`services/common/`)
+
+The `services/common/` package provides shared infrastructure used by all services:
+
+| Module | Purpose |
+|--------|---------|
+| `constants.py` | `ServiceName` and `DataType` StrEnum enumerations eliminating hardcoded strings |
+| `mixins.py` | `BatchProgressMixin` for batch tracking, `NetworkSemaphoreMixin` for per-network concurrency limits |
+| `queries.py` | 13 domain-specific SQL query functions (relay lookups, candidate lifecycle, cursor management) |
+
+Services import from `services.common` instead of writing inline SQL or using string literals. This consolidation keeps business logic in individual service files focused on orchestration rather than query construction.
 
 ### Seeder Service
 
@@ -804,7 +837,7 @@ async def run_forever(self, interval: float) -> None:
 
 BigBrotr's architecture provides:
 
-1. **Modularity** - Four-layer separation enables independent development and testing
+1. **Modularity** - Three-tier, five-layer separation enables independent development and testing
 2. **Flexibility** - Configuration-driven behavior without code changes
 3. **Testability** - Dependency injection enables comprehensive unit testing
 4. **Scalability** - Multicore processing and connection pooling for high throughput

@@ -18,7 +18,7 @@ BigBrotr is a modular Nostr data archiving and monitoring system built with:
 - **nostr-sdk** (Python bindings for rust-nostr)
 - **Tor support** (SOCKS5 proxy for .onion relays)
 
-### Four-Layer Architecture
+### Three-Tier Architecture
 
 ```
 +-------------------------------------------------------+
@@ -45,15 +45,15 @@ BigBrotr is a modular Nostr data archiving and monitoring system built with:
 |  Core Layer (src/core/)                               |
 |  +------+ +-------+ +-------------+ +--------+        |
 |  +------+ +-------+ +-------------+ +---------+       |
-|  | pool | | brotr | |   service   | | metrics |       |
-|  +------+ +-------+ +-------------+ +---------+       |
+|  | pool | | brotr | | base_service | | metrics |      |
+|  +------+ +-------+ +--------------+ +---------+      |
 +-------------------------+-----------------------------+
                           |
                           v
 +-------------------------------------------------------+
 |  Utils Layer (src/utils/)                             |
-|  BatchProgress, NetworkConfig, KeysConfig,            |
-|  create_client, load_yaml, parse_*                    |
+|  NetworkConfig, KeysConfig, create_client,            |
+|  load_yaml, transport, parse_*                        |
 +-------------------------+-----------------------------+
                           |
                           v
@@ -187,7 +187,7 @@ rows = await brotr.pool.fetch("SELECT url FROM relays WHERE network = $1", "tor"
 
 ---
 
-### BaseService (`src/core/service.py`)
+### BaseService (`src/core/base_service.py`)
 
 Abstract base class for all services with lifecycle management.
 
@@ -271,11 +271,27 @@ logger_json.info("started", version="1.0")
 
 ## Service Layer Patterns
 
+### Shared Infrastructure (`services/common/`)
+
+The `services/common/` package provides three stable modules shared by all services:
+
+- **constants.py**: `ServiceName` and `DataType` StrEnum classes (eliminates hardcoded strings)
+- **mixins.py**: `BatchProgressMixin` (progress tracking) and `NetworkSemaphoreMixin` (per-network concurrency)
+- **queries.py**: 13 domain SQL query functions parameterized with `ServiceName`/`DataType` enums
+
+```python
+from services.common.constants import ServiceName, DataType
+from services.common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
+from services.common.queries import get_all_relay_urls, fetch_candidate_chunk
+```
+
+Future additions go **into** existing modules rather than creating new files.
+
 ### Service Template
 
 ```python
 from pydantic import Field
-from core.service import BaseService, BaseServiceConfig
+from core.base_service import BaseService, BaseServiceConfig
 from core.brotr import Brotr
 from core.logger import Logger
 
@@ -312,7 +328,7 @@ class MyService(BaseService[MyServiceConfig]):
 Add to `src/services/__main__.py`:
 ```python
 SERVICE_REGISTRY = {
-    "myservice": (MyService, MyServiceConfig),
+    ServiceName.MYSERVICE: ServiceEntry(cls=MyService, config_path=YAML_BASE / "services" / "myservice.yaml"),
 }
 ```
 
@@ -967,7 +983,7 @@ await asyncio.gather(*tasks)
 
 ## Key File Locations
 
-- **Core layer:** `src/core/pool.py`, `src/core/brotr.py`, `src/core/service.py`, `src/core/logger.py`, `src/core/metrics.py`
+- **Core layer:** `src/core/pool.py`, `src/core/brotr.py`, `src/core/base_service.py`, `src/core/logger.py`, `src/core/metrics.py`
 - **Services:** `src/services/<service>.py`
 - **Models:** `src/models/<model>.py` (MetadataType is inner class `Metadata.Type` in `src/models/metadata.py`)
 - **SQL schema:** `implementations/bigbrotr/postgres/init/`

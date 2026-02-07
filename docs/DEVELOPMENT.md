@@ -78,7 +78,7 @@ bigbrotr/
 │   │   ├── __init__.py               # Exports: Pool, Brotr, BaseService, Logger, etc.
 │   │   ├── pool.py                   # PostgreSQL connection pool
 │   │   ├── brotr.py                  # Database interface
-│   │   ├── service.py                # Abstract service base
+│   │   ├── base_service.py           # Abstract service base
 │   │   ├── metrics.py                # Prometheus metrics endpoint
 │   │   └── logger.py                 # Structured key=value logging
 │   │
@@ -116,7 +116,6 @@ bigbrotr/
 │   │   ├── dns.py                    # DNS resolution utilities
 │   │   ├── keys.py                   # Key loading from environment
 │   │   ├── network.py                # NetworkType, NetworkConfig
-│   │   ├── progress.py               # BatchProgress tracking
 │   │   ├── transport.py              # Transport/client creation
 │   │   └── yaml.py                   # YAML loading utilities
 │   │
@@ -127,7 +126,12 @@ bigbrotr/
 │       ├── finder.py                 # Relay URL discovery
 │       ├── validator.py              # Candidate relay validation
 │       ├── monitor.py                # Health monitoring (NIP-11/NIP-66)
-│       └── synchronizer.py           # Event synchronization
+│       ├── synchronizer.py           # Event synchronization
+│       └── common/                    # Shared service infrastructure
+│           ├── __init__.py
+│           ├── constants.py           # ServiceName, DataType enums
+│           ├── mixins.py              # BatchProgressMixin, NetworkSemaphoreMixin
+│           └── queries.py             # Domain-specific SQL queries
 │
 ├── implementations/                  # Implementation layer
 │   ├── bigbrotr/                     # Full-featured implementation
@@ -156,7 +160,7 @@ bigbrotr/
 │       ├── core/                     # Core layer tests
 │       │   ├── test_pool.py
 │       │   ├── test_brotr.py
-│       │   ├── test_service.py
+│       │   ├── test_base_service.py
 │       │   ├── test_metrics.py
 │       │   └── test_logger.py
 │       ├── models/                   # Models layer tests
@@ -184,6 +188,11 @@ bigbrotr/
 │       │           ├── test_rtt.py
 │       │           └── test_ssl.py
 │       ├── services/                 # Services layer tests
+│       │   ├── common/                # services/common tests
+│       │   │   ├── test_constants.py
+│       │   │   ├── test_mixins.py
+│       │   │   └── test_queries.py
+│       │   ├── test_progress.py
 │       │   ├── test_seeder.py
 │       │   ├── test_finder.py
 │       │   ├── test_validator.py
@@ -194,7 +203,6 @@ bigbrotr/
 │           ├── test_dns.py
 │           ├── test_keys.py
 │           ├── test_network.py
-│           ├── test_progress.py
 │           ├── test_transport.py
 │           └── test_yaml.py
 │
@@ -427,7 +435,7 @@ My Service - Description of what it does.
 
 from pydantic import Field
 
-from core.service import BaseService, BaseServiceConfig
+from core.base_service import BaseService, BaseServiceConfig
 from core.brotr import Brotr
 from core.logger import Logger
 

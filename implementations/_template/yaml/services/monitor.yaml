@@ -22,7 +22,7 @@
 # -----------------------------------------------------------------------------
 # Base Service Settings (inherited from BaseServiceConfig)
 # -----------------------------------------------------------------------------
-# Class: src/core/service.py::BaseServiceConfig
+# Class: src/core/base_service.py::BaseServiceConfig
 
 # Seconds between monitoring cycles
 # Lower values = more frequent monitoring, higher resource usage

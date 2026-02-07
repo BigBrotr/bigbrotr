@@ -6,7 +6,7 @@ synchronization with multi-network support (clearnet, Tor, I2P, Lokinet).
 
 Architecture layers (bottom to top):
     models:   Data types (Relay, Event, EventRelay, Metadata, Nip11, Nip66)
-    utils:    Shared utilities (NetworkConfig, BatchProgress, YAML loading)
+    utils:    Shared utilities (NetworkConfig, KeysConfig, YAML loading, transport)
     core:     Foundation (Pool, Brotr, BaseService, Logger, MetricsServer)
     services: Implementations (Seeder, Finder, Validator, Monitor, Synchronizer)
 
@@ -21,7 +21,7 @@ Example:
         await finder.run()
 """
 
-__version__ = "2.0.0"
+__version__ = "3.0.3"
 
 # Core layer: connection pooling, database interface, base service, logging
 from .core import (

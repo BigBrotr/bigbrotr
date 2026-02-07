@@ -124,7 +124,7 @@ BigBrotr uses a four-layer architecture that separates concerns and enables flex
 |                           src/utils/                                        |
 +-----------------------------------------------------------------------------+
 |                                                                             |
-|  NetworkConfig, KeysConfig, BatchProgress, create_client, load_yaml         |
+|  NetworkConfig, KeysConfig, create_client, load_yaml, resolve_host          |
 |                                                                             |
 +=====================================+=======================================+
                                       |
@@ -487,7 +487,7 @@ bigbrotr/
 │   │   ├── __init__.py
 │   │   ├── pool.py                    # PostgreSQL connection pool
 │   │   ├── brotr.py                   # Database interface
-│   │   ├── service.py                 # Abstract service base
+│   │   ├── base_service.py            # Abstract service base
 │   │   ├── metrics.py                 # Prometheus metrics server
 │   │   └── logger.py                  # Structured key=value logging
 │   │
@@ -496,7 +496,6 @@ bigbrotr/
 │   │   ├── dns.py                     # DNS resolution
 │   │   ├── keys.py                    # Nostr key management
 │   │   ├── network.py                 # Network detection and proxy config
-│   │   ├── progress.py                # Batch progress tracking
 │   │   ├── transport.py               # HTTP/WebSocket transport helpers
 │   │   └── yaml.py                    # YAML loading with env var support
 │   │
@@ -520,7 +519,12 @@ bigbrotr/
 │       ├── finder.py                  # Relay discovery
 │       ├── validator.py               # Relay validation
 │       ├── monitor.py                 # Health monitoring
-│       └── synchronizer.py            # Event sync
+│       ├── synchronizer.py            # Event sync
+│       └── common/                    # Shared service infrastructure
+│           ├── __init__.py
+│           ├── constants.py           # ServiceName, DataType enums
+│           ├── mixins.py              # BatchProgressMixin, NetworkSemaphoreMixin
+│           └── queries.py             # Domain-specific SQL queries
 │
 ├── implementations/
 │   ├── bigbrotr/                      # Full-featured implementation

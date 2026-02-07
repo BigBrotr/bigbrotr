@@ -4,7 +4,7 @@ Quick reference for BigBrotr component relationships and design patterns.
 
 ---
 
-## Four-Layer Architecture
+## Three-Tier Architecture
 
 ```
 +===============================================================+
@@ -440,15 +440,16 @@ candidates = await brotr.get_service_data("validator", "candidate")
 
 ## Architecture Decision Records
 
-### ADR-001: Four-Layer Separation
+### ADR-001: Three-Tier Separation
 
-**Decision:** Separate Implementation, Service, Core, and Utils layers
+**Decision:** Separate Implementation, Service, Core/Utils/Models layers
 
 **Rationale:**
 - Multiple implementations (bigbrotr, lilbrotr) share same services
 - Services focus on business logic, not database details
 - Core provides reusable infrastructure
-- Utils provides shared utilities (NetworkConfig, BatchProgress, transport, etc.)
+- Utils provides shared utilities (NetworkConfig, KeysConfig, transport, etc.)
+- Services share domain queries, constants, and mixins via `services/common/`
 - Clear separation of concerns
 
 **Consequences:**
@@ -596,7 +597,7 @@ bigbrotr/
 │   │   ├── __init__.py
 │   │   ├── pool.py                # Connection pooling
 │   │   ├── brotr.py               # Database interface
-│   │   ├── service.py             # Service base class
+│   │   ├── base_service.py        # Service base class
 │   │   ├── logger.py              # Structured key=value logging
 │   │   └── metrics.py             # Prometheus metrics server
 │   │
@@ -618,14 +619,18 @@ bigbrotr/
 │   │   ├── dns.py                 # DNS resolution
 │   │   ├── keys.py                # Nostr key management
 │   │   ├── network.py             # Network detection and proxy config
-│   │   ├── progress.py            # Batch progress tracking
 │   │   ├── transport.py           # HTTP/WebSocket transport helpers
 │   │   └── yaml.py                # YAML loading with env var support
 │   │
 │   └── services/                  # Business logic
 │       ├── __init__.py
 │       ├── __main__.py            # Service registry
-│       ├── seeder.py         # Database bootstrap
+│       ├── common/                # Shared service infrastructure
+│       │   ├── __init__.py
+│       │   ├── constants.py       # ServiceName, DataType enums
+│       │   ├── mixins.py          # BatchProgressMixin, NetworkSemaphoreMixin
+│       │   └── queries.py         # Domain SQL query functions
+│       ├── seeder.py              # Database bootstrap
 │       ├── finder.py              # Relay discovery
 │       ├── validator.py           # Relay validation
 │       ├── monitor.py             # Health monitoring
@@ -656,11 +661,15 @@ bigbrotr/
         ├── core/
         │   ├── test_pool.py
         │   ├── test_brotr.py
-        │   ├── test_service.py
-        │   └── test_logger.py     # Logger tests
+        │   ├── test_base_service.py
+        │   └── test_logger.py
         ├── models/
         │   └── test_*.py
         ├── services/
+        │   ├── common/
+        │   │   ├── test_constants.py
+        │   │   ├── test_mixins.py
+        │   │   └── test_queries.py
         │   └── test_*.py
         └── utils/
             └── test_*.py
