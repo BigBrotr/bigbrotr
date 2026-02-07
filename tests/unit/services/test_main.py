@@ -39,8 +39,8 @@ from services.__main__ import (
 @pytest.fixture
 def mock_brotr_for_cli(mock_brotr: Brotr) -> Brotr:
     """Create a Brotr mock configured for CLI tests."""
-    mock_brotr.pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
-    mock_brotr.pool._mock_connection.execute = AsyncMock()  # type: ignore[attr-defined]
+    mock_brotr._pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
+    mock_brotr._pool._mock_connection.execute = AsyncMock()  # type: ignore[attr-defined]
     return mock_brotr
 
 
@@ -368,7 +368,7 @@ pool:
 """)
         brotr = load_brotr(config_file)
         assert isinstance(brotr, Brotr)
-        assert brotr.pool.config.database.host == "localhost"
+        assert brotr.pool_config.database.host == "localhost"
 
     def test_load_from_nonexistent_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -406,9 +406,9 @@ pool:
     max_size: 20
 """)
         brotr = load_brotr(config_file)
-        assert brotr.pool.config.database.host == "customhost"
-        assert brotr.pool.config.database.port == 5433
-        assert brotr.pool.config.database.database == "customdb"
+        assert brotr.pool_config.database.host == "customhost"
+        assert brotr.pool_config.database.port == 5433
+        assert brotr.pool_config.database.database == "customdb"
 
 
 # ============================================================================
@@ -741,10 +741,8 @@ pool:
 """)
 
         mock_brotr = MagicMock(spec=Brotr)
-        mock_pool = MagicMock()
-        mock_pool.__aenter__ = AsyncMock(side_effect=ConnectionError("Cannot connect"))
-        mock_pool.__aexit__ = AsyncMock()
-        mock_brotr.pool = mock_pool
+        mock_brotr.__aenter__ = AsyncMock(side_effect=ConnectionError("Cannot connect"))
+        mock_brotr.__aexit__ = AsyncMock()
 
         with (
             patch(

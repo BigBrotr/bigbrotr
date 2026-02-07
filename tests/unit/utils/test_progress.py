@@ -1,5 +1,5 @@
 """
-Unit tests for utils.progress module.
+Unit tests for core.service.BatchProgress.
 
 Tests:
 - BatchProgress dataclass
@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import pytest
 
-from utils.progress import BatchProgress
+from core.service import BatchProgress
 
 
 # =============================================================================

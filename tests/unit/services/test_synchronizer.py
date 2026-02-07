@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.brotr import Brotr, BrotrConfig
+from core.brotr import Brotr, BrotrConfig, TimeoutsConfig
 from models import Relay
 from models.relay import NetworkType
 from services.synchronizer import (
@@ -55,6 +55,7 @@ def mock_synchronizer_brotr(mock_brotr: Brotr) -> Brotr:
     mock_batch_config.max_batch_size = 100
     mock_config = MagicMock(spec=BrotrConfig)
     mock_config.batch = mock_batch_config
+    mock_config.timeouts = TimeoutsConfig()
     mock_brotr._config = mock_config
     mock_brotr.insert_events_relays = AsyncMock(return_value=0)  # type: ignore[attr-defined]
     return mock_brotr
@@ -352,7 +353,7 @@ class TestSynchronizerFetchRelays:
     @pytest.mark.asyncio
     async def test_fetch_relays_empty(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test fetching relays when none available."""
-        mock_synchronizer_brotr.pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
 
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         relays = await sync._fetch_relays()
@@ -371,7 +372,7 @@ class TestSynchronizerFetchRelays:
     @pytest.mark.asyncio
     async def test_fetch_relays_with_results(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test fetching relays from database."""
-        mock_synchronizer_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
                 {
                     "url": "wss://relay1.example.com",
@@ -396,7 +397,7 @@ class TestSynchronizerFetchRelays:
     @pytest.mark.asyncio
     async def test_fetch_relays_filters_invalid(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test fetching relays filters invalid URLs."""
-        mock_synchronizer_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
                 {
                     "url": "wss://valid.relay.com",
@@ -478,7 +479,7 @@ class TestSynchronizerRun:
     @pytest.mark.asyncio
     async def test_run_no_relays(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test run cycle with no relays."""
-        mock_synchronizer_brotr.pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
 
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         await sync.run()

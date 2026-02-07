@@ -545,7 +545,7 @@ class TestNip66GeoMetadataGeoAsync:
         ):
             await Nip66GeoMetadata.geo(relay, mock_city_reader)
 
-        mock_geo.assert_called_once_with("8.8.8.8", mock_city_reader)
+        mock_geo.assert_called_once_with("8.8.8.8", mock_city_reader, 9)
 
     @pytest.mark.asyncio
     async def test_falls_back_to_ipv6(
@@ -570,4 +570,4 @@ class TestNip66GeoMetadataGeoAsync:
         ):
             await Nip66GeoMetadata.geo(relay, mock_city_reader)
 
-        mock_geo.assert_called_once_with("2001:4860:4860::8888", mock_city_reader)
+        mock_geo.assert_called_once_with("2001:4860:4860::8888", mock_city_reader, 9)
