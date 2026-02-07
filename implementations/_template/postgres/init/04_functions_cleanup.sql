@@ -110,8 +110,9 @@ BEGIN
     v_cutoff := EXTRACT(EPOCH FROM NOW())::BIGINT - p_max_age_seconds;
     LOOP
         DELETE FROM relay_metadata
-        WHERE ctid IN (
-            SELECT ctid FROM relay_metadata
+        WHERE (relay_url, generated_at, metadata_type) IN (
+            SELECT relay_url, generated_at, metadata_type
+            FROM relay_metadata
             WHERE generated_at < v_cutoff LIMIT p_batch_size
         );
         GET DIAGNOSTICS v_batch = ROW_COUNT;

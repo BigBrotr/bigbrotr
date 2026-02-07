@@ -65,3 +65,22 @@ ON relay_metadata USING btree (metadata_id);
 -- WHERE relay_url = ? AND metadata_type = ? ORDER BY generated_at DESC LIMIT 1
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_type_generated
 ON relay_metadata USING btree (relay_url, metadata_type, generated_at DESC);
+
+
+-- ==========================================================================
+-- TABLE INDEXES: service_data
+-- ==========================================================================
+
+-- All data for a service: WHERE service_name = ?
+CREATE INDEX IF NOT EXISTS idx_service_data_service_name
+ON service_data USING btree (service_name);
+
+-- Specific data type within a service: WHERE service_name = ? AND data_type = ?
+CREATE INDEX IF NOT EXISTS idx_service_data_service_type
+ON service_data USING btree (service_name, data_type);
+
+-- Candidate network filtering: WHERE data->>'network' = ANY($3)
+-- Used by count_candidates() and fetch_candidate_chunk() in the Validator service
+CREATE INDEX IF NOT EXISTS idx_service_data_candidate_network
+ON service_data USING btree ((data->>'network'))
+WHERE service_name = 'validator' AND data_type = 'candidate';
