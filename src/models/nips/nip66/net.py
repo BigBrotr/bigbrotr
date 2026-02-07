@@ -9,11 +9,11 @@ and CIDR network ranges. Clearnet relays only.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Self
 
 import geoip2.database
 
-from core.logger import Logger
 from models.nips.base import BaseMetadata
 from models.relay import Relay
 from utils.dns import resolve_host
@@ -23,7 +23,7 @@ from .data import Nip66NetData
 from .logs import Nip66NetLogs
 
 
-logger = Logger("models.nip66")
+logger = logging.getLogger("models.nip66")
 
 
 class Nip66NetMetadata(BaseMetadata):
@@ -73,7 +73,7 @@ class Nip66NetMetadata(BaseMetadata):
                 if asn_response.network:
                     result["net_network"] = str(asn_response.network)
             except Exception as e:
-                logger.debug("net_asn_ipv4_lookup_error", ip=ipv4, error=str(e))
+                logger.debug("net_asn_ipv4_lookup_error ip=%s error=%s", ipv4, str(e))
 
         if ipv6:
             result["net_ipv6"] = ipv6
@@ -88,7 +88,7 @@ class Nip66NetMetadata(BaseMetadata):
                     if asn_response.autonomous_system_organization:
                         result["net_asn_org"] = asn_response.autonomous_system_organization
             except Exception as e:
-                logger.debug("net_asn_ipv6_lookup_error", ip=ipv6, error=str(e))
+                logger.debug("net_asn_ipv6_lookup_error ip=%s error=%s", ipv6, str(e))
 
         return result
 
@@ -113,7 +113,7 @@ class Nip66NetMetadata(BaseMetadata):
         Raises:
             ValueError: If the relay is not on the clearnet network.
         """
-        logger.debug("net_testing", relay=relay.url)
+        logger.debug("net_testing relay=%s", relay.url)
 
         if relay.network != NetworkType.CLEARNET:
             raise ValueError(f"net lookup requires clearnet, got {relay.network.value}")
@@ -127,13 +127,13 @@ class Nip66NetMetadata(BaseMetadata):
             data = await asyncio.to_thread(cls._net, resolved.ipv4, resolved.ipv6, asn_reader)
             if data:
                 logs["success"] = True
-                logger.debug("net_completed", relay=relay.url, asn=data.get("net_asn"))
+                logger.debug("net_completed relay=%s asn=%s", relay.url, data.get("net_asn"))
             else:
                 logs["reason"] = "no ASN data found for IP"
-                logger.debug("net_no_data", relay=relay.url)
+                logger.debug("net_no_data relay=%s", relay.url)
         else:
             logs["reason"] = "could not resolve hostname to IP"
-            logger.debug("net_no_ip", relay=relay.url)
+            logger.debug("net_no_ip relay=%s", relay.url)
 
         return cls(
             data=Nip66NetData.model_validate(Nip66NetData.parse(data)),

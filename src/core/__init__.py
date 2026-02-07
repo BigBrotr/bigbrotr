@@ -18,8 +18,6 @@ Example:
         await brotr.insert_relays([...])
 """
 
-from utils.yaml import load_yaml
-
 from .brotr import (
     BatchConfig,
     Brotr,
@@ -54,6 +52,7 @@ from .pool import (
 from .service import (
     BaseService,
     BaseServiceConfig,
+    BatchProgress,
     ConfigT,
     NetworkSemaphoreMixin,
 )
@@ -67,6 +66,7 @@ __all__ = [
     "BaseService",
     "BaseServiceConfig",
     "BatchConfig",
+    "BatchProgress",
     "Brotr",
     "BrotrConfig",
     "BrotrTimeoutsConfig",
@@ -83,6 +83,5 @@ __all__ = [
     "RetryConfig",
     "ServerSettingsConfig",
     "format_kv_pairs",
-    "load_yaml",
     "start_metrics_server",
 ]

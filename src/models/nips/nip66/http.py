@@ -8,6 +8,7 @@ relays (overlay networks require a SOCKS5 proxy).
 
 from __future__ import annotations
 
+import logging
 import ssl
 from types import SimpleNamespace
 from typing import Any, Self
@@ -15,7 +16,6 @@ from typing import Any, Self
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
-from core.logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
 from utils.network import NetworkType
@@ -24,7 +24,7 @@ from .data import Nip66HttpData
 from .logs import Nip66HttpLogs
 
 
-logger = Logger("models.nip66")
+logger = logging.getLogger("models.nip66")
 
 
 class Nip66HttpMetadata(BaseMetadata):
@@ -129,7 +129,7 @@ class Nip66HttpMetadata(BaseMetadata):
             ValueError: If an overlay network relay has no proxy configured.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-        logger.debug("http_testing", relay=relay.url, timeout_s=timeout, proxy=proxy_url)
+        logger.debug("http_testing relay=%s timeout_s=%s proxy=%s", relay.url, timeout, proxy_url)
 
         overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
         if proxy_url is None and relay.network in overlay_networks:
@@ -142,13 +142,15 @@ class Nip66HttpMetadata(BaseMetadata):
             data = await cls._http(relay, timeout, proxy_url)
             if data:
                 logs["success"] = True
-                logger.debug("http_completed", relay=relay.url, server=data.get("http_server"))
+                logger.debug(
+                    "http_completed relay=%s server=%s", relay.url, data.get("http_server")
+                )
             else:
                 logs["reason"] = "no HTTP headers captured"
-                logger.debug("http_no_data", relay=relay.url)
+                logger.debug("http_no_data relay=%s", relay.url)
         except Exception as e:
             logs["reason"] = str(e)
-            logger.debug("http_error", relay=relay.url, error=str(e))
+            logger.debug("http_error relay=%s error=%s", relay.url, str(e))
 
         return cls(
             data=Nip66HttpData.model_validate(Nip66HttpData.parse(data)),

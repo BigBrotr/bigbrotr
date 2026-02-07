@@ -9,7 +9,7 @@ via ``to_db_params()`` and ``from_db_params()``.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 from nostr_sdk import Event as NostrEvent
@@ -51,6 +51,9 @@ class Event:
     """
 
     _inner: NostrEvent
+    _db_params: EventDbParams | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
 
     def __post_init__(self) -> None:
         """Validate the event for database compatibility on construction."""
@@ -64,15 +67,32 @@ class Event:
                 if "\x00" in value:
                     raise ValueError(f"Event {event_id}... tags contain null bytes")
 
-        # Ensure DB conversion succeeds at creation time
-        self.to_db_params()
+        # Compute and cache DB params at creation time (fail-fast validation).
+        # object.__setattr__ is required because the dataclass is frozen.
+        object.__setattr__(self, "_db_params", self._compute_db_params())
 
     def __getattr__(self, name: str) -> Any:
         """Delegate attribute access to the wrapped NostrEvent."""
         return getattr(self._inner, name)
 
     def to_db_params(self) -> EventDbParams:
-        """Convert to positional parameters for the database insert procedure.
+        """Return cached positional parameters for the database insert procedure.
+
+        The result is computed once during construction and cached for the
+        lifetime of the (frozen) instance, avoiding repeated hex conversions
+        and tag serialization.
+
+        Returns:
+            EventDbParams with binary id/pubkey/sig, integer timestamps,
+            JSON-encoded tags, and raw content string.
+        """
+        return self._db_params  # type: ignore[return-value]
+
+    def _compute_db_params(self) -> EventDbParams:
+        """Compute positional parameters for the database insert procedure.
+
+        Called once during ``__post_init__`` to populate the ``_db_params``
+        cache.  All subsequent access goes through ``to_db_params()``.
 
         Returns:
             EventDbParams with binary id/pubkey/sig, integer timestamps,

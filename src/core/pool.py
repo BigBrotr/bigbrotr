@@ -28,7 +28,7 @@ import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, ClassVar, cast
+from typing import Any, Literal, cast
 
 import asyncpg
 from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator, model_validator
@@ -207,9 +207,6 @@ class Pool:
                 await conn.execute("INSERT INTO ...")
     """
 
-    _DEFAULT_RETRY_BASE_DELAY: ClassVar[float] = 0.1  # Base delay for exponential backoff
-    _DEFAULT_MAX_RETRIES: ClassVar[int] = 3
-
     def __init__(self, config: PoolConfig | None = None) -> None:
         """Initialize pool with optional configuration.
 
@@ -252,6 +249,15 @@ class Pool:
         config = PoolConfig(**config_dict)
         return cls(config=config)
 
+    def _retry_delay(self, attempt: int) -> float:
+        """Compute retry backoff delay for the given attempt number."""
+        retry = self._config.retry
+        if retry.exponential_backoff:
+            delay = retry.initial_delay * (2**attempt)
+        else:
+            delay = retry.initial_delay * (attempt + 1)
+        return float(min(delay, retry.max_delay))
+
     # -------------------------------------------------------------------------
     # Connection Lifecycle
     # -------------------------------------------------------------------------
@@ -270,8 +276,6 @@ class Pool:
             if self._is_connected:
                 return
 
-            attempt = 0
-            delay = self._config.retry.initial_delay
             db = self._config.database
 
             self._logger.info(
@@ -281,7 +285,7 @@ class Pool:
                 database=db.database,
             )
 
-            while attempt < self._config.retry.max_attempts:
+            for attempt in range(self._config.retry.max_attempts):
                 try:
                     self._pool = await asyncpg.create_pool(
                         host=db.host,
@@ -308,31 +312,24 @@ class Pool:
                     return
 
                 except (asyncpg.PostgresError, OSError, ConnectionError) as e:
-                    attempt += 1
-                    if attempt >= self._config.retry.max_attempts:
+                    if attempt + 1 >= self._config.retry.max_attempts:
                         self._logger.error(
                             "connection_failed",
-                            attempts=attempt,
+                            attempts=attempt + 1,
                             error=str(e),
                         )
                         raise ConnectionError(
-                            f"Failed to connect after {attempt} attempts: {e}"
+                            f"Failed to connect after {attempt + 1} attempts: {e}"
                         ) from e
 
+                    delay = self._retry_delay(attempt)
                     self._logger.warning(
                         "connection_retry",
-                        attempt=attempt,
+                        attempt=attempt + 1,
                         delay=delay,
                         error=str(e),
                     )
                     await asyncio.sleep(delay)
-
-                    if self._config.retry.exponential_backoff:
-                        delay = min(delay * 2, self._config.retry.max_delay)
-                    else:
-                        delay = min(
-                            delay + self._config.retry.initial_delay, self._config.retry.max_delay
-                        )
 
     async def close(self) -> None:
         """Close the pool and release all connections.
@@ -400,7 +397,7 @@ class Pool:
             raise RuntimeError("Pool not connected. Call connect() first.")
 
         if max_retries is None:
-            max_retries = self._DEFAULT_MAX_RETRIES
+            max_retries = self._config.retry.max_attempts
         if health_check_timeout is None:
             health_check_timeout = self._config.timeouts.health_check
         last_error: Exception | None = None
@@ -423,8 +420,7 @@ class Pool:
                 )
                 # Exponential backoff between retries to avoid thundering herd
                 if attempt < max_retries - 1:
-                    delay = self._DEFAULT_RETRY_BASE_DELAY * (2**attempt)
-                    await asyncio.sleep(delay)
+                    await asyncio.sleep(self._retry_delay(attempt))
                 continue
 
         raise ConnectionError(
@@ -457,7 +453,7 @@ class Pool:
 
     async def _execute_with_retry(
         self,
-        operation: str,
+        operation: Literal["fetch", "fetchrow", "fetchval", "execute"],
         query: str,
         args: tuple[Any, ...],
         timeout: float | None,
@@ -482,7 +478,7 @@ class Pool:
             The result of the asyncpg operation.
         """
         if max_retries is None:
-            max_retries = self._DEFAULT_MAX_RETRIES
+            max_retries = self._config.retry.max_attempts
         last_error: Exception | None = None
 
         for attempt in range(max_retries):
@@ -496,7 +492,7 @@ class Pool:
             ) as e:
                 last_error = e
                 if attempt < max_retries - 1:
-                    delay = self._DEFAULT_RETRY_BASE_DELAY * (2**attempt)
+                    delay = self._retry_delay(attempt)
                     self._logger.warning(
                         "query_retry",
                         operation=operation,
@@ -599,7 +595,7 @@ class Pool:
             args_list: List of parameter tuples, one per execution.
             timeout: Query timeout in seconds (None = no timeout).
         """
-        max_retries = self._DEFAULT_MAX_RETRIES
+        max_retries = self._config.retry.max_attempts
         last_error: Exception | None = None
 
         for attempt in range(max_retries):
@@ -613,7 +609,7 @@ class Pool:
             ) as e:
                 last_error = e
                 if attempt < max_retries - 1:
-                    delay = self._DEFAULT_RETRY_BASE_DELAY * (2**attempt)
+                    delay = self._retry_delay(attempt)
                     self._logger.warning(
                         "query_retry",
                         operation="executemany",

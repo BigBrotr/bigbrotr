@@ -64,6 +64,9 @@ class Relay:
     host: str = field(init=False)
     port: int | None = field(init=False)
     path: str | None = field(init=False)
+    _db_params: RelayDbParams | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
 
     # Standard default ports for WebSocket schemes
     _PORT_WS: ClassVar[int] = 80
@@ -137,8 +140,9 @@ class Relay:
         object.__setattr__(self, "port", parsed["port"])
         object.__setattr__(self, "path", parsed["path"])
 
-        # Ensure DB conversion succeeds at creation time
-        self.to_db_params()
+        # Compute and cache DB params at creation time (fail-fast validation).
+        # object.__setattr__ is required because the dataclass is frozen.
+        object.__setattr__(self, "_db_params", self._compute_db_params())
 
     @staticmethod
     def _detect_network(host: str) -> NetworkType:
@@ -253,7 +257,23 @@ class Relay:
         }
 
     def to_db_params(self) -> RelayDbParams:
-        """Convert to positional parameters for the database insert procedure.
+        """Return cached positional parameters for the database insert procedure.
+
+        The result is computed once during construction and cached for the
+        lifetime of the (frozen) instance, avoiding repeated network name
+        conversions.
+
+        Returns:
+            RelayDbParams with the normalized URL, network name, and
+            discovery timestamp.
+        """
+        return self._db_params  # type: ignore[return-value]
+
+    def _compute_db_params(self) -> RelayDbParams:
+        """Compute positional parameters for the database insert procedure.
+
+        Called once during ``__post_init__`` to populate the ``_db_params``
+        cache. All subsequent access goes through ``to_db_params()``.
 
         Returns:
             RelayDbParams with the normalized URL, network name, and

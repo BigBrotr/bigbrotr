@@ -86,6 +86,9 @@ class Metadata:
     # Cached computed values (set in __post_init__)
     _canonical_json: str = field(default="", init=False, repr=False, compare=False)
     _content_hash: bytes = field(default=b"", init=False, repr=False, compare=False)
+    _db_params: MetadataDbParams | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
 
     def __post_init__(self) -> None:
         """Sanitize the value dict and compute the canonical JSON and hash."""
@@ -102,6 +105,8 @@ class Metadata:
 
         content_hash = hashlib.sha256(canonical.encode("utf-8")).digest()
         object.__setattr__(self, "_content_hash", content_hash)
+
+        object.__setattr__(self, "_db_params", self._compute_db_params())
 
     @classmethod
     def _sanitize(cls, obj: Any, max_depth: int | None = None, _depth: int = 0) -> Any:
@@ -228,8 +233,8 @@ class Metadata:
         """
         return self._canonical_json
 
-    def to_db_params(self) -> MetadataDbParams:
-        """Convert to positional parameters for the database insert procedure.
+    def _compute_db_params(self) -> MetadataDbParams:
+        """Compute positional parameters for the database insert procedure.
 
         Returns:
             MetadataDbParams with the content hash as ``id``, the canonical
@@ -240,6 +245,15 @@ class Metadata:
             value=self._canonical_json,
             type=self.type,
         )
+
+    def to_db_params(self) -> MetadataDbParams:
+        """Convert to positional parameters for the database insert procedure.
+
+        Returns:
+            MetadataDbParams with the content hash as ``id``, the canonical
+            JSON as ``value``, and the metadata type.
+        """
+        return self._db_params  # type: ignore[return-value]
 
     @classmethod
     def from_db_params(cls, params: MetadataDbParams) -> Metadata:

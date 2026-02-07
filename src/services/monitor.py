@@ -21,7 +21,7 @@ Usage::
     brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
     monitor = Monitor.from_yaml("yaml/services/monitor.yaml", brotr=brotr)
 
-    async with brotr.pool:
+    async with brotr:
         async with monitor:
             await monitor.run_forever()
 """
@@ -41,7 +41,8 @@ import geoip2.database
 from nostr_sdk import EventBuilder, Filter, Keys, Kind, RelayUrl, Tag
 from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer, model_validator
 
-from core.service import BaseService, BaseServiceConfig, NetworkSemaphoreMixin
+from core.queries import count_relays_due_for_check, fetch_relays_due_for_check
+from core.service import BaseService, BaseServiceConfig, BatchProgress, NetworkSemaphoreMixin
 from models import Metadata, MetadataType, Nip11, Relay, RelayMetadata
 from models.nips.base import BaseMetadata
 from models.nips.nip66 import (
@@ -54,7 +55,6 @@ from models.nips.nip66 import (
 )
 from utils.keys import KeysConfig
 from utils.network import NetworkConfig, NetworkType
-from utils.progress import BatchProgress
 from utils.transport import create_client
 
 
@@ -200,6 +200,9 @@ class ProcessingConfig(BaseModel):
     chunk_size: int = Field(default=100, ge=10, le=1000)
     max_relays: int | None = Field(default=None, ge=1)
     nip11_max_size: int = Field(default=1_048_576, ge=1024, le=10_485_760)
+    geohash_precision: int = Field(
+        default=9, ge=1, le=12, description="Geohash precision (9=~4.77m)"
+    )
     retry: MetadataRetryConfig = Field(default_factory=MetadataRetryConfig)
     compute: MetadataFlags = Field(default_factory=MetadataFlags)
     store: MetadataFlags = Field(default_factory=MetadataFlags)
@@ -271,17 +274,26 @@ class MonitorConfig(BaseServiceConfig):
 
     @model_validator(mode="after")
     def validate_geo_databases(self) -> MonitorConfig:
-        """Download GeoLite2 databases from GitHub mirror if missing."""
+        """Validate GeoLite2 database paths have download URLs if files are missing.
+
+        Actual downloads are deferred to ``_update_geo_databases()`` which runs
+        asynchronously via ``asyncio.to_thread()`` to avoid blocking the event loop.
+        """
         if self.processing.compute.nip66_geo:
             city_path = Path(self.geo.city_database_path)
-            if not city_path.exists():
-                _download_geolite_db(self.geo.city_download_url, city_path)
+            if not city_path.exists() and not self.geo.city_download_url:
+                raise ValueError(
+                    f"GeoLite2 City database not found at {city_path} "
+                    "and no download URL configured in geo.city_download_url"
+                )
 
-        # Download ASN database if net is enabled
         if self.processing.compute.nip66_net:
             asn_path = Path(self.geo.asn_database_path)
-            if not asn_path.exists():
-                _download_geolite_db(self.geo.asn_download_url, asn_path)
+            if not asn_path.exists() and not self.geo.asn_download_url:
+                raise ValueError(
+                    f"GeoLite2 ASN database not found at {asn_path} "
+                    "and no download URL configured in geo.asn_download_url"
+                )
 
         return self
 
@@ -357,7 +369,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         self._init_semaphores(self._config.networks)
 
         await self._update_geo_databases()
-        self._open_geo_readers()
+        await self._open_geo_readers()
 
         try:
             networks = self._config.networks.get_enabled_networks()
@@ -393,53 +405,78 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         finally:
             self._close_geo_readers()
 
-    def _update_geo_db_if_stale(
+    async def _update_geo_db_if_stale(
         self, path: Path, url: str, db_name: str, max_age_seconds: float
     ) -> None:
-        """Update a single GeoLite2 database if stale or missing."""
+        """Update a single GeoLite2 database if stale or missing.
+
+        Downloads are offloaded to a thread via ``asyncio.to_thread()`` to
+        avoid blocking the event loop during large file transfers (10-50MB).
+        """
         if path.exists():
             age = time.time() - path.stat().st_mtime
             if age > max_age_seconds:
                 self._logger.info("updating_geo_db", db=db_name, age_days=round(age / 86400, 1))
-                _download_geolite_db(url, path)
+                await asyncio.to_thread(_download_geolite_db, url, path)
         else:
             self._logger.info("downloading_geo_db", db=db_name)
-            _download_geolite_db(url, path)
+            await asyncio.to_thread(_download_geolite_db, url, path)
 
     async def _update_geo_databases(self) -> None:
-        """Re-download GeoLite2 databases if they exceed max_age_days."""
+        """Download or re-download GeoLite2 databases if missing or stale."""
         compute = self._config.processing.compute
         if not compute.nip66_geo and not compute.nip66_net:
             return
 
         max_age_days = self._config.geo.max_age_days
-        if max_age_days is None:
-            return
-        max_age_seconds = max_age_days * 86400
+        max_age_seconds = max_age_days * 86400 if max_age_days is not None else 0
 
         if compute.nip66_geo:
-            self._update_geo_db_if_stale(
-                Path(self._config.geo.city_database_path),
-                self._config.geo.city_download_url,
-                "city",
-                max_age_seconds,
-            )
+            city_path = Path(self._config.geo.city_database_path)
+            if not city_path.exists():
+                self._logger.info("downloading_geo_db", db="city")
+                await asyncio.to_thread(
+                    _download_geolite_db, self._config.geo.city_download_url, city_path
+                )
+            elif max_age_days is not None:
+                await self._update_geo_db_if_stale(
+                    city_path,
+                    self._config.geo.city_download_url,
+                    "city",
+                    max_age_seconds,
+                )
 
         if compute.nip66_net:
-            self._update_geo_db_if_stale(
-                Path(self._config.geo.asn_database_path),
-                self._config.geo.asn_download_url,
-                "asn",
-                max_age_seconds,
+            asn_path = Path(self._config.geo.asn_database_path)
+            if not asn_path.exists():
+                self._logger.info("downloading_geo_db", db="asn")
+                await asyncio.to_thread(
+                    _download_geolite_db, self._config.geo.asn_download_url, asn_path
+                )
+            elif max_age_days is not None:
+                await self._update_geo_db_if_stale(
+                    asn_path,
+                    self._config.geo.asn_download_url,
+                    "asn",
+                    max_age_seconds,
+                )
+
+    async def _open_geo_readers(self) -> None:
+        """Open GeoIP database readers for the current run.
+
+        Reader initialization is offloaded to a thread via ``asyncio.to_thread()``
+        because ``geoip2.database.Reader()`` performs synchronous file I/O to
+        memory-map the database file.
+        """
+        if self._config.processing.compute.nip66_geo:
+            self._geo_reader = await asyncio.to_thread(
+                geoip2.database.Reader, self._config.geo.city_database_path
             )
 
-    def _open_geo_readers(self) -> None:
-        """Open GeoIP database readers for the current run."""
-        if self._config.processing.compute.nip66_geo:
-            self._geo_reader = geoip2.database.Reader(self._config.geo.city_database_path)
-
         if self._config.processing.compute.nip66_net:
-            self._asn_reader = geoip2.database.Reader(self._config.geo.asn_database_path)
+            self._asn_reader = await asyncio.to_thread(
+                geoip2.database.Reader, self._config.geo.asn_database_path
+            )
 
     def _close_geo_readers(self) -> None:
         """Close GeoIP database readers after the run."""
@@ -473,23 +510,13 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
 
         threshold = int(self._progress.started_at) - self._config.discovery.interval
 
-        row = await self._brotr.pool.fetchrow(
-            """
-            SELECT COUNT(*)::int AS count
-            FROM relays r
-            LEFT JOIN service_data sd ON
-                sd.service_name = 'monitor'
-                AND sd.data_type = 'checkpoint'
-                AND sd.data_key = r.url
-            WHERE
-                r.network = ANY($1)
-                AND (sd.data_key IS NULL OR (sd.data->>'last_check_at')::BIGINT < $2)
-            """,
-            networks,
+        return await count_relays_due_for_check(
+            self._brotr,
+            self.SERVICE_NAME,
             threshold,
+            networks,
             timeout=self._brotr.config.timeouts.query,
         )
-        return row["count"] if row else 0
 
     # -------------------------------------------------------------------------
     # Processing
@@ -543,24 +570,11 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         """Fetch the next chunk of relays ordered by least-recently-checked first."""
         threshold = int(self._progress.started_at) - self._config.discovery.interval
 
-        rows = await self._brotr.pool.fetch(
-            """
-            SELECT r.url, r.network, r.discovered_at
-            FROM relays r
-            LEFT JOIN service_data sd ON
-                sd.service_name = 'monitor'
-                AND sd.data_type = 'checkpoint'
-                AND sd.data_key = r.url
-            WHERE
-                r.network = ANY($1)
-                AND (sd.data_key IS NULL OR (sd.data->>'last_check_at')::BIGINT < $2)
-            ORDER BY
-                COALESCE((sd.data->>'last_check_at')::BIGINT, 0) ASC,
-                r.discovered_at ASC
-            LIMIT $3
-            """,
-            networks,
+        rows = await fetch_relays_due_for_check(
+            self._brotr,
+            self.SERVICE_NAME,
             threshold,
+            networks,
             limit,
             timeout=self._brotr.config.timeouts.query,
         )
@@ -756,46 +770,80 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
                         relay.url,
                     )
 
+                # Run independent checks (SSL, DNS, Geo, Net, HTTP) in parallel
+                geo_reader = self._geo_reader
+                asn_reader = self._asn_reader
+                precision = self._config.processing.geohash_precision
+
+                parallel_tasks: dict[str, Any] = {}
                 if compute.nip66_ssl and relay.network == NetworkType.CLEARNET:
-                    ssl_meta = await self._with_retry(
+                    parallel_tasks["ssl"] = self._with_retry(
                         lambda: Nip66SslMetadata.ssl(relay, timeout),
                         self._config.processing.retry.nip66_ssl,
                         "nip66_ssl",
                         relay.url,
                     )
-
                 if compute.nip66_dns and relay.network == NetworkType.CLEARNET:
-                    dns_meta = await self._with_retry(
+                    parallel_tasks["dns"] = self._with_retry(
                         lambda: Nip66DnsMetadata.dns(relay, timeout),
                         self._config.processing.retry.nip66_dns,
                         "nip66_dns",
                         relay.url,
                     )
-
-                geo_reader = self._geo_reader
                 if compute.nip66_geo and geo_reader and relay.network == NetworkType.CLEARNET:
-                    geo_meta = await self._with_retry(
-                        lambda: Nip66GeoMetadata.geo(relay, geo_reader),
+                    parallel_tasks["geo"] = self._with_retry(
+                        lambda: Nip66GeoMetadata.geo(relay, geo_reader, precision),
                         self._config.processing.retry.nip66_geo,
                         "nip66_geo",
                         relay.url,
                     )
-
-                asn_reader = self._asn_reader
                 if compute.nip66_net and asn_reader and relay.network == NetworkType.CLEARNET:
-                    net_meta = await self._with_retry(
+                    parallel_tasks["net"] = self._with_retry(
                         lambda: Nip66NetMetadata.net(relay, asn_reader),
                         self._config.processing.retry.nip66_net,
                         "nip66_net",
                         relay.url,
                     )
-
                 if compute.nip66_http:
-                    http_meta = await self._with_retry(
+                    parallel_tasks["http"] = self._with_retry(
                         lambda: Nip66HttpMetadata.http(relay, timeout, proxy_url),
                         self._config.processing.retry.nip66_http,
                         "nip66_http",
                         relay.url,
+                    )
+
+                if parallel_tasks:
+                    results = dict(
+                        zip(
+                            parallel_tasks.keys(),
+                            await asyncio.gather(*parallel_tasks.values(), return_exceptions=True),
+                            strict=True,
+                        )
+                    )
+                    ssl_meta = (
+                        results["ssl"]
+                        if "ssl" in results and not isinstance(results["ssl"], BaseException)
+                        else None
+                    )
+                    dns_meta = (
+                        results["dns"]
+                        if "dns" in results and not isinstance(results["dns"], BaseException)
+                        else None
+                    )
+                    geo_meta = (
+                        results["geo"]
+                        if "geo" in results and not isinstance(results["geo"], BaseException)
+                        else None
+                    )
+                    net_meta = (
+                        results["net"]
+                        if "net" in results and not isinstance(results["net"], BaseException)
+                        else None
+                    )
+                    http_meta = (
+                        results["http"]
+                        if "http" in results and not isinstance(results["http"], BaseException)
+                        else None
                     )
 
                 result = CheckResult(
@@ -1015,6 +1063,10 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
             tags.append(Tag.parse(["timeout", "nip11", timeout_ms]))
         if include.nip66_ssl:
             tags.append(Tag.parse(["timeout", "ssl", timeout_ms]))
+        if include.nip66_dns:
+            tags.append(Tag.parse(["timeout", "dns", timeout_ms]))
+        if include.nip66_http:
+            tags.append(Tag.parse(["timeout", "http", timeout_ms]))
 
         # Check type tags (c)
         if include.nip66_rtt:
@@ -1029,6 +1081,10 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
             tags.append(Tag.parse(["c", "geo"]))
         if include.nip66_net:
             tags.append(Tag.parse(["c", "net"]))
+        if include.nip66_dns:
+            tags.append(Tag.parse(["c", "dns"]))
+        if include.nip66_http:
+            tags.append(Tag.parse(["c", "http"]))
 
         return EventBuilder(Kind(10166), "").tags(tags)
 
@@ -1224,10 +1280,10 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         """Build a Kind 30166 relay discovery event per NIP-66.
 
         The event's ``d`` tag is the relay URL. The content field contains the
-        NIP-11 metadata hash if available.
+        stringified NIP-11 JSON document if available, per the NIP-66 spec.
         """
         include = self._config.discovery.include
-        content = result.nip11.metadata.to_db_params().id if result.nip11 else ""
+        content = result.nip11.metadata.canonical_json if result.nip11 else ""
         tags: list[Tag] = [
             Tag.parse(["d", relay.url]),
             Tag.parse(["n", relay.network.value]),

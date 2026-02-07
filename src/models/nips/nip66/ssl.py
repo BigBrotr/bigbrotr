@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import socket
 import ssl
 from typing import Any, Self
 
-from core.logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
 from utils.network import NetworkType
@@ -23,7 +23,7 @@ from .data import Nip66SslData
 from .logs import Nip66SslLogs
 
 
-logger = Logger("models.nip66")
+logger = logging.getLogger("models.nip66")
 
 
 class CertificateExtractor:
@@ -193,9 +193,9 @@ class Nip66SslMetadata(BaseMetadata):
                 result.update(Nip66SslMetadata._extract_tls_info(ssock))
 
         except ssl.SSLError as e:
-            logger.debug("ssl_cert_extraction_failed", error=str(e))
+            logger.debug("ssl_cert_extraction_failed error=%s", str(e))
         except Exception as e:
-            logger.debug("ssl_cert_extraction_error", error=str(e))
+            logger.debug("ssl_cert_extraction_error error=%s", str(e))
 
         return result
 
@@ -232,7 +232,7 @@ class Nip66SslMetadata(BaseMetadata):
         except ssl.SSLError:
             return False
         except Exception as e:
-            logger.debug("ssl_validation_error", error=str(e))
+            logger.debug("ssl_validation_error error=%s", str(e))
             return False
 
     @classmethod
@@ -257,7 +257,7 @@ class Nip66SslMetadata(BaseMetadata):
             ValueError: If the relay is not on the clearnet network.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-        logger.debug("ssl_testing", relay=relay.url, timeout_s=timeout)
+        logger.debug("ssl_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:
             raise ValueError(f"SSL test requires clearnet, got {relay.network.value}")
@@ -267,17 +267,17 @@ class Nip66SslMetadata(BaseMetadata):
         port = relay.port or 443
 
         try:
-            logger.debug("ssl_checking", host=relay.host, port=port)
+            logger.debug("ssl_checking host=%s port=%s", relay.host, port)
             data = await asyncio.to_thread(cls._ssl, relay.host, port, timeout)
             if data:
                 logs["success"] = True
-                logger.debug("ssl_checked", relay=relay.url, valid=data.get("ssl_valid"))
+                logger.debug("ssl_checked relay=%s valid=%s", relay.url, data.get("ssl_valid"))
             else:
                 logs["reason"] = "no certificate data extracted"
-                logger.debug("ssl_no_data", relay=relay.url)
+                logger.debug("ssl_no_data relay=%s", relay.url)
         except Exception as e:
             logs["reason"] = str(e)
-            logger.debug("ssl_error", relay=relay.url, error=str(e))
+            logger.debug("ssl_error relay=%s error=%s", relay.url, str(e))
 
         return cls(
             data=Nip66SslData.model_validate(Nip66SslData.parse(data)),

@@ -51,12 +51,15 @@ class EventRelay:
     event: Event
     relay: Relay
     seen_at: int = field(default_factory=lambda: int(time()))
+    _db_params: EventRelayDbParams | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
 
     def __post_init__(self) -> None:
         """Validate database parameter conversion at construction time (fail-fast)."""
-        self.to_db_params()
+        object.__setattr__(self, "_db_params", self._compute_db_params())
 
-    def to_db_params(self) -> EventRelayDbParams:
+    def _compute_db_params(self) -> EventRelayDbParams:
         """Convert to positional parameters for the database insert procedure.
 
         Returns:
@@ -77,6 +80,14 @@ class EventRelay:
             relay_discovered_at=r.discovered_at,
             seen_at=self.seen_at,
         )
+
+    def to_db_params(self) -> EventRelayDbParams:
+        """Return cached database parameters computed during initialization.
+
+        Returns:
+            EventRelayDbParams combining event, relay, and junction fields.
+        """
+        return self._db_params  # type: ignore[return-value]
 
     @classmethod
     def from_db_params(cls, params: EventRelayDbParams) -> EventRelay:

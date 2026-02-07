@@ -9,12 +9,12 @@ city, coordinates, and a computed geohash. Clearnet relays only.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Self
 
 import geohash2
 import geoip2.database
 
-from core.logger import Logger
 from models.nips.base import BaseMetadata
 from models.relay import Relay
 from utils.dns import resolve_host
@@ -24,7 +24,7 @@ from .data import Nip66GeoData
 from .logs import Nip66GeoLogs
 
 
-logger = Logger("models.nip66")
+logger = logging.getLogger("models.nip66")
 
 
 class GeoExtractor:
@@ -78,7 +78,7 @@ class GeoExtractor:
         return result
 
     @staticmethod
-    def extract_location(response: Any) -> dict[str, Any]:
+    def extract_location(response: Any, geohash_precision: int = 9) -> dict[str, Any]:
         """Extract latitude, longitude, accuracy radius, timezone, and geohash."""
         result: dict[str, Any] = {}
         loc = response.location
@@ -97,18 +97,18 @@ class GeoExtractor:
             result["geohash"] = geohash2.encode(
                 result["geo_lat"],
                 result["geo_lon"],
-                precision=9,
+                precision=geohash_precision,
             )
 
         return result
 
     @classmethod
-    def extract_all(cls, response: Any) -> dict[str, Any]:
+    def extract_all(cls, response: Any, geohash_precision: int = 9) -> dict[str, Any]:
         """Extract all geolocation fields from a GeoIP2 City response."""
         result: dict[str, Any] = {}
         result.update(cls.extract_country(response))
         result.update(cls.extract_administrative(response))
-        result.update(cls.extract_location(response))
+        result.update(cls.extract_location(response, geohash_precision=geohash_precision))
         return result
 
 
@@ -127,21 +127,24 @@ class Nip66GeoMetadata(BaseMetadata):
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _geo(ip: str, city_reader: geoip2.database.Reader) -> dict[str, Any]:
+    def _geo(
+        ip: str, city_reader: geoip2.database.Reader, geohash_precision: int = 9
+    ) -> dict[str, Any]:
         """Perform a synchronous GeoIP City database lookup.
 
         Args:
             ip: Resolved IP address string.
             city_reader: Open GeoLite2-City database reader.
+            geohash_precision: Geohash encoding precision (1-12, default 9).
 
         Returns:
             Dictionary of geolocation fields, or empty dict on error.
         """
         try:
             response = city_reader.city(ip)
-            return GeoExtractor.extract_all(response)
+            return GeoExtractor.extract_all(response, geohash_precision=geohash_precision)
         except Exception as e:
-            logger.debug("geo_geoip_lookup_error", ip=ip, error=str(e))
+            logger.debug("geo_geoip_lookup_error ip=%s error=%s", ip, str(e))
             return {}
 
     @classmethod
@@ -149,6 +152,7 @@ class Nip66GeoMetadata(BaseMetadata):
         cls,
         relay: Relay,
         city_reader: geoip2.database.Reader,
+        geohash_precision: int = 9,
     ) -> Self:
         """Perform a geolocation lookup for a clearnet relay.
 
@@ -165,7 +169,7 @@ class Nip66GeoMetadata(BaseMetadata):
         Raises:
             ValueError: If the relay is not on the clearnet network.
         """
-        logger.debug("geo_testing", relay=relay.url)
+        logger.debug("geo_testing relay=%s", relay.url)
 
         if relay.network != NetworkType.CLEARNET:
             raise ValueError(f"geo lookup requires clearnet, got {relay.network.value}")
@@ -178,19 +182,21 @@ class Nip66GeoMetadata(BaseMetadata):
         data: dict[str, Any] = {}
         if ip:
             try:
-                data = await asyncio.to_thread(cls._geo, ip, city_reader)
+                data = await asyncio.to_thread(cls._geo, ip, city_reader, geohash_precision)
                 if data:
                     logs["success"] = True
-                    logger.debug("geo_completed", relay=relay.url, country=data.get("geo_country"))
+                    logger.debug(
+                        "geo_completed relay=%s country=%s", relay.url, data.get("geo_country")
+                    )
                 else:
                     logs["reason"] = "no geo data found for IP"
-                    logger.debug("geo_no_data", relay=relay.url)
+                    logger.debug("geo_no_data relay=%s", relay.url)
             except Exception as e:
                 logs["reason"] = str(e)
-                logger.debug("geo_lookup_failed", relay=relay.url, error=str(e))
+                logger.debug("geo_lookup_failed relay=%s error=%s", relay.url, str(e))
         else:
             logs["reason"] = "could not resolve hostname to IP"
-            logger.debug("geo_no_ip", relay=relay.url)
+            logger.debug("geo_no_ip relay=%s", relay.url)
 
         return cls(
             data=Nip66GeoData.model_validate(Nip66GeoData.parse(data)),

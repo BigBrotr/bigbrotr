@@ -19,7 +19,7 @@ Usage::
     brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
     finder = Finder.from_yaml("yaml/services/finder.yaml", brotr=brotr)
 
-    async with brotr.pool:
+    async with brotr:
         async with finder:
             await finder.run_forever()
 """
@@ -29,12 +29,13 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import aiohttp
 from nostr_sdk import RelayUrl
 from pydantic import BaseModel, Field
 
+from core.queries import get_all_relay_urls, get_events_with_relay_urls, upsert_candidates
 from core.service import BaseService, BaseServiceConfig
 from models import Relay
 
@@ -90,6 +91,12 @@ class ApiSourceConfig(BaseModel):
     url: str = Field(description="API endpoint URL")
     enabled: bool = Field(default=True, description="Enable this source")
     timeout: float = Field(default=30.0, ge=0.1, le=120.0, description="Request timeout")
+    connect_timeout: float = Field(
+        default=10.0,
+        ge=0.1,
+        le=60.0,
+        description="HTTP connection timeout (capped to total timeout)",
+    )
 
 
 class ApiConfig(BaseModel):
@@ -181,23 +188,29 @@ class Finder(BaseService[FinderConfig]):
 
         # Fetch all relays from database
         try:
-            relay_rows = await self._brotr.pool.fetch("SELECT url FROM relays ORDER BY url")
+            relay_urls = await get_all_relay_urls(self._brotr)
         except Exception as e:
             self._logger.warning("fetch_relays_failed", error=str(e), error_type=type(e).__name__)
             return
 
-        if not relay_rows:
+        if not relay_urls:
             self._logger.debug("no_relays_to_scan")
             return
 
-        self._logger.debug("events_scan_started", relay_count=len(relay_rows))
+        self._logger.debug("events_scan_started", relay_count=len(relay_urls))
 
-        for relay_row in relay_rows:
+        # Fetch all cursors in a single query to avoid N+1 per-relay lookups
+        try:
+            cursors = await self._fetch_all_cursors()
+        except Exception as e:
+            self._logger.warning("fetch_cursors_failed", error=str(e), error_type=type(e).__name__)
+            return
+
+        for relay_url in relay_urls:
             if not self.is_running:
                 break
 
-            relay_url = relay_row["url"]
-            relay_events, relay_relays = await self._scan_relay_events(relay_url)
+            relay_events, relay_relays = await self._scan_relay_events(relay_url, cursors)
             total_events_scanned += relay_events
             total_relays_found += relay_relays
             relays_processed += 1
@@ -210,12 +223,18 @@ class Finder(BaseService[FinderConfig]):
             relays_processed=relays_processed,
         )
 
-    async def _scan_relay_events(self, relay_url: str) -> tuple[int, int]:
+    async def _fetch_all_cursors(self) -> dict[str, int]:
+        """Fetch all event-scanning cursors in a single query."""
+        results = await self._brotr.get_service_data(self.SERVICE_NAME, "cursor")
+        return {r["key"]: r.get("value", {}).get("last_seen_at", 0) for r in results}
+
+    async def _scan_relay_events(self, relay_url: str, cursors: dict[str, int]) -> tuple[int, int]:
         """
         Scan events from a single relay using cursor-based pagination.
 
         Args:
             relay_url: The relay URL to scan events from
+            cursors: Pre-fetched mapping of relay URL to last_seen_at timestamp
 
         Returns:
             Tuple of (events_scanned, relays_found)
@@ -223,22 +242,8 @@ class Finder(BaseService[FinderConfig]):
         events_scanned = 0
         relays_found = 0
 
-        # Load cursor for this relay
-        results = await self._brotr.get_service_data(self.SERVICE_NAME, "cursor", relay_url)
-        last_seen_at = results[0].get("value", {}).get("last_seen_at", 0) if results else 0
-
-        # Query events from this relay after cursor position
-        # Uses events_relays.seen_at for cursor to handle historical events correctly
-        query = """
-            SELECT e.id, e.created_at, e.kind, e.tags, e.content, er.seen_at
-            FROM events e
-            INNER JOIN events_relays er ON e.id = er.event_id
-            WHERE er.relay_url = $1
-              AND er.seen_at > $2
-              AND (e.kind = ANY($3) OR e.tagvalues @> ARRAY['r'])
-            ORDER BY er.seen_at ASC
-            LIMIT $4
-        """
+        # Look up cursor from pre-fetched cache (avoids per-relay query)
+        last_seen_at = cursors.get(relay_url, 0)
 
         while self.is_running:
             relays: dict[str, Relay] = {}  # url -> Relay for deduplication
@@ -246,8 +251,8 @@ class Finder(BaseService[FinderConfig]):
             chunk_last_seen_at = None
 
             try:
-                rows = await self._brotr.pool.fetch(
-                    query,
+                rows = await get_events_with_relay_urls(
+                    self._brotr,
                     relay_url,
                     last_seen_at,
                     self._config.events.kinds,
@@ -306,22 +311,7 @@ class Finder(BaseService[FinderConfig]):
             # Insert discovered relays as candidates
             if relays:
                 try:
-                    now = int(time.time())
-                    records: list[tuple[str, str, str, dict[str, Any]]] = [
-                        (
-                            "validator",
-                            "candidate",
-                            relay.url,
-                            {
-                                "failed_attempts": 0,
-                                "network": relay.network.value,
-                                "inserted_at": now,
-                            },
-                        )
-                        for relay in relays.values()
-                    ]
-                    await self._brotr.upsert_service_data(records)
-                    relays_found += len(relays)
+                    relays_found += await upsert_candidates(self._brotr, relays.values())
                 except Exception as e:
                     self._logger.error(
                         "insert_candidates_failed",
@@ -418,18 +408,7 @@ class Finder(BaseService[FinderConfig]):
         # Insert as validation candidates (service_name='validator')
         if relays:
             try:
-                now = int(time.time())
-                records: list[tuple[str, str, str, dict[str, Any]]] = [
-                    (
-                        "validator",
-                        "candidate",
-                        relay.url,
-                        {"failed_attempts": 0, "network": relay.network.value, "inserted_at": now},
-                    )
-                    for relay in relays.values()
-                ]
-                await self._brotr.upsert_service_data(records)
-                self._found_relays += len(relays)
+                self._found_relays += await upsert_candidates(self._brotr, relays.values())
             except Exception as e:
                 self._logger.error(
                     "insert_candidates_failed",
@@ -459,7 +438,7 @@ class Finder(BaseService[FinderConfig]):
 
         timeout = aiohttp.ClientTimeout(
             total=source.timeout,
-            connect=min(10.0, source.timeout),
+            connect=min(source.connect_timeout, source.timeout),
             sock_read=source.timeout,
         )
         async with session.get(source.url, timeout=timeout) as resp:

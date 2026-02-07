@@ -206,7 +206,7 @@ async def main() -> int:
     brotr = load_brotr(args.brotr_config)
 
     try:
-        async with brotr.pool:
+        async with brotr:
             return await run_service(
                 service_name=args.service,
                 service_class=service_class,
