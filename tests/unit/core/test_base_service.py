@@ -1,5 +1,5 @@
 """
-Unit tests for core.service module.
+Unit tests for core.base_service module.
 
 Tests:
 - BaseServiceConfig initialization and validation
@@ -22,9 +22,9 @@ from unittest.mock import patch
 import pytest
 from pydantic import Field, ValidationError
 
+from core.base_service import BaseService, BaseServiceConfig
 from core.brotr import Brotr
 from core.metrics import MetricsConfig
-from core.service import BaseService, BaseServiceConfig
 
 
 # ============================================================================
@@ -571,7 +571,7 @@ class TestSetGauge:
         config = ConcreteServiceConfig(metrics=MetricsConfig(enabled=True))
         service = ConcreteService(brotr=mock_brotr, config=config)
 
-        with patch("core.service.SERVICE_GAUGE") as mock_gauge:
+        with patch("core.base_service.SERVICE_GAUGE") as mock_gauge:
             service.set_gauge("test_metric", 42.0)
             mock_gauge.labels.assert_called_with(service="test_service", name="test_metric")
             mock_gauge.labels().set.assert_called_with(42.0)
@@ -581,7 +581,7 @@ class TestSetGauge:
         config = ConcreteServiceConfig(metrics=MetricsConfig(enabled=False))
         service = ConcreteService(brotr=mock_brotr, config=config)
 
-        with patch("core.service.SERVICE_GAUGE") as mock_gauge:
+        with patch("core.base_service.SERVICE_GAUGE") as mock_gauge:
             service.set_gauge("test_metric", 42.0)
             mock_gauge.labels.assert_not_called()
 
@@ -594,7 +594,7 @@ class TestIncCounter:
         config = ConcreteServiceConfig(metrics=MetricsConfig(enabled=True))
         service = ConcreteService(brotr=mock_brotr, config=config)
 
-        with patch("core.service.SERVICE_COUNTER") as mock_counter:
+        with patch("core.base_service.SERVICE_COUNTER") as mock_counter:
             service.inc_counter("test_count", 5.0)
             mock_counter.labels.assert_called_with(service="test_service", name="test_count")
             mock_counter.labels().inc.assert_called_with(5.0)
@@ -604,7 +604,7 @@ class TestIncCounter:
         config = ConcreteServiceConfig(metrics=MetricsConfig(enabled=True))
         service = ConcreteService(brotr=mock_brotr, config=config)
 
-        with patch("core.service.SERVICE_COUNTER") as mock_counter:
+        with patch("core.base_service.SERVICE_COUNTER") as mock_counter:
             service.inc_counter("test_count")
             mock_counter.labels().inc.assert_called_with(1)
 
@@ -613,7 +613,7 @@ class TestIncCounter:
         config = ConcreteServiceConfig(metrics=MetricsConfig(enabled=False))
         service = ConcreteService(brotr=mock_brotr, config=config)
 
-        with patch("core.service.SERVICE_COUNTER") as mock_counter:
+        with patch("core.base_service.SERVICE_COUNTER") as mock_counter:
             service.inc_counter("test_count")
             mock_counter.labels.assert_not_called()
 

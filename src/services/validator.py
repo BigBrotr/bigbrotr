@@ -16,7 +16,7 @@ Usage::
     brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
     validator = Validator.from_yaml("yaml/services/validator.yaml", brotr=brotr)
 
-    async with brotr.pool:
+    async with brotr:
         async with validator:
             await validator.run_forever()
 """
@@ -29,11 +29,20 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, Field
 
-from core.service import BaseService, BaseServiceConfig, NetworkSemaphoreMixin
+from core.base_service import BaseService, BaseServiceConfig
 from models import Relay
 from utils.network import NetworkConfig, NetworkType
-from utils.progress import BatchProgress
 from utils.transport import is_nostr_relay
+
+from .common.constants import DataType, ServiceName
+from .common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
+from .common.queries import (
+    count_candidates,
+    delete_exhausted_candidates,
+    delete_stale_candidates,
+    fetch_candidate_chunk,
+    promote_candidates,
+)
 
 
 if TYPE_CHECKING:
@@ -113,7 +122,7 @@ class ValidatorConfig(BaseServiceConfig):
 # =============================================================================
 
 
-class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
+class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     """Validates relay candidates by checking if they speak the Nostr protocol.
 
     Processes candidate URLs discovered by the Finder service. Valid relays are
@@ -133,14 +142,14 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     Network support: clearnet (direct), Tor (.onion via SOCKS5), I2P (.i2p via SOCKS5).
     """
 
-    SERVICE_NAME: ClassVar[str] = "validator"
+    SERVICE_NAME: ClassVar[str] = ServiceName.VALIDATOR
     CONFIG_CLASS: ClassVar[type[ValidatorConfig]] = ValidatorConfig
 
     def __init__(self, brotr: Brotr, config: ValidatorConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: ValidatorConfig
         self._semaphores: dict[NetworkType, asyncio.Semaphore] = {}
-        self._progress = BatchProgress()
+        self._init_progress()
 
     # -------------------------------------------------------------------------
     # Main Cycle
@@ -210,14 +219,8 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
         manually added, or re-discovered by the Finder. Removing them prevents
         wasted validation attempts.
         """
-        result = await self._brotr.pool.execute(
-            """
-            DELETE FROM service_data
-            WHERE service_name = 'validator'
-              AND data_type = 'candidate'
-              AND data_key IN (SELECT url FROM relays)
-            """,
-            timeout=self._brotr.config.timeouts.query,
+        result = await delete_stale_candidates(
+            self._brotr, timeout=self._brotr.config.timeouts.query
         )
         count = self._parse_delete_result(result)
         if count > 0:
@@ -233,13 +236,8 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
         if not self._config.cleanup.enabled:
             return
 
-        result = await self._brotr.pool.execute(
-            """
-            DELETE FROM service_data
-            WHERE service_name = 'validator'
-              AND data_type = 'candidate'
-              AND COALESCE((data->>'failed_attempts')::int, 0) >= $1
-            """,
+        result = await delete_exhausted_candidates(
+            self._brotr,
             self._config.cleanup.max_failures,
             timeout=self._brotr.config.timeouts.query,
         )
@@ -279,18 +277,9 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
         Returns:
             Total count of matching candidates, or 0 if none exist.
         """
-        row = await self._brotr.pool.fetchrow(
-            """
-            SELECT COUNT(*)::int AS count
-            FROM service_data
-            WHERE service_name = 'validator'
-              AND data_type = 'candidate'
-              AND data->>'network' = ANY($1)
-            """,
-            networks,
-            timeout=self._brotr.config.timeouts.query,
+        return await count_candidates(
+            self._brotr, networks, timeout=self._brotr.config.timeouts.query
         )
-        return row["count"] if row else 0
 
     # -------------------------------------------------------------------------
     # Processing
@@ -357,18 +346,8 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
         Returns:
             List of Candidate objects, possibly empty if none remain.
         """
-        rows = await self._brotr.pool.fetch(
-            """
-            SELECT data_key, data
-            FROM service_data
-            WHERE service_name = 'validator'
-              AND data_type = 'candidate'
-              AND data->>'network' = ANY($1)
-              AND updated_at < $2
-            ORDER BY COALESCE((data->>'failed_attempts')::int, 0) ASC,
-                     updated_at ASC
-            LIMIT $3
-            """,
+        rows = await fetch_candidate_chunk(
+            self._brotr,
             networks,
             int(self._progress.started_at),
             limit,
@@ -460,10 +439,10 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
         """
         # Update failed candidates
         if invalid:
-            updates = [
+            updates: list[tuple[str, str, str, dict[str, Any]]] = [
                 (
-                    "validator",
-                    "candidate",
+                    self.SERVICE_NAME,
+                    DataType.CANDIDATE,
                     c.relay.url,
                     {**c.data, "failed_attempts": c.failed_attempts + 1},
                 )
@@ -474,12 +453,10 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
             except Exception as e:
                 self._logger.error("update_failed", count=len(invalid), error=str(e))
 
-        # Promote valid relays
+        # Promote valid relays (atomic: insert + delete in one transaction)
         if valid:
             try:
-                await self._brotr.insert_relays(valid)
-                deletes = [("validator", "candidate", r.url) for r in valid]
-                await self._brotr.delete_service_data(deletes)
+                await promote_candidates(self._brotr, valid)
                 for relay in valid:
                     self._logger.info("promoted", url=relay.url, network=relay.network.value)
             except Exception as e:

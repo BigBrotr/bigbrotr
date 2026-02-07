@@ -57,12 +57,23 @@ class RelayMetadata:
     relay: Relay
     metadata: Metadata
     generated_at: int = field(default_factory=lambda: int(time()))
+    _db_params: RelayMetadataDbParams | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
 
     def __post_init__(self) -> None:
         """Validate database parameter conversion at construction time (fail-fast)."""
-        self.to_db_params()
+        object.__setattr__(self, "_db_params", self._compute_db_params())
 
     def to_db_params(self) -> RelayMetadataDbParams:
+        """Convert to positional parameters for the cascade insert procedure.
+
+        Returns:
+            RelayMetadataDbParams combining relay, metadata, and junction fields.
+        """
+        return self._db_params  # type: ignore[return-value]
+
+    def _compute_db_params(self) -> RelayMetadataDbParams:
         """Convert to positional parameters for the cascade insert procedure.
 
         Returns:

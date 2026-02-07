@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field, field_validator
 from utils.yaml import load_yaml
 
 from .logger import Logger
-from .pool import Pool
+from .pool import Pool, PoolConfig
 
 
 _MIN_TIMEOUT_SECONDS = 0.1  # Floor for all configurable timeouts
@@ -34,6 +34,7 @@ _MIN_TIMEOUT_SECONDS = 0.1  # Floor for all configurable timeouts
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from contextlib import AbstractAsyncContextManager
 
     from models import Event, EventRelay, Metadata, Relay, RelayMetadata
 
@@ -101,9 +102,10 @@ class Brotr:
     RelayMetadata). Bulk inserts use array parameters for single-roundtrip
     efficiency.
 
-    Uses composition: holds a public ``pool`` attribute for direct connection
-    access when needed. Implements async context manager for automatic pool
-    lifecycle management.
+    Uses composition with a private ``Pool`` instance for connection
+    management. Exposes generic query methods (fetch, fetchrow, fetchval,
+    execute, transaction) as a facade over the pool. Implements async
+    context manager for automatic pool lifecycle management.
 
     Example:
         brotr = Brotr.from_yaml("config.yaml")
@@ -115,8 +117,6 @@ class Brotr:
             event_relay = EventRelay(Event(nostr_event), relay)
             await brotr.insert_events_relays(records=[event_relay])
     """
-
-    _DEFAULT_QUERY_LIMIT: ClassVar[int] = 1000
 
     def __init__(
         self,
@@ -131,7 +131,7 @@ class Brotr:
             config: Brotr-specific configuration (batch sizes, timeouts).
                 Uses defaults if not provided.
         """
-        self.pool = pool or Pool()
+        self._pool = pool or Pool()
         self._config = config or BrotrConfig()
         self._logger = Logger("brotr")
 
@@ -139,6 +139,11 @@ class Brotr:
     def config(self) -> BrotrConfig:
         """The Brotr configuration (read-only)."""
         return self._config
+
+    @property
+    def pool_config(self) -> PoolConfig:
+        """Read-only access to the underlying pool configuration."""
+        return self._pool.config
 
     @classmethod
     def from_yaml(cls, config_path: str) -> Brotr:
@@ -217,7 +222,6 @@ class Brotr:
         self,
         procedure_name: str,
         *args: Any,
-        conn: asyncpg.Connection[asyncpg.Record] | None = None,
         fetch_result: bool = False,
         timeout: float | None = None,
     ) -> Any:
@@ -231,8 +235,6 @@ class Brotr:
             procedure_name: Name of the stored procedure. Must match
                 ``[a-z_][a-z0-9_]*`` (case-insensitive).
             *args: Arguments passed as parameterized query values.
-            conn: Existing connection to reuse. If None, acquires one
-                from the pool.
             fetch_result: If True, return the scalar result (defaulting
                 to 0 for None). If False, execute without returning.
             timeout: Query timeout in seconds (None = no timeout).
@@ -253,18 +255,80 @@ class Brotr:
         params = ", ".join(f"${i + 1}" for i in range(len(args))) if args else ""
         query = f"SELECT {procedure_name}({params})"
 
-        async def execute(c: asyncpg.Connection[asyncpg.Record]) -> Any:
-            if fetch_result:
-                result = await c.fetchval(query, *args, timeout=timeout)
-                return result or 0
-            await c.execute(query, *args, timeout=timeout)
-            return None
+        if fetch_result:
+            result = await self._pool.fetchval(query, *args, timeout=timeout)
+            return result if result is not None else 0
+        await self._pool.execute(query, *args, timeout=timeout)
+        return None
 
-        if conn is not None:
-            return await execute(conn)
+    # -------------------------------------------------------------------------
+    # Generic Query Facade
+    # -------------------------------------------------------------------------
 
-        async with self.pool.acquire() as acquired_conn:
-            return await execute(acquired_conn)
+    async def fetch(
+        self, query: str, *args: Any, timeout: float | None = None
+    ) -> list[asyncpg.Record]:
+        """Execute a query and return all rows.
+
+        Args:
+            query: SQL query with $1, $2, ... placeholders.
+            *args: Query parameters.
+            timeout: Query timeout in seconds. Defaults to
+                ``config.timeouts.query``.
+        """
+        t = timeout if timeout is not None else self._config.timeouts.query
+        return await self._pool.fetch(query, *args, timeout=t)
+
+    async def fetchrow(
+        self, query: str, *args: Any, timeout: float | None = None
+    ) -> asyncpg.Record | None:
+        """Execute a query and return the first row.
+
+        Args:
+            query: SQL query with $1, $2, ... placeholders.
+            *args: Query parameters.
+            timeout: Query timeout in seconds. Defaults to
+                ``config.timeouts.query``.
+        """
+        t = timeout if timeout is not None else self._config.timeouts.query
+        return await self._pool.fetchrow(query, *args, timeout=t)
+
+    async def fetchval(self, query: str, *args: Any, timeout: float | None = None) -> Any:
+        """Execute a query and return the first column of the first row.
+
+        Args:
+            query: SQL query with $1, $2, ... placeholders.
+            *args: Query parameters.
+            timeout: Query timeout in seconds. Defaults to
+                ``config.timeouts.query``.
+        """
+        t = timeout if timeout is not None else self._config.timeouts.query
+        return await self._pool.fetchval(query, *args, timeout=t)
+
+    async def execute(self, query: str, *args: Any, timeout: float | None = None) -> str:
+        """Execute a query and return the command status string.
+
+        Args:
+            query: SQL query with $1, $2, ... placeholders.
+            *args: Query parameters.
+            timeout: Query timeout in seconds. Defaults to
+                ``config.timeouts.query``.
+        """
+        t = timeout if timeout is not None else self._config.timeouts.query
+        return await self._pool.execute(query, *args, timeout=t)
+
+    def transaction(self) -> AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]:
+        """Return a transaction context manager from the pool.
+
+        The transaction commits automatically on normal exit and rolls back
+        if an exception propagates.
+
+        Example:
+            async with self._brotr.transaction() as conn:
+                await conn.execute("INSERT INTO ...")
+                await conn.execute("DELETE FROM ...")
+        """
+        return self._pool.transaction()
 
     # -------------------------------------------------------------------------
     # Insert Operations
@@ -291,7 +355,7 @@ class Brotr:
         params = [relay.to_db_params() for relay in records]
         columns = self._transpose_to_columns(params)
 
-        async with self.pool.transaction() as conn:
+        async with self._pool.transaction() as conn:
             inserted: int = (
                 await conn.fetchval(
                     "SELECT relays_insert($1, $2, $3)",
@@ -328,7 +392,7 @@ class Brotr:
         params = [event.to_db_params() for event in records]
         columns = self._transpose_to_columns(params)
 
-        async with self.pool.transaction() as conn:
+        async with self._pool.transaction() as conn:
             inserted: int = (
                 await conn.fetchval(
                     "SELECT events_insert($1, $2, $3, $4, $5, $6, $7)",
@@ -380,7 +444,7 @@ class Brotr:
             query = "SELECT events_relays_insert($1, $2, $3)"
             columns = (event_ids, relay_urls, seen_ats)
 
-        async with self.pool.transaction() as conn:
+        async with self._pool.transaction() as conn:
             inserted: int = (
                 await conn.fetchval(query, *columns, timeout=self._config.timeouts.batch) or 0
             )
@@ -419,7 +483,7 @@ class Brotr:
         ids = [p.id for p in params]
         values = [p.value for p in params]
 
-        async with self.pool.transaction() as conn:
+        async with self._pool.transaction() as conn:
             inserted: int = (
                 await conn.fetchval(
                     "SELECT metadata_insert($1, $2)",
@@ -466,7 +530,7 @@ class Brotr:
             # Cascade: relays -> metadata -> relay_metadata in one procedure call
             columns = self._transpose_to_columns(params)
 
-            async with self.pool.transaction() as conn:
+            async with self._pool.transaction() as conn:
                 inserted: int = (
                     await conn.fetchval(
                         "SELECT relay_metadata_insert_cascade($1, $2, $3, $4, $5, $6, $7)",
@@ -483,7 +547,7 @@ class Brotr:
             metadata_types = [p.metadata_type for p in params]
             generated_ats = [p.generated_at for p in params]
 
-            async with self.pool.transaction() as conn:
+            async with self._pool.transaction() as conn:
                 inserted = (
                     await conn.fetchval(
                         "SELECT relay_metadata_insert($1, $2, $3, $4, $5)",
@@ -589,7 +653,7 @@ class Brotr:
             values.append(value)  # asyncpg JSON codec handles dict -> JSONB encoding
             updated_ats.append(now)
 
-        async with self.pool.transaction() as conn:
+        async with self._pool.transaction() as conn:
             await conn.execute(
                 "SELECT service_data_upsert($1, $2, $3, $4::jsonb[], $5)",
                 service_names,
@@ -620,7 +684,7 @@ class Brotr:
         Returns:
             List of dicts with keys: ``key``, ``value``, ``updated_at``.
         """
-        rows = await self.pool.fetch(
+        rows = await self._pool.fetch(
             "SELECT * FROM service_data_get($1, $2, $3)",
             service_name,
             data_type,
@@ -653,7 +717,7 @@ class Brotr:
         data_types = [k[1] for k in keys]
         data_keys = [k[2] for k in keys]
 
-        async with self.pool.transaction() as conn:
+        async with self._pool.transaction() as conn:
             deleted: int = (
                 await conn.fetchval(
                     "SELECT service_data_delete($1, $2, $3)",
@@ -669,91 +733,23 @@ class Brotr:
         return deleted
 
     # -------------------------------------------------------------------------
-    # Query Operations
-    # -------------------------------------------------------------------------
-
-    async def get_relays_needing_check(
-        self,
-        service_name: str,
-        check_interval_seconds: int,
-        limit: int | None = None,
-    ) -> list[dict[str, Any]]:
-        """Find relays due for a health check.
-
-        Returns relays that either have no checkpoint record for the given
-        service or whose last check timestamp is older than the specified
-        interval. Results are ordered by discovery time (oldest first).
-
-        Args:
-            service_name: The service requesting checks (e.g. "monitor").
-            check_interval_seconds: Minimum seconds that must have elapsed
-                since the last check before a relay is considered due.
-            limit: Maximum number of relays to return. Defaults to 1000.
-
-        Returns:
-            List of dicts with keys: ``url``, ``network``, ``discovered_at``.
-        """
-        if limit is None:
-            limit = self._DEFAULT_QUERY_LIMIT
-        cutoff = int(time.time()) - check_interval_seconds
-
-        query = """
-            SELECT r.url, r.network, r.discovered_at
-            FROM relays r
-            LEFT JOIN service_data sd ON
-                sd.service_name = $1
-                AND sd.data_type = 'checkpoint'
-                AND sd.data_key = r.url
-            WHERE sd.data_key IS NULL
-               OR (sd.data->>'last_check_at')::BIGINT < $2
-            ORDER BY r.discovered_at ASC
-            LIMIT $3
-        """
-
-        rows = await self.pool.fetch(
-            query, service_name, cutoff, limit, timeout=self._config.timeouts.query
-        )
-
-        self._logger.debug(
-            "relays_needing_check",
-            service=service_name,
-            count=len(rows),
-            cutoff=cutoff,
-        )
-
-        return [dict(r) for r in rows]
-
-    # -------------------------------------------------------------------------
     # Refresh Operations
     # -------------------------------------------------------------------------
-
-    # Allowlist of refreshable materialized views (prevents SQL injection)
-    _VALID_MATVIEW_NAMES: ClassVar[frozenset[str]] = frozenset(
-        [
-            "relay_metadata_latest",
-            "events_statistics",
-            "relays_statistics",
-            "kind_counts_total",
-            "kind_counts_by_relay",
-            "pubkey_counts_total",
-            "pubkey_counts_by_relay",
-        ]
-    )
 
     async def refresh_matview(self, view_name: str) -> None:
         """Refresh a materialized view concurrently (non-blocking).
 
         Calls a stored procedure named ``{view_name}_refresh`` which
-        performs ``REFRESH MATERIALIZED VIEW CONCURRENTLY``.
+        performs ``REFRESH MATERIALIZED VIEW CONCURRENTLY``. The view
+        name is validated by ``_call_procedure()`` against a strict SQL
+        identifier regex to prevent injection.
 
         Args:
-            view_name: Must be one of the allowlisted view names.
+            view_name: Name of the materialized view to refresh.
 
         Raises:
-            ValueError: If the view name is not in the allowlist.
+            ValueError: If the view name is not a valid SQL identifier.
         """
-        if view_name not in self._VALID_MATVIEW_NAMES:
-            raise ValueError(f"Invalid materialized view name: {view_name}")
         await self._call_procedure(
             f"{view_name}_refresh",
             timeout=self._config.timeouts.refresh,
@@ -766,16 +762,16 @@ class Brotr:
 
     async def __aenter__(self) -> Brotr:
         """Connect the underlying pool on context entry."""
-        await self.pool.connect()
+        await self._pool.connect()
         self._logger.debug("session_started")
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Close the underlying pool on context exit."""
         self._logger.debug("session_ending")
-        await self.pool.close()
+        await self._pool.close()
 
     def __repr__(self) -> str:
         """Return a human-readable representation with host and connection status."""
-        db = self.pool.config.database
-        return f"Brotr(host={db.host}, database={db.database}, connected={self.pool.is_connected})"
+        db = self._pool.config.database
+        return f"Brotr(host={db.host}, database={db.database}, connected={self._pool.is_connected})"

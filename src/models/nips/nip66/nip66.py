@@ -10,12 +10,12 @@ via the ``create()`` async factory method, and provides
 from __future__ import annotations
 
 import asyncio
+import logging
 from time import time
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from core.logger import Logger
 from models.metadata import Metadata, MetadataType
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from nostr_sdk import EventBuilder, Filter, Keys
 
 
-logger = Logger("models.nip66")
+logger = logging.getLogger("models.nip66")
 
 
 class RelayNip66MetadataTuple(NamedTuple):
@@ -170,7 +170,7 @@ class Nip66(BaseModel):
             A populated ``Nip66`` instance with test results.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-        logger.debug("create_started", relay=relay.url, timeout_s=timeout)
+        logger.debug("create_started relay=%s timeout_s=%s", relay.url, timeout)
 
         tasks: list[Any] = []
         task_names: list[str] = []
@@ -210,24 +210,24 @@ class Nip66(BaseModel):
             tasks.append(Nip66HttpMetadata.http(relay, timeout, proxy_url))
             task_names.append("http")
 
-        logger.debug("create_running", tests=task_names)
+        logger.debug("create_running tests=%s", task_names)
         results = await asyncio.gather(*tasks)
 
         # Map each result to its corresponding metadata field
         metadata_map: dict[str, Any] = {}
         for name, result in zip(task_names, results, strict=True):
-            logger.debug("create_task_succeeded", test=name)
+            logger.debug("create_task_succeeded test=%s", name)
             metadata_map[f"{name}_metadata"] = result
 
         nip66 = cls(relay=relay, **metadata_map)
         logger.debug(
-            "create_completed",
-            relay=relay.url,
-            has_rtt=nip66.rtt_metadata is not None,
-            has_ssl=nip66.ssl_metadata is not None,
-            has_geo=nip66.geo_metadata is not None,
-            has_net=nip66.net_metadata is not None,
-            has_dns=nip66.dns_metadata is not None,
-            has_http=nip66.http_metadata is not None,
+            "create_completed relay=%s rtt=%s ssl=%s geo=%s net=%s dns=%s http=%s",
+            relay.url,
+            nip66.rtt_metadata is not None,
+            nip66.ssl_metadata is not None,
+            nip66.geo_metadata is not None,
+            nip66.net_metadata is not None,
+            nip66.dns_metadata is not None,
+            nip66.http_metadata is not None,
         )
         return nip66

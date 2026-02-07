@@ -32,8 +32,8 @@ from services.seeder import (
 def mock_seeder_brotr(mock_brotr: Brotr) -> Brotr:
     """Create a Brotr mock configured for seeder tests."""
     # Default successful responses
-    mock_brotr.pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
-    mock_brotr.pool._mock_connection.execute = AsyncMock()  # type: ignore[attr-defined]
+    mock_brotr._pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
+    mock_brotr._pool._mock_connection.execute = AsyncMock()  # type: ignore[attr-defined]
 
     # Setup config with batch settings
     mock_batch_config = MagicMock()
@@ -214,7 +214,7 @@ class TestSeedRelays:
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay1.example.com\nwss://relay2.example.com\n")
 
-        mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
                 {"url": "wss://relay1.example.com"},
                 {"url": "wss://relay2.example.com"},
@@ -252,7 +252,7 @@ class TestSeedRelays:
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("# Comment\n\nwss://relay.example.com\n# Another comment\n")
 
-        mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://relay.example.com"}]
         )
         mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
@@ -268,7 +268,7 @@ class TestSeedRelays:
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("invalid-url\nwss://valid.relay.com\nnot-a-relay\n")
 
-        mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://valid.relay.com"}]
         )
         mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
@@ -295,7 +295,7 @@ class TestSeedRelays:
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay.example.com\n")
 
-        mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[]
         )
 
@@ -409,7 +409,7 @@ class TestSeedAsCandidates:
         seed_file.write_text("wss://new.relay.com\nwss://existing.relay.com\n")
 
         # Mock fetch to return only new relay (existing filtered out)
-        mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://new.relay.com"}]
         )
         mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
@@ -430,7 +430,7 @@ class TestSeedAsCandidates:
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("wss://clearnet.relay.com\nws://example.onion\n")
 
-        mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
                 {"url": "wss://clearnet.relay.com"},
                 {"url": "ws://example.onion"},
@@ -519,7 +519,7 @@ class TestSeederRun:
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay.example.com\n")
 
-        mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://relay.example.com"}]
         )
         mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
@@ -537,7 +537,7 @@ class TestSeederRun:
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay.example.com\n")
 
-        mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://relay.example.com"}]
         )
         mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
@@ -566,7 +566,7 @@ class TestSeederErrorHandling:
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("wss://relay.example.com\n")
 
-        mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             side_effect=Exception("Database error")
         )
 
@@ -584,7 +584,7 @@ class TestSeederErrorHandling:
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("invalid://not-a-valid-relay-url\nwss://valid.relay.com\n")
 
-        mock_seeder_brotr.pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+        mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://valid.relay.com"}]
         )
         mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]

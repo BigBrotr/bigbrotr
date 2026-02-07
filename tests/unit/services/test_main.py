@@ -23,6 +23,7 @@ from services.__main__ import (
     CORE_CONFIG,
     SERVICE_REGISTRY,
     YAML_BASE,
+    ServiceEntry,
     load_brotr,
     main,
     parse_args,
@@ -39,8 +40,8 @@ from services.__main__ import (
 @pytest.fixture
 def mock_brotr_for_cli(mock_brotr: Brotr) -> Brotr:
     """Create a Brotr mock configured for CLI tests."""
-    mock_brotr.pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
-    mock_brotr.pool._mock_connection.execute = AsyncMock()  # type: ignore[attr-defined]
+    mock_brotr._pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
+    mock_brotr._pool._mock_connection.execute = AsyncMock()  # type: ignore[attr-defined]
     return mock_brotr
 
 
@@ -111,10 +112,10 @@ class TestServiceRegistry:
         for name, (service_class, _) in SERVICE_REGISTRY.items():
             assert service_class == expected_classes[name]
 
-    def test_registry_is_two_tuple(self) -> None:
-        """Test registry entries are 2-tuples (class, config_path)."""
+    def test_registry_entries_are_service_entry(self) -> None:
+        """Test registry entries are ServiceEntry NamedTuples."""
         for name, entry in SERVICE_REGISTRY.items():
-            assert len(entry) == 2, f"{name} should be 2-tuple (class, config_path)"
+            assert isinstance(entry, ServiceEntry), f"{name} should be a ServiceEntry"
 
     def test_registry_not_empty(self) -> None:
         """Test registry is not empty."""
@@ -122,7 +123,7 @@ class TestServiceRegistry:
 
     def test_service_classes_are_base_service_subclasses(self) -> None:
         """Test all service classes inherit from BaseService."""
-        from core.service import BaseService
+        from core.base_service import BaseService
 
         for name, (service_class, _) in SERVICE_REGISTRY.items():
             assert issubclass(service_class, BaseService), (
@@ -368,7 +369,7 @@ pool:
 """)
         brotr = load_brotr(config_file)
         assert isinstance(brotr, Brotr)
-        assert brotr.pool.config.database.host == "localhost"
+        assert brotr.pool_config.database.host == "localhost"
 
     def test_load_from_nonexistent_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -406,9 +407,9 @@ pool:
     max_size: 20
 """)
         brotr = load_brotr(config_file)
-        assert brotr.pool.config.database.host == "customhost"
-        assert brotr.pool.config.database.port == 5433
-        assert brotr.pool.config.database.database == "customdb"
+        assert brotr.pool_config.database.host == "customhost"
+        assert brotr.pool_config.database.port == 5433
+        assert brotr.pool_config.database.database == "customdb"
 
 
 # ============================================================================
@@ -741,10 +742,8 @@ pool:
 """)
 
         mock_brotr = MagicMock(spec=Brotr)
-        mock_pool = MagicMock()
-        mock_pool.__aenter__ = AsyncMock(side_effect=ConnectionError("Cannot connect"))
-        mock_pool.__aexit__ = AsyncMock()
-        mock_brotr.pool = mock_pool
+        mock_brotr.__aenter__ = AsyncMock(side_effect=ConnectionError("Cannot connect"))
+        mock_brotr.__aexit__ = AsyncMock()
 
         with (
             patch(

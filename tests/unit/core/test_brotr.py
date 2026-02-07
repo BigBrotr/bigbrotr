@@ -9,7 +9,6 @@ Tests:
 - Insert operations (insert_events, insert_events_relays, insert_relays, insert_metadata, insert_relay_metadata)
 - Service data operations (upsert_service_data, get_service_data, delete_service_data)
 - Cleanup operations (delete_orphan_events, delete_orphan_metadata)
-- Query operations (get_relays_needing_check)
 - Materialized view refresh operations (refresh_matview)
 - Context manager support
 """
@@ -151,7 +150,7 @@ class TestBrotrInit:
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         brotr = Brotr()
 
-        assert brotr.pool is not None
+        assert brotr._pool is not None
         assert brotr.config.batch.max_batch_size == 1000
         assert brotr.config.timeouts.query == 60.0
 
@@ -159,7 +158,7 @@ class TestBrotrInit:
         """Test Brotr with injected pool."""
         brotr = Brotr(pool=mock_pool)
 
-        assert brotr.pool is mock_pool
+        assert brotr._pool is mock_pool
 
     def test_with_custom_config(self, mock_pool: Pool) -> None:
         """Test Brotr with custom configuration."""
@@ -198,7 +197,7 @@ class TestBrotrFactoryMethods:
 
         brotr = Brotr.from_dict(config_dict)
 
-        assert brotr.pool is not None
+        assert brotr._pool is not None
         assert brotr.config.batch.max_batch_size == 2000
 
     def test_from_yaml(
@@ -381,12 +380,6 @@ class TestCallProcedure:
     async def test_with_timeout(self, mock_brotr: Brotr) -> None:
         """Test procedure call with custom timeout."""
         await mock_brotr._call_procedure("test_proc", fetch_result=True, timeout=30.0)
-
-    @pytest.mark.asyncio
-    async def test_with_provided_connection(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
-        """Test procedure call with provided connection."""
-        mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        await mock_brotr._call_procedure("test_proc", conn=mock_conn, fetch_result=True)
 
 
 # ============================================================================
@@ -685,36 +678,6 @@ class TestDeleteOrphanMetadata:
 # ============================================================================
 
 
-class TestGetRelaysNeedingCheck:
-    """Tests for Brotr.get_relays_needing_check() method."""
-
-    @pytest.mark.asyncio
-    async def test_returns_list(self, mock_brotr: Brotr) -> None:
-        """Test that method returns a list."""
-        result = await mock_brotr.get_relays_needing_check(
-            service_name="monitor",
-            check_interval_seconds=3600,
-        )
-        assert isinstance(result, list)
-
-    @pytest.mark.asyncio
-    async def test_with_custom_limit(self, mock_brotr: Brotr) -> None:
-        """Test with custom limit parameter."""
-        await mock_brotr.get_relays_needing_check(
-            service_name="monitor",
-            check_interval_seconds=3600,
-            limit=100,
-        )
-
-    @pytest.mark.asyncio
-    async def test_default_limit(self, mock_brotr: Brotr) -> None:
-        """Test that default limit is applied."""
-        await mock_brotr.get_relays_needing_check(
-            service_name="monitor",
-            check_interval_seconds=3600,
-        )
-
-
 # ============================================================================
 # Refresh Operations Tests
 # ============================================================================
@@ -730,25 +693,15 @@ class TestRefreshMatview:
             "relay_metadata_latest",
             "events_statistics",
             "relays_statistics",
-            "kind_counts_total",
-            "kind_counts_by_relay",
-            "pubkey_counts_total",
-            "pubkey_counts_by_relay",
         ]
 
         for name in valid_names:
             await mock_brotr.refresh_matview(name)
 
     @pytest.mark.asyncio
-    async def test_invalid_view_name_raises(self, mock_brotr: Brotr) -> None:
-        """Test that invalid view name raises ValueError."""
-        with pytest.raises(ValueError, match="Invalid materialized view name"):
-            await mock_brotr.refresh_matview("invalid_view_name")
-
-    @pytest.mark.asyncio
     async def test_sql_injection_prevented(self, mock_brotr: Brotr) -> None:
-        """Test that SQL injection attempts are prevented."""
-        with pytest.raises(ValueError, match="Invalid materialized view name"):
+        """Test that SQL injection attempts are prevented by procedure name regex."""
+        with pytest.raises(ValueError, match="Invalid procedure name"):
             await mock_brotr.refresh_matview("events_statistics; DROP TABLE events;")
 
 
@@ -767,8 +720,8 @@ class TestBrotrContextManager:
         brotr = Brotr()
 
         with (
-            patch.object(brotr.pool, "connect", new_callable=AsyncMock) as mock_connect,
-            patch.object(brotr.pool, "close", new_callable=AsyncMock),
+            patch.object(brotr._pool, "connect", new_callable=AsyncMock) as mock_connect,
+            patch.object(brotr._pool, "close", new_callable=AsyncMock),
         ):
             async with brotr:
                 mock_connect.assert_called_once()
@@ -780,8 +733,8 @@ class TestBrotrContextManager:
         brotr = Brotr()
 
         with (
-            patch.object(brotr.pool, "connect", new_callable=AsyncMock),
-            patch.object(brotr.pool, "close", new_callable=AsyncMock) as mock_close,
+            patch.object(brotr._pool, "connect", new_callable=AsyncMock),
+            patch.object(brotr._pool, "close", new_callable=AsyncMock) as mock_close,
         ):
             async with brotr:
                 pass
@@ -794,8 +747,8 @@ class TestBrotrContextManager:
         brotr = Brotr()
 
         with (
-            patch.object(brotr.pool, "connect", new_callable=AsyncMock),
-            patch.object(brotr.pool, "close", new_callable=AsyncMock) as mock_close,
+            patch.object(brotr._pool, "connect", new_callable=AsyncMock),
+            patch.object(brotr._pool, "close", new_callable=AsyncMock) as mock_close,
         ):
             with pytest.raises(RuntimeError):
                 async with brotr:

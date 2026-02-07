@@ -287,7 +287,7 @@ async with brotr:
 
 ## BaseService - Service Base Class
 
-**Location**: `src/core/service.py`
+**Location**: `src/core/base_service.py`
 
 Abstract base class for all services with lifecycle management.
 

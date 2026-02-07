@@ -1,14 +1,10 @@
 """
-Abstract base class and mixins for long-running BigBrotr services.
+Abstract base class for long-running BigBrotr services.
 
 ``BaseService[ConfigT]`` provides the standard lifecycle for all services:
 structured logging, graceful shutdown via asyncio.Event, configurable
 interval-based cycling with ``run_forever()``, consecutive failure limits,
 and automatic Prometheus metrics tracking.
-
-Mixins:
-    NetworkSemaphoreMixin: Per-network asyncio semaphores for concurrency
-        limiting across clearnet, Tor, I2P, and Lokinet connections.
 
 Services persist operational state through the ``Brotr.upsert_service_data()``
 and ``Brotr.get_service_data()`` methods rather than in-memory storage.
@@ -17,11 +13,10 @@ and ``Brotr.get_service_data()`` methods rather than in-memory storage.
 import asyncio
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast
+from typing import Any, ClassVar, Generic, TypeVar, cast
 
 from pydantic import BaseModel, Field
 
-from utils.network import NetworkType
 from utils.yaml import load_yaml
 
 from .brotr import Brotr
@@ -33,10 +28,6 @@ from .metrics import (
     SERVICE_INFO,
     MetricsConfig,
 )
-
-
-if TYPE_CHECKING:
-    from utils.network import NetworkConfig
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +75,7 @@ class BaseService(ABC, Generic[ConfigT]):
         SERVICE_NAME: Unique service identifier used in logging and metrics.
         CONFIG_CLASS: Pydantic model class used by factory methods to parse
             configuration from YAML/dict sources.
-        _brotr: Database interface; access the pool via ``_brotr.pool``.
+        _brotr: Database interface for all database operations.
         _config: Typed service configuration (defaults from CONFIG_CLASS).
         _logger: Structured logger named after the service.
         _shutdown_event: Asyncio event controlling the run loop. Clear means
@@ -181,12 +172,12 @@ class BaseService(ABC, Generic[ConfigT]):
         consecutive_failures = 0
 
         while self.is_running:
-            cycle_start = time.time()
+            cycle_start = time.monotonic()
 
             try:
                 await self.run()
 
-                duration = time.time() - cycle_start
+                duration = time.monotonic() - cycle_start
                 self.inc_counter("cycles_success")
                 if metrics_enabled:
                     CYCLE_DURATION_SECONDS.labels(service=self.SERVICE_NAME).observe(duration)
@@ -304,45 +295,3 @@ class BaseService(ABC, Generic[ConfigT]):
         if not self._config.metrics.enabled:
             return
         SERVICE_COUNTER.labels(service=self.SERVICE_NAME, name=name).inc(value)
-
-
-# ---------------------------------------------------------------------------
-# Mixins
-# ---------------------------------------------------------------------------
-
-
-class NetworkSemaphoreMixin:
-    """Mixin providing per-network concurrency semaphores.
-
-    Creates an ``asyncio.Semaphore`` for each network type (clearnet, Tor,
-    I2P, Lokinet) to cap the number of simultaneous connections. This is
-    especially important for overlay networks like Tor, where excessive
-    concurrency degrades circuit performance.
-
-    Call ``_init_semaphores()`` at the start of each run cycle to pick up
-    any configuration changes to ``max_tasks`` values.
-    """
-
-    _semaphores: dict[NetworkType, asyncio.Semaphore]
-
-    def _init_semaphores(self, networks: "NetworkConfig") -> None:
-        """Create a semaphore for each network type from the configuration.
-
-        Args:
-            networks: Network configuration providing ``max_tasks`` per
-                network type.
-        """
-        self._semaphores = {
-            network: asyncio.Semaphore(networks.get(network).max_tasks) for network in NetworkType
-        }
-
-    def _get_semaphore(self, network: NetworkType) -> asyncio.Semaphore | None:
-        """Look up the concurrency semaphore for a network type.
-
-        Args:
-            network: The network type to retrieve the semaphore for.
-
-        Returns:
-            The semaphore, or None if the network has not been initialized.
-        """
-        return self._semaphores.get(network)

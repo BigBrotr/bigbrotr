@@ -14,7 +14,7 @@
 # -----------------------------------------------------------------------------
 # Base Service Settings (inherited from BaseServiceConfig)
 # -----------------------------------------------------------------------------
-# Class: src/core/service.py::BaseServiceConfig
+# Class: src/core/base_service.py::BaseServiceConfig
 
 # Seconds between validation cycles
 # Lower values = more frequent validation, higher resource usage

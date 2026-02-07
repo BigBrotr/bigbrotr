@@ -21,12 +21,13 @@ import logging
 import signal
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from core import Brotr, start_metrics_server
+from core.base_service import BaseService
 from core.logger import Logger
-from core.service import BaseService
 
+from .common.constants import ServiceName
 from .finder import Finder
 from .monitor import Monitor
 from .seeder import Seeder
@@ -41,13 +42,22 @@ from .validator import Validator
 YAML_BASE = Path("yaml")
 CORE_CONFIG = YAML_BASE / "core" / "brotr.yaml"
 
-# Service registry: name -> (class, config_path)
-SERVICE_REGISTRY: dict[str, tuple[type[BaseService[Any]], Path]] = {
-    "seeder": (Seeder, YAML_BASE / "services" / "seeder.yaml"),
-    "finder": (Finder, YAML_BASE / "services" / "finder.yaml"),
-    "validator": (Validator, YAML_BASE / "services" / "validator.yaml"),
-    "monitor": (Monitor, YAML_BASE / "services" / "monitor.yaml"),
-    "synchronizer": (Synchronizer, YAML_BASE / "services" / "synchronizer.yaml"),
+
+class ServiceEntry(NamedTuple):
+    """Registry entry mapping a service to its class and default config path."""
+
+    cls: type[BaseService[Any]]
+    config_path: Path
+
+
+SERVICE_REGISTRY: dict[str, ServiceEntry] = {
+    ServiceName.SEEDER: ServiceEntry(Seeder, YAML_BASE / "services" / "seeder.yaml"),
+    ServiceName.FINDER: ServiceEntry(Finder, YAML_BASE / "services" / "finder.yaml"),
+    ServiceName.VALIDATOR: ServiceEntry(Validator, YAML_BASE / "services" / "validator.yaml"),
+    ServiceName.MONITOR: ServiceEntry(Monitor, YAML_BASE / "services" / "monitor.yaml"),
+    ServiceName.SYNCHRONIZER: ServiceEntry(
+        Synchronizer, YAML_BASE / "services" / "synchronizer.yaml"
+    ),
 }
 
 logger = Logger("cli")
@@ -201,15 +211,15 @@ async def main() -> int:
     args = parse_args()
     setup_logging(args.log_level)
 
-    service_class, default_config_path = SERVICE_REGISTRY[args.service]
-    config_path = args.config if args.config else default_config_path
+    entry = SERVICE_REGISTRY[args.service]
+    config_path = args.config if args.config else entry.config_path
     brotr = load_brotr(args.brotr_config)
 
     try:
-        async with brotr.pool:
+        async with brotr:
             return await run_service(
                 service_name=args.service,
-                service_class=service_class,
+                service_class=entry.cls,
                 brotr=brotr,
                 config_path=config_path,
                 once=args.once,

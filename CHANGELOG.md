@@ -9,6 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.0.4] - 2026-02-07
+
+Architecture refinement release: domain logic extracted from core to `services/common/`, three-tier architecture formalized, and comprehensive test and documentation alignment.
+
+### Refactored
+- **`services/common/` package**: Extracted domain queries, constants, and mixins from `core/` into a new shared service infrastructure package with three stable modules:
+  - `constants.py`: `ServiceName` and `DataType` StrEnum classes replacing all hardcoded service/data-type strings
+  - `mixins.py`: `BatchProgressMixin` and `NetworkSemaphoreMixin` (moved from `core/service.py` and `utils/progress.py`)
+  - `queries.py`: 13 domain SQL query functions parameterized with enum values (moved from `core/queries.py`)
+- **Core layer purified**: `core/` is now a generic infrastructure facade with zero domain logic
+  - Renamed `core/service.py` to `core/base_service.py` (contains only `BaseService` and `BaseServiceConfig`)
+  - Removed `core/queries.py` (absorbed into `services/common/queries.py`)
+  - Removed `BatchProgress`, `NetworkSemaphoreMixin` from core
+- **Brotr API simplified**:
+  - Removed `retry` parameter from facade methods (retry always handled internally by Pool)
+  - Removed `conn` parameter from `_call_procedure` (use `transaction()` instead)
+  - Removed `default_query_limit` and `materialized_views` from `BrotrConfig`
+  - Simplified `refresh_matview()` injection prevention (regex guard only)
+  - Fixed `result or 0` to `result if result is not None else 0` for correct falsy handling
+- **Model layer decoupled**: NIP models (`nip11/fetch`, `nip66/*`) now use stdlib `logging` instead of `core.logger`, maintaining zero core dependencies
+- **Model caching**: All frozen dataclasses (`Relay`, `EventRelay`, `Metadata`, `RelayMetadata`) now cache `to_db_params()` in `__post_init__`
+- **Service registry**: Uses `ServiceEntry` NamedTuple with `ServiceName` enum keys instead of raw tuples
+- **`utils/transport.py`**: Decoupled from `core.logger` (stdlib `logging` only)
+- **`utils/progress.py`**: Deleted (functionality moved to `services/common/mixins.py`)
+
+### Changed
+- **Monitor service**: Aligned `MetadataFlags` and `CheckResult` with `MetadataType` enum values (`nip11` -> `nip11_fetch`); removed unused `nip66_probe` field
+- **Infrastructure**: Removed `CHECK` constraints from `relay_metadata.metadata_type` across all implementations; validation handled in Python enum layer
+- **Implementation configs**: Standardized `.env.example`, `docker-compose.yaml`, and `04_functions_cleanup.sql` across template, bigbrotr, and lilbrotr
+
+### Added
+- **69 new unit tests** for `services/common/`:
+  - `test_constants.py` (15 tests): `ServiceName` and `DataType` StrEnum value and behavior coverage
+  - `test_mixins.py` (15 tests): `BatchProgressMixin` and `NetworkSemaphoreMixin` initialization, composition, and edge cases
+  - `test_queries.py` (39 tests): All 13 domain SQL query functions with mocked Brotr, SQL fragment verification, and edge cases
+- Total test count: **1854** (up from 1776)
+
+### Documentation
+- **Three-tier architecture**: Reframed documentation around Foundation (core + models), Active (services + utils), and Implementation tiers
+- **All docs updated**: `ARCHITECTURE.md`, `DEVELOPMENT.md`, `TECHNICAL.md`, `README.md`, `CLAUDE.md` reflect renamed files and `services/common/`
+- **Agent knowledge base updated**: `AGENT.md`, `core-reference.md`, `architecture-index.md` aligned with new structure
+- **YAML template comments**: Fixed `BaseServiceConfig` file path references in all 4 service templates
+- Removed deprecated `test_nip11_nip66.ipynb` notebook
+
+### Chore
+- Bumped version to 3.0.4
+- Updated secrets baseline line numbers
+- Added `AUDIT_REPORT.*` pattern to `.gitignore`
+- Removed stale `RESTRUCTURING_PLAN.md`
+
+---
+
 ## [3.0.3] - 2026-02-06
 
 Documentation-focused release with comprehensive docstring rewrites, standardized file headers, and cleaned up project documentation.
@@ -146,10 +198,9 @@ Major release with four-layer architecture, expanded NIP-66 compliance, and comp
   - `SERVICE_GAUGE` - Point-in-time values with labels
   - `SERVICE_COUNTER` - Cumulative counters with labels
   - `CYCLE_DURATION_SECONDS` - Histogram for cycle duration percentiles
-- **MetadataType expanded** from 4 to 8 types:
-  - `nip11` - NIP-11 relay information document
+- **MetadataType expanded** from 4 to 7 types:
+  - `nip11_fetch` - NIP-11 relay information document
   - `nip66_rtt` - Round-trip time measurements
-  - `nip66_probe` - Connectivity probe results (openable, readable, writable)
   - `nip66_ssl` - SSL certificate information
   - `nip66_geo` - Geolocation data
   - `nip66_net` - Network information (ASN, ISP)
@@ -314,7 +365,8 @@ Initial prototype release.
 
 ---
 
-[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.3...HEAD
+[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.4...HEAD
+[3.0.4]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.3...v3.0.4
 [3.0.3]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.2...v3.0.3
 [3.0.2]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.1...v3.0.2
 [3.0.1]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.0...v3.0.1

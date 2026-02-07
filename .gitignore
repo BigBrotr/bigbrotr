@@ -261,5 +261,8 @@ GeoLite2-*.tar.gz
 *.rar
 *.7z
 
+# Audit reports
+AUDIT_REPORT.*
+
 # Jupyter Notebooks checkpoints
 .ipynb_checkpoints/

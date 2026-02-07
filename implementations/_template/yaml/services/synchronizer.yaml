@@ -23,7 +23,7 @@
 # -----------------------------------------------------------------------------
 # Base Service Settings (inherited from BaseServiceConfig)
 # -----------------------------------------------------------------------------
-# Class: src/core/service.py::BaseServiceConfig
+# Class: src/core/base_service.py::BaseServiceConfig
 
 # Seconds between synchronization cycles
 # Lower values = more frequent sync, higher resource usage

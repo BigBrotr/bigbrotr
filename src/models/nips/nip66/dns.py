@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from typing import TYPE_CHECKING, Any, Self, cast
 
 import dns.resolver
@@ -22,7 +23,6 @@ if TYPE_CHECKING:
     from dns.rdtypes.IN.A import A
     from dns.rdtypes.IN.AAAA import AAAA
 
-from core.logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
 from utils.network import NetworkType
@@ -31,7 +31,7 @@ from .data import Nip66DnsData
 from .logs import Nip66DnsLogs
 
 
-logger = Logger("models.nip66")
+logger = logging.getLogger("models.nip66")
 
 
 class Nip66DnsMetadata(BaseMetadata):
@@ -136,7 +136,7 @@ class Nip66DnsMetadata(BaseMetadata):
             ValueError: If the relay is not on the clearnet network.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-        logger.debug("dns_testing", relay=relay.url, timeout_s=timeout)
+        logger.debug("dns_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:
             raise ValueError(f"DNS resolve requires clearnet, got {relay.network.value}")
@@ -145,17 +145,17 @@ class Nip66DnsMetadata(BaseMetadata):
         data: dict[str, Any] = {}
 
         try:
-            logger.debug("dns_resolving", host=relay.host)
+            logger.debug("dns_resolving host=%s", relay.host)
             data = await asyncio.to_thread(cls._dns, relay.host, timeout)
             if data:
                 logs["success"] = True
-                logger.debug("dns_completed", relay=relay.url, ips=data.get("dns_ips"))
+                logger.debug("dns_completed relay=%s ips=%s", relay.url, data.get("dns_ips"))
             else:
                 logs["reason"] = "no DNS records found"
-                logger.debug("dns_no_data", relay=relay.url)
+                logger.debug("dns_no_data relay=%s", relay.url)
         except Exception as e:
             logs["reason"] = str(e)
-            logger.debug("dns_error", relay=relay.url, error=str(e))
+            logger.debug("dns_error relay=%s error=%s", relay.url, str(e))
 
         return cls(
             data=Nip66DnsData.model_validate(Nip66DnsData.parse(data)),

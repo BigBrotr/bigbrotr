@@ -60,13 +60,13 @@ if TYPE_CHECKING:
 
     from nostr_sdk import Keys
 
-from core.logger import Logger
-from models.nips.base import DEFAULT_TIMEOUT
 from models.relay import Relay
 from utils.network import NetworkType
 
 
-logger = Logger("utils.transport")
+DEFAULT_TIMEOUT = 10.0
+
+logger = logging.getLogger("utils.transport")
 
 # Silence nostr-sdk UniFFI callback stack traces (handled by our code)
 logging.getLogger("nostr_sdk").setLevel(logging.CRITICAL)
@@ -160,9 +160,13 @@ class InsecureWebSocketAdapter(WebSocketAdapter):  # type: ignore[misc]
         self,
         ws: aiohttp.ClientWebSocketResponse,
         session: aiohttp.ClientSession,
+        recv_timeout: float = 60.0,
+        close_timeout: float = 5.0,
     ) -> None:
         self._ws = ws
         self._session = session
+        self._recv_timeout = recv_timeout
+        self._close_timeout = close_timeout
 
     async def send(self, msg: WebSocketMessage) -> None:
         """Send a WebSocket message (text, binary, ping, or pong)."""
@@ -183,7 +187,7 @@ class InsecureWebSocketAdapter(WebSocketAdapter):  # type: ignore[misc]
             connection closed, errored, or timed out.
         """
         try:
-            msg = await asyncio.wait_for(self._ws.receive(), timeout=60.0)
+            msg = await asyncio.wait_for(self._ws.receive(), timeout=self._recv_timeout)
         except TimeoutError:
             return None
 
@@ -201,9 +205,9 @@ class InsecureWebSocketAdapter(WebSocketAdapter):  # type: ignore[misc]
     async def close_connection(self) -> None:
         """Close the WebSocket and session with timeouts to prevent hanging."""
         with contextlib.suppress(TimeoutError, Exception):
-            await asyncio.wait_for(self._ws.close(), timeout=5.0)
+            await asyncio.wait_for(self._ws.close(), timeout=self._close_timeout)
         with contextlib.suppress(TimeoutError, Exception):
-            await asyncio.wait_for(self._session.close(), timeout=5.0)
+            await asyncio.wait_for(self._session.close(), timeout=self._close_timeout)
 
 
 class InsecureWebSocketTransport(CustomWebSocketTransport):  # type: ignore[misc]
@@ -215,6 +219,14 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):  # type: ignore[misc
     Warning: Disables important security checks. Only use when SSL
     verification has already failed and the connection is still desired.
     """
+
+    def __init__(
+        self,
+        recv_timeout: float = 60.0,
+        close_timeout: float = 5.0,
+    ) -> None:
+        self._recv_timeout = recv_timeout
+        self._close_timeout = close_timeout
 
     async def connect(
         self,
@@ -248,22 +260,27 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):  # type: ignore[misc
             ws = await session.ws_connect(url)
         except aiohttp.ClientError as e:
             await session.close()
-            logger.debug("insecure_ws_connect_failed", url=url, error=str(e))
+            logger.debug("insecure_ws_connect_failed url=%s error=%s", url, str(e))
             raise OSError(f"Connection failed: {e}") from e
         except TimeoutError:
             await session.close()
-            logger.debug("insecure_ws_timeout", url=url)
+            logger.debug("insecure_ws_timeout url=%s", url)
             raise OSError(f"Connection timeout: {url}") from None
         except asyncio.CancelledError:
             await session.close()
-            logger.debug("insecure_ws_cancelled", url=url)
+            logger.debug("insecure_ws_cancelled url=%s", url)
             raise
         except BaseException as e:
             await session.close()
-            logger.debug("insecure_ws_error", url=url, error=str(e))
+            logger.debug("insecure_ws_error url=%s error=%s", url, str(e))
             raise OSError(f"Connection failed: {e}") from e
 
-        adapter = InsecureWebSocketAdapter(ws, session)
+        adapter = InsecureWebSocketAdapter(
+            ws,
+            session,
+            recv_timeout=self._recv_timeout,
+            close_timeout=self._close_timeout,
+        )
         return WebSocketAdapterWrapper(adapter)
 
     def support_ping(self) -> bool:
@@ -383,19 +400,19 @@ async def connect_relay(
         return client
 
     # Clearnet: try SSL first, then fall back to insecure if allowed
-    logger.debug("ssl_connecting", relay=relay.url)
+    logger.debug("ssl_connecting relay=%s", relay.url)
 
     client = create_client(keys)
     await client.add_relay(relay_url)
     output = await client.try_connect(timedelta(seconds=timeout))
 
     if relay_url in output.success:
-        logger.debug("ssl_connected", relay=relay.url)
+        logger.debug("ssl_connected relay=%s", relay.url)
         return client
 
     await client.disconnect()
     error_message = output.failed.get(relay_url, "Unknown error")
-    logger.debug("connect_failed", relay=relay.url, error=error_message)
+    logger.debug("connect_failed relay=%s error=%s", relay.url, error_message)
 
     if not _is_ssl_error(error_message):
         # Not an SSL error - raise the original error
@@ -406,7 +423,7 @@ async def connect_relay(
             f"SSL certificate verification failed for {relay.url}: {error_message}"
         )
 
-    logger.debug("ssl_fallback_insecure", relay=relay.url, error=error_message)
+    logger.debug("ssl_fallback_insecure relay=%s error=%s", relay.url, error_message)
 
     # Required for custom WebSocket transport UniFFI callbacks
     uniffi_set_event_loop(asyncio.get_running_loop())
@@ -420,7 +437,7 @@ async def connect_relay(
         await client.disconnect()
         raise TimeoutError(f"Connection failed (insecure): {relay.url} ({error_message})")
 
-    logger.debug("insecure_connected", relay=relay.url)
+    logger.debug("insecure_connected relay=%s", relay.url)
     return client
 
 
@@ -429,6 +446,9 @@ async def is_nostr_relay(
     proxy_url: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
     suppress_stderr: bool = True,
+    overall_timeout_multiplier: float = 3.0,
+    overall_timeout_buffer: float = 15.0,
+    disconnect_timeout: float = 10.0,
 ) -> bool:
     """Check if a URL hosts a Nostr relay by attempting a protocol handshake.
 
@@ -440,14 +460,20 @@ async def is_nostr_relay(
         proxy_url: SOCKS5 proxy URL (required for overlay networks).
         timeout: Timeout in seconds for connect and fetch operations.
         suppress_stderr: Suppress UniFFI traceback noise during validation.
+        overall_timeout_multiplier: Multiplier applied to ``timeout`` for the
+            overall safety-net timeout (default 3.0).
+        overall_timeout_buffer: Fixed seconds added to the overall timeout
+            to account for SSL fallback retries (default 15.0).
+        disconnect_timeout: Timeout in seconds for the client disconnect
+            call in the finally block (default 10.0).
 
     Returns:
         True if the relay speaks the Nostr protocol, False otherwise.
     """
-    logger.debug("validation_started", relay=relay.url, timeout_s=timeout)
+    logger.debug("validation_started relay=%s timeout_s=%s", relay.url, timeout)
 
-    # Safety net: 3x timeout + 15s buffer for potential SSL fallback retry
-    overall_timeout = timeout * 3 + 15
+    # Safety net: multiplier * timeout + buffer for potential SSL fallback retry
+    overall_timeout = timeout * overall_timeout_multiplier + overall_timeout_buffer
 
     ctx = _suppress_stderr() if suppress_stderr else contextlib.nullcontext()
 
@@ -463,23 +489,23 @@ async def is_nostr_relay(
 
                 req_filter = Filter().kind(Kind(1)).limit(1)
                 await client.fetch_events(req_filter, timedelta(seconds=timeout))
-                logger.debug("validation_success", relay=relay.url, reason="eose")
+                logger.debug("validation_success relay=%s reason=%s", relay.url, "eose")
                 return True
 
         except TimeoutError:
-            logger.debug("validation_timeout", relay=relay.url)
+            logger.debug("validation_timeout relay=%s", relay.url)
             return False
 
         except Exception as e:
             # AUTH-required errors indicate a valid Nostr relay (NIP-42)
             error_msg = str(e).lower()
             if "auth" in error_msg:
-                logger.debug("validation_success", relay=relay.url, reason="auth")
+                logger.debug("validation_success relay=%s reason=%s", relay.url, "auth")
                 return True
-            logger.debug("validation_failed", relay=relay.url, error=str(e))
+            logger.debug("validation_failed relay=%s error=%s", relay.url, str(e))
             return False
 
         finally:
             if client is not None:
                 with contextlib.suppress(TimeoutError, Exception):
-                    await asyncio.wait_for(client.disconnect(), timeout=10.0)
+                    await asyncio.wait_for(client.disconnect(), timeout=disconnect_timeout)

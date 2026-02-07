@@ -17,7 +17,7 @@ Example::
     from services import Seeder, Finder
 
     brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
-    async with brotr.pool:
+    async with brotr:
         # One-shot seeding
         seeder = Seeder(brotr=brotr)
         await seeder.run()

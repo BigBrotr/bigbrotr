@@ -5,7 +5,6 @@ Re-exports commonly used utilities for convenient imports across the codebase:
 - **Configuration**: ``load_yaml``, ``NetworkConfig``, ``KeysConfig``
 - **Transport**: ``create_client`` (Nostr client factory)
 - **DNS**: ``resolve_host``, ``ResolvedHost``
-- **Progress**: ``BatchProgress`` (batch processing tracker)
 - **Network types**: ``ClearnetConfig``, ``TorConfig``, ``I2pConfig``, ``LokiConfig``
 
 Example::
@@ -26,13 +25,11 @@ from utils.network import (
     NetworkTypeConfig,
     TorConfig,
 )
-from utils.progress import BatchProgress
 from utils.transport import create_client
 from utils.yaml import load_yaml
 
 
 __all__ = [
-    "BatchProgress",
     "ClearnetConfig",
     "I2pConfig",
     "KeysConfig",

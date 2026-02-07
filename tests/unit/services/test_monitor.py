@@ -10,7 +10,7 @@ Tests:
 """
 
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -61,9 +61,8 @@ class TestMetadataFlags:
         """Test all flags enabled by default."""
         flags = MetadataFlags()
 
-        assert flags.nip11 is True
+        assert flags.nip11_fetch is True
         assert flags.nip66_rtt is True
-        assert flags.nip66_probe is True
         assert flags.nip66_ssl is True
         assert flags.nip66_geo is True
         assert flags.nip66_net is True
@@ -77,14 +76,12 @@ class TestMetadataFlags:
         assert flags.nip66_geo is False
         assert flags.nip66_net is False
         assert flags.nip66_rtt is True
-        assert flags.nip66_probe is True
 
     def test_all_flags_disabled(self) -> None:
         """Test disabling all flags."""
         flags = MetadataFlags(
-            nip11=False,
+            nip11_fetch=False,
             nip66_rtt=False,
-            nip66_probe=False,
             nip66_ssl=False,
             nip66_geo=False,
             nip66_net=False,
@@ -92,9 +89,8 @@ class TestMetadataFlags:
             nip66_http=False,
         )
 
-        assert flags.nip11 is False
+        assert flags.nip11_fetch is False
         assert flags.nip66_rtt is False
-        assert flags.nip66_probe is False
         assert flags.nip66_ssl is False
         assert flags.nip66_geo is False
         assert flags.nip66_net is False
@@ -116,8 +112,8 @@ class TestProcessingConfig:
 
         assert config.chunk_size == 100
         assert config.nip11_max_size == 1048576
-        assert config.compute.nip11 is True
-        assert config.store.nip11 is True
+        assert config.compute.nip11_fetch is True
+        assert config.store.nip11_fetch is True
 
     def test_custom_values(self) -> None:
         """Test custom processing config."""
@@ -225,7 +221,7 @@ class TestDiscoveryConfig:
 
         assert config.enabled is True
         assert config.interval == 3600
-        assert config.include.nip11 is True
+        assert config.include.nip11_fetch is True
         assert config.relays == []
 
     def test_custom_values(self) -> None:
@@ -839,10 +835,11 @@ class TestMonitorFetchChunk:
     """Tests for Monitor._fetch_chunk() method."""
 
     @pytest.mark.asyncio
-    async def test_fetch_chunk_empty(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+    @patch("services.monitor.fetch_relays_due_for_check", new_callable=AsyncMock, return_value=[])
+    async def test_fetch_chunk_empty(
+        self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
+    ) -> None:
         """Test fetching relays when none need checking."""
-        mock_brotr.pool.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
-
         config = MonitorConfig(
             processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -857,24 +854,26 @@ class TestMonitorFetchChunk:
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert relays == []
+        mock_fetch.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_fetch_chunk_with_results(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+    @patch("services.monitor.fetch_relays_due_for_check", new_callable=AsyncMock)
+    async def test_fetch_chunk_with_results(
+        self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
+    ) -> None:
         """Test fetching relays that need checking."""
-        mock_brotr.pool.fetch = AsyncMock(  # type: ignore[method-assign]
-            return_value=[
-                {
-                    "url": "wss://relay1.example.com",
-                    "network": "clearnet",
-                    "discovered_at": 1700000000,
-                },
-                {
-                    "url": "wss://relay2.example.com",
-                    "network": "clearnet",
-                    "discovered_at": 1700000000,
-                },
-            ]
-        )
+        mock_fetch.return_value = [
+            {
+                "url": "wss://relay1.example.com",
+                "network": "clearnet",
+                "discovered_at": 1700000000,
+            },
+            {
+                "url": "wss://relay2.example.com",
+                "network": "clearnet",
+                "discovered_at": 1700000000,
+            },
+        ]
 
         config = MonitorConfig(
             processing=ProcessingConfig(
@@ -894,20 +893,19 @@ class TestMonitorFetchChunk:
         assert "relay2.example.com" in str(relays[1].url)
 
     @pytest.mark.asyncio
+    @patch("services.monitor.fetch_relays_due_for_check", new_callable=AsyncMock)
     async def test_fetch_chunk_filters_invalid_urls(
-        self, mock_brotr: Brotr, tmp_path: Path
+        self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
     ) -> None:
         """Test fetching relays filters invalid URLs."""
-        mock_brotr.pool.fetch = AsyncMock(  # type: ignore[method-assign]
-            return_value=[
-                {
-                    "url": "wss://valid.relay.com",
-                    "network": "clearnet",
-                    "discovered_at": 1700000000,
-                },
-                {"url": "invalid-url", "network": "unknown", "discovered_at": 1700000000},
-            ]
-        )
+        mock_fetch.return_value = [
+            {
+                "url": "wss://valid.relay.com",
+                "network": "clearnet",
+                "discovered_at": 1700000000,
+            },
+            {"url": "invalid-url", "network": "unknown", "discovered_at": 1700000000},
+        ]
 
         config = MonitorConfig(
             processing=ProcessingConfig(
@@ -926,17 +924,18 @@ class TestMonitorFetchChunk:
         assert "valid.relay.com" in str(relays[0].url)
 
     @pytest.mark.asyncio
-    async def test_fetch_chunk_respects_limit(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+    @patch("services.monitor.fetch_relays_due_for_check", new_callable=AsyncMock)
+    async def test_fetch_chunk_respects_limit(
+        self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
+    ) -> None:
         """Test that fetch_chunk respects the limit parameter."""
-        mock_brotr.pool.fetch = AsyncMock(  # type: ignore[method-assign]
-            return_value=[
-                {
-                    "url": "wss://relay1.example.com",
-                    "network": "clearnet",
-                    "discovered_at": 1700000000,
-                },
-            ]
-        )
+        mock_fetch.return_value = [
+            {
+                "url": "wss://relay1.example.com",
+                "network": "clearnet",
+                "discovered_at": 1700000000,
+            },
+        ]
 
         config = MonitorConfig(
             processing=ProcessingConfig(
@@ -951,8 +950,7 @@ class TestMonitorFetchChunk:
         monitor._progress.reset()
         await monitor._fetch_chunk(["clearnet"], 50)
 
-        call_args = mock_brotr.pool.fetch.call_args  # type: ignore[attr-defined]
-        assert call_args[0][3] == 50
+        assert mock_fetch.call_args[0][4] == 50  # limit is 5th positional arg
 
 
 # ============================================================================
@@ -964,11 +962,16 @@ class TestMonitorRun:
     """Tests for Monitor.run() method."""
 
     @pytest.mark.asyncio
-    async def test_run_no_relays(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+    @patch("services.monitor.fetch_relays_due_for_check", new_callable=AsyncMock, return_value=[])
+    @patch("services.monitor.count_relays_due_for_check", new_callable=AsyncMock, return_value=0)
+    async def test_run_no_relays(
+        self,
+        mock_count: AsyncMock,
+        mock_fetch: AsyncMock,
+        mock_brotr: Brotr,
+        tmp_path: Path,
+    ) -> None:
         """Test run cycle with no relays to check."""
-        # Mock pool methods
-        mock_brotr.pool.fetchrow = AsyncMock(return_value={"count": 0})  # type: ignore[method-assign]
-        mock_brotr.pool.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
         mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
         config = MonitorConfig(
@@ -986,10 +989,16 @@ class TestMonitorRun:
         assert monitor._progress.processed == 0
 
     @pytest.mark.asyncio
-    async def test_run_resets_progress(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+    @patch("services.monitor.fetch_relays_due_for_check", new_callable=AsyncMock, return_value=[])
+    @patch("services.monitor.count_relays_due_for_check", new_callable=AsyncMock, return_value=0)
+    async def test_run_resets_progress(
+        self,
+        mock_count: AsyncMock,
+        mock_fetch: AsyncMock,
+        mock_brotr: Brotr,
+        tmp_path: Path,
+    ) -> None:
         """Test run cycle resets progress at start."""
-        mock_brotr.pool.fetchrow = AsyncMock(return_value={"count": 0})  # type: ignore[method-assign]
-        mock_brotr.pool.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
         mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
         config = MonitorConfig(
@@ -1065,10 +1074,10 @@ class TestMonitorPersistResults:
 
         # Create CheckResult with rtt metadata
         result1 = CheckResult(
-            nip11=None, rtt=rtt1, probe=None, ssl=None, geo=None, net=None, dns=None, http=None
+            nip11=None, rtt=rtt1, ssl=None, geo=None, net=None, dns=None, http=None
         )
         result2 = CheckResult(
-            nip11=None, rtt=rtt2, probe=None, ssl=None, geo=None, net=None, dns=None, http=None
+            nip11=None, rtt=rtt2, ssl=None, geo=None, net=None, dns=None, http=None
         )
 
         successful = [(relay1, result1), (relay2, result2)]

@@ -53,14 +53,15 @@ Implementation Layer (implementations/bigbrotr/, implementations/lilbrotr/)
         v
 Service Layer (src/services/)
   └── seeder.py, finder.py, validator.py, monitor.py, synchronizer.py
+  └── common/: constants.py (ServiceName, DataType), mixins.py (BatchProgress, semaphores), queries.py (domain SQL)
         |
         v
 Core Layer (src/core/)
-  └── pool.py, brotr.py, service.py, metrics.py, logger.py
+  └── pool.py, brotr.py, base_service.py, metrics.py, logger.py
         |
         v
 Utils Layer (src/utils/)
-  └── BatchProgress, NetworkConfig, KeysConfig, create_client, load_yaml, resolve_host
+  └── NetworkConfig, KeysConfig, create_client, load_yaml, resolve_host
         |
         v
 Models Layer (src/models/)
@@ -73,10 +74,10 @@ Models Layer (src/models/)
 
 ### Core Components
 
-- **Pool** (`src/core/pool.py`): Async PostgreSQL client with asyncpg (connects via PGBouncer in Docker)
-- **Brotr** (`src/core/brotr.py`): Database interface with stored procedure wrappers
-- **BaseService** (`src/core/service.py`): Abstract service base with state persistence and lifecycle management
-- **BaseServiceConfig** (`src/core/service.py`): Base configuration class for all services
+- **Pool** (`src/core/pool.py`): Async PostgreSQL client with asyncpg and unified `RetryConfig` (max_attempts, initial_delay, max_delay, exponential_backoff) for connect, query retry, and acquire_healthy (connects via PGBouncer in Docker)
+- **Brotr** (`src/core/brotr.py`): Generic database facade with private `_pool`; exposes `fetch()`, `fetchrow()`, `fetchval()`, `execute()`, `transaction()`, and `pool_config` property. Zero domain logic — all domain SQL lives in `services/common/queries.py`
+- **BaseService** (`src/core/base_service.py`): Abstract service base with state persistence and lifecycle management
+- **BaseServiceConfig** (`src/core/base_service.py`): Base configuration class for all services
 - **MetricsServer** (`src/core/metrics.py`): Prometheus HTTP metrics endpoint
 - **MetricsConfig** (`src/core/metrics.py`): Prometheus metrics configuration
 - **Logger** (`src/core/logger.py`): Structured key=value logging
@@ -94,12 +95,21 @@ Models Layer (src/models/)
 
 - Services receive `Brotr` via constructor (dependency injection)
 - All services inherit from `BaseService[ConfigClass]`
-- Configuration uses Pydantic models with YAML loading
+- Services import query functions from `services.common.queries` — zero inline SQL in service files
+- Services use `ServiceName` and `DataType` enums from `services.common.constants` — zero hardcoded strings
+- Services compose `BatchProgressMixin` and `NetworkSemaphoreMixin` from `services.common.mixins`
+- Services use `async with brotr:` for lifecycle (NOT `async with brotr.pool:`)
+- Atomic operations use `self._brotr.transaction()` (e.g., `promote_candidates` in queries.py)
+- Configuration uses Pydantic models with YAML loading (`from utils.yaml import load_yaml`)
 - Passwords loaded from `DB_PASSWORD` environment variable only
 - Keys loaded from `PRIVATE_KEY` environment variable (required for Monitor write tests)
 - Services use `NetworkConfig` for unified network settings (Tor, I2P, Lokinet)
-- Services use `BatchProgress` for tracking batch processing progress
 - Monitor uses `CheckResult` NamedTuple for health check results
+- Monitor runs health checks in parallel via `asyncio.gather` (SSL, DNS, Geo, Net, HTTP)
+- Monitor wraps blocking I/O with `asyncio.to_thread` (GeoLite2 downloads, Reader init)
+- All models cache `to_db_params()` result in `__post_init__` — no repeated allocation
+- Models and Utils layers have zero core dependencies (use stdlib `logging` only)
+- `BrotrConfig` has two fields: `batch` (BatchConfig) and `timeouts` (TimeoutsConfig)
 
 ## Adding a New Service
 
@@ -109,10 +119,10 @@ Models Layer (src/models/)
 
 2. Add configuration: `implementations/bigbrotr/yaml/services/myservice.yaml`
 
-3. Register in `src/services/__main__.py` (maps service name to class and YAML config path):
+3. Add a `ServiceName` entry in `src/services/common/constants.py` and register in `src/services/__main__.py`:
    ```python
    SERVICE_REGISTRY = {
-       "myservice": (MyService, YAML_BASE / "services" / "myservice.yaml"),
+       ServiceName.MYSERVICE: ServiceEntry(MyService, YAML_BASE / "services" / "myservice.yaml"),
    }
    ```
 

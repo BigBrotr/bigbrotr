@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import ssl
 from http import HTTPStatus
 from typing import Any, ClassVar, Self
@@ -17,7 +18,6 @@ from typing import Any, ClassVar, Self
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
-from core.logger import Logger
 from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
 from models.relay import Relay
 from utils.network import NetworkType
@@ -26,7 +26,7 @@ from .data import Nip11FetchData
 from .logs import Nip11FetchLogs
 
 
-logger = Logger("models.nip11")
+logger = logging.getLogger("models.nip11")
 
 
 class Nip11FetchMetadata(BaseMetadata):
@@ -197,9 +197,12 @@ class Nip11FetchMetadata(BaseMetadata):
 
         if logs["success"]:
             logger.debug(
-                "nip11_fetched", relay=relay.url, name=result.data.name, ssl_fallback=ssl_fallback
+                "nip11_fetched relay=%s name=%s ssl_fallback=%s",
+                relay.url,
+                result.data.name,
+                ssl_fallback,
             )
         else:
-            logger.debug("nip11_failed", relay=relay.url, error=logs["reason"])
+            logger.debug("nip11_failed relay=%s error=%s", relay.url, logs["reason"])
 
         return result

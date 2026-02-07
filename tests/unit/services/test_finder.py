@@ -76,7 +76,7 @@ class TestEventsConfig:
         config = EventsConfig()
         assert config.enabled is True
         assert config.batch_size == 1000
-        assert config.kinds == [2, 3, 10002]
+        assert config.kinds == [3, 10002]
 
     def test_disabled(self) -> None:
         """Test can disable events scanning."""
@@ -507,7 +507,7 @@ class TestFinderFindFromEvents:
     @pytest.mark.asyncio
     async def test_empty_database_returns_no_urls(self, mock_brotr: Brotr) -> None:
         """Empty database (no relays) returns no URLs."""
-        mock_brotr.pool.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        mock_brotr._pool.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
         finder = Finder(brotr=mock_brotr)
         await finder._find_from_events()
@@ -517,123 +517,158 @@ class TestFinderFindFromEvents:
     @pytest.mark.asyncio
     async def test_valid_relay_urls_extracted_from_kind_2(self, mock_brotr: Brotr) -> None:
         """Valid relay URLs extracted from kind 2 events."""
-        relay_row = {"url": "wss://source.relay.com"}
-        mock_event = MagicMock()
-        mock_event.__getitem__ = lambda _, key: {
+        mock_event = {
             "id": b"\x01" * 32,
             "created_at": 1700000000,
             "kind": 2,
             "tags": None,
             "content": "wss://relay.example.com",
             "seen_at": 1700000001,
-        }[key]
+        }
 
-        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
-        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        with (
+            patch(
+                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+            ) as mock_get_relay_urls,
+            patch(
+                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+            ) as mock_get_events,
+            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+        ):
+            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_events.side_effect = [[mock_event], []]
+            mock_upsert.return_value = 1
 
-        finder = Finder(brotr=mock_brotr)
-        await finder._find_from_events()
+            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
-        mock_brotr.upsert_service_data.assert_called()
-        all_urls = []
-        for call in mock_brotr.upsert_service_data.call_args_list:
-            records = call[0][0]
-            for record in records:
-                if record[1] == "candidate":
-                    all_urls.append(record[2])
-        assert any("relay.example.com" in url for url in all_urls)
+            finder = Finder(brotr=mock_brotr)
+            await finder._find_from_events()
+
+            mock_upsert.assert_called()
+            all_urls = []
+            for call in mock_upsert.call_args_list:
+                relays = call[0][1]
+                for relay in relays:
+                    all_urls.append(relay.url)
+            assert any("relay.example.com" in url for url in all_urls)
 
     @pytest.mark.asyncio
     async def test_valid_relay_urls_extracted_from_kind_10002(self, mock_brotr: Brotr) -> None:
         """Valid relay URLs extracted from kind 10002 events."""
-        relay_row = {"url": "wss://source.relay.com"}
-        mock_event = MagicMock()
-        mock_event.__getitem__ = lambda _, key: {
+        mock_event = {
             "id": b"\x02" * 32,
             "created_at": 1700000000,
             "kind": 10002,
             "tags": [["r", "wss://relay1.example.com"], ["r", "wss://relay2.example.com"]],
             "content": "",
             "seen_at": 1700000001,
-        }[key]
+        }
 
-        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
-        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        mock_brotr.upsert_service_data = AsyncMock(return_value=2)  # type: ignore[method-assign]
+        with (
+            patch(
+                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+            ) as mock_get_relay_urls,
+            patch(
+                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+            ) as mock_get_events,
+            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+        ):
+            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_events.side_effect = [[mock_event], []]
+            mock_upsert.return_value = 2
 
-        finder = Finder(brotr=mock_brotr)
-        await finder._find_from_events()
+            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_data = AsyncMock(return_value=2)  # type: ignore[method-assign]
 
-        mock_brotr.upsert_service_data.assert_called()
-        all_urls = []
-        for call in mock_brotr.upsert_service_data.call_args_list:
-            records = call[0][0]
-            for record in records:
-                if record[1] == "candidate":
-                    all_urls.append(record[2])
-        assert any("relay1.example.com" in url for url in all_urls)
-        assert any("relay2.example.com" in url for url in all_urls)
+            finder = Finder(brotr=mock_brotr)
+            await finder._find_from_events()
+
+            mock_upsert.assert_called()
+            all_urls = []
+            for call in mock_upsert.call_args_list:
+                relays = call[0][1]
+                for relay in relays:
+                    all_urls.append(relay.url)
+            assert any("relay1.example.com" in url for url in all_urls)
+            assert any("relay2.example.com" in url for url in all_urls)
 
     @pytest.mark.asyncio
     async def test_urls_extracted_from_r_tags(self, mock_brotr: Brotr) -> None:
         """URLs extracted from r tags in event content."""
-        relay_row = {"url": "wss://source.relay.com"}
-        mock_event = MagicMock()
-        mock_event.__getitem__ = lambda _, key: {
+        mock_event = {
             "id": b"\x04" * 32,
             "created_at": 1700000000,
             "kind": 10002,
             "tags": [["r", "wss://rtag-relay.com"], ["e", "someid"]],
             "content": "",
             "seen_at": 1700000001,
-        }[key]
+        }
 
-        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
-        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        with (
+            patch(
+                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+            ) as mock_get_relay_urls,
+            patch(
+                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+            ) as mock_get_events,
+            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+        ):
+            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_events.side_effect = [[mock_event], []]
+            mock_upsert.return_value = 1
 
-        finder = Finder(brotr=mock_brotr)
-        await finder._find_from_events()
+            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
-        mock_brotr.upsert_service_data.assert_called()
-        all_urls = []
-        for call in mock_brotr.upsert_service_data.call_args_list:
-            records = call[0][0]
-            for record in records:
-                if record[1] == "candidate":
-                    all_urls.append(record[2])
-        assert any("rtag-relay.com" in url for url in all_urls)
+            finder = Finder(brotr=mock_brotr)
+            await finder._find_from_events()
+
+            mock_upsert.assert_called()
+            all_urls = []
+            for call in mock_upsert.call_args_list:
+                relays = call[0][1]
+                for relay in relays:
+                    all_urls.append(relay.url)
+            assert any("rtag-relay.com" in url for url in all_urls)
 
     @pytest.mark.asyncio
     async def test_invalid_malformed_urls_filtered_out(self, mock_brotr: Brotr) -> None:
         """Invalid/malformed URLs filtered out."""
-        relay_row = {"url": "wss://source.relay.com"}
-        mock_event = MagicMock()
-        mock_event.__getitem__ = lambda _, key: {
+        mock_event = {
             "id": b"\x05" * 32,
             "created_at": 1700000000,
             "kind": 2,
             "tags": [["r", "not-a-valid-url"], ["r", "http://wrong-scheme.com"]],
             "content": "also-not-valid",
             "seen_at": 1700000001,
-        }[key]
+        }
 
-        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
-        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        mock_brotr.upsert_service_data = AsyncMock(return_value=0)  # type: ignore[method-assign]
+        with (
+            patch(
+                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+            ) as mock_get_relay_urls,
+            patch(
+                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+            ) as mock_get_events,
+            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+        ):
+            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_events.side_effect = [[mock_event], []]
+            mock_upsert.return_value = 0
 
-        finder = Finder(brotr=mock_brotr)
-        await finder._find_from_events()
+            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_data = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
-        assert finder._found_relays == 0
+            finder = Finder(brotr=mock_brotr)
+            await finder._find_from_events()
+
+            assert finder._found_relays == 0
 
     @pytest.mark.asyncio
     async def test_duplicate_urls_deduplicated(self, mock_brotr: Brotr) -> None:
         """Duplicate URLs deduplicated."""
-        relay_row = {"url": "wss://source.relay.com"}
-        mock_event = MagicMock()
-        mock_event.__getitem__ = lambda _, key: {
+        mock_event = {
             "id": b"\x06" * 32,
             "created_at": 1700000000,
             "kind": 10002,
@@ -644,59 +679,75 @@ class TestFinderFindFromEvents:
             ],
             "content": "",
             "seen_at": 1700000001,
-        }[key]
+        }
 
-        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
-        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        with (
+            patch(
+                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+            ) as mock_get_relay_urls,
+            patch(
+                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+            ) as mock_get_events,
+            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+        ):
+            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_events.side_effect = [[mock_event], []]
+            mock_upsert.return_value = 1
 
-        finder = Finder(brotr=mock_brotr)
-        await finder._find_from_events()
+            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
-        candidate_calls = [
-            call
-            for call in mock_brotr.upsert_service_data.call_args_list
-            if call[0][0] and call[0][0][0][1] == "candidate"
-        ]
-        assert len(candidate_calls) == 1
-        records = candidate_calls[0][0][0]
-        # Three duplicate URLs should collapse to a single candidate record
-        assert len(records) == 1
-        assert len(records[0]) == 4
-        assert records[0][2] == "wss://duplicate.relay.com"
+            finder = Finder(brotr=mock_brotr)
+            await finder._find_from_events()
+
+            # Three duplicate URLs should collapse to a single relay object
+            mock_upsert.assert_called()
+            relays = list(mock_upsert.call_args_list[0][0][1])
+            assert len(relays) == 1
+            assert relays[0].url == "wss://duplicate.relay.com"
 
     @pytest.mark.asyncio
     async def test_cursor_position_updated_after_scan(self, mock_brotr: Brotr) -> None:
         """Cursor position updated after scan."""
-        relay_row = {"url": "wss://source.relay.com"}
-        mock_event = MagicMock()
-        mock_event.__getitem__ = lambda _, key: {
+        mock_event = {
             "id": b"\x07" * 32,
             "created_at": 1700000100,
             "kind": 2,
             "tags": None,
             "content": "wss://relay.example.com",
             "seen_at": 1700000200,
-        }[key]
+        }
 
-        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
-        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        with (
+            patch(
+                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+            ) as mock_get_relay_urls,
+            patch(
+                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+            ) as mock_get_events,
+            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+        ):
+            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_events.side_effect = [[mock_event], []]
+            mock_upsert.return_value = 1
 
-        finder = Finder(brotr=mock_brotr)
-        await finder._find_from_events()
+            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
-        upsert_calls = mock_brotr.upsert_service_data.call_args_list
-        cursor_saved = any(
-            call[0][0] and call[0][0][0][0] == "finder" and call[0][0][0][1] == "cursor"
-            for call in upsert_calls
-        )
-        assert cursor_saved
+            finder = Finder(brotr=mock_brotr)
+            await finder._find_from_events()
+
+            upsert_calls = mock_brotr.upsert_service_data.call_args_list
+            cursor_saved = any(
+                call[0][0] and call[0][0][0][0] == "finder" and call[0][0][0][1] == "cursor"
+                for call in upsert_calls
+            )
+            assert cursor_saved
 
     @pytest.mark.asyncio
     async def test_exception_handling_during_database_query(self, mock_brotr: Brotr) -> None:
         """Exception handling during database query."""
-        mock_brotr.pool.fetch = AsyncMock(side_effect=Exception("Database connection error"))  # type: ignore[method-assign]
+        mock_brotr._pool.fetch = AsyncMock(side_effect=Exception("Database connection error"))  # type: ignore[method-assign]
 
         finder = Finder(brotr=mock_brotr)
         await finder._find_from_events()
@@ -706,9 +757,7 @@ class TestFinderFindFromEvents:
     @pytest.mark.asyncio
     async def test_network_type_detected_clearnet_vs_tor(self, mock_brotr: Brotr) -> None:
         """Network type correctly detected (clearnet vs tor)."""
-        relay_row = {"url": "wss://source.relay.com"}
-        mock_event = MagicMock()
-        mock_event.__getitem__ = lambda _, key: {
+        mock_event = {
             "id": b"\x08" * 32,
             "created_at": 1700000000,
             "kind": 10002,
@@ -718,16 +767,28 @@ class TestFinderFindFromEvents:
             ],
             "content": "",
             "seen_at": 1700000001,
-        }[key]
+        }
 
-        mock_brotr.pool.fetch = AsyncMock(side_effect=[[relay_row], [mock_event], []])  # type: ignore[method-assign]
-        mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        mock_brotr.upsert_service_data = AsyncMock(return_value=2)  # type: ignore[method-assign]
+        with (
+            patch(
+                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+            ) as mock_get_relay_urls,
+            patch(
+                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+            ) as mock_get_events,
+            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+        ):
+            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_events.side_effect = [[mock_event], []]
+            mock_upsert.return_value = 2
 
-        finder = Finder(brotr=mock_brotr)
-        await finder._find_from_events()
+            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_data = AsyncMock(return_value=2)  # type: ignore[method-assign]
 
-        mock_brotr.upsert_service_data.assert_called()
+            finder = Finder(brotr=mock_brotr)
+            await finder._find_from_events()
+
+            mock_upsert.assert_called()
 
 
 # ============================================================================

@@ -16,7 +16,7 @@ Usage::
     brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
     seeder = Seeder.from_yaml("yaml/services/seeder.yaml", brotr=brotr)
 
-    async with brotr.pool:
+    async with brotr:
         await seeder.run()
 """
 
@@ -24,12 +24,15 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from pydantic import BaseModel, Field
 
-from core.service import BaseService, BaseServiceConfig
+from core.base_service import BaseService, BaseServiceConfig
 from models import Relay
+
+from .common.constants import ServiceName
+from .common.queries import filter_new_relay_urls, upsert_candidates
 
 
 if TYPE_CHECKING:
@@ -72,7 +75,7 @@ class Seeder(BaseService[SeederConfig]):
     This is a one-shot service; call ``run()`` once at startup.
     """
 
-    SERVICE_NAME: ClassVar[str] = "seeder"
+    SERVICE_NAME: ClassVar[str] = ServiceName.SEEDER
     CONFIG_CLASS: ClassVar[type[SeederConfig]] = SeederConfig
 
     def __init__(
@@ -93,11 +96,11 @@ class Seeder(BaseService[SeederConfig]):
             file=self._config.seed.file_path,
             to_validate=self._config.seed.to_validate,
         )
-        start_time = time.time()
+        start_time = time.monotonic()
 
         await self._seed()
 
-        duration = time.time() - start_time
+        duration = time.monotonic() - start_time
         self._logger.info("cycle_completed", duration_s=round(duration, 2))
 
     # -------------------------------------------------------------------------
@@ -156,19 +159,10 @@ class Seeder(BaseService[SeederConfig]):
         """
         all_urls = [relay.url for relay in relays]
 
-        new_urls_rows = await self._brotr.pool.fetch(
-            """
-            SELECT url FROM unnest($1::text[]) AS url
-            WHERE url NOT IN (SELECT r.url FROM relays r)
-              AND url NOT IN (
-                  SELECT data_key FROM service_data
-                  WHERE service_name = 'validator' AND data_type = 'candidate'
-              )
-            """,
-            all_urls,
-            timeout=self._brotr.config.timeouts.query,
+        new_url_list = await filter_new_relay_urls(
+            self._brotr, all_urls, timeout=self._brotr.config.timeouts.query
         )
-        new_urls = {row["url"] for row in new_urls_rows}
+        new_urls = set(new_url_list)
 
         skipped_count = len(relays) - len(new_urls)
         if skipped_count > 0:
@@ -178,25 +172,9 @@ class Seeder(BaseService[SeederConfig]):
             self._logger.info("all_relays_exist", count=len(relays))
             return
 
-        now = int(time.time())
-        records: list[tuple[str, str, str, dict[str, Any]]] = [
-            (
-                "validator",
-                "candidate",
-                relay.url,
-                {"failed_attempts": 0, "network": relay.network.value, "inserted_at": now},
-            )
-            for relay in relays
-            if relay.url in new_urls
-        ]
-        batch_size = self._brotr.config.batch.max_batch_size
-
-        for i in range(0, len(records), batch_size):
-            batch = records[i : i + batch_size]
-            await self._brotr.upsert_service_data(batch)
-            self._logger.debug("batch_inserted", batch_num=i // batch_size + 1, count=len(batch))
-
-        self._logger.info("candidates_inserted", count=len(new_urls))
+        new_relays = [r for r in relays if r.url in new_urls]
+        count = await upsert_candidates(self._brotr, new_relays)
+        self._logger.info("candidates_inserted", count=count)
 
     async def _seed_as_relays(self, relays: list[Relay]) -> None:
         """Insert relays directly into the relays table.

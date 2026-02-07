@@ -22,7 +22,7 @@
 # -----------------------------------------------------------------------------
 # Base Service Settings (inherited from BaseServiceConfig)
 # -----------------------------------------------------------------------------
-# Class: src/core/service.py::BaseServiceConfig
+# Class: src/core/base_service.py::BaseServiceConfig
 
 # Seconds between monitoring cycles
 # Lower values = more frequent monitoring, higher resource usage
@@ -144,9 +144,8 @@ discovery:
   # Which metadata types to include in published events
   # Must be a subset of processing.compute
   include:
-    nip11: true
+    nip11_fetch: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
@@ -265,9 +264,8 @@ processing:
   # Which metadata types to compute
   # Processing time increases with more types enabled
   compute:
-    nip11: true           # NIP-11 relay information document
+    nip11_fetch: true     # NIP-11 relay information document
     nip66_rtt: true       # Round-trip time (open/read/write latency)
-    nip66_probe: true     # Probe test results with raw rejection reasons
     nip66_ssl: true       # SSL certificate chain validation
     nip66_geo: true       # IP geolocation (requires MaxMind City database)
     nip66_net: true       # Network/ASN info (requires MaxMind ASN database)
@@ -277,9 +275,8 @@ processing:
   # Which metadata types to store in database
   # Must be a subset of compute
   store:
-    nip11: true
+    nip11_fetch: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
@@ -300,7 +297,6 @@ processing:
 #
 # NO WRITE TESTS (no PRIVATE_KEY needed):
 #   processing.compute.nip66_rtt: false
-#   processing.compute.nip66_probe: false
 #
 # DATABASE ONLY (no Nostr publishing):
 #   discovery.enabled: false
@@ -312,9 +308,8 @@ processing:
 #   networks.clearnet.max_tasks: 10
 #   processing.chunk_size: 20
 #   processing.compute:
-#     nip11: true
+#     nip11_fetch: true
 #     nip66_rtt: false
-#     nip66_probe: false
 #     nip66_ssl: false
 #     nip66_geo: false
 #     nip66_net: false
