@@ -103,7 +103,7 @@ COMMENT ON COLUMN metadata.value IS 'Complete JSON document (NIP-11 relay info o
 -- Links relays to metadata documents over time, creating a history of health
 -- check results. Each row represents one metadata snapshot for one relay at
 -- one point in time. The metadata_type column distinguishes between different
--- check types. A CHECK constraint enforces valid type values.
+-- check types (validated in application layer by MetadataType enum).
 
 CREATE TABLE IF NOT EXISTS relay_metadata (
     relay_url TEXT NOT NULL,
