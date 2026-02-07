@@ -1,7 +1,7 @@
 """Domain-specific database queries for BigBrotr services.
 
-All SQL queries used by services are centralized here. Each function
-accepts a Brotr instance and returns typed results. Services import
+All SQL queries used by services are centralized here.  Each function
+accepts a Brotr instance and returns typed results.  Services import
 from this module instead of writing inline SQL.
 """
 
@@ -10,6 +10,8 @@ from __future__ import annotations
 import time
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
+
+from .constants import DataType, ServiceName
 
 
 if TYPE_CHECKING:
@@ -70,10 +72,12 @@ async def filter_new_relay_urls(
         WHERE url NOT IN (SELECT r.url FROM relays r)
           AND url NOT IN (
               SELECT data_key FROM service_data
-              WHERE service_name = 'validator' AND data_type = 'candidate'
+              WHERE service_name = $2 AND data_type = $3
           )
         """,
         urls,
+        ServiceName.VALIDATOR,
+        DataType.CANDIDATE,
         timeout=timeout,
     )
     return [row["url"] for row in rows]
@@ -96,8 +100,8 @@ async def count_relays_due_for_check(
 
     Args:
         brotr: Database interface.
-        service_name: Service requesting checks (e.g. ``"monitor"``).
-        threshold: Unix timestamp cutoff — relays last checked before this
+        service_name: Service requesting checks.
+        threshold: Unix timestamp cutoff -- relays last checked before this
             are considered due.
         networks: Network type strings to include.
         timeout: Query timeout override.
@@ -111,13 +115,14 @@ async def count_relays_due_for_check(
         FROM relays r
         LEFT JOIN service_data sd ON
             sd.service_name = $1
-            AND sd.data_type = 'checkpoint'
+            AND sd.data_type = $2
             AND sd.data_key = r.url
         WHERE
-            r.network = ANY($2)
-            AND (sd.data_key IS NULL OR (sd.data->>'last_check_at')::BIGINT < $3)
+            r.network = ANY($3)
+            AND (sd.data_key IS NULL OR (sd.data->>'last_check_at')::BIGINT < $4)
         """,
         service_name,
+        DataType.CHECKPOINT,
         networks,
         threshold,
         timeout=timeout,
@@ -138,8 +143,8 @@ async def fetch_relays_due_for_check(
 
     Args:
         brotr: Database interface.
-        service_name: Service requesting checks (e.g. ``"monitor"``).
-        threshold: Unix timestamp cutoff — relays last checked before this
+        service_name: Service requesting checks.
+        threshold: Unix timestamp cutoff -- relays last checked before this
             are considered due.
         networks: Network type strings to include.
         limit: Maximum relays to return.
@@ -154,17 +159,18 @@ async def fetch_relays_due_for_check(
         FROM relays r
         LEFT JOIN service_data sd ON
             sd.service_name = $1
-            AND sd.data_type = 'checkpoint'
+            AND sd.data_type = $2
             AND sd.data_key = r.url
         WHERE
-            r.network = ANY($2)
-            AND (sd.data_key IS NULL OR (sd.data->>'last_check_at')::BIGINT < $3)
+            r.network = ANY($3)
+            AND (sd.data_key IS NULL OR (sd.data->>'last_check_at')::BIGINT < $4)
         ORDER BY
             COALESCE((sd.data->>'last_check_at')::BIGINT, 0) ASC,
             r.discovered_at ASC
-        LIMIT $4
+        LIMIT $5
         """,
         service_name,
+        DataType.CHECKPOINT,
         networks,
         threshold,
         limit,
@@ -195,7 +201,7 @@ async def get_events_with_relay_urls(
     Args:
         brotr: Database interface.
         relay_url: Source relay to scan events from.
-        last_seen_at: Cursor position — only events seen after this.
+        last_seen_at: Cursor position -- only events seen after this.
         kinds: Event kinds to include (e.g. contact lists, relay lists).
         limit: Maximum events per batch.
 
@@ -231,7 +237,7 @@ async def upsert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
     """Insert relays as validation candidates for the Validator service.
 
     Builds ``service_data`` records with ``service_name='validator'`` and
-    ``data_type='candidate'``, then upserts them via Brotr. Existing
+    ``data_type='candidate'``, then upserts them via Brotr.  Existing
     candidates (same URL) are updated with fresh timestamps.
 
     Args:
@@ -244,8 +250,8 @@ async def upsert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
     now = int(time.time())
     records: list[tuple[str, str, str, dict[str, Any]]] = [
         (
-            "validator",
-            "candidate",
+            ServiceName.VALIDATOR,
+            DataType.CANDIDATE,
             relay.url,
             {"failed_attempts": 0, "network": relay.network.value, "inserted_at": now},
         )
@@ -273,10 +279,12 @@ async def count_candidates(
         """
         SELECT COUNT(*)::int AS count
         FROM service_data
-        WHERE service_name = 'validator'
-          AND data_type = 'candidate'
-          AND data->>'network' = ANY($1)
+        WHERE service_name = $1
+          AND data_type = $2
+          AND data->>'network' = ANY($3)
         """,
+        ServiceName.VALIDATOR,
+        DataType.CANDIDATE,
         networks,
         timeout=timeout,
     )
@@ -310,14 +318,16 @@ async def fetch_candidate_chunk(
         """
         SELECT data_key, data
         FROM service_data
-        WHERE service_name = 'validator'
-          AND data_type = 'candidate'
-          AND data->>'network' = ANY($1)
-          AND updated_at < $2
+        WHERE service_name = $1
+          AND data_type = $2
+          AND data->>'network' = ANY($3)
+          AND updated_at < $4
         ORDER BY COALESCE((data->>'failed_attempts')::int, 0) ASC,
                  updated_at ASC
-        LIMIT $3
+        LIMIT $5
         """,
+        ServiceName.VALIDATOR,
+        DataType.CANDIDATE,
         networks,
         before_timestamp,
         limit,
@@ -335,10 +345,12 @@ async def delete_stale_candidates(brotr: Brotr, *, timeout: float | None = None)
     return await brotr.execute(
         """
         DELETE FROM service_data
-        WHERE service_name = 'validator'
-          AND data_type = 'candidate'
+        WHERE service_name = $1
+          AND data_type = $2
           AND data_key IN (SELECT url FROM relays)
         """,
+        ServiceName.VALIDATOR,
+        DataType.CANDIDATE,
         timeout=timeout,
     )
 
@@ -359,10 +371,12 @@ async def delete_exhausted_candidates(
     return await brotr.execute(
         """
         DELETE FROM service_data
-        WHERE service_name = 'validator'
-          AND data_type = 'candidate'
-          AND COALESCE((data->>'failed_attempts')::int, 0) >= $1
+        WHERE service_name = $1
+          AND data_type = $2
+          AND COALESCE((data->>'failed_attempts')::int, 0) >= $3
         """,
+        ServiceName.VALIDATOR,
+        DataType.CANDIDATE,
         max_failures,
         timeout=timeout,
     )
@@ -400,10 +414,14 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
             or 0
         )
         await conn.execute(
-            "DELETE FROM service_data "
-            "WHERE service_name = 'validator' "
-            "AND data_type = 'candidate' "
-            "AND data_key = ANY($1::text[])",
+            """
+            DELETE FROM service_data
+            WHERE service_name = $1
+              AND data_type = $2
+              AND data_key = ANY($3::text[])
+            """,
+            ServiceName.VALIDATOR,
+            DataType.CANDIDATE,
             urls,
         )
 
@@ -424,7 +442,7 @@ async def get_all_service_cursors(
 
     Args:
         brotr: Database interface.
-        service_name: Service owning the cursors (e.g. ``"synchronizer"``).
+        service_name: Service owning the cursors.
         cursor_field: JSON key containing the cursor value.
 
     Returns:
@@ -434,9 +452,10 @@ async def get_all_service_cursors(
         """
         SELECT data_key, (data->>$1)::BIGINT as cursor_value
         FROM service_data
-        WHERE service_name = $2 AND data_type = 'cursor'
+        WHERE service_name = $2 AND data_type = $3
         """,
         cursor_field,
         service_name,
+        DataType.CURSOR,
     )
     return {r["data_key"]: r["cursor_value"] for r in rows if r["cursor_value"] is not None}

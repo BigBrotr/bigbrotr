@@ -4,9 +4,9 @@ Discovers Nostr relay URLs from two sources:
 
 1. **External APIs** -- Public endpoints like nostr.watch that list relays.
 2. **Database events** -- Relay URLs extracted from stored Nostr events:
-   - Kind 2 (deprecated): ``content`` field contains a relay URL.
    - Kind 3 (NIP-02): ``content`` is JSON with relay URLs as keys.
    - Kind 10002 (NIP-65): ``r`` tags contain relay URLs.
+   - Kind 2 (deprecated, opt-in): ``content`` field contains a relay URL.
    - Any event with ``r`` tags.
 
 Discovered URLs are inserted as validation candidates for the Validator service.
@@ -35,9 +35,11 @@ import aiohttp
 from nostr_sdk import RelayUrl
 from pydantic import BaseModel, Field
 
-from core.queries import get_all_relay_urls, get_events_with_relay_urls, upsert_candidates
-from core.service import BaseService, BaseServiceConfig
+from core.base_service import BaseService, BaseServiceConfig
 from models import Relay
+
+from .common.constants import DataType, ServiceName
+from .common.queries import get_all_relay_urls, get_events_with_relay_urls, upsert_candidates
 
 
 if TYPE_CHECKING:
@@ -80,8 +82,8 @@ class EventsConfig(BaseModel):
         default=1000, ge=100, le=10000, description="Events to process per batch"
     )
     kinds: list[int] = Field(
-        default_factory=lambda: [2, 3, 10002],
-        description="Event kinds to scan (2=recommend relay, 3=contacts, 10002=relay list)",
+        default_factory=lambda: [3, 10002],
+        description="Event kinds to scan (3=contacts, 10002=relay list)",
     )
 
 
@@ -138,7 +140,7 @@ class Finder(BaseService[FinderConfig]):
     then inserts them as validation candidates for the Validator service.
     """
 
-    SERVICE_NAME: ClassVar[str] = "finder"
+    SERVICE_NAME: ClassVar[str] = ServiceName.FINDER
     CONFIG_CLASS: ClassVar[type[FinderConfig]] = FinderConfig
 
     def __init__(
@@ -160,7 +162,7 @@ class Finder(BaseService[FinderConfig]):
         Scans stored events and fetches external APIs (in that order) to
         discover relay URLs. Use ``run_forever()`` for continuous operation.
         """
-        cycle_start = time.time()
+        cycle_start = time.monotonic()
         self._found_relays = 0
 
         # Discover relay URLs from event scanning
@@ -171,7 +173,7 @@ class Finder(BaseService[FinderConfig]):
         if self._config.api.enabled:
             await self._find_from_api()
 
-        elapsed = time.time() - cycle_start
+        elapsed = time.monotonic() - cycle_start
         self._logger.info("cycle_completed", found=self._found_relays, duration_s=round(elapsed, 2))
 
     async def _find_from_events(self) -> None:
@@ -225,7 +227,7 @@ class Finder(BaseService[FinderConfig]):
 
     async def _fetch_all_cursors(self) -> dict[str, int]:
         """Fetch all event-scanning cursors in a single query."""
-        results = await self._brotr.get_service_data(self.SERVICE_NAME, "cursor")
+        results = await self._brotr.get_service_data(self.SERVICE_NAME, DataType.CURSOR)
         return {r["key"]: r.get("value", {}).get("last_seen_at", 0) for r in results}
 
     async def _scan_relay_events(self, relay_url: str, cursors: dict[str, int]) -> tuple[int, int]:
@@ -326,7 +328,14 @@ class Finder(BaseService[FinderConfig]):
             if chunk_last_seen_at is not None:
                 last_seen_at = chunk_last_seen_at
                 await self._brotr.upsert_service_data(
-                    [(self.SERVICE_NAME, "cursor", relay_url, {"last_seen_at": last_seen_at})]
+                    [
+                        (
+                            self.SERVICE_NAME,
+                            DataType.CURSOR,
+                            relay_url,
+                            {"last_seen_at": last_seen_at},
+                        )
+                    ]
                 )
 
             # Stop if chunk wasn't full

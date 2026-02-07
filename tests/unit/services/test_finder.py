@@ -76,7 +76,7 @@ class TestEventsConfig:
         config = EventsConfig()
         assert config.enabled is True
         assert config.batch_size == 1000
-        assert config.kinds == [2, 3, 10002]
+        assert config.kinds == [3, 10002]
 
     def test_disabled(self) -> None:
         """Test can disable events scanning."""

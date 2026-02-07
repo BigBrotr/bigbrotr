@@ -23,6 +23,7 @@ from services.__main__ import (
     CORE_CONFIG,
     SERVICE_REGISTRY,
     YAML_BASE,
+    ServiceEntry,
     load_brotr,
     main,
     parse_args,
@@ -111,10 +112,10 @@ class TestServiceRegistry:
         for name, (service_class, _) in SERVICE_REGISTRY.items():
             assert service_class == expected_classes[name]
 
-    def test_registry_is_two_tuple(self) -> None:
-        """Test registry entries are 2-tuples (class, config_path)."""
+    def test_registry_entries_are_service_entry(self) -> None:
+        """Test registry entries are ServiceEntry NamedTuples."""
         for name, entry in SERVICE_REGISTRY.items():
-            assert len(entry) == 2, f"{name} should be 2-tuple (class, config_path)"
+            assert isinstance(entry, ServiceEntry), f"{name} should be a ServiceEntry"
 
     def test_registry_not_empty(self) -> None:
         """Test registry is not empty."""
@@ -122,7 +123,7 @@ class TestServiceRegistry:
 
     def test_service_classes_are_base_service_subclasses(self) -> None:
         """Test all service classes inherit from BaseService."""
-        from core.service import BaseService
+        from core.base_service import BaseService
 
         for name, (service_class, _) in SERVICE_REGISTRY.items():
             assert issubclass(service_class, BaseService), (

@@ -1,14 +1,10 @@
 """
-Abstract base class and mixins for long-running BigBrotr services.
+Abstract base class for long-running BigBrotr services.
 
 ``BaseService[ConfigT]`` provides the standard lifecycle for all services:
 structured logging, graceful shutdown via asyncio.Event, configurable
 interval-based cycling with ``run_forever()``, consecutive failure limits,
 and automatic Prometheus metrics tracking.
-
-Mixins:
-    NetworkSemaphoreMixin: Per-network asyncio semaphores for concurrency
-        limiting across clearnet, Tor, I2P, and Lokinet connections.
 
 Services persist operational state through the ``Brotr.upsert_service_data()``
 and ``Brotr.get_service_data()`` methods rather than in-memory storage.
@@ -17,12 +13,10 @@ and ``Brotr.get_service_data()`` methods rather than in-memory storage.
 import asyncio
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast
+from typing import Any, ClassVar, Generic, TypeVar, cast
 
 from pydantic import BaseModel, Field
 
-from utils.network import NetworkType
 from utils.yaml import load_yaml
 
 from .brotr import Brotr
@@ -34,10 +28,6 @@ from .metrics import (
     SERVICE_INFO,
     MetricsConfig,
 )
-
-
-if TYPE_CHECKING:
-    from utils.network import NetworkConfig
 
 
 # ---------------------------------------------------------------------------
@@ -182,12 +172,12 @@ class BaseService(ABC, Generic[ConfigT]):
         consecutive_failures = 0
 
         while self.is_running:
-            cycle_start = time.time()
+            cycle_start = time.monotonic()
 
             try:
                 await self.run()
 
-                duration = time.time() - cycle_start
+                duration = time.monotonic() - cycle_start
                 self.inc_counter("cycles_success")
                 if metrics_enabled:
                     CYCLE_DURATION_SECONDS.labels(service=self.SERVICE_NAME).observe(duration)
@@ -305,92 +295,3 @@ class BaseService(ABC, Generic[ConfigT]):
         if not self._config.metrics.enabled:
             return
         SERVICE_COUNTER.labels(service=self.SERVICE_NAME, name=name).inc(value)
-
-
-# ---------------------------------------------------------------------------
-# Batch Progress
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class BatchProgress:
-    """Tracks progress of a batch processing cycle.
-
-    All counters are reset at the start of each cycle via ``reset()``.
-
-    Attributes:
-        started_at: Timestamp when the cycle started.
-        total: Total items to process.
-        processed: Items processed so far.
-        success: Items that succeeded.
-        failure: Items that failed.
-        chunks: Number of chunks completed.
-    """
-
-    started_at: float = field(default=0.0)
-    total: int = field(default=0)
-    processed: int = field(default=0)
-    success: int = field(default=0)
-    failure: int = field(default=0)
-    chunks: int = field(default=0)
-
-    def reset(self) -> None:
-        """Reset all counters and set ``started_at`` to the current time."""
-        self.started_at = time.time()
-        self.total = 0
-        self.processed = 0
-        self.success = 0
-        self.failure = 0
-        self.chunks = 0
-
-    @property
-    def remaining(self) -> int:
-        """Number of items left to process."""
-        return self.total - self.processed
-
-    @property
-    def elapsed(self) -> float:
-        """Seconds elapsed since processing started, rounded to 1 decimal."""
-        return round(time.time() - self.started_at, 1)
-
-
-# ---------------------------------------------------------------------------
-# Mixins
-# ---------------------------------------------------------------------------
-
-
-class NetworkSemaphoreMixin:
-    """Mixin providing per-network concurrency semaphores.
-
-    Creates an ``asyncio.Semaphore`` for each network type (clearnet, Tor,
-    I2P, Lokinet) to cap the number of simultaneous connections. This is
-    especially important for overlay networks like Tor, where excessive
-    concurrency degrades circuit performance.
-
-    Call ``_init_semaphores()`` at the start of each run cycle to pick up
-    any configuration changes to ``max_tasks`` values.
-    """
-
-    _semaphores: dict[NetworkType, asyncio.Semaphore]
-
-    def _init_semaphores(self, networks: "NetworkConfig") -> None:
-        """Create a semaphore for each network type from the configuration.
-
-        Args:
-            networks: Network configuration providing ``max_tasks`` per
-                network type.
-        """
-        self._semaphores = {
-            network: asyncio.Semaphore(networks.get(network).max_tasks) for network in NetworkType
-        }
-
-    def _get_semaphore(self, network: NetworkType) -> asyncio.Semaphore | None:
-        """Look up the concurrency semaphore for a network type.
-
-        Args:
-            network: The network type to retrieve the semaphore for.
-
-        Returns:
-            The semaphore, or None if the network has not been initialized.
-        """
-        return self._semaphores.get(network)

@@ -41,8 +41,7 @@ import geoip2.database
 from nostr_sdk import EventBuilder, Filter, Keys, Kind, RelayUrl, Tag
 from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer, model_validator
 
-from core.queries import count_relays_due_for_check, fetch_relays_due_for_check
-from core.service import BaseService, BaseServiceConfig, BatchProgress, NetworkSemaphoreMixin
+from core.base_service import BaseService, BaseServiceConfig
 from models import Metadata, MetadataType, Nip11, Relay, RelayMetadata
 from models.nips.base import BaseMetadata
 from models.nips.nip66 import (
@@ -56,6 +55,10 @@ from models.nips.nip66 import (
 from utils.keys import KeysConfig
 from utils.network import NetworkConfig, NetworkType
 from utils.transport import create_client
+
+from .common.constants import DataType, ServiceName
+from .common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
+from .common.queries import count_relays_due_for_check, fetch_relays_due_for_check
 
 
 if TYPE_CHECKING:
@@ -327,7 +330,7 @@ class MonitorConfig(BaseServiceConfig):
 # =============================================================================
 
 
-class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
+class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConfig]):
     """Relay health monitoring service with NIP-66 compliance.
 
     Performs comprehensive health checks on relays and stores results as
@@ -347,7 +350,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
     Network support: clearnet (direct), Tor, I2P, and Lokinet (via SOCKS5 proxy).
     """
 
-    SERVICE_NAME: ClassVar[str] = "monitor"
+    SERVICE_NAME: ClassVar[str] = ServiceName.MONITOR
     CONFIG_CLASS: ClassVar[type[MonitorConfig]] = MonitorConfig
 
     def __init__(self, brotr: Brotr, config: MonitorConfig | None = None) -> None:
@@ -357,7 +360,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         self._semaphores: dict[NetworkType, asyncio.Semaphore] = {}
         self._geo_reader: geoip2.database.Reader | None = None
         self._asn_reader: geoip2.database.Reader | None = None
-        self._progress = BatchProgress()
+        self._init_progress()
 
     # -------------------------------------------------------------------------
     # Main Cycle
@@ -752,7 +755,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
 
                 # RTT test: open/read/write round-trip times
                 if compute.nip66_rtt:
-                    event_builder = EventBuilder(Kind(30000), "nip66-test").tags(
+                    event_builder = EventBuilder(Kind(22456), "nip66-test").tags(
                         [Tag.parse(["d", relay.url])]
                     )
                     # Apply proof-of-work if NIP-11 specifies minimum difficulty
@@ -913,8 +916,9 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         # Save checkpoints for all checked relays
         all_relays = [relay for relay, _ in successful] + failed
         if all_relays:
-            checkpoints = [
-                ("monitor", "checkpoint", relay.url, {"last_check_at": now}) for relay in all_relays
+            checkpoints: list[tuple[str, str, str, dict[str, Any]]] = [
+                (self.SERVICE_NAME, DataType.CHECKPOINT, relay.url, {"last_check_at": now})
+                for relay in all_relays
             ]
             try:
                 await self._brotr.upsert_service_data(checkpoints)
@@ -960,7 +964,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
             return
 
         results = await self._brotr.get_service_data(
-            self.SERVICE_NAME, "cursor", "last_announcement"
+            self.SERVICE_NAME, DataType.CURSOR, "last_announcement"
         )
         last_announcement = results[0].get("value", {}).get("timestamp", 0.0) if results else 0.0
         elapsed = time.time() - last_announcement
@@ -971,8 +975,9 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
             builder = self._build_kind_10166()
             await self._broadcast_events([builder], relays)
             self._logger.info("announcement_published", relays=len(relays))
+            now = time.time()
             await self._brotr.upsert_service_data(
-                [(self.SERVICE_NAME, "cursor", "last_announcement", {"timestamp": time.time()})]
+                [(self.SERVICE_NAME, DataType.CURSOR, "last_announcement", {"timestamp": now})]
             )
         except Exception as e:
             self._logger.warning("announcement_failed", error=str(e))
@@ -984,7 +989,9 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
         if not profile.enabled or not relays:
             return
 
-        results = await self._brotr.get_service_data(self.SERVICE_NAME, "cursor", "last_profile")
+        results = await self._brotr.get_service_data(
+            self.SERVICE_NAME, DataType.CURSOR, "last_profile"
+        )
         last_profile = results[0].get("value", {}).get("timestamp", 0.0) if results else 0.0
         elapsed = time.time() - last_profile
         if elapsed < profile.interval:
@@ -995,7 +1002,7 @@ class Monitor(NetworkSemaphoreMixin, BaseService[MonitorConfig]):
             await self._broadcast_events([builder], relays)
             self._logger.info("profile_published", relays=len(relays))
             await self._brotr.upsert_service_data(
-                [(self.SERVICE_NAME, "cursor", "last_profile", {"timestamp": time.time()})]
+                [(self.SERVICE_NAME, DataType.CURSOR, "last_profile", {"timestamp": time.time()})]
             )
         except Exception as e:
             self._logger.warning("profile_failed", error=str(e))

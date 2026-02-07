@@ -319,8 +319,8 @@ class TestChunkProcessing:
         """Test validator respects max_candidates limit."""
 
         def mock_fetch(query, *args, timeout=None):
-            # args order: (networks, run_start_ts, limit)
-            limit = args[2] if len(args) > 2 else 100
+            # args order: (service_name, data_type, networks, run_start_ts, limit)
+            limit = args[4] if len(args) > 4 else 100
             if limit <= 0:
                 return []
             if not hasattr(mock_fetch, "_call_count"):
@@ -601,9 +601,9 @@ class TestPersistence:
 
         # candidate deletion called via execute (atomic, within the same transaction)
         execute_calls = conn.execute.call_args_list
-        delete_call = [c for c in execute_calls if "ANY($1::text[])" in str(c)]
+        delete_call = [c for c in execute_calls if "ANY($3::text[])" in str(c)]
         assert len(delete_call) == 1, f"Expected one candidate DELETE call, got {delete_call}"
-        assert "wss://valid.relay.com" in delete_call[0].args[1]
+        assert "wss://valid.relay.com" in delete_call[0].args[3]
 
     @pytest.mark.asyncio
     async def test_invalid_candidates_failures_incremented(
@@ -679,7 +679,7 @@ class TestCleanup:
 
         mock_validator_brotr._pool.execute.assert_called_once()
         call_args = mock_validator_brotr._pool.execute.call_args
-        assert call_args[0][1] == 5  # max_failures threshold
+        assert call_args[0][3] == 5  # max_failures threshold
 
     @pytest.mark.asyncio
     async def test_cleanup_exhausted_not_called_when_disabled(
@@ -703,6 +703,39 @@ class TestCleanup:
         validator = Validator(brotr=mock_validator_brotr)
         with pytest.raises(Exception, match="DB error"):
             await validator._cleanup_stale()
+
+
+# ============================================================================
+# _parse_delete_result Tests
+# ============================================================================
+
+
+class TestParseDeleteResult:
+    """Tests for Validator._parse_delete_result edge cases."""
+
+    def test_standard_delete_result(self) -> None:
+        assert Validator._parse_delete_result("DELETE 5") == 5
+
+    def test_zero_deleted(self) -> None:
+        assert Validator._parse_delete_result("DELETE 0") == 0
+
+    def test_large_count(self) -> None:
+        assert Validator._parse_delete_result("DELETE 99999") == 99999
+
+    def test_none_returns_zero(self) -> None:
+        assert Validator._parse_delete_result(None) == 0
+
+    def test_empty_string_returns_zero(self) -> None:
+        assert Validator._parse_delete_result("") == 0
+
+    def test_non_numeric_suffix_returns_zero(self) -> None:
+        assert Validator._parse_delete_result("DELETE abc") == 0
+
+    def test_single_word_returns_zero(self) -> None:
+        assert Validator._parse_delete_result("DELETE") == 0
+
+    def test_unexpected_format_returns_zero(self) -> None:
+        assert Validator._parse_delete_result("SOMETHING ELSE") == 0
 
 
 # ============================================================================

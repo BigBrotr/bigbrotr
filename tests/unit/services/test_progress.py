@@ -1,5 +1,5 @@
 """
-Unit tests for core.service.BatchProgress.
+Unit tests for services.common.mixins.BatchProgress.
 
 Tests:
 - BatchProgress dataclass
@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import pytest
 
-from core.service import BatchProgress
+from services.common.mixins import BatchProgress
 
 
 # =============================================================================
@@ -295,11 +295,11 @@ class TestBatchProgressElapsed:
 
     def test_elapsed_rounded_to_one_decimal(self) -> None:
         """Test elapsed is rounded to 1 decimal place."""
-        with patch("time.time", return_value=1000.0):
+        with patch("time.monotonic", return_value=1000.0):
             progress = BatchProgress()
-            progress.started_at = 999.123
+            progress._monotonic_start = 999.123
 
-        with patch("time.time", return_value=1000.0):
+        with patch("time.monotonic", return_value=1000.0):
             elapsed = progress.elapsed
 
         # 1000.0 - 999.123 = 0.877, rounded to 0.9

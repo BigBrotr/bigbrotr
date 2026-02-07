@@ -334,6 +334,14 @@ class TestDelegation:
         assert result == "result"
         mock_nostr_event.some_future_method.assert_called_once()
 
+    def test_missing_attribute_raises_clear_error(self, mock_nostr_event):
+        """Missing attribute raises AttributeError referencing Event, not NostrEvent."""
+        event = Event(mock_nostr_event)
+        # Replace inner with a spec-restricted mock so unknown attrs raise
+        object.__setattr__(event, "_inner", MagicMock(spec=["id", "kind", "content"]))
+        with pytest.raises(AttributeError, match="'Event' object has no attribute 'nonexistent'"):
+            _ = event.nonexistent
+
 
 # =============================================================================
 # to_db_params Tests

@@ -28,9 +28,11 @@ from typing import TYPE_CHECKING, ClassVar
 
 from pydantic import BaseModel, Field
 
-from core.queries import filter_new_relay_urls, upsert_candidates
-from core.service import BaseService, BaseServiceConfig
+from core.base_service import BaseService, BaseServiceConfig
 from models import Relay
+
+from .common.constants import ServiceName
+from .common.queries import filter_new_relay_urls, upsert_candidates
 
 
 if TYPE_CHECKING:
@@ -73,7 +75,7 @@ class Seeder(BaseService[SeederConfig]):
     This is a one-shot service; call ``run()`` once at startup.
     """
 
-    SERVICE_NAME: ClassVar[str] = "seeder"
+    SERVICE_NAME: ClassVar[str] = ServiceName.SEEDER
     CONFIG_CLASS: ClassVar[type[SeederConfig]] = SeederConfig
 
     def __init__(
@@ -94,11 +96,11 @@ class Seeder(BaseService[SeederConfig]):
             file=self._config.seed.file_path,
             to_validate=self._config.seed.to_validate,
         )
-        start_time = time.time()
+        start_time = time.monotonic()
 
         await self._seed()
 
-        duration = time.time() - start_time
+        duration = time.monotonic() - start_time
         self._logger.info("cycle_completed", duration_s=round(duration, 2))
 
     # -------------------------------------------------------------------------

@@ -49,12 +49,14 @@ from nostr_sdk import (
 )
 from pydantic import BaseModel, Field, field_validator
 
+from core.base_service import BaseService, BaseServiceConfig
 from core.brotr import Brotr
-from core.queries import get_all_relays, get_all_service_cursors
-from core.service import BaseService, BaseServiceConfig
 from models import Event, EventRelay, Relay
 from utils.keys import KeysConfig
 from utils.network import NetworkConfig, NetworkType
+
+from .common.constants import DataType, ServiceName
+from .common.queries import get_all_relays, get_all_service_cursors
 
 
 # =============================================================================
@@ -71,7 +73,7 @@ if TYPE_CHECKING:
 
 # Worker processes cannot access class attributes, so these module-level
 # globals provide logging configuration and state for forked processes.
-_WORKER_SERVICE_NAME = "synchronizer"
+_WORKER_SERVICE_NAME = ServiceName.SYNCHRONIZER
 _WORKER_LOG_LEVEL = "INFO"  # Set by main process before spawning workers
 _WORKER_LOGGER: logging.Logger | None = None  # Lazily created per worker
 
@@ -445,7 +447,6 @@ async def _get_worker_brotr(brotr_config: dict[str, Any]) -> Brotr:
 
 async def sync_relay_task(
     relay_url: str,
-    _relay_network: str,
     start_time: int,
     config_dict: dict[str, Any],
     brotr_config: dict[str, Any],
@@ -454,7 +455,6 @@ async def sync_relay_task(
 
     Args:
         relay_url: Relay WebSocket URL.
-        _relay_network: Network type string (unused, relay auto-detects).
         start_time: Sync window start timestamp (since).
         config_dict: Serialized SynchronizerConfig for cross-process transfer.
         brotr_config: Serialized Brotr config for worker DB initialization.
@@ -730,7 +730,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         5. Update per-relay cursors for the next cycle.
     """
 
-    SERVICE_NAME: ClassVar[str] = "synchronizer"
+    SERVICE_NAME: ClassVar[str] = ServiceName.SYNCHRONIZER
     CONFIG_CLASS: ClassVar[type[SynchronizerConfig]] = SynchronizerConfig
 
     def __init__(
@@ -750,7 +750,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
 
     async def run(self) -> None:
         """Execute one complete synchronization cycle across all relays."""
-        cycle_start = time.time()
+        cycle_start = time.monotonic()
         self._synced_events = 0
         self._synced_relays = 0
         self._failed_relays = 0
@@ -787,7 +787,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         else:
             await self._run_single_process(relays)
 
-        elapsed = time.time() - cycle_start
+        elapsed = time.monotonic() - cycle_start
         self._logger.info(
             "cycle_completed",
             synced_relays=self._synced_relays,
@@ -855,8 +855,8 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                     async with cursor_lock:
                         cursor_updates.append(
                             (
-                                "synchronizer",
-                                "cursor",
+                                self.SERVICE_NAME,
+                                DataType.CURSOR,
                                 relay.url,
                                 {"last_synced_at": end_time},
                             )
@@ -920,9 +920,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
 
         for relay in relays:
             start_time = self._get_start_time_from_cache(relay, cursors)
-            tasks.append(
-                (str(relay.url), relay.network, start_time, service_config_dump, brotr_config_dump)
-            )
+            tasks.append((str(relay.url), start_time, service_config_dump, brotr_config_dump))
 
         async with aiomultiprocess.Pool(
             processes=self._config.concurrency.max_processes,
@@ -946,8 +944,8 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                     relay = Relay(url)
                     cursor_updates.append(
                         (
-                            "synchronizer",
-                            "cursor",
+                            self.SERVICE_NAME,
+                            DataType.CURSOR,
                             relay.url,
                             {"last_synced_at": new_time},
                         )
@@ -985,8 +983,8 @@ class Synchronizer(BaseService[SynchronizerConfig]):
             return self._config.time_range.default_start
 
         cursors = await self._brotr.get_service_data(
-            service_name="synchronizer",
-            data_type="cursor",
+            service_name=self.SERVICE_NAME,
+            data_type=DataType.CURSOR,
             key=relay.url,
         )
 
@@ -1008,7 +1006,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         if not self._config.time_range.use_relay_state:
             return {}
 
-        return await get_all_service_cursors(self._brotr, "synchronizer", "last_synced_at")
+        return await get_all_service_cursors(self._brotr, self.SERVICE_NAME, "last_synced_at")
 
     def _get_start_time_from_cache(self, relay: Relay, cursors: dict[str, int]) -> int:
         """Look up the sync start timestamp from a pre-fetched cursor cache.

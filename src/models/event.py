@@ -73,7 +73,12 @@ class Event:
 
     def __getattr__(self, name: str) -> Any:
         """Delegate attribute access to the wrapped NostrEvent."""
-        return getattr(self._inner, name)
+        try:
+            return getattr(self._inner, name)
+        except AttributeError:
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute '{name}'"
+            ) from None
 
     def to_db_params(self) -> EventDbParams:
         """Return cached positional parameters for the database insert procedure.

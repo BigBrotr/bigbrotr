@@ -29,17 +29,20 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, Field
 
-from core.queries import (
+from core.base_service import BaseService, BaseServiceConfig
+from models import Relay
+from utils.network import NetworkConfig, NetworkType
+from utils.transport import is_nostr_relay
+
+from .common.constants import DataType, ServiceName
+from .common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
+from .common.queries import (
     count_candidates,
     delete_exhausted_candidates,
     delete_stale_candidates,
     fetch_candidate_chunk,
     promote_candidates,
 )
-from core.service import BaseService, BaseServiceConfig, BatchProgress, NetworkSemaphoreMixin
-from models import Relay
-from utils.network import NetworkConfig, NetworkType
-from utils.transport import is_nostr_relay
 
 
 if TYPE_CHECKING:
@@ -119,7 +122,7 @@ class ValidatorConfig(BaseServiceConfig):
 # =============================================================================
 
 
-class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
+class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     """Validates relay candidates by checking if they speak the Nostr protocol.
 
     Processes candidate URLs discovered by the Finder service. Valid relays are
@@ -139,14 +142,14 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     Network support: clearnet (direct), Tor (.onion via SOCKS5), I2P (.i2p via SOCKS5).
     """
 
-    SERVICE_NAME: ClassVar[str] = "validator"
+    SERVICE_NAME: ClassVar[str] = ServiceName.VALIDATOR
     CONFIG_CLASS: ClassVar[type[ValidatorConfig]] = ValidatorConfig
 
     def __init__(self, brotr: Brotr, config: ValidatorConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: ValidatorConfig
         self._semaphores: dict[NetworkType, asyncio.Semaphore] = {}
-        self._progress = BatchProgress()
+        self._init_progress()
 
     # -------------------------------------------------------------------------
     # Main Cycle
@@ -436,10 +439,10 @@ class Validator(NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
         """
         # Update failed candidates
         if invalid:
-            updates = [
+            updates: list[tuple[str, str, str, dict[str, Any]]] = [
                 (
-                    "validator",
-                    "candidate",
+                    self.SERVICE_NAME,
+                    DataType.CANDIDATE,
                     c.relay.url,
                     {**c.data, "failed_attempts": c.failed_attempts + 1},
                 )
