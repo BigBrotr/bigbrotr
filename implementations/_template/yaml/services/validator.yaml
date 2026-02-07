@@ -103,7 +103,7 @@ cleanup:
 #   - max_tasks: Maximum concurrent validation tasks
 #   - timeout: WebSocket handshake timeout in seconds
 #
-# Class: src/utils/network.py::NetworkConfig
+# Class: src/services/common/configs.py::NetworkConfig
 
 networks:
   # ---------------------------------------------------------------------------

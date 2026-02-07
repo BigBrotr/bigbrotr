@@ -400,13 +400,13 @@ async def test_finder_run(mock_brotr):
     finder = Finder(brotr=mock_brotr, config=config)
 
     # Mock database responses
-    mock_brotr.pool.fetch = AsyncMock(return_value=[])
+    mock_brotr.fetch = AsyncMock(return_value=[])
 
     # Execute
     await finder.run()
 
     # Verify
-    assert mock_brotr.pool.fetch.called
+    assert mock_brotr.fetch.called
 ```
 
 ### Model Test Pattern
@@ -467,13 +467,13 @@ from core import Brotr
 
 async def test_insert_events(mock_brotr, sample_events_batch):
     """Test event insertion."""
-    mock_brotr.pool._mock_connection.executemany = AsyncMock()
+    mock_brotr.insert_events = AsyncMock()
 
     inserted, skipped = await mock_brotr.insert_events(sample_events_batch)
 
     assert inserted == 10
     assert skipped == 0
-    assert mock_brotr.pool._mock_connection.executemany.called
+    assert mock_brotr.insert_events.called
 ```
 
 **test_service.py**:
@@ -519,11 +519,11 @@ async def test_finder_find_from_events(mock_brotr):
     finder = Finder(brotr=mock_brotr, config=config)
 
     # Mock database responses
-    mock_brotr.pool.fetch = AsyncMock(return_value=[])
+    mock_brotr.fetch = AsyncMock(return_value=[])
 
     await finder._find_from_events()
 
-    assert mock_brotr.pool.fetch.called
+    assert mock_brotr.fetch.called
 ```
 
 **test_monitor.py**:

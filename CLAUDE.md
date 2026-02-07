@@ -53,7 +53,7 @@ Implementation Layer (implementations/bigbrotr/, implementations/lilbrotr/)
         v
 Service Layer (src/services/)
   └── seeder.py, finder.py, validator.py, monitor.py, synchronizer.py
-  └── common/: constants.py (ServiceName, DataType), mixins.py (BatchProgress, semaphores), queries.py (domain SQL)
+  └── common/: configs.py (NetworkConfig), constants.py (ServiceName, DataType), mixins.py (BatchProgress, semaphores), queries.py (domain SQL)
         |
         v
 Core Layer (src/core/)
@@ -61,7 +61,7 @@ Core Layer (src/core/)
         |
         v
 Utils Layer (src/utils/)
-  └── NetworkConfig, KeysConfig, create_client, load_yaml, resolve_host
+  └── KeysConfig, create_client, load_yaml, resolve_host
         |
         v
 Models Layer (src/models/)

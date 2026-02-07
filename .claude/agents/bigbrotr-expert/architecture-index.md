@@ -218,7 +218,7 @@ async with service:
 ```python
 # Async methods throughout
 async def run(self):
-    rows = await self._brotr.pool.fetch("SELECT ...")
+    rows = await self._brotr.fetch("SELECT ...")
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             data = await resp.json()

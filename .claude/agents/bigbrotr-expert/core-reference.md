@@ -573,7 +573,7 @@ class MyService(BaseService[MyConfig]):
         self._logger.info("run_started")
 
         # Database operations
-        relays = await self._brotr.pool.fetch("SELECT * FROM relays LIMIT 10")
+        relays = await self._brotr.fetch("SELECT * FROM relays LIMIT 10")
 
         self._logger.info("run_completed", relay_count=len(relays))
 
@@ -596,7 +596,7 @@ except ConnectionError as e:
     logger.error("connection_failed", error=str(e))
 
 # Transaction with automatic rollback
-async with brotr.pool.transaction() as conn:
+async with brotr.transaction() as conn:
     await conn.execute("INSERT INTO relays ...")
     # Auto-rollback on exception, auto-commit on success
 

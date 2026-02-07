@@ -700,7 +700,7 @@ class MyService(BaseService[MyServiceConfig]):
         self._logger.info("run_started")
 
         # Database operations
-        rows = await self._brotr.pool.fetch("SELECT * FROM relays LIMIT $1", self._config.batch_size)
+        rows = await self._brotr.fetch("SELECT * FROM relays LIMIT $1", self._config.batch_size)
 
         # Process data
         for row in rows:

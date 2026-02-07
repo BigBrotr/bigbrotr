@@ -179,10 +179,10 @@ keys = [("validator", "candidate", "wss://relay.com")]
 count = await brotr.delete_service_data(keys)
 ```
 
-**Direct Pool Access:**
+**Query Facade:**
 ```python
 # For read queries (bypassing stored procedures)
-rows = await brotr.pool.fetch("SELECT url FROM relays WHERE network = $1", "tor")
+rows = await brotr.fetch("SELECT url FROM relays WHERE network = $1", "tor")
 ```
 
 ---
@@ -789,7 +789,7 @@ query = """
     ORDER BY created_at ASC, id ASC
     LIMIT $3
 """
-rows = await brotr.pool.fetch(query, last_timestamp, last_id, batch_size)
+rows = await brotr.fetch(query, last_timestamp, last_id, batch_size)
 
 # Save new cursor
 await brotr.upsert_service_data([

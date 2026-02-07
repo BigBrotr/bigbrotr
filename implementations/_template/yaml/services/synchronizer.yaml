@@ -68,7 +68,7 @@ metrics:
 # -----------------------------------------------------------------------------
 # Per-network settings for relay synchronization.
 # timeout here is the WebSocket request timeout for each event fetch.
-# Class: src/utils/network.py::NetworkConfig
+# Class: src/services/common/configs.py::NetworkConfig
 
 networks:
   # Clearnet (standard internet relays)
