@@ -10,15 +10,15 @@ from __future__ import annotations
 
 import logging
 import ssl
-from types import SimpleNamespace
+from types import SimpleNamespace  # noqa: TC003
 from typing import Any, Self
 
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
-from models.constants import NetworkType
-from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
-from models.relay import Relay
+from models.constants import DEFAULT_TIMEOUT, NetworkType
+from models.nips.base import BaseMetadata
+from models.relay import Relay  # noqa: TC001
 
 from .data import Nip66HttpData
 from .logs import Nip66HttpLogs
@@ -45,7 +45,7 @@ class Nip66HttpMetadata(BaseMetadata):
     @staticmethod
     async def _http(
         relay: Relay,
-        timeout: float,
+        timeout: float,  # noqa: ASYNC109
         proxy_url: str | None = None,
     ) -> dict[str, Any]:
         """Capture Server and X-Powered-By headers from a WebSocket handshake.
@@ -112,7 +112,7 @@ class Nip66HttpMetadata(BaseMetadata):
     async def http(
         cls,
         relay: Relay,
-        timeout: float | None = None,
+        timeout: float | None = None,  # noqa: ASYNC109
         proxy_url: str | None = None,
     ) -> Self:
         """Extract HTTP headers from a relay's WebSocket handshake response.

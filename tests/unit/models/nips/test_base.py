@@ -3,7 +3,8 @@
 import pytest
 from pydantic import ValidationError
 
-from models.nips.base import DEFAULT_TIMEOUT, BaseData, BaseLogs, BaseMetadata
+from models.constants import DEFAULT_TIMEOUT
+from models.nips.base import BaseData, BaseLogs, BaseMetadata
 from models.nips.parsing import FieldSpec
 
 

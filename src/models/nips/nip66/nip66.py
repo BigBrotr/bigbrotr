@@ -11,21 +11,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from time import time
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
+from models.constants import DEFAULT_TIMEOUT
 from models.metadata import Metadata, MetadataType
-from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
-from models.relay import Relay
+from models.nips.base import BaseMetadata  # noqa: TC001
+from models.relay import Relay  # noqa: TC001
 from models.relay_metadata import RelayMetadata
 
 from .dns import Nip66DnsMetadata
 from .geo import Nip66GeoMetadata
 from .http import Nip66HttpMetadata
 from .net import Nip66NetMetadata
-from .rtt import Nip66RttMetadata
+from .rtt import Nip66RttMetadata, RttDependencies
 from .ssl import Nip66SslMetadata
 
 
@@ -35,6 +37,42 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("models.nip66")
+
+
+@dataclass(frozen=True, slots=True)
+class Nip66TestFlags:
+    """Boolean flags controlling which NIP-66 tests to run.
+
+    All tests are enabled by default. Set individual flags to ``False``
+    to skip specific test types during ``Nip66.create()``.
+
+    Attributes:
+        allow_insecure: Fall back to unverified SSL for clearnet relays
+            with invalid certificates (default: True). Used by RTT.
+    """
+
+    run_rtt: bool = True
+    run_ssl: bool = True
+    run_geo: bool = True
+    run_net: bool = True
+    run_dns: bool = True
+    run_http: bool = True
+    allow_insecure: bool = True
+
+
+class Nip66Dependencies(NamedTuple):
+    """Optional dependencies for NIP-66 monitoring tests.
+
+    All fields default to ``None``. RTT tests require ``keys``,
+    ``event_builder``, and ``read_filter``. Geo/net tests require
+    the corresponding GeoIP database readers.
+    """
+
+    keys: Keys | None = None
+    event_builder: EventBuilder | None = None
+    read_filter: Filter | None = None
+    city_reader: geoip2.database.Reader | None = None
+    asn_reader: geoip2.database.Reader | None = None
 
 
 class RelayNip66MetadataTuple(NamedTuple):
@@ -126,49 +164,30 @@ class Nip66(BaseModel):
         cls,
         relay: Relay,
         *,
-        timeout: float | None = None,
+        timeout: float | None = None,  # noqa: ASYNC109
         proxy_url: str | None = None,
-        allow_insecure: bool = True,
-        run_rtt: bool = True,
-        run_ssl: bool = True,
-        run_geo: bool = True,
-        run_net: bool = True,
-        run_dns: bool = True,
-        run_http: bool = True,
-        keys: Keys | None = None,
-        event_builder: EventBuilder | None = None,
-        read_filter: Filter | None = None,
-        city_reader: geoip2.database.Reader | None = None,
-        asn_reader: geoip2.database.Reader | None = None,
+        flags: Nip66TestFlags | None = None,
+        deps: Nip66Dependencies | None = None,
     ) -> Nip66:
         """Run monitoring tests against a relay and collect results.
 
         All tests are enabled by default. Individual tests can be disabled
-        via the ``run_*`` flags. Some tests require additional parameters
-        (keys for RTT, GeoIP readers for geo/net) and are silently skipped
-        when those parameters are not provided.
+        via the ``flags`` parameter. Some tests require additional dependencies
+        (keys for RTT, GeoIP readers for geo/net) provided via ``deps``,
+        and are silently skipped when those dependencies are not provided.
 
         Args:
             relay: Relay to test.
             timeout: Connection timeout in seconds (default: 10.0).
             proxy_url: Optional SOCKS5 proxy URL for overlay networks.
-            allow_insecure: Fall back to unverified SSL for clearnet relays
-                with invalid certificates (default: True).
-            run_rtt: Enable the RTT probe test.
-            run_ssl: Enable the SSL certificate test.
-            run_geo: Enable the geolocation lookup test.
-            run_net: Enable the network/ASN lookup test.
-            run_dns: Enable the DNS resolution test.
-            run_http: Enable the HTTP header extraction test.
-            keys: Signing keys for RTT write test events.
-            event_builder: Builder for the RTT write test event.
-            read_filter: Subscription filter for the RTT read test.
-            city_reader: GeoLite2-City database reader for geo test.
-            asn_reader: GeoLite2-ASN database reader for net test.
+            flags: Test flags controlling which tests to run (default: all enabled).
+            deps: Optional dependencies for RTT, geo, and net tests.
 
         Returns:
             A populated ``Nip66`` instance with test results.
         """
+        flags = flags or Nip66TestFlags()
+        deps = deps or Nip66Dependencies()
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("create_started relay=%s timeout_s=%s", relay.url, timeout)
 
@@ -176,37 +195,40 @@ class Nip66(BaseModel):
         task_names: list[str] = []
 
         # RTT requires all three parameters (keys, event_builder, read_filter)
-        if run_rtt and keys and event_builder and read_filter:
+        if flags.run_rtt and deps.keys and deps.event_builder and deps.read_filter:
+            rtt_deps = RttDependencies(
+                keys=deps.keys,
+                event_builder=deps.event_builder,
+                read_filter=deps.read_filter,
+            )
             tasks.append(
                 Nip66RttMetadata.rtt(
                     relay,
-                    keys,
-                    event_builder,
-                    read_filter,
+                    rtt_deps,
                     timeout,
                     proxy_url,
-                    allow_insecure,
+                    flags.allow_insecure,
                 )
             )
             task_names.append("rtt")
 
-        if run_ssl:
+        if flags.run_ssl:
             tasks.append(Nip66SslMetadata.ssl(relay, timeout))
             task_names.append("ssl")
 
-        if run_geo and city_reader:
-            tasks.append(Nip66GeoMetadata.geo(relay, city_reader))
+        if flags.run_geo and deps.city_reader:
+            tasks.append(Nip66GeoMetadata.geo(relay, deps.city_reader))
             task_names.append("geo")
 
-        if run_net and asn_reader:
-            tasks.append(Nip66NetMetadata.net(relay, asn_reader))
+        if flags.run_net and deps.asn_reader:
+            tasks.append(Nip66NetMetadata.net(relay, deps.asn_reader))
             task_names.append("net")
 
-        if run_dns:
+        if flags.run_dns:
             tasks.append(Nip66DnsMetadata.dns(relay, timeout))
             task_names.append("dns")
 
-        if run_http:
+        if flags.run_http:
             tasks.append(Nip66HttpMetadata.http(relay, timeout, proxy_url))
             task_names.append("http")
 

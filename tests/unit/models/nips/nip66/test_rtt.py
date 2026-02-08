@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from models import Relay
-from models.nips.nip66.rtt import Nip66RttMetadata
+from models.nips.nip66.rtt import Nip66RttMetadata, RttDependencies
 
 
 class TestNip66RttMetadataValidateNetwork:
@@ -455,18 +455,15 @@ class TestNip66RttMetadataRtt:
         mock_nostr_client: MagicMock,
     ) -> None:
         """Returns Nip66RttMetadata for clearnet relay."""
+        deps = RttDependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
 
         async def mock_connect(*args: Any, **kwargs: Any) -> MagicMock:
             return mock_nostr_client
 
         with patch("utils.transport.connect_relay", side_effect=mock_connect):
-            result = await Nip66RttMetadata.rtt(
-                relay,
-                mock_keys,
-                mock_event_builder,
-                mock_read_filter,
-                timeout=10.0,
-            )
+            result = await Nip66RttMetadata.rtt(relay, deps, timeout=10.0)
 
         assert isinstance(result, Nip66RttMetadata)
         assert result.data.rtt_open is not None
@@ -481,18 +478,15 @@ class TestNip66RttMetadataRtt:
         mock_read_filter: MagicMock,
     ) -> None:
         """Connection failure returns Nip66RttMetadata with failure logged."""
+        deps = RttDependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
 
         async def mock_connect(*args: Any, **kwargs: Any) -> None:
             raise TimeoutError("Connection refused")
 
         with patch("utils.transport.connect_relay", side_effect=mock_connect):
-            result = await Nip66RttMetadata.rtt(
-                relay,
-                mock_keys,
-                mock_event_builder,
-                mock_read_filter,
-                timeout=10.0,
-            )
+            result = await Nip66RttMetadata.rtt(relay, deps, timeout=10.0)
 
         assert isinstance(result, Nip66RttMetadata)
         assert result.logs.open_success is False
@@ -508,15 +502,11 @@ class TestNip66RttMetadataRtt:
         mock_read_filter: MagicMock,
     ) -> None:
         """Overlay network without proxy raises ValueError."""
+        deps = RttDependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
         with pytest.raises(ValueError, match="overlay network tor requires proxy"):
-            await Nip66RttMetadata.rtt(
-                tor_relay,
-                mock_keys,
-                mock_event_builder,
-                mock_read_filter,
-                timeout=10.0,
-                proxy_url=None,
-            )
+            await Nip66RttMetadata.rtt(tor_relay, deps, timeout=10.0, proxy_url=None)
 
     @pytest.mark.asyncio
     async def test_overlay_with_proxy_works(
@@ -528,18 +518,16 @@ class TestNip66RttMetadataRtt:
         mock_nostr_client: MagicMock,
     ) -> None:
         """Overlay network with proxy succeeds."""
+        deps = RttDependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
 
         async def mock_connect(*args: Any, **kwargs: Any) -> MagicMock:
             return mock_nostr_client
 
         with patch("utils.transport.connect_relay", side_effect=mock_connect):
             result = await Nip66RttMetadata.rtt(
-                tor_relay,
-                mock_keys,
-                mock_event_builder,
-                mock_read_filter,
-                timeout=10.0,
-                proxy_url="socks5://localhost:9050",
+                tor_relay, deps, timeout=10.0, proxy_url="socks5://localhost:9050"
             )
 
         assert isinstance(result, Nip66RttMetadata)
@@ -554,18 +542,15 @@ class TestNip66RttMetadataRtt:
         mock_nostr_client: MagicMock,
     ) -> None:
         """Uses default timeout when None provided."""
+        deps = RttDependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
 
         async def mock_connect(*args: Any, **kwargs: Any) -> MagicMock:
             return mock_nostr_client
 
         with patch("utils.transport.connect_relay", side_effect=mock_connect):
-            result = await Nip66RttMetadata.rtt(
-                relay,
-                mock_keys,
-                mock_event_builder,
-                mock_read_filter,
-                timeout=None,
-            )
+            result = await Nip66RttMetadata.rtt(relay, deps, timeout=None)
 
         assert isinstance(result, Nip66RttMetadata)
 
@@ -579,6 +564,9 @@ class TestNip66RttMetadataRtt:
         mock_nostr_client: MagicMock,
     ) -> None:
         """Cleanup is called after read/write phases."""
+        deps = RttDependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
 
         async def mock_connect(*args: Any, **kwargs: Any) -> MagicMock:
             return mock_nostr_client
@@ -587,13 +575,7 @@ class TestNip66RttMetadataRtt:
             patch("utils.transport.connect_relay", side_effect=mock_connect),
             patch.object(Nip66RttMetadata, "_cleanup", new_callable=AsyncMock) as mock_cleanup,
         ):
-            await Nip66RttMetadata.rtt(
-                relay,
-                mock_keys,
-                mock_event_builder,
-                mock_read_filter,
-                timeout=10.0,
-            )
+            await Nip66RttMetadata.rtt(relay, deps, timeout=10.0)
 
         mock_cleanup.assert_called_once_with(mock_nostr_client)
 

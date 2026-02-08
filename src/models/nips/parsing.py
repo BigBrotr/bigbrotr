@@ -13,7 +13,58 @@ Supported field types: ``int``, ``bool``, ``str``, ``float``,
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+
+_SKIP: Any = object()
+
+
+def _parse_int(value: Any) -> Any:
+    return value if isinstance(value, int) and not isinstance(value, bool) else _SKIP
+
+
+def _parse_bool(value: Any) -> Any:
+    return value if isinstance(value, bool) else _SKIP
+
+
+def _parse_str(value: Any) -> Any:
+    return value if isinstance(value, str) else _SKIP
+
+
+def _parse_float(value: Any) -> Any:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return _SKIP
+
+
+def _parse_str_list(value: Any) -> Any:
+    if isinstance(value, list):
+        items = [s for s in value if isinstance(s, str)]
+        if items:
+            return items
+    return _SKIP
+
+
+def _parse_int_list(value: Any) -> Any:
+    if isinstance(value, list):
+        items = [i for i in value if isinstance(i, int) and not isinstance(i, bool)]
+        if items:
+            return items
+    return _SKIP
+
+
+_FIELD_PARSERS: tuple[tuple[str, Callable[[Any], Any]], ...] = (
+    ("int_fields", _parse_int),
+    ("bool_fields", _parse_bool),
+    ("str_fields", _parse_str),
+    ("str_list_fields", _parse_str_list),
+    ("float_fields", _parse_float),
+    ("int_list_fields", _parse_int_list),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,35 +116,18 @@ def parse_fields(data: dict[str, Any], spec: FieldSpec) -> dict[str, Any]:
     Returns:
         A new dictionary containing only valid, type-checked fields.
     """
+    dispatch: dict[str, Callable[[Any], Any]] = {}
+    for attr_name, parser in _FIELD_PARSERS:
+        for name in getattr(spec, attr_name):
+            dispatch[name] = parser
+
     result: dict[str, Any] = {}
-
     for key, value in data.items():
-        if key in spec.int_fields:
-            if isinstance(value, int) and not isinstance(value, bool):
-                result[key] = value
-
-        elif key in spec.bool_fields:
-            if isinstance(value, bool):
-                result[key] = value
-
-        elif key in spec.str_fields:
-            if isinstance(value, str):
-                result[key] = value
-
-        elif key in spec.str_list_fields:
-            if isinstance(value, list):
-                str_items = [s for s in value if isinstance(s, str)]
-                if str_items:
-                    result[key] = str_items
-
-        elif key in spec.float_fields:
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                result[key] = float(value)
-
-        elif key in spec.int_list_fields and isinstance(value, list):
-            int_items = [i for i in value if isinstance(i, int) and not isinstance(i, bool)]
-            if int_items:
-                result[key] = int_items
+        handler = dispatch.get(key)
+        if handler is not None:
+            parsed = handler(value)
+            if parsed is not _SKIP:
+                result[key] = parsed
 
     return result
 

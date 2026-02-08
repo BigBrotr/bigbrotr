@@ -30,6 +30,7 @@ import os
 import socket
 import ssl
 import sys
+from dataclasses import dataclass
 from datetime import timedelta
 from datetime import timedelta as Duration
 from typing import TYPE_CHECKING, TextIO
@@ -46,6 +47,7 @@ from nostr_sdk import (
     CustomWebSocketTransport,
     Filter,
     Kind,
+    KindStandard,
     NostrSigner,
     RelayUrl,
     WebSocketAdapter,
@@ -60,11 +62,9 @@ if TYPE_CHECKING:
 
     from nostr_sdk import Keys
 
-from models.constants import NetworkType
-from models.relay import Relay
+from models.constants import DEFAULT_TIMEOUT, NetworkType
+from models.relay import Relay  # noqa: TC001
 
-
-DEFAULT_TIMEOUT = 10.0
 
 logger = logging.getLogger("utils.transport")
 
@@ -149,6 +149,10 @@ def _is_ssl_error(error_message: str) -> bool:
     return any(keyword in error_lower for keyword in _SSL_ERROR_KEYWORDS)
 
 
+_WS_RECV_TIMEOUT = 60.0
+_WS_CLOSE_TIMEOUT = 5.0
+
+
 class InsecureWebSocketAdapter(WebSocketAdapter):  # type: ignore[misc]
     """aiohttp-based WebSocket adapter with SSL verification disabled.
 
@@ -160,8 +164,8 @@ class InsecureWebSocketAdapter(WebSocketAdapter):  # type: ignore[misc]
         self,
         ws: aiohttp.ClientWebSocketResponse,
         session: aiohttp.ClientSession,
-        recv_timeout: float = 60.0,
-        close_timeout: float = 5.0,
+        recv_timeout: float = _WS_RECV_TIMEOUT,
+        close_timeout: float = _WS_CLOSE_TIMEOUT,
     ) -> None:
         self._ws = ws
         self._session = session
@@ -222,8 +226,8 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):  # type: ignore[misc
 
     def __init__(
         self,
-        recv_timeout: float = 60.0,
-        close_timeout: float = 5.0,
+        recv_timeout: float = _WS_RECV_TIMEOUT,
+        close_timeout: float = _WS_CLOSE_TIMEOUT,
     ) -> None:
         self._recv_timeout = recv_timeout
         self._close_timeout = close_timeout
@@ -232,7 +236,7 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):  # type: ignore[misc
         self,
         url: str,
         _mode: ConnectionMode,
-        timeout: Duration,
+        timeout: Duration,  # noqa: ASYNC109
     ) -> WebSocketAdapterWrapper:
         """Connect to a relay URL without SSL certificate verification.
 
@@ -356,7 +360,7 @@ async def connect_relay(
     relay: Relay,
     keys: Keys | None = None,
     proxy_url: str | None = None,
-    timeout: float = DEFAULT_TIMEOUT,
+    timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
     allow_insecure: bool = True,
 ) -> Client:
     """Connect to a relay with automatic SSL fallback for clearnet.
@@ -441,14 +445,21 @@ async def connect_relay(
     return client
 
 
+@dataclass(frozen=True, slots=True)
+class ValidationConfig:
+    """Tuning parameters for relay validation timeouts."""
+
+    suppress_stderr: bool = True
+    overall_timeout_multiplier: float = 3.0
+    overall_timeout_buffer: float = 15.0
+    disconnect_timeout: float = 10.0
+
+
 async def is_nostr_relay(
     relay: Relay,
     proxy_url: str | None = None,
-    timeout: float = DEFAULT_TIMEOUT,
-    suppress_stderr: bool = True,
-    overall_timeout_multiplier: float = 3.0,
-    overall_timeout_buffer: float = 15.0,
-    disconnect_timeout: float = 10.0,
+    timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
+    config: ValidationConfig | None = None,
 ) -> bool:
     """Check if a URL hosts a Nostr relay by attempting a protocol handshake.
 
@@ -459,23 +470,20 @@ async def is_nostr_relay(
         relay: Relay to validate.
         proxy_url: SOCKS5 proxy URL (required for overlay networks).
         timeout: Timeout in seconds for connect and fetch operations.
-        suppress_stderr: Suppress UniFFI traceback noise during validation.
-        overall_timeout_multiplier: Multiplier applied to ``timeout`` for the
-            overall safety-net timeout (default 3.0).
-        overall_timeout_buffer: Fixed seconds added to the overall timeout
-            to account for SSL fallback retries (default 15.0).
-        disconnect_timeout: Timeout in seconds for the client disconnect
-            call in the finally block (default 10.0).
+        config: Optional validation tuning parameters (timeouts, stderr
+            suppression). Uses ``ValidationConfig()`` defaults when None.
 
     Returns:
         True if the relay speaks the Nostr protocol, False otherwise.
     """
+    cfg = config or ValidationConfig()
+
     logger.debug("validation_started relay=%s timeout_s=%s", relay.url, timeout)
 
     # Safety net: multiplier * timeout + buffer for potential SSL fallback retry
-    overall_timeout = timeout * overall_timeout_multiplier + overall_timeout_buffer
+    overall_timeout = timeout * cfg.overall_timeout_multiplier + cfg.overall_timeout_buffer
 
-    ctx = _suppress_stderr() if suppress_stderr else contextlib.nullcontext()
+    ctx = _suppress_stderr() if cfg.suppress_stderr else contextlib.nullcontext()
 
     with ctx:
         client = None
@@ -487,7 +495,7 @@ async def is_nostr_relay(
                     timeout=timeout,
                 )
 
-                req_filter = Filter().kind(Kind(1)).limit(1)
+                req_filter = Filter().kind(Kind.from_std(KindStandard.TEXT_NOTE)).limit(1)
                 await client.fetch_events(req_filter, timedelta(seconds=timeout))
                 logger.debug("validation_success relay=%s reason=%s", relay.url, "eose")
                 return True
@@ -508,4 +516,4 @@ async def is_nostr_relay(
         finally:
             if client is not None:
                 with contextlib.suppress(TimeoutError, Exception):
-                    await asyncio.wait_for(client.disconnect(), timeout=disconnect_timeout)
+                    await asyncio.wait_for(client.disconnect(), timeout=cfg.disconnect_timeout)

@@ -15,9 +15,9 @@ import socket
 import ssl
 from typing import Any, Self
 
-from models.constants import NetworkType
-from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
-from models.relay import Relay
+from models.constants import DEFAULT_TIMEOUT, NetworkType
+from models.nips.base import BaseMetadata
+from models.relay import Relay  # noqa: TC001
 
 from .data import Nip66SslData
 from .logs import Nip66SslLogs
@@ -239,7 +239,7 @@ class Nip66SslMetadata(BaseMetadata):
     async def ssl(
         cls,
         relay: Relay,
-        timeout: float | None = None,
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> Self:
         """Inspect the SSL/TLS certificate of a clearnet relay.
 

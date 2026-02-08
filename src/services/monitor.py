@@ -40,12 +40,13 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, NamedTuple, TypeVar
 
 import geoip2.database
 from nostr_sdk import EventBuilder, Filter, Keys, Kind, RelayUrl, Tag
+from nostr_sdk import Metadata as NostrMetadata
 from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer, model_validator
 
 from core.base_service import BaseService, BaseServiceConfig
 from models import Metadata, MetadataType, Nip11, Relay, RelayMetadata
 from models.constants import NetworkType
-from models.nips.base import BaseMetadata
+from models.nips.base import BaseMetadata  # noqa: TC001
 from models.nips.nip66 import (
     Nip66DnsMetadata,
     Nip66GeoMetadata,
@@ -53,6 +54,7 @@ from models.nips.nip66 import (
     Nip66NetMetadata,
     Nip66RttMetadata,
     Nip66SslMetadata,
+    RttDependencies,
 )
 from utils.keys import KeysConfig
 from utils.transport import create_client
@@ -73,13 +75,20 @@ if TYPE_CHECKING:
 # Constants
 # =============================================================================
 
+_SECONDS_PER_DAY = 86_400
+
+# Nostr event kinds (NIP-01, NIP-66)
+_KIND_NIP66_TEST = 22_456
+_KIND_MONITOR_ANNOUNCEMENT = 10_166
+_KIND_RELAY_DISCOVERY = 30_166
+
 # ISO 639-1 language code length
 _ISO_639_1_LENGTH = 2
 
 # NIP numbers for capability-based type tags
-_NIP_SEARCH = 50  # NIP-50 search
-_NIP_COMMUNITY = 29  # NIP-29 communities
-_NIP_BLOSSOM = 95  # NIP-95 blob storage
+_NIP_SEARCH = 50
+_NIP_COMMUNITY = 29
+_NIP_BLOSSOM = 95
 
 
 # =============================================================================
@@ -120,8 +129,8 @@ def _download_geolite_db(url: str, dest: Path, timeout: float = 60.0) -> None:
         urllib.error.URLError: If download fails or times out.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(url)
-    with urllib.request.urlopen(request, timeout=timeout) as response, dest.open("wb") as out:
+    request = urllib.request.Request(url)  # noqa: S310
+    with urllib.request.urlopen(request, timeout=timeout) as response, dest.open("wb") as out:  # noqa: S310
         shutil.copyfileobj(response, out)
 
 
@@ -154,6 +163,15 @@ class CheckResult(NamedTuple):
     net: RelayMetadata | None
     dns: RelayMetadata | None
     http: RelayMetadata | None
+
+
+class _AccessFlags(NamedTuple):
+    """Relay access restriction flags derived from NIP-11 and RTT probe results."""
+
+    payment: bool
+    auth: bool
+    writes: bool
+    read_auth: bool
 
 
 # =============================================================================
@@ -424,7 +442,8 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         if path.exists():
             age = time.time() - path.stat().st_mtime
             if age > max_age_seconds:
-                self._logger.info("updating_geo_db", db=db_name, age_days=round(age / 86400, 1))
+                age_days = round(age / _SECONDS_PER_DAY, 1)
+                self._logger.info("updating_geo_db", db=db_name, age_days=age_days)
                 await asyncio.to_thread(_download_geolite_db, url, path)
         else:
             self._logger.info("downloading_geo_db", db=db_name)
@@ -437,7 +456,7 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
             return
 
         max_age_days = self._config.geo.max_age_days
-        max_age_seconds = max_age_days * 86400 if max_age_days is not None else 0
+        max_age_seconds = max_age_days * _SECONDS_PER_DAY if max_age_days is not None else 0
 
         if compute.nip66_geo:
             city_path = Path(self._config.geo.city_database_path)
@@ -682,7 +701,7 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
             # Network failure - retry if attempts remaining
             if attempt < max_retries:
                 delay = min(retry_config.base_delay * (2**attempt), retry_config.max_delay)
-                jitter = random.uniform(0, retry_config.jitter)
+                jitter = random.uniform(0, retry_config.jitter)  # noqa: S311
                 await asyncio.sleep(delay + jitter)
                 self._logger.debug(
                     f"{operation}_retry",
@@ -822,8 +841,8 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
 
                 # RTT test: open/read/write round-trip times
                 if compute.nip66_rtt:
-                    event_builder = EventBuilder(Kind(22456), "nip66-test").tags(
-                        [Tag.parse(["d", relay.url])]
+                    event_builder = EventBuilder(Kind(_KIND_NIP66_TEST), "nip66-test").tags(
+                        [Tag.identifier(relay.url)]
                     )
                     # Apply proof-of-work if NIP-11 specifies minimum difficulty
                     if nip11 and nip11.fetch_metadata and nip11.fetch_metadata.logs.success:
@@ -831,10 +850,13 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
                         if pow_difficulty and pow_difficulty > 0:
                             event_builder = event_builder.pow(pow_difficulty)
                     read_filter = Filter().limit(1)
+                    rtt_deps = RttDependencies(
+                        keys=self._keys,
+                        event_builder=event_builder,
+                        read_filter=read_filter,
+                    )
                     rtt_meta = await self._with_retry(
-                        lambda: Nip66RttMetadata.rtt(
-                            relay, self._keys, event_builder, read_filter, timeout, proxy_url
-                        ),
+                        lambda: Nip66RttMetadata.rtt(relay, rtt_deps, timeout, proxy_url),
                         self._config.processing.retry.nip66_rtt,
                         "nip66_rtt",
                         relay.url,
@@ -880,6 +902,41 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
     # Persistence
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    def _collect_metadata(
+        successful: list[tuple[Relay, CheckResult]],
+        store: MetadataFlags,
+    ) -> list[RelayMetadata]:
+        """Collect storable metadata from successful health check results.
+
+        Iterates over successful check results and collects each metadata type
+        that is both present in the result and enabled in the store flags.
+
+        Args:
+            successful: List of (relay, check_result) pairs from health checks.
+            store: Flags controlling which metadata types to persist.
+
+        Returns:
+            List of RelayMetadata records ready for database insertion.
+        """
+        metadata: list[RelayMetadata] = []
+        for _, result in successful:
+            if result.nip11 and store.nip11_fetch:
+                metadata.append(result.nip11)
+            if result.rtt and store.nip66_rtt:
+                metadata.append(result.rtt)
+            if result.ssl and store.nip66_ssl:
+                metadata.append(result.ssl)
+            if result.geo and store.nip66_geo:
+                metadata.append(result.geo)
+            if result.net and store.nip66_net:
+                metadata.append(result.net)
+            if result.dns and store.nip66_dns:
+                metadata.append(result.dns)
+            if result.http and store.nip66_http:
+                metadata.append(result.http)
+        return metadata
+
     async def _persist_results(
         self,
         successful: list[tuple[Relay, CheckResult]],
@@ -892,26 +949,10 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         avoid re-checking within the same interval.
         """
         now = int(time.time())
-        store = self._config.processing.store
 
         # Insert metadata for successful checks
         if successful:
-            metadata: list[RelayMetadata] = []
-            for _, result in successful:
-                if result.nip11 and store.nip11_fetch:
-                    metadata.append(result.nip11)
-                if result.rtt and store.nip66_rtt:
-                    metadata.append(result.rtt)
-                if result.ssl and store.nip66_ssl:
-                    metadata.append(result.ssl)
-                if result.geo and store.nip66_geo:
-                    metadata.append(result.geo)
-                if result.net and store.nip66_net:
-                    metadata.append(result.net)
-                if result.dns and store.nip66_dns:
-                    metadata.append(result.dns)
-                if result.http and store.nip66_http:
-                    metadata.append(result.http)
+            metadata = self._collect_metadata(successful, self._config.processing.store)
             if metadata:
                 try:
                     count = await self._brotr.insert_relay_metadata(metadata)
@@ -1058,7 +1099,7 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
             profile_data["banner"] = profile.banner
         if profile.lud16:
             profile_data["lud16"] = profile.lud16
-        return EventBuilder(Kind(0), json.dumps(profile_data))
+        return EventBuilder.metadata(NostrMetadata.from_json(json.dumps(profile_data)))
 
     def _build_kind_10166(self) -> EventBuilder:
         """Build Kind 10166 monitor announcement event per NIP-66."""
@@ -1099,7 +1140,7 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         if include.nip66_http:
             tags.append(Tag.parse(["c", "http"]))
 
-        return EventBuilder(Kind(10166), "").tags(tags)
+        return EventBuilder(Kind(_KIND_MONITOR_ANNOUNCEMENT), "").tags(tags)
 
     # -------------------------------------------------------------------------
     # Kind 30166 Tag Helpers
@@ -1188,7 +1229,7 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         # t tags: topic tags
         nip11_tags = nip11_data.get("tags")
         if nip11_tags:
-            tags.extend(Tag.parse(["t", topic]) for topic in nip11_tags)
+            tags.extend(Tag.hashtag(topic) for topic in nip11_tags)
 
         # l tags: language tags (ISO-639-1)
         self._add_language_tags(tags, nip11_data)
@@ -1252,18 +1293,22 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         tags.append(Tag.parse(["R", "pow" if pow_diff and pow_diff > 0 else "!pow"]))
 
         # T tags: relay types
-        self._add_type_tags(tags, supported_nips, payment, auth, writes, read_auth)
+        access = _AccessFlags(payment=payment, auth=auth, writes=writes, read_auth=read_auth)
+        self._add_type_tags(tags, supported_nips, access)
 
     def _add_type_tags(
         self,
         tags: list[Tag],
         supported_nips: list[int] | None,
-        payment: bool,
-        auth: bool,
-        writes: bool,
-        read_auth: bool,
+        access: _AccessFlags,
     ) -> None:
-        """Add T (type) tags classifying the relay based on NIPs and access restrictions."""
+        """Add T (type) tags classifying the relay based on NIPs and access restrictions.
+
+        Args:
+            tags: Mutable tag list to append to.
+            supported_nips: NIP numbers advertised by the relay (from NIP-11).
+            access: Relay access restriction flags derived from NIP-11 and RTT probe results.
+        """
         nips = set(supported_nips) if supported_nips else set()
 
         # Capability-based types (from supported_nips)
@@ -1275,16 +1320,16 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
             tags.append(Tag.parse(["T", "Blob"]))
 
         # Payment modifier
-        if payment:
+        if access.payment:
             tags.append(Tag.parse(["T", "Paid"]))
 
         # Determine primary access type based on read/write restrictions
-        if read_auth:
-            if auth:
+        if access.read_auth:
+            if access.auth:
                 tags.append(Tag.parse(["T", "PrivateStorage"]))
             else:
                 tags.append(Tag.parse(["T", "PrivateInbox"]))
-        elif auth or writes or payment:
+        elif access.auth or access.writes or access.payment:
             tags.append(Tag.parse(["T", "PublicOutbox"]))
         else:
             tags.append(Tag.parse(["T", "PublicInbox"]))
@@ -1298,7 +1343,7 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         include = self._config.discovery.include
         content = result.nip11.metadata.canonical_json if result.nip11 else ""
         tags: list[Tag] = [
-            Tag.parse(["d", relay.url]),
+            Tag.identifier(relay.url),
             Tag.parse(["n", relay.network.value]),
         ]
 
@@ -1311,7 +1356,7 @@ class Monitor(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[MonitorConf
         # Add NIP-11 capability tags
         self._add_nip11_tags(tags, result, include)
 
-        return EventBuilder(Kind(30166), content).tags(tags)
+        return EventBuilder(Kind(_KIND_RELAY_DISCOVERY), content).tags(tags)
 
 
 # =============================================================================

@@ -16,8 +16,6 @@ from models.nips.base import BaseData
 from models.nips.parsing import FieldSpec
 
 
-# Exactly two integers representing an inclusive [start, end] event kind range.
-_KIND_RANGE_LENGTH = 2
 KindRange = tuple[StrictInt, StrictInt]
 
 
@@ -98,7 +96,7 @@ class Nip11FetchDataRetentionEntry(BaseData):
                     kinds.append(item)
                 elif (
                     isinstance(item, list)
-                    and len(item) == _KIND_RANGE_LENGTH
+                    and len(item) == 2  # noqa: PLR2004 - [min, max] range pair
                     and isinstance(item[0], int)
                     and not isinstance(item[0], bool)
                     and isinstance(item[1], int)
@@ -238,6 +236,36 @@ class Nip11FetchData(BaseData):
         ),
     )
 
+    @staticmethod
+    def _parse_sub_objects(data: dict[str, Any]) -> dict[str, Any]:
+        """Parse nested limitation, retention, and fees sub-objects.
+
+        Args:
+            data: Raw dictionary from the relay HTTP response.
+
+        Returns:
+            Validated dictionary containing only non-empty sub-objects.
+        """
+        result: dict[str, Any] = {}
+
+        if "limitation" in data:
+            limitation = Nip11FetchDataLimitation.parse(data["limitation"])
+            if limitation:
+                result["limitation"] = limitation
+
+        if "retention" in data and isinstance(data["retention"], list):
+            entries = [Nip11FetchDataRetentionEntry.parse(e) for e in data["retention"]]
+            entries = [e for e in entries if e]
+            if entries:
+                result["retention"] = entries
+
+        if "fees" in data:
+            fees = Nip11FetchDataFees.parse(data["fees"])
+            if fees:
+                result["fees"] = fees
+
+        return result
+
     @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:
         """Parse a complete NIP-11 document with nested sub-objects.
@@ -266,21 +294,7 @@ class Nip11FetchData(BaseData):
             if nips:
                 result["supported_nips"] = nips
 
-        if "limitation" in data:
-            limitation = Nip11FetchDataLimitation.parse(data["limitation"])
-            if limitation:
-                result["limitation"] = limitation
-
-        if "retention" in data and isinstance(data["retention"], list):
-            entries = [Nip11FetchDataRetentionEntry.parse(e) for e in data["retention"]]
-            entries = [e for e in entries if e]
-            if entries:
-                result["retention"] = entries
-
-        if "fees" in data:
-            fees = Nip11FetchDataFees.parse(data["fees"])
-            if fees:
-                result["fees"] = fees
+        result.update(cls._parse_sub_objects(data))
 
         for key in cls._FIELD_SPEC.str_list_fields:
             if key in data and isinstance(data[key], list):

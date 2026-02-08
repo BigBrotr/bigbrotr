@@ -11,15 +11,11 @@ and behavior inherited by NIP-11 and NIP-66 model hierarchies:
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Final, Self
+from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel, ConfigDict, StrictBool, model_validator
 
 from models.nips.parsing import FieldSpec, parse_fields
-
-
-# Default timeout (seconds) for network operations (NIP-11 fetch, NIP-66 tests)
-DEFAULT_TIMEOUT: Final[float] = 10.0
 
 
 class BaseData(BaseModel):

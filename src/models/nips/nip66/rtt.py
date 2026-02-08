@@ -13,13 +13,13 @@ import contextlib
 import logging
 from datetime import timedelta
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, NamedTuple, Self
 
 from nostr_sdk import Filter, RelayUrl
 
-from models.constants import NetworkType
-from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
-from models.relay import Relay
+from models.constants import DEFAULT_TIMEOUT, NetworkType
+from models.nips.base import BaseMetadata
+from models.relay import Relay  # noqa: TC001
 
 from .data import Nip66RttData
 from .logs import Nip66RttLogs
@@ -30,6 +30,18 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("models.nip66")
+
+
+class RttDependencies(NamedTuple):
+    """Grouped dependencies for RTT probe tests.
+
+    Bundles the signing keys, event builder, and read filter required
+    by the RTT measurement phases (open, read, write).
+    """
+
+    keys: Keys
+    event_builder: EventBuilder
+    read_filter: Filter
 
 
 class Nip66RttMetadata(BaseMetadata):
@@ -50,10 +62,8 @@ class Nip66RttMetadata(BaseMetadata):
     async def rtt(
         cls,
         relay: Relay,
-        keys: Keys,
-        event_builder: EventBuilder,
-        read_filter: Filter,
-        timeout: float | None = None,
+        deps: RttDependencies,
+        timeout: float | None = None,  # noqa: ASYNC109
         proxy_url: str | None = None,
         allow_insecure: bool = True,
     ) -> Self:
@@ -65,9 +75,7 @@ class Nip66RttMetadata(BaseMetadata):
 
         Args:
             relay: Relay to test.
-            keys: Signing keys for the test event.
-            event_builder: Builder for the write test event.
-            read_filter: Subscription filter for the read test.
+            deps: Grouped dependencies (keys, event_builder, read_filter).
             timeout: Connection timeout in seconds (default: 10.0).
             proxy_url: Optional SOCKS5 proxy URL for overlay networks.
             allow_insecure: Fall back to unverified SSL (default: True).
@@ -89,7 +97,7 @@ class Nip66RttMetadata(BaseMetadata):
 
         # Phase 1: Open connection
         client, open_rtt = await cls._test_open(
-            relay, keys, proxy_url, timeout, allow_insecure, logs
+            relay, deps.keys, proxy_url, timeout, allow_insecure, logs
         )
         if client is None:
             return cls._build_result(rtt_data, logs)
@@ -99,14 +107,14 @@ class Nip66RttMetadata(BaseMetadata):
 
         try:
             # Phase 2: Read capability
-            read_result = await cls._test_read(client, read_filter, timeout, relay.url)
+            read_result = await cls._test_read(client, deps.read_filter, timeout, relay.url)
             rtt_data["rtt_read"] = read_result.get("rtt_read")
             logs["read_success"] = read_result["read_success"]
             logs["read_reason"] = read_result.get("read_reason")
 
             # Phase 3: Write capability
             write_result = await cls._test_write(
-                client, event_builder, relay_url, timeout, relay.url
+                client, deps.event_builder, relay_url, timeout, relay.url
             )
             rtt_data["rtt_write"] = write_result.get("rtt_write")
             logs["write_success"] = write_result["write_success"]
@@ -169,12 +177,12 @@ class Nip66RttMetadata(BaseMetadata):
     # -------------------------------------------------------------------------
 
     @classmethod
-    async def _test_open(
+    async def _test_open(  # noqa: PLR0913
         cls,
         relay: Relay,
         keys: Keys,
         proxy_url: str | None,
-        timeout: float,
+        timeout: float,  # noqa: ASYNC109
         allow_insecure: bool,
         logs: dict[str, Any],
     ) -> tuple[Client | None, int | None]:
@@ -209,7 +217,7 @@ class Nip66RttMetadata(BaseMetadata):
     async def _test_read(
         client: Client,
         read_filter: Filter,
-        timeout: float,
+        timeout: float,  # noqa: ASYNC109
         relay_url_str: str,
     ) -> dict[str, Any]:
         """Test the read capability by streaming events with the given filter.
@@ -244,7 +252,7 @@ class Nip66RttMetadata(BaseMetadata):
         client: Client,
         event_builder: EventBuilder,
         relay_url: RelayUrl,
-        timeout: float,
+        timeout: float,  # noqa: ASYNC109
         relay_url_str: str,
     ) -> dict[str, Any]:
         """Test the write capability by publishing an event and verifying storage.
@@ -292,7 +300,7 @@ class Nip66RttMetadata(BaseMetadata):
     async def _verify_write(
         client: Client,
         event_id: Any,
-        timeout: float,
+        timeout: float,  # noqa: ASYNC109
         relay_url_str: str,
     ) -> dict[str, Any]:
         """Verify that a previously written event can be retrieved.

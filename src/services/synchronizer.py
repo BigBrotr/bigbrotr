@@ -32,6 +32,7 @@ import contextlib
 import random
 import signal
 import time
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -64,8 +65,8 @@ from .common.queries import get_all_relays, get_all_service_cursors
 # Constants
 # =============================================================================
 
-HEX_STRING_LENGTH = 64  # Length of a hex-encoded Nostr ID (event, pubkey)
-EVENT_KIND_MAX = 65535  # Maximum valid event kind number
+_HEX_STRING_LENGTH = 64
+_EVENT_KIND_MAX = 65_535
 
 
 if TYPE_CHECKING:
@@ -81,13 +82,13 @@ _WORKER_LOGGER: logging.Logger | None = None  # Lazily created per worker
 
 def _set_worker_log_level(level: str) -> None:
     """Set the log level for worker processes (must be called before spawning)."""
-    global _WORKER_LOG_LEVEL
+    global _WORKER_LOG_LEVEL  # noqa: PLW0603
     _WORKER_LOG_LEVEL = level.upper()
 
 
 def _get_worker_logger() -> logging.Logger:
     """Get or lazily create a logger for the current worker process."""
-    global _WORKER_LOGGER
+    global _WORKER_LOGGER  # noqa: PLW0603
     if _WORKER_LOGGER is None:
         import logging  # noqa: PLC0415 - Worker process needs fresh import after fork
         import sys  # noqa: PLC0415 - Worker process needs fresh import after fork
@@ -233,8 +234,8 @@ class FilterConfig(BaseModel):
         if v is None:
             return v
         for kind in v:
-            if not 0 <= kind <= EVENT_KIND_MAX:
-                raise ValueError(f"Event kind {kind} out of valid range (0-{EVENT_KIND_MAX})")
+            if not 0 <= kind <= _EVENT_KIND_MAX:
+                raise ValueError(f"Event kind {kind} out of valid range (0-{_EVENT_KIND_MAX})")
         return v
 
     @field_validator("ids", "authors", mode="after")
@@ -244,9 +245,9 @@ class FilterConfig(BaseModel):
         if v is None:
             return v
         for hex_str in v:
-            if len(hex_str) != HEX_STRING_LENGTH:
+            if len(hex_str) != _HEX_STRING_LENGTH:
                 raise ValueError(
-                    f"Invalid hex string length: {len(hex_str)} (expected {HEX_STRING_LENGTH})"
+                    f"Invalid hex string length: {len(hex_str)} (expected {_HEX_STRING_LENGTH})"
                 )
             try:
                 bytes.fromhex(hex_str)
@@ -263,9 +264,9 @@ class TimeRangeConfig(BaseModel):
         default=True, description="Use per-relay state for start timestamp"
     )
     lookback_seconds: int = Field(
-        default=86400,
-        ge=3600,
-        le=604800,
+        default=86_400,
+        ge=3_600,
+        le=604_800,
         description="Lookback window in seconds (default: 86400 = 24 hours)",
     )
 
@@ -278,16 +279,16 @@ class SyncTimeoutsConfig(BaseModel):
     """
 
     relay_clearnet: float = Field(
-        default=1800.0, ge=60.0, le=14400.0, description="Max time per clearnet relay sync"
+        default=1800.0, ge=60.0, le=14_400.0, description="Max time per clearnet relay sync"
     )
     relay_tor: float = Field(
-        default=3600.0, ge=60.0, le=14400.0, description="Max time per Tor relay sync"
+        default=3600.0, ge=60.0, le=14_400.0, description="Max time per Tor relay sync"
     )
     relay_i2p: float = Field(
-        default=3600.0, ge=60.0, le=14400.0, description="Max time per I2P relay sync"
+        default=3600.0, ge=60.0, le=14_400.0, description="Max time per I2P relay sync"
     )
     relay_loki: float = Field(
-        default=3600.0, ge=60.0, le=14400.0, description="Max time per Loki relay sync"
+        default=3600.0, ge=60.0, le=14_400.0, description="Max time per Loki relay sync"
     )
 
     def get_relay_timeout(self, network: NetworkType) -> float:
@@ -321,7 +322,7 @@ class SourceConfig(BaseModel):
 
     from_database: bool = Field(default=True, description="Fetch relays from database")
     max_metadata_age: int = Field(
-        default=43200,
+        default=43_200,
         ge=0,
         description="Only sync relays checked within N seconds",
     )
@@ -371,7 +372,7 @@ _WORKER_BROTR_LOCK: asyncio.Lock | None = None
 
 def _get_worker_lock() -> asyncio.Lock:
     """Get or lazily create the asyncio.Lock for worker Brotr initialization."""
-    global _WORKER_BROTR_LOCK
+    global _WORKER_BROTR_LOCK  # noqa: PLW0603
     if _WORKER_BROTR_LOCK is None:
         _WORKER_BROTR_LOCK = asyncio.Lock()
     return _WORKER_BROTR_LOCK
@@ -379,7 +380,7 @@ def _get_worker_lock() -> asyncio.Lock:
 
 def _reset_worker_state() -> None:
     """Reset all worker globals to initial state (used for test isolation)."""
-    global _WORKER_BROTR, _WORKER_CLEANUP_REGISTERED, _WORKER_BROTR_LOCK
+    global _WORKER_BROTR, _WORKER_CLEANUP_REGISTERED, _WORKER_BROTR_LOCK  # noqa: PLW0603
     _WORKER_BROTR = None
     _WORKER_CLEANUP_REGISTERED = False
     _WORKER_BROTR_LOCK = None
@@ -390,7 +391,7 @@ def _cleanup_worker_brotr() -> None:
 
     Registered via ``atexit`` and signal handlers for reliable cleanup.
     """
-    global _WORKER_BROTR
+    global _WORKER_BROTR  # noqa: PLW0603
     if _WORKER_BROTR is not None:
         # Best effort cleanup - don't raise during process termination
         with contextlib.suppress(Exception):
@@ -418,7 +419,7 @@ async def _get_worker_brotr(brotr_config: dict[str, Any]) -> Brotr:
     async tasks within the same worker call this concurrently. The
     connection is reused across all tasks and cleaned up on exit.
     """
-    global _WORKER_BROTR, _WORKER_CLEANUP_REGISTERED
+    global _WORKER_BROTR, _WORKER_CLEANUP_REGISTERED  # noqa: PLW0603
 
     # Fast path: return existing connection without lock
     if _WORKER_BROTR is not None:
@@ -493,17 +494,18 @@ async def sync_relay_task(
         invalid_events = 0
         skipped_events = 0
 
+        ctx = SyncContext(
+            filter_config=config.filter,
+            network_config=config.networks,
+            request_timeout=request_timeout,
+            brotr=brotr,
+            keys=keys,
+        )
+
         async def _sync_with_client() -> tuple[int, int, int]:
             """Inner coroutine for wait_for timeout."""
             return await _sync_relay_events(
-                relay=relay,
-                start_time=start_time,
-                end_time=end_time,
-                filter_config=config.filter,
-                network_config=config.networks,
-                request_timeout=request_timeout,
-                brotr=brotr,
-                keys=keys,
+                relay=relay, start_time=start_time, end_time=end_time, ctx=ctx
             )
 
         try:
@@ -644,15 +646,22 @@ async def _insert_batch(
     return total_inserted, invalid_count, 0
 
 
+@dataclass(frozen=True, slots=True)
+class SyncContext:
+    """Immutable context shared across all relay sync operations in a cycle."""
+
+    filter_config: FilterConfig
+    network_config: NetworkConfig
+    request_timeout: float
+    brotr: Brotr
+    keys: Keys
+
+
 async def _sync_relay_events(
     relay: Relay,
     start_time: int,
     end_time: int,
-    filter_config: FilterConfig,
-    network_config: NetworkConfig,
-    request_timeout: float,
-    brotr: Brotr,
-    keys: Keys,
+    ctx: SyncContext,
 ) -> tuple[int, int, int]:
     """Core sync algorithm: connect to a relay, fetch events, and insert into the database.
 
@@ -660,11 +669,7 @@ async def _sync_relay_events(
         relay: Relay to sync from.
         start_time: Inclusive start timestamp (since).
         end_time: Inclusive end timestamp (until).
-        filter_config: Event filter configuration.
-        network_config: Network settings for proxy resolution.
-        request_timeout: Per-request WebSocket timeout in seconds.
-        brotr: Database interface for event insertion.
-        keys: Nostr keys for NIP-42 authentication.
+        ctx: Immutable context with filter, network, timeout, database, and key settings.
 
     Returns:
         Tuple of (events_synced, invalid_events, skipped_events).
@@ -677,15 +682,15 @@ async def _sync_relay_events(
     invalid_events = 0
     skipped_events = 0
 
-    proxy_url = network_config.get_proxy_url(relay.network)
-    client = create_client(keys, proxy_url)
+    proxy_url = ctx.network_config.get_proxy_url(relay.network)
+    client = create_client(ctx.keys, proxy_url)
     await client.add_relay(RelayUrl.parse(relay.url))
 
     try:
         await client.connect()
 
-        f = _create_filter(start_time, end_time, filter_config)
-        events = await client.fetch_events(f, timedelta(seconds=request_timeout))
+        f = _create_filter(start_time, end_time, ctx.filter_config)
+        events = await client.fetch_events(f, timedelta(seconds=ctx.request_timeout))
         event_list = events.to_vec()
 
         if event_list:
@@ -698,7 +703,7 @@ async def _sync_relay_events(
                     break
 
             events_synced, invalid_events, skipped_events = await _insert_batch(
-                batch, relay, brotr, start_time, end_time
+                batch, relay, ctx.brotr, start_time, end_time
             )
 
         await client.disconnect()
@@ -830,17 +835,18 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                 if start >= end_time:
                     return
 
+                ctx = SyncContext(
+                    filter_config=self._config.filter,
+                    network_config=self._config.networks,
+                    request_timeout=request_timeout,
+                    brotr=self._brotr,
+                    keys=self._keys,
+                )
+
                 async def _sync_with_timeout() -> tuple[int, int, int]:
                     """Inner coroutine for wait_for timeout."""
                     return await _sync_relay_events(
-                        relay=relay,
-                        start_time=start,
-                        end_time=end_time,
-                        filter_config=self._config.filter,
-                        network_config=self._config.networks,
-                        request_timeout=request_timeout,
-                        brotr=self._brotr,
-                        keys=self._keys,
+                        relay=relay, start_time=start, end_time=end_time, ctx=ctx
                     )
 
                 try:

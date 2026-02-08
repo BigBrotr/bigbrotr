@@ -8,7 +8,7 @@ from this module instead of writing inline SQL.
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable  # noqa: TC003
 from typing import TYPE_CHECKING, Any
 
 from .constants import DataType, ServiceName
@@ -52,7 +52,10 @@ async def get_all_relays(brotr: Brotr) -> list[dict[str, Any]]:
 
 
 async def filter_new_relay_urls(
-    brotr: Brotr, urls: list[str], *, timeout: float | None = None
+    brotr: Brotr,
+    urls: list[str],
+    *,
+    timeout: float | None = None,  # noqa: ASYNC109
 ) -> list[str]:
     """Filter URLs to those not already in relays or validator candidates.
 
@@ -95,7 +98,7 @@ async def count_relays_due_for_check(
     threshold: int,
     networks: list[str],
     *,
-    timeout: float | None = None,
+    timeout: float | None = None,  # noqa: ASYNC109
 ) -> int:
     """Count relays needing health checks.
 
@@ -131,14 +134,14 @@ async def count_relays_due_for_check(
     return row["count"] if row else 0
 
 
-async def fetch_relays_due_for_check(
+async def fetch_relays_due_for_check(  # noqa: PLR0913
     brotr: Brotr,
     service_name: str,
     threshold: int,
     networks: list[str],
     limit: int,
     *,
-    timeout: float | None = None,
+    timeout: float | None = None,  # noqa: ASYNC109
 ) -> list[dict[str, Any]]:
     """Fetch relays due for health checks, ordered by least-recently-checked.
 
@@ -264,7 +267,10 @@ async def upsert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
 
 
 async def count_candidates(
-    brotr: Brotr, networks: list[str], *, timeout: float | None = None
+    brotr: Brotr,
+    networks: list[str],
+    *,
+    timeout: float | None = None,  # noqa: ASYNC109
 ) -> int:
     """Count pending validation candidates for the given networks.
 
@@ -298,7 +304,7 @@ async def fetch_candidate_chunk(
     before_timestamp: int,
     limit: int,
     *,
-    timeout: float | None = None,
+    timeout: float | None = None,  # noqa: ASYNC109
 ) -> list[dict[str, Any]]:
     """Fetch candidates prioritized by fewest failures, then oldest.
 
@@ -337,7 +343,7 @@ async def fetch_candidate_chunk(
     return [dict(row) for row in rows]
 
 
-async def delete_stale_candidates(brotr: Brotr, *, timeout: float | None = None) -> str:
+async def delete_stale_candidates(brotr: Brotr, *, timeout: float | None = None) -> str:  # noqa: ASYNC109
     """Remove candidates whose URLs already exist in the relays table.
 
     Returns:
@@ -357,7 +363,10 @@ async def delete_stale_candidates(brotr: Brotr, *, timeout: float | None = None)
 
 
 async def delete_exhausted_candidates(
-    brotr: Brotr, max_failures: int, *, timeout: float | None = None
+    brotr: Brotr,
+    max_failures: int,
+    *,
+    timeout: float | None = None,  # noqa: ASYNC109
 ) -> str:
     """Remove candidates that have exceeded the failure threshold.
 

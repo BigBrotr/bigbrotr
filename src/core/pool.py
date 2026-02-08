@@ -26,7 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator  # noqa: TC003
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Literal, cast
 
@@ -110,7 +110,7 @@ class LimitsConfig(BaseModel):
 
     min_size: int = Field(default=5, ge=1, le=100, description="Minimum connections")
     max_size: int = Field(default=20, ge=1, le=200, description="Maximum connections")
-    max_queries: int = Field(default=50000, ge=100, description="Queries before recycling")
+    max_queries: int = Field(default=50_000, ge=100, description="Queries before recycling")
     max_inactive_connection_lifetime: float = Field(
         default=300.0, ge=0.0, description="Idle timeout (seconds)"
     )
@@ -163,7 +163,7 @@ class ServerSettingsConfig(BaseModel):
     application_name: str = Field(default="bigbrotr", description="Application name")
     timezone: str = Field(default="UTC", description="Timezone")
     statement_timeout: int = Field(
-        default=300000, ge=0, description="Max query execution time in milliseconds (0=unlimited)"
+        default=300_000, ge=0, description="Max query execution time in milliseconds (0=unlimited)"
     )
 
 
@@ -456,7 +456,7 @@ class Pool:
         operation: Literal["fetch", "fetchrow", "fetchval", "execute"],
         query: str,
         args: tuple[Any, ...],
-        timeout: float | None,
+        timeout: float | None,  # noqa: ASYNC109
         max_retries: int | None = None,
         **kwargs: Any,
     ) -> Any:
@@ -516,7 +516,10 @@ class Pool:
         raise RuntimeError("Unexpected state in _execute_with_retry")
 
     async def fetch(
-        self, query: str, *args: Any, timeout: float | None = None
+        self,
+        query: str,
+        *args: Any,
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> list[asyncpg.Record]:
         """Execute a query and return all matching rows.
 
@@ -533,7 +536,10 @@ class Pool:
         return cast("list[asyncpg.Record]", result)
 
     async def fetchrow(
-        self, query: str, *args: Any, timeout: float | None = None
+        self,
+        query: str,
+        *args: Any,
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> asyncpg.Record | None:
         """Execute a query and return the first row.
 
@@ -550,7 +556,11 @@ class Pool:
         return cast("asyncpg.Record | None", result)
 
     async def fetchval(
-        self, query: str, *args: Any, column: int = 0, timeout: float | None = None
+        self,
+        query: str,
+        *args: Any,
+        column: int = 0,
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> Any:
         """Execute a query and return a single scalar value.
 
@@ -566,7 +576,7 @@ class Pool:
         """
         return await self._execute_with_retry("fetchval", query, args, timeout, column=column)
 
-    async def execute(self, query: str, *args: Any, timeout: float | None = None) -> str:
+    async def execute(self, query: str, *args: Any, timeout: float | None = None) -> str:  # noqa: ASYNC109
         """Execute a query and return the command status tag.
 
         Args:
@@ -582,7 +592,10 @@ class Pool:
         return cast("str", result)
 
     async def executemany(
-        self, query: str, args_list: list[tuple[Any, ...]], timeout: float | None = None
+        self,
+        query: str,
+        args_list: list[tuple[Any, ...]],
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> None:
         """Execute a query repeatedly with different parameter sets.
 

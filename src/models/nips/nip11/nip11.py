@@ -14,7 +14,7 @@ from typing import NamedTuple
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from models.metadata import Metadata, MetadataType
-from models.relay import Relay
+from models.relay import Relay  # noqa: TC001
 from models.relay_metadata import RelayMetadata
 
 from .fetch import Nip11FetchMetadata
@@ -76,7 +76,7 @@ class Nip11(BaseModel):
         cls,
         relay: Relay,
         *,
-        timeout: float | None = None,
+        timeout: float | None = None,  # noqa: ASYNC109
         max_size: int | None = None,
         proxy_url: str | None = None,
         allow_insecure: bool = True,

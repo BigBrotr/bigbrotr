@@ -121,7 +121,7 @@ class BaseService(ABC, Generic[ConfigT]):
         """Whether the service is still active (shutdown not yet requested)."""
         return not self._shutdown_event.is_set()
 
-    async def wait(self, timeout: float) -> bool:
+    async def wait(self, timeout: float) -> bool:  # noqa: ASYNC109
         """Wait for either a shutdown signal or a timeout to elapse.
 
         Returns True if shutdown was requested during the wait, or False

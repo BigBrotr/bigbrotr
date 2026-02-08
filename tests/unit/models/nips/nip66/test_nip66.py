@@ -31,6 +31,7 @@ from models.nips.nip66 import (
     Nip66SslMetadata,
     RelayNip66MetadataTuple,
 )
+from models.nips.nip66.nip66 import Nip66Dependencies, Nip66TestFlags
 
 
 class TestNip66Construction:
@@ -300,6 +301,9 @@ class TestNip66Create:
             data=Nip66DnsData(dns_ips=["8.8.8.8"], dns_ttl=300),
             logs=Nip66DnsLogs(success=True, reason=None),
         )
+        deps = Nip66Dependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
 
         with (
             patch.object(
@@ -313,12 +317,7 @@ class TestNip66Create:
             patch.object(Nip66NetMetadata, "net", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "http", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(
-                relay,
-                keys=mock_keys,
-                event_builder=mock_event_builder,
-                read_filter=mock_read_filter,
-            )
+            result = await Nip66.create(relay, deps=deps)
 
         assert isinstance(result, Nip66)
         assert result.rtt_metadata.data.rtt_open == 100
@@ -333,6 +332,10 @@ class TestNip66Create:
         mock_read_filter: MagicMock,
     ) -> None:
         """All tests returning None creates Nip66 with None metadata."""
+        deps = Nip66Dependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
+
         with (
             patch.object(Nip66DnsMetadata, "dns", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66RttMetadata, "rtt", new_callable=AsyncMock, return_value=None),
@@ -341,12 +344,7 @@ class TestNip66Create:
             patch.object(Nip66NetMetadata, "net", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "http", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(
-                relay,
-                keys=mock_keys,
-                event_builder=mock_event_builder,
-                read_filter=mock_read_filter,
-            )
+            result = await Nip66.create(relay, deps=deps)
 
         assert isinstance(result, Nip66)
         assert result.rtt_metadata is None
@@ -363,6 +361,7 @@ class TestNip66Create:
             data=Nip66DnsData(dns_ips=["8.8.8.8"]),
             logs=Nip66DnsLogs(success=True, reason=None),
         )
+        flags = Nip66TestFlags(run_rtt=True, run_geo=False, run_net=False)
 
         with (
             patch.object(
@@ -371,15 +370,7 @@ class TestNip66Create:
             patch.object(Nip66SslMetadata, "ssl", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "http", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(
-                relay,
-                run_rtt=True,
-                run_geo=False,
-                run_net=False,
-                keys=None,
-                event_builder=None,
-                read_filter=None,
-            )
+            result = await Nip66.create(relay, flags=flags)
 
         assert isinstance(result, Nip66)
         assert result.rtt_metadata is None  # Skipped due to missing params
@@ -391,13 +382,14 @@ class TestNip66Create:
             data=Nip66DnsData(dns_ips=["8.8.8.8"], dns_ttl=300),
             logs=Nip66DnsLogs(success=True, reason=None),
         )
+        flags = Nip66TestFlags(
+            run_rtt=False, run_ssl=False, run_geo=False, run_net=False, run_http=False
+        )
 
         with patch.object(
             Nip66DnsMetadata, "dns", new_callable=AsyncMock, return_value=dns_metadata
         ):
-            result = await Nip66.create(
-                relay, run_rtt=False, run_ssl=False, run_geo=False, run_net=False, run_http=False
-            )
+            result = await Nip66.create(relay, flags=flags)
 
         assert isinstance(result, Nip66)
         assert result.dns_metadata.data.dns_ips == ["8.8.8.8"]
@@ -414,6 +406,7 @@ class TestNip66Create:
             data=Nip66DnsData(dns_ips=["8.8.8.8"]),
             logs=Nip66DnsLogs(success=True, reason=None),
         )
+        flags = Nip66TestFlags(run_rtt=False, run_geo=True, run_net=False)
 
         with (
             patch.object(
@@ -422,13 +415,7 @@ class TestNip66Create:
             patch.object(Nip66SslMetadata, "ssl", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "http", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(
-                relay,
-                run_rtt=False,
-                run_geo=True,
-                run_net=False,
-                city_reader=None,  # Missing
-            )
+            result = await Nip66.create(relay, flags=flags)
 
         assert result.geo_metadata is None  # Skipped
 
@@ -439,6 +426,7 @@ class TestNip66Create:
             data=Nip66DnsData(dns_ips=["8.8.8.8"]),
             logs=Nip66DnsLogs(success=True, reason=None),
         )
+        flags = Nip66TestFlags(run_rtt=False, run_geo=False, run_net=True)
 
         with (
             patch.object(
@@ -447,13 +435,7 @@ class TestNip66Create:
             patch.object(Nip66SslMetadata, "ssl", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "http", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(
-                relay,
-                run_rtt=False,
-                run_geo=False,
-                run_net=True,
-                asn_reader=None,  # Missing
-            )
+            result = await Nip66.create(relay, flags=flags)
 
         assert result.net_metadata is None  # Skipped
 
@@ -464,6 +446,7 @@ class TestNip66Create:
             data=Nip66DnsData(dns_ips=["8.8.8.8"]),
             logs=Nip66DnsLogs(success=True, reason=None),
         )
+        flags = Nip66TestFlags(run_rtt=False, run_geo=False, run_net=False)
 
         with (
             patch.object(
@@ -472,13 +455,7 @@ class TestNip66Create:
             patch.object(Nip66SslMetadata, "ssl", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "http", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(
-                relay,
-                timeout=None,
-                run_rtt=False,
-                run_geo=False,
-                run_net=False,
-            )
+            result = await Nip66.create(relay, timeout=None, flags=flags)
 
         assert isinstance(result, Nip66)
 
@@ -495,6 +472,9 @@ class TestNip66Create:
             data=Nip66RttData(rtt_open=100),
             logs=Nip66RttLogs(open_success=True),
         )
+        deps = Nip66Dependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
 
         with (
             patch.object(Nip66DnsMetadata, "dns", new_callable=AsyncMock, return_value=None),
@@ -506,24 +486,17 @@ class TestNip66Create:
             patch.object(Nip66NetMetadata, "net", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "http", new_callable=AsyncMock, return_value=None),
         ):
-            await Nip66.create(
-                relay,
-                keys=mock_keys,
-                event_builder=mock_event_builder,
-                read_filter=mock_read_filter,
-                proxy_url="socks5://localhost:9050",
-            )
+            await Nip66.create(relay, deps=deps, proxy_url="socks5://localhost:9050")
 
         mock_rtt.assert_called_once()
         call_args = mock_rtt.call_args
-        # Positional args: relay, keys, event_builder, read_filter, timeout, proxy_url, allow_insecure
-        assert call_args[0][5] == "socks5://localhost:9050"
+        # Positional args: relay, rtt_deps, timeout, proxy_url, allow_insecure
+        assert call_args[0][3] == "socks5://localhost:9050"
 
     @pytest.mark.asyncio
     async def test_all_disabled_returns_empty_nip66(self, relay: Relay) -> None:
         """All tests disabled returns Nip66 with all None metadata."""
-        result = await Nip66.create(
-            relay,
+        flags = Nip66TestFlags(
             run_rtt=False,
             run_ssl=False,
             run_geo=False,
@@ -531,6 +504,7 @@ class TestNip66Create:
             run_dns=False,
             run_http=False,
         )
+        result = await Nip66.create(relay, flags=flags)
 
         assert isinstance(result, Nip66)
         assert result.rtt_metadata is None

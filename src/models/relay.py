@@ -162,8 +162,7 @@ class Relay:
         if not host:
             return NetworkType.UNKNOWN
 
-        host = host.lower()
-        host_bare = host.strip("[]")
+        host_bare = host.lower().strip("[]")
 
         for tld, network in Relay._NETWORK_TLDS.items():
             if host_bare.endswith(tld):
@@ -174,21 +173,19 @@ class Relay:
 
         try:
             ip = ip_address(host_bare)
-            if any(ip in net for net in Relay._LOCAL_NETWORKS):
-                return NetworkType.LOCAL
-            return NetworkType.CLEARNET
+            is_local = any(ip in net for net in Relay._LOCAL_NETWORKS)
+            return NetworkType.LOCAL if is_local else NetworkType.CLEARNET
         except ValueError:
             pass
 
-        # Standard domain name: must contain a dot with valid labels
-        if "." in host_bare:
-            labels = host_bare.split(".")
-            for label in labels:
-                if not label or label.startswith("-") or label.endswith("-"):
-                    return NetworkType.UNKNOWN
-            return NetworkType.CLEARNET
+        if "." not in host_bare:
+            return NetworkType.UNKNOWN
 
-        return NetworkType.UNKNOWN
+        labels = host_bare.split(".")
+        valid = all(
+            label and not label.startswith("-") and not label.endswith("-") for label in labels
+        )
+        return NetworkType.CLEARNET if valid else NetworkType.UNKNOWN
 
     @staticmethod
     def _parse(raw: str) -> dict[str, Any]:

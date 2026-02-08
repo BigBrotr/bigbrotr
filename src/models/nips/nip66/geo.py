@@ -13,11 +13,11 @@ import logging
 from typing import Any, Self
 
 import geohash2
-import geoip2.database
+import geoip2.database  # noqa: TC002
 
 from models.constants import NetworkType
 from models.nips.base import BaseMetadata
-from models.relay import Relay
+from models.relay import Relay  # noqa: TC001
 from utils.dns import resolve_host
 
 from .data import Nip66GeoData

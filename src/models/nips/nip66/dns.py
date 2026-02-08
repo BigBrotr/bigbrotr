@@ -23,9 +23,9 @@ if TYPE_CHECKING:
     from dns.rdtypes.IN.A import A
     from dns.rdtypes.IN.AAAA import AAAA
 
-from models.constants import NetworkType
-from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
-from models.relay import Relay
+from models.constants import DEFAULT_TIMEOUT, NetworkType
+from models.nips.base import BaseMetadata
+from models.relay import Relay  # noqa: TC001
 
 from .data import Nip66DnsData
 from .logs import Nip66DnsLogs
@@ -118,7 +118,7 @@ class Nip66DnsMetadata(BaseMetadata):
     async def dns(
         cls,
         relay: Relay,
-        timeout: float | None = None,
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> Self:
         """Resolve DNS records for a clearnet relay.
 

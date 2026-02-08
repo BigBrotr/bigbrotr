@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from pydantic import StrictBool, StrictFloat, StrictInt
+from pydantic import StrictBool, StrictFloat, StrictInt  # noqa: TC002
 
 from models.nips.base import BaseData
 from models.nips.parsing import FieldSpec

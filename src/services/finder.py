@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiohttp
 from nostr_sdk import RelayUrl
@@ -48,12 +48,10 @@ if TYPE_CHECKING:
     from core.brotr import Brotr
 
 
-# Nostr event kinds for relay discovery (NIP-01, NIP-02)
-_KIND_RECOMMEND_RELAY = 2  # Deprecated: NIP-01 recommend relay
-_KIND_CONTACTS = 3  # NIP-02 contact list with relay URLs
-
-# Minimum tag length (name + at least one value)
-_MIN_TAG_LENGTH = 2
+# Nostr event kinds for relay discovery (NIP-01, NIP-02, NIP-65)
+_KIND_RECOMMEND_RELAY = 2
+_KIND_CONTACTS = 3
+_KIND_RELAY_LIST = 10_002
 
 
 # =============================================================================
@@ -79,10 +77,10 @@ class EventsConfig(BaseModel):
         description="Enable event scanning (requires full schema with tags/content columns)",
     )
     batch_size: int = Field(
-        default=1000, ge=100, le=10000, description="Events to process per batch"
+        default=1000, ge=100, le=10_000, description="Events to process per batch"
     )
     kinds: list[int] = Field(
-        default_factory=lambda: [3, 10002],
+        default_factory=lambda: [_KIND_CONTACTS, _KIND_RELAY_LIST],
         description="Event kinds to scan (3=contacts, 10002=relay list)",
     )
 
@@ -248,10 +246,6 @@ class Finder(BaseService[FinderConfig]):
         last_seen_at = cursors.get(relay_url, 0)
 
         while self.is_running:
-            relays: dict[str, Relay] = {}  # url -> Relay for deduplication
-            chunk_events = 0
-            chunk_last_seen_at = None
-
             try:
                 rows = await get_events_with_relay_urls(
                     self._brotr,
@@ -272,77 +266,110 @@ class Finder(BaseService[FinderConfig]):
             if not rows:
                 break
 
-            for row in rows:
-                chunk_events += 1
-                kind = row["kind"]
-                tags = row["tags"]
-                content = row["content"]
-                seen_at = row["seen_at"]
+            relays = self._extract_relays_from_rows(rows)
+            chunk_events = len(rows)
+            last_seen_at_update = rows[-1]["seen_at"]
 
-                chunk_last_seen_at = seen_at
-
-                # Extract relay URLs from tags (r-tags)
-                if tags:
-                    for tag in tags:
-                        if isinstance(tag, list) and len(tag) >= _MIN_TAG_LENGTH:
-                            tag_name = tag[0]
-                            if tag_name == "r":
-                                url = tag[1]
-                                validated = self._validate_relay_url(url)
-                                if validated:
-                                    relays[validated.url] = validated
-
-                # Kind 2: content is the relay URL (deprecated NIP)
-                if kind == _KIND_RECOMMEND_RELAY and content:
-                    validated = self._validate_relay_url(content.strip())
-                    if validated:
-                        relays[validated.url] = validated
-
-                # Kind 3: content may be JSON with relay URLs as keys
-                if kind == _KIND_CONTACTS and content:
-                    try:
-                        relay_data = json.loads(content)
-                        if isinstance(relay_data, dict):
-                            for url in relay_data:
-                                validated = self._validate_relay_url(url)
-                                if validated:
-                                    relays[validated.url] = validated
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-
-            # Insert discovered relays as candidates
-            if relays:
-                try:
-                    relays_found += await upsert_candidates(self._brotr, relays.values())
-                except Exception as e:
-                    self._logger.error(
-                        "insert_candidates_failed",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        count=len(relays),
-                    )
-
+            relays_found += await self._persist_scan_chunk(relay_url, relays, last_seen_at_update)
             events_scanned += chunk_events
-
-            # Update cursor for this relay
-            if chunk_last_seen_at is not None:
-                last_seen_at = chunk_last_seen_at
-                await self._brotr.upsert_service_data(
-                    [
-                        (
-                            self.SERVICE_NAME,
-                            DataType.CURSOR,
-                            relay_url,
-                            {"last_seen_at": last_seen_at},
-                        )
-                    ]
-                )
+            last_seen_at = last_seen_at_update
 
             # Stop if chunk wasn't full
             if chunk_events < self._config.events.batch_size:
                 break
 
         return events_scanned, relays_found
+
+    def _extract_relays_from_rows(self, rows: list[dict[str, Any]]) -> dict[str, Relay]:
+        """Extract and deduplicate relay URLs from event rows.
+
+        Parses relay URLs from three sources within each event row:
+
+        - ``r`` tags: any event with ``["r", "<url>"]`` tag entries.
+        - Kind 2 content: the deprecated NIP-01 recommend-relay event.
+        - Kind 3 content: NIP-02 contact list with JSON relay map as keys.
+
+        Args:
+            rows: Event rows with ``kind``, ``tags``, ``content``, and ``seen_at`` keys.
+
+        Returns:
+            Mapping of normalized relay URL to :class:`Relay` for deduplication.
+        """
+        relays: dict[str, Relay] = {}
+
+        for row in rows:
+            kind = row["kind"]
+            tags = row["tags"]
+            content = row["content"]
+
+            # Extract relay URLs from tags (r-tags)
+            if tags:
+                for tag in tags:
+                    if isinstance(tag, list) and len(tag) >= 2 and tag[0] == "r":  # noqa: PLR2004
+                        validated = self._validate_relay_url(tag[1])
+                        if validated:
+                            relays[validated.url] = validated
+
+            # Kind 2: content is the relay URL (deprecated NIP)
+            if kind == _KIND_RECOMMEND_RELAY and content:
+                validated = self._validate_relay_url(content.strip())
+                if validated:
+                    relays[validated.url] = validated
+
+            # Kind 3: content may be JSON with relay URLs as keys
+            if kind == _KIND_CONTACTS and content:
+                try:
+                    relay_data = json.loads(content)
+                    if isinstance(relay_data, dict):
+                        for url in relay_data:
+                            validated = self._validate_relay_url(url)
+                            if validated:
+                                relays[validated.url] = validated
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+        return relays
+
+    async def _persist_scan_chunk(
+        self, relay_url: str, relays: dict[str, Relay], last_seen_at: int
+    ) -> int:
+        """Upsert discovered relay candidates and save the scan cursor.
+
+        Args:
+            relay_url: Source relay whose events were scanned.
+            relays: Deduplicated mapping of relay URL to :class:`Relay`.
+            last_seen_at: Timestamp of the last event in the chunk (cursor value).
+
+        Returns:
+            Number of relays successfully upserted.
+        """
+        found = 0
+
+        # Insert discovered relays as candidates
+        if relays:
+            try:
+                found = await upsert_candidates(self._brotr, relays.values())
+            except Exception as e:
+                self._logger.error(
+                    "insert_candidates_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    count=len(relays),
+                )
+
+        # Update cursor for this relay
+        await self._brotr.upsert_service_data(
+            [
+                (
+                    self.SERVICE_NAME,
+                    DataType.CURSOR,
+                    relay_url,
+                    {"last_seen_at": last_seen_at},
+                )
+            ]
+        )
+
+        return found
 
     def _validate_relay_url(self, url: str) -> Relay | None:
         """

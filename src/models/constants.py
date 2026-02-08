@@ -8,6 +8,10 @@ the models and utils layers.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Final
+
+
+DEFAULT_TIMEOUT: Final[float] = 10.0
 
 
 class NetworkType(StrEnum):

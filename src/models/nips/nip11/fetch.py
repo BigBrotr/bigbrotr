@@ -18,9 +18,9 @@ from typing import Any, ClassVar, Self
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
-from models.constants import NetworkType
-from models.nips.base import DEFAULT_TIMEOUT, BaseMetadata
-from models.relay import Relay
+from models.constants import DEFAULT_TIMEOUT, NetworkType
+from models.nips.base import BaseMetadata
+from models.relay import Relay  # noqa: TC001
 
 from .data import Nip11FetchData
 from .logs import Nip11FetchLogs
@@ -40,17 +40,17 @@ class Nip11FetchMetadata(BaseMetadata):
     data: Nip11FetchData
     logs: Nip11FetchLogs
 
-    _FETCH_MAX_SIZE: ClassVar[int] = 65536  # 64 KB response size limit
+    _FETCH_MAX_SIZE: ClassVar[int] = 65_536  # 64 KB
 
     # -------------------------------------------------------------------------
     # HTTP Fetch Implementation
     # -------------------------------------------------------------------------
 
     @staticmethod
-    async def _fetch(
+    async def _fetch(  # noqa: PLR0913
         http_url: str,
         headers: dict[str, str],
-        timeout: float,
+        timeout: float,  # noqa: ASYNC109
         max_size: int,
         ssl_context: ssl.SSLContext | bool,
         proxy_url: str | None = None,
@@ -110,7 +110,7 @@ class Nip11FetchMetadata(BaseMetadata):
     async def fetch(
         cls,
         relay: Relay,
-        timeout: float | None = None,
+        timeout: float | None = None,  # noqa: ASYNC109
         max_size: int | None = None,
         proxy_url: str | None = None,
         allow_insecure: bool = True,

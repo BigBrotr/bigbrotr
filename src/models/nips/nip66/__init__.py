@@ -55,14 +55,15 @@ from .logs import (
     Nip66SslLogs,
 )
 from .net import Nip66NetMetadata
-from .nip66 import Nip66, RelayNip66MetadataTuple
-from .rtt import Nip66RttMetadata
+from .nip66 import Nip66, Nip66Dependencies, Nip66TestFlags, RelayNip66MetadataTuple
+from .rtt import Nip66RttMetadata, RttDependencies
 from .ssl import Nip66SslMetadata
 
 
 __all__ = [
     "Nip66",
     "Nip66BaseLogs",
+    "Nip66Dependencies",
     "Nip66DnsData",
     "Nip66DnsLogs",
     "Nip66DnsMetadata",
@@ -81,5 +82,7 @@ __all__ = [
     "Nip66SslData",
     "Nip66SslLogs",
     "Nip66SslMetadata",
+    "Nip66TestFlags",
     "RelayNip66MetadataTuple",
+    "RttDependencies",
 ]

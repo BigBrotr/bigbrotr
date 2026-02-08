@@ -13,7 +13,7 @@ their own conventions for what goes inside it.
 
 from __future__ import annotations
 
-import builtins
+import builtins  # noqa: TC003
 import hashlib
 import json
 from dataclasses import dataclass, field

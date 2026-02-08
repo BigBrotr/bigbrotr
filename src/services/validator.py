@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 
 from core.base_service import BaseService, BaseServiceConfig
 from models import Relay
-from models.constants import NetworkType
+from models.constants import NetworkType  # noqa: TC001
 from utils.transport import is_nostr_relay
 
 from .common.configs import NetworkConfig

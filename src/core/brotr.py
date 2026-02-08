@@ -20,7 +20,7 @@ import re
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import asyncpg
+import asyncpg  # noqa: TC002
 from pydantic import BaseModel, Field, field_validator
 
 from utils.yaml import load_yaml
@@ -48,7 +48,7 @@ class BatchConfig(BaseModel):
     """Controls the maximum number of records per bulk insert operation."""
 
     max_batch_size: int = Field(
-        default=1000, ge=1, le=100000, description="Maximum items per batch operation"
+        default=1000, ge=1, le=100_000, description="Maximum items per batch operation"
     )
 
 
@@ -223,7 +223,7 @@ class Brotr:
         procedure_name: str,
         *args: Any,
         fetch_result: bool = False,
-        timeout: float | None = None,
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> Any:
         """Call a PostgreSQL stored procedure by name.
 
@@ -266,7 +266,10 @@ class Brotr:
     # -------------------------------------------------------------------------
 
     async def fetch(
-        self, query: str, *args: Any, timeout: float | None = None
+        self,
+        query: str,
+        *args: Any,
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> list[asyncpg.Record]:
         """Execute a query and return all rows.
 
@@ -280,7 +283,10 @@ class Brotr:
         return await self._pool.fetch(query, *args, timeout=t)
 
     async def fetchrow(
-        self, query: str, *args: Any, timeout: float | None = None
+        self,
+        query: str,
+        *args: Any,
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> asyncpg.Record | None:
         """Execute a query and return the first row.
 
@@ -293,7 +299,7 @@ class Brotr:
         t = timeout if timeout is not None else self._config.timeouts.query
         return await self._pool.fetchrow(query, *args, timeout=t)
 
-    async def fetchval(self, query: str, *args: Any, timeout: float | None = None) -> Any:
+    async def fetchval(self, query: str, *args: Any, timeout: float | None = None) -> Any:  # noqa: ASYNC109
         """Execute a query and return the first column of the first row.
 
         Args:
@@ -305,7 +311,7 @@ class Brotr:
         t = timeout if timeout is not None else self._config.timeouts.query
         return await self._pool.fetchval(query, *args, timeout=t)
 
-    async def execute(self, query: str, *args: Any, timeout: float | None = None) -> str:
+    async def execute(self, query: str, *args: Any, timeout: float | None = None) -> str:  # noqa: ASYNC109
         """Execute a query and return the command status string.
 
         Args:
