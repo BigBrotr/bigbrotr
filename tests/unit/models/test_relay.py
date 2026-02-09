@@ -5,8 +5,8 @@ from time import time
 
 import pytest
 
-from models.constants import NetworkType
-from models.relay import Relay, RelayDbParams
+from bigbrotr.models.constants import NetworkType
+from bigbrotr.models.relay import Relay, RelayDbParams
 
 
 # =============================================================================

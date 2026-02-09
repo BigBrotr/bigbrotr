@@ -1,0 +1,20 @@
+# =============================================================================
+# Validator Service Configuration (BigBrotr)
+# =============================================================================
+# Tests candidate relay URLs via WebSocket before adding them to the
+# relays table. Only values that differ from defaults are specified here.
+# See _template/config/services/validator.yaml for all options and documentation.
+# =============================================================================
+
+interval: 28800.0                  # Validate every 8 hours
+
+metrics:
+  enabled: true
+  host: "0.0.0.0"                  # Bind to all interfaces for Docker access
+
+cleanup:
+  enabled: true                    # Remove candidates that exceed max_failures
+
+networks:
+  tor:
+    enabled: true                  # Validate Tor (.onion) relays

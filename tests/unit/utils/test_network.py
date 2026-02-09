@@ -12,8 +12,8 @@ Tests:
 import pytest
 from pydantic import ValidationError
 
-from models.constants import NetworkType
-from services.common.configs import (
+from bigbrotr.models.constants import NetworkType
+from bigbrotr.services.common.configs import (
     ClearnetConfig,
     I2pConfig,
     LokiConfig,

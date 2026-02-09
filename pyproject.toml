@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bigbrotr"
-version = "3.0.4"
+version = "4.0.0"
 description = "A modular Nostr data archiving and monitoring system"
 readme = "README.md"
 license = { text = "MIT" }
@@ -47,6 +47,7 @@ dependencies = [
     "dnspython>=2.5.0",
     "geoip2>=4.8.0",
     "geohash2>=1.1",
+    "Jinja2>=3.1.0",
     "nostr-sdk>=0.37.0",
     "prometheus-client>=0.20.0",
     "pydantic>=2.5.0",
@@ -72,6 +73,9 @@ dev = [
     "detect-secrets>=1.5.0",
     "types-PyYAML>=6.0.12",
     "asyncpg-stubs>=0.30.0",
+    "testcontainers[postgres]>=4.0.0",
+    "alembic>=1.14.0",
+    "sqlalchemy[asyncio]>=2.0.0",
 ]
 docs = [
     "mkdocs>=1.6.0",
@@ -86,9 +90,12 @@ Documentation = "https://github.com/BigBrotr/bigbrotr#readme"
 Issues = "https://github.com/BigBrotr/bigbrotr/issues"
 Changelog = "https://github.com/BigBrotr/bigbrotr/blob/main/CHANGELOG.md"
 
+[project.scripts]
+bigbrotr = "bigbrotr.__main__:cli"
+
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["core*", "models*", "services*", "utils*"]
+include = ["bigbrotr*"]
 
 [tool.setuptools.package-data]
 "*" = ["py.typed"]
@@ -105,7 +112,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["src"]
+source = ["src/bigbrotr"]
 branch = true
 
 [tool.coverage.report]
@@ -162,7 +169,7 @@ select = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["core", "models", "services", "utils"]
+known-first-party = ["bigbrotr"]
 lines-after-imports = 2
 
 [tool.ruff.lint.flake8-tidy-imports]
@@ -171,7 +178,7 @@ ban-relative-imports = "parents"
 [tool.mypy]
 python_version = "3.11"
 mypy_path = "src"
-files = ["src"]
+files = ["src/bigbrotr"]
 explicit_package_bases = true
 strict = true
 

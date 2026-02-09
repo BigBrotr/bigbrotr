@@ -1,0 +1,16 @@
+# =============================================================================
+# Brotr Configuration (LilBrotr)
+# =============================================================================
+# Only values that differ from defaults are specified here.
+# See _template/config/brotr.yaml for all options and documentation.
+#
+# Note: LilBrotr is a lightweight implementation that does not store
+# tags/tagvalues/content columns in the events table (~60% disk savings).
+# =============================================================================
+
+pool:
+  database:
+    host: pgbouncer              # Docker service name (default: localhost)
+    database: lilbrotr           # Implementation database name
+  server_settings:
+    application_name: lilbrotr   # For pg_stat_activity identification

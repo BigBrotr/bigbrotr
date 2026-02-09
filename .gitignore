@@ -180,7 +180,7 @@ docker-compose.local.yaml
 # ============================================================================
 
 # PostgreSQL data directories (Docker bind mounts)
-implementations/*/data/postgres/
+deployments/*/data/postgres/
 **/data/postgres/
 
 # Database dumps and backups

@@ -1,0 +1,14 @@
+{% extends "base/01_functions_utility.sql.j2" %}
+{% block header_comment %}
+ * LilBrotr - 01_functions_utility.sql
+ *
+ * Utility functions for tag value extraction. Unlike BigBrotr, LilBrotr
+ * does not use a generated column; instead, event_insert() calls this
+ * function at insert time and stores the result in the tagvalues column.
+ *
+ * Dependencies: 00_extensions.sql
+{% endblock %}
+{% block tagvalues_usage_comment %}
+ * Called by event_insert() to compute tagvalues at insert time, since
+ * LilBrotr does not store the full tags JSONB column.
+{% endblock %}

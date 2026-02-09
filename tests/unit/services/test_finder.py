@@ -15,52 +15,52 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 import pytest
 
-from core.brotr import Brotr
-from services.finder import (
+from bigbrotr.core.brotr import Brotr
+from bigbrotr.services.finder import (
     ApiConfig,
     ApiSourceConfig,
-    ConcurrencyConfig,
     EventsConfig,
     Finder,
+    FinderConcurrencyConfig,
     FinderConfig,
 )
 
 
 # ============================================================================
-# ConcurrencyConfig Tests
+# FinderConcurrencyConfig Tests
 # ============================================================================
 
 
-class TestConcurrencyConfig:
-    """Tests for ConcurrencyConfig Pydantic model."""
+class TestFinderConcurrencyConfig:
+    """Tests for FinderConcurrencyConfig Pydantic model."""
 
     def test_default_values(self) -> None:
         """Test default concurrency configuration."""
-        config = ConcurrencyConfig()
+        config = FinderConcurrencyConfig()
         assert config.max_parallel == 5
 
     def test_custom_values(self) -> None:
         """Test custom concurrency configuration."""
-        config = ConcurrencyConfig(max_parallel=10)
+        config = FinderConcurrencyConfig(max_parallel=10)
         assert config.max_parallel == 10
 
     def test_max_parallel_bounds(self) -> None:
         """Test max_parallel validation bounds."""
         # Min bound
-        config_min = ConcurrencyConfig(max_parallel=1)
+        config_min = FinderConcurrencyConfig(max_parallel=1)
         assert config_min.max_parallel == 1
 
         # Max bound
-        config_max = ConcurrencyConfig(max_parallel=20)
+        config_max = FinderConcurrencyConfig(max_parallel=20)
         assert config_max.max_parallel == 20
 
         # Below min
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel=0)
+            FinderConcurrencyConfig(max_parallel=0)
 
         # Above max
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel=21)
+            FinderConcurrencyConfig(max_parallel=21)
 
 
 # ============================================================================
@@ -220,7 +220,7 @@ class TestFinderConfig:
 
     def test_concurrency_config(self) -> None:
         """Test concurrency configuration."""
-        config = FinderConfig(concurrency=ConcurrencyConfig(max_parallel=15))
+        config = FinderConfig(concurrency=FinderConcurrencyConfig(max_parallel=15))
         assert config.concurrency.max_parallel == 15
 
 
@@ -350,7 +350,7 @@ class TestFinderFindFromApi:
     @pytest.mark.asyncio
     async def test_find_from_api_success(self, mock_brotr: Brotr) -> None:
         """Test successful API fetch."""
-        mock_brotr.upsert_service_data = AsyncMock(return_value=2)  # type: ignore[method-assign]
+        mock_brotr.upsert_service_state = AsyncMock(return_value=2)  # type: ignore[method-assign]
 
         config = FinderConfig(
             api=ApiConfig(
@@ -528,19 +528,21 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
-            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+            patch(
+                "bigbrotr.services.finder.upsert_candidates", new_callable=AsyncMock
+            ) as mock_upsert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
             mock_get_events.side_effect = [[mock_event], []]
             mock_upsert.return_value = 1
 
-            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-            mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+            mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
             finder = Finder(brotr=mock_brotr)
             await finder._find_from_events()
@@ -567,19 +569,21 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
-            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+            patch(
+                "bigbrotr.services.finder.upsert_candidates", new_callable=AsyncMock
+            ) as mock_upsert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
             mock_get_events.side_effect = [[mock_event], []]
             mock_upsert.return_value = 2
 
-            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-            mock_brotr.upsert_service_data = AsyncMock(return_value=2)  # type: ignore[method-assign]
+            mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_state = AsyncMock(return_value=2)  # type: ignore[method-assign]
 
             finder = Finder(brotr=mock_brotr)
             await finder._find_from_events()
@@ -607,19 +611,21 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
-            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+            patch(
+                "bigbrotr.services.finder.upsert_candidates", new_callable=AsyncMock
+            ) as mock_upsert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
             mock_get_events.side_effect = [[mock_event], []]
             mock_upsert.return_value = 1
 
-            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-            mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+            mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
             finder = Finder(brotr=mock_brotr)
             await finder._find_from_events()
@@ -646,19 +652,21 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
-            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+            patch(
+                "bigbrotr.services.finder.upsert_candidates", new_callable=AsyncMock
+            ) as mock_upsert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
             mock_get_events.side_effect = [[mock_event], []]
             mock_upsert.return_value = 0
 
-            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-            mock_brotr.upsert_service_data = AsyncMock(return_value=0)  # type: ignore[method-assign]
+            mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
             finder = Finder(brotr=mock_brotr)
             await finder._find_from_events()
@@ -683,19 +691,21 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
-            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+            patch(
+                "bigbrotr.services.finder.upsert_candidates", new_callable=AsyncMock
+            ) as mock_upsert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
             mock_get_events.side_effect = [[mock_event], []]
             mock_upsert.return_value = 1
 
-            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-            mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+            mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
             finder = Finder(brotr=mock_brotr)
             await finder._find_from_events()
@@ -720,26 +730,30 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
-            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+            patch(
+                "bigbrotr.services.finder.upsert_candidates", new_callable=AsyncMock
+            ) as mock_upsert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
             mock_get_events.side_effect = [[mock_event], []]
             mock_upsert.return_value = 1
 
-            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-            mock_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+            mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
             finder = Finder(brotr=mock_brotr)
             await finder._find_from_events()
 
-            upsert_calls = mock_brotr.upsert_service_data.call_args_list
+            upsert_calls = mock_brotr.upsert_service_state.call_args_list
             cursor_saved = any(
-                call[0][0] and call[0][0][0][0] == "finder" and call[0][0][0][1] == "cursor"
+                call[0][0]
+                and call[0][0][0].service_name == "finder"
+                and call[0][0][0].state_type == "cursor"
                 for call in upsert_calls
             )
             assert cursor_saved
@@ -771,19 +785,21 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
-            patch("services.finder.upsert_candidates", new_callable=AsyncMock) as mock_upsert,
+            patch(
+                "bigbrotr.services.finder.upsert_candidates", new_callable=AsyncMock
+            ) as mock_upsert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
             mock_get_events.side_effect = [[mock_event], []]
             mock_upsert.return_value = 2
 
-            mock_brotr.get_service_data = AsyncMock(return_value=[])  # type: ignore[method-assign]
-            mock_brotr.upsert_service_data = AsyncMock(return_value=2)  # type: ignore[method-assign]
+            mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
+            mock_brotr.upsert_service_state = AsyncMock(return_value=2)  # type: ignore[method-assign]
 
             finder = Finder(brotr=mock_brotr)
             await finder._find_from_events()

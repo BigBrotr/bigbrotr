@@ -2,12 +2,12 @@
 
 Tests:
 - ServiceName - StrEnum of canonical service identifiers
-- DataType - StrEnum of service data type identifiers
+- StateType - StrEnum of service state type identifiers
 """
 
 from enum import StrEnum
 
-from services.common.constants import DataType, ServiceName
+from bigbrotr.services.common.constants import ServiceName, StateType
 
 
 # =============================================================================
@@ -64,45 +64,45 @@ class TestServiceNameProperties:
 
 
 # =============================================================================
-# DataType Tests
+# StateType Tests
 # =============================================================================
 
 
-class TestDataTypeValues:
-    """Tests for DataType enum member values."""
+class TestStateTypeValues:
+    """Tests for StateType enum member values."""
 
     def test_candidate_value(self) -> None:
-        assert DataType.CANDIDATE == "candidate"
+        assert StateType.CANDIDATE == "candidate"
 
     def test_cursor_value(self) -> None:
-        assert DataType.CURSOR == "cursor"
+        assert StateType.CURSOR == "cursor"
 
     def test_checkpoint_value(self) -> None:
-        assert DataType.CHECKPOINT == "checkpoint"
+        assert StateType.CHECKPOINT == "checkpoint"
 
 
-class TestDataTypeProperties:
-    """Tests for DataType enum type behavior."""
+class TestStateTypeProperties:
+    """Tests for StateType enum type behavior."""
 
     def test_is_strenum(self) -> None:
-        assert issubclass(DataType, StrEnum)
+        assert issubclass(StateType, StrEnum)
 
     def test_member_count(self) -> None:
-        assert len(DataType) == 3
+        assert len(StateType) == 3
 
     def test_str_comparison(self) -> None:
-        assert DataType.CANDIDATE == "candidate"
-        assert DataType.CURSOR == "cursor"
+        assert StateType.CANDIDATE == "candidate"
+        assert StateType.CURSOR == "cursor"
 
     def test_usable_as_dict_key(self) -> None:
-        d = {DataType.CANDIDATE: "pending", DataType.CURSOR: "active"}
+        d = {StateType.CANDIDATE: "pending", StateType.CURSOR: "active"}
         assert d["candidate"] == "pending"
 
     def test_usable_in_fstring(self) -> None:
-        assert f"type={DataType.CHECKPOINT}" == "type=checkpoint"
+        assert f"type={StateType.CHECKPOINT}" == "type=checkpoint"
 
     def test_iteration_yields_all_members(self) -> None:
-        types = list(DataType)
+        types = list(StateType)
         assert len(types) == 3
-        assert DataType.CANDIDATE in types
-        assert DataType.CHECKPOINT in types
+        assert StateType.CANDIDATE in types
+        assert StateType.CHECKPOINT in types

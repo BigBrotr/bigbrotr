@@ -8,22 +8,22 @@ Tests:
 - Start time determination from cursors
 - EventBatch class (append, is_full, is_empty, time bounds)
 - Per-relay timeout overrides
-- Multicore processing configuration
+- TaskGroup structured concurrency
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.brotr import Brotr, BrotrConfig, TimeoutsConfig
-from models import Relay
-from models.constants import NetworkType
-from services.common.configs import NetworkConfig, TorConfig
-from services.synchronizer import (
-    ConcurrencyConfig,
+from bigbrotr.core.brotr import Brotr, BrotrConfig, BrotrTimeoutsConfig
+from bigbrotr.models import Relay
+from bigbrotr.models.constants import NetworkType
+from bigbrotr.services.common.configs import NetworkConfig, TorConfig
+from bigbrotr.services.synchronizer import (
     EventBatch,
     FilterConfig,
     SourceConfig,
+    SyncConcurrencyConfig,
     Synchronizer,
     SynchronizerConfig,
     SyncTimeoutsConfig,
@@ -52,12 +52,12 @@ def set_private_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def mock_synchronizer_brotr(mock_brotr: Brotr) -> Brotr:
     """Create a Brotr mock configured for synchronizer tests."""
     mock_batch_config = MagicMock()
-    mock_batch_config.max_batch_size = 100
+    mock_batch_config.max_size = 100
     mock_config = MagicMock(spec=BrotrConfig)
     mock_config.batch = mock_batch_config
-    mock_config.timeouts = TimeoutsConfig()
+    mock_config.timeouts = BrotrTimeoutsConfig()
     mock_brotr._config = mock_config
-    mock_brotr.insert_events_relays = AsyncMock(return_value=0)  # type: ignore[attr-defined]
+    mock_brotr.insert_event_relay = AsyncMock(return_value=0)  # type: ignore[attr-defined]
     return mock_brotr
 
 
@@ -215,16 +215,16 @@ class TestSyncTimeoutsConfig:
 
 
 # ============================================================================
-# ConcurrencyConfig Tests
+# SyncConcurrencyConfig Tests
 # ============================================================================
 
 
 class TestSyncConcurrencyConfig:
-    """Tests for ConcurrencyConfig Pydantic model."""
+    """Tests for SyncConcurrencyConfig Pydantic model."""
 
     def test_default_values(self) -> None:
         """Test default concurrency config."""
-        config = ConcurrencyConfig()
+        config = SyncConcurrencyConfig()
 
         assert config.max_parallel == 10
         assert config.stagger_delay == (0, 60)
@@ -232,10 +232,14 @@ class TestSyncConcurrencyConfig:
     def test_validation_constraints(self) -> None:
         """Test validation constraints."""
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel=0)
+            SyncConcurrencyConfig(max_parallel=0)
 
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel=101)
+            SyncConcurrencyConfig(max_parallel=101)
+
+    def test_no_max_processes_field(self) -> None:
+        """Test that max_processes field has been removed."""
+        assert not hasattr(SyncConcurrencyConfig(), "max_processes")
 
 
 # ============================================================================
@@ -293,13 +297,17 @@ class TestSynchronizerConfig:
         """Test custom nested configuration with Tor enabled."""
         config = SynchronizerConfig(
             networks=NetworkConfig(tor=TorConfig(enabled=True)),
-            concurrency=ConcurrencyConfig(max_parallel=5),
+            concurrency=SyncConcurrencyConfig(max_parallel=5),
             interval=1800.0,
         )
 
         assert config.networks.tor.enabled is True
         assert config.concurrency.max_parallel == 5
         assert config.interval == 1800.0
+
+    def test_no_worker_log_level_field(self) -> None:
+        """Test that worker_log_level field has been removed."""
+        assert not hasattr(SynchronizerConfig(), "worker_log_level")
 
 
 # ============================================================================
@@ -323,7 +331,7 @@ class TestSynchronizerInit:
         """Test initialization with custom config (Tor enabled)."""
         config = SynchronizerConfig(
             networks=NetworkConfig(tor=TorConfig(enabled=True)),
-            concurrency=ConcurrencyConfig(max_parallel=5),
+            concurrency=SyncConcurrencyConfig(max_parallel=5),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
@@ -437,10 +445,10 @@ class TestSynchronizerGetStartTime:
         assert start_time == 1000
 
     @pytest.mark.asyncio
-    async def test_get_start_time_from_service_data(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Test get start time from service_data cursor."""
-        mock_synchronizer_brotr.get_service_data = AsyncMock(  # type: ignore[attr-defined]
-            return_value=[{"value": {"last_synced_at": 12000}}]
+    async def test_get_start_time_from_service_state(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test get start time from service_state cursor."""
+        mock_synchronizer_brotr.get_service_state = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[{"payload": {"last_synced_at": 12000}}]
         )
 
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
@@ -448,16 +456,16 @@ class TestSynchronizerGetStartTime:
         start_time = await sync._get_start_time(relay)
 
         assert start_time == 12001  # last_synced_at + 1
-        mock_synchronizer_brotr.get_service_data.assert_called_once_with(
+        mock_synchronizer_brotr.get_service_state.assert_called_once_with(
             service_name="synchronizer",
-            data_type="cursor",
+            state_type="cursor",
             key="wss://test.relay.com",
         )
 
     @pytest.mark.asyncio
     async def test_get_start_time_no_cursor(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test get start time when no cursor exists."""
-        mock_synchronizer_brotr.get_service_data = AsyncMock(  # type: ignore[attr-defined]
+        mock_synchronizer_brotr.get_service_state = AsyncMock(  # type: ignore[attr-defined]
             return_value=[]
         )
 
@@ -486,6 +494,51 @@ class TestSynchronizerRun:
 
         assert sync._synced_relays == 0
         assert sync._synced_events == 0
+
+
+# ============================================================================
+# Synchronizer _sync_all_relays Tests
+# ============================================================================
+
+
+class TestSynchronizerSyncAllRelays:
+    """Tests for Synchronizer._sync_all_relays() with TaskGroup."""
+
+    @pytest.mark.asyncio
+    async def test_sync_all_relays_handles_task_group_errors(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test that ExceptionGroup from TaskGroup is handled gracefully."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+
+        # Mock _fetch_all_cursors to return empty dict
+        sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
+
+        # Create a relay and patch _sync_relay_events to raise an unhandled error
+        relay = Relay("wss://failing.relay.com")
+
+        # The worker catches most exceptions, so we need to make the worker
+        # itself raise by patching something fundamental
+        with patch(
+            "bigbrotr.services.synchronizer._sync_relay_events",
+            side_effect=RuntimeError("unexpected"),
+        ):
+            # Should not raise -- errors are caught and logged
+            await sync._sync_all_relays([relay])
+
+        # The relay should be counted as failed
+        assert sync._failed_relays >= 1
+
+    @pytest.mark.asyncio
+    async def test_sync_all_relays_empty_list(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test _sync_all_relays with no relays completes without error."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
+
+        await sync._sync_all_relays([])
+
+        assert sync._synced_relays == 0
+        assert sync._failed_relays == 0
 
 
 # ============================================================================

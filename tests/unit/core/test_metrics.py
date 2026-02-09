@@ -15,7 +15,7 @@ from aiohttp import web
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, Info
 from pydantic import ValidationError
 
-from core.metrics import (
+from bigbrotr.core.metrics import (
     CYCLE_DURATION_SECONDS,
     SERVICE_COUNTER,
     SERVICE_GAUGE,

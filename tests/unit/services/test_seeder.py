@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.brotr import Brotr, BrotrConfig
-from services.seeder import (
+from bigbrotr.core.brotr import Brotr, BrotrConfig
+from bigbrotr.services.seeder import (
     SeedConfig,
     Seeder,
     SeederConfig,
@@ -37,7 +37,7 @@ def mock_seeder_brotr(mock_brotr: Brotr) -> Brotr:
 
     # Setup config with batch settings
     mock_batch_config = MagicMock()
-    mock_batch_config.max_batch_size = 100
+    mock_batch_config.max_size = 100
     mock_config = MagicMock(spec=BrotrConfig)
     mock_config.batch = mock_batch_config
     mock_config.timeouts = MagicMock()
@@ -220,14 +220,14 @@ class TestSeedRelays:
                 {"url": "wss://relay2.example.com"},
             ]
         )
-        mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=2)  # type: ignore[method-assign]
+        mock_seeder_brotr.upsert_service_state = AsyncMock(return_value=2)  # type: ignore[method-assign]
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=True))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
         await seeder._seed()
 
-        mock_seeder_brotr.upsert_service_data.assert_called()
+        mock_seeder_brotr.upsert_service_state.assert_called()
 
     @pytest.mark.asyncio
     async def test_seed_success_as_relays(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
@@ -235,14 +235,14 @@ class TestSeedRelays:
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay1.example.com\nwss://relay2.example.com\n")
 
-        mock_seeder_brotr.insert_relays = AsyncMock(return_value=2)  # type: ignore[method-assign]
+        mock_seeder_brotr.insert_relay = AsyncMock(return_value=2)  # type: ignore[method-assign]
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=False))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
         await seeder._seed()
 
-        mock_seeder_brotr.insert_relays.assert_called()
+        mock_seeder_brotr.insert_relay.assert_called()
 
     @pytest.mark.asyncio
     async def test_seed_skips_comments_and_empty(
@@ -255,7 +255,7 @@ class TestSeedRelays:
         mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://relay.example.com"}]
         )
-        mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        mock_seeder_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
@@ -271,7 +271,7 @@ class TestSeedRelays:
         mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://valid.relay.com"}]
         )
-        mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        mock_seeder_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
@@ -412,7 +412,7 @@ class TestSeedAsCandidates:
         mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://new.relay.com"}]
         )
-        mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        mock_seeder_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=True))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
@@ -420,7 +420,7 @@ class TestSeedAsCandidates:
 
         await seeder._seed_as_candidates(relays)
 
-        mock_seeder_brotr.upsert_service_data.assert_called()
+        mock_seeder_brotr.upsert_service_state.assert_called()
 
     @pytest.mark.asyncio
     async def test_seed_as_candidates_includes_network_type(
@@ -436,7 +436,7 @@ class TestSeedAsCandidates:
                 {"url": "ws://example.onion"},
             ]
         )
-        mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=2)  # type: ignore[method-assign]
+        mock_seeder_brotr.upsert_service_state = AsyncMock(return_value=2)  # type: ignore[method-assign]
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=True))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
@@ -444,8 +444,8 @@ class TestSeedAsCandidates:
 
         await seeder._seed_as_candidates(relays)
 
-        call_args = mock_seeder_brotr.upsert_service_data.call_args[0][0]
-        networks = [record[3]["network"] for record in call_args]
+        call_args = mock_seeder_brotr.upsert_service_state.call_args[0][0]
+        networks = [record.payload["network"] for record in call_args]
         assert "clearnet" in networks
         assert "tor" in networks
 
@@ -466,7 +466,7 @@ class TestSeedAsRelays:
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("wss://relay1.example.com\nwss://relay2.example.com\n")
 
-        mock_seeder_brotr.insert_relays = AsyncMock(return_value=2)  # type: ignore[method-assign]
+        mock_seeder_brotr.insert_relay = AsyncMock(return_value=2)  # type: ignore[method-assign]
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=False))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
@@ -474,7 +474,7 @@ class TestSeedAsRelays:
 
         await seeder._seed_as_relays(relays)
 
-        mock_seeder_brotr.insert_relays.assert_called()
+        mock_seeder_brotr.insert_relay.assert_called()
 
     @pytest.mark.asyncio
     async def test_seed_as_relays_batching(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
@@ -485,8 +485,8 @@ class TestSeedAsRelays:
         seed_file.write_text("\n".join(relay_urls))
 
         # Set small batch size to test batching
-        mock_seeder_brotr.config.batch.max_batch_size = 100
-        mock_seeder_brotr.insert_relays = AsyncMock(return_value=100)  # type: ignore[method-assign]
+        mock_seeder_brotr.config.batch.max_size = 100
+        mock_seeder_brotr.insert_relay = AsyncMock(return_value=100)  # type: ignore[method-assign]
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=False))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
@@ -494,7 +494,7 @@ class TestSeedAsRelays:
 
         await seeder._seed_as_relays(relays)
 
-        assert mock_seeder_brotr.insert_relays.call_count >= 2
+        assert mock_seeder_brotr.insert_relay.call_count >= 2
 
 
 # ============================================================================
@@ -522,7 +522,7 @@ class TestSeederRun:
         mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://relay.example.com"}]
         )
-        mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        mock_seeder_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
@@ -540,7 +540,7 @@ class TestSeederRun:
         mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://relay.example.com"}]
         )
-        mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        mock_seeder_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
@@ -587,7 +587,7 @@ class TestSeederErrorHandling:
         mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[{"url": "wss://valid.relay.com"}]
         )
-        mock_seeder_brotr.upsert_service_data = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        mock_seeder_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)

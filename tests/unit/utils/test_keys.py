@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 from nostr_sdk import Keys
 
-from utils.keys import ENV_PRIVATE_KEY, KeysConfig, load_keys_from_env
+from bigbrotr.utils.keys import ENV_PRIVATE_KEY, KeysConfig, load_keys_from_env
 
 
 # =============================================================================

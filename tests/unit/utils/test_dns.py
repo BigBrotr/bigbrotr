@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-from utils.dns import ResolvedHost, resolve_host
+from bigbrotr.utils.dns import ResolvedHost, resolve_host
 
 
 # =============================================================================

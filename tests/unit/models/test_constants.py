@@ -1,6 +1,6 @@
 """Unit tests for models.constants module."""
 
-from models.constants import NetworkType
+from bigbrotr.models.constants import NetworkType
 
 
 class TestNetworkType:
@@ -31,6 +31,6 @@ class TestNetworkType:
 
     def test_reexported_from_models_init(self) -> None:
         """NetworkType is re-exported from the models package."""
-        from models import NetworkType as ReexportedNetworkType
+        from bigbrotr.models import NetworkType as ReexportedNetworkType
 
         assert ReexportedNetworkType is NetworkType

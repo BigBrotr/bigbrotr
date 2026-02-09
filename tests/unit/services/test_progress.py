@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import pytest
 
-from services.common.mixins import BatchProgress
+from bigbrotr.services.common.mixins import BatchProgress
 
 
 # =============================================================================
