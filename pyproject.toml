@@ -188,6 +188,8 @@ select = [
     "PT012",
 ]
 
+"tools/*" = ["T20"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["bigbrotr"]
 lines-after-imports = 2
