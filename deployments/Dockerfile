@@ -53,7 +53,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install wheels from builder (includes bigbrotr package + console_scripts)
 COPY --from=builder /build/wheels /wheels
-RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir /wheels/* && rm -rf /wheels
 
 # Copy deployment-specific config (needed at runtime, not part of the package)
 COPY --chown=${DEPLOYMENT}:${DEPLOYMENT} deployments/${DEPLOYMENT}/config/ /app/config/
