@@ -132,6 +132,7 @@ jobs:
           file: deployments/Dockerfile
           build-args: DEPLOYMENT=bigbrotr
           push: false
+          load: true
           tags: bigbrotr:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -143,6 +144,7 @@ jobs:
           file: deployments/Dockerfile
           build-args: DEPLOYMENT=lilbrotr
           push: false
+          load: true
           tags: lilbrotr:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
