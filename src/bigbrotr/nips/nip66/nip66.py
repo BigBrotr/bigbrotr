@@ -170,7 +170,7 @@ class Nip66(BaseModel):
     # -------------------------------------------------------------------------
 
     @classmethod
-    async def create(
+    async def create(  # noqa: PLR0913
         cls,
         relay: Relay,
         *,

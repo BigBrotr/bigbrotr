@@ -326,7 +326,11 @@ class Brotr:
         return await self._pool.execute(query, *args, timeout=t)
 
     async def executemany(
-        self, query: str, args_list: list[tuple[Any, ...]], *, timeout: float | None = None
+        self,
+        query: str,
+        args_list: list[tuple[Any, ...]],
+        *,
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> None:
         """Execute a query repeatedly with different parameter sets.
 

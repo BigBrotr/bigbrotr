@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS event (
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
-    tagvalues TEXT[]              -- Computed at insert time, not a generated column
+    tagvalues TEXT []              -- Computed at insert time, not a generated column
 );
 
 COMMENT ON TABLE event IS 'Lightweight Nostr events (tagvalues only, no tags/content/sig)';

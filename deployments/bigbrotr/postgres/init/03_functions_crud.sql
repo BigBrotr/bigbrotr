@@ -37,9 +37,9 @@
  * Returns: Number of newly inserted rows
  */
 CREATE OR REPLACE FUNCTION relay_insert(
-    p_urls TEXT[],
-    p_networks TEXT[],
-    p_discovered_ats BIGINT[]
+    p_urls TEXT [],
+    p_networks TEXT [],
+    p_discovered_ats BIGINT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -57,7 +57,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION relay_insert(TEXT[], TEXT[], BIGINT[]) IS
+COMMENT ON FUNCTION relay_insert(TEXT [], TEXT [], BIGINT []) IS
 'Bulk insert relays, returns number of rows inserted';
 
 
@@ -80,13 +80,13 @@ COMMENT ON FUNCTION relay_insert(TEXT[], TEXT[], BIGINT[]) IS
  * Returns: Number of newly inserted rows
  */
 CREATE OR REPLACE FUNCTION event_insert(
-    p_event_ids BYTEA[],
-    p_pubkeys BYTEA[],
-    p_created_ats BIGINT[],
-    p_kinds INTEGER[],
-    p_tags JSONB[],
-    p_content_values TEXT[],
-    p_sigs BYTEA[]
+    p_event_ids BYTEA [],
+    p_pubkeys BYTEA [],
+    p_created_ats BIGINT [],
+    p_kinds INTEGER [],
+    p_tags JSONB [],
+    p_content_values TEXT [],
+    p_sigs BYTEA []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -111,7 +111,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION event_insert(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[]) IS
+COMMENT ON FUNCTION event_insert(BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA []) IS
 'Bulk insert events, returns number of rows inserted';
 
 
@@ -128,10 +128,10 @@ COMMENT ON FUNCTION event_insert(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[],
  *
  * Returns: Number of newly inserted rows
  */
-DROP FUNCTION IF EXISTS metadata_insert(JSONB[]);
+DROP FUNCTION IF EXISTS metadata_insert(JSONB []);
 CREATE OR REPLACE FUNCTION metadata_insert(
-    p_ids BYTEA[],
-    p_payloads JSONB[]
+    p_ids BYTEA [],
+    p_payloads JSONB []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -149,7 +149,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION metadata_insert(BYTEA[], JSONB[]) IS
+COMMENT ON FUNCTION metadata_insert(BYTEA [], JSONB []) IS
 'Bulk insert content-addressed metadata records, returns number of rows inserted';
 
 
@@ -168,9 +168,9 @@ COMMENT ON FUNCTION metadata_insert(BYTEA[], JSONB[]) IS
  * Returns: Number of newly inserted rows
  */
 CREATE OR REPLACE FUNCTION event_relay_insert(
-    p_event_ids BYTEA[],
-    p_relay_urls TEXT[],
-    p_seen_ats BIGINT[]
+    p_event_ids BYTEA [],
+    p_relay_urls TEXT [],
+    p_seen_ats BIGINT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -188,7 +188,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION event_relay_insert(BYTEA[], TEXT[], BIGINT[]) IS
+COMMENT ON FUNCTION event_relay_insert(BYTEA [], TEXT [], BIGINT []) IS
 'Bulk insert event-relay junctions, returns number of rows inserted';
 
 
@@ -207,13 +207,13 @@ COMMENT ON FUNCTION event_relay_insert(BYTEA[], TEXT[], BIGINT[]) IS
  *
  * Returns: Number of newly inserted rows
  */
-DROP FUNCTION IF EXISTS relay_metadata_insert(TEXT[], JSONB[], TEXT[], BIGINT[]);
-DROP FUNCTION IF EXISTS relay_metadata_insert(TEXT[], BYTEA[], JSONB[], TEXT[], BIGINT[]);
+DROP FUNCTION IF EXISTS relay_metadata_insert(TEXT [], JSONB [], TEXT [], BIGINT []);
+DROP FUNCTION IF EXISTS relay_metadata_insert(TEXT [], BYTEA [], JSONB [], TEXT [], BIGINT []);
 CREATE OR REPLACE FUNCTION relay_metadata_insert(
-    p_relay_urls TEXT[],
-    p_metadata_ids BYTEA[],
-    p_metadata_types TEXT[],
-    p_generated_ats BIGINT[]
+    p_relay_urls TEXT [],
+    p_metadata_ids BYTEA [],
+    p_metadata_types TEXT [],
+    p_generated_ats BIGINT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -232,7 +232,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION relay_metadata_insert(TEXT[], BYTEA[], TEXT[], BIGINT[]) IS
+COMMENT ON FUNCTION relay_metadata_insert(TEXT [], BYTEA [], TEXT [], BIGINT []) IS
 'Bulk insert relay-metadata junctions, returns number of rows inserted';
 
 
@@ -252,17 +252,17 @@ COMMENT ON FUNCTION relay_metadata_insert(TEXT[], BYTEA[], TEXT[], BIGINT[]) IS
  * Returns: Number of junction rows inserted in event_relay
  */
 CREATE OR REPLACE FUNCTION event_relay_insert_cascade(
-    p_event_ids BYTEA[],
-    p_pubkeys BYTEA[],
-    p_created_ats BIGINT[],
-    p_kinds INTEGER[],
-    p_tags JSONB[],
-    p_content_values TEXT[],
-    p_sigs BYTEA[],
-    p_relay_urls TEXT[],
-    p_relay_networks TEXT[],
-    p_relay_discovered_ats BIGINT[],
-    p_seen_ats BIGINT[]
+    p_event_ids BYTEA [],
+    p_pubkeys BYTEA [],
+    p_created_ats BIGINT [],
+    p_kinds INTEGER [],
+    p_tags JSONB [],
+    p_content_values TEXT [],
+    p_sigs BYTEA [],
+    p_relay_urls TEXT [],
+    p_relay_networks TEXT [],
+    p_relay_discovered_ats BIGINT [],
+    p_seen_ats BIGINT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -287,7 +287,9 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION event_relay_insert_cascade(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[], TEXT[], TEXT[], BIGINT[], BIGINT[]) IS
+COMMENT ON FUNCTION event_relay_insert_cascade(
+    BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA [], TEXT [], TEXT [], BIGINT [], BIGINT []
+) IS
 'Atomically insert events with relays and junctions, returns junction row count';
 
 
@@ -301,16 +303,18 @@ COMMENT ON FUNCTION event_relay_insert_cascade(BYTEA[], BYTEA[], BIGINT[], INTEG
  * Parameters: Arrays of relay fields + metadata fields + types + timestamps
  * Returns: Number of junction rows inserted in relay_metadata
  */
-DROP FUNCTION IF EXISTS relay_metadata_insert_cascade(TEXT[], TEXT[], BIGINT[], JSONB[], TEXT[], BIGINT[]);
-DROP FUNCTION IF EXISTS relay_metadata_insert_cascade(TEXT[], TEXT[], BIGINT[], BYTEA[], JSONB[], TEXT[], BIGINT[]);
+DROP FUNCTION IF EXISTS relay_metadata_insert_cascade(TEXT [], TEXT [], BIGINT [], JSONB [], TEXT [], BIGINT []);
+DROP FUNCTION IF EXISTS relay_metadata_insert_cascade(
+    TEXT [], TEXT [], BIGINT [], BYTEA [], JSONB [], TEXT [], BIGINT []
+);
 CREATE OR REPLACE FUNCTION relay_metadata_insert_cascade(
-    p_relay_urls TEXT[],
-    p_relay_networks TEXT[],
-    p_relay_discovered_ats BIGINT[],
-    p_metadata_ids BYTEA[],
-    p_metadata_payloads JSONB[],
-    p_metadata_types TEXT[],
-    p_generated_ats BIGINT[]
+    p_relay_urls TEXT [],
+    p_relay_networks TEXT [],
+    p_relay_discovered_ats BIGINT [],
+    p_metadata_ids BYTEA [],
+    p_metadata_payloads JSONB [],
+    p_metadata_types TEXT [],
+    p_generated_ats BIGINT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -336,7 +340,9 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT[], TEXT[], BIGINT[], BYTEA[], JSONB[], TEXT[], BIGINT[]) IS
+COMMENT ON FUNCTION relay_metadata_insert_cascade(
+    TEXT [], TEXT [], BIGINT [], BYTEA [], JSONB [], TEXT [], BIGINT []
+) IS
 'Atomically insert relay metadata with relays and junctions, returns junction row count';
 
 
@@ -360,11 +366,11 @@ COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT[], TEXT[], BIGINT[], BYTE
  *   p_updated_ats    - Array of Unix update timestamps
  */
 CREATE OR REPLACE FUNCTION service_state_upsert(
-    p_service_names TEXT[],
-    p_state_types TEXT[],
-    p_state_keys TEXT[],
-    p_payloads JSONB[],
-    p_updated_ats BIGINT[]
+    p_service_names TEXT [],
+    p_state_types TEXT [],
+    p_state_keys TEXT [],
+    p_payloads JSONB [],
+    p_updated_ats BIGINT []
 )
 RETURNS VOID
 LANGUAGE plpgsql
@@ -387,7 +393,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION service_state_upsert(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[]) IS
+COMMENT ON FUNCTION service_state_upsert(TEXT [], TEXT [], TEXT [], JSONB [], BIGINT []) IS
 'Bulk upsert service state with deduplication and full replacement semantics';
 
 
@@ -453,9 +459,9 @@ COMMENT ON FUNCTION service_state_get IS
  * Returns: Number of rows deleted
  */
 CREATE OR REPLACE FUNCTION service_state_delete(
-    p_service_names TEXT[],
-    p_state_types TEXT[],
-    p_state_keys TEXT[]
+    p_service_names TEXT [],
+    p_state_types TEXT [],
+    p_state_keys TEXT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -478,5 +484,5 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION service_state_delete(TEXT[], TEXT[], TEXT[]) IS
+COMMENT ON FUNCTION service_state_delete(TEXT [], TEXT [], TEXT []) IS
 'Bulk delete service state records, returns number of rows deleted';

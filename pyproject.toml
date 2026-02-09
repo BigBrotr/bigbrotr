@@ -204,7 +204,8 @@ ignore_errors = true
 [tool.sqlfluff.core]
 dialect = "postgres"
 templater = "raw"
-max_line_length = 120
+max_line_length = 150
+exclude_rules = "ST05"
 
 [tool.sqlfluff.indentation]
 tab_space_size = 4
@@ -223,3 +224,6 @@ capitalisation_policy = "upper"
 
 [tool.sqlfluff.rules.capitalisation.types]
 capitalisation_policy = "upper"
+
+[tool.sqlfluff.rules.references.keywords]
+ignore_words = "value,content,data"

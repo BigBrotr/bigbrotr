@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS events (
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
     tags JSONB NOT NULL,
-    tagvalues TEXT[] GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED,
+    tagvalues TEXT [] GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED,
     content TEXT NOT NULL,
     sig BYTEA NOT NULL
 );
@@ -112,7 +112,8 @@ COMMENT ON COLUMN metadata.value IS 'Complete JSON document (NIP-11 relay info o
 CREATE TABLE IF NOT EXISTS relay_metadata (
     relay_url TEXT NOT NULL,
     generated_at BIGINT NOT NULL,
-    metadata_type TEXT NOT NULL,             -- nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
+    -- nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
+    metadata_type TEXT NOT NULL,
     metadata_id BYTEA NOT NULL,
     PRIMARY KEY (relay_url, generated_at, metadata_type),
     FOREIGN KEY (relay_url) REFERENCES relays (url) ON DELETE CASCADE,

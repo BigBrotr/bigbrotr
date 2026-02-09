@@ -82,5 +82,5 @@ ON service_data USING btree (service_name, data_type);
 -- Candidate network filtering: WHERE data->>'network' = ANY($3)
 -- Used by count_candidates() and fetch_candidate_chunk() in the Validator service
 CREATE INDEX IF NOT EXISTS idx_service_data_candidate_network
-ON service_data USING btree ((data->>'network'))
+ON service_data USING btree ((data ->> 'network'))
 WHERE service_name = 'validator' AND data_type = 'candidate';

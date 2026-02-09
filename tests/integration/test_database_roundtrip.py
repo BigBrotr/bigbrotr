@@ -138,7 +138,7 @@ async def test_service_state_roundtrip(brotr: Brotr):
     )
     assert len(rows_single) == 1
 
-    # Upsert (update)
+    # --- upsert (update) ---
     updated_records = [
         ServiceState(
             service_name=ServiceName.FINDER,

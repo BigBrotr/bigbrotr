@@ -74,7 +74,7 @@ class EventsConfig(BaseModel):
         default=1000, ge=100, le=10_000, description="Events to process per batch"
     )
     kinds: list[int] = Field(
-        default_factory=lambda: [EventKind.CONTACTS, EventKind.RELAY_LIST],
+        default_factory=lambda: [int(EventKind.CONTACTS), int(EventKind.RELAY_LIST)],
         description="Event kinds to scan (3=contacts, 10002=relay list)",
     )
 
