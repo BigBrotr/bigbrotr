@@ -6,10 +6,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from models import Event, EventRelay, Relay
-from models.event import EventDbParams
-from models.event_relay import EventRelayDbParams
-from models.relay import NetworkType
+from bigbrotr.models import Event, EventRelay, Relay
+from bigbrotr.models.constants import NetworkType
+from bigbrotr.models.event import EventDbParams
+from bigbrotr.models.event_relay import EventRelayDbParams
 
 
 # =============================================================================
@@ -254,11 +254,11 @@ class TestToDbParams:
         assert result.seen_at == 9999999999
 
     def test_calls_event_to_db_params(self, mock_event, relay):
-        """Delegates to event.to_db_params()."""
+        """Delegates to event.to_db_params() during __post_init__ caching."""
         er = EventRelay(mock_event, relay, seen_at=1234567890)
-        er.to_db_params()
-        # 2x: __post_init__ fail-fast validation, explicit call
-        assert mock_event.to_db_params.call_count == 2
+        er.to_db_params()  # Returns cached result, no new call
+        # 1x: _compute_db_params() in __post_init__; to_db_params() returns cached
+        assert mock_event.to_db_params.call_count == 1
 
     def test_with_different_relay_networks(self, mock_event):
         """Works with different relay network types."""

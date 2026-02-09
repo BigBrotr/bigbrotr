@@ -29,7 +29,7 @@ BigBrotr uses PostgreSQL 16+ as its primary data store with the following design
 
 ### Schema Files
 
-SQL files are located in `implementations/bigbrotr/postgres/init/` and applied in numerical order:
+SQL files are located in `deployments/bigbrotr/postgres/init/` and applied in numerical order:
 
 | File | Purpose |
 |------|---------|
@@ -206,7 +206,7 @@ CREATE TABLE relay_metadata (
 |--------|------|-------------|
 | `relay_url` | TEXT (FK, PK) | Reference to relays table |
 | `generated_at` | BIGINT (PK) | Unix timestamp when metadata snapshot was collected |
-| `metadata_type` | TEXT (PK) | Metadata type: `nip11_fetch`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, or `nip66_http` |
+| `metadata_type` | TEXT (PK) | Metadata type: `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, or `nip66_http` |
 | `metadata_id` | BYTEA (FK) | Reference to metadata table |
 
 **Note**: Each relay can have multiple metadata types per snapshot, allowing separate storage of NIP-11 info, RTT measurements, SSL data, and geolocation data.
@@ -528,7 +528,7 @@ ORDER BY rm.relay_url ASC, rm.metadata_type ASC, rm.generated_at DESC;
 -- Get latest NIP-11 data for all relays
 SELECT relay_url, value
 FROM relay_metadata_latest
-WHERE metadata_type = 'nip11_fetch';
+WHERE metadata_type = 'nip11_info';
 
 -- Get relays with recent RTT data
 SELECT relay_url, value->>'rtt_open' AS rtt_open

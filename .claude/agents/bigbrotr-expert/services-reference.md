@@ -14,14 +14,14 @@ All services inherit from `BaseService[ConfigT]` and follow these patterns:
 
 ## Seeder - Database Bootstrap
 
-**Location**: `src/services/seeder.py`
+**Location**: `src/bigbrotr/services/seeder.py`
 
 One-shot service for seeding the database with initial relay data from a seed file.
 
 ### Configuration
 
 ```yaml
-# yaml/services/seeder.yaml
+# config/services/seeder.yaml
 seed:
   enabled: true
   file_path: "static/seed_relays.txt"
@@ -46,11 +46,11 @@ Logs warnings for invalid URLs and continues processing.
 ### Usage
 
 ```python
-from core import Brotr
-from services import Seeder
+from bigbrotr.core import Brotr
+from bigbrotr.services import Seeder
 
-brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
-seeder = Seeder.from_yaml("yaml/services/seeder.yaml", brotr=brotr)
+brotr = Brotr.from_yaml("config/core/brotr.yaml")
+seeder = Seeder.from_yaml("config/services/seeder.yaml", brotr=brotr)
 
 async with brotr:
     await seeder.run()
@@ -71,14 +71,14 @@ wss://nos.lol
 
 ## Finder - Relay Discovery
 
-**Location**: `src/services/finder.py`
+**Location**: `src/bigbrotr/services/finder.py`
 
 Discovers Nostr relay URLs from APIs and database events.
 
 ### Configuration
 
 ```yaml
-# yaml/services/finder.yaml
+# config/services/finder.yaml
 interval: 3600.0  # Seconds between cycles
 
 concurrency:
@@ -147,11 +147,11 @@ Fetch relay URLs from external APIs.
 ### Usage
 
 ```python
-from core import Brotr
-from services import Finder
+from bigbrotr.core import Brotr
+from bigbrotr.services import Finder
 
-brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
-finder = Finder.from_yaml("yaml/services/finder.yaml", brotr=brotr)
+brotr = Brotr.from_yaml("config/core/brotr.yaml")
+finder = Finder.from_yaml("config/services/finder.yaml", brotr=brotr)
 
 async with brotr:
     async with finder:
@@ -162,14 +162,14 @@ async with brotr:
 
 ## Validator - Relay Validation
 
-**Location**: `src/services/validator.py`
+**Location**: `src/bigbrotr/services/validator.py`
 
 Validates candidate relay URLs discovered by the Seeder and Finder services. Uses streaming architecture with batch processing for efficient validation at scale.
 
 ### Configuration
 
 ```yaml
-# yaml/services/validator.yaml
+# config/services/validator.yaml
 interval: 28800.0  # 8 hours between validation cycles
 
 metrics:
@@ -251,11 +251,11 @@ Test single relay WebSocket connectivity.
 ### Usage
 
 ```python
-from core import Brotr
-from services import Validator
+from bigbrotr.core import Brotr
+from bigbrotr.services import Validator
 
-brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
-validator = Validator.from_yaml("yaml/services/validator.yaml", brotr=brotr)
+brotr = Brotr.from_yaml("config/core/brotr.yaml")
+validator = Validator.from_yaml("config/services/validator.yaml", brotr=brotr)
 
 async with brotr:
     async with validator:
@@ -275,10 +275,10 @@ Candidates stored in `service_data` table:
 ### Multi-Network Support
 
 **Automatic Detection**:
-- `.onion` URLs → Tor network
-- `.i2p` URLs → I2P network
-- `.loki` URLs → Lokinet network
-- Others → Clearnet
+- `.onion` URLs -> Tor network
+- `.i2p` URLs -> I2P network
+- `.loki` URLs -> Lokinet network
+- Others -> Clearnet
 
 **Per-Network Configuration**:
 - `enabled`: Whether to process relays on this network
@@ -298,14 +298,14 @@ if network_config.enabled and network_config.proxy_url:
 
 ## Monitor - Relay Health Monitoring
 
-**Location**: `src/services/monitor.py`
+**Location**: `src/bigbrotr/services/monitor.py`
 
 Monitors relay health and metadata with full NIP-66 compliance.
 
 ### Configuration
 
 ```yaml
-# yaml/services/monitor.yaml
+# config/services/monitor.yaml
 interval: 3600.0
 
 metrics:
@@ -344,9 +344,8 @@ discovery:
   enabled: true
   interval: 3600                  # Re-check interval (Range: >= 60)
   include:                        # Metadata to include in Kind 30166 events
-    nip11: true
+    nip11_info: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
@@ -367,18 +366,16 @@ geo:
 processing:
   chunk_size: 100                 # Relays per batch (Range: 10-1000)
   compute:                        # What metadata to compute
-    nip11: true
+    nip11_info: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
     nip66_dns: true
     nip66_http: true
   store:                          # What to store in database
-    nip11: true
+    nip11_info: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
@@ -447,11 +444,11 @@ Publish Kind 10166 monitor announcement.
 ### Usage
 
 ```python
-from core import Brotr
-from services import Monitor
+from bigbrotr.core import Brotr
+from bigbrotr.services import Monitor
 
-brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
-monitor = Monitor.from_yaml("yaml/services/monitor.yaml", brotr=brotr)
+brotr = Brotr.from_yaml("config/core/brotr.yaml")
+monitor = Monitor.from_yaml("config/services/monitor.yaml", brotr=brotr)
 
 async with brotr:
     async with monitor:
@@ -466,14 +463,14 @@ async with brotr:
 
 ## Synchronizer - Event Synchronization
 
-**Location**: `src/services/synchronizer.py`
+**Location**: `src/bigbrotr/services/synchronizer.py`
 
 Synchronizes Nostr events from relays with multiprocessing support.
 
 ### Configuration
 
 ```yaml
-# yaml/services/synchronizer.yaml
+# config/services/synchronizer.yaml
 interval: 900.0
 
 metrics:
@@ -633,11 +630,11 @@ Standalone task for multiprocessing. Returns `(url, events, invalid, skipped, ne
 ### Usage
 
 ```python
-from core import Brotr
-from services import Synchronizer
+from bigbrotr.core import Brotr
+from bigbrotr.services import Synchronizer
 
-brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
-sync = Synchronizer.from_yaml("yaml/services/synchronizer.yaml", brotr=brotr)
+brotr = Brotr.from_yaml("config/core/brotr.yaml")
+sync = Synchronizer.from_yaml("config/services/synchronizer.yaml", brotr=brotr)
 
 async with brotr:
     async with sync:
@@ -652,17 +649,17 @@ async with brotr:
 
 ## Service Registry
 
-**Location**: `src/services/__main__.py`
+**Location**: `src/bigbrotr/services/__main__.py`
 
 All services are registered in `SERVICE_REGISTRY`:
 
 ```python
 SERVICE_REGISTRY = {
-    "seeder": (Seeder, SeederConfig),
-    "finder": (Finder, FinderConfig),
-    "validator": (Validator, ValidatorConfig),
-    "monitor": (Monitor, MonitorConfig),
-    "synchronizer": (Synchronizer, SynchronizerConfig),
+    ServiceName.SEEDER: ServiceEntry(cls=Seeder, config_path=...),
+    ServiceName.FINDER: ServiceEntry(cls=Finder, config_path=...),
+    ServiceName.VALIDATOR: ServiceEntry(cls=Validator, config_path=...),
+    ServiceName.MONITOR: ServiceEntry(cls=Monitor, config_path=...),
+    ServiceName.SYNCHRONIZER: ServiceEntry(cls=Synchronizer, config_path=...),
 }
 ```
 
@@ -670,10 +667,10 @@ SERVICE_REGISTRY = {
 
 ```bash
 # Run service
-python -m services finder --log-level DEBUG
+python -m bigbrotr finder --log-level DEBUG
 
 # Service arguments
-python -m services synchronizer --help
+python -m bigbrotr synchronizer --help
 ```
 
 ---
@@ -683,8 +680,8 @@ python -m services synchronizer --help
 ### Service Development Template
 
 ```python
-from core import BaseService, BaseServiceConfig
-from core import Brotr
+from bigbrotr.core import BaseService, BaseServiceConfig
+from bigbrotr.core import Brotr
 from pydantic import Field
 
 class MyServiceConfig(BaseServiceConfig):
@@ -703,7 +700,7 @@ class MyService(BaseService[MyServiceConfig]):
         self._logger.info("run_started")
 
         # Database operations
-        rows = await self._brotr.pool.fetch("SELECT * FROM relays LIMIT $1", self._config.batch_size)
+        rows = await self._brotr.fetch("SELECT * FROM relays LIMIT $1", self._config.batch_size)
 
         # Process data
         for row in rows:

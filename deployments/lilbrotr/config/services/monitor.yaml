@@ -1,0 +1,27 @@
+# =============================================================================
+# Monitor Service Configuration (LilBrotr)
+# =============================================================================
+# Only values that differ from defaults are specified here.
+# See _template/config/services/monitor.yaml for all options and documentation.
+#
+# Note: Lighter configuration for reduced resource usage (clearnet only).
+# =============================================================================
+
+interval: 3600.0                   # 1 hour (default: 300.0)
+
+metrics:
+  enabled: true                    # Enable metrics (default: false)
+  host: "0.0.0.0"                  # Bind to all interfaces for Docker (default: 127.0.0.1)
+
+networks:
+  clearnet:
+    max_tasks: 20                  # Reduced concurrency (default: 50)
+  tor:
+    max_tasks: 5                   # Reduced concurrency (default: 10)
+  i2p:
+    max_tasks: 3                   # Reduced concurrency (default: 5)
+  loki:
+    max_tasks: 3                   # Reduced concurrency (default: 5)
+
+processing:
+  chunk_size: 20                   # Reduced batch size (default: 100)

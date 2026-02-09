@@ -9,6 +9,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.0.0] - 2026-02-09
+
+Major architectural restructuring: all code moved under `bigbrotr` namespace package with diamond DAG dependency graph. Nine design problems resolved. No functional or behavioral changes — pure structural refactor.
+
+### BREAKING CHANGES
+
+- **All imports changed**: `from core.X` / `from models.X` / `from services.X` / `from utils.X` → `from bigbrotr.core.X` / `from bigbrotr.models.X` / `from bigbrotr.services.X` / `from bigbrotr.utils.X`
+- **CLI entry point changed**: `python -m services <name>` → `python -m bigbrotr <name>` (or `bigbrotr <name>` via console script)
+- **Deployment directories renamed**: `implementations/` → `deployments/`
+- **Config directories renamed**: `yaml/core/brotr.yaml` → `config/brotr.yaml` (flattened); `yaml/services/` → `config/services/`
+- **NIP models extracted**: `from models.nips.nip11 import Nip11` → `from bigbrotr.nips.nip11 import Nip11`
+- **YAML loader moved**: `from utils.yaml import load_yaml` → `from bigbrotr.core.yaml import load_yaml`
+- **Dependency files removed**: `requirements.txt` / `requirements-dev.txt` deleted; use `pip install -e .` or `pip install -e ".[dev]"`
+
+### Refactored
+
+- **Namespace package**: All source code moved under `src/bigbrotr/` to eliminate pip namespace collisions from generic top-level names (`core`, `models`, `services`, `utils`)
+- **Diamond DAG architecture**: Five-layer dependency graph (`services → {core, nips, utils} → models`) replacing the previous linear four-layer stack
+- **NIP extraction**: `models/nips/` (18 files with I/O logic: HTTP, DNS, SSL, WebSocket, GeoIP) extracted to `bigbrotr/nips/` as a separate package, restoring models layer purity
+- **YAML loader**: `utils/yaml.py` moved to `core/yaml.py` (resolving upward layer dependency — only consumers were in core)
+- **CLI decoupled**: `services/__main__.py` moved to `bigbrotr/__main__.py` with sync `cli()` wrapper for console_scripts entry point
+- **Monitoring directories merged**: `grafana/` + `prometheus/` → `monitoring/grafana/` + `monitoring/prometheus/` in each deployment
+- **Root cleanup**: Deleted `alembic.ini`, `migrations/`, `requirements*.txt`, `requirements*.in`; moved `generate_sql.py` and `templates/` to `tools/`
+- **Deleted `src/__init__.py`**: Removed the 107-line file with 36 re-exports that violated the src-layout pattern
+
+### Changed
+
+- **pyproject.toml**: Version `3.0.4` → `4.0.0`; `known-first-party = ["bigbrotr"]`; `include = ["bigbrotr*"]`; `files = ["src/bigbrotr"]` (mypy); `source = ["src/bigbrotr"]` (coverage); added `[project.scripts] bigbrotr = "bigbrotr.__main__:cli"`
+- **100+ source files**: Moved under `src/bigbrotr/` with updated imports
+- **40+ test files**: Updated with `bigbrotr`-prefixed imports and ~100 mock patch targets rewritten
+- **3 Dockerfiles + 3 docker-compose files**: Updated paths, commands, and volume mounts
+- **CI workflow**: Updated for new deployment and source paths
+- **12 deployment YAML configs**: Updated `_template/yaml/` → `_template/config/` in comments
+- **6 service module docstrings**: Updated example paths from `yaml/` to `config/`
+
+### Fixed
+
+- **Stale NIP class references** (pre-existing, exposed by restructuring):
+  - `Nip11FetchMetadata` → `Nip11InfoMetadata` (renamed in v3.1.0 but `__init__.py` not updated)
+  - `Nip66RttLogs` → `Nip66RttMultiPhaseLogs`
+  - `RttDependencies` → `Nip66RttDependencies`
+  - `Nip66TestFlags` → `Nip66TestSelection` + `Nip66TestOptions`
+
+### Added
+
+- **Console script**: `bigbrotr` command via `[project.scripts]` in pyproject.toml
+- **Integration test infrastructure**: `tests/integration/conftest.py` with testcontainers-based ephemeral PostgreSQL; `tests/integration/test_database_roundtrip.py`
+- **SQL generation tooling**: `tools/generate_sql.py` + `tools/templates/sql/` (Jinja2 templates for deployment SQL files)
+
+### Documentation
+
+- **README.md**: Version badge, five-layer diamond DAG architecture diagram, updated all paths/commands/project structure tree, test count → 1896
+- **All docs/*.md**: Updated for new paths, imports, and architecture (ARCHITECTURE, CONFIGURATION, DATABASE, DEPLOYMENT, DEVELOPMENT, OVERVIEW, TECHNICAL)
+- **CLAUDE.md**: Rewritten for bigbrotr namespace and diamond DAG architecture
+- **CONTRIBUTING.md**: Updated paths and install commands
+- **Agent knowledge base**: All 7 `.claude/agents/bigbrotr-expert/` files updated
+
+---
+
+## [3.0.4] - 2026-02-07
+
+Architecture refinement release: domain logic extracted from core to `services/common/`, three-tier architecture formalized, and comprehensive test and documentation alignment.
+
+### Refactored
+- **`services/common/` package**: Extracted domain queries, constants, and mixins from `core/` into a new shared service infrastructure package with three stable modules:
+  - `constants.py`: `ServiceName` and `DataType` StrEnum classes replacing all hardcoded service/data-type strings
+  - `mixins.py`: `BatchProgressMixin` and `NetworkSemaphoreMixin` (moved from `core/service.py` and `utils/progress.py`)
+  - `queries.py`: 13 domain SQL query functions parameterized with enum values (moved from `core/queries.py`)
+- **Core layer purified**: `core/` is now a generic infrastructure facade with zero domain logic
+  - Renamed `core/service.py` to `core/base_service.py` (contains only `BaseService` and `BaseServiceConfig`)
+  - Removed `core/queries.py` (absorbed into `services/common/queries.py`)
+  - Removed `BatchProgress`, `NetworkSemaphoreMixin` from core
+- **Brotr API simplified**:
+  - Removed `retry` parameter from facade methods (retry always handled internally by Pool)
+  - Removed `conn` parameter from `_call_procedure` (use `transaction()` instead)
+  - Removed `default_query_limit` and `materialized_views` from `BrotrConfig`
+  - Simplified `refresh_matview()` injection prevention (regex guard only)
+  - Fixed `result or 0` to `result if result is not None else 0` for correct falsy handling
+- **Model layer decoupled**: NIP models (`nip11/fetch`, `nip66/*`) now use stdlib `logging` instead of `core.logger`, maintaining zero core dependencies
+- **Model caching**: All frozen dataclasses (`Relay`, `EventRelay`, `Metadata`, `RelayMetadata`) now cache `to_db_params()` in `__post_init__`
+- **Service registry**: Uses `ServiceEntry` NamedTuple with `ServiceName` enum keys instead of raw tuples
+- **`utils/transport.py`**: Decoupled from `core.logger` (stdlib `logging` only)
+- **`utils/progress.py`**: Deleted (functionality moved to `services/common/mixins.py`)
+
+### Changed
+- **Monitor service**: Aligned `MetadataFlags` and `CheckResult` with `MetadataType` enum values (`nip11` -> `nip11_info`); removed unused `nip66_probe` field
+- **Infrastructure**: Removed `CHECK` constraints from `relay_metadata.metadata_type` across all implementations; validation handled in Python enum layer
+- **Implementation configs**: Standardized `.env.example`, `docker-compose.yaml`, and `04_functions_cleanup.sql` across template, bigbrotr, and lilbrotr
+
+### Added
+- **69 new unit tests** for `services/common/`:
+  - `test_constants.py` (15 tests): `ServiceName` and `DataType` StrEnum value and behavior coverage
+  - `test_mixins.py` (15 tests): `BatchProgressMixin` and `NetworkSemaphoreMixin` initialization, composition, and edge cases
+  - `test_queries.py` (39 tests): All 13 domain SQL query functions with mocked Brotr, SQL fragment verification, and edge cases
+- Total test count: **1854** (up from 1776)
+
+### Documentation
+- **Three-tier architecture**: Reframed documentation around Foundation (core + models), Active (services + utils), and Implementation tiers
+- **All docs updated**: `ARCHITECTURE.md`, `DEVELOPMENT.md`, `TECHNICAL.md`, `README.md`, `CLAUDE.md` reflect renamed files and `services/common/`
+- **Agent knowledge base updated**: `AGENT.md`, `core-reference.md`, `architecture-index.md` aligned with new structure
+- **YAML template comments**: Fixed `BaseServiceConfig` file path references in all 4 service templates
+- Removed deprecated `test_nip11_nip66.ipynb` notebook
+
+### Chore
+- Bumped version to 3.0.4
+- Updated secrets baseline line numbers
+- Added `AUDIT_REPORT.*` pattern to `.gitignore`
+- Removed stale `RESTRUCTURING_PLAN.md`
+
+---
+
 ## [3.0.3] - 2026-02-06
 
 Documentation-focused release with comprehensive docstring rewrites, standardized file headers, and cleaned up project documentation.
@@ -146,10 +257,9 @@ Major release with four-layer architecture, expanded NIP-66 compliance, and comp
   - `SERVICE_GAUGE` - Point-in-time values with labels
   - `SERVICE_COUNTER` - Cumulative counters with labels
   - `CYCLE_DURATION_SECONDS` - Histogram for cycle duration percentiles
-- **MetadataType expanded** from 4 to 8 types:
-  - `nip11` - NIP-11 relay information document
+- **MetadataType expanded** from 4 to 7 types:
+  - `nip11_info` - NIP-11 relay information document
   - `nip66_rtt` - Round-trip time measurements
-  - `nip66_probe` - Connectivity probe results (openable, readable, writable)
   - `nip66_ssl` - SSL certificate information
   - `nip66_geo` - Geolocation data
   - `nip66_net` - Network information (ASN, ISP)
@@ -314,7 +424,8 @@ Initial prototype release.
 
 ---
 
-[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.3...HEAD
+[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.4...HEAD
+[3.0.4]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.3...v3.0.4
 [3.0.3]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.2...v3.0.3
 [3.0.2]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.1...v3.0.2
 [3.0.1]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.0...v3.0.1

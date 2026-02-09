@@ -177,7 +177,7 @@ Then analyze these key areas based on your expertise:
 - src/core/ - Pool, Brotr, BaseService, Logger
 - src/services/ - Seeder, Finder, Validator, Monitor, Synchronizer
 - src/models/ - Data models
-- implementations/bigbrotr/postgres/init/ - SQL schema
+- deployments/bigbrotr/postgres/init/ - SQL schema
 - tests/ - Test coverage
 
 YOUR OUTPUT MUST BE A JSON ARRAY wrapped in a ```json code block.

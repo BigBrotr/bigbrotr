@@ -1,6 +1,6 @@
 # Models Reference
 
-Complete documentation for BigBrotr's data models (Relay, Event, EventRelay, Metadata, RelayMetadata, Nip11, Nip66, NetworkType, MetadataType).
+Complete documentation for BigBrotr's data models (Relay, Event, EventRelay, Metadata, RelayMetadata, NetworkType, MetadataType) and NIP models (Nip11, Nip66).
 
 ## Immutability Pattern
 
@@ -21,7 +21,7 @@ class MyModel:
         pass  # Required but empty
 ```
 
-**Pydantic Pattern** (Nip11, Nip66, and all NIP submodels in `src/models/nips/`):
+**Pydantic Pattern** (Nip11, Nip66, and all NIP submodels in `src/bigbrotr/nips/`):
 ```python
 class MyModel(BaseModel):
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -34,7 +34,7 @@ Both patterns prevent accidental mutation after creation.
 
 ## Relay - Relay URL Model
 
-**Location**: `src/models/relay.py`
+**Location**: `src/bigbrotr/models/relay.py`
 
 Immutable representation of a Nostr relay with URL parsing and validation.
 
@@ -83,16 +83,16 @@ Returns `(url, network, discovered_at)` for database insertion.
 ### Network Detection
 
 Automatic network detection from hostname:
-- `.onion` → `"tor"`
-- `.i2p` → `"i2p"`
-- `.loki` → `"loki"`
-- Local IPs (127.0.0.0/8, 10.0.0.0/8, etc.) → `"local"` (rejected)
-- Public IPs/domains → `"clearnet"`
+- `.onion` -> `"tor"`
+- `.i2p` -> `"i2p"`
+- `.loki` -> `"loki"`
+- Local IPs (127.0.0.0/8, 10.0.0.0/8, etc.) -> `"local"` (rejected)
+- Public IPs/domains -> `"clearnet"`
 
 ### Examples
 
 ```python
-from models import Relay
+from bigbrotr.models import Relay
 
 # Create relay
 relay = Relay("wss://relay.example.com")
@@ -115,7 +115,7 @@ params = relay.to_db_params()
 
 ## EventRelay - Event-Relay Junction
 
-**Location**: `src/models/event_relay.py`
+**Location**: `src/bigbrotr/models/event_relay.py`
 
 Immutable representation of an Event seen on a Relay.
 
@@ -170,7 +170,7 @@ Returns 11-tuple for `insert_event` procedure:
 ### Examples
 
 ```python
-from models import EventRelay, Relay
+from bigbrotr.models import EventRelay, Relay
 from nostr_sdk import Event
 
 # From nostr-sdk event
@@ -186,7 +186,7 @@ inserted, skipped = await brotr.insert_events([event_relay])
 
 ## Metadata - Metadata Payload
 
-**Location**: `src/models/metadata.py`
+**Location**: `src/bigbrotr/models/metadata.py`
 
 Immutable metadata payload for NIP-11 and NIP-66 data.
 
@@ -235,7 +235,7 @@ Sanitized JSON string for PostgreSQL JSONB storage.
 ### Examples
 
 ```python
-from models import Metadata
+from bigbrotr.models import Metadata
 
 # Create metadata
 metadata = Metadata({
@@ -260,7 +260,7 @@ json_str = metadata.data_json
 
 ## RelayMetadata - Metadata Junction
 
-**Location**: `src/models/relay_metadata.py`
+**Location**: `src/bigbrotr/models/relay_metadata.py`
 
 Immutable relay metadata junction record linking Relay to Metadata.
 
@@ -278,7 +278,7 @@ RelayMetadata(
 **Metadata Types**:
 ```python
 class MetadataType(StrEnum):
-    NIP11_FETCH = "nip11_fetch"
+    NIP11_INFO = "nip11_info"
     NIP66_RTT = "nip66_rtt"
     NIP66_SSL = "nip66_ssl"
     NIP66_GEO = "nip66_geo"
@@ -310,7 +310,7 @@ Returns 6-tuple for `insert_relay_metadata` procedure:
 ### Examples
 
 ```python
-from models import RelayMetadata, Relay, Metadata
+from bigbrotr.models import RelayMetadata, Relay, Metadata
 
 relay = Relay("wss://relay.example.com")
 metadata = Metadata({"name": "Test", "supported_nips": [1, 2]})
@@ -318,7 +318,7 @@ metadata = Metadata({"name": "Test", "supported_nips": [1, 2]})
 record = RelayMetadata(
     relay=relay,
     metadata=metadata,
-    metadata_type="nip11",
+    metadata_type="nip11_info",
     snapshot_at=1700000001
 )
 
@@ -330,7 +330,7 @@ await brotr.insert_relay_metadata([record])
 
 ## Nip11 - NIP-11 Relay Information
 
-**Location**: `src/models/nip11.py`
+**Location**: `src/bigbrotr/nips/nip11/nip11.py` (extracted from `models/nips/`)
 
 Immutable NIP-11 relay information document with type-safe property access.
 
@@ -396,7 +396,8 @@ Convert to RelayMetadata with `metadata_type="nip11"`.
 ### Examples
 
 ```python
-from models import Nip11, Relay
+from bigbrotr.nips import Nip11
+from bigbrotr.models import Relay
 
 relay = Relay("wss://relay.example.com")
 nip11 = await Nip11.fetch(relay, timeout=30.0)
@@ -415,7 +416,7 @@ if nip11:
 
 ## Nip66 - NIP-66 Relay Monitoring
 
-**Location**: `src/models/nip66.py`
+**Location**: `src/bigbrotr/nips/nip66/nip66.py` (extracted from `models/nips/`)
 
 Immutable NIP-66 relay monitoring data with connection tests and geolocation.
 
@@ -498,8 +499,9 @@ Convert to NamedTuple of RelayMetadata (up to 7 types):
 
 ```python
 from nostr_sdk import Keys
-from models import Nip66, Relay
-from utils.keys import load_keys_from_env
+from bigbrotr.nips import Nip66
+from bigbrotr.models import Relay
+from bigbrotr.utils.keys import load_keys_from_env
 
 relay = Relay("wss://relay.example.com")
 keys = load_keys_from_env("PRIVATE_KEY")  # Optional, for write test
@@ -527,7 +529,7 @@ await brotr.insert_relay_metadata(metadata_records)
 
 ## Key Loading Utility
 
-**Location**: `src/utils/keys.py`
+**Location**: `src/bigbrotr/utils/keys.py`
 
 Simple utility function for loading Nostr keys from environment variables.
 
@@ -556,7 +558,7 @@ Load keys from environment variable.
 
 ```python
 from nostr_sdk import Keys
-from utils.keys import load_keys_from_env
+from bigbrotr.utils.keys import load_keys_from_env
 
 # Load from environment
 keys = load_keys_from_env("PRIVATE_KEY")
@@ -581,7 +583,8 @@ keys = Keys.parse("nsec1...")  # Parse from string
 ### Database Insertion
 
 ```python
-from models import Relay, EventRelay, RelayMetadata, Nip11, Nip66
+from bigbrotr.models import Relay, EventRelay, RelayMetadata
+from bigbrotr.nips import Nip11, Nip66
 
 # Insert relays
 relays = [Relay("wss://relay1.com"), Relay("wss://relay2.com")]

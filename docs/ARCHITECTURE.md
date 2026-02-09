@@ -1,16 +1,17 @@
 # Architecture
 
-This document provides a comprehensive overview of BigBrotr's architecture, design patterns, and component interactions.
+This document provides a comprehensive overview of BigBrotr v4.0.0's architecture, design patterns, and component interactions.
 
 ## Table of Contents
 
 - [Overview](#overview)
-- [Four-Layer Architecture](#four-layer-architecture)
+- [Diamond DAG Architecture](#diamond-dag-architecture)
 - [Core Layer](#core-layer)
+- [NIPs Layer](#nips-layer)
 - [Service Layer](#service-layer)
 - [Utils Layer](#utils-layer)
 - [Models Layer](#models-layer)
-- [Implementation Layer](#implementation-layer)
+- [Deployment Layer](#deployment-layer)
 - [Design Patterns](#design-patterns)
 - [Data Flow](#data-flow)
 - [Concurrency Model](#concurrency-model)
@@ -19,102 +20,124 @@ This document provides a comprehensive overview of BigBrotr's architecture, desi
 
 ## Overview
 
-BigBrotr follows a four-layer architecture that separates concerns and enables maximum flexibility:
+BigBrotr v4.0.0 uses a **Diamond DAG** architecture where the service layer depends on three parallel mid-tier packages (core, nips, utils), all of which converge on the models layer at the bottom:
 
-1. **Core Layer** - Reusable infrastructure components with zero business logic
-2. **Service Layer** - Business logic and service orchestration
-3. **Utils Layer** - Shared utilities (dns, network, transport, YAML, keys)
-4. **Models Layer** - Immutable data structures with validation and database mapping
-5. **Implementation Layer** - Deployment-specific configuration and customization
+| Tier | Layers | Role |
+|------|--------|------|
+| **Top** | Services | Business logic, queries, mixins, constants -- where new features land |
+| **Mid** | Core + NIPs + Utils | Infrastructure, NIP protocol models, shared utilities |
+| **Foundation** | Models | Stable data structures -- rarely changes |
+| **Deployment** | Deployments | Deployment-specific configuration and customization |
+
+The layers within the `src/bigbrotr/` package namespace are:
+
+1. **Services Layer** (`bigbrotr/services/`) - Business logic, shared infrastructure, and service orchestration
+2. **Core Layer** (`bigbrotr/core/`) - Reusable infrastructure components with zero business logic
+3. **NIPs Layer** (`bigbrotr/nips/`) - NIP-11 and NIP-66 protocol models (extracted from models)
+4. **Utils Layer** (`bigbrotr/utils/`) - Shared utilities (dns, network, transport, YAML, keys)
+5. **Models Layer** (`bigbrotr/models/`) - Immutable data structures with validation and database mapping
+6. **Deployment Layer** (`deployments/`) - Deployment-specific configuration and customization
 
 This design allows:
 - Multiple deployments from the same codebase
 - Easy testing through dependency injection
 - Configuration-driven behavior without code changes
-- Clear separation between infrastructure and business logic
+- Clear separation between stable foundation and evolving business logic
 
 ---
 
-## Four-Layer Architecture
+## Diamond DAG Architecture
 
 ```
+  DEPLOYMENT TIER
+ ==================
+
 +-----------------------------------------------------------------------------+
-|                           IMPLEMENTATION LAYER                               |
+|                           DEPLOYMENT LAYER                                   |
 |                                                                              |
-|   implementations/                                                           |
+|   deployments/                                                               |
 |   ├── bigbrotr/        Full-featured (stores tags, content, Tor support)    |
 |   └── lilbrotr/        Lightweight (no tags/content, clearnet only)         |
 |                                                                              |
-|   Each implementation contains:                                              |
-|   ├── yaml/           Configuration files (YAML)                            |
-|   ├── postgres/init/  SQL schema definitions                                |
-|   ├── data/           Seed data and static resources                        |
+|   Each deployment contains:                                                  |
+|   ├── config/          Configuration files (YAML)                           |
+|   ├── postgres/init/   SQL schema definitions                               |
+|   ├── monitoring/      Grafana dashboards + Prometheus config               |
+|   ├── static/          Seed data and static resources                       |
 |   ├── docker-compose.yaml  Container orchestration                          |
-|   └── Dockerfile      Application container                                 |
+|   └── Dockerfile       Application container                                |
 |                                                                              |
 |   Purpose: Define HOW this specific deployment behaves                       |
 +----------------------------------+------------------------------------------+
                                    |
                                    | Uses
                                    v
+
+  SERVICE TIER
+ ==============
+
 +-----------------------------------------------------------------------------+
 |                             SERVICE LAYER                                    |
 |                                                                              |
-|   src/services/                                                              |
-|   ├── seeder.py        Relay seeding for validation                         |
-|   ├── finder.py        Relay URL discovery from APIs and events             |
-|   ├── validator.py     Candidate relay validation                           |
-|   ├── monitor.py       Relay health monitoring (NIP-11/NIP-66)              |
-|   └── synchronizer.py  Event collection and sync                            |
+|   src/bigbrotr/services/                                                     |
+|   ├── common/           Shared service infrastructure                       |
+|   │   ├── constants.py  ServiceName and DataType StrEnum enumerations       |
+|   │   ├── mixins.py     BatchProgressMixin, NetworkSemaphoreMixin           |
+|   │   └── queries.py    13 domain-specific SQL query functions              |
+|   ├── seeder.py         Relay seeding for validation                        |
+|   ├── finder.py         Relay URL discovery from APIs and events            |
+|   ├── validator.py      Candidate relay validation                          |
+|   ├── monitor.py        Relay health monitoring (NIP-11/NIP-66)             |
+|   └── synchronizer.py   Event collection and sync                           |
 |                                                                              |
 |   Purpose: Business logic, service coordination, data transformation         |
 +----------------------------------+------------------------------------------+
                                    |
-                                   | Leverages
-                                   v
-+-----------------------------------------------------------------------------+
-|                              CORE LAYER                                      |
-|                                                                              |
-|   src/core/                                                                  |
-|   ├── pool.py          PostgreSQL connection pooling                        |
-|   ├── brotr.py         Database interface + stored procedures               |
-|   ├── service.py       Abstract service base class                          |
-|   ├── metrics.py       Prometheus metrics server                            |
-|   └── logger.py        Structured key=value logging                         |
-|                                                                              |
-|   Purpose: Reusable foundation, zero business logic                          |
-+----------------------------------+------------------------------------------+
-                                   |
-                                   | Uses
-                                   v
-+-----------------------------------------------------------------------------+
-|                              UTILS LAYER                                     |
-|                                                                              |
-|   src/utils/                                                                 |
-|   ├── dns.py           DNS resolution utilities                             |
-|   ├── network.py       Network detection and proxy configuration            |
-|   ├── transport.py     HTTP/WebSocket transport helpers                     |
-|   ├── yaml.py          YAML loading with environment variable support       |
-|   ├── keys.py          Nostr key management utilities                       |
-|   └── progress.py      Progress tracking utilities                          |
-|                                                                              |
-|   Purpose: Shared utilities used across core and services                    |
-+----------------------------------+------------------------------------------+
-                                   |
-                                   | Uses
-                                   v
+                      +------------+------------+
+                      |            |            |
+                      v            v            v
+
+  MID TIER (Diamond DAG — services depend on all three)
+ =======================================================
+
++---------------------+ +---------------------+ +---------------------+
+|     CORE LAYER      | |     NIPS LAYER      | |     UTILS LAYER     |
+|                     | |                     | |                     |
+| src/bigbrotr/core/  | | src/bigbrotr/nips/  | | src/bigbrotr/utils/ |
+| ├── pool.py         | | ├── nip11/          | | ├── dns.py          |
+| ├── brotr.py        | | │   ├── data.py     | | ├── network.py      |
+| ├── base_service.py | | │   ├── fetch.py    | | ├── transport.py    |
+| ├── metrics.py      | | │   ├── logs.py     | | ├── yaml.py         |
+| └── logger.py       | | │   └── nip11.py    | | └── keys.py         |
+|                     | | └── nip66/          | |                     |
+| Purpose: Reusable   | |     ├── rtt.py      | | Purpose: Shared     |
+| foundation, zero    | |     ├── ssl.py      | | utilities used      |
+| business logic      | |     ├── geo.py      | | across layers       |
++----------+----------+ |     ├── net.py      | +----------+----------+
+           |            |     ├── dns.py      |            |
+           |            |     ├── http.py     |            |
+           |            |     └── nip66.py    |            |
+           |            |                     |            |
+           |            | Purpose: NIP proto- |            |
+           |            | col models          |            |
+           |            +----------+----------+            |
+           |                       |                       |
+           +-----------+-----------+-----------+-----------+
+                       |
+                       v
+
+  FOUNDATION TIER
+ =================
+
 +-----------------------------------------------------------------------------+
 |                             MODELS LAYER                                     |
 |                                                                              |
-|   src/models/                                                                |
+|   src/bigbrotr/models/                                                       |
 |   ├── event.py         Nostr event with validation                          |
 |   ├── relay.py         Relay URL with network detection                     |
 |   ├── event_relay.py   Event-relay junction                                 |
 |   ├── metadata.py      Generic metadata container                           |
-|   ├── relay_metadata.py RelayMetadata junction with MetadataType            |
-|   └── nips/            NIP model subpackages                                |
-|       ├── nip11/       NIP-11 relay information (data, fetch, logs, nip11)  |
-|       └── nip66/       NIP-66 monitoring (rtt, ssl, geo, net, dns, http)    |
+|   └── relay_metadata.py RelayMetadata junction with MetadataType            |
 |                                                                              |
 |   Purpose: Immutable data structures, validation, database mapping           |
 +-----------------------------------------------------------------------------+
@@ -122,19 +145,20 @@ This design allows:
 
 ### Layer Responsibilities
 
-| Layer | Responsibility | Changes When |
-|-------|----------------|--------------|
-| **Core** | Infrastructure, abstractions | Rarely - foundation is stable |
-| **Service** | Business logic, orchestration | Feature additions, protocol updates |
-| **Utils** | Shared utilities, helpers | When adding cross-cutting functionality |
-| **Models** | Data structures, validation | Schema changes, new data types |
-| **Implementation** | Configuration, customization | Per-deployment or environment |
+| Tier | Layer | Responsibility | Changes When |
+|------|-------|----------------|--------------|
+| **Foundation** | Models | Data structures, validation | Schema changes, new data types |
+| **Mid** | Core | Infrastructure, abstractions | Rarely -- foundation is stable |
+| **Mid** | NIPs | NIP-11/NIP-66 protocol models | Protocol updates, new NIP support |
+| **Mid** | Utils | Shared utilities, helpers | When adding cross-cutting functionality |
+| **Top** | Services | Business logic, shared queries, mixins, constants | Feature additions, protocol updates |
+| **Deployment** | Deployments | Configuration, customization | Per-deployment or environment |
 
 ---
 
 ## Core Layer
 
-The core layer (`src/core/`) provides reusable infrastructure components.
+The core layer (`src/bigbrotr/core/`) provides reusable infrastructure components.
 
 ### Pool (`pool.py`)
 
@@ -156,13 +180,13 @@ class PoolConfig(BaseModel):
     database: DatabaseConfig      # host, port, database, user, password
     limits: PoolLimitsConfig      # min_size, max_size, max_queries
     timeouts: PoolTimeoutsConfig  # acquisition, health_check
-    retry: RetryConfig            # max_attempts, delays, backoff
+    retry: PoolRetryConfig        # max_attempts, delays, backoff
     server_settings: dict         # application_name, timezone
 ```
 
 **Usage**:
 ```python
-pool = Pool.from_yaml("yaml/core/brotr.yaml")
+pool = Pool.from_yaml("config/brotr.yaml")
 
 async with pool:
     result = await pool.fetch("SELECT * FROM relays LIMIT 10")
@@ -201,7 +225,7 @@ finally:
 
 **Usage**:
 ```python
-brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
+brotr = Brotr.from_yaml("config/brotr.yaml")
 
 async with brotr:
     # Insert relays
@@ -221,7 +245,7 @@ async with brotr:
     deleted = await brotr.delete_orphan_metadata()
 ```
 
-### BaseService (`service.py`)
+### BaseService (`base_service.py`)
 
 **Purpose**: Abstract base class for all services.
 
@@ -265,7 +289,7 @@ class BaseService(ABC, Generic[ConfigT]):
         pass
 ```
 
-### Logger (`core/logger.py`)
+### Logger (`bigbrotr/core/logger.py`)
 
 **Purpose**: Structured logging wrapper with key=value formatting.
 
@@ -281,9 +305,24 @@ logger.debug("processing_event", event_id="abc123")
 
 ---
 
+## NIPs Layer
+
+The NIPs layer (`src/bigbrotr/nips/`) contains NIP-11 and NIP-66 protocol models, extracted from the former `models/nips/` subpackage into a standalone mid-tier package.
+
+### Subpackages
+
+| Subpackage | Purpose |
+|------------|---------|
+| `nip11/` | NIP-11 relay information document models (data, fetch, logs, nip11) |
+| `nip66/` | NIP-66 relay monitoring models (rtt, ssl, geo, net, dns, http, nip66) |
+
+The NIPs layer depends on the Models layer (for `Relay`, `Metadata`, `RelayMetadata`, `MetadataType`) but has no dependency on Core or Utils. Services import from `bigbrotr.nips` to access NIP protocol models.
+
+---
+
 ## Utils Layer
 
-The utils layer (`src/utils/`) provides shared utilities used across core and services.
+The utils layer (`src/bigbrotr/utils/`) provides shared utilities used across core and services.
 
 ### Modules
 
@@ -294,7 +333,6 @@ The utils layer (`src/utils/`) provides shared utilities used across core and se
 | `transport.py` | HTTP/WebSocket transport helpers |
 | `yaml.py` | YAML loading with environment variable support |
 | `keys.py` | Nostr key management utilities |
-| `progress.py` | Progress tracking utilities |
 
 These utilities are stateless functions and classes that can be imported by any layer above Models.
 
@@ -302,7 +340,7 @@ These utilities are stateless functions and classes that can be imported by any 
 
 ## Models Layer
 
-The models layer (`src/models/`) contains immutable data structures with validation.
+The models layer (`src/bigbrotr/models/`) contains immutable data structures with validation.
 
 ### Data Models
 
@@ -313,15 +351,15 @@ The models layer (`src/models/`) contains immutable data structures with validat
 | `EventRelay` | Event-relay junction with seen_at timestamp |
 | `Metadata` | Generic metadata container (JSON data) |
 | `RelayMetadata` | Relay-metadata junction with type and timestamp |
-| `Nip11` | NIP-11 relay information document |
-| `Nip66` | NIP-66 relay monitoring data |
+
+**Note**: NIP-11 and NIP-66 protocol models have been extracted to the separate `bigbrotr/nips/` layer (see [NIPs Layer](#nips-layer)).
 
 ### Key Types
 
 | Type | Values |
 |------|--------|
 | `NetworkType` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
-| `MetadataType` | `nip11_fetch`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
+| `MetadataType` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
 
 All models use `@dataclass(frozen=True)` for immutability and provide `to_db_params()` for database insertion.
 
@@ -329,7 +367,7 @@ All models use `@dataclass(frozen=True)` for immutability and provide `to_db_par
 
 ## Service Layer
 
-The service layer (`src/services/`) contains business logic implementations.
+The service layer (`src/bigbrotr/services/`) contains business logic implementations.
 
 ### Service Architecture
 
@@ -361,6 +399,18 @@ class MyService(BaseService[MyServiceConfig]):
         # Business logic here
         pass
 ```
+
+### Shared Service Infrastructure (`services/common/`)
+
+The `bigbrotr/services/common/` package provides shared infrastructure used by all services:
+
+| Module | Purpose |
+|--------|---------|
+| `constants.py` | `ServiceName` and `DataType` StrEnum enumerations eliminating hardcoded strings |
+| `mixins.py` | `BatchProgressMixin` for batch tracking, `NetworkSemaphoreMixin` for per-network concurrency limits |
+| `queries.py` | 13 domain-specific SQL query functions (relay lookups, candidate lifecycle, cursor management) |
+
+Services import from `bigbrotr.services.common` instead of writing inline SQL or using string literals. This consolidation keeps business logic in individual service files focused on orchestration rather than query construction.
 
 ### Seeder Service
 
@@ -460,24 +510,23 @@ Main Process                    Worker Processes
 
 ---
 
-## Implementation Layer
+## Deployment Layer
 
-The implementation layer contains deployment-specific resources. Two implementations are provided:
+The deployment layer contains deployment-specific resources. Two deployments are provided:
 
-### Included Implementations
+### Included Deployments
 
-| Implementation | Purpose | Key Differences |
-|----------------|---------|-----------------|
+| Deployment | Purpose | Key Differences |
+|------------|---------|-----------------|
 | **bigbrotr** | Full-featured archiving | Stores tags/content, Tor support, high concurrency |
 | **lilbrotr** | Lightweight indexing | Indexes all events but omits tags/content (~60% disk savings), clearnet only |
 
 ### BigBrotr Structure (Full-Featured)
 
 ```
-implementations/bigbrotr/
-├── yaml/
-│   ├── core/
-│   │   └── brotr.yaml           # Database connection, pool settings
+deployments/bigbrotr/
+├── config/
+│   ├── brotr.yaml               # Database connection, pool settings
 │   └── services/
 │       ├── seeder.yaml          # Seed file configuration
 │       ├── finder.yaml          # API sources, intervals
@@ -488,11 +537,10 @@ implementations/bigbrotr/
 │   └── init/                    # SQL schema files (00-99)
 │       ├── 02_tables.sql        # Full schema with tags, tagvalues, content
 │       └── ...
-├── prometheus/
-│   └── prometheus.yaml          # Prometheus scrape configuration
-├── grafana/
-│   ├── provisioning/            # Dashboard and datasource provisioning
-│   └── dashboards/              # Pre-built dashboards
+├── monitoring/
+│   ├── prometheus.yaml          # Prometheus scrape configuration
+│   ├── provisioning/            # Grafana dashboard and datasource provisioning
+│   └── dashboards/              # Pre-built Grafana dashboards
 ├── static/
 │   └── seed_relays.txt          # 8,865 initial relay URLs
 ├── docker-compose.yaml          # Ports: 5432, 6432 (PGBouncer), 9090, 3000, 9050
@@ -503,10 +551,9 @@ implementations/bigbrotr/
 ### LilBrotr Structure (Lightweight)
 
 ```
-implementations/lilbrotr/
-├── yaml/
-│   ├── core/
-│   │   └── brotr.yaml           # Same pool settings
+deployments/lilbrotr/
+├── config/
+│   ├── brotr.yaml               # Same pool settings
 │   └── services/
 │       ├── synchronizer.yaml    # Overlay networks disabled, lower concurrency (5 parallel)
 │       └── ...                  # Other services inherit defaults
@@ -514,11 +561,10 @@ implementations/lilbrotr/
 │   └── init/
 │       ├── 02_tables.sql        # Minimal schema (NO tags, tagvalues, content)
 │       └── ...
-├── prometheus/
-│   └── prometheus.yaml          # Prometheus scrape configuration
-├── grafana/
-│   ├── provisioning/            # Dashboard and datasource provisioning
-│   └── dashboards/              # Pre-built dashboards
+├── monitoring/
+│   ├── prometheus.yaml          # Prometheus scrape configuration
+│   ├── provisioning/            # Grafana dashboard and datasource provisioning
+│   └── dashboards/              # Pre-built Grafana dashboards
 ├── docker-compose.yaml          # Different ports: 5433, 6433 (PGBouncer), 9091, 3001
 ├── Dockerfile
 └── .env.example
@@ -550,18 +596,18 @@ CREATE TABLE events (
 );
 ```
 
-### Creating Custom Implementations
+### Creating Custom Deployments
 
 To create a custom deployment:
 
-1. Copy an existing implementation:
+1. Copy an existing deployment:
    ```bash
-   cp -r implementations/bigbrotr implementations/mydeployment
+   cp -r deployments/bigbrotr deployments/mydeployment
    ```
 
 2. Modify YAML configurations as needed:
    ```yaml
-   # yaml/services/synchronizer.yaml
+   # config/services/synchronizer.yaml
    networks:
      clearnet:
        enabled: true
@@ -585,7 +631,7 @@ To create a custom deployment:
 
 5. Deploy:
    ```bash
-   cd implementations/mydeployment
+   cd deployments/mydeployment
    docker-compose up -d
    ```
 
@@ -726,7 +772,7 @@ async with brotr:           # Connect on enter, close on exit
 │                                    └─────────────────────────┘│
 └──────────────────────────────────────────────────────────────┘
 
-**Metadata Types**: `nip11_fetch`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`
+**Metadata Types**: `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`
 ```
 
 ---
@@ -804,7 +850,7 @@ async def run_forever(self, interval: float) -> None:
 
 BigBrotr's architecture provides:
 
-1. **Modularity** - Four-layer separation enables independent development and testing
+1. **Modularity** - Diamond DAG architecture with clear dependency flow enables independent development and testing
 2. **Flexibility** - Configuration-driven behavior without code changes
 3. **Testability** - Dependency injection enables comprehensive unit testing
 4. **Scalability** - Multicore processing and connection pooling for high throughput

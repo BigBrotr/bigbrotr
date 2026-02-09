@@ -120,7 +120,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: implementations/bigbrotr/Dockerfile
+          file: deployments/bigbrotr/Dockerfile
           push: false
           tags: bigbrotr:${{ github.sha }}
           cache-from: type=gha
@@ -130,7 +130,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: implementations/lilbrotr/Dockerfile
+          file: deployments/lilbrotr/Dockerfile
           push: false
           tags: lilbrotr:${{ github.sha }}
           cache-from: type=gha

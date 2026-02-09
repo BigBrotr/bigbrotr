@@ -47,8 +47,8 @@ Only sensitive data is loaded from environment variables:
 **Docker Compose** (recommended):
 ```bash
 # Create .env file
-cp implementations/bigbrotr/.env.example implementations/bigbrotr/.env
-nano implementations/bigbrotr/.env  # Edit DB_PASSWORD
+cp deployments/bigbrotr/.env.example deployments/bigbrotr/.env
+nano deployments/bigbrotr/.env  # Edit DB_PASSWORD
 ```
 
 **Shell Export**:
@@ -70,22 +70,20 @@ Environment="PRIVATE_KEY=your_hex_private_key"
 
 ### File Structure
 
-Each implementation has its own YAML configuration:
+Each deployment has its own YAML configuration:
 
 ```
-implementations/
-├── bigbrotr/yaml/                    # Full-featured configuration
-│   ├── core/
-│   │   └── brotr.yaml                # Database and pool configuration
+deployments/
+├── bigbrotr/config/                    # Full-featured configuration
+│   ├── brotr.yaml                     # Database and pool configuration
 │   └── services/
 │       ├── seeder.yaml               # Seed file configuration
 │       ├── finder.yaml               # Relay discovery settings
 │       ├── monitor.yaml              # Health monitoring (Tor enabled)
 │       └── synchronizer.yaml         # Event sync (high concurrency)
 │
-└── lilbrotr/yaml/                    # Lightweight configuration (overrides only)
-    ├── core/
-    │   └── brotr.yaml                # Same pool settings
+└── lilbrotr/config/                    # Lightweight configuration (overrides only)
+    ├── brotr.yaml                     # Same pool settings
     └── services/
         └── synchronizer.yaml         # Tor disabled, lower concurrency
 ```
@@ -98,7 +96,7 @@ Services load configuration via factory methods:
 
 ```python
 # From YAML file
-service = MyService.from_yaml("yaml/services/myservice.yaml", brotr=brotr)
+service = MyService.from_yaml("config/services/myservice.yaml", brotr=brotr)
 
 # From dictionary
 config_dict = {"interval": 1800.0, "tor": {"enabled": False}}
@@ -109,7 +107,7 @@ service = MyService.from_dict(config_dict, brotr=brotr)
 
 ## Core Configuration
 
-### Brotr Configuration (`yaml/core/brotr.yaml`)
+### Brotr Configuration (`deployments/*/config/brotr.yaml`)
 
 ```yaml
 # Connection pool configuration
@@ -148,7 +146,7 @@ pool:
 
 # Batch operation settings
 batch:
-  max_batch_size: 1000           # Maximum items per batch operation
+  max_size: 1000                 # Maximum items per batch operation
 
 # Query timeouts (seconds, or null for infinite)
 timeouts:
@@ -191,7 +189,7 @@ timeouts:
 
 ## Service Configuration
 
-### Seeder (`yaml/services/seeder.yaml`)
+### Seeder (`config/services/seeder.yaml`)
 
 ```yaml
 # Seed relay configuration
@@ -199,7 +197,7 @@ timeouts:
 # Note: Duplicate URLs are filtered server-side (existing relays and candidates skipped)
 # Note: File paths are relative to the working directory:
 #       - Docker: /app (so static/seed_relays.txt = /app/static/seed_relays.txt)
-#       - Local: run from implementations/bigbrotr/
+#       - Local: run from deployments/bigbrotr/
 seed:
   enabled: true                       # Enable relay seeding
   file_path: static/seed_relays.txt   # Path to seed file
@@ -207,7 +205,7 @@ seed:
 
 **Note**: The Seeder is a one-shot service that seeds relay URLs as candidates. It does not perform schema verification - the SQL initialization scripts handle schema creation.
 
-### Finder (`yaml/services/finder.yaml`)
+### Finder (`config/services/finder.yaml`)
 
 ```yaml
 # Cycle interval (seconds between discovery runs)
@@ -247,7 +245,7 @@ api:
 | `api.delay_between_requests` | float | `1.0` | 0.0-10.0 | Inter-request delay |
 | `concurrency.max_parallel` | int | `5` | 1-20 | Concurrent API requests |
 
-### Validator (`yaml/services/validator.yaml`)
+### Validator (`config/services/validator.yaml`)
 
 ```yaml
 # Cycle interval (seconds between validation runs)
@@ -305,7 +303,7 @@ networks:
 | `networks.*.timeout` | float | varies | 1.0-120.0 | Connection timeout |
 | `networks.*.proxy_url` | string | - | - | SOCKS5 proxy URL |
 
-### Monitor (`yaml/services/monitor.yaml`)
+### Monitor (`config/services/monitor.yaml`)
 
 ```yaml
 # Cycle interval
@@ -339,7 +337,7 @@ networks:
     timeout: 60.0
 
 # Nostr keys for NIP-66 write tests (loaded from PRIVATE_KEY env)
-# Required for: write tests (nip66_probe), publishing events
+# Required for: write tests, publishing events
 keys:
   # Keys are loaded from environment variable, no config needed here
 
@@ -352,9 +350,8 @@ discovery:
   enabled: true
   interval: 3600                 # Re-check interval (Range: >= 60)
   include:                       # Metadata to include in events
-    nip11: true
+    nip11_info: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
@@ -379,18 +376,16 @@ geo:
 processing:
   chunk_size: 100                # Relays per batch (Range: 10-1000)
   compute:                       # What metadata to compute
-    nip11: true
+    nip11_info: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
     nip66_dns: true
     nip66_http: true
   store:                         # What to store in database
-    nip11: true
+    nip11_info: true
     nip66_rtt: true
-    nip66_probe: true
     nip66_ssl: true
     nip66_geo: true
     nip66_net: true
@@ -416,7 +411,7 @@ processing:
 | `geo.max_age_days` | int | `30` | null or >= 1 | Auto-update threshold |
 | `processing.chunk_size` | int | `100` | 10-1000 | Relays per batch |
 
-### Synchronizer (`yaml/services/synchronizer.yaml`)
+### Synchronizer (`config/services/synchronizer.yaml`)
 
 ```yaml
 # Cycle interval
@@ -613,7 +608,7 @@ events:
 
 ```bash
 # .env file permissions
-chmod 600 implementations/bigbrotr/.env
+chmod 600 deployments/bigbrotr/.env
 
 # Never commit secrets
 echo ".env" >> .gitignore
@@ -638,10 +633,10 @@ Validate configuration before deployment:
 
 ```python
 # Quick validation test
-from services.synchronizer import SynchronizerConfig
+from bigbrotr.services.synchronizer import SynchronizerConfig
 import yaml
 
-with open("yaml/services/synchronizer.yaml") as f:
+with open("config/services/synchronizer.yaml") as f:
     config_dict = yaml.safe_load(f)
 
 config = SynchronizerConfig(**config_dict)  # Raises on invalid config

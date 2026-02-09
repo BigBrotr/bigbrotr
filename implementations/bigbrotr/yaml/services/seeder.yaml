@@ -1,9 +1,0 @@
-# =============================================================================
-# Seeder Service Configuration (BigBrotr)
-# =============================================================================
-# One-shot service that loads initial relay URLs from a seed file.
-# Only values that differ from defaults are specified here.
-# See _template/yaml/services/seeder.yaml for all options and documentation.
-# =============================================================================
-
-# All values use defaults (seed file path, validation behavior)

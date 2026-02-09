@@ -4,14 +4,14 @@ Complete API reference for BigBrotr's core layer (Pool, Brotr, BaseService, Metr
 
 ## Pool - PostgreSQL Client
 
-**Location**: `src/core/pool.py`
+**Location**: `src/bigbrotr/core/pool.py`
 
 **Note**: In Docker deployments, Pool connects to PGBouncer (port 5432 internal) which handles connection pooling at infrastructure level. The Pool class provides application-level connection management.
 
 ### Configuration
 
 ```python
-from core import Pool, PoolConfig, DatabaseConfig
+from bigbrotr.core import Pool, PoolConfig, DatabaseConfig
 
 # From YAML
 pool = Pool.from_yaml("config.yaml")
@@ -46,8 +46,8 @@ pool = Pool.from_dict({
 **Configuration Models**:
 - `DatabaseConfig`: host, port, database, user, password (from `DB_PASSWORD` env)
 - `LimitsConfig`: min_size, max_size, max_queries, max_inactive_connection_lifetime
-- `TimeoutsConfig`: acquisition, health_check
-- `RetryConfig`: max_attempts, initial_delay, max_delay, exponential_backoff
+- `PoolTimeoutsConfig`: acquisition, health_check
+- `PoolRetryConfig`: max_attempts, initial_delay, max_delay, exponential_backoff
 - `ServerSettingsConfig`: application_name, timezone
 
 ### Public Methods
@@ -146,14 +146,14 @@ async with Pool.from_yaml("config.yaml") as pool:
 
 ## Brotr - Database Interface
 
-**Location**: `src/core/brotr.py`
+**Location**: `src/bigbrotr/core/brotr.py`
 
 High-level interface for database operations using stored procedures.
 
 ### Configuration
 
 ```python
-from core import Brotr, BrotrConfig
+from bigbrotr.core import Brotr, BrotrConfig
 
 # From YAML (includes pool config)
 brotr = Brotr.from_yaml("config.yaml")
@@ -161,11 +161,11 @@ brotr = Brotr.from_yaml("config.yaml")
 # From dict
 brotr = Brotr.from_dict({
     "pool": {...},  # Pool config dict
-    "batch": {"max_batch_size": 10000},
+    "batch": {"max_size": 10000},
     "timeouts": {
         "query": 60.0,
-        "procedure": 90.0,
-        "batch": 120.0
+        "batch": 120.0,
+        "cleanup": 90.0
     }
 })
 
@@ -174,8 +174,8 @@ brotr = Brotr(pool=existing_pool, config=BrotrConfig())
 ```
 
 **Configuration Models**:
-- `BatchConfig`: max_batch_size (1-100000)
-- `TimeoutsConfig`: query, procedure, batch
+- `BatchConfig`: max_size (1-100000)
+- `BrotrTimeoutsConfig`: query, batch, cleanup, refresh
 
 ### Public Attributes
 
@@ -195,7 +195,7 @@ Insert events atomically. Returns `(inserted, skipped)` counts.
 
 **Example**:
 ```python
-from models import EventRelay, Relay
+from bigbrotr.models import EventRelay, Relay
 
 relay = Relay("wss://relay.example.com")
 event_relay = EventRelay.from_nostr_event(nostr_event, relay)
@@ -287,7 +287,7 @@ async with brotr:
 
 ## BaseService - Service Base Class
 
-**Location**: `src/core/service.py`
+**Location**: `src/bigbrotr/core/base_service.py`
 
 Abstract base class for all services with lifecycle management.
 
@@ -307,7 +307,7 @@ MAX_CONSECUTIVE_FAILURES: ClassVar[int] = 5
 
 **Example**:
 ```python
-from core import BaseService, BaseServiceConfig
+from bigbrotr.core import BaseService, BaseServiceConfig
 
 class MyServiceConfig(BaseServiceConfig):
     interval: float = 60.0
@@ -415,14 +415,14 @@ async with service:
 
 ## Logger - Structured Logging
 
-**Location**: `src/core/logger.py`
+**Location**: `src/bigbrotr/core/logger.py`
 
 Structured key-value logger with optional JSON output.
 
 ### Constructor
 
 ```python
-from core.logger import Logger
+from bigbrotr.core.logger import Logger
 
 logger = Logger("service_name")  # Key-value output
 json_logger = Logger("service_name", json_output=True)  # JSON output
@@ -466,16 +466,30 @@ json_logger.info("cycle_completed", events=100, duration=2.5)
 
 ---
 
+## YAML Loader
+
+**Location**: `src/bigbrotr/core/yaml.py`
+
+YAML configuration loading with environment variable substitution support. Moved from `utils/` to `core/` as it is a core infrastructure concern.
+
+```python
+from bigbrotr.core.yaml import load_yaml
+
+config = load_yaml("deployments/bigbrotr/config/core/brotr.yaml")
+```
+
+---
+
 ## MetricsServer - Prometheus Metrics
 
-**Location**: `src/core/metrics.py`
+**Location**: `src/bigbrotr/core/metrics.py`
 
 HTTP server exposing Prometheus metrics for service monitoring.
 
 ### Configuration
 
 ```python
-from core import MetricsConfig, MetricsServer, start_metrics_server
+from bigbrotr.core import MetricsConfig, MetricsServer, start_metrics_server
 
 # Configuration model
 config = MetricsConfig(
@@ -490,7 +504,7 @@ config = MetricsConfig(
 
 **Service Information** (set once at startup):
 ```python
-from core.metrics import SERVICE_INFO
+from bigbrotr.core.metrics import SERVICE_INFO
 
 SERVICE_INFO.info({
     "service": "validator",
@@ -500,7 +514,7 @@ SERVICE_INFO.info({
 
 **Service Gauges** (point-in-time values):
 ```python
-from core.metrics import SERVICE_GAUGE
+from bigbrotr.core.metrics import SERVICE_GAUGE
 
 # Current state metrics
 SERVICE_GAUGE.labels(service="validator", name="candidates").set(150)
@@ -510,7 +524,7 @@ SERVICE_GAUGE.labels(service="monitor", name="relays_checked").set(500)
 
 **Service Counters** (cumulative totals):
 ```python
-from core.metrics import SERVICE_COUNTER
+from bigbrotr.core.metrics import SERVICE_COUNTER
 
 # Cumulative metrics
 SERVICE_COUNTER.labels(service="validator", name="total_validated").inc()
@@ -520,7 +534,7 @@ SERVICE_COUNTER.labels(service="monitor", name="cycles_completed").inc()
 
 **Cycle Duration Histogram**:
 ```python
-from core.metrics import CYCLE_DURATION_SECONDS
+from bigbrotr.core.metrics import CYCLE_DURATION_SECONDS
 
 # Tracks cycle duration for percentiles (p50/p95/p99)
 with CYCLE_DURATION_SECONDS.labels(service="validator").time():
@@ -530,7 +544,7 @@ with CYCLE_DURATION_SECONDS.labels(service="validator").time():
 ### Starting the Server
 
 ```python
-from core import start_metrics_server, MetricsConfig
+from bigbrotr.core import start_metrics_server, MetricsConfig
 
 # Start with default config
 server = await start_metrics_server()
@@ -560,7 +574,7 @@ Services add their own metrics via `set_gauge()` and `inc_counter()` helpers.
 ### Complete Service Example
 
 ```python
-from core import Pool, Brotr, BaseService, BaseServiceConfig
+from bigbrotr.core import Pool, Brotr, BaseService, BaseServiceConfig
 
 class MyConfig(BaseServiceConfig):
     interval: float = 60.0
@@ -573,13 +587,13 @@ class MyService(BaseService[MyConfig]):
         self._logger.info("run_started")
 
         # Database operations
-        relays = await self._brotr.pool.fetch("SELECT * FROM relays LIMIT 10")
+        relays = await self._brotr.fetch("SELECT * FROM relays LIMIT 10")
 
         self._logger.info("run_completed", relay_count=len(relays))
 
 # Usage
-brotr = Brotr.from_yaml("yaml/core/brotr.yaml")
-service = MyService.from_yaml("yaml/services/myservice.yaml", brotr=brotr)
+brotr = Brotr.from_yaml("config/core/brotr.yaml")
+service = MyService.from_yaml("config/services/myservice.yaml", brotr=brotr)
 
 async with brotr:
     async with service:
@@ -596,7 +610,7 @@ except ConnectionError as e:
     logger.error("connection_failed", error=str(e))
 
 # Transaction with automatic rollback
-async with brotr.pool.transaction() as conn:
+async with brotr.transaction() as conn:
     await conn.execute("INSERT INTO relays ...")
     # Auto-rollback on exception, auto-commit on success
 

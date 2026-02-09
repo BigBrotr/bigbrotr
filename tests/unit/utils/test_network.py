@@ -1,5 +1,5 @@
 """
-Unit tests for utils.network module.
+Unit tests for services.common.configs module (network configuration).
 
 Tests:
 - ClearnetConfig - Configuration for clearnet (standard internet) relays
@@ -12,8 +12,8 @@ Tests:
 import pytest
 from pydantic import ValidationError
 
-from models.relay import NetworkType
-from utils.network import (
+from bigbrotr.models.constants import NetworkType
+from bigbrotr.services.common.configs import (
     ClearnetConfig,
     I2pConfig,
     LokiConfig,

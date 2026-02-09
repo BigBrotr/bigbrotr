@@ -16,8 +16,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from models.relay import NetworkType, Relay
-from utils.transport import (
+from bigbrotr.models.constants import NetworkType
+from bigbrotr.models.relay import Relay
+from bigbrotr.utils.transport import (
     InsecureWebSocketAdapter,
     InsecureWebSocketTransport,
     _is_ssl_error,
@@ -223,7 +224,7 @@ class TestConnectRelayOverlayNetworks:
         relay = Relay("wss://example.onion")
 
         with pytest.raises(ValueError) as exc_info:
-            from utils.transport import connect_relay
+            from bigbrotr.utils.transport import connect_relay
 
             await connect_relay(relay, proxy_url=None)
 
@@ -236,7 +237,7 @@ class TestConnectRelayOverlayNetworks:
         relay = Relay("wss://example.i2p")
 
         with pytest.raises(ValueError) as exc_info:
-            from utils.transport import connect_relay
+            from bigbrotr.utils.transport import connect_relay
 
             await connect_relay(relay, proxy_url=None)
 
@@ -248,7 +249,7 @@ class TestConnectRelayOverlayNetworks:
         relay = Relay("wss://example.loki")
 
         with pytest.raises(ValueError) as exc_info:
-            from utils.transport import connect_relay
+            from bigbrotr.utils.transport import connect_relay
 
             await connect_relay(relay, proxy_url=None)
 
@@ -274,8 +275,8 @@ class TestConnectRelayClearnet:
         mock_output.failed = {mock_url: "SSL certificate verify failed"}
 
         with (
-            patch("utils.transport.create_client") as mock_create,
-            patch("utils.transport.RelayUrl") as mock_relay_url,
+            patch("bigbrotr.utils.transport.create_client") as mock_create,
+            patch("bigbrotr.utils.transport.RelayUrl") as mock_relay_url,
         ):
             mock_client = AsyncMock()
             mock_client.try_connect = AsyncMock(return_value=mock_output)
@@ -284,7 +285,7 @@ class TestConnectRelayClearnet:
 
             mock_relay_url.parse.return_value = mock_url
 
-            from utils.transport import connect_relay
+            from bigbrotr.utils.transport import connect_relay
 
             with pytest.raises(ssl.SSLCertVerificationError):
                 await connect_relay(relay, allow_insecure=False)
@@ -301,8 +302,8 @@ class TestConnectRelayClearnet:
         mock_output.failed = {}
 
         with (
-            patch("utils.transport.create_client") as mock_create,
-            patch("utils.transport.RelayUrl") as mock_relay_url,
+            patch("bigbrotr.utils.transport.create_client") as mock_create,
+            patch("bigbrotr.utils.transport.RelayUrl") as mock_relay_url,
         ):
             mock_client = AsyncMock()
             mock_client.try_connect = AsyncMock(return_value=mock_output)
@@ -310,7 +311,7 @@ class TestConnectRelayClearnet:
 
             mock_relay_url.parse.return_value = mock_url
 
-            from utils.transport import connect_relay
+            from bigbrotr.utils.transport import connect_relay
 
             client = await connect_relay(relay)
             assert client is mock_client
@@ -329,13 +330,13 @@ class TestIsNostrRelayMocked:
         """Test relay that responds with EOSE is valid."""
         relay = Relay("wss://relay.example.com")
 
-        with patch("utils.transport.connect_relay") as mock_connect:
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
             mock_client = AsyncMock()
             mock_client.fetch_events = AsyncMock(return_value=[])
             mock_client.disconnect = AsyncMock()
             mock_connect.return_value = mock_client
 
-            from utils.transport import is_nostr_relay
+            from bigbrotr.utils.transport import is_nostr_relay
 
             result = await is_nostr_relay(relay)
             assert result is True
@@ -345,10 +346,10 @@ class TestIsNostrRelayMocked:
         """Test relay that requires AUTH (NIP-42) is still valid."""
         relay = Relay("wss://relay.example.com")
 
-        with patch("utils.transport.connect_relay") as mock_connect:
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
             mock_connect.side_effect = Exception("auth-required: please authenticate")
 
-            from utils.transport import is_nostr_relay
+            from bigbrotr.utils.transport import is_nostr_relay
 
             result = await is_nostr_relay(relay)
             assert result is True
@@ -358,10 +359,10 @@ class TestIsNostrRelayMocked:
         """Test relay that fails to connect is invalid."""
         relay = Relay("wss://relay.example.com")
 
-        with patch("utils.transport.connect_relay") as mock_connect:
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
             mock_connect.side_effect = Exception("Connection refused")
 
-            from utils.transport import is_nostr_relay
+            from bigbrotr.utils.transport import is_nostr_relay
 
             result = await is_nostr_relay(relay)
             assert result is False
@@ -371,10 +372,10 @@ class TestIsNostrRelayMocked:
         """Test relay that times out is invalid."""
         relay = Relay("wss://relay.example.com")
 
-        with patch("utils.transport.connect_relay") as mock_connect:
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
             mock_connect.side_effect = TimeoutError("Connection timed out")
 
-            from utils.transport import is_nostr_relay
+            from bigbrotr.utils.transport import is_nostr_relay
 
             result = await is_nostr_relay(relay)
             assert result is False
@@ -384,13 +385,13 @@ class TestIsNostrRelayMocked:
         """Test proxy URL is passed to connect_relay."""
         relay = Relay("wss://example.onion")
 
-        with patch("utils.transport.connect_relay") as mock_connect:
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
             mock_client = AsyncMock()
             mock_client.fetch_events = AsyncMock(return_value=[])
             mock_client.disconnect = AsyncMock()
             mock_connect.return_value = mock_client
 
-            from utils.transport import is_nostr_relay
+            from bigbrotr.utils.transport import is_nostr_relay
 
             await is_nostr_relay(relay, proxy_url="socks5://127.0.0.1:9050")
 
@@ -403,13 +404,13 @@ class TestIsNostrRelayMocked:
         """Test custom timeout is passed to connect_relay."""
         relay = Relay("wss://relay.example.com")
 
-        with patch("utils.transport.connect_relay") as mock_connect:
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
             mock_client = AsyncMock()
             mock_client.fetch_events = AsyncMock(return_value=[])
             mock_client.disconnect = AsyncMock()
             mock_connect.return_value = mock_client
 
-            from utils.transport import is_nostr_relay
+            from bigbrotr.utils.transport import is_nostr_relay
 
             await is_nostr_relay(relay, timeout=30.0)
 
@@ -426,13 +427,13 @@ class TestIsNostrRelayDisconnect:
         """Test disconnect is called after successful validation."""
         relay = Relay("wss://relay.example.com")
 
-        with patch("utils.transport.connect_relay") as mock_connect:
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
             mock_client = AsyncMock()
             mock_client.fetch_events = AsyncMock(return_value=[])
             mock_client.disconnect = AsyncMock()
             mock_connect.return_value = mock_client
 
-            from utils.transport import is_nostr_relay
+            from bigbrotr.utils.transport import is_nostr_relay
 
             await is_nostr_relay(relay)
 
@@ -637,7 +638,7 @@ class TestInsecureWebSocketTransportConnect:
         """Test connect creates an insecure SSL context."""
         from datetime import timedelta
 
-        from utils.transport import InsecureWebSocketTransport
+        from bigbrotr.utils.transport import InsecureWebSocketTransport
 
         transport = InsecureWebSocketTransport()
 
@@ -660,7 +661,7 @@ class TestInsecureWebSocketTransportConnect:
 
         import aiohttp
 
-        from utils.transport import InsecureWebSocketTransport
+        from bigbrotr.utils.transport import InsecureWebSocketTransport
 
         transport = InsecureWebSocketTransport()
 
@@ -684,7 +685,7 @@ class TestInsecureWebSocketTransportConnect:
         """Test timeout raises OSError."""
         from datetime import timedelta
 
-        from utils.transport import InsecureWebSocketTransport
+        from bigbrotr.utils.transport import InsecureWebSocketTransport
 
         transport = InsecureWebSocketTransport()
 

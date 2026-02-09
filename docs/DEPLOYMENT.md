@@ -81,7 +81,7 @@ Two implementations are available:
 ```bash
 # Clone repository
 git clone https://github.com/bigbrotr/bigbrotr.git
-cd bigbrotr/implementations/bigbrotr
+cd bigbrotr/deployments/bigbrotr
 
 # Configure environment
 cp .env.example .env
@@ -100,7 +100,7 @@ docker-compose logs -f
 ```bash
 # Clone repository
 git clone https://github.com/bigbrotr/bigbrotr.git
-cd bigbrotr/implementations/lilbrotr
+cd bigbrotr/deployments/lilbrotr
 
 # Configure environment
 cp .env.example .env
@@ -178,17 +178,17 @@ services:
   seeder:
     build:
       context: ../../
-      dockerfile: implementations/bigbrotr/Dockerfile
+      dockerfile: deployments/bigbrotr/Dockerfile
     container_name: bigbrotr-seeder
     environment:
       DB_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - ./yaml:/app/yaml:ro
+      - ./config:/app/config:ro
       - ./data:/app/data:ro
     depends_on:
       pgbouncer:
         condition: service_healthy
-    command: ["python", "-m", "services", "seeder"]
+    command: ["python", "-m", "bigbrotr", "seeder"]
 
   finder:
     # ... similar configuration
@@ -235,7 +235,7 @@ Data is persisted in `./data/postgres/`:
 
 ```bash
 # Backup location
-implementations/bigbrotr/data/postgres/
+deployments/bigbrotr/data/postgres/
 
 # View size
 du -sh data/postgres/
@@ -281,7 +281,7 @@ GRANT ALL PRIVILEGES ON DATABASE bigbrotr TO admin;
 
 ```bash
 # Apply schema files
-cd implementations/bigbrotr
+cd deployments/bigbrotr
 for f in postgres/init/*.sql; do
     psql -U admin -d bigbrotr -f "$f"
 done
@@ -333,16 +333,16 @@ export PYTHONPATH=/opt/bigbrotr/src
 
 ```bash
 # Change to implementation directory
-cd /opt/bigbrotr/implementations/bigbrotr
+cd /opt/bigbrotr/deployments/bigbrotr
 
 # Run seeder (once)
-python -m services seeder
+python -m bigbrotr seeder
 
 # Run services (in separate terminals or with process manager)
-python -m services finder &
-python -m services validator &
-python -m services monitor &
-python -m services synchronizer &
+python -m bigbrotr finder &
+python -m bigbrotr validator &
+python -m bigbrotr monitor &
+python -m bigbrotr synchronizer &
 ```
 
 ### 5. Systemd Service Files
@@ -358,11 +358,11 @@ After=network.target postgresql.service pgbouncer.service
 Type=simple
 User=bigbrotr
 Group=bigbrotr
-WorkingDirectory=/opt/bigbrotr/implementations/bigbrotr
+WorkingDirectory=/opt/bigbrotr/deployments/bigbrotr
 Environment="PATH=/opt/bigbrotr/venv/bin"
 Environment="PYTHONPATH=/opt/bigbrotr/src"
 Environment="DB_PASSWORD=your_secure_password"
-ExecStart=/opt/bigbrotr/venv/bin/python -m services finder
+ExecStart=/opt/bigbrotr/venv/bin/python -m bigbrotr finder
 Restart=always
 RestartSec=10
 
@@ -463,13 +463,13 @@ reserve_pool_timeout = 3
 
 **Application**:
 ```yaml
-# yaml/core/brotr.yaml
+# config/core/brotr.yaml
 pool:
   limits:
     min_size: 10
     max_size: 50
 
-# yaml/services/synchronizer.yaml
+# config/services/synchronizer.yaml
 concurrency:
   max_parallel: 50
   max_processes: 16
@@ -647,7 +647,7 @@ services:
 
 ```bash
 # Run with debug logging
-docker-compose run --rm finder python -m services finder --log-level DEBUG
+docker-compose run --rm finder python -m bigbrotr finder --log-level DEBUG
 
 # Or set in docker-compose.yaml
 environment:
@@ -701,7 +701,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RETENTION_DAYS=7
 
 # Create backup
-docker-compose -f /opt/bigbrotr/implementations/bigbrotr/docker-compose.yaml \
+docker-compose -f /opt/bigbrotr/deployments/bigbrotr/docker-compose.yaml \
     exec -T postgres pg_dump -U admin -d bigbrotr | gzip > "${BACKUP_DIR}/backup_${TIMESTAMP}.sql.gz"
 
 # Remove old backups

@@ -4,7 +4,7 @@ Unit tests for logger module.
 Tests:
 - Logger initialization with name, json_output, and max_value_length
 - format_kv_pairs() utility function
-- Message formatting (_format_message)
+- StructuredFormatter formatting
 - All log levels (debug, info, warning, error, critical, exception)
 - Value escaping and quoting
 - Truncation of long values
@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.logger import Logger, format_kv_pairs
+from bigbrotr.core.logger import Logger, StructuredFormatter, format_kv_pairs
 
 
 # ============================================================================
@@ -167,6 +167,156 @@ class TestFormatKvPairsPrefix:
 
 
 # ============================================================================
+# StructuredFormatter Tests
+# ============================================================================
+
+
+class TestStructuredFormatter:
+    """Tests for StructuredFormatter."""
+
+    def test_plain_message_without_structured_kv(self) -> None:
+        """Test formatting a plain log record without structured_kv extra."""
+        formatter = StructuredFormatter()
+        record = logging.LogRecord(
+            name="test.module",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="simple message",
+            args=None,
+            exc_info=None,
+        )
+        result = formatter.format(record)
+        assert result == "info test.module simple message"
+
+    def test_message_with_structured_kv(self) -> None:
+        """Test formatting a log record with structured_kv extra."""
+        formatter = StructuredFormatter()
+        record = logging.LogRecord(
+            name="finder",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="cycle_completed",
+            args=None,
+            exc_info=None,
+        )
+        record.structured_kv = {"cycle": 1, "duration": 2.5}  # type: ignore[attr-defined]
+        result = formatter.format(record)
+        assert result.startswith("info finder cycle_completed")
+        assert "cycle=1" in result
+        assert "duration=2.5" in result
+
+    def test_empty_structured_kv(self) -> None:
+        """Test formatting with empty structured_kv dict."""
+        formatter = StructuredFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.WARNING,
+            pathname="",
+            lineno=0,
+            msg="warning msg",
+            args=None,
+            exc_info=None,
+        )
+        record.structured_kv = {}  # type: ignore[attr-defined]
+        result = formatter.format(record)
+        assert result == "warning test warning msg"
+
+    def test_debug_level_prefix(self) -> None:
+        """Test that the level name is lowercase."""
+        formatter = StructuredFormatter()
+        record = logging.LogRecord(
+            name="pool",
+            level=logging.DEBUG,
+            pathname="",
+            lineno=0,
+            msg="connecting",
+            args=None,
+            exc_info=None,
+        )
+        result = formatter.format(record)
+        assert result.startswith("debug pool")
+
+    def test_error_level_prefix(self) -> None:
+        """Test error level prefix."""
+        formatter = StructuredFormatter()
+        record = logging.LogRecord(
+            name="brotr",
+            level=logging.ERROR,
+            pathname="",
+            lineno=0,
+            msg="failed",
+            args=None,
+            exc_info=None,
+        )
+        result = formatter.format(record)
+        assert result.startswith("error brotr")
+
+    def test_critical_level_prefix(self) -> None:
+        """Test critical level prefix."""
+        formatter = StructuredFormatter()
+        record = logging.LogRecord(
+            name="service",
+            level=logging.CRITICAL,
+            pathname="",
+            lineno=0,
+            msg="shutdown",
+            args=None,
+            exc_info=None,
+        )
+        result = formatter.format(record)
+        assert result.startswith("critical service")
+
+    def test_structured_kv_with_spaces_in_values(self) -> None:
+        """Test that values with spaces are properly quoted in formatter output."""
+        formatter = StructuredFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="event",
+            args=None,
+            exc_info=None,
+        )
+        record.structured_kv = {"path": "hello world"}  # type: ignore[attr-defined]
+        result = formatter.format(record)
+        assert 'path="hello world"' in result
+
+    def test_stdlib_logger_without_structured_kv(self) -> None:
+        """Test that stdlib loggers without structured_kv still format correctly."""
+        formatter = StructuredFormatter()
+        record = logging.LogRecord(
+            name="models.metadata",
+            level=logging.WARNING,
+            pathname="",
+            lineno=0,
+            msg="validation failed",
+            args=None,
+            exc_info=None,
+        )
+        # No structured_kv attribute at all
+        result = formatter.format(record)
+        assert result == "warning models.metadata validation failed"
+
+    def test_message_with_percent_args(self) -> None:
+        """Test that getMessage() properly expands %-formatting args."""
+        formatter = StructuredFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="count: %d",
+            args=(42,),
+            exc_info=None,
+        )
+        result = formatter.format(record)
+        assert "count: 42" in result
+
+
+# ============================================================================
 # Logger Initialization Tests
 # ============================================================================
 
@@ -206,45 +356,17 @@ class TestLoggerInit:
 
 
 # ============================================================================
-# Message Formatting Tests
+# JSON Formatting Tests
 # ============================================================================
 
 
-class TestFormatMessage:
-    """Tests for Logger._format_message() method."""
-
-    def test_without_kwargs(self) -> None:
-        """Test formatting message without kwargs."""
-        logger = Logger("test")
-        result = logger._format_message("test_msg", {})
-        assert result == "test_msg"
-
-    def test_with_kwargs(self) -> None:
-        """Test formatting message with kwargs."""
-        logger = Logger("test")
-        result = logger._format_message("test_msg", {"count": 42, "name": "test"})
-
-        assert "test_msg" in result
-        assert "count=42" in result
-        assert "name=test" in result
-
-    def test_preserves_message_order(self) -> None:
-        """Test message comes before key-value pairs."""
-        logger = Logger("test")
-        result = logger._format_message("my_message", {"key": "value"})
-
-        msg_index = result.index("my_message")
-        kv_index = result.index("key=")
-        assert msg_index < kv_index
-
-
-class TestFormatMessageJson:
+class TestFormatJson:
     """Tests for JSON output mode formatting."""
 
     def test_json_without_kwargs(self) -> None:
         """Test JSON formatting without kwargs."""
         logger = Logger("test", json_output=True)
-        result = logger._format_message("test_msg", {})
+        result = logger._format_json("test_msg", {})
 
         parsed = json.loads(result)
         assert parsed["message"] == "test_msg"
@@ -252,7 +374,7 @@ class TestFormatMessageJson:
     def test_json_with_kwargs(self) -> None:
         """Test JSON formatting with kwargs."""
         logger = Logger("test", json_output=True)
-        result = logger._format_message("test_msg", {"count": 42, "name": "test"})
+        result = logger._format_json("test_msg", {"count": 42, "name": "test"})
 
         parsed = json.loads(result)
         assert parsed["message"] == "test_msg"
@@ -262,7 +384,7 @@ class TestFormatMessageJson:
     def test_json_complex_values(self) -> None:
         """Test JSON formatting with complex values."""
         logger = Logger("test", json_output=True)
-        result = logger._format_message("msg", {"data": {"nested": True}, "list": [1, 2, 3]})
+        result = logger._format_json("msg", {"data": {"nested": True}, "list": [1, 2, 3]})
 
         parsed = json.loads(result)
         assert parsed["data"] == {"nested": True}
@@ -276,10 +398,56 @@ class TestFormatMessageJson:
             def __str__(self) -> str:
                 return "custom_repr"
 
-        result = logger._format_message("msg", {"obj": CustomObject()})
+        result = logger._format_json("msg", {"obj": CustomObject()})
 
         parsed = json.loads(result)
         assert "custom_repr" in parsed["obj"]
+
+
+# ============================================================================
+# _make_extra Tests
+# ============================================================================
+
+
+class TestMakeExtra:
+    """Tests for Logger._make_extra() method."""
+
+    def test_empty_kwargs(self) -> None:
+        """Test _make_extra with empty kwargs returns empty dict."""
+        logger = Logger("test")
+        result = logger._make_extra({})
+        assert result == {}
+
+    def test_simple_kwargs(self) -> None:
+        """Test _make_extra wraps kwargs in structured_kv."""
+        logger = Logger("test")
+        result = logger._make_extra({"count": 42, "name": "test"})
+        assert "structured_kv" in result
+        assert result["structured_kv"]["count"] == 42
+        assert result["structured_kv"]["name"] == "test"
+
+    def test_truncation_applied(self) -> None:
+        """Test _make_extra applies truncation based on max_value_length."""
+        logger = Logger("test", max_value_length=10)
+        result = logger._make_extra({"key": "a" * 20})
+        val = result["structured_kv"]["key"]
+        assert "truncated" in val
+        assert "10 chars" in val
+
+    def test_no_truncation_for_short_values(self) -> None:
+        """Test _make_extra does not truncate short values."""
+        logger = Logger("test", max_value_length=100)
+        result = logger._make_extra({"key": "short"})
+        assert result["structured_kv"]["key"] == "short"
+
+    def test_non_string_values_preserved(self) -> None:
+        """Test _make_extra preserves non-string types when under limit."""
+        logger = Logger("test")
+        result = logger._make_extra({"count": 42, "flag": True, "ratio": 3.14})
+        kv = result["structured_kv"]
+        assert kv["count"] == 42
+        assert kv["flag"] is True
+        assert kv["ratio"] == 3.14
 
 
 # ============================================================================
@@ -299,55 +467,64 @@ class TestLogLevels:
         return logger, mock
 
     def test_debug(self, mock_logger: tuple[Logger, MagicMock]) -> None:
-        """Test debug() method."""
+        """Test debug() passes message and structured_kv extra."""
         logger, mock = mock_logger
         logger.debug("test_debug", count=1)
 
         mock.debug.assert_called_once()
-        assert "test_debug" in mock.debug.call_args[0][0]
-        assert "count=1" in mock.debug.call_args[0][0]
+        assert mock.debug.call_args[0][0] == "test_debug"
+        extra = mock.debug.call_args[1]["extra"]
+        assert extra["structured_kv"]["count"] == 1
 
     def test_info(self, mock_logger: tuple[Logger, MagicMock]) -> None:
-        """Test info() method."""
+        """Test info() passes message and structured_kv extra."""
         logger, mock = mock_logger
         logger.info("test_info", value="test")
 
         mock.info.assert_called_once()
-        assert "test_info" in mock.info.call_args[0][0]
-        assert "value=test" in mock.info.call_args[0][0]
+        assert mock.info.call_args[0][0] == "test_info"
+        extra = mock.info.call_args[1]["extra"]
+        assert extra["structured_kv"]["value"] == "test"
 
     def test_warning(self, mock_logger: tuple[Logger, MagicMock]) -> None:
-        """Test warning() method."""
+        """Test warning() passes message and structured_kv extra."""
         logger, mock = mock_logger
         logger.warning("test_warning", error="oops")
 
         mock.warning.assert_called_once()
-        assert "test_warning" in mock.warning.call_args[0][0]
+        assert mock.warning.call_args[0][0] == "test_warning"
+        extra = mock.warning.call_args[1]["extra"]
+        assert extra["structured_kv"]["error"] == "oops"
 
     def test_error(self, mock_logger: tuple[Logger, MagicMock]) -> None:
-        """Test error() method."""
+        """Test error() passes message and structured_kv extra."""
         logger, mock = mock_logger
         logger.error("test_error", code=500)
 
         mock.error.assert_called_once()
-        assert "test_error" in mock.error.call_args[0][0]
-        assert "code=500" in mock.error.call_args[0][0]
+        assert mock.error.call_args[0][0] == "test_error"
+        extra = mock.error.call_args[1]["extra"]
+        assert extra["structured_kv"]["code"] == 500
 
     def test_critical(self, mock_logger: tuple[Logger, MagicMock]) -> None:
-        """Test critical() method."""
+        """Test critical() passes message and structured_kv extra."""
         logger, mock = mock_logger
         logger.critical("test_critical", fatal=True)
 
         mock.critical.assert_called_once()
-        assert "test_critical" in mock.critical.call_args[0][0]
+        assert mock.critical.call_args[0][0] == "test_critical"
+        extra = mock.critical.call_args[1]["extra"]
+        assert extra["structured_kv"]["fatal"] is True
 
     def test_exception(self, mock_logger: tuple[Logger, MagicMock]) -> None:
-        """Test exception() method."""
+        """Test exception() passes message and structured_kv extra."""
         logger, mock = mock_logger
         logger.exception("test_exception", trace="...")
 
         mock.exception.assert_called_once()
-        assert "test_exception" in mock.exception.call_args[0][0]
+        assert mock.exception.call_args[0][0] == "test_exception"
+        extra = mock.exception.call_args[1]["extra"]
+        assert extra["structured_kv"]["trace"] == "..."
 
 
 class TestLogLevelsWithoutKwargs:
@@ -362,18 +539,59 @@ class TestLogLevelsWithoutKwargs:
         return logger, mock
 
     def test_debug_no_kwargs(self, mock_logger: tuple[Logger, MagicMock]) -> None:
-        """Test debug() without kwargs."""
+        """Test debug() without kwargs passes no extra."""
         logger, mock = mock_logger
         logger.debug("simple message")
 
-        mock.debug.assert_called_once_with("simple message")
+        mock.debug.assert_called_once_with("simple message", extra={})
 
     def test_info_no_kwargs(self, mock_logger: tuple[Logger, MagicMock]) -> None:
-        """Test info() without kwargs."""
+        """Test info() without kwargs passes no extra."""
         logger, mock = mock_logger
         logger.info("simple message")
 
-        mock.info.assert_called_once_with("simple message")
+        mock.info.assert_called_once_with("simple message", extra={})
+
+
+class TestLogLevelsJsonMode:
+    """Tests for log methods in JSON output mode."""
+
+    @pytest.fixture
+    def mock_logger(self) -> tuple[Logger, MagicMock]:
+        """Create JSON logger with mocked internal logger."""
+        logger = Logger("test", json_output=True)
+        mock = MagicMock()
+        logger._logger = mock
+        return logger, mock
+
+    def test_info_json(self, mock_logger: tuple[Logger, MagicMock]) -> None:
+        """Test info() in JSON mode formats as JSON string."""
+        logger, mock = mock_logger
+        logger.info("test_msg", count=42)
+
+        mock.info.assert_called_once()
+        parsed = json.loads(mock.info.call_args[0][0])
+        assert parsed["message"] == "test_msg"
+        assert parsed["count"] == 42
+
+    def test_error_json(self, mock_logger: tuple[Logger, MagicMock]) -> None:
+        """Test error() in JSON mode formats as JSON string."""
+        logger, mock = mock_logger
+        logger.error("fail", code=500)
+
+        mock.error.assert_called_once()
+        parsed = json.loads(mock.error.call_args[0][0])
+        assert parsed["message"] == "fail"
+        assert parsed["code"] == 500
+
+    def test_debug_json_no_kwargs(self, mock_logger: tuple[Logger, MagicMock]) -> None:
+        """Test debug() in JSON mode without kwargs."""
+        logger, mock = mock_logger
+        logger.debug("simple")
+
+        mock.debug.assert_called_once()
+        parsed = json.loads(mock.debug.call_args[0][0])
+        assert parsed["message"] == "simple"
 
 
 # ============================================================================
@@ -385,14 +603,14 @@ class TestIntegration:
     """Integration tests with real Python logging."""
 
     def test_log_to_handler(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Test that logs are captured by handler."""
+        """Test that logs are captured by handler with structured_kv extra."""
         with caplog.at_level(logging.INFO):
             logger = Logger("integration_test")
             logger.info("hello", world=True)
 
         assert len(caplog.records) == 1
-        assert "hello" in caplog.records[0].message
-        assert "world=True" in caplog.records[0].message
+        assert caplog.records[0].message == "hello"
+        assert getattr(caplog.records[0], "structured_kv", {}).get("world") is True
 
     def test_json_log_to_handler(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test JSON output is captured by handler."""
@@ -440,6 +658,50 @@ class TestIntegration:
         assert logging.ERROR in levels
         assert logging.CRITICAL in levels
 
+    def test_structured_formatter_integration(self) -> None:
+        """Test StructuredFormatter produces correct output through real logging."""
+        formatter = StructuredFormatter()
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+
+        test_logger = logging.getLogger("formatter_integration_test")
+        test_logger.addHandler(handler)
+        test_logger.setLevel(logging.DEBUG)
+
+        # Create a record manually and format it
+        record = test_logger.makeRecord(
+            name="formatter_integration_test",
+            level=logging.INFO,
+            fn="",
+            lno=0,
+            msg="cycle_done",
+            args=(),
+            exc_info=None,
+            extra={"structured_kv": {"cycle": 5, "elapsed": 1.2}},
+        )
+        result = formatter.format(record)
+        assert result.startswith("info formatter_integration_test cycle_done")
+        assert "cycle=5" in result
+        assert "elapsed=1.2" in result
+
+        # Cleanup
+        test_logger.removeHandler(handler)
+
+    def test_stdlib_logger_through_structured_formatter(self) -> None:
+        """Test plain stdlib logger records format cleanly through StructuredFormatter."""
+        formatter = StructuredFormatter()
+        record = logging.LogRecord(
+            name="models.metadata",
+            level=logging.WARNING,
+            pathname="",
+            lineno=0,
+            msg="unknown type: %s",
+            args=("foo",),
+            exc_info=None,
+        )
+        result = formatter.format(record)
+        assert result == "warning models.metadata unknown type: foo"
+
 
 # ============================================================================
 # Edge Cases Tests
@@ -449,11 +711,13 @@ class TestIntegration:
 class TestEdgeCases:
     """Tests for edge cases and special scenarios."""
 
-    def test_special_characters_in_message(self) -> None:
+    def test_special_characters_in_message(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test special characters in message."""
-        logger = Logger("test")
-        result = logger._format_message("msg with\nnewline", {})
-        assert "msg with\nnewline" in result
+        with caplog.at_level(logging.INFO):
+            logger = Logger("test")
+            logger.info("msg with\nnewline")
+
+        assert "msg with\nnewline" in caplog.records[0].message
 
     def test_unicode_in_values(self) -> None:
         """Test unicode characters in values."""

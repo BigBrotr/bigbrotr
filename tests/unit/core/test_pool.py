@@ -2,7 +2,7 @@
 Unit tests for core.pool module.
 
 Tests:
-- Configuration models (DatabaseConfig, LimitsConfig, TimeoutsConfig, RetryConfig, ServerSettingsConfig)
+- Configuration models (DatabaseConfig, LimitsConfig, PoolTimeoutsConfig, PoolRetryConfig, ServerSettingsConfig)
 - Pool initialization with defaults and custom config
 - Factory methods (from_yaml, from_dict)
 - Connection lifecycle (connect, close)
@@ -22,14 +22,14 @@ import asyncpg
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from core.pool import (
+from bigbrotr.core.pool import (
     DatabaseConfig,
     LimitsConfig,
     Pool,
     PoolConfig,
-    RetryConfig,
+    PoolRetryConfig,
+    PoolTimeoutsConfig,
     ServerSettingsConfig,
-    TimeoutsConfig,
     _init_connection,
 )
 
@@ -213,19 +213,19 @@ class TestLimitsConfig:
             LimitsConfig(max_queries=99)
 
 
-class TestTimeoutsConfig:
-    """Tests for TimeoutsConfig Pydantic model."""
+class TestPoolTimeoutsConfig:
+    """Tests for PoolTimeoutsConfig Pydantic model."""
 
     def test_defaults(self) -> None:
         """Test default configuration values."""
-        config = TimeoutsConfig()
+        config = PoolTimeoutsConfig()
 
         assert config.acquisition == 10.0
         assert config.health_check == 5.0
 
     def test_custom_values(self) -> None:
         """Test configuration with custom values."""
-        config = TimeoutsConfig(acquisition=30.0, health_check=15.0)
+        config = PoolTimeoutsConfig(acquisition=30.0, health_check=15.0)
 
         assert config.acquisition == 30.0
         assert config.health_check == 15.0
@@ -233,20 +233,20 @@ class TestTimeoutsConfig:
     def test_minimum_validation(self) -> None:
         """Test minimum value validation (>= 0.1)."""
         # Valid at minimum
-        config = TimeoutsConfig(acquisition=0.1, health_check=0.1)
+        config = PoolTimeoutsConfig(acquisition=0.1, health_check=0.1)
         assert config.acquisition == 0.1
 
         # Invalid: below minimum
         with pytest.raises(ValidationError):
-            TimeoutsConfig(acquisition=0.05)
+            PoolTimeoutsConfig(acquisition=0.05)
 
 
-class TestRetryConfig:
-    """Tests for RetryConfig Pydantic model."""
+class TestPoolRetryConfig:
+    """Tests for PoolRetryConfig Pydantic model."""
 
     def test_defaults(self) -> None:
         """Test default configuration values."""
-        config = RetryConfig()
+        config = PoolRetryConfig()
 
         assert config.max_attempts == 3
         assert config.initial_delay == 1.0
@@ -255,7 +255,7 @@ class TestRetryConfig:
 
     def test_custom_values(self) -> None:
         """Test configuration with custom values."""
-        config = RetryConfig(
+        config = PoolRetryConfig(
             max_attempts=5,
             initial_delay=0.5,
             max_delay=30.0,
@@ -270,36 +270,36 @@ class TestRetryConfig:
     def test_max_delay_greater_than_or_equal_to_initial(self) -> None:
         """Test that max_delay must be >= initial_delay."""
         # Valid case: equal delays are allowed
-        config = RetryConfig(initial_delay=5.0, max_delay=5.0)
+        config = PoolRetryConfig(initial_delay=5.0, max_delay=5.0)
         assert config.max_delay == 5.0
 
         # Invalid case: smaller max_delay should fail
         with pytest.raises(ValidationError, match="max_delay"):
-            RetryConfig(initial_delay=5.0, max_delay=2.0)
+            PoolRetryConfig(initial_delay=5.0, max_delay=2.0)
 
     def test_max_attempts_boundaries(self) -> None:
         """Test max_attempts boundary validations."""
         # Valid boundaries
-        config_min = RetryConfig(max_attempts=1)
+        config_min = PoolRetryConfig(max_attempts=1)
         assert config_min.max_attempts == 1
 
-        config_max = RetryConfig(max_attempts=10)
+        config_max = PoolRetryConfig(max_attempts=10)
         assert config_max.max_attempts == 10
 
         # Invalid
         with pytest.raises(ValidationError):
-            RetryConfig(max_attempts=0)
+            PoolRetryConfig(max_attempts=0)
 
         with pytest.raises(ValidationError):
-            RetryConfig(max_attempts=11)
+            PoolRetryConfig(max_attempts=11)
 
     def test_delay_minimum_validation(self) -> None:
         """Test delay minimum validation (>= 0.1)."""
-        config = RetryConfig(initial_delay=0.1, max_delay=0.1)
+        config = PoolRetryConfig(initial_delay=0.1, max_delay=0.1)
         assert config.initial_delay == 0.1
 
         with pytest.raises(ValidationError):
-            RetryConfig(initial_delay=0.05)
+            PoolRetryConfig(initial_delay=0.05)
 
 
 class TestServerSettingsConfig:
@@ -356,8 +356,8 @@ class TestPoolConfig:
                 password="custompass",  # pragma: allowlist secret
             ),
             limits=LimitsConfig(min_size=10, max_size=50),
-            timeouts=TimeoutsConfig(acquisition=30.0),
-            retry=RetryConfig(max_attempts=5),
+            timeouts=PoolTimeoutsConfig(acquisition=30.0),
+            retry=PoolRetryConfig(max_attempts=5),
             server_settings=ServerSettingsConfig(application_name="custom_app"),
         )
 
@@ -366,6 +366,25 @@ class TestPoolConfig:
         assert config.timeouts.acquisition == 30.0
         assert config.retry.max_attempts == 5
         assert config.server_settings.application_name == "custom_app"
+
+    def test_model_dump_excludes_password(self) -> None:
+        """Test that model_dump with exclude omits the password field.
+
+        Workers inherit the DB_PASSWORD environment variable, so the password
+        should never be serialized through IPC (SA-002).
+        """
+        config = PoolConfig(
+            database=DatabaseConfig(
+                host="db.host",
+                password="secret123",  # pragma: allowlist secret
+            ),
+        )
+
+        dump = config.model_dump(exclude={"database": {"password"}})
+
+        assert "password" not in dump["database"]
+        assert dump["database"]["host"] == "db.host"
+        assert dump["database"]["password_env"] == "DB_PASSWORD"  # pragma: allowlist secret
 
 
 # ============================================================================
@@ -502,7 +521,7 @@ class TestPoolConnect:
     async def test_connect_retry_on_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test connection retry on transient failures."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        config = PoolConfig(retry=RetryConfig(max_attempts=3, initial_delay=0.1, max_delay=0.5))
+        config = PoolConfig(retry=PoolRetryConfig(max_attempts=3, initial_delay=0.1, max_delay=0.5))
         pool = Pool(config=config)
         call_count = 0
 
@@ -515,7 +534,7 @@ class TestPoolConnect:
 
         with (
             patch("asyncpg.create_pool", side_effect=mock_create),
-            patch("core.pool.asyncio.sleep", AsyncMock()),
+            patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()),
         ):
             await pool.connect()
 
@@ -523,12 +542,12 @@ class TestPoolConnect:
         assert pool.is_connected is True
 
     @pytest.mark.asyncio
-    async def test_connect_max_retries_exceeded_raises(
+    async def test_connect_max_attempts_exceeded_raises(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that exceeding max retries raises ConnectionError."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        config = PoolConfig(retry=RetryConfig(max_attempts=2, initial_delay=0.1, max_delay=0.2))
+        config = PoolConfig(retry=PoolRetryConfig(max_attempts=2, initial_delay=0.1, max_delay=0.2))
         pool = Pool(config=config)
 
         with (
@@ -537,7 +556,7 @@ class TestPoolConnect:
                 new_callable=AsyncMock,
                 side_effect=ConnectionError("Connection failed"),
             ),
-            patch("core.pool.asyncio.sleep", AsyncMock()),
+            patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()),
             pytest.raises(ConnectionError, match="2 attempts"),
         ):
             await pool.connect()
@@ -546,7 +565,7 @@ class TestPoolConnect:
     async def test_connect_handles_postgres_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that PostgresError triggers retry."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        config = PoolConfig(retry=RetryConfig(max_attempts=2, initial_delay=0.1))
+        config = PoolConfig(retry=PoolRetryConfig(max_attempts=2, initial_delay=0.1))
         pool = Pool(config=config)
 
         with (
@@ -555,7 +574,7 @@ class TestPoolConnect:
                 new_callable=AsyncMock,
                 side_effect=asyncpg.PostgresError("Database error"),
             ),
-            patch("core.pool.asyncio.sleep", AsyncMock()),
+            patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()),
             pytest.raises(ConnectionError),
         ):
             await pool.connect()
@@ -564,7 +583,7 @@ class TestPoolConnect:
     async def test_connect_handles_os_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that OSError triggers retry."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        config = PoolConfig(retry=RetryConfig(max_attempts=2, initial_delay=0.1))
+        config = PoolConfig(retry=PoolRetryConfig(max_attempts=2, initial_delay=0.1))
         pool = Pool(config=config)
 
         with (
@@ -573,7 +592,7 @@ class TestPoolConnect:
                 new_callable=AsyncMock,
                 side_effect=OSError("Network error"),
             ),
-            patch("core.pool.asyncio.sleep", AsyncMock()),
+            patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()),
             pytest.raises(ConnectionError),
         ):
             await pool.connect()
@@ -583,7 +602,7 @@ class TestPoolConnect:
         """Test exponential backoff delay calculation."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         config = PoolConfig(
-            retry=RetryConfig(
+            retry=PoolRetryConfig(
                 max_attempts=4,
                 initial_delay=1.0,
                 max_delay=10.0,
@@ -602,7 +621,7 @@ class TestPoolConnect:
                 new_callable=AsyncMock,
                 side_effect=ConnectionError("Fail"),
             ),
-            patch("core.pool.asyncio.sleep", mock_sleep),
+            patch("bigbrotr.core.pool.asyncio.sleep", mock_sleep),
             pytest.raises(ConnectionError),
         ):
             await pool.connect()
@@ -619,7 +638,7 @@ class TestPoolConnect:
         """Test linear backoff when exponential is disabled."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         config = PoolConfig(
-            retry=RetryConfig(
+            retry=PoolRetryConfig(
                 max_attempts=4,
                 initial_delay=1.0,
                 max_delay=10.0,
@@ -638,7 +657,7 @@ class TestPoolConnect:
                 new_callable=AsyncMock,
                 side_effect=ConnectionError("Fail"),
             ),
-            patch("core.pool.asyncio.sleep", mock_sleep),
+            patch("bigbrotr.core.pool.asyncio.sleep", mock_sleep),
             pytest.raises(ConnectionError),
         ):
             await pool.connect()
@@ -768,14 +787,14 @@ class TestPoolAcquireHealthy:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        with patch("core.pool.asyncio.sleep", AsyncMock()):
-            async with pool.acquire_healthy(max_retries=3) as conn:
+        with patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()):
+            async with pool.acquire_healthy(max_attempts=3) as conn:
                 assert conn is healthy_conn
 
         assert call_count == 2
 
     @pytest.mark.asyncio
-    async def test_max_retries_exhausted_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_max_attempts_exhausted_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that exhausting max retries raises ConnectionError."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         pool = Pool()
@@ -795,10 +814,10 @@ class TestPoolAcquireHealthy:
         pool._is_connected = True
 
         with (
-            patch("core.pool.asyncio.sleep", AsyncMock()),
+            patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()),
             pytest.raises(ConnectionError, match="Failed to acquire healthy connection"),
         ):
-            async with pool.acquire_healthy(max_retries=3):
+            async with pool.acquire_healthy(max_attempts=3):
                 pass
 
     @pytest.mark.asyncio
@@ -824,8 +843,8 @@ class TestPoolAcquireHealthy:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        with patch("core.pool.asyncio.sleep", mock_sleep), pytest.raises(ConnectionError):
-            async with pool.acquire_healthy(max_retries=4):
+        with patch("bigbrotr.core.pool.asyncio.sleep", mock_sleep), pytest.raises(ConnectionError):
+            async with pool.acquire_healthy(max_attempts=4):
                 pass
 
         assert len(sleep_delays) == 3  # 3 sleep calls between 4 attempts
@@ -861,8 +880,8 @@ class TestPoolAcquireHealthy:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        with patch("core.pool.asyncio.sleep", AsyncMock()):
-            async with pool.acquire_healthy(max_retries=3):
+        with patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()):
+            async with pool.acquire_healthy(max_attempts=3):
                 pass
 
     @pytest.mark.asyncio
@@ -892,15 +911,15 @@ class TestPoolAcquireHealthy:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        with patch("core.pool.asyncio.sleep", AsyncMock()):
-            async with pool.acquire_healthy(max_retries=3):
+        with patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()):
+            async with pool.acquire_healthy(max_attempts=3):
                 pass
 
     @pytest.mark.asyncio
     async def test_uses_config_health_check_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that health check uses configured timeout."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        config = PoolConfig(timeouts=TimeoutsConfig(health_check=7.5))
+        config = PoolConfig(timeouts=PoolTimeoutsConfig(health_check=7.5))
         pool = Pool(config=config)
 
         mock_conn = MagicMock()
@@ -1022,7 +1041,7 @@ class TestPoolQueryRetry:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        with patch("core.pool.asyncio.sleep", AsyncMock()):
+        with patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()):
             result = await pool.fetch("SELECT 1")
 
         assert result == []
@@ -1058,7 +1077,7 @@ class TestPoolQueryRetry:
         pool._pool = mock_asyncpg_pool
         pool._is_connected = True
 
-        with patch("core.pool.asyncio.sleep", AsyncMock()):
+        with patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()):
             result = await pool.execute("INSERT INTO test VALUES (1)")
 
         assert result == "OK"

@@ -11,21 +11,43 @@ tests/
 |   +-- core/                    # Core layer tests
 |   |   +-- test_pool.py
 |   |   +-- test_brotr.py
-|   |   +-- test_service.py
+|   |   +-- test_base_service.py
 |   |   +-- test_logger.py
 |   +-- services/                # Service layer tests
+|   |   +-- common/
+|   |   |   +-- test_constants.py
+|   |   |   +-- test_mixins.py
+|   |   |   +-- test_queries.py
 |   |   +-- test_seeder.py
 |   |   +-- test_finder.py
 |   |   +-- test_validator.py
 |   |   +-- test_monitor.py
 |   |   +-- test_synchronizer.py
 |   +-- models/                  # Model layer tests
-|       +-- test_relay.py
-|       +-- test_event_relay.py
-|       +-- test_metadata.py
-|       +-- test_nip11.py
-|       +-- test_nip66.py
-+-- integration/                 # Integration tests (planned)
+|   |   +-- test_relay.py
+|   |   +-- test_event.py
+|   |   +-- test_event_relay.py
+|   |   +-- test_metadata.py
+|   |   +-- test_relay_metadata.py
+|   +-- nips/                    # NIP model tests
+|   |   +-- nip11/
+|   |   |   +-- test_nip11.py
+|   |   |   +-- test_fetch.py
+|   |   +-- nip66/
+|   |       +-- test_nip66.py
+|   |       +-- test_rtt.py
+|   |       +-- test_ssl.py
+|   |       +-- test_geo.py
+|   |       +-- test_dns.py
+|   |       +-- test_http.py
+|   |       +-- test_net.py
+|   |       +-- test_data.py
+|   |       +-- test_logs.py
+|   +-- utils/
+|       +-- test_*.py
++-- integration/                 # Integration tests
+    +-- conftest.py
+    +-- test_database_roundtrip.py
 ```
 
 ---
@@ -198,11 +220,11 @@ def brotr_config_dict() -> dict[str, Any]:
     """Sample Brotr configuration dictionary."""
     return {
         "pool": {...},  # Pool config
-        "batch": {"max_batch_size": 500},
+        "batch": {"max_size": 500},
         "timeouts": {
             "query": 30.0,
-            "procedure": 60.0,
-            "batch": 90.0
+            "batch": 90.0,
+            "cleanup": 60.0
         }
     }
 ```
@@ -248,7 +270,7 @@ def sample_metadata() -> RelayMetadata:
     return RelayMetadata(
         relay=relay,
         metadata=metadata,
-        metadata_type="nip11",
+        metadata_type="nip11_info",
         snapshot_at=1700000001
     )
 ```
@@ -400,13 +422,13 @@ async def test_finder_run(mock_brotr):
     finder = Finder(brotr=mock_brotr, config=config)
 
     # Mock database responses
-    mock_brotr.pool.fetch = AsyncMock(return_value=[])
+    mock_brotr.fetch = AsyncMock(return_value=[])
 
     # Execute
     await finder.run()
 
     # Verify
-    assert mock_brotr.pool.fetch.called
+    assert mock_brotr.fetch.called
 ```
 
 ### Model Test Pattern
@@ -441,7 +463,7 @@ def test_relay_creation():
 **test_pool.py**:
 ```python
 import pytest
-from core import Pool, PoolConfig
+from bigbrotr.core import Pool, PoolConfig
 
 async def test_pool_connect_success(mock_asyncpg_pool, monkeypatch):
     """Test successful pool connection."""
@@ -463,23 +485,23 @@ async def test_pool_fetch(mock_pool):
 **test_brotr.py**:
 ```python
 import pytest
-from core import Brotr
+from bigbrotr.core import Brotr
 
 async def test_insert_events(mock_brotr, sample_events_batch):
     """Test event insertion."""
-    mock_brotr.pool._mock_connection.executemany = AsyncMock()
+    mock_brotr.insert_events = AsyncMock()
 
     inserted, skipped = await mock_brotr.insert_events(sample_events_batch)
 
     assert inserted == 10
     assert skipped == 0
-    assert mock_brotr.pool._mock_connection.executemany.called
+    assert mock_brotr.insert_events.called
 ```
 
-**test_service.py**:
+**test_base_service.py**:
 ```python
 import pytest
-from core import BaseService
+from bigbrotr.core import BaseService
 from pydantic import BaseModel
 
 class TestConfig(BaseModel):
@@ -508,7 +530,7 @@ async def test_service_lifecycle(mock_brotr):
 **test_finder.py**:
 ```python
 import pytest
-from services.finder import Finder, FinderConfig
+from bigbrotr.services.finder import Finder, FinderConfig
 
 async def test_finder_find_from_events(mock_brotr):
     """Test event scanning."""
@@ -519,17 +541,17 @@ async def test_finder_find_from_events(mock_brotr):
     finder = Finder(brotr=mock_brotr, config=config)
 
     # Mock database responses
-    mock_brotr.pool.fetch = AsyncMock(return_value=[])
+    mock_brotr.fetch = AsyncMock(return_value=[])
 
     await finder._find_from_events()
 
-    assert mock_brotr.pool.fetch.called
+    assert mock_brotr.fetch.called
 ```
 
 **test_monitor.py**:
 ```python
 import pytest
-from services.monitor import Monitor, MonitorConfig
+from bigbrotr.services.monitor import Monitor, MonitorConfig
 
 async def test_monitor_process_relay(mock_brotr, sample_relay):
     """Test relay processing."""
@@ -549,7 +571,7 @@ async def test_monitor_process_relay(mock_brotr, sample_relay):
 **test_relay.py**:
 ```python
 import pytest
-from models import Relay
+from bigbrotr.models import Relay
 
 def test_relay_url_parsing():
     """Test URL parsing."""
@@ -576,9 +598,10 @@ def test_relay_to_db_params():
 **test_nip11.py**:
 ```python
 import pytest
-from models import Nip11, Relay, Metadata
+from bigbrotr.nips import Nip11
+from bigbrotr.models import Relay, Metadata
 
-async def test_nip11_fetch_success(monkeypatch):
+async def test_nip11_info_success(monkeypatch):
     """Test NIP-11 fetch."""
     relay = Relay("wss://relay.example.com")
 
@@ -659,6 +682,7 @@ open htmlcov/index.html
 - Core layer: 90%+ (critical infrastructure)
 - Service layer: 80%+ (business logic)
 - Model layer: 70%+ (mostly validation)
+- NIP layer: 70%+ (network-dependent)
 
 **Excluded**:
 - `__init__.py` files

@@ -210,7 +210,7 @@ Each service runs independently and can be scaled separately based on your needs
 ```bash
 # Clone repository
 git clone https://github.com/bigbrotr/bigbrotr.git
-cd bigbrotr/implementations/bigbrotr
+cd bigbrotr/deployments/bigbrotr
 
 # Configure
 cp .env.example .env
@@ -234,11 +234,11 @@ BigBrotr will:
 Create your own implementation by copying and modifying:
 
 ```bash
-cp -r implementations/bigbrotr implementations/myproject
-cd implementations/myproject
+cp -r deployments/bigbrotr deployments/myproject
+cd deployments/myproject
 
 # Customize:
-# - yaml/services/*.yaml (service configs)
+# - config/services/*.yaml (service configs)
 # - postgres/init/02_tables.sql (schema)
 # - docker-compose.yaml (ports, resources)
 ```
@@ -288,7 +288,7 @@ LIMIT 10;
 SELECT url, data->'supported_nips' as nips
 FROM relays r
 JOIN relay_metadata_latest rml ON r.url = rml.relay_url
-WHERE rml.type = 'nip11_fetch'
+WHERE rml.type = 'nip11_info'
   AND data->'supported_nips' @> '42';
 
 -- Events by kind distribution

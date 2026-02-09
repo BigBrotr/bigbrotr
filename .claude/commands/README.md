@@ -214,7 +214,7 @@ Claude: Applying 10 issues (18 fixes)...
            - src/services/monitor.py:156 ✓
 
         ✅ PG-001: Added missing index
-           - implementations/bigbrotr/postgres/init/08_indexes.sql:45 ✓
+           - deployments/bigbrotr/postgres/init/08_indexes.sql:45 ✓
         ...
 
         ## Summary

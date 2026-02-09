@@ -22,11 +22,11 @@ import pytest
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from core.brotr import Brotr
-from core.pool import Pool
-from models import EventRelay, Relay, RelayMetadata
-from models.event import Event
-from models.metadata import Metadata, MetadataType
+from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.pool import Pool
+from bigbrotr.models import EventRelay, Relay, RelayMetadata
+from bigbrotr.models.event import Event
+from bigbrotr.models.metadata import Metadata, MetadataType
 
 
 # ============================================================================
@@ -107,7 +107,7 @@ def mock_pool(
     mock_db_password: str,
 ) -> Pool:
     """Create a Pool with mocked internals."""
-    from core.pool import DatabaseConfig, PoolConfig
+    from bigbrotr.core.pool import DatabaseConfig, PoolConfig
 
     config = PoolConfig(
         database=DatabaseConfig(
@@ -188,7 +188,7 @@ def brotr_config_dict() -> dict[str, Any]:
             },
         },
         "batch": {
-            "max_batch_size": 500,
+            "max_size": 500,
         },
         "timeouts": {
             "query": 30.0,
@@ -275,7 +275,7 @@ def sample_metadata() -> RelayMetadata:
     """Sample RelayMetadata for testing."""
     relay = Relay("wss://relay.example.com", discovered_at=1700000000)
     metadata = Metadata(
-        type=MetadataType.NIP11_FETCH,
+        type=MetadataType.NIP11_INFO,
         value={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
     )
     return RelayMetadata(

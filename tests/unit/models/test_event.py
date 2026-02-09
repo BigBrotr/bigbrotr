@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from models.event import Event, EventDbParams
+from bigbrotr.models.event import Event, EventDbParams
 
 
 # =============================================================================
@@ -172,12 +172,12 @@ class TestConstruction:
     def test_construction_with_nostr_event(self, mock_nostr_event):
         """Event can be constructed with a NostrEvent."""
         event = Event(mock_nostr_event)
-        assert event._inner is mock_nostr_event
+        assert event._nostr_event is mock_nostr_event
 
     def test_construction_preserves_reference(self, mock_nostr_event):
         """Event stores reference to the original NostrEvent, not a copy."""
         event = Event(mock_nostr_event)
-        assert event._inner is mock_nostr_event
+        assert event._nostr_event is mock_nostr_event
 
 
 # =============================================================================
@@ -229,17 +229,17 @@ class TestImmutability:
     """Frozen dataclass behavior."""
 
     def test_attribute_mutation_blocked(self, mock_nostr_event):
-        """Setting _inner attribute should raise FrozenInstanceError."""
+        """Setting _nostr_event attribute should raise FrozenInstanceError."""
         event = Event(mock_nostr_event)
         new_mock = MagicMock()
         with pytest.raises(FrozenInstanceError):
-            event._inner = new_mock
+            event._nostr_event = new_mock
 
     def test_attribute_deletion_blocked(self, mock_nostr_event):
-        """Deleting _inner attribute should raise FrozenInstanceError."""
+        """Deleting _nostr_event attribute should raise FrozenInstanceError."""
         event = Event(mock_nostr_event)
         with pytest.raises(FrozenInstanceError):
-            del event._inner
+            del event._nostr_event
 
 
 # =============================================================================
@@ -250,16 +250,16 @@ class TestImmutability:
 class TestSlots:
     """__slots__ definition for memory efficiency."""
 
-    def test_has_inner_slot(self):
-        """Event should have _inner slot."""
+    def test_has_nostr_event_slot(self):
+        """Event should have _nostr_event slot."""
         assert hasattr(Event, "__slots__")
-        assert "_inner" in Event.__slots__
+        assert "_nostr_event" in Event.__slots__
 
     def test_no_instance_dict_in_class(self):
         """Event class should not have __dict__ in dir (uses slots)."""
         # Event uses __slots__, so it doesn't have its own __dict__ defined
         assert "__dict__" not in dir(Event)
-        assert "_inner" in Event.__slots__
+        assert "_nostr_event" in Event.__slots__
 
 
 # =============================================================================
@@ -333,6 +333,14 @@ class TestDelegation:
         result = event.some_future_method()
         assert result == "result"
         mock_nostr_event.some_future_method.assert_called_once()
+
+    def test_missing_attribute_raises_clear_error(self, mock_nostr_event):
+        """Missing attribute raises AttributeError referencing Event, not NostrEvent."""
+        event = Event(mock_nostr_event)
+        # Replace inner with a spec-restricted mock so unknown attrs raise
+        object.__setattr__(event, "_nostr_event", MagicMock(spec=["id", "kind", "content"]))
+        with pytest.raises(AttributeError, match="'Event' object has no attribute 'nonexistent'"):
+            _ = event.nonexistent
 
 
 # =============================================================================
@@ -568,13 +576,13 @@ class TestEdgeCases:
 class TestEquality:
     """Equality behavior based on frozen dataclass."""
 
-    def test_same_inner_equal(self, mock_nostr_event):
+    def test_same_nostr_event_equal(self, mock_nostr_event):
         """Events with same inner object are equal."""
         event1 = Event(mock_nostr_event)
         event2 = Event(mock_nostr_event)
         assert event1 == event2
 
-    def test_different_inner_not_equal(self, mock_nostr_event, mock_nostr_event_empty_tags):
+    def test_different_nostr_event_not_equal(self, mock_nostr_event, mock_nostr_event_empty_tags):
         """Events with different inner objects are not equal."""
         event1 = Event(mock_nostr_event)
         event2 = Event(mock_nostr_event_empty_tags)
