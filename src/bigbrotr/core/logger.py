@@ -27,6 +27,7 @@ Example:
     # Output: {"message": "started", "cycle": 1}
 """
 
+import datetime
 import json
 import logging
 from typing import Any, ClassVar
@@ -110,6 +111,7 @@ class Logger:
     def __init__(
         self,
         name: str,
+        *,
         json_output: bool = False,
         max_value_length: int | None = None,
     ) -> None:
@@ -128,9 +130,20 @@ class Logger:
         self._json_output = json_output
         self._max_value_length = max_value_length
 
-    def _format_json(self, msg: str, kwargs: dict[str, Any]) -> str:
-        """Format message and kwargs as a JSON string for cloud logging."""
-        return json.dumps({"message": msg, **kwargs}, default=str)
+    def _format_json(self, msg: str, level: str, kwargs: dict[str, Any]) -> str:
+        """Format message and kwargs as a JSON string for cloud logging.
+
+        Includes standard fields expected by log aggregators:
+        ``timestamp`` (ISO 8601), ``level``, ``service`` (logger name).
+        """
+        record = {
+            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+            "level": level,
+            "service": self._logger.name,
+            "message": msg,
+            **kwargs,
+        }
+        return json.dumps(record, default=str)
 
     def _make_extra(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Build the ``extra`` dict for structured log records.
@@ -156,41 +169,41 @@ class Logger:
     def debug(self, msg: str, **kwargs: Any) -> None:
         """Log a DEBUG level message with optional key=value pairs."""
         if self._json_output:
-            self._logger.debug(self._format_json(msg, kwargs))
+            self._logger.debug(self._format_json(msg, "debug", kwargs))
         else:
             self._logger.debug(msg, extra=self._make_extra(kwargs))
 
     def info(self, msg: str, **kwargs: Any) -> None:
         """Log an INFO level message with optional key=value pairs."""
         if self._json_output:
-            self._logger.info(self._format_json(msg, kwargs))
+            self._logger.info(self._format_json(msg, "info", kwargs))
         else:
             self._logger.info(msg, extra=self._make_extra(kwargs))
 
     def warning(self, msg: str, **kwargs: Any) -> None:
         """Log a WARNING level message with optional key=value pairs."""
         if self._json_output:
-            self._logger.warning(self._format_json(msg, kwargs))
+            self._logger.warning(self._format_json(msg, "warning", kwargs))
         else:
             self._logger.warning(msg, extra=self._make_extra(kwargs))
 
     def error(self, msg: str, **kwargs: Any) -> None:
         """Log an ERROR level message with optional key=value pairs."""
         if self._json_output:
-            self._logger.error(self._format_json(msg, kwargs))
+            self._logger.error(self._format_json(msg, "error", kwargs))
         else:
             self._logger.error(msg, extra=self._make_extra(kwargs))
 
     def critical(self, msg: str, **kwargs: Any) -> None:
         """Log a CRITICAL level message with optional key=value pairs."""
         if self._json_output:
-            self._logger.critical(self._format_json(msg, kwargs))
+            self._logger.critical(self._format_json(msg, "critical", kwargs))
         else:
             self._logger.critical(msg, extra=self._make_extra(kwargs))
 
     def exception(self, msg: str, **kwargs: Any) -> None:
         """Log an ERROR level message with exception traceback and optional key=value pairs."""
         if self._json_output:
-            self._logger.exception(self._format_json(msg, kwargs))
+            self._logger.exception(self._format_json(msg, "error", kwargs))
         else:
             self._logger.exception(msg, extra=self._make_extra(kwargs))

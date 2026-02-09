@@ -1,28 +1,30 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working with this repository.
 
-## Project Overview
+## Project
 
-BigBrotr is a modular Nostr relay data archiving and monitoring system. It discovers relays, validates connectivity, monitors health (NIP-11/NIP-66), and synchronizes events into PostgreSQL. Python 3.11+, fully async, strict mypy. Version 4.0.0. All code lives under the `bigbrotr` package namespace (`src/bigbrotr/`).
+BigBrotr is a Nostr relay discovery, monitoring, and event archiving system. Five async services form a pipeline: Seeder -> Finder -> Validator -> Monitor -> Synchronizer. Python 3.11+, PostgreSQL 16, asyncpg, strict mypy. All code under `src/bigbrotr/`.
 
 ## Commands
 
 ```bash
+# Quality (or use `make ci` to run all)
+ruff check src/ tests/                              # lint (zero errors expected)
+ruff format src/ tests/                             # format
+mypy src/bigbrotr                                   # strict type check
+
 # Tests
-pytest tests/ -v                                    # all tests (~1900)
+pytest tests/ -v                                    # all tests (~2050)
+pytest tests/ --ignore=tests/integration/ -v        # unit only
 pytest tests/unit/core/test_pool.py -v              # single file
-pytest tests/unit/core/test_pool.py::TestPool -v    # single class
 pytest -k "health_check" -v                         # pattern match
-pytest tests/ --cov=src/bigbrotr --cov-report=html  # coverage (85% minimum)
+pytest tests/ --cov=src/bigbrotr --cov-report=html  # coverage (80% minimum)
 
-# Linting & formatting
-ruff check src/ tests/                  # lint
-ruff check src/ tests/ --fix            # lint + auto-fix
-ruff format src/ tests/                 # format
-mypy src/bigbrotr                       # type check (strict mode)
+# Makefile shortcuts
+make lint / make format / make typecheck / make test / make test-fast / make coverage / make ci
 
-# All pre-commit hooks at once
+# Pre-commit
 pre-commit run --all-files
 
 # Run a service (from a deployment directory)
@@ -33,119 +35,147 @@ python -m bigbrotr finder --log-level DEBUG
 
 ## Architecture
 
-Diamond DAG, five packages. Imports flow downward only:
+Diamond DAG. Imports flow strictly downward:
 
 ```
-         services       src/bigbrotr/services/ — business logic (seeder, finder, validator, monitor, synchronizer)
-        /   |   \       src/bigbrotr/services/common/ — shared constants, mixins, SQL queries, configs
-     core  nips  utils  src/bigbrotr/core/ — pool, brotr, base_service, logger, yaml, metrics
-        \   |   /       src/bigbrotr/nips/ — NIP-11/NIP-66 protocol implementations (I/O, parsing)
-         models         src/bigbrotr/utils/ — dns, keys, transport
-                        src/bigbrotr/models/ — frozen dataclasses (pure, zero I/O, zero deps)
+              services         src/bigbrotr/services/
+             /   |   \
+          core  nips  utils    src/bigbrotr/{core,nips,utils}/
+             \   |   /
+              models           src/bigbrotr/models/
 ```
 
-**Models layer is pure** — zero I/O, zero package dependencies. Uses `import logging` + `logging.getLogger()`, not `bigbrotr.core.logger.Logger`. The `nips/` package was extracted from `models/` to separate protocol I/O from pure data.
+- **models**: Pure frozen dataclasses. Zero I/O, zero `bigbrotr` imports. Uses `import logging` + `logging.getLogger()`.
+- **core**: Pool, Brotr, BaseService, Exceptions, Logger, Metrics, YAML loader. Depends only on models.
+- **nips**: NIP-11 (relay info fetch/parse), NIP-66 (RTT, SSL, DNS, Geo, Net, HTTP). Has I/O. Depends on models, utils, core.
+- **utils**: DNS resolution, Nostr key management, WebSocket/HTTP transport, SOCKS5 proxy. Depends only on models.
+- **services**: Business logic. Depends on core, nips, utils, models.
 
-### Key components
+### Key Files
 
-- **Pool** (`src/bigbrotr/core/pool.py`): async PostgreSQL connection pool via asyncpg with retry/backoff
-- **Brotr** (`src/bigbrotr/core/brotr.py`): high-level DB facade wrapping stored procedures. Generic -- zero domain SQL. Services call `self._brotr.fetch()`, `fetchrow()`, `fetchval()`, `execute()`, `transaction()`
-- **BaseService** (`src/bigbrotr/core/base_service.py`): abstract base with `run()` cycle, `run_forever()` loop, graceful shutdown, factory methods (`from_yaml`, `from_dict`)
-- **yaml** (`src/bigbrotr/core/yaml.py`): YAML loading utilities (moved from utils to core)
-- **nips** (`src/bigbrotr/nips/`): NIP protocol implementations -- `nip11/` (relay info document fetch/parse), `nip66/` (relay monitoring metadata: dns, geo, http, net, rtt, ssl). Contains I/O and parsing logic, depends on models/utils/core
-- **services/common/** (`src/bigbrotr/services/common/`): `constants.py` (ServiceName, DataType StrEnums), `mixins.py` (BatchProgress, semaphores), `queries.py` (13 domain SQL functions), `configs.py` (network Pydantic models)
+| File | Role |
+|------|------|
+| `core/pool.py` | asyncpg connection pool with retry/backoff, health-checked acquisition |
+| `core/brotr.py` | High-level DB facade. Wraps stored procedures via `_call_procedure()`. Generic query methods: `fetch()`, `fetchrow()`, `fetchval()`, `execute()`, `transaction()` |
+| `core/base_service.py` | Abstract base: `run()` cycle, `run_forever()` loop, graceful shutdown, `from_yaml()`/`from_dict()` factories |
+| `core/exceptions.py` | `BigBrotrError` hierarchy: `ConfigurationError`, `DatabaseError` (`ConnectionPoolError`, `QueryError`), `ConnectivityError` (`RelayTimeoutError`, `RelaySSLError`), `ProtocolError`, `PublishingError` |
+| `core/logger.py` | Structured key=value logging. JSON output mode with timestamp/level/service. `format_kv_pairs()` utility. |
+| `core/metrics.py` | Prometheus `/metrics` endpoint. 4 metric types: `SERVICE_INFO`, `SERVICE_GAUGE`, `SERVICE_COUNTER`, `CYCLE_DURATION_SECONDS` |
+| `models/relay.py` | URL validation (rfc3986), network detection (clearnet/tor/i2p/loki/local), local IP rejection |
+| `models/metadata.py` | Content-addressed metadata. SHA-256 hash, canonical JSON, `MetadataType` enum (7 types) |
+| `models/service_state.py` | `ServiceState`, `ServiceStateKey`, `StateType` (StrEnum), `EventKind` (IntEnum). Moved from services/common for DAG compliance. |
+| `services/monitor.py` | Health check orchestration (~600 lines) |
+| `services/monitor_publisher.py` | Nostr event broadcasting: kind 0, 10166, 30166 (~230 lines) |
+| `services/monitor_tags.py` | NIP-66 tag building for kind 30166 events (~280 lines) |
+| `services/common/queries.py` | 13 domain SQL query functions |
+| `services/common/constants.py` | `ServiceName`, `DataType` StrEnums |
+| `services/common/mixins.py` | `BatchProgress` dataclass |
+| `services/common/configs.py` | Network config Pydantic models (clearnet/tor/i2p/loki) |
+| `utils/transport.py` | `connect_relay()`, `is_nostr_relay()`, `create_client()`, `InsecureWebSocketTransport` |
+| `utils/keys.py` | `load_keys_from_env()`, `KeysConfig` Pydantic model |
+| `__main__.py` | CLI entry point. Service registry with `ServiceEntry` NamedTuples. |
 
-### Service pipeline
+### Service Pipeline
 
-Seeder (one-shot, seeds URLs) -> Finder (discovers more) -> Validator (tests connectivity, promotes to relays table) -> Monitor (NIP-11/NIP-66 health checks) -> Synchronizer (collects events via aiomultiprocess)
+```
+Seeder (one-shot) -> Finder (discovers from events + APIs) -> Validator (WebSocket test, promotes to relay table)
+-> Monitor (NIP-11 + NIP-66 health checks, publishes kind 10166/30166) -> Synchronizer (event collection, cursor-based)
+```
 
 ### Deployments
 
-Deployment configurations live in `deployments/{bigbrotr,lilbrotr,_template}/` (renamed from `implementations/`). Each deployment contains:
-- `config/brotr.yaml` -- core Brotr configuration
-- `config/services/*.yaml` -- per-service configuration (flattened from former `yaml/` directory)
-- `postgres/init/*.sql` -- database schema and stored procedures
-- `static/seed_relays.txt` -- seed relay URLs
-- `docker-compose.yml` -- Docker orchestration
+Directory: `deployments/{bigbrotr,lilbrotr,_template}/`
+
+Each deployment contains:
+- `config/brotr.yaml` -- Pool, batch, timeouts
+- `config/services/*.yaml` -- Per-service config
+- `postgres/init/*.sql` -- 10 SQL files, 22 stored functions (all `SECURITY INVOKER`)
+- `docker-compose.yaml` -- Full stack with resource limits, 2 networks (data + monitoring)
+- `monitoring/` -- Prometheus config + alerting rules + Grafana provisioning
+
+Single parametric Dockerfile: `deployments/Dockerfile` with `ARG DEPLOYMENT`
 
 ## Import Conventions
 
 ```python
-# Inside same package: relative
+# Same package: relative
 from .logger import Logger
 from .common.constants import DataType, ServiceName
 
-# Cross-package: absolute with bigbrotr prefix
+# Cross-package: absolute
 from bigbrotr.core.logger import Logger
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
-from bigbrotr.core.yaml import load_yaml
+from bigbrotr.core.exceptions import ConnectivityError, RelayTimeoutError
 from bigbrotr.models.constants import NetworkType
+from bigbrotr.models.service_state import ServiceState, EventKind, StateType
 from bigbrotr.nips.nip11 import Nip11
-from bigbrotr.nips.nip66 import Nip66
-from bigbrotr.utils.dns import resolve_host
-from bigbrotr.utils.transport import is_nostr_relay
+from bigbrotr.utils.transport import connect_relay, is_nostr_relay
 
-# Models layer: stdlib logging only (zero deps)
+# Models layer: stdlib only
 import logging
 logger = logging.getLogger(__name__)
 
-# Tests: package installed via pip install -e ".[dev]"
-from bigbrotr.core.logger import Logger, format_kv_pairs
+# Tests
+from bigbrotr.core.logger import Logger
 from bigbrotr.models.event import Event
-from bigbrotr.nips.nip11 import Nip11
 ```
 
-## Database Conventions
+**Rules**: `ban-relative-imports = "parents"` (only sibling-relative allowed). `known-first-party = ["bigbrotr"]`.
 
-- metadata table column: `value` (NOT `metadata`)
-- relay_metadata column: `metadata_type` (NOT `type`)
-- No CHECK constraints -- validation in Python enum layer
-- Hash computed in Python (no pgcrypto)
-- All mutations via stored procedures with bulk array params (`relays_insert`, `events_insert`, `metadata_insert`, etc.)
-- Cascade functions: `events_relays_insert_cascade`, `relay_metadata_insert_cascade`
-- `Brotr._pool` is private -- services never access pool directly
+## Database
+
+- **Tables**: `relay`, `event`, `event_relay`, `metadata`, `relay_metadata`, `service_state`
+- **Column names**: metadata table uses `payload` (NOT `value`). relay_metadata uses `metadata_type` (NOT `type`).
+- **No CHECK constraints** -- validation in Python enum layer
+- **Hash** computed in Python (SHA-256, no pgcrypto)
+- **All mutations** via stored procedures with bulk array parameters
+- **22 functions**: 1 utility (`tags_to_tagvalues`), 10 CRUD, 3 cleanup (batched), 8 refresh. All `SECURITY INVOKER`.
+- **7 materialized views**: `relay_metadata_latest`, `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay`
+- **Cascade functions**: `event_relay_insert_cascade` (relay + event + junction), `relay_metadata_insert_cascade` (relay + metadata + junction)
+- **`Brotr._pool` is private** -- services use Brotr methods, never pool directly
 
 ## Model Patterns
 
-- ALL models are `@dataclass(frozen=True)` -- immutable
+- ALL models `@dataclass(frozen=True, slots=True)` -- immutable
 - ALL models cache `to_db_params()` in `__post_init__` via `_db_params` field
-- Pattern: `_compute_db_params()` (private) -> cached in `self._db_params` -> `to_db_params()` returns it
-- NetworkType lives in `src/bigbrotr/models/constants.py` (not utils)
-- MetadataType lives in `src/bigbrotr/models/metadata.py`
-- Models package is pure -- zero I/O, no nips subpackage. NIP protocol logic lives in `bigbrotr.nips`
+- Pattern: `_compute_db_params()` -> cached `_db_params` -> `to_db_params()` returns it
+- `object.__setattr__` in `__post_init__` (frozen workaround)
+- `from_db_params()` classmethod reconstructs from DB params
+- `NetworkType` in `models/constants.py`, `MetadataType` in `models/metadata.py`
+- `ServiceState`, `ServiceStateKey`, `StateType`, `EventKind` in `models/service_state.py`
 
-## Testing Patterns
+## Testing
 
-- pytest with `asyncio_mode = "auto"` -- no need for `@pytest.mark.asyncio`
-- conftest.py provides: `mock_pool`, `mock_brotr`, `mock_connection`, `sample_event`, `sample_relay`, `sample_metadata`, etc.
+- pytest with `asyncio_mode = "auto"` -- no `@pytest.mark.asyncio`
+- Global timeout: `--timeout=120` in addopts
+- Coverage threshold: `fail_under = 80` (branch coverage)
+- Shared fixtures: `tests/fixtures/relays.py` registered via `pytest_plugins = ["tests.fixtures.relays"]`
+- Root conftest provides: `mock_pool`, `mock_brotr`, `mock_connection`, `sample_event`, `sample_relay`, `sample_metadata`, etc.
 - Mock targets use `bigbrotr.` prefix: `@patch("bigbrotr.services.validator.is_nostr_relay")`
-- Service tests mock query functions at the service module namespace (NOT `bigbrotr.core.queries.*`)
+- Service tests mock query functions at service module namespace
 - `time.monotonic()` for durations, `time.time()` for Unix timestamps
+- 2049 unit tests + 8 integration tests (testcontainers PostgreSQL)
 
 ## Code Style
 
-- **ruff** for linting + formatting, line length 100, target Python 3.11
-- **mypy strict** on `src/bigbrotr`
-- Conventional commits: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
-- ruff format auto-runs on commit via pre-commit -- re-stage after format changes
-- `debug-statements` pre-commit hook uses Python 3.9 AST -- NO `match/case` in hook scripts
-- `ban-relative-imports = "parents"` -- only sibling-relative imports allowed
-- `known-first-party = ["bigbrotr"]`
+- **ruff**: lint + format, line-length 100, target py311
+- **mypy**: strict on `src/bigbrotr`
+- **Commits**: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
+- Pre-commit auto-formats on commit -- re-stage after changes
+- `debug-statements` hook uses Python 3.9 AST -- no `match/case` in hook scripts
 
-## Service Registry
+## CLI
 
-- Entry point: `bigbrotr.__main__:cli` (console_scripts: `bigbrotr = "bigbrotr.__main__:cli"`)
-- CLI: `python -m bigbrotr <service> [options]`
-- `ServiceEntry` NamedTuple in `src/bigbrotr/__main__.py` -- access via `entry.cls`, `entry.config_path`
-- Registry keys use `ServiceName.SEEDER`, etc.
-- Config paths: `config/brotr.yaml`, `config/services/<service>.yaml`
-- Config: `BrotrConfig` has 2 fields: `batch` (BatchConfig), `timeouts` (BrotrTimeoutsConfig)
-- Lifecycle: `async with brotr:` then `async with service:`
+- Entry point: `bigbrotr.__main__:cli`
+- `python -m bigbrotr <service> [--config PATH] [--brotr-config PATH] [--log-level LEVEL] [--once]`
+- Config defaults: `config/brotr.yaml`, `config/services/<service>.yaml`
+- `BrotrConfig`: `batch` (BatchConfig), `timeouts` (BrotrTimeoutsConfig: query=60s, batch=120s, cleanup=90s, refresh=None)
+- Lifecycle: `async with brotr:` then `async with service:` then `service.run_forever()` or `service.run()`
 
-## Closed Design Issues (won't-fix)
+## Closed Design Issues
 
 - Logger can't use `__slots__` -- breaks `unittest.mock.patch.object()`
-- Relay.from_db_params always re-parses URL in `__post_init__` -- by design for safety
+- `Relay.from_db_params` always re-parses URL in `__post_init__` -- by design for safety
 - `_parse_delete_result` parses asyncpg `'DELETE N'` strings -- no structured alternative
-- Monitor keys validation at config load time via `model_validator` -- fail-fast by design
+- Monitor keys validation at config load via `model_validator` -- fail-fast by design
 - Type annotations on generic subclasses -- necessary for mypy type narrowing

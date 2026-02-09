@@ -1,764 +1,375 @@
 # Development Guide
 
-This document provides comprehensive guidance for developing and contributing to BigBrotr.
-
-## Table of Contents
-
-- [Development Setup](#development-setup)
-- [Project Structure](#project-structure)
-- [Running Tests](#running-tests)
-- [Code Quality](#code-quality)
-- [Adding New Services](#adding-new-services)
-- [Working with the Database](#working-with-the-database)
-- [Debugging](#debugging)
-- [Contributing](#contributing)
+Setup, testing, code quality, and contribution guidelines for BigBrotr development.
 
 ---
 
-## Development Setup
-
-### Prerequisites
-
-- Python 3.11 or higher
-- Docker and Docker Compose (for database)
-- Git
-
-### Initial Setup
+## Quick Start
 
 ```bash
-# Clone repository
+# Clone and install
 git clone https://github.com/bigbrotr/bigbrotr.git
 cd bigbrotr
-
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# or: .venv\Scripts\activate  # Windows
-
-# Install all dependencies
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
 # Install pre-commit hooks
 pre-commit install
 
-# Verify installation
-python -c "from bigbrotr.core import Pool, Brotr, BaseService, Logger; print('OK')"
+# Run all checks
+make ci
 ```
 
-### Environment Configuration
+---
 
-```bash
-# Set database password for tests
-export DB_PASSWORD=test_password
+## Prerequisites
 
-# Optional: Set for NIP-66 write tests
-export PRIVATE_KEY=your_hex_private_key
-```
-
-### Running Local Database
-
-```bash
-# Start database only
-cd deployments/bigbrotr
-docker-compose up -d postgres pgbouncer
-
-# Verify database
-docker-compose exec postgres psql -U admin -d bigbrotr -c "\dt"
-```
+- Python 3.11+ (tested on 3.11, 3.12, 3.13, 3.14)
+- Git
+- PostgreSQL 16+ (for integration tests, or use Docker)
 
 ---
 
 ## Project Structure
 
-```
+```text
 bigbrotr/
-├── src/
-│   └── bigbrotr/                     # Main package
-│       ├── __init__.py               # Package root (v4.0.0)
-│       ├── __main__.py               # CLI entry point
-│       ├── py.typed                  # PEP 561 marker
-│       │
-│       ├── core/                     # Foundation layer
-│       │   ├── __init__.py           # Exports: Pool, Brotr, BaseService, Logger, etc.
-│       │   ├── pool.py               # PostgreSQL connection pool
-│       │   ├── brotr.py              # Database interface
-│       │   ├── base_service.py       # Abstract service base
-│       │   ├── metrics.py            # Prometheus metrics endpoint
-│       │   ├── logger.py             # Structured key=value logging
-│       │   └── yaml.py               # YAML loading utilities
-│       │
-│       ├── models/                   # Pure data models layer
-│       │   ├── __init__.py           # Exports: Event, Relay, Metadata, etc.
-│       │   ├── event.py              # Immutable wrapper for nostr_sdk.Event
-│       │   ├── event_relay.py        # Junction model: Event <-> Relay
-│       │   ├── relay.py              # Validated Nostr relay URL
-│       │   ├── metadata.py           # Content-addressed metadata payload
-│       │   ├── relay_metadata.py     # Junction: Relay <-> Metadata
-│       │   └── constants.py          # NetworkType, MetadataType
-│       │
-│       ├── nips/                     # NIP protocol models
-│       │   ├── __init__.py
-│       │   ├── base.py              # Base NIP model
-│       │   ├── parsing.py           # NIP data parsing utilities
-│       │   ├── nip11/               # NIP-11 relay information
-│       │   │   ├── __init__.py
-│       │   │   ├── nip11.py
-│       │   │   ├── data.py
-│       │   │   ├── fetch.py
-│       │   │   └── logs.py
-│       │   └── nip66/               # NIP-66 relay monitoring
-│       │       ├── __init__.py
-│       │       ├── nip66.py
-│       │       ├── data.py
-│       │       ├── dns.py
-│       │       ├── geo.py
-│       │       ├── http.py
-│       │       ├── logs.py
-│       │       ├── net.py
-│       │       ├── rtt.py
-│       │       └── ssl.py
-│       │
-│       ├── utils/                    # Shared utilities
-│       │   ├── __init__.py
-│       │   ├── dns.py               # DNS resolution utilities
-│       │   ├── keys.py              # Key loading from environment
-│       │   ├── network.py           # NetworkConfig
-│       │   └── transport.py         # Transport/client creation
-│       │
-│       └── services/                 # Service layer
-│           ├── __init__.py           # Public API for services
-│           ├── seeder.py             # Database bootstrap and seeding
-│           ├── finder.py             # Relay URL discovery
-│           ├── validator.py          # Candidate relay validation
-│           ├── monitor.py            # Health monitoring (NIP-11/NIP-66)
-│           ├── synchronizer.py       # Event synchronization
-│           └── common/               # Shared service infrastructure
-│               ├── __init__.py
-│               ├── constants.py      # ServiceName, DataType enums
-│               ├── mixins.py         # BatchProgressMixin, NetworkSemaphoreMixin
-│               └── queries.py        # Domain-specific SQL queries
-│
-├── deployments/                      # Deployment configurations
-│   ├── bigbrotr/                     # Full-featured deployment
-│   │   ├── config/                   # Configuration files
-│   │   │   ├── brotr.yaml            # Core database config
-│   │   │   └── services/             # Per-service config
-│   │   │       ├── finder.yaml
-│   │   │       ├── monitor.yaml
-│   │   │       ├── synchronizer.yaml
-│   │   │       └── validator.yaml
-│   │   ├── postgres/init/            # SQL schema (full storage)
-│   │   ├── static/seed_relays.txt    # 8,865 seed relay URLs
-│   │   ├── pgbouncer/                # PGBouncer config
-│   │   ├── docker-compose.yaml       # Ports: 5432, 6432, 9050
-│   │   ├── Dockerfile
-│   │   └── .env.example
-│   │
-│   └── lilbrotr/                     # Lightweight deployment
-│       ├── config/                   # Minimal config overrides
-│       ├── postgres/init/            # SQL schema (no tags/content)
-│       ├── docker-compose.yaml       # Ports: 5433, 6433, 9051
-│       └── Dockerfile
-│
-├── tests/                            # Test suite
-│   ├── conftest.py                   # Shared fixtures
-│   ├── integration/                  # Integration tests
-│   │   └── __init__.py
-│   └── unit/                         # Unit tests
-│       ├── __init__.py
-│       ├── core/                     # Core layer tests
-│       │   ├── test_pool.py
-│       │   ├── test_brotr.py
-│       │   ├── test_base_service.py
-│       │   ├── test_metrics.py
-│       │   ├── test_logger.py
-│       │   └── test_yaml.py
-│       ├── models/                   # Models layer tests
-│       │   ├── test_event.py
-│       │   ├── test_relay.py
-│       │   ├── test_event_relay.py
-│       │   ├── test_metadata.py
-│       │   └── test_relay_metadata.py
-│       ├── nips/                     # NIP model tests
-│       │   ├── test_base.py
-│       │   ├── test_parsing.py
-│       │   ├── nip11/
-│       │   │   ├── test_nip11.py
-│       │   │   ├── test_data.py
-│       │   │   ├── test_fetch.py
-│       │   │   └── test_logs.py
-│       │   └── nip66/
-│       │       ├── test_nip66.py
-│       │       ├── test_data.py
-│       │       ├── test_dns.py
-│       │       ├── test_geo.py
-│       │       ├── test_http.py
-│       │       ├── test_logs.py
-│       │       ├── test_net.py
-│       │       ├── test_rtt.py
-│       │       └── test_ssl.py
-│       ├── services/                 # Services layer tests
-│       │   ├── common/               # services/common tests
-│       │   │   ├── test_constants.py
-│       │   │   ├── test_mixins.py
-│       │   │   └── test_queries.py
-│       │   ├── test_progress.py
-│       │   ├── test_seeder.py
-│       │   ├── test_finder.py
-│       │   ├── test_validator.py
-│       │   ├── test_monitor.py
-│       │   ├── test_synchronizer.py
-│       │   └── test_main.py
-│       └── utils/                    # Utils layer tests
-│           ├── test_dns.py
-│           ├── test_keys.py
-│           ├── test_network.py
-│           └── test_transport.py
-│
-├── tools/                            # Development utilities
-│   ├── generate_sql.py               # SQL generation from templates
-│   └── templates/sql/                # SQL Jinja2 templates
-│
-├── docs/                             # Documentation
-│   ├── OVERVIEW.md
-│   ├── ARCHITECTURE.md
-│   ├── CONFIGURATION.md
-│   ├── DATABASE.md
-│   ├── DEVELOPMENT.md
-│   └── TECHNICAL.md
-│
-├── .github/                          # GitHub configuration
-│   ├── workflows/ci.yml              # CI pipeline
-│   ├── ISSUE_TEMPLATE/               # Issue templates
-│   └── PULL_REQUEST_TEMPLATE.md
-│
-├── CHANGELOG.md                      # Version history
-├── CONTRIBUTING.md                   # Contribution guide
-├── SECURITY.md                       # Security policy
-├── CODE_OF_CONDUCT.md                # Code of conduct
-├── pyproject.toml                    # Project config and dependencies
-├── .pre-commit-config.yaml           # Pre-commit hooks
-├── .gitignore
-└── README.md
++-- src/bigbrotr/                     # Source package
+|   +-- __init__.py
+|   +-- __main__.py                   # CLI entry point
+|   +-- core/                         # Pool, Brotr, BaseService, Logger, Metrics, YAML
+|   |   +-- exceptions.py             # Exception hierarchy (BigBrotrError)
+|   +-- models/                       # Frozen dataclasses (pure, zero I/O)
+|   |   +-- service_state.py          # ServiceState, ServiceStateKey
+|   +-- nips/                         # NIP-11 and NIP-66 protocol I/O
+|   |   +-- nip11/                    # Relay info document fetch/parse
+|   |   +-- nip66/                    # Monitoring: dns, geo, http, net, rtt, ssl
+|   +-- services/                     # Business logic (5 services)
+|   |   +-- monitor.py                # Health check orchestration (~600 lines)
+|   |   +-- monitor_publisher.py      # Nostr event broadcasting (~230 lines)
+|   |   +-- monitor_tags.py           # NIP-66 tag building (~280 lines)
+|   |   +-- common/                   # Shared constants, configs, queries, mixins
+|   +-- utils/                        # DNS, keys, transport helpers
++-- tests/
+|   +-- conftest.py                   # Root fixtures (mock_pool, mock_brotr, etc.)
+|   +-- fixtures/
+|   |   +-- relays.py                 # Shared relay fixtures (registered via pytest_plugins)
+|   +-- unit/                         # Unit tests mirroring src/ structure
+|   |   +-- core/
+|   |   +-- models/
+|   |   +-- nips/
+|   |   +-- services/
+|   |   +-- utils/
+|   +-- integration/                  # Integration tests (require database)
++-- deployments/
+|   +-- Dockerfile                    # Single parametric Dockerfile
+|   +-- bigbrotr/                     # Full-featured deployment
+|   +-- lilbrotr/                     # Lightweight deployment
+|   +-- _template/                    # Template for new deployments
++-- docs/                             # Documentation
++-- .github/                          # CI/CD workflows
++-- Makefile                          # Development commands
++-- pyproject.toml                    # Project configuration
++-- .pre-commit-config.yaml           # Pre-commit hooks
 ```
-
-### Key Files
-
-| File | Purpose |
-|------|---------|
-| `src/bigbrotr/core/__init__.py` | Public API for core layer |
-| `src/bigbrotr/services/__init__.py` | Public API for services |
-| `src/bigbrotr/__main__.py` | CLI entry point (`python -m bigbrotr`) |
-| `pyproject.toml` | Project metadata, tool configuration |
-| `conftest.py` | Shared pytest fixtures |
 
 ---
 
-## Running Tests
+## Development Commands
 
-### All Tests
+### Makefile Targets
 
 ```bash
-# Run all unit tests
-pytest tests/ -v
+make lint           # ruff check src/ tests/
+make format         # ruff format src/ tests/
+make typecheck      # mypy src/bigbrotr
+make test           # pytest (excluding integration tests)
+make test-fast      # pytest -m "not slow"
+make coverage       # pytest with HTML coverage report
+make ci             # All checks: lint + format + typecheck + test
 
-# Run with coverage report
-pytest tests/ --cov=src/bigbrotr --cov-report=html
+make docker-build   # Build Docker image (DEPLOYMENT=bigbrotr)
+make docker-up      # Start Docker stack
+make docker-down    # Stop Docker stack
 
-# Open coverage report
-open htmlcov/index.html  # macOS
-xdg-open htmlcov/index.html  # Linux
+make clean          # Remove build artifacts and caches
 ```
 
-### Specific Tests
+### Direct Commands
 
 ```bash
-# Run single test file
+# Run specific tests
 pytest tests/unit/core/test_pool.py -v
-
-# Run single test class
 pytest tests/unit/core/test_pool.py::TestPool -v
-
-# Run single test method
-pytest tests/unit/core/test_pool.py::TestPool::test_init_with_defaults -v
-
-# Run tests matching pattern
 pytest -k "health_check" -v
 
-# Run tests with specific marker
-pytest -m "not slow" -v
+# Coverage with HTML report
+pytest tests/ --cov=src/bigbrotr --cov-report=html
+
+# Lint with auto-fix
+ruff check src/ tests/ --fix
+ruff format src/ tests/
+
+# Type check
+mypy src/bigbrotr
+
+# All pre-commit hooks
+pre-commit run --all-files
+
+# Run a service locally (from deployment directory)
+cd deployments/bigbrotr
+python -m bigbrotr seeder --once
+python -m bigbrotr finder --log-level DEBUG
 ```
 
-### Test Options
+---
+
+## Testing
+
+### Configuration
+
+From `pyproject.toml`:
+
+- **Test runner**: pytest with `asyncio_mode = "auto"` (no `@pytest.mark.asyncio` needed)
+- **Timeout**: 120s global (`--timeout=120`)
+- **Markers**: `slow`, `integration`, `unit`
+- **Coverage**: Branch coverage, 80% minimum (`fail_under = 80`)
+
+### Test Structure
+
+Tests mirror the source package layout:
+
+```text
+tests/unit/
++-- core/           # test_pool.py, test_brotr.py, test_logger.py, test_metrics.py, ...
++-- models/         # test_event.py, test_relay.py, test_metadata.py, ...
++-- nips/
+|   +-- nip11/      # test_fetch.py, test_data.py, test_nip11.py, ...
+|   +-- nip66/      # test_rtt.py, test_ssl.py, test_dns.py, test_geo.py, ...
++-- services/       # test_finder.py, test_validator.py, test_monitor.py, ...
+|   +-- common/     # test_constants.py, test_queries.py, test_mixins.py
++-- utils/          # test_dns.py, test_keys.py, test_transport.py, ...
+```
+
+### Fixtures
+
+**Root conftest** (`tests/conftest.py`): `mock_pool`, `mock_brotr`, `mock_connection`, `sample_event`, `sample_relay`, `sample_metadata`, `create_mock_record()`
+
+**Shared relay fixtures** (`tests/fixtures/relays.py`, registered via `pytest_plugins`):
+
+- `relay_clearnet`, `relay_clearnet_with_port`, `relay_clearnet_ws`
+- `relay_tor`, `relay_i2p`, `relay_loki`, `relay_ipv6`
+- `relay_overlay` (parametrized: tor/i2p/loki)
+- `relay_batch` (10 clearnet relays)
+
+### Mocking Patterns
+
+```python
+# Mock at the service module namespace (not core.queries)
+@patch("bigbrotr.services.validator.is_nostr_relay")
+async def test_validation(mock_is_nostr):
+    mock_is_nostr.return_value = True
+    ...
+
+# Mock Brotr methods for database operations
+mock_brotr.fetch.return_value = [mock_record]
+mock_brotr.fetchval.return_value = 42
+mock_brotr.execute.return_value = "DELETE 5"
+```
+
+### Running Tests
 
 ```bash
-# Verbose output
-pytest -v
+# All unit tests
+pytest tests/ -v
 
-# Show print statements
-pytest -s
+# Skip slow tests
+pytest -m "not slow" -v
 
-# Stop on first failure
-pytest -x
+# Single file or class
+pytest tests/unit/core/test_pool.py -v
+pytest tests/unit/core/test_pool.py::TestPoolRetry -v
 
-# Run last failed tests
-pytest --lf
+# Pattern matching
+pytest -k "test_health_check" -v
 
-# Parallel execution (requires pytest-xdist)
-pytest -n auto
+# Integration tests (requires database)
+pytest tests/integration/ -v
 
-# With timeout
-pytest --timeout=60
-```
-
-### Test Markers
-
-```python
-# In test file
-@pytest.mark.slow
-def test_slow_operation():
-    ...
-
-@pytest.mark.integration
-def test_database_integration():
-    ...
-
-# Run with markers
-pytest -m "not slow"
-pytest -m "integration"
-```
-
-### Test Fixtures
-
-Common fixtures are defined in `conftest.py`:
-
-```python
-# Mock asyncpg pool
-@pytest.fixture
-def mock_asyncpg_pool() -> MagicMock:
-    ...
-
-# Mock Pool with injected asyncpg
-@pytest.fixture
-def mock_connection_pool(mock_asyncpg_pool, monkeypatch) -> Pool:
-    ...
-
-# Mock Brotr with mock Pool
-@pytest.fixture
-def mock_brotr(mock_connection_pool) -> Brotr:
-    ...
-
-# Sample data fixtures
-@pytest.fixture
-def sample_event() -> dict:
-    ...
-
-@pytest.fixture
-def sample_relay() -> dict:
-    ...
-
-@pytest.fixture
-def sample_metadata() -> dict:
-    ...
+# Coverage report
+pytest tests/ --cov=src/bigbrotr --cov-report=html
+open htmlcov/index.html
 ```
 
 ---
 
 ## Code Quality
 
-### Linting with Ruff
+### Ruff (Linting and Formatting)
 
-```bash
-# Check for issues
-ruff check src/ tests/
+- **Line length**: 100
+- **Target**: Python 3.11
+- **Source paths**: `src/`, `tests/`
+- **26 enabled rule categories** including: E, W, F, I, B, C4, UP, ARG, SIM, TCH, S (Bandit), PT (pytest), N (naming), T20 (print), ASYNC, FBT, FURB
 
-# Auto-fix issues
-ruff check src/ tests/ --fix
+Key rules:
 
-# Show all violations
-ruff check src/ tests/ --show-fixes
-```
+- `ban-relative-imports = "parents"` -- only sibling-relative imports allowed
+- `known-first-party = ["bigbrotr"]`
+- Tests have relaxed rules (S101, E501, PLR0913, FBT, etc.)
 
-### Formatting with Ruff
+### mypy (Type Checking)
 
-```bash
-# Format code
-ruff format src/ tests/
-
-# Check formatting (no changes)
-ruff format src/ tests/ --check
-
-# Show diff
-ruff format src/ tests/ --diff
-```
-
-### Type Checking with MyPy
-
-```bash
-# Check types
-mypy src/
-
-# Strict mode
-mypy src/ --strict
-
-# Show error codes
-mypy src/ --show-error-codes
-```
+- **Strict mode** enabled on `src/bigbrotr`
+- External libraries with missing stubs are configured with `ignore_missing_imports`
+- Special override: `bigbrotr.utils.transport` allows `allow_subclassing_any = true`
 
 ### Pre-commit Hooks
 
-```bash
-# Run all hooks on staged files
-pre-commit run
+All hooks run automatically on `git commit`. The full set:
 
-# Run all hooks on all files
+| Hook | Purpose |
+|------|---------|
+| trailing-whitespace, end-of-file-fixer | Whitespace cleanup |
+| check-yaml, check-json, check-toml | Config file validation |
+| check-added-large-files (1 MB) | Prevent large file commits |
+| detect-private-key, detect-secrets | Secret detection |
+| ruff, ruff-format | Python lint + format |
+| mypy | Type checking |
+| yamllint | YAML linting |
+| markdownlint | Markdown linting (MD013, MD033, MD041 disabled) |
+| hadolint | Dockerfile linting |
+| sqlfluff-fix | SQL formatting |
+
+Run all hooks manually:
+
+```bash
 pre-commit run --all-files
-
-# Run specific hook
-pre-commit run ruff --all-files
-pre-commit run mypy --all-files
-
-# Update hooks
-pre-commit autoupdate
 ```
 
-### Configured Hooks
+### SQL Formatting
 
-From `.pre-commit-config.yaml`:
-
-1. **pre-commit-hooks**: trailing whitespace, end-of-file, YAML/JSON check
-2. **ruff**: linting and formatting
-3. **mypy**: type checking
-4. **yamllint**: YAML linting
-5. **detect-secrets**: secret detection
+- **Dialect**: PostgreSQL
+- **Tool**: sqlfluff
+- **Keywords**: UPPER, identifiers: lower, types: UPPER
+- **Max line length**: 150
+- **Tab size**: 4 spaces
 
 ---
 
-## Adding New Services
+## Architecture Rules
 
-### 1. Create Service File
+### Diamond DAG
+
+Imports flow downward only:
+
+```text
+         services
+        /   |   \
+     core  nips  utils
+        \   |   /
+         models
+```
+
+- **models**: Pure -- zero I/O, zero package dependencies, stdlib `logging` only
+- **core**: Depends only on models
+- **utils**: Depends only on models
+- **nips**: Depends on models and utils (has I/O: HTTP, DNS, SSL, WebSocket, GeoIP)
+- **services**: Depends on all layers above
+
+### Import Conventions
 
 ```python
-# src/bigbrotr/services/myservice.py
-"""
-My Service - Description of what it does.
-"""
-
-from pydantic import Field
-
-from bigbrotr.core.base_service import BaseService, BaseServiceConfig
-from bigbrotr.core.brotr import Brotr
+# Cross-package: absolute with bigbrotr prefix
 from bigbrotr.core.logger import Logger
+from bigbrotr.models.relay import Relay
+from bigbrotr.nips.nip11 import Nip11
 
-SERVICE_NAME = "myservice"
+# Within same package: relative
+from .logger import Logger
+from .common.constants import ServiceName
 
-
-class MyServiceConfig(BaseServiceConfig):
-    """Configuration for MyService.
-
-    Inherits from BaseServiceConfig which provides:
-    - interval: float (default 300.0, min 60.0)
-    - max_consecutive_failures: int (default 5)
-    - metrics: MetricsConfig
-    """
-
-    some_setting: str = Field(default="value", description="Description")
-
-
-class MyService(BaseService[MyServiceConfig]):
-    """
-    My Service implementation.
-
-    Does X, Y, Z.
-    """
-
-    SERVICE_NAME = SERVICE_NAME
-    CONFIG_CLASS = MyServiceConfig
-
-    def __init__(self, brotr: Brotr, config: MyServiceConfig | None = None) -> None:
-        super().__init__(brotr=brotr, config=config or MyServiceConfig())
-        self._config: MyServiceConfig  # Type hint for IDE
-        self._logger = Logger(SERVICE_NAME)
-
-    async def run(self) -> None:
-        """Execute single service cycle."""
-        self._logger.info("cycle_started")
-
-        # Your service logic here
-        await self._do_work()
-
-        self._logger.info("cycle_completed")
-
-    async def _do_work(self) -> None:
-        """Internal work method."""
-        # Access config: self._config.some_setting
-        # Access database: self._brotr.pool.fetch(...)
-        pass
+# Models layer: stdlib logging only
+import logging
+logger = logging.getLogger(__name__)
 ```
 
-### 2. Create Configuration File
+### Model Patterns
 
-```yaml
-# deployments/bigbrotr/config/services/myservice.yaml
-interval: 300.0
-some_setting: "custom_value"
+- All models are `@dataclass(frozen=True, slots=True)` -- immutable
+- All models cache `to_db_params()` in `__post_init__` via `_db_params` field
+- `NetworkType` lives in `models/constants.py`
+- `MetadataType` lives in `models/metadata.py`
+- `ServiceState` lives in `models/service_state.py`
+
+### Exception Hierarchy
+
+```text
+BigBrotrError (base)
++-- ConfigurationError
++-- DatabaseError
+|   +-- ConnectionPoolError (transient, retry)
+|   +-- QueryError (permanent)
++-- ConnectivityError
+|   +-- RelayTimeoutError
+|   +-- RelaySSLError
++-- ProtocolError
++-- PublishingError
 ```
 
-### 3. Register Service
-
-```python
-# src/bigbrotr/__main__.py
-from .myservice import MyService
-
-SERVICE_REGISTRY = {
-    # ... existing services ...
-    "myservice": (MyService, CONFIG_BASE / "services" / "myservice.yaml"),
-}
-```
-
-### 4. Export from Package
-
-```python
-# src/bigbrotr/services/__init__.py
-from bigbrotr.services.myservice import MyService, MyServiceConfig
-
-__all__ = [
-    # ... existing exports ...
-    "MyService",
-    "MyServiceConfig",
-]
-```
-
-### 5. Write Tests
-
-```python
-# tests/unit/services/test_myservice.py
-"""Unit tests for MyService."""
-
-import pytest
-from unittest.mock import MagicMock, AsyncMock
-
-from bigbrotr.services.myservice import MyService, MyServiceConfig
-
-
-class TestMyServiceConfig:
-    """Tests for MyServiceConfig."""
-
-    def test_default_values(self) -> None:
-        config = MyServiceConfig()
-        assert config.interval == 300.0
-        assert config.some_setting == "value"
-
-
-class TestMyService:
-    """Tests for MyService."""
-
-    @pytest.fixture
-    def mock_brotr(self) -> MagicMock:
-        brotr = MagicMock()
-        brotr.pool = MagicMock()
-        brotr.pool.fetch = AsyncMock(return_value=[])
-        return brotr
-
-    def test_init(self, mock_brotr: MagicMock) -> None:
-        service = MyService(brotr=mock_brotr)
-        assert service.SERVICE_NAME == "myservice"
-
-    @pytest.mark.asyncio
-    async def test_run(self, mock_brotr: MagicMock) -> None:
-        service = MyService(brotr=mock_brotr)
-        await service.run()
-        # Add assertions
-```
-
-### 6. Add Docker Service (Optional)
-
-```yaml
-# deployments/bigbrotr/docker-compose.yaml
-myservice:
-  build:
-    context: ../../
-    dockerfile: deployments/bigbrotr/Dockerfile
-  container_name: bigbrotr-myservice
-  restart: unless-stopped
-  environment:
-    DB_PASSWORD: ${DB_PASSWORD}
-  volumes:
-    - ./config:/app/config:ro
-  networks:
-    - bigbrotr-network
-  depends_on:
-    pgbouncer:
-      condition: service_healthy
-    seeder:
-      condition: service_completed_successfully
-  command: ["python", "-m", "bigbrotr", "myservice"]
-```
+Defined in `src/bigbrotr/core/exceptions.py`. All `except Exception` blocks have been replaced with specific catches.
 
 ---
 
-## Working with the Database
+## CI/CD Pipeline
 
-### Direct Database Access
+### GitHub Actions Workflows
 
-```bash
-# Via Docker
-docker-compose exec postgres psql -U admin -d bigbrotr
+#### ci.yml (Main Pipeline)
 
-# Via PGBouncer
-docker-compose exec pgbouncer psql -h localhost -p 5432 -U admin -d bigbrotr
+Triggers on push/PR to `main`/`develop`.
 
-# Local (if postgres running locally)
-psql -h localhost -p 5432 -U admin -d bigbrotr
-```
+| Job | Steps |
+|-----|-------|
+| **pre-commit** | All pre-commit hooks |
+| **test** | Matrix: Python 3.11-3.14, pip-audit, pytest with coverage |
+| **build** | Docker build (BigBrotr + LilBrotr), Trivy vulnerability scan |
+| **ci-success** | Status check gate for branch protection |
 
-### Common Queries
+Coverage is uploaded to Codecov on Python 3.11 only. Python 3.14 allows pre-release.
 
-```sql
--- Relay summary
-SELECT
-    COUNT(*) AS total,
-    COUNT(*) FILTER (WHERE network = 'clearnet') AS clearnet,
-    COUNT(*) FILTER (WHERE network = 'tor') AS tor
-FROM relays;
+#### codeql.yml (Static Analysis)
 
--- Recent events
-SELECT encode(id, 'hex'), kind, created_at
-FROM events
-ORDER BY created_at DESC
-LIMIT 10;
+Runs on push/PR and weekly. Python analysis with CodeQL.
 
--- Relay status (latest RTT data from last 24 hours)
-SELECT rm.relay_url, m.value->>'is_openable' AS openable,
-       m.value->>'is_readable' AS readable, m.value->>'is_writable' AS writable
-FROM relay_metadata_latest rm
-JOIN metadata m ON rm.metadata_id = m.id
-WHERE rm.metadata_type = 'nip66_rtt'
-  AND rm.generated_at > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')
-ORDER BY (m.value->>'is_openable')::boolean DESC;
+### Dependabot
 
--- Event kind distribution
-SELECT * FROM kind_counts_total LIMIT 20;
-```
+Configured for three ecosystems:
 
-### Testing with Real Database
+- **pip**: Weekly Python dependency updates
+- **docker**: Weekly Docker image updates
+- **github-actions**: Weekly action version updates
 
-```python
-# tests/integration/test_brotr_integration.py
-import pytest
-import os
-
-@pytest.mark.integration
-@pytest.mark.skipif(
-    os.getenv("DB_PASSWORD") is None,
-    reason="DB_PASSWORD not set"
-)
-async def test_brotr_connection():
-    from bigbrotr.core.brotr import Brotr
-
-    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
-    async with brotr:
-        result = await brotr.pool.fetchval("SELECT 1")
-        assert result == 1
-```
+All PRs labeled appropriately and assigned to maintainers.
 
 ---
 
-## Debugging
+## Commit Conventions
 
-### Logging
+Use [Conventional Commits](https://www.conventionalcommits.org/):
 
-```python
-from bigbrotr.core.logger import Logger
-
-logger = Logger("mymodule")
-logger.debug("detailed_info", key="value")
-logger.info("operation_completed", count=10)
-logger.warning("potential_issue", reason="something")
-logger.error("operation_failed", error=str(e))
+```text
+feat: add REST API service
+fix: handle connection timeout in validator
+refactor: split monitor into 3 modules
+docs: update architecture documentation
+test: add monitor publisher tests
+chore: update dependencies
 ```
-
-### Debug Mode
-
-```bash
-# Run service with debug logging
-python -m bigbrotr finder --log-level DEBUG
-```
-
-### Async Debugging
-
-```python
-import asyncio
-
-# Enable asyncio debug mode
-asyncio.get_event_loop().set_debug(True)
-
-# Or via environment
-# PYTHONASYNCIODEBUG=1 python -m bigbrotr finder
-```
-
-### VS Code Configuration
-
-```json
-// .vscode/launch.json
-{
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Debug Service",
-            "type": "python",
-            "request": "launch",
-            "module": "bigbrotr",
-            "args": ["finder", "--log-level", "DEBUG"],
-            "cwd": "${workspaceFolder}/deployments/bigbrotr",
-            "env": {
-                "DB_PASSWORD": "your_password"
-            }
-        },
-        {
-            "name": "Debug Tests",
-            "type": "python",
-            "request": "launch",
-            "module": "pytest",
-            "args": ["tests/", "-v", "-s"],
-            "env": {
-                "DB_PASSWORD": "test_password"
-            }
-        }
-    ]
-}
-```
-
-### PyCharm Configuration
-
-1. **Run Configuration**:
-   - Module: `bigbrotr`
-   - Parameters: `finder --log-level DEBUG`
-   - Working directory: `deployments/bigbrotr`
-   - Environment: `DB_PASSWORD=your_password`
-
-2. **Test Configuration**:
-   - Target: `tests/`
-   - Additional arguments: `-v -s`
-
----
-
-## Contributing
-
-For detailed contribution guidelines, see [CONTRIBUTING.md](../CONTRIBUTING.md).
-
-### Git Workflow
-
-1. **Fork** the repository
-2. **Clone** your fork
-3. **Create branch** from `develop`
-4. **Make changes** and commit
-5. **Push** to your fork
-6. **Create PR** to `main`
 
 ### Branch Naming
 
-```
+```text
 feature/add-api-service
 fix/connection-timeout
 refactor/pool-retry-logic
@@ -766,91 +377,81 @@ docs/update-readme
 test/add-monitor-tests
 ```
 
-### Commit Messages
+---
 
-Follow conventional commits:
+## Adding a New Service
 
-```
-feat: add API service with REST endpoints
-fix: handle connection timeout in pool
-refactor: simplify retry logic in pool
-docs: update architecture documentation
-test: add monitor health check tests
-chore: update dependencies
-```
+1. Create `src/bigbrotr/services/myservice.py`:
 
-### Pull Request Checklist
+    ```python
+    from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 
-- [ ] Tests pass: `pytest tests/ -v`
-- [ ] Code quality: `pre-commit run --all-files`
-- [ ] Documentation updated if needed
-- [ ] Commit messages follow conventions
-- [ ] PR description explains changes
+    class MyServiceConfig(BaseServiceConfig):
+        # Pydantic model with service-specific fields
+        my_setting: int = 42
 
-### Code Standards
+    class MyService(BaseService[MyServiceConfig]):
+        config_class = MyServiceConfig
 
-1. **Type Hints**: Required for all public interfaces
-2. **Docstrings**: Classes and public methods
-3. **Tests**: Unit tests for new features
-4. **Config**: Pydantic models for configuration
-5. **Async**: Use async/await for I/O operations
+        async def run(self) -> None:
+            # Service logic for one cycle
+            ...
+    ```
 
-### Review Process
+1. Register in `src/bigbrotr/__main__.py`:
 
-1. CI checks must pass
-2. At least one approval required
-3. Address all review comments
-4. Squash commits if requested
+    ```python
+    SERVICE_REGISTRY[ServiceName.MYSERVICE] = ServiceEntry(
+        cls=MyService,
+        config_path=Path("config/services/myservice.yaml"),
+    )
+    ```
+
+1. Add `ServiceName.MYSERVICE` to `src/bigbrotr/services/common/constants.py`
+
+1. Create `deployments/*/config/services/myservice.yaml`
+
+1. Add tests in `tests/unit/services/test_myservice.py`
 
 ---
 
-## Useful Commands Reference
+## Debugging
+
+### Local Service Debugging
 
 ```bash
-# Development
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-pre-commit install
-
-# Testing
-pytest tests/ -v
-pytest tests/ --cov=src/bigbrotr --cov-report=html
-pytest -k "pattern" -v
-
-# Code Quality
-ruff check src/ tests/
-ruff format src/ tests/
-mypy src/
-pre-commit run --all-files
-
-# Running Services
 cd deployments/bigbrotr
-python -m bigbrotr seeder
-python -m bigbrotr finder --log-level DEBUG
-
-# Docker
-docker-compose up -d
-docker-compose logs -f
-docker-compose exec postgres psql -U admin -d bigbrotr
-docker-compose down
-
-# Git
-git checkout -b feature/my-feature
-git add .
-git commit -m "feat: description"
-git push origin feature/my-feature
+python -m bigbrotr finder --log-level DEBUG --once
 ```
+
+### VS Code Launch Configuration
+
+```json
+{
+    "name": "BigBrotr Finder",
+    "type": "debugpy",
+    "request": "launch",
+    "module": "bigbrotr",
+    "args": ["finder", "--log-level", "DEBUG", "--once"],
+    "cwd": "${workspaceFolder}/deployments/bigbrotr",
+    "env": {
+        "DB_PASSWORD": "your_password"
+    }
+}
+```
+
+### PyCharm Run Configuration
+
+- Module: `bigbrotr`
+- Parameters: `finder --log-level DEBUG --once`
+- Working directory: `deployments/bigbrotr`
+- Environment variables: `DB_PASSWORD=your_password`
 
 ---
 
 ## Related Documentation
 
-| Document | Description |
-|----------|-------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture overview |
-| [CONFIGURATION.md](CONFIGURATION.md) | Complete configuration reference |
-| [DATABASE.md](DATABASE.md) | Database schema documentation |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Deployment instructions |
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | Contribution guidelines |
-| [CHANGELOG.md](../CHANGELOG.md) | Version history |
+- [ARCHITECTURE.md](ARCHITECTURE.md) -- System architecture and module reference
+- [CONFIGURATION.md](CONFIGURATION.md) -- YAML configuration reference
+- [DATABASE.md](DATABASE.md) -- Database schema and stored procedures
+- [DEPLOYMENT.md](DEPLOYMENT.md) -- Docker and manual deployment guide

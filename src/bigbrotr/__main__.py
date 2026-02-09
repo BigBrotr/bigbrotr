@@ -72,6 +72,7 @@ async def run_service(
     service_class: type[BaseService[Any]],
     brotr: Brotr,
     config_path: Path,
+    *,
     once: bool,
 ) -> int:
     """Run a service in one-shot or continuous mode.
@@ -90,7 +91,7 @@ async def run_service(
     Returns:
         Exit code: 0 for success, 1 for failure.
     """
-    if config_path.exists():
+    if await asyncio.to_thread(config_path.exists):
         service = service_class.from_yaml(str(config_path), brotr=brotr)
     else:
         logger.warning("config_not_found", path=str(config_path))
@@ -102,7 +103,7 @@ async def run_service(
             await service.run()
             logger.info(f"{service_name}_completed")
             return 0
-        except Exception as e:
+        except Exception as e:  # Intentionally broad: CLI error boundary for one-shot mode
             logger.error(f"{service_name}_failed", error=str(e))
             return 1
 
@@ -131,7 +132,7 @@ async def run_service(
         async with service:
             await service.run_forever()
         return 0
-    except Exception as e:
+    except Exception as e:  # Intentionally broad: CLI error boundary for continuous mode
         logger.error(f"{service_name}_failed", error=str(e))
         return 1
     finally:
@@ -216,7 +217,7 @@ async def main() -> int:
     setup_logging(args.log_level)
 
     entry = SERVICE_REGISTRY[args.service]
-    config_path = args.config if args.config else entry.config_path
+    config_path = args.config or entry.config_path
     brotr = load_brotr(args.brotr_config)
 
     try:

@@ -28,6 +28,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import asyncpg
 from pydantic import BaseModel, Field
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
@@ -56,7 +57,7 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class Candidate:
     """Relay candidate pending validation.
 
@@ -361,7 +362,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             try:
                 relay = Relay(row["state_key"])
                 candidates.append(Candidate(relay=relay, data=dict(row["payload"])))
-            except Exception as e:
+            except (ValueError, TypeError) as e:
                 self._logger.warning("parse_failed", url=row["state_key"], error=str(e))
 
         return candidates
@@ -382,6 +383,11 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         """
         tasks = [self._validate_one(c) for c in candidates]
         results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Re-raise CancelledError — gather(return_exceptions=True) captures it as a result
+        for r in results:
+            if isinstance(r, asyncio.CancelledError):
+                raise r
 
         valid: list[Relay] = []
         invalid: list[Candidate] = []
@@ -421,7 +427,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             proxy_url = self._config.networks.get_proxy_url(relay.network)
             try:
                 return await is_nostr_relay(relay, proxy_url, network_config.timeout)
-            except Exception:
+            except (TimeoutError, OSError):
                 return False
 
     # -------------------------------------------------------------------------
@@ -454,7 +460,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             ]
             try:
                 await self._brotr.upsert_service_state(updates)
-            except Exception as e:
+            except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("update_failed", count=len(invalid), error=str(e))
 
         # Promote valid relays (atomic: insert + delete in one transaction)
@@ -463,5 +469,5 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
                 await promote_candidates(self._brotr, valid)
                 for relay in valid:
                     self._logger.info("promoted", url=relay.url, network=relay.network.value)
-            except Exception as e:
+            except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("promote_failed", count=len(valid), error=str(e))

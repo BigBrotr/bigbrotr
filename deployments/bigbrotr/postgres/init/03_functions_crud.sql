@@ -43,6 +43,7 @@ CREATE OR REPLACE FUNCTION relay_insert(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     v_row_count INTEGER;
@@ -90,6 +91,7 @@ CREATE OR REPLACE FUNCTION event_insert(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     v_row_count INTEGER;
@@ -135,6 +137,7 @@ CREATE OR REPLACE FUNCTION metadata_insert(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     v_row_count INTEGER;
@@ -174,6 +177,7 @@ CREATE OR REPLACE FUNCTION event_relay_insert(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     v_row_count INTEGER;
@@ -217,6 +221,7 @@ CREATE OR REPLACE FUNCTION relay_metadata_insert(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     v_row_count INTEGER;
@@ -266,6 +271,7 @@ CREATE OR REPLACE FUNCTION event_relay_insert_cascade(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     v_row_count INTEGER;
@@ -280,6 +286,7 @@ BEGIN
     INSERT INTO event_relay (event_id, relay_url, seen_at)
     SELECT DISTINCT ON (event_id, relay_url) event_id, relay_url, seen_at
     FROM unnest(p_event_ids, p_relay_urls, p_seen_ats) AS t(event_id, relay_url, seen_at)
+    ORDER BY event_id, relay_url, seen_at ASC
     ON CONFLICT (event_id, relay_url) DO NOTHING;
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
@@ -318,6 +325,7 @@ CREATE OR REPLACE FUNCTION relay_metadata_insert_cascade(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     v_row_count INTEGER;
@@ -374,6 +382,7 @@ CREATE OR REPLACE FUNCTION service_state_upsert(
 )
 RETURNS VOID
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 BEGIN
     INSERT INTO service_state (service_name, state_type, state_key, payload, updated_at)
@@ -386,6 +395,7 @@ BEGIN
         p_payloads,
         p_updated_ats
     ) AS t(service_name, state_type, state_key, payload, updated_at)
+    ORDER BY service_name, state_type, state_key, updated_at DESC
     ON CONFLICT (service_name, state_type, state_key)
     DO UPDATE SET
         payload = EXCLUDED.payload,
@@ -422,6 +432,7 @@ RETURNS TABLE (
     updated_at BIGINT
 )
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 BEGIN
     IF p_state_key IS NOT NULL THEN
@@ -465,6 +476,7 @@ CREATE OR REPLACE FUNCTION service_state_delete(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     v_row_count INTEGER;

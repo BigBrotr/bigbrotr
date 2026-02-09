@@ -81,7 +81,7 @@ class TestNip66NetMetadataNetSync:
     def test_ipv4_lookup_exception_still_returns_ip(self) -> None:
         """IPv4 lookup exception still includes the IP address."""
         mock_asn_reader = MagicMock()
-        mock_asn_reader.asn.side_effect = Exception("ASN lookup failed")
+        mock_asn_reader.asn.side_effect = ValueError("ASN lookup failed")
 
         result = Nip66NetMetadata._net("8.8.8.8", None, mock_asn_reader)
 
@@ -91,7 +91,7 @@ class TestNip66NetMetadataNetSync:
     def test_ipv6_lookup_exception_still_returns_ip(self) -> None:
         """IPv6 lookup exception still includes the IP address."""
         mock_asn_reader = MagicMock()
-        mock_asn_reader.asn.side_effect = Exception("ASN lookup failed")
+        mock_asn_reader.asn.side_effect = ValueError("ASN lookup failed")
 
         result = Nip66NetMetadata._net(None, "2001:4860:4860::8888", mock_asn_reader)
 
@@ -109,7 +109,7 @@ class TestNip66NetMetadataNetSync:
 
         def asn_side_effect(ip: str) -> MagicMock:
             if ip == "8.8.8.8":
-                raise Exception("IPv4 lookup failed")
+                raise ValueError("IPv4 lookup failed")
             return mock_asn_response_v6
 
         mock_asn_reader.asn.side_effect = asn_side_effect

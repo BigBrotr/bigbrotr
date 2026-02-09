@@ -98,6 +98,6 @@ class Nip11(BaseModel):
             A new ``Nip11`` instance containing the fetch results.
         """
         fetch_metadata = await Nip11InfoMetadata.execute(
-            relay, timeout, max_size, proxy_url, allow_insecure
+            relay, timeout, max_size, proxy_url, allow_insecure=allow_insecure
         )
         return cls(relay=relay, fetch_metadata=fetch_metadata)

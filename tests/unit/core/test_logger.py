@@ -366,25 +366,29 @@ class TestFormatJson:
     def test_json_without_kwargs(self) -> None:
         """Test JSON formatting without kwargs."""
         logger = Logger("test", json_output=True)
-        result = logger._format_json("test_msg", {})
+        result = logger._format_json("test_msg", "info", {})
 
         parsed = json.loads(result)
         assert parsed["message"] == "test_msg"
+        assert parsed["level"] == "info"
+        assert parsed["service"] == "test"
+        assert "timestamp" in parsed
 
     def test_json_with_kwargs(self) -> None:
         """Test JSON formatting with kwargs."""
         logger = Logger("test", json_output=True)
-        result = logger._format_json("test_msg", {"count": 42, "name": "test"})
+        result = logger._format_json("test_msg", "warning", {"count": 42, "name": "test"})
 
         parsed = json.loads(result)
         assert parsed["message"] == "test_msg"
+        assert parsed["level"] == "warning"
         assert parsed["count"] == 42
         assert parsed["name"] == "test"
 
     def test_json_complex_values(self) -> None:
         """Test JSON formatting with complex values."""
         logger = Logger("test", json_output=True)
-        result = logger._format_json("msg", {"data": {"nested": True}, "list": [1, 2, 3]})
+        result = logger._format_json("msg", "debug", {"data": {"nested": True}, "list": [1, 2, 3]})
 
         parsed = json.loads(result)
         assert parsed["data"] == {"nested": True}
@@ -398,7 +402,7 @@ class TestFormatJson:
             def __str__(self) -> str:
                 return "custom_repr"
 
-        result = logger._format_json("msg", {"obj": CustomObject()})
+        result = logger._format_json("msg", "error", {"obj": CustomObject()})
 
         parsed = json.loads(result)
         assert "custom_repr" in parsed["obj"]

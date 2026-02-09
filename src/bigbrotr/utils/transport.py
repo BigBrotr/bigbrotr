@@ -32,7 +32,7 @@ import ssl
 import sys
 from dataclasses import dataclass
 from datetime import timedelta
-from datetime import timedelta as Duration
+from datetime import timedelta as Duration  # noqa: N812
 from typing import TYPE_CHECKING, TextIO
 from urllib.parse import urlparse
 
@@ -153,7 +153,7 @@ _WS_RECV_TIMEOUT = 60.0
 _WS_CLOSE_TIMEOUT = 5.0
 
 
-class InsecureWebSocketAdapter(WebSocketAdapter):  # type: ignore[misc]
+class InsecureWebSocketAdapter(WebSocketAdapter):
     """aiohttp-based WebSocket adapter with SSL verification disabled.
 
     Implements the nostr-sdk ``WebSocketAdapter`` interface. Allows connections
@@ -214,7 +214,7 @@ class InsecureWebSocketAdapter(WebSocketAdapter):  # type: ignore[misc]
             await asyncio.wait_for(self._session.close(), timeout=self._close_timeout)
 
 
-class InsecureWebSocketTransport(CustomWebSocketTransport):  # type: ignore[misc]
+class InsecureWebSocketTransport(CustomWebSocketTransport):
     """Custom WebSocket transport with SSL verification disabled.
 
     Used as a fallback for clearnet relays with invalid/expired certificates.
@@ -361,6 +361,7 @@ async def connect_relay(
     keys: Keys | None = None,
     proxy_url: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
+    *,
     allow_insecure: bool = True,
 ) -> Client:
     """Connect to a relay with automatic SSL fallback for clearnet.
@@ -504,7 +505,7 @@ async def is_nostr_relay(
             logger.debug("validation_timeout relay=%s", relay.url)
             return False
 
-        except Exception as e:
+        except OSError as e:
             # AUTH-required errors indicate a valid Nostr relay (NIP-42)
             error_msg = str(e).lower()
             if "auth" in error_msg:

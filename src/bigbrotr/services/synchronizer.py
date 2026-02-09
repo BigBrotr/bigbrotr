@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import asyncpg
 from nostr_sdk import (
     Alphabet,
     Filter,
@@ -403,7 +404,7 @@ async def _insert_batch(
                 continue
 
             event_relays.append(EventRelay(Event(evt), relay))
-        except Exception as e:
+        except (ValueError, TypeError, OverflowError) as e:
             _log("DEBUG", "event_parse_error", relay=relay.url, error=str(e))
 
     total_inserted = 0
@@ -474,7 +475,7 @@ async def _sync_relay_events(
             )
 
         await client.disconnect()
-    except Exception as e:
+    except (TimeoutError, OSError) as e:
         _log("WARNING", "sync_relay_error", relay=relay.url, error=str(e))
     finally:
         with contextlib.suppress(Exception):
@@ -540,7 +541,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                     relay = Relay(override.url)
                     relays.append(relay)
                     known_urls.add(relay.url)
-                except Exception as e:
+                except (ValueError, TypeError) as e:
                     self._logger.warning(
                         "parse_override_relay_failed",
                         error=str(e),
@@ -568,7 +569,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
             duration=round(elapsed, 2),
         )
 
-    async def _sync_all_relays(self, relays: list[Relay]) -> None:
+    async def _sync_all_relays(self, relays: list[Relay]) -> None:  # noqa: PLR0915
         """Sync all relays concurrently using structured concurrency."""
         semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel)
 
@@ -579,6 +580,8 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         cursor_updates: list[ServiceState] = []
         cursor_lock = asyncio.Lock()
         cursor_batch_size = self._config.concurrency.cursor_flush_interval
+        # Lock for shared counters (future-proof for free-threaded Python)
+        counter_lock = asyncio.Lock()
 
         async def worker(relay: Relay) -> None:
             async with semaphore:
@@ -618,10 +621,11 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                         _sync_with_timeout(), timeout=relay_timeout
                     )
 
-                    self._synced_events += events_synced
-                    self._invalid_events += invalid_events
-                    self._skipped_events += skipped_events
-                    self._synced_relays += 1
+                    async with counter_lock:
+                        self._synced_events += events_synced
+                        self._invalid_events += invalid_events
+                        self._skipped_events += skipped_events
+                        self._synced_relays += 1
 
                     async with cursor_lock:
                         cursor_updates.append(
@@ -638,14 +642,15 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                             await self._brotr.upsert_service_state(cursor_updates.copy())
                             cursor_updates.clear()
 
-                except Exception as e:
+                except (TimeoutError, OSError, asyncpg.PostgresError) as e:
                     self._logger.warning(
                         "relay_sync_failed",
                         error=str(e),
                         error_type=type(e).__name__,
                         url=relay.url,
                     )
-                    self._failed_relays += 1
+                    async with counter_lock:
+                        self._failed_relays += 1
 
         try:
             async with asyncio.TaskGroup() as tg:
@@ -664,7 +669,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         if cursor_updates:
             try:
                 await self._brotr.upsert_service_state(cursor_updates)
-            except Exception as e:
+            except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
                     "cursor_batch_upsert_failed",
                     error=str(e),
@@ -685,34 +690,11 @@ class Synchronizer(BaseService[SynchronizerConfig]):
             try:
                 relay = Relay(url_str, discovered_at=row["discovered_at"])
                 relays.append(relay)
-            except Exception as e:
+            except (ValueError, TypeError) as e:
                 self._logger.debug("invalid_relay_url", url=url_str, error=str(e))
 
         self._logger.debug("relays_fetched", count=len(relays))
         return relays
-
-    async def _get_start_time(self, relay: Relay) -> int:
-        """Get the sync start timestamp for a relay from its stored cursor.
-
-        Falls back to ``time_range.default_start`` if no cursor exists.
-        """
-        if not self._config.time_range.use_relay_state:
-            return self._config.time_range.default_start
-
-        cursors = await self._brotr.get_service_state(
-            service_name=self.SERVICE_NAME,
-            state_type=StateType.CURSOR,
-            key=relay.url,
-        )
-
-        if cursors and len(cursors) > 0:
-            cursor_data = cursors[0].get("payload", {})
-            last_synced_at = cursor_data.get("last_synced_at")
-            if last_synced_at is not None:
-                result: int = last_synced_at + 1
-                return result
-
-        return self._config.time_range.default_start
 
     async def _fetch_all_cursors(self) -> dict[str, int]:
         """Batch-fetch all relay sync cursors in a single query.

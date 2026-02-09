@@ -91,6 +91,19 @@ async def filter_new_relay_urls(
 # Check / Monitoring Queries
 # ---------------------------------------------------------------------------
 
+# Shared FROM/JOIN/WHERE for relay check queries (count + fetch).
+# Parameters: $1=service_name, $2=state_type, $3=networks, $4=threshold
+_RELAYS_DUE_FOR_CHECK_BASE = """
+    FROM relay r
+    LEFT JOIN service_state ss ON
+        ss.service_name = $1
+        AND ss.state_type = $2
+        AND ss.state_key = r.url
+    WHERE
+        r.network = ANY($3)
+        AND (ss.state_key IS NULL OR (ss.payload->>'last_check_at')::BIGINT < $4)
+"""
+
 
 async def count_relays_due_for_check(
     brotr: Brotr,
@@ -114,17 +127,7 @@ async def count_relays_due_for_check(
         Number of relays due for a check.
     """
     row = await brotr.fetchrow(
-        """
-        SELECT COUNT(*)::int AS count
-        FROM relay r
-        LEFT JOIN service_state ss ON
-            ss.service_name = $1
-            AND ss.state_type = $2
-            AND ss.state_key = r.url
-        WHERE
-            r.network = ANY($3)
-            AND (ss.state_key IS NULL OR (ss.payload->>'last_check_at')::BIGINT < $4)
-        """,
+        f"SELECT COUNT(*)::int AS count {_RELAYS_DUE_FOR_CHECK_BASE}",
         service_name,
         StateType.CHECKPOINT,
         networks,
@@ -158,16 +161,9 @@ async def fetch_relays_due_for_check(  # noqa: PLR0913
         List of dicts with keys: ``url``, ``network``, ``discovered_at``.
     """
     rows = await brotr.fetch(
-        """
+        f"""
         SELECT r.url, r.network, r.discovered_at
-        FROM relay r
-        LEFT JOIN service_state ss ON
-            ss.service_name = $1
-            AND ss.state_type = $2
-            AND ss.state_key = r.url
-        WHERE
-            r.network = ANY($3)
-            AND (ss.state_key IS NULL OR (ss.payload->>'last_check_at')::BIGINT < $4)
+        {_RELAYS_DUE_FOR_CHECK_BASE}
         ORDER BY
             COALESCE((ss.payload->>'last_check_at')::BIGINT, 0) ASC,
             r.discovered_at ASC

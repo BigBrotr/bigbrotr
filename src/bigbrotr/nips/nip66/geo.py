@@ -13,7 +13,8 @@ import logging
 from typing import Any, Self
 
 import geohash2
-import geoip2.database  # noqa: TC002
+import geoip2.database
+import geoip2.errors
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
@@ -143,7 +144,7 @@ class Nip66GeoMetadata(BaseMetadata):
         try:
             response = city_reader.city(ip)
             return GeoExtractor.extract_all(response, geohash_precision=geohash_precision)
-        except Exception as e:
+        except (geoip2.errors.GeoIP2Error, ValueError) as e:
             logger.debug("geo_geoip_lookup_error ip=%s error=%s", ip, str(e))
             return {}
 
@@ -191,7 +192,7 @@ class Nip66GeoMetadata(BaseMetadata):
                 else:
                     logs["reason"] = "no geo data found for IP"
                     logger.debug("geo_no_data relay=%s", relay.url)
-            except Exception as e:
+            except (geoip2.errors.GeoIP2Error, ValueError) as e:
                 logs["reason"] = str(e)
                 logger.debug("geo_lookup_failed relay=%s error=%s", relay.url, str(e))
         else:

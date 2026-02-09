@@ -1,0 +1,48 @@
+# ============================================================================
+# Dependabot Configuration
+# ============================================================================
+#
+# Automated dependency updates for pip, Docker, and GitHub Actions.
+#
+# ============================================================================
+
+version: 2
+updates:
+  # Python dependencies (pyproject.toml)
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    reviewers:
+      - BigBrotr/maintainers
+    labels:
+      - dependencies
+      - python
+    commit-message:
+      prefix: "chore(deps):"
+
+  # Docker base images
+  - package-ecosystem: docker
+    directory: /deployments
+    schedule:
+      interval: weekly
+    reviewers:
+      - BigBrotr/maintainers
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: "chore(deps):"
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    reviewers:
+      - BigBrotr/maintainers
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "chore(deps):"

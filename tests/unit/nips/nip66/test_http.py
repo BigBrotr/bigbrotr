@@ -9,8 +9,7 @@ Tests:
 
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -24,51 +23,14 @@ class TestNip66HttpMetadataHttpAsync:
     @pytest.mark.asyncio
     async def test_captures_server_header(self, relay: Relay) -> None:
         """Captures Server header from WebSocket handshake."""
-        mock_response_headers = {"Server": "nginx/1.24.0"}
+        http_result = {"http_server": "nginx/1.24.0"}
 
-        mock_ws = AsyncMock()
-        mock_ws.close = AsyncMock()
+        with patch.object(Nip66HttpMetadata, "_http", return_value=http_result):
+            result = await Nip66HttpMetadata.execute(relay, 10.0)
 
-        mock_session = MagicMock()
-        mock_session.ws_connect = MagicMock(return_value=AsyncMock())
-
-        async def mock_ws_connect_cm(*args: Any, **kwargs: Any) -> AsyncMock:
-            return mock_ws
-
-        async def mock_session_cm(*args: Any, **kwargs: Any) -> MagicMock:
-            return mock_session
-
-        with (
-            patch("aiohttp.ClientSession") as mock_client_session,
-            patch("aiohttp.TraceConfig") as mock_trace_config,
-        ):
-            # Set up the trace config to capture headers
-            trace_instance = MagicMock()
-            trace_instance.on_request_end = MagicMock()
-            trace_instance.on_request_end.append = MagicMock()
-            mock_trace_config.return_value = trace_instance
-
-            # Create mock session with proper context managers
-            async def create_mock_session(*args: Any, **kwargs: Any) -> MagicMock:
-                # Get the trace config callback
-                trace_configs = kwargs.get("trace_configs", [])
-                if trace_configs:
-                    # Extract the on_request_end callback that was appended
-                    on_request_end = trace_instance.on_request_end.append.call_args[0][0]
-                    # Simulate calling the callback with headers
-                    mock_params = MagicMock()
-                    mock_params.response = MagicMock()
-                    mock_params.response.headers = mock_response_headers
-                    await on_request_end(MagicMock(), MagicMock(), mock_params)
-
-                session = MagicMock()
-                session.ws_connect = MagicMock(
-                    return_value=AsyncMock(__aenter__=mock_ws_connect_cm)
-                )
-                return session
-
-            mock_client_session.return_value.__aenter__ = create_mock_session
-            mock_client_session.return_value.__aexit__ = AsyncMock(return_value=None)
+        assert isinstance(result, Nip66HttpMetadata)
+        assert result.data.http_server == "nginx/1.24.0"
+        assert result.logs.success is True
 
     @pytest.mark.asyncio
     async def test_captures_powered_by_header(self, relay: Relay) -> None:
@@ -168,7 +130,7 @@ class TestNip66HttpMetadataHttp:
     @pytest.mark.asyncio
     async def test_exception_returns_failure(self, relay: Relay) -> None:
         """Exception during HTTP check returns failure logs."""
-        with patch.object(Nip66HttpMetadata, "_http", side_effect=Exception("Connection timeout")):
+        with patch.object(Nip66HttpMetadata, "_http", side_effect=OSError("Connection timeout")):
             result = await Nip66HttpMetadata.execute(relay, 10.0)
 
         assert isinstance(result, Nip66HttpMetadata)

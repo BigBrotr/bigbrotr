@@ -189,7 +189,7 @@ class BaseService(ABC, Generic[ConfigT]):
             except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
                 raise  # Always propagate shutdown signals
 
-            except Exception as e:
+            except Exception as e:  # Intentionally broad: top-level error boundary for run_forever
                 consecutive_failures += 1
 
                 self.inc_counter("cycles_failed")

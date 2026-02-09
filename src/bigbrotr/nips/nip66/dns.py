@@ -12,6 +12,7 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING, Any, Self, cast
 
+import dns.exception
 import dns.resolver
 import tldextract
 
@@ -153,7 +154,7 @@ class Nip66DnsMetadata(BaseMetadata):
             else:
                 logs["reason"] = "no DNS records found"
                 logger.debug("dns_no_data relay=%s", relay.url)
-        except Exception as e:
+        except (OSError, dns.exception.DNSException) as e:
             logs["reason"] = str(e)
             logger.debug("dns_error relay=%s error=%s", relay.url, str(e))
 

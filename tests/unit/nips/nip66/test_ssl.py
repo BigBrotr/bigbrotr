@@ -454,7 +454,7 @@ class TestNip66SslMetadataSslAsync:
     @pytest.mark.asyncio
     async def test_exception_returns_failure(self, relay: Relay) -> None:
         """Exception during SSL check returns failure logs."""
-        with patch.object(Nip66SslMetadata, "_ssl", side_effect=Exception("Network error")):
+        with patch.object(Nip66SslMetadata, "_ssl", side_effect=OSError("Network error")):
             result = await Nip66SslMetadata.execute(relay, 10.0)
 
         assert isinstance(result, Nip66SslMetadata)

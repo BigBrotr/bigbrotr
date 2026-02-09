@@ -21,14 +21,26 @@ from .event_relay import EventRelay
 from .metadata import Metadata, MetadataType
 from .relay import Relay
 from .relay_metadata import RelayMetadata
+from .service_state import (
+    EVENT_KIND_MAX,
+    EventKind,
+    ServiceState,
+    ServiceStateKey,
+    StateType,
+)
 
 
 __all__ = [
+    "EVENT_KIND_MAX",
     "Event",
+    "EventKind",
     "EventRelay",
     "Metadata",
     "MetadataType",
     "NetworkType",
     "Relay",
     "RelayMetadata",
+    "ServiceState",
+    "ServiceStateKey",
+    "StateType",
 ]

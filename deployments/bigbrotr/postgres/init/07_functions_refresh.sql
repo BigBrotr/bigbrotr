@@ -19,6 +19,7 @@
 CREATE OR REPLACE FUNCTION relay_metadata_latest_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 BEGIN
     REFRESH MATERIALIZED VIEW CONCURRENTLY relay_metadata_latest;
@@ -38,6 +39,7 @@ COMMENT ON FUNCTION relay_metadata_latest_refresh() IS
 CREATE OR REPLACE FUNCTION event_stats_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 BEGIN
     REFRESH MATERIALIZED VIEW CONCURRENTLY event_stats;
@@ -57,6 +59,7 @@ COMMENT ON FUNCTION event_stats_refresh() IS
 CREATE OR REPLACE FUNCTION relay_stats_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 BEGIN
     REFRESH MATERIALIZED VIEW CONCURRENTLY relay_stats;
@@ -76,6 +79,7 @@ COMMENT ON FUNCTION relay_stats_refresh() IS
 CREATE OR REPLACE FUNCTION kind_counts_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 BEGIN
     REFRESH MATERIALIZED VIEW CONCURRENTLY kind_counts;
@@ -95,6 +99,7 @@ COMMENT ON FUNCTION kind_counts_refresh() IS
 CREATE OR REPLACE FUNCTION kind_counts_by_relay_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 BEGIN
     REFRESH MATERIALIZED VIEW CONCURRENTLY kind_counts_by_relay;
@@ -114,6 +119,7 @@ COMMENT ON FUNCTION kind_counts_by_relay_refresh() IS
 CREATE OR REPLACE FUNCTION pubkey_counts_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 BEGIN
     REFRESH MATERIALIZED VIEW CONCURRENTLY pubkey_counts;
@@ -133,6 +139,7 @@ COMMENT ON FUNCTION pubkey_counts_refresh() IS
 CREATE OR REPLACE FUNCTION pubkey_counts_by_relay_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 BEGIN
     REFRESH MATERIALIZED VIEW CONCURRENTLY pubkey_counts_by_relay;
@@ -155,6 +162,7 @@ COMMENT ON FUNCTION pubkey_counts_by_relay_refresh() IS
 CREATE OR REPLACE FUNCTION all_statistics_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 BEGIN
     PERFORM relay_metadata_latest_refresh();

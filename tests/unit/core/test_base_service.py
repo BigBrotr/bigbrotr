@@ -524,7 +524,7 @@ class TestRunForever:
         service = ConcreteService(brotr=mock_brotr)
 
         async def raise_cancelled() -> None:
-            raise asyncio.CancelledError()
+            raise asyncio.CancelledError
 
         with patch.object(service, "run", raise_cancelled):
             async with service:
@@ -537,7 +537,7 @@ class TestRunForever:
         service = ConcreteService(brotr=mock_brotr)
 
         async def raise_keyboard_interrupt() -> None:
-            raise KeyboardInterrupt()
+            raise KeyboardInterrupt
 
         with patch.object(service, "run", raise_keyboard_interrupt):
             async with service:
@@ -550,7 +550,7 @@ class TestRunForever:
         service = ConcreteService(brotr=mock_brotr)
 
         async def raise_system_exit() -> None:
-            raise SystemExit()
+            raise SystemExit
 
         with patch.object(service, "run", raise_system_exit):
             async with service:

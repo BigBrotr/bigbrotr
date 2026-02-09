@@ -428,54 +428,6 @@ class TestSynchronizerFetchRelays:
 # ============================================================================
 
 
-class TestSynchronizerGetStartTime:
-    """Tests for Synchronizer._get_start_time() method."""
-
-    @pytest.mark.asyncio
-    async def test_get_start_time_default(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Test get start time with default when use_relay_state is False."""
-        config = SynchronizerConfig(
-            time_range=TimeRangeConfig(default_start=1000, use_relay_state=False)
-        )
-        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
-
-        relay = Relay("wss://test.relay.com")
-        start_time = await sync._get_start_time(relay)
-
-        assert start_time == 1000
-
-    @pytest.mark.asyncio
-    async def test_get_start_time_from_service_state(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Test get start time from service_state cursor."""
-        mock_synchronizer_brotr.get_service_state = AsyncMock(  # type: ignore[attr-defined]
-            return_value=[{"payload": {"last_synced_at": 12000}}]
-        )
-
-        sync = Synchronizer(brotr=mock_synchronizer_brotr)
-        relay = Relay("wss://test.relay.com")
-        start_time = await sync._get_start_time(relay)
-
-        assert start_time == 12001  # last_synced_at + 1
-        mock_synchronizer_brotr.get_service_state.assert_called_once_with(
-            service_name="synchronizer",
-            state_type="cursor",
-            key="wss://test.relay.com",
-        )
-
-    @pytest.mark.asyncio
-    async def test_get_start_time_no_cursor(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Test get start time when no cursor exists."""
-        mock_synchronizer_brotr.get_service_state = AsyncMock(  # type: ignore[attr-defined]
-            return_value=[]
-        )
-
-        sync = Synchronizer(brotr=mock_synchronizer_brotr)
-        relay = Relay("wss://test.relay.com")
-        start_time = await sync._get_start_time(relay)
-
-        assert start_time == 0  # default_start
-
-
 # ============================================================================
 # Synchronizer Run Tests
 # ============================================================================

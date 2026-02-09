@@ -87,7 +87,8 @@ class EventRelay:
         Returns:
             EventRelayDbParams combining event, relay, and junction fields.
         """
-        return self._db_params  # type: ignore[return-value]
+        assert self._db_params is not None  # noqa: S101  # Always set in __post_init__
+        return self._db_params
 
     @classmethod
     def from_db_params(cls, params: EventRelayDbParams) -> EventRelay:

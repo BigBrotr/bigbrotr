@@ -38,7 +38,7 @@ services:
       - "127.0.0.1:5433:5432"
 
     networks:
-      - lilbrotr-network
+      - lilbrotr-data-network
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d lilbrotr"]
@@ -46,6 +46,12 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
 
     logging:
       driver: "json-file"
@@ -78,7 +84,7 @@ services:
       - "127.0.0.1:6433:5432"
 
     networks:
-      - lilbrotr-network
+      - lilbrotr-data-network
 
     depends_on:
       postgres:
@@ -89,6 +95,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
     logging:
       driver: "json-file"
@@ -108,7 +120,7 @@ services:
   #     - "127.0.0.1:9051:9050"
   #
   #   networks:
-  #     - lilbrotr-network
+  #     - lilbrotr-data-network
   #
   #   healthcheck:
   #     test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 || exit 1"]
@@ -116,6 +128,12 @@ services:
   #     timeout: 5s
   #     retries: 3
   #     start_period: 60s
+  #
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '0.5'
+  #         memory: 256M
   #
   #   logging:
   #     driver: "json-file"
@@ -143,7 +161,7 @@ services:
   #     - i2p-data:/i2p/.i2p
   #
   #   networks:
-  #     - lilbrotr-network
+  #     - lilbrotr-data-network
   #
   #   healthcheck:
   #     test: ["CMD-SHELL", "nc -z 127.0.0.1 4447 || exit 1"]
@@ -178,7 +196,7 @@ services:
   #     - lokinet-data:/var/lib/lokinet
   #
   #   networks:
-  #     - lilbrotr-network
+  #     - lilbrotr-data-network
   #
   #   healthcheck:
   #     test: ["CMD-SHELL", "nc -z 127.0.0.1 1080 || exit 1"]
@@ -199,7 +217,9 @@ services:
   seeder:
     build:
       context: ../../
-      dockerfile: deployments/lilbrotr/Dockerfile
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: lilbrotr
     container_name: lilbrotr-seeder
     restart: "no"
 
@@ -211,13 +231,23 @@ services:
       - ./static:/app/static:ro
 
     networks:
-      - lilbrotr-network
+      - lilbrotr-data-network
+      - lilbrotr-monitoring-network
 
     depends_on:
       pgbouncer:
         condition: service_healthy
 
     command: ["python", "-m", "bigbrotr", "seeder", "--once"]
+
+    healthcheck:
+      disable: true
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
     logging:
       driver: "json-file"
@@ -231,7 +261,9 @@ services:
   finder:
     build:
       context: ../../
-      dockerfile: deployments/lilbrotr/Dockerfile
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: lilbrotr
     container_name: lilbrotr-finder
     restart: unless-stopped
 
@@ -245,7 +277,8 @@ services:
       - "127.0.0.1:${FINDER_METRICS_PORT:-9001}:8000"  # Prometheus metrics
 
     networks:
-      - lilbrotr-network
+      - lilbrotr-data-network
+      - lilbrotr-monitoring-network
 
     depends_on:
       pgbouncer:
@@ -253,12 +286,20 @@ services:
 
     command: ["python", "-m", "bigbrotr", "finder"]
 
+    stop_grace_period: 60s
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -272,7 +313,9 @@ services:
   validator:
     build:
       context: ../../
-      dockerfile: deployments/lilbrotr/Dockerfile
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: lilbrotr
     container_name: lilbrotr-validator
     restart: unless-stopped
 
@@ -287,7 +330,8 @@ services:
       - "127.0.0.1:${VALIDATOR_METRICS_PORT:-9002}:8000"  # Prometheus metrics
 
     networks:
-      - lilbrotr-network
+      - lilbrotr-data-network
+      - lilbrotr-monitoring-network
 
     depends_on:
       pgbouncer:
@@ -301,12 +345,20 @@ services:
 
     command: ["python", "-m", "bigbrotr", "validator"]
 
+    stop_grace_period: 60s
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -320,7 +372,9 @@ services:
   monitor:
     build:
       context: ../../
-      dockerfile: deployments/lilbrotr/Dockerfile
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: lilbrotr
     container_name: lilbrotr-monitor
     restart: unless-stopped
 
@@ -336,7 +390,8 @@ services:
       - "127.0.0.1:${MONITOR_METRICS_PORT:-9003}:8000"  # Prometheus metrics
 
     networks:
-      - lilbrotr-network
+      - lilbrotr-data-network
+      - lilbrotr-monitoring-network
 
     depends_on:
       pgbouncer:
@@ -350,12 +405,20 @@ services:
 
     command: ["python", "-m", "bigbrotr", "monitor"]
 
+    stop_grace_period: 60s
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -369,7 +432,9 @@ services:
   synchronizer:
     build:
       context: ../../
-      dockerfile: deployments/lilbrotr/Dockerfile
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: lilbrotr
     container_name: lilbrotr-synchronizer
     restart: unless-stopped
 
@@ -384,7 +449,8 @@ services:
       - "127.0.0.1:${SYNCHRONIZER_METRICS_PORT:-9004}:8000"  # Prometheus metrics
 
     networks:
-      - lilbrotr-network
+      - lilbrotr-data-network
+      - lilbrotr-monitoring-network
 
     depends_on:
       pgbouncer:
@@ -398,12 +464,20 @@ services:
 
     command: ["python", "-m", "bigbrotr", "synchronizer"]
 
+    stop_grace_period: 60s
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -415,7 +489,7 @@ services:
   # Prometheus (Metrics Collection)
   # --------------------------------------------------------------------------
   prometheus:
-    image: prom/prometheus:v2.50.1
+    image: prom/prometheus:v2.51.0
     container_name: lilbrotr-prometheus
     restart: unless-stopped
 
@@ -427,7 +501,7 @@ services:
       - "127.0.0.1:9091:9090"
 
     networks:
-      - lilbrotr-network
+      - lilbrotr-monitoring-network
 
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
@@ -435,6 +509,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -463,7 +543,7 @@ services:
       - "127.0.0.1:3001:3000"
 
     networks:
-      - lilbrotr-network
+      - lilbrotr-monitoring-network
 
     depends_on:
       prometheus:
@@ -475,6 +555,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -500,9 +586,12 @@ volumes:
 # Networks
 # ----------------------------------------------------------------------------
 networks:
-  lilbrotr-network:
+  lilbrotr-data-network:
     driver: bridge
-    name: lilbrotr-network
+    name: lilbrotr-data-network
+  lilbrotr-monitoring-network:
+    driver: bridge
+    name: lilbrotr-monitoring-network
 
 # ============================================================================
 # USAGE

@@ -77,7 +77,7 @@ class TestNip66RttMetadataTestOpen:
 
         with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
             client, rtt_open = await Nip66RttMetadata._test_open(
-                relay, mock_keys, None, 10.0, True, logs
+                relay, mock_keys, None, 10.0, allow_insecure=True, logs=logs
             )
 
         assert client is mock_nostr_client
@@ -101,7 +101,7 @@ class TestNip66RttMetadataTestOpen:
 
         with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
             client, rtt_open = await Nip66RttMetadata._test_open(
-                relay, mock_keys, None, 10.0, True, logs
+                relay, mock_keys, None, 10.0, allow_insecure=True, logs=logs
             )
 
         assert client is None
@@ -134,7 +134,7 @@ class TestNip66RttMetadataTestOpen:
 
         with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
             client, _ = await Nip66RttMetadata._test_open(
-                relay, mock_keys, proxy_url, 10.0, True, logs
+                relay, mock_keys, proxy_url, 10.0, allow_insecure=True, logs=logs
             )
 
         assert client is not None
@@ -186,7 +186,7 @@ class TestNip66RttMetadataTestRead:
         mock_read_filter: MagicMock,
     ) -> None:
         """Exception during read results in failure."""
-        mock_nostr_client.stream_events = AsyncMock(side_effect=Exception("Stream error"))
+        mock_nostr_client.stream_events = AsyncMock(side_effect=OSError("Stream error"))
 
         result = await Nip66RttMetadata._test_read(
             mock_nostr_client, mock_read_filter, 10.0, "wss://relay.example.com"
@@ -320,7 +320,7 @@ class TestNip66RttMetadataTestWrite:
         from nostr_sdk import RelayUrl
 
         relay_url = RelayUrl.parse("wss://relay.example.com")
-        mock_nostr_client.send_event_builder = AsyncMock(side_effect=Exception("Send error"))
+        mock_nostr_client.send_event_builder = AsyncMock(side_effect=OSError("Send error"))
 
         result = await Nip66RttMetadata._test_write(
             mock_nostr_client,
@@ -414,7 +414,7 @@ class TestNip66RttMetadataVerifyWrite:
         from nostr_sdk import EventId
 
         event_id = EventId.parse("a" * 64)
-        mock_nostr_client.stream_events = AsyncMock(side_effect=Exception("Verification error"))
+        mock_nostr_client.stream_events = AsyncMock(side_effect=OSError("Verification error"))
 
         result = await Nip66RttMetadata._verify_write(
             mock_nostr_client, event_id, 10.0, "wss://relay.example.com"

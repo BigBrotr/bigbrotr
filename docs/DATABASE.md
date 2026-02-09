@@ -1,857 +1,613 @@
-# Database Schema
+# Database Reference
 
-This document provides comprehensive documentation for BigBrotr's PostgreSQL database schema.
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Extensions](#extensions)
-- [Tables](#tables)
-- [Indexes](#indexes)
-- [Stored Procedures](#stored-procedures)
-- [Views](#views)
-- [Utility Functions](#utility-functions)
-- [Data Types](#data-types)
-- [Schema Initialization](#schema-initialization)
-- [Maintenance](#maintenance)
+Complete reference for BigBrotr's PostgreSQL schema, stored functions, materialized views, and indexes.
 
 ---
 
 ## Overview
 
-BigBrotr uses PostgreSQL 16+ as its primary data store with the following design principles:
+BigBrotr uses PostgreSQL 16+ with a schema designed for high-throughput event archiving and relay monitoring. Key design principles:
 
-- **Space Efficiency**: BYTEA types for binary data (50% savings vs hex strings)
-- **Data Integrity**: Foreign keys and constraints for referential integrity
-- **Deduplication**: Content-addressed storage for NIP-11/NIP-66 documents
-- **Performance**: Strategic indexes for common query patterns
-- **Idempotency**: All insert operations use ON CONFLICT DO NOTHING
+- **Content-addressed storage**: Metadata documents are deduplicated by SHA-256 hash (~90% savings)
+- **Bulk array parameters**: All mutations use stored functions with array parameters for batch efficiency
+- **SECURITY INVOKER**: All functions execute with the caller's permissions (least privilege)
+- **ON CONFLICT DO NOTHING**: All inserts are idempotent and safe to retry
+- **Batched cleanup**: Cleanup functions process in configurable batch sizes to limit lock duration
 
-### Schema Files
+Two schema variants exist:
 
-SQL files are located in `deployments/bigbrotr/postgres/init/` and applied in numerical order:
-
-| File | Purpose |
-|------|---------|
-| `00_extensions.sql` | PostgreSQL extensions (btree_gin, pg_stat_statements) |
-| `01_functions_utility.sql` | Utility functions (tags_to_tagvalues) |
-| `02_tables.sql` | Table definitions |
-| `03_functions_crud.sql` | CRUD stored procedures |
-| `04_functions_cleanup.sql` | Orphan cleanup functions |
-| `05_views.sql` | Regular views (placeholder) |
-| `06_materialized_views.sql` | Materialized views for analytics |
-| `07_functions_refresh.sql` | Materialized view refresh functions |
-| `08_indexes.sql` | Performance indexes |
-| `99_verify.sql` | Schema verification |
+| Variant | Event Storage | Materialized Views | Disk Usage |
+|---------|--------------|-------------------|------------|
+| **BigBrotr** | Full NIP-01 (id, pubkey, created_at, kind, tags, content, sig) | 7 views | 100% |
+| **LilBrotr** | Metadata only (id, pubkey, created_at, kind, tagvalues) | None | ~40% |
 
 ---
 
 ## Extensions
 
-BigBrotr requires two PostgreSQL extensions:
-
-### pg_stat_statements
-
-Tracks execution statistics of SQL statements for performance analysis:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-```
-
-**Usage**: Query `pg_stat_statements` view to identify slow queries and optimization targets. Requires `shared_preload_libraries = 'pg_stat_statements'` in postgresql.conf.
-
-### btree_gin
-
-Enables GIN indexes on scalar types:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS btree_gin;
-```
-
-**Usage**: GIN indexes on `tagvalues` arrays for efficient tag filtering.
+| Extension | Purpose | BigBrotr | LilBrotr |
+|-----------|---------|----------|----------|
+| `btree_gin` | GIN index support for `TEXT[]` containment queries | Yes | Yes |
+| `pg_stat_statements` | Query execution statistics tracking | Yes | No |
 
 ---
 
 ## Tables
 
-### relays
+### relay
 
-Registry of validated Nostr relay URLs.
+Validated Nostr relays that have passed WebSocket connectivity testing.
 
-```sql
-CREATE TABLE relays (
-    url TEXT PRIMARY KEY,
-    network TEXT NOT NULL,
-    discovered_at BIGINT NOT NULL
-);
-```
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `url` | TEXT | PRIMARY KEY | WebSocket URL (e.g., `wss://relay.example.com`) |
+| `network` | TEXT | NOT NULL | Network type: `clearnet`, `tor`, `i2p`, `loki` |
+| `discovered_at` | BIGINT | NOT NULL | Unix timestamp of discovery |
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `url` | TEXT (PK) | WebSocket URL (e.g., `wss://relay.example.com`) |
-| `network` | TEXT | Network type: `clearnet`, `tor`, `i2p`, or `loki` |
-| `discovered_at` | BIGINT | Unix timestamp when relay was first discovered and validated |
+### event (BigBrotr)
 
-**Note**: Only relays that have been validated by the Validator service are stored here. Candidates are stored in `service_data`.
+Complete NIP-01 event storage with all fields preserved.
 
-### events
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | BYTEA | PRIMARY KEY | SHA-256 event hash (32 bytes) |
+| `pubkey` | BYTEA | NOT NULL | Author public key (32 bytes) |
+| `created_at` | BIGINT | NOT NULL | Unix creation timestamp |
+| `kind` | INTEGER | NOT NULL | NIP-01 event kind (0-65535) |
+| `tags` | JSONB | NOT NULL | Tag array `[["e", "..."], ["p", "..."]]` |
+| `tagvalues` | TEXT[] | GENERATED ALWAYS AS `tags_to_tagvalues(tags)` STORED | Single-char tag values for GIN indexing |
+| `content` | TEXT | NOT NULL | Event content |
+| `sig` | BYTEA | NOT NULL | Schnorr signature (64 bytes) |
 
-Nostr events with binary storage for efficiency.
+The `tagvalues` column is a **generated stored column**, automatically computed from `tags` via the `tags_to_tagvalues()` function.
 
-**BigBrotr Schema (Full Storage)**:
-```sql
-CREATE TABLE events (
-    id BYTEA PRIMARY KEY,
-    pubkey BYTEA NOT NULL,
-    created_at BIGINT NOT NULL,
-    kind INTEGER NOT NULL,
-    tags JSONB NOT NULL,
-    content TEXT NOT NULL,
-    sig BYTEA NOT NULL,
-    tagvalues TEXT[] GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED
-);
-```
+### event (LilBrotr)
 
-**LilBrotr Schema (Essential Metadata - Indexes All Events)**:
-```sql
-CREATE TABLE events (
-    id BYTEA PRIMARY KEY,
-    pubkey BYTEA NOT NULL,
-    created_at BIGINT NOT NULL,
-    kind INTEGER NOT NULL,
-    -- tags and content NOT stored
-    sig BYTEA NOT NULL
-);
-```
+Lightweight variant storing only essential metadata.
 
-| Column | Type | BigBrotr | LilBrotr | Description |
-|--------|------|----------|----------|-------------|
-| `id` | BYTEA (PK) | Yes | Yes | Event ID (32 bytes, hex decoded) |
-| `pubkey` | BYTEA | Yes | Yes | Author's public key (32 bytes) |
-| `created_at` | BIGINT | Yes | Yes | Unix timestamp of event creation |
-| `kind` | INTEGER | Yes | Yes | Event kind number per NIP-01 |
-| `tags` | JSONB | Yes | **No** | Event tags array |
-| `content` | TEXT | Yes | **No** | Event content |
-| `sig` | BYTEA | Yes | Yes | Schnorr signature (64 bytes) |
-| `tagvalues` | TEXT[] | Yes | **No** | Generated: extracted tag values for indexing |
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | BYTEA | PRIMARY KEY | SHA-256 event hash (32 bytes) |
+| `pubkey` | BYTEA | NOT NULL | Author public key (32 bytes) |
+| `created_at` | BIGINT | NOT NULL | Unix creation timestamp |
+| `kind` | INTEGER | NOT NULL | NIP-01 event kind |
+| `tagvalues` | TEXT[] | Regular column | Computed at insert time by `event_insert()`, not a generated column |
 
-**Notes**:
-- BYTEA storage saves 50% compared to hex strings
-- `tagvalues` is auto-generated from `tags` for efficient querying (BigBrotr only)
-- LilBrotr indexes all events with essential metadata (id, pubkey, created_at, kind, sig) but omits tags and content, saving ~60% disk space
+In LilBrotr, `tagvalues` is a **regular column** computed by `event_insert()` from the `tags` parameter, which is then discarded along with `content` and `sig`.
 
-### events_relays
+### event_relay
 
-Junction table tracking which relays have seen each event.
+Junction table linking events to relays with first-seen timestamps.
 
-```sql
-CREATE TABLE events_relays (
-    event_id BYTEA NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    relay_url TEXT NOT NULL REFERENCES relays(url) ON DELETE CASCADE,
-    seen_at BIGINT NOT NULL,
-    PRIMARY KEY (event_id, relay_url)
-);
-```
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `event_id` | BYTEA | PK (partial), FK -> event(id) ON DELETE CASCADE | Event hash |
+| `relay_url` | TEXT | PK (partial), FK -> relay(url) ON DELETE CASCADE | Relay URL |
+| `seen_at` | BIGINT | NOT NULL | Unix timestamp of first observation |
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `event_id` | BYTEA (FK) | Reference to events table |
-| `relay_url` | TEXT (FK) | Reference to relays table |
-| `seen_at` | BIGINT | Unix timestamp when event was seen on this relay |
+Primary key: `(event_id, relay_url)`.
 
 ### metadata
 
-Unified storage for NIP-11 and NIP-66 metadata documents with content-addressed deduplication.
+Content-addressed storage for NIP-11 and NIP-66 metadata documents.
 
-```sql
-CREATE TABLE metadata (
-    id BYTEA PRIMARY KEY,
-    value JSONB NOT NULL
-);
-```
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | BYTEA | PRIMARY KEY | SHA-256 content hash (32 bytes) |
+| `payload` | JSONB | NOT NULL | Complete JSON document |
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | BYTEA (PK) | Content hash (SHA-256 computed in Python) |
-| `value` | JSONB | Complete JSON document (NIP-11 or NIP-66 data) |
-
-**Deduplication**: Multiple relays with identical metadata share the same record. The SHA-256 hash is computed in Python from the serialized JSON content before insertion, ensuring deterministic and automatic deduplication without requiring pgcrypto.
-
-**Content Types**:
-- **NIP-11 Fetch**: Relay information documents (name, description, supported NIPs, limitations, etc.)
-- **NIP-66 RTT**: Round-trip time measurements (open, read, write) and probe results
-- **NIP-66 SSL**: SSL/TLS certificate information
-- **NIP-66 Geo**: Geolocation data (country, city, coordinates, ASN)
-- **NIP-66 Net**: Network information (IP addresses, protocols)
-- **NIP-66 DNS**: DNS resolution data and timing
-- **NIP-66 HTTP**: HTTP/WebSocket connection metadata
+The SHA-256 hash is computed in the application layer. Multiple relays with identical metadata reference the same row, providing significant deduplication.
 
 ### relay_metadata
 
-Time-series metadata snapshots linking relays to metadata records by type.
+Time-series junction table linking relays to metadata snapshots.
 
-```sql
-CREATE TABLE relay_metadata (
-    relay_url TEXT NOT NULL,
-    generated_at BIGINT NOT NULL,
-    metadata_type TEXT NOT NULL,
-    metadata_id BYTEA NOT NULL,
-    PRIMARY KEY (relay_url, generated_at, metadata_type),
-    FOREIGN KEY (relay_url) REFERENCES relays (url) ON DELETE CASCADE,
-    FOREIGN KEY (metadata_id) REFERENCES metadata (id) ON DELETE CASCADE
-);
-```
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `relay_url` | TEXT | PK (partial), FK -> relay(url) ON DELETE CASCADE | Relay URL |
+| `generated_at` | BIGINT | PK (partial) | Unix timestamp of collection |
+| `metadata_type` | TEXT | PK (partial) | Check type (see below) |
+| `metadata_id` | BYTEA | NOT NULL, FK -> metadata(id) ON DELETE CASCADE | Content hash reference |
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `relay_url` | TEXT (FK, PK) | Reference to relays table |
-| `generated_at` | BIGINT (PK) | Unix timestamp when metadata snapshot was collected |
-| `metadata_type` | TEXT (PK) | Metadata type: `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, or `nip66_http` |
-| `metadata_id` | BYTEA (FK) | Reference to metadata table |
+Primary key: `(relay_url, generated_at, metadata_type)`.
 
-**Note**: Each relay can have multiple metadata types per snapshot, allowing separate storage of NIP-11 info, RTT measurements, SSL data, and geolocation data.
+**Metadata types**: `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`
 
-### service_data
+### service_state
 
-Per-service operational data storage for candidates, cursors, and checkpoints.
+Generic key-value store for per-service persistent state between restarts.
 
-```sql
-CREATE TABLE service_data (
-    service_name TEXT NOT NULL,
-    data_type TEXT NOT NULL,
-    data_key TEXT NOT NULL,
-    data JSONB NOT NULL DEFAULT '{}',
-    updated_at BIGINT NOT NULL,
-    PRIMARY KEY (service_name, data_type, data_key)
-);
-```
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `service_name` | TEXT | PK (partial) | Service identifier |
+| `state_type` | TEXT | PK (partial) | State category: `candidate`, `cursor`, `checkpoint`, `config` |
+| `state_key` | TEXT | PK (partial) | Unique key within service+type |
+| `payload` | JSONB | NOT NULL, DEFAULT `{}` | Service-specific JSONB payload |
+| `updated_at` | BIGINT | NOT NULL | Unix timestamp of last update |
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `service_name` | TEXT (PK) | Name of the service (finder, validator, synchronizer, monitor) |
-| `data_type` | TEXT (PK) | Type of data (candidate, cursor, checkpoint, config) |
-| `data_key` | TEXT (PK) | Unique identifier within service/data_type (usually relay URL) |
-| `data` | JSONB | Service-specific data structure |
-| `updated_at` | BIGINT | Unix timestamp when record was last updated |
-
-**Usage Examples**:
-- **Seeder/Finder**: Store discovered relay candidates with `service_name='validator'`, `data_type='candidate'`
-- **Validator**: Reads candidates from `service_name='validator'`, tracks validation attempts with `failed_attempts` counter in `data`
-- **Finder**: Stores event scanning cursor with `service_name='finder'`, `data_type='cursor'`
-- **Synchronizer**: Stores per-relay sync cursors with `data_type='cursor'`
+Primary key: `(service_name, state_type, state_key)`.
 
 ---
 
-## Indexes
+## Foreign Keys and Cascade Deletes
 
-### Primary Indexes (from table definitions)
+All foreign keys use `ON DELETE CASCADE`:
 
-```sql
--- Automatically created
-PRIMARY KEY (id) ON events
-PRIMARY KEY (url) ON relays
-PRIMARY KEY (event_id, relay_url) ON events_relays
-PRIMARY KEY (id) ON metadata
-PRIMARY KEY (relay_url, generated_at, metadata_type) ON relay_metadata
-PRIMARY KEY (service_name, data_type, data_key) ON service_data
-```
+| Child Table | Column | Parent Table | Cascade Effect |
+|------------|--------|-------------|----------------|
+| `event_relay` | `event_id` | `event(id)` | Deleting an event removes all relay associations |
+| `event_relay` | `relay_url` | `relay(url)` | Deleting a relay removes all event associations |
+| `relay_metadata` | `relay_url` | `relay(url)` | Deleting a relay removes all metadata snapshots |
+| `relay_metadata` | `metadata_id` | `metadata(id)` | Deleting metadata removes all references |
 
-### Performance Indexes
+**Invariants**:
 
-```sql
--- Event queries by time range
-CREATE INDEX idx_events_created_at ON events (created_at DESC);
-
--- Event queries by author
-CREATE INDEX idx_events_pubkey ON events (pubkey);
-
--- Event queries by kind
-CREATE INDEX idx_events_kind ON events (kind);
-
--- Combined author + time queries
-CREATE INDEX idx_events_pubkey_created_at ON events (pubkey, created_at DESC);
-
--- Junction table lookups
-CREATE INDEX idx_events_relays_relay_url ON events_relays (relay_url);
-CREATE INDEX idx_events_relays_seen_at ON events_relays (seen_at DESC);
-
--- Metadata lookups by time and type
-CREATE INDEX idx_relay_metadata_generated_at ON relay_metadata (generated_at DESC);
-CREATE INDEX idx_relay_metadata_metadata_id ON relay_metadata (metadata_id);
-CREATE INDEX idx_relay_metadata_url_type_generated ON relay_metadata (relay_url, metadata_type, generated_at DESC);
-
--- Service data lookups
-CREATE INDEX idx_service_data_service_name ON service_data (service_name);
-CREATE INDEX idx_service_data_service_type ON service_data (service_name, data_type);
-
--- Tag value searches (GIN for array containment)
-CREATE INDEX idx_events_tagvalues ON events USING GIN (tagvalues);
-```
-
-### Index Usage Notes
-
-- **Time-based queries**: Most queries filter by `created_at`, so DESC ordering is used
-- **Tag queries**: Use `@>` operator with GIN index: `WHERE tagvalues @> ARRAY['e:abc123']`
-- **Author queries**: Combined index with time for efficient "recent events by author"
-
----
-
-## Stored Procedures
-
-All stored procedures use bulk array parameters for efficient batch operations. They are organized in two levels:
-
-- **Level 1 (Base)**: Single-table operations
-- **Level 2 (Cascade)**: Multi-table atomic operations that call base functions internally
-
-### Level 1: Base Functions
-
-#### relays_insert
-
-Bulk insert relay records.
-
-```sql
-CREATE OR REPLACE FUNCTION relays_insert(
-    p_urls TEXT[],
-    p_networks TEXT[],
-    p_discovered_ats BIGINT[]
-) RETURNS INTEGER;
-```
-
-**Returns**: Number of rows inserted. Duplicates are silently ignored via ON CONFLICT DO NOTHING.
-
-#### events_insert
-
-Bulk insert event records.
-
-```sql
-CREATE OR REPLACE FUNCTION events_insert(
-    p_event_ids BYTEA[],
-    p_pubkeys BYTEA[],
-    p_created_ats BIGINT[],
-    p_kinds INTEGER[],
-    p_tags JSONB[],
-    p_contents TEXT[],
-    p_sigs BYTEA[]
-) RETURNS INTEGER;
-```
-
-**Returns**: Number of rows inserted. Duplicates are silently ignored via ON CONFLICT DO NOTHING.
-
-#### metadata_insert
-
-Bulk insert metadata records with content-addressed deduplication.
-
-```sql
-CREATE OR REPLACE FUNCTION metadata_insert(
-    p_ids BYTEA[],
-    p_values JSONB[]
-) RETURNS INTEGER;
-```
-
-**Parameters**:
-- `p_ids`: Pre-computed SHA-256 hashes (computed in Python, not in PostgreSQL)
-- `p_values`: Complete JSON documents (NIP-11 or NIP-66 data)
-
-**Returns**: Number of rows inserted. Duplicates are silently ignored via ON CONFLICT DO NOTHING.
-
-#### events_relays_insert
-
-Bulk insert event-relay junction records. Foreign keys must already exist.
-
-```sql
-CREATE OR REPLACE FUNCTION events_relays_insert(
-    p_event_ids BYTEA[],
-    p_relay_urls TEXT[],
-    p_seen_ats BIGINT[]
-) RETURNS INTEGER;
-```
-
-**Returns**: Number of rows inserted. Will fail if referenced events or relays do not exist -- use the cascade version if parent records may not exist yet.
-
-#### relay_metadata_insert
-
-Bulk insert relay-metadata junction records. Foreign keys must already exist.
-
-```sql
-CREATE OR REPLACE FUNCTION relay_metadata_insert(
-    p_relay_urls TEXT[],
-    p_metadata_ids BYTEA[],
-    p_metadata_values JSONB[],
-    p_metadata_types TEXT[],
-    p_generated_ats BIGINT[]
-) RETURNS INTEGER;
-```
-
-**Returns**: Number of rows inserted. Will fail if referenced relays or metadata do not exist -- use the cascade version if parent records may not exist yet.
-
-### Level 2: Cascade Functions
-
-#### events_relays_insert_cascade
-
-Bulk insert events with relays and junctions atomically. Calls `relays_insert()` and `events_insert()` internally.
-
-```sql
-CREATE OR REPLACE FUNCTION events_relays_insert_cascade(
-    p_event_ids BYTEA[],
-    p_pubkeys BYTEA[],
-    p_created_ats BIGINT[],
-    p_kinds INTEGER[],
-    p_tags JSONB[],
-    p_contents TEXT[],
-    p_sigs BYTEA[],
-    p_relay_urls TEXT[],
-    p_relay_networks TEXT[],
-    p_relay_discovered_ats BIGINT[],
-    p_seen_ats BIGINT[]
-) RETURNS INTEGER;
-```
-
-**Returns**: Number of junction rows inserted (events_relays).
-
-**Behavior**:
-1. Inserts relays via `relays_insert()` (ON CONFLICT DO NOTHING)
-2. Inserts events via `events_insert()` (ON CONFLICT DO NOTHING)
-3. Inserts event-relay junctions (ON CONFLICT DO NOTHING)
-
-#### relay_metadata_insert_cascade
-
-Bulk insert relay metadata with relays and metadata records atomically. Calls `relays_insert()` and `metadata_insert()` internally.
-
-```sql
-CREATE OR REPLACE FUNCTION relay_metadata_insert_cascade(
-    p_relay_urls TEXT[],
-    p_relay_networks TEXT[],
-    p_relay_discovered_ats BIGINT[],
-    p_metadata_ids BYTEA[],
-    p_metadata_values JSONB[],
-    p_metadata_types TEXT[],
-    p_generated_ats BIGINT[]
-) RETURNS INTEGER;
-```
-
-**Returns**: Number of junction rows inserted (relay_metadata).
-
-**Behavior**:
-1. Inserts relays via `relays_insert()` (ON CONFLICT DO NOTHING)
-2. Inserts metadata via `metadata_insert()` with pre-computed hashes (ON CONFLICT DO NOTHING)
-3. Inserts relay-metadata junctions (ON CONFLICT DO NOTHING)
-
-### Service Data Functions
-
-#### service_data_upsert
-
-Bulk upsert service data records (for candidates, cursors, state, etc.). Uses full replacement semantics: new data completely replaces existing data.
-
-```sql
-CREATE OR REPLACE FUNCTION service_data_upsert(
-    p_service_names TEXT[],
-    p_data_types TEXT[],
-    p_data_keys TEXT[],
-    p_datas JSONB[],
-    p_updated_ats BIGINT[]
-) RETURNS VOID;
-```
-
-#### service_data_get
-
-Retrieves service data records with optional key filter.
-
-```sql
-CREATE OR REPLACE FUNCTION service_data_get(
-    p_service_name TEXT,
-    p_data_type TEXT,
-    p_data_key TEXT DEFAULT NULL
-) RETURNS TABLE (data_key TEXT, data JSONB, updated_at BIGINT);
-```
-
-#### service_data_delete
-
-Bulk delete service data records.
-
-```sql
-CREATE OR REPLACE FUNCTION service_data_delete(
-    p_service_names TEXT[],
-    p_data_types TEXT[],
-    p_data_keys TEXT[]
-) RETURNS INTEGER;
-```
-
-**Returns**: Number of rows deleted.
-
-### Cleanup Functions
-
-#### orphan_events_delete
-
-Delete events without relay associations. Maintains the invariant that every event must have at least one relay association.
-
-```sql
-CREATE OR REPLACE FUNCTION orphan_events_delete() RETURNS BIGINT;
-```
-
-**Returns**: Number of orphaned events deleted.
-
-#### orphan_metadata_delete
-
-Delete unreferenced metadata records. Removes metadata entries that have no corresponding references in the `relay_metadata` junction table.
-
-```sql
-CREATE OR REPLACE FUNCTION orphan_metadata_delete() RETURNS BIGINT;
-```
-
-**Returns**: Number of orphaned metadata records deleted.
-
----
-
-## Views
-
-### relay_metadata_latest (Materialized View)
-
-Latest metadata for each relay per type.
-
-```sql
-CREATE MATERIALIZED VIEW relay_metadata_latest AS
-SELECT DISTINCT ON (rm.relay_url, rm.metadata_type)
-    rm.relay_url,
-    rm.metadata_type,
-    rm.generated_at,
-    rm.metadata_id,
-    m.value
-FROM relay_metadata AS rm
-INNER JOIN metadata AS m ON rm.metadata_id = m.id
-ORDER BY rm.relay_url ASC, rm.metadata_type ASC, rm.generated_at DESC;
-```
-
-**Purpose**: Provides fast access to the most recent metadata for each relay without scanning the full time-series table.
-
-**Usage**:
-```sql
--- Get latest NIP-11 data for all relays
-SELECT relay_url, value
-FROM relay_metadata_latest
-WHERE metadata_type = 'nip11_info';
-
--- Get relays with recent RTT data
-SELECT relay_url, value->>'rtt_open' AS rtt_open
-FROM relay_metadata_latest
-WHERE metadata_type = 'nip66_rtt';
-```
-
-**Refresh**: This materialized view should be refreshed periodically:
-```sql
-REFRESH MATERIALIZED VIEW CONCURRENTLY relay_metadata_latest;
-```
-
-### events_statistics
-
-Global event statistics with NIP-01 category breakdown.
-
-```sql
-CREATE OR REPLACE VIEW events_statistics AS
-SELECT
-    COUNT(*) AS total_events,
-    COUNT(DISTINCT pubkey) AS unique_pubkeys,
-    COUNT(DISTINCT kind) AS unique_kinds,
-    MIN(created_at) AS earliest_event_timestamp,
-    MAX(created_at) AS latest_event_timestamp,
-
-    -- Event categories per NIP-01
-    COUNT(*) FILTER (WHERE kind >= 1000 AND kind < 10000 OR ...) AS regular_events,
-    COUNT(*) FILTER (WHERE kind >= 10000 AND kind < 20000 OR ...) AS replaceable_events,
-    COUNT(*) FILTER (WHERE kind >= 20000 AND kind < 30000) AS ephemeral_events,
-    COUNT(*) FILTER (WHERE kind >= 30000 AND kind < 40000) AS addressable_events,
-
-    -- Time-based metrics
-    COUNT(*) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '1 hour')) AS events_last_hour,
-    COUNT(*) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')) AS events_last_24h,
-    COUNT(*) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '7 days')) AS events_last_7d,
-    COUNT(*) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '30 days')) AS events_last_30d
-FROM events;
-```
-
-### relays_statistics
-
-Per-relay statistics including event counts and RTT metrics.
-
-```sql
-CREATE OR REPLACE VIEW relays_statistics AS
-WITH relay_event_stats AS (
-    SELECT
-        er.relay_url,
-        COUNT(DISTINCT er.event_id) AS event_count,
-        COUNT(DISTINCT e.pubkey) AS unique_pubkeys,
-        MIN(e.created_at) AS first_event_timestamp,
-        MAX(e.created_at) AS last_event_timestamp
-    FROM events_relays er
-    LEFT JOIN events e ON er.event_id = e.id
-    GROUP BY er.relay_url
-),
-relay_performance AS (
-    -- Average RTT from last 10 measurements
-    SELECT relay_url, AVG((value->>'rtt_open')::int), AVG((value->>'rtt_read')::int), AVG((value->>'rtt_write')::int)
-    FROM (
-        SELECT rm.relay_url, m.value,
-               ROW_NUMBER() OVER (PARTITION BY rm.relay_url ORDER BY rm.generated_at DESC) AS rn
-        FROM relay_metadata rm
-        JOIN metadata m ON rm.metadata_id = m.id
-        WHERE rm.metadata_type = 'nip66_rtt'
-    ) recent
-    WHERE rn <= 10
-    GROUP BY relay_url
-)
-SELECT ...
-```
-
-### kind_counts_total / kind_counts_by_relay
-
-Event counts aggregated by kind.
-
-```sql
--- Total by kind
-SELECT kind, COUNT(*) AS event_count, COUNT(DISTINCT pubkey) AS unique_pubkeys
-FROM events GROUP BY kind ORDER BY event_count DESC;
-
--- By kind per relay
-SELECT e.kind, er.relay_url, COUNT(*) AS event_count
-FROM events e JOIN events_relays er ON e.id = er.event_id
-GROUP BY e.kind, er.relay_url;
-```
-
-### pubkey_counts_total / pubkey_counts_by_relay
-
-Event counts aggregated by public key.
-
-```sql
--- Total by pubkey
-SELECT encode(pubkey, 'hex') AS pubkey_hex, COUNT(*) AS event_count
-FROM events GROUP BY pubkey ORDER BY event_count DESC;
-```
+- Every event must have at least one relay in `event_relay` (enforced by `orphan_event_delete()`)
+- Orphaned metadata rows accumulate naturally; clean up with `orphan_metadata_delete()`
 
 ---
 
 ## Utility Functions
 
-### tags_to_tagvalues
+### tags_to_tagvalues(JSONB) -> TEXT[]
 
-Extracts tag values from tags array for single-character tag keys.
+Extracts values from single-character tag keys in a Nostr event tags array.
 
 ```sql
-CREATE OR REPLACE FUNCTION tags_to_tagvalues(p_tags JSONB)
-RETURNS TEXT[]
-LANGUAGE plpgsql
-IMMUTABLE
-RETURNS NULL ON NULL INPUT
-AS $$
-BEGIN
-    RETURN (
-        SELECT array_agg(tag_element->>1)
-        FROM jsonb_array_elements(p_tags) AS tag_element
-        WHERE length(tag_element->>0) = 1
-    );
-END;
-$$;
+LANGUAGE SQL IMMUTABLE RETURNS NULL ON NULL INPUT SECURITY INVOKER
 ```
 
-**Purpose**: Extracts the second element (value) from tags where the first element (key) is a single character. This enables GIN index searches on standard Nostr tag values (e, p, r, d, t, etc.).
+**Example**: `[["e", "abc"], ["p", "def"], ["relay", "wss://..."]]` -> `ARRAY['abc', 'def']`
 
-**Example**:
-```sql
--- Find events referencing a specific event ID
--- (where tags contains ["e", "abc123def456..."])
-SELECT * FROM events
-WHERE tagvalues @> ARRAY['abc123def456...'];
-
--- Find events mentioning a specific pubkey
--- (where tags contains ["p", "fedcba987654..."])
-SELECT * FROM events
-WHERE tagvalues @> ARRAY['fedcba987654...'];
-```
-
-**Note**: Only single-character tag keys (standard Nostr tags) are indexed. Multi-character keys are ignored to keep the index focused on common query patterns.
+Tags with multi-character keys (like `relay`) are excluded.
 
 ---
 
-## Data Types
+## CRUD Functions
 
-### Binary Fields (BYTEA)
+All CRUD functions share these properties:
 
-The following fields use BYTEA for 50% space savings:
+- `LANGUAGE plpgsql` with `SECURITY INVOKER`
+- Accept bulk array parameters for batch efficiency
+- Use `ON CONFLICT DO NOTHING` for idempotent inserts
+- Return `INTEGER` (rows affected) unless noted
 
-| Field | Size | Notes |
-|-------|------|-------|
-| `events.id` | 32 bytes | Event ID (SHA-256) |
-| `events.pubkey` | 32 bytes | Public key |
-| `events.sig` | 64 bytes | Schnorr signature |
-| `metadata.id` | 32 bytes | Content hash (SHA-256 of JSONB data) |
-| `relay_metadata.metadata_id` | 32 bytes | Reference to metadata.id |
-
-**Conversion**:
-```sql
--- Hex to BYTEA (in application)
-decode('abc123...', 'hex')
-
--- BYTEA to Hex (in queries)
-encode(id, 'hex')
-```
-
-### Timestamps
-
-All timestamps are Unix epoch (BIGINT):
+### relay_insert
 
 ```sql
--- Current timestamp
-SELECT EXTRACT(EPOCH FROM NOW())::BIGINT;
-
--- Convert to timestamp
-SELECT to_timestamp(created_at);
+relay_insert(p_urls TEXT[], p_networks TEXT[], p_discovered_ats BIGINT[]) -> INTEGER
 ```
+
+Bulk-inserts relay records. Existing relays (by URL) are silently skipped.
+
+### event_insert
+
+```sql
+event_insert(
+    p_event_ids BYTEA[], p_pubkeys BYTEA[], p_created_ats BIGINT[],
+    p_kinds INTEGER[], p_tags JSONB[], p_content_values TEXT[], p_sigs BYTEA[]
+) -> INTEGER
+```
+
+Bulk-inserts Nostr events. Duplicate events (by id) are silently skipped.
+
+- **BigBrotr**: Stores all 7 fields
+- **LilBrotr**: Accepts all 7 parameters for interface compatibility but stores only `id`, `pubkey`, `created_at`, `kind`, and computed `tagvalues`
+
+### metadata_insert
+
+```sql
+metadata_insert(p_ids BYTEA[], p_payloads JSONB[]) -> INTEGER
+```
+
+Bulk-inserts content-addressed metadata documents. Duplicate hashes are silently skipped.
+
+### event_relay_insert
+
+```sql
+event_relay_insert(p_event_ids BYTEA[], p_relay_urls TEXT[], p_seen_ats BIGINT[]) -> INTEGER
+```
+
+Bulk-inserts event-relay junction records. Both event and relay must already exist.
+
+### relay_metadata_insert
+
+```sql
+relay_metadata_insert(
+    p_relay_urls TEXT[], p_metadata_ids BYTEA[],
+    p_metadata_types TEXT[], p_generated_ats BIGINT[]
+) -> INTEGER
+```
+
+Bulk-inserts relay-metadata junction records. Both relay and metadata must already exist.
+
+### service_state_upsert
+
+```sql
+service_state_upsert(
+    p_service_names TEXT[], p_state_types TEXT[], p_state_keys TEXT[],
+    p_payloads JSONB[], p_updated_ats BIGINT[]
+) -> VOID
+```
+
+Bulk upsert service state records. Uses `DISTINCT ON` within the batch to deduplicate, then `ON CONFLICT DO UPDATE SET` for full replacement semantics.
+
+### service_state_get
+
+```sql
+service_state_get(
+    p_service_name TEXT, p_state_type TEXT, p_state_key TEXT DEFAULT NULL
+) -> TABLE(state_key TEXT, payload JSONB, updated_at BIGINT)
+```
+
+Retrieves service state records. If `p_state_key` is NULL, returns all records for the service+type ordered by `updated_at ASC`.
+
+### service_state_delete
+
+```sql
+service_state_delete(p_service_names TEXT[], p_state_types TEXT[], p_state_keys TEXT[]) -> INTEGER
+```
+
+Bulk-deletes service state records matching composite keys.
+
+---
+
+## Cascade Functions
+
+Atomic multi-table operations that call Level 1 CRUD functions within a single transaction.
+
+### event_relay_insert_cascade
+
+```sql
+event_relay_insert_cascade(
+    p_event_ids BYTEA[], p_pubkeys BYTEA[], p_created_ats BIGINT[],
+    p_kinds INTEGER[], p_tags JSONB[], p_content_values TEXT[], p_sigs BYTEA[],
+    p_relay_urls TEXT[], p_relay_networks TEXT[], p_relay_discovered_ats BIGINT[],
+    p_seen_ats BIGINT[]
+) -> INTEGER
+```
+
+Atomically inserts relays, events, and event-relay junctions:
+
+1. `relay_insert()` -- ensures relays exist
+2. `event_insert()` -- ensures events exist
+3. Inserts junction records with `DISTINCT ON (event_id, relay_url)` deduplication
+
+Returns the number of junction rows inserted.
+
+### relay_metadata_insert_cascade
+
+```sql
+relay_metadata_insert_cascade(
+    p_relay_urls TEXT[], p_relay_networks TEXT[], p_relay_discovered_ats BIGINT[],
+    p_metadata_ids BYTEA[], p_metadata_payloads JSONB[],
+    p_metadata_types TEXT[], p_generated_ats BIGINT[]
+) -> INTEGER
+```
+
+Atomically inserts relays, metadata documents, and relay-metadata junctions:
+
+1. `relay_insert()` -- ensures relays exist
+2. `metadata_insert()` -- ensures metadata exists
+3. Inserts junction records
+
+Returns the number of junction rows inserted.
+
+---
+
+## Cleanup Functions
+
+All cleanup functions use configurable batch sizes to limit lock duration and WAL volume. They loop until fewer than `p_batch_size` rows are deleted, returning the total count.
+
+### orphan_metadata_delete
+
+```sql
+orphan_metadata_delete(p_batch_size INTEGER DEFAULT 10000) -> INTEGER
+```
+
+Removes metadata records with no references in `relay_metadata`. Schedule: daily or after bulk deletions.
+
+### orphan_event_delete
+
+```sql
+orphan_event_delete(p_batch_size INTEGER DEFAULT 10000) -> INTEGER
+```
+
+Removes events with no associated relays in `event_relay`. Enforces the invariant that every event must have at least one relay. Schedule: daily or after relay deletions.
+
+### relay_metadata_delete_expired
+
+```sql
+relay_metadata_delete_expired(
+    p_max_age_seconds INTEGER DEFAULT 2592000,
+    p_batch_size INTEGER DEFAULT 10000
+) -> INTEGER
+```
+
+Retention policy: deletes `relay_metadata` snapshots older than `p_max_age_seconds` (default 30 days). Run `orphan_metadata_delete()` afterward to clean up dereferenced metadata documents.
+
+---
+
+## Materialized Views (BigBrotr Only)
+
+LilBrotr has no materialized views. All views use `REFRESH MATERIALIZED VIEW CONCURRENTLY` which requires a unique index.
+
+### relay_metadata_latest
+
+Latest metadata snapshot per relay and check type.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `relay_url` | TEXT | Relay WebSocket URL |
+| `metadata_type` | TEXT | Check type |
+| `generated_at` | BIGINT | Timestamp of latest snapshot |
+| `metadata_id` | BYTEA | Content-addressed hash |
+| `payload` | JSONB | Complete JSON document |
+
+Uses `DISTINCT ON (relay_url, metadata_type) ... ORDER BY generated_at DESC` to select the most recent snapshot.
+
+### event_stats
+
+Global event counts and time-window metrics (single-row view).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `singleton_key` | INTEGER | Always `1` (required for REFRESH CONCURRENTLY) |
+| `event_count` | BIGINT | Total events |
+| `unique_pubkeys` | BIGINT | Unique authors |
+| `unique_kinds` | BIGINT | Unique event kinds |
+| `earliest_event_timestamp` | BIGINT | MIN(created_at) |
+| `latest_event_timestamp` | BIGINT | MAX(created_at) |
+| `regular_event_count` | BIGINT | Kind 1, 2, 4-44, 1000-9999 |
+| `replaceable_event_count` | BIGINT | Kind 0, 3, 10000-19999 |
+| `ephemeral_event_count` | BIGINT | Kind 20000-29999 |
+| `addressable_event_count` | BIGINT | Kind 30000-39999 |
+| `event_count_last_1h` | BIGINT | Events from past 1 hour |
+| `event_count_last_24h` | BIGINT | Events from past 24 hours |
+| `event_count_last_7d` | BIGINT | Events from past 7 days |
+| `event_count_last_30d` | BIGINT | Events from past 30 days |
+
+### relay_stats
+
+Per-relay event counts and averaged round-trip times.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `relay_url` | TEXT | Relay WebSocket URL |
+| `network` | TEXT | Network type |
+| `discovered_at` | BIGINT | Unix discovery timestamp |
+| `first_event_timestamp` | BIGINT | Earliest event on relay |
+| `last_event_timestamp` | BIGINT | Latest event on relay |
+| `avg_rtt_open` | NUMERIC | Average RTT open phase (last 10 measurements) |
+| `avg_rtt_read` | NUMERIC | Average RTT read phase (last 10 measurements) |
+| `avg_rtt_write` | NUMERIC | Average RTT write phase (last 10 measurements) |
+| `event_count` | BIGINT | Total events on relay |
+| `unique_pubkeys` | BIGINT | Unique authors on relay |
+
+Uses `LATERAL` join to fetch the last 10 NIP-66 RTT measurements per relay.
+
+### kind_counts
+
+Global event count distribution by NIP-01 kind.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `kind` | INTEGER | Event kind |
+| `event_count` | BIGINT | Total events of this kind |
+| `unique_pubkeys` | BIGINT | Authors publishing this kind |
+
+### kind_counts_by_relay
+
+Per-relay event kind distribution.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `kind` | INTEGER | Event kind |
+| `relay_url` | TEXT | Relay WebSocket URL |
+| `event_count` | BIGINT | Events of this kind on this relay |
+| `unique_pubkeys` | BIGINT | Authors publishing this kind to this relay |
+
+### pubkey_counts
+
+Global author activity metrics.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `pubkey` | TEXT | Author public key (hex-encoded) |
+| `event_count` | BIGINT | Total events by this author |
+| `unique_kinds` | BIGINT | Event kinds authored |
+| `first_event_timestamp` | BIGINT | Earliest event |
+| `last_event_timestamp` | BIGINT | Latest event |
+
+### pubkey_counts_by_relay
+
+Per-relay author activity metrics.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `relay_url` | TEXT | Relay WebSocket URL |
+| `pubkey` | TEXT | Author public key (hex-encoded) |
+| `event_count` | BIGINT | Events by this author on this relay |
+| `unique_kinds` | BIGINT | Kinds published to this relay |
+| `first_event_timestamp` | BIGINT | Earliest event on relay |
+| `last_event_timestamp` | BIGINT | Latest event on relay |
+
+---
+
+## Refresh Functions (BigBrotr Only)
+
+All return `VOID` with `SECURITY INVOKER`. Each uses `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
+
+| Function | Target View | Recommended Schedule |
+|----------|-------------|---------------------|
+| `relay_metadata_latest_refresh()` | relay_metadata_latest | Daily |
+| `event_stats_refresh()` | event_stats | Hourly |
+| `relay_stats_refresh()` | relay_stats | Daily |
+| `kind_counts_refresh()` | kind_counts | Daily |
+| `kind_counts_by_relay_refresh()` | kind_counts_by_relay | Daily |
+| `pubkey_counts_refresh()` | pubkey_counts | Daily |
+| `pubkey_counts_by_relay_refresh()` | pubkey_counts_by_relay | Daily |
+
+### all_statistics_refresh()
+
+Refreshes all materialized views in dependency order:
+
+1. `relay_metadata_latest_refresh()` (first: relay_stats depends on it)
+2. `event_stats_refresh()`
+3. `relay_stats_refresh()`
+4. `kind_counts_refresh()`
+5. `kind_counts_by_relay_refresh()`
+6. `pubkey_counts_refresh()`
+7. `pubkey_counts_by_relay_refresh()`
+
+Schedule: daily maintenance window (high I/O cost).
+
+---
+
+## Indexes
+
+### BigBrotr Table Indexes
+
+#### event
+
+| Index | Columns | Type | Purpose |
+|-------|---------|------|---------|
+| PK | `id` | BTREE | Primary key |
+| `idx_event_created_at` | `created_at DESC` | BTREE | Global timeline queries |
+| `idx_event_kind` | `kind` | BTREE | Kind filtering |
+| `idx_event_kind_created_at` | `kind, created_at DESC` | BTREE | Kind + timeline |
+| `idx_event_pubkey_created_at` | `pubkey, created_at DESC` | BTREE | Author timeline |
+| `idx_event_pubkey_kind_created_at` | `pubkey, kind, created_at DESC` | BTREE | Author + kind + timeline |
+| `idx_event_tagvalues` | `tagvalues` | GIN | Tag containment (`@>`) |
+| `idx_event_created_at_id` | `created_at ASC, id ASC` | BTREE | Cursor-based pagination |
+
+#### event_relay Indexes
+
+| Index | Columns | Type | Purpose |
+|-------|---------|------|---------|
+| PK | `event_id, relay_url` | BTREE | Composite primary key |
+| `idx_event_relay_relay_url` | `relay_url` | BTREE | All events from a relay |
+| `idx_event_relay_seen_at` | `seen_at DESC` | BTREE | Recently discovered events |
+| `idx_event_relay_relay_url_seen_at` | `relay_url, seen_at DESC` | BTREE | Synchronizer cursor progress |
+
+#### relay_metadata Indexes
+
+| Index | Columns | Type | Purpose |
+|-------|---------|------|---------|
+| PK | `relay_url, generated_at, metadata_type` | BTREE | Composite primary key |
+| `idx_relay_metadata_generated_at` | `generated_at DESC` | BTREE | Recent health checks |
+| `idx_relay_metadata_metadata_id` | `metadata_id` | BTREE | Content-addressed lookups |
+| `idx_relay_metadata_relay_url_metadata_type_generated_at` | `relay_url, metadata_type, generated_at DESC` | BTREE | Latest metadata per relay+type |
+
+#### service_state Indexes
+
+| Index | Columns | Type | Purpose |
+|-------|---------|------|---------|
+| PK | `service_name, state_type, state_key` | BTREE | Covers single and double-prefix queries |
+| `idx_service_state_candidate_network` | `payload ->> 'network'` (partial) | BTREE | Validator: filter candidates by network |
+
+The partial index on `service_state` has a WHERE clause: `WHERE service_name = 'validator' AND state_type = 'candidate'`.
+
+### BigBrotr Materialized View Indexes
+
+All materialized views require at least one unique index for `REFRESH CONCURRENTLY`.
+
+| Index | View | Columns | Unique |
+|-------|------|---------|--------|
+| `idx_relay_metadata_latest_pk` | relay_metadata_latest | `relay_url, metadata_type` | Yes |
+| `idx_relay_metadata_latest_type` | relay_metadata_latest | `metadata_type` | No |
+| `idx_event_stats_singleton_key` | event_stats | `singleton_key` | Yes |
+| `idx_relay_stats_relay_url` | relay_stats | `relay_url` | Yes |
+| `idx_relay_stats_network` | relay_stats | `network` | No |
+| `idx_kind_counts_kind` | kind_counts | `kind` | Yes |
+| `idx_kind_counts_by_relay_composite` | kind_counts_by_relay | `kind, relay_url` | Yes |
+| `idx_kind_counts_by_relay_relay` | kind_counts_by_relay | `relay_url` | No |
+| `idx_pubkey_counts_pubkey` | pubkey_counts | `pubkey` | Yes |
+| `idx_pubkey_counts_by_relay_composite` | pubkey_counts_by_relay | `pubkey, relay_url` | Yes |
+| `idx_pubkey_counts_by_relay_relay` | pubkey_counts_by_relay | `relay_url` | No |
+
+### LilBrotr Table Indexes
+
+LilBrotr has a simpler index set (no materialized views).
+
+| Index | Table | Columns | Type |
+|-------|-------|---------|------|
+| `idx_event_created_at` | event | `created_at DESC` | BTREE |
+| `idx_event_kind` | event | `kind` | BTREE |
+| `idx_event_kind_created_at` | event | `kind, created_at DESC` | BTREE |
+| `idx_event_pubkey` | event | `pubkey` | BTREE |
+| `idx_event_tagvalues` | event | `tagvalues` | GIN |
+| `idx_event_relay_relay_url` | event_relay | `relay_url` | BTREE |
+| `idx_event_relay_event_id` | event_relay | `event_id` | BTREE |
+| `idx_relay_metadata_generated_at` | relay_metadata | `generated_at DESC` | BTREE |
+| `idx_relay_metadata_metadata_id` | relay_metadata | `metadata_id` | BTREE |
+| `idx_relay_metadata_relay_url_metadata_type_generated_at` | relay_metadata | `relay_url, metadata_type, generated_at DESC` | BTREE |
+| `idx_service_state_candidate_network` | service_state | `payload ->> 'network'` (partial) | BTREE |
 
 ---
 
 ## Schema Initialization
 
-### Docker Initialization
+SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.d/`:
 
-SQL files in `postgres/init/` are automatically executed by the PostgreSQL Docker image:
+### BigBrotr
 
-```yaml
-# docker-compose.yaml
-volumes:
-  - ./postgres/init:/docker-entrypoint-initdb.d:ro
-```
+| File | Content |
+|------|---------|
+| `00_extensions.sql` | `btree_gin`, `pg_stat_statements` |
+| `01_functions_utility.sql` | `tags_to_tagvalues()` |
+| `02_tables.sql` | 6 tables with full event schema |
+| `03_functions_crud.sql` | 10 CRUD + 2 cascade functions |
+| `04_functions_cleanup.sql` | 3 cleanup functions |
+| `05_views.sql` | Regular views (reserved) |
+| `06_materialized_views.sql` | 7 materialized views |
+| `07_functions_refresh.sql` | 8 refresh functions |
+| `08_indexes.sql` | Table and materialized view indexes |
+| `99_verify.sql` | Verification queries |
 
-Files are executed in alphabetical order (00_, 01_, etc.).
+### LilBrotr
 
-### Manual Initialization
-
-```bash
-# Connect to database
-psql -U admin -d bigbrotr
-
-# Execute files in order
-\i postgres/init/00_extensions.sql
-\i postgres/init/01_functions_utility.sql
-\i postgres/init/02_tables.sql
-\i postgres/init/03_functions_crud.sql
-\i postgres/init/04_functions_cleanup.sql
-\i postgres/init/05_views.sql
-\i postgres/init/06_materialized_views.sql
-\i postgres/init/07_functions_refresh.sql
-\i postgres/init/08_indexes.sql
-\i postgres/init/99_verify.sql
-```
+| File | Content |
+|------|---------|
+| `00_extensions.sql` | `btree_gin` |
+| `01_functions_utility.sql` | `tags_to_tagvalues()` |
+| `02_tables.sql` | 6 tables with lightweight event schema |
+| `03_functions_crud.sql` | 10 CRUD + 2 cascade functions |
+| `04_functions_cleanup.sql` | 3 cleanup functions |
+| `05_indexes.sql` | Table indexes |
+| `99_verify.sql` | Verification queries |
 
 ---
 
-## Maintenance
+## Function Summary
 
-### Vacuum and Analyze
-
-Regular maintenance improves performance:
-
-```sql
--- Analyze table statistics
-ANALYZE events;
-ANALYZE events_relays;
-ANALYZE relay_metadata;
-
--- Vacuum to reclaim space
-VACUUM events;
-VACUUM events_relays;
-```
-
-### Index Maintenance
-
-```sql
--- Reindex if needed
-REINDEX INDEX idx_events_created_at;
-
--- Check index usage
-SELECT schemaname, relname, indexrelname, idx_scan
-FROM pg_stat_user_indexes
-ORDER BY idx_scan;
-```
-
-### Cleanup Orphans
-
-Run periodically via application:
-
-```python
-await brotr.delete_orphan_events()
-await brotr.delete_orphan_metadata()
-```
-
-Or manually:
-
-```sql
-SELECT orphan_events_delete();
-SELECT orphan_metadata_delete();
-```
-
-### Monitoring Queries
-
-```sql
--- Table sizes
-SELECT relname, pg_size_pretty(pg_total_relation_size(relid))
-FROM pg_stat_user_tables
-ORDER BY pg_total_relation_size(relid) DESC;
-
--- Index sizes
-SELECT indexrelname, pg_size_pretty(pg_relation_size(indexrelid))
-FROM pg_stat_user_indexes
-ORDER BY pg_relation_size(indexrelid) DESC;
-
--- Event counts by day
-SELECT DATE(to_timestamp(created_at)), COUNT(*)
-FROM events
-GROUP BY 1
-ORDER BY 1 DESC
-LIMIT 30;
-
--- Relay status summary (openable/readable/writable are in the NIP-66 RTT metadata JSON)
-SELECT
-    COUNT(DISTINCT relay_url) AS total_relays,
-    COUNT(*) FILTER (WHERE value->>'rtt_open' IS NOT NULL) AS openable,
-    COUNT(*) FILTER (WHERE value->>'rtt_read' IS NOT NULL) AS readable,
-    COUNT(*) FILTER (WHERE value->>'rtt_write' IS NOT NULL) AS writable
-FROM relay_metadata_latest
-WHERE metadata_type = 'nip66_rtt';
-```
+| Category | Count | Functions |
+|----------|-------|-----------|
+| Utility | 1 | `tags_to_tagvalues` |
+| CRUD (Level 1) | 8 | `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
+| CRUD (Level 2) | 2 | `event_relay_insert_cascade`, `relay_metadata_insert_cascade` |
+| Cleanup | 3 | `orphan_metadata_delete`, `orphan_event_delete`, `relay_metadata_delete_expired` |
+| Refresh | 8 | 7 individual + `all_statistics_refresh` |
+| **Total** | **22** | |
 
 ---
 
-## Performance Considerations
+## Maintenance Schedule
 
-### Query Optimization
-
-1. **Use indexes**: Always filter on indexed columns
-2. **Limit results**: Use `LIMIT` for large result sets
-3. **Avoid SELECT ***: Select only needed columns
-4. **Use EXPLAIN**: Analyze query plans
-
-```sql
-EXPLAIN ANALYZE
-SELECT id, created_at FROM events
-WHERE created_at > 1700000000
-ORDER BY created_at DESC
-LIMIT 100;
-```
-
-### Scaling Considerations
-
-- **Partitioning**: Consider partitioning `events` by `created_at` for large datasets
-- **Read replicas**: Use PostgreSQL streaming replication for read scaling
-- **Connection pooling**: PGBouncer is configured for high connection counts
-- **Archival**: Consider moving old data to archive tables
+| Task | Frequency | Command |
+|------|-----------|---------|
+| Refresh all views | Daily | `SELECT all_statistics_refresh()` |
+| Refresh event_stats | Hourly | `SELECT event_stats_refresh()` |
+| Delete orphan events | Daily | `SELECT orphan_event_delete()` |
+| Delete orphan metadata | Daily | `SELECT orphan_metadata_delete()` |
+| Expire old metadata | Weekly | `SELECT relay_metadata_delete_expired(2592000)` |
+| VACUUM ANALYZE | Weekly | `VACUUM ANALYZE event; VACUUM ANALYZE event_relay;` |
 
 ---
 
 ## Related Documentation
 
-| Document | Description |
-|----------|-------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture overview |
-| [CONFIGURATION.md](CONFIGURATION.md) | Complete configuration reference |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Development setup and guidelines |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Deployment instructions |
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | Contribution guidelines |
-| [CHANGELOG.md](../CHANGELOG.md) | Version history |
+- [ARCHITECTURE.md](ARCHITECTURE.md) -- System architecture and module reference
+- [CONFIGURATION.md](CONFIGURATION.md) -- YAML configuration reference
+- [DEPLOYMENT.md](DEPLOYMENT.md) -- Docker and manual deployment guide
+- [DEVELOPMENT.md](DEVELOPMENT.md) -- Development setup and testing

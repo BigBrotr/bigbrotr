@@ -774,8 +774,9 @@ class TestRelayMetadataType:
         assert len(params) == 7
         assert params[0] == "wss://relay.example.com"
         assert params[1] == "clearnet"
-        assert isinstance(params[3], bytes) and len(params[3]) == 32
-        assert params[4] == metadata_obj.to_db_params().value
+        assert isinstance(params[3], bytes)
+        assert len(params[3]) == 32
+        assert params[4] == metadata_obj.to_db_params().payload
         assert params[5] == "nip66_rtt"
         assert params[6] == 1700000001
 

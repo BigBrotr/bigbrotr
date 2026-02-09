@@ -368,7 +368,7 @@ class TestNip66GeoMetadataGeoSync:
     def test_lookup_exception_returns_empty_dict(self) -> None:
         """Lookup exception returns empty dict."""
         mock_city_reader = MagicMock()
-        mock_city_reader.city.side_effect = Exception("IP not found")
+        mock_city_reader.city.side_effect = ValueError("IP not found")
 
         result = Nip66GeoMetadata._geo("192.168.1.1", mock_city_reader)
 
@@ -516,7 +516,7 @@ class TestNip66GeoMetadataGeoAsync:
                 new_callable=AsyncMock,
                 return_value=mock_resolved,
             ),
-            patch.object(Nip66GeoMetadata, "_geo", side_effect=Exception("Database error")),
+            patch.object(Nip66GeoMetadata, "_geo", side_effect=ValueError("Database error")),
         ):
             result = await Nip66GeoMetadata.execute(relay, mock_city_reader)
 

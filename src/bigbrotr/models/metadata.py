@@ -49,17 +49,17 @@ class MetadataDbParams(NamedTuple):
 
     Attributes:
         id: SHA-256 content hash (32 bytes) used as the primary key.
-        value: Canonical JSON string for PostgreSQL JSONB storage.
+        payload: Canonical JSON string for PostgreSQL JSONB storage.
         metadata_type: Metadata type discriminator.
     """
 
     id: bytes
-    value: str
+    payload: str
     metadata_type: MetadataType
 
 
 T = TypeVar("T")
-_UNSET: object = object()  # Sentinel for missing default in _get()
+_UNSET: Any = object()  # Sentinel for missing default in _get()
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +182,7 @@ class Metadata:
         self,
         *keys: str,
         expected_type: builtins.type[T],
-        default: T = _UNSET,  # type: ignore[assignment]
+        default: T = _UNSET,
     ) -> T | None:
         """Retrieve a nested value with type checking.
 
@@ -238,11 +238,11 @@ class Metadata:
 
         Returns:
             MetadataDbParams with the content hash as ``id``, the canonical
-            JSON as ``value``, and the metadata type.
+            JSON as ``payload``, and the metadata type.
         """
         return MetadataDbParams(
             id=self._content_hash,
-            value=self._canonical_json,
+            payload=self._canonical_json,
             metadata_type=self.type,
         )
 
@@ -251,9 +251,10 @@ class Metadata:
 
         Returns:
             MetadataDbParams with the content hash as ``id``, the canonical
-            JSON as ``value``, and the metadata type.
+            JSON as ``payload``, and the metadata type.
         """
-        return self._db_params  # type: ignore[return-value]
+        assert self._db_params is not None  # noqa: S101  # Always set in __post_init__
+        return self._db_params
 
     @classmethod
     def from_db_params(cls, params: MetadataDbParams) -> Metadata:
@@ -271,7 +272,7 @@ class Metadata:
         Raises:
             ValueError: If the recomputed hash does not match ``params.id``.
         """
-        value_dict = json.loads(params.value)
+        value_dict = json.loads(params.payload)
         instance = cls(type=params.metadata_type, value=value_dict)
 
         if instance._content_hash != params.id:

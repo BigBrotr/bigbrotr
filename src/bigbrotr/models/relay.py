@@ -270,7 +270,8 @@ class Relay:
             RelayDbParams with the normalized URL, network name, and
             discovery timestamp.
         """
-        return self._db_params  # type: ignore[return-value]
+        assert self._db_params is not None  # noqa: S101  # Always set in __post_init__
+        return self._db_params
 
     def _compute_db_params(self) -> RelayDbParams:
         """Compute positional parameters for the database insert procedure.

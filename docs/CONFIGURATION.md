@@ -1,63 +1,97 @@
-# Configuration
+# Configuration Reference
 
-This document provides comprehensive documentation for BigBrotr's configuration system.
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Environment Variables](#environment-variables)
-- [Configuration Files](#configuration-files)
-- [Core Configuration](#core-configuration)
-- [Service Configuration](#service-configuration)
-- [Configuration Validation](#configuration-validation)
-- [Best Practices](#best-practices)
+Complete reference for BigBrotr's YAML configuration system with Pydantic v2 validation.
 
 ---
 
 ## Overview
 
-BigBrotr uses a YAML-driven configuration system with Pydantic validation. This approach provides:
+BigBrotr uses hierarchical YAML configuration with Pydantic model validation:
 
-- **Type Safety**: All configuration is validated at startup
-- **Documentation**: Pydantic models serve as schema documentation
-- **Flexibility**: YAML files are easy to read and modify
-- **Security**: Sensitive data (passwords) comes from environment variables only
+1. **YAML files** define all non-sensitive settings
+2. **Environment variables** supply secrets (passwords, private keys)
+3. **Pydantic models** validate and enforce constraints at startup
+4. **Sensible defaults** allow minimal configuration for most deployments
 
-### Configuration Philosophy
+### Configuration Loading
 
-1. **YAML for Structure** - All non-sensitive configuration in YAML files
-2. **Environment for Secrets** - Only passwords and keys from environment
-3. **Defaults are Safe** - Sensible defaults for all optional settings
-4. **Validation at Startup** - Configuration errors fail fast
+```text
+CLI invocation (python -m bigbrotr <service>)
+  |
+  v
+Brotr.from_yaml("config/brotr.yaml")     -- pool, batch, timeouts
+  |
+  v
+Service.from_yaml("config/services/<service>.yaml", brotr)
+  |
+  v
+Pydantic validation (field constraints, cross-field checks)
+  |
+  v
+Environment variable resolution (DB_PASSWORD, PRIVATE_KEY)
+  |
+  v
+Service starts with validated configuration
+```
+
+### File Structure
+
+Each deployment has its own configuration directory:
+
+```text
+deployments/
++-- bigbrotr/config/
+|   +-- brotr.yaml
+|   +-- services/
+|       +-- seeder.yaml
+|       +-- finder.yaml
+|       +-- validator.yaml
+|       +-- monitor.yaml
+|       +-- synchronizer.yaml
++-- lilbrotr/config/
+|   +-- brotr.yaml
+|   +-- services/
+|       +-- synchronizer.yaml
++-- _template/config/              <-- fully documented defaults
+    +-- brotr.yaml
+    +-- services/
+        +-- seeder.yaml
+        +-- finder.yaml
+        +-- validator.yaml
+        +-- monitor.yaml
+        +-- synchronizer.yaml
+```
+
+The `_template` deployment contains every field with comments and is the canonical reference for defaults.
 
 ---
 
 ## Environment Variables
 
-Only sensitive data is loaded from environment variables:
-
-| Variable | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `DB_PASSWORD` | **Yes** | PostgreSQL database password | `my_secure_password_123` |
-| `PRIVATE_KEY` | **Yes** for Monitor, optional for Synchronizer | Nostr private key (hex or nsec) for write tests and NIP-42 auth | `5a2b3c4d...` (64 hex chars) or `nsec1...` |
-| `GRAFANA_PASSWORD` | No | Grafana admin password | Defaults to `admin` |
+| Variable | Required | Used By | Description |
+|----------|----------|---------|-------------|
+| `DB_PASSWORD` | Yes | All services | PostgreSQL password (referenced by `pool.database.password_env`) |
+| `PRIVATE_KEY` | Monitor, optional for Synchronizer | Monitor, Synchronizer | Nostr private key (64-char hex or `nsec1...` bech32). Required for NIP-66 write tests and event publishing. Optional for Synchronizer NIP-42 authentication. |
+| `GRAFANA_PASSWORD` | Docker only | Grafana | Grafana admin password |
 
 ### Setting Environment Variables
 
-**Docker Compose** (recommended):
+**Docker Compose** (`.env` file):
+
 ```bash
-# Create .env file
 cp deployments/bigbrotr/.env.example deployments/bigbrotr/.env
-nano deployments/bigbrotr/.env  # Edit DB_PASSWORD
+# Edit and set DB_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
 ```
 
-**Shell Export**:
+**Shell**:
+
 ```bash
 export DB_PASSWORD=your_secure_password
-export PRIVATE_KEY=your_hex_private_key  # Required for Monitor, optional for Synchronizer (NIP-42)
+export PRIVATE_KEY=your_hex_private_key
 ```
 
-**Systemd Service**:
+**Systemd**:
+
 ```ini
 [Service]
 Environment="DB_PASSWORD=your_secure_password"
@@ -66,214 +100,159 @@ Environment="PRIVATE_KEY=your_hex_private_key"
 
 ---
 
-## Configuration Files
+## CLI Arguments
 
-### File Structure
+```text
+python -m bigbrotr <service> [options]
 
-Each deployment has its own YAML configuration:
+positional arguments:
+  service                 seeder | finder | validator | monitor | synchronizer
 
-```
-deployments/
-├── bigbrotr/config/                    # Full-featured configuration
-│   ├── brotr.yaml                     # Database and pool configuration
-│   └── services/
-│       ├── seeder.yaml               # Seed file configuration
-│       ├── finder.yaml               # Relay discovery settings
-│       ├── monitor.yaml              # Health monitoring (Tor enabled)
-│       └── synchronizer.yaml         # Event sync (high concurrency)
-│
-└── lilbrotr/config/                    # Lightweight configuration (overrides only)
-    ├── brotr.yaml                     # Same pool settings
-    └── services/
-        └── synchronizer.yaml         # Tor disabled, lower concurrency
-```
-
-**Note**: LilBrotr uses minimal configuration overrides. Services not explicitly configured inherit defaults from their Pydantic models.
-
-### Loading Configuration
-
-Services load configuration via factory methods:
-
-```python
-# From YAML file
-service = MyService.from_yaml("config/services/myservice.yaml", brotr=brotr)
-
-# From dictionary
-config_dict = {"interval": 1800.0, "tor": {"enabled": False}}
-service = MyService.from_dict(config_dict, brotr=brotr)
+options:
+  --config PATH           Service config path (overrides default)
+  --brotr-config PATH     Brotr config path (default: config/brotr.yaml)
+  --log-level LEVEL       DEBUG | INFO | WARNING | ERROR (default: INFO)
+  --once                  Run one cycle and exit
 ```
 
 ---
 
-## Core Configuration
+## Core Configuration (brotr.yaml)
 
-### Brotr Configuration (`deployments/*/config/brotr.yaml`)
+The Brotr configuration controls the database connection pool and query behavior shared by all services.
+
+### Full Example
 
 ```yaml
-# Connection pool configuration
 pool:
-  # Database connection parameters - connects to PGBouncer
   database:
-    host: pgbouncer              # PGBouncer service name (connects to PostgreSQL)
-    port: 5432                   # PGBouncer internal port
-    database: bigbrotr           # Database name
-    user: admin                  # Database user
-    # password: loaded from DB_PASSWORD environment variable
+    host: pgbouncer                          # Database/PGBouncer hostname
+    port: 5432                               # Connection port
+    database: bigbrotr                       # Database name
+    user: admin                              # Database user
+    password_env: DB_PASSWORD                # Environment variable name for password
 
-  # Connection pool size limits (connections to PGBouncer)
   limits:
-    min_size: 5                  # Minimum connections to PGBouncer
-    max_size: 20                 # Maximum connections to PGBouncer
-    max_queries: 50000           # Queries per connection before recycling
-    max_inactive_connection_lifetime: 300.0  # Idle timeout (seconds)
+    min_size: 5                              # Minimum pool connections
+    max_size: 20                             # Maximum pool connections
+    max_queries: 50000                       # Queries before connection recycle
+    max_inactive_connection_lifetime: 300.0  # Idle connection timeout (seconds)
 
-  # Pool-level timeouts
   timeouts:
-    acquisition: 10.0            # Timeout for getting connection (seconds)
-    health_check: 5.0            # Timeout for health check (seconds)
+    acquisition: 10.0                        # Connection acquisition timeout
+    health_check: 5.0                        # Health check timeout
 
-  # Connection retry logic
   retry:
-    max_attempts: 3              # Maximum retry attempts
-    initial_delay: 1.0           # Initial delay between retries (seconds)
-    max_delay: 10.0              # Maximum delay between retries (seconds)
-    exponential_backoff: true    # Use exponential backoff
+    max_attempts: 3                          # Connection retry attempts
+    initial_delay: 1.0                       # Initial retry delay (seconds)
+    max_delay: 10.0                          # Maximum retry delay (seconds)
+    exponential_backoff: true                # Use exponential backoff
 
-  # PostgreSQL server settings
   server_settings:
-    application_name: bigbrotr   # Application name in pg_stat_activity
-    timezone: UTC                # Session timezone
+    application_name: bigbrotr               # Shown in pg_stat_activity
+    timezone: UTC                            # Session timezone
+    statement_timeout: 300000                # Max query time (milliseconds)
 
-# Batch operation settings
 batch:
-  max_size: 1000                 # Maximum items per batch operation
+  max_size: 1000                             # Records per bulk insert
 
-# Query timeouts (seconds, or null for infinite)
 timeouts:
-  query: 60.0                    # Standard query timeout
-  batch: 120.0                   # Batch operation timeout
-  cleanup: 90.0                  # Cleanup procedures (delete_orphan_*, delete_failed_*)
-  refresh: null                  # Materialized view refresh (no timeout)
+  query: 60.0                                # Standard query timeout (seconds)
+  batch: 120.0                               # Batch operation timeout
+  cleanup: 90.0                              # Cleanup procedure timeout
+  refresh: null                              # Materialized view refresh (null = no timeout)
 ```
 
-### Configuration Reference
+### Field Reference
 
-#### Database Config
+#### DatabaseConfig
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `host` | string | `localhost` | Database hostname |
-| `port` | int | `5432` | Database port (1-65535) |
-| `database` | string | `database` | Database name |
+| `host` | string | `localhost` | Database/PGBouncer hostname |
+| `port` | int | `5432` | Connection port (1-65535) |
+| `database` | string | `bigbrotr` | Database name |
 | `user` | string | `admin` | Database username |
+| `password_env` | string | `DB_PASSWORD` | Environment variable containing password |
 
-#### Pool Limits
+#### LimitsConfig
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
 | `min_size` | int | `5` | 1-100 | Minimum pool connections |
-| `max_size` | int | `20` | 1-100 | Maximum pool connections |
-| `max_queries` | int | `50000` | 1-1M | Queries before connection recycle |
-| `max_inactive_connection_lifetime` | float | `300.0` | 0-3600 | Idle connection timeout |
+| `max_size` | int | `20` | 1-200 | Maximum pool connections (must be >= min_size) |
+| `max_queries` | int | `50000` | >= 100 | Queries before connection recycle |
+| `max_inactive_connection_lifetime` | float | `300.0` | - | Idle connection timeout (seconds) |
 
-#### Retry Config
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `max_attempts` | int | `3` | Maximum connection retry attempts |
-| `initial_delay` | float | `1.0` | Initial retry delay (seconds) |
-| `max_delay` | float | `10.0` | Maximum retry delay (seconds) |
-| `exponential_backoff` | bool | `true` | Use exponential backoff |
-
----
-
-## Service Configuration
-
-### Seeder (`config/services/seeder.yaml`)
-
-```yaml
-# Seed relay configuration
-# Note: Network type (clearnet/tor) is auto-detected from URL
-# Note: Duplicate URLs are filtered server-side (existing relays and candidates skipped)
-# Note: File paths are relative to the working directory:
-#       - Docker: /app (so static/seed_relays.txt = /app/static/seed_relays.txt)
-#       - Local: run from deployments/bigbrotr/
-seed:
-  enabled: true                       # Enable relay seeding
-  file_path: static/seed_relays.txt   # Path to seed file
-```
-
-**Note**: The Seeder is a one-shot service that seeds relay URLs as candidates. It does not perform schema verification - the SQL initialization scripts handle schema creation.
-
-### Finder (`config/services/finder.yaml`)
-
-```yaml
-# Cycle interval (seconds between discovery runs)
-interval: 3600.0                 # 1 hour (Range: >= 60.0)
-
-# Event scanning (discovers relays from stored events)
-events:
-  enabled: true                  # Enable event-based discovery
-  batch_size: 1000               # Events per batch (Range: 100-10000)
-  kinds: [2, 3, 10002]           # Event kinds: 2=recommend relay, 3=contacts, 10002=relay list
-
-# External API discovery
-api:
-  enabled: true                  # Enable API-based discovery
-  verify_ssl: true               # Verify TLS certificates (disable only for testing)
-  sources:
-    - url: https://api.nostr.watch/v1/online
-      enabled: true
-      timeout: 30.0              # Request timeout (Range: 0.1-120.0)
-    - url: https://api.nostr.watch/v1/offline
-      enabled: true
-      timeout: 30.0
-  delay_between_requests: 1.0    # Delay between API calls (Range: 0.0-10.0)
-```
-
-#### Finder Configuration Reference
+#### PoolTimeoutsConfig
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `interval` | float | `3600.0` | >= 60.0 | Seconds between cycles |
-| `events.enabled` | bool | `true` | - | Enable event scanning |
-| `events.batch_size` | int | `1000` | 100-10000 | Events per batch |
-| `events.kinds` | list | `[2, 3, 10002]` | - | Event kinds to scan |
-| `api.enabled` | bool | `true` | - | Enable API discovery |
-| `api.verify_ssl` | bool | `true` | - | Verify TLS certificates |
-| `api.sources[].timeout` | float | `30.0` | 0.1-120.0 | Request timeout |
-| `api.delay_between_requests` | float | `1.0` | 0.0-10.0 | Inter-request delay |
-| `concurrency.max_parallel` | int | `5` | 1-20 | Concurrent API requests |
+| `acquisition` | float | `10.0` | >= 0.1 | Connection acquisition timeout |
+| `health_check` | float | `5.0` | >= 0.1 | Health check timeout |
 
-### Validator (`config/services/validator.yaml`)
+#### PoolRetryConfig
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `max_attempts` | int | `3` | 1-10 | Maximum retry attempts |
+| `initial_delay` | float | `1.0` | >= 0.1 | Initial delay between retries |
+| `max_delay` | float | `10.0` | >= initial_delay | Maximum retry delay |
+| `exponential_backoff` | bool | `true` | - | Use exponential backoff |
+
+#### ServerSettingsConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `application_name` | string | `bigbrotr` | Application name in pg_stat_activity |
+| `timezone` | string | `UTC` | Session timezone |
+| `statement_timeout` | int | `300000` | Max query time in milliseconds (0 = no limit) |
+
+#### BatchConfig
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `max_size` | int | `1000` | 1-100000 | Records per bulk operation |
+
+#### BrotrTimeoutsConfig
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `query` | float or null | `60.0` | >= 0.1 | Standard query timeout |
+| `batch` | float or null | `120.0` | >= 0.1 | Batch insert timeout |
+| `cleanup` | float or null | `90.0` | >= 0.1 | Cleanup procedure timeout |
+| `refresh` | float or null | `null` | >= 0.1 | Materialized view refresh timeout |
+
+---
+
+## Base Service Configuration
+
+All services inherit from `BaseServiceConfig` and share these fields:
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `interval` | float | `300.0` | >= 60.0 | Seconds between service cycles |
+| `max_consecutive_failures` | int | `5` | >= 0 | Stop after N consecutive failures (0 = never stop) |
+| `metrics.enabled` | bool | `false` | - | Enable Prometheus /metrics endpoint |
+| `metrics.port` | int | `8000` | 1-65535 | Metrics HTTP port |
+| `metrics.host` | string | `127.0.0.1` | - | Metrics bind address |
+| `metrics.path` | string | `/metrics` | - | Metrics URL path |
+
+---
+
+## Network Configuration
+
+Services that connect to relays (Validator, Monitor, Synchronizer) share a unified network configuration:
 
 ```yaml
-# Cycle interval (seconds between validation runs)
-interval: 28800.0  # 8 hours
-
-# Prometheus metrics endpoint
-metrics:
-  enabled: true
-  port: 8002
-
-# Processing configuration
-processing:
-  chunk_size: 100                # Candidates per batch
-  max_candidates: null           # Max candidates per cycle (null = unlimited)
-
-# Cleanup configuration
-cleanup:
-  enabled: true
-  max_failures: 100              # Remove after N failures
-
-# Network-specific settings
 networks:
   clearnet:
     enabled: true
-    max_tasks: 50                # Concurrent validations
-    timeout: 10.0                # Connection timeout
+    proxy_url: null
+    max_tasks: 50
+    timeout: 10.0
   tor:
-    enabled: true
+    enabled: false
     proxy_url: "socks5://tor:9050"
     max_tasks: 10
     timeout: 30.0
@@ -289,32 +268,141 @@ networks:
     timeout: 30.0
 ```
 
-#### Validator Configuration Reference
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `enabled` | bool | varies | - | Enable this network type |
+| `proxy_url` | string or null | varies | - | SOCKS5 proxy URL for overlay networks |
+| `max_tasks` | int | varies | 1-200 | Maximum concurrent connections |
+| `timeout` | float | varies | 1.0-120.0 | Connection timeout (seconds) |
+
+**Defaults by network:**
+
+| Network | enabled | proxy_url | max_tasks | timeout |
+|---------|---------|-----------|-----------|---------|
+| clearnet | `true` | `null` | `50` | `10.0` |
+| tor | `false` | `socks5://tor:9050` | `10` | `30.0` |
+| i2p | `false` | `socks5://i2p:4447` | `5` | `45.0` |
+| loki | `false` | `socks5://lokinet:1080` | `5` | `30.0` |
+
+---
+
+## Seeder Configuration
+
+One-shot service that seeds relay URLs from a static file.
+
+```yaml
+seed:
+  file_path: "static/seed_relays.txt"        # Path to seed file (one URL per line)
+  to_validate: true                           # true = insert as candidates, false = insert as relays
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `seed.file_path` | string | `static/seed_relays.txt` | Path to seed relay URLs file |
+| `seed.to_validate` | bool | `true` | Insert as candidates (true) or directly as relays (false) |
+
+---
+
+## Finder Configuration
+
+Discovers relay URLs from external APIs and stored Nostr events.
+
+```yaml
+interval: 3600.0
+
+concurrency:
+  max_parallel: 5                            # Concurrent API requests
+
+events:
+  enabled: true
+  batch_size: 1000                           # Events per batch
+  kinds: [2, 3, 10002]                       # Event kinds to scan for relay URLs
+
+api:
+  enabled: true
+  verify_ssl: true
+  sources:
+    - url: "https://api.nostr.watch/v1/online"
+      enabled: true
+      timeout: 30.0
+      connect_timeout: 10.0
+    - url: "https://api.nostr.watch/v1/offline"
+      enabled: true
+      timeout: 30.0
+  delay_between_requests: 1.0
+```
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `interval` | float | `28800.0` | >= 60.0 | Seconds between cycles |
-| `processing.chunk_size` | int | `100` | 10-1000 | Candidates per batch |
-| `processing.max_candidates` | int | `null` | >= 1 | Max candidates per cycle |
-| `cleanup.enabled` | bool | `true` | - | Enable candidate cleanup |
-| `cleanup.max_failures` | int | `100` | >= 1 | Remove after N failures |
-| `networks.*.enabled` | bool | varies | - | Enable network |
-| `networks.*.max_tasks` | int | varies | 1-100 | Concurrent validations |
-| `networks.*.timeout` | float | varies | 1.0-120.0 | Connection timeout |
-| `networks.*.proxy_url` | string | - | - | SOCKS5 proxy URL |
+| `interval` | float | `3600.0` | >= 60.0 | Seconds between discovery cycles |
+| `concurrency.max_parallel` | int | `5` | 1-20 | Concurrent API requests |
+| `events.enabled` | bool | `true` | - | Enable event-based relay discovery |
+| `events.batch_size` | int | `1000` | 100-10000 | Events per scanning batch |
+| `events.kinds` | list[int] | `[2, 3, 10002]` | - | Nostr event kinds to scan |
+| `api.enabled` | bool | `true` | - | Enable API-based discovery |
+| `api.verify_ssl` | bool | `true` | - | Verify TLS certificates |
+| `api.sources[].url` | string | - | - | API endpoint URL |
+| `api.sources[].enabled` | bool | `true` | - | Enable this source |
+| `api.sources[].timeout` | float | `30.0` | 0.1-120.0 | HTTP request timeout |
+| `api.sources[].connect_timeout` | float | `10.0` | 0.1-60.0 | HTTP connect timeout |
+| `api.delay_between_requests` | float | `1.0` | 0.0-10.0 | Delay between API calls |
 
-### Monitor (`config/services/monitor.yaml`)
+---
+
+## Validator Configuration
+
+Tests WebSocket connectivity for candidate relays and promotes them to the relay table.
 
 ```yaml
-# Cycle interval
-interval: 3600.0                 # 1 hour (Range: >= 60.0)
+interval: 28800.0
 
-# Prometheus metrics endpoint
+metrics:
+  enabled: true
+  port: 8002
+
+processing:
+  chunk_size: 100                            # Candidates per fetch batch
+  max_candidates: null                       # Max candidates per cycle (null = unlimited)
+
+cleanup:
+  enabled: true
+  max_failures: 100                          # Remove candidate after N failures
+
+networks:
+  clearnet:
+    enabled: true
+    max_tasks: 50
+    timeout: 10.0
+  tor:
+    enabled: true
+    proxy_url: "socks5://tor:9050"
+    max_tasks: 10
+    timeout: 30.0
+```
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `interval` | float | `28800.0` | >= 60.0 | Seconds between validation cycles |
+| `processing.chunk_size` | int | `100` | 10-1000 | Candidates per fetch batch |
+| `processing.max_candidates` | int or null | `null` | >= 1 | Max candidates per cycle |
+| `cleanup.enabled` | bool | `false` | - | Enable stale candidate cleanup |
+| `cleanup.max_failures` | int | `100` | 1-1000 | Failure threshold for removal |
+
+---
+
+## Monitor Configuration
+
+Performs NIP-11 and NIP-66 health checks on validated relays and publishes monitoring events.
+
+```yaml
+interval: 3600.0
+
 metrics:
   enabled: true
   port: 8003
 
-# Network-specific settings
+keys: {}                                     # Loaded from PRIVATE_KEY env var
+
 networks:
   clearnet:
     enabled: true
@@ -325,31 +413,14 @@ networks:
     proxy_url: "socks5://tor:9050"
     max_tasks: 10
     timeout: 60.0
-  i2p:
-    enabled: false
-    proxy_url: "socks5://i2p:4447"
-    max_tasks: 5
-    timeout: 90.0
-  loki:
-    enabled: false
-    proxy_url: "socks5://lokinet:1080"
-    max_tasks: 5
-    timeout: 60.0
 
-# Nostr keys for NIP-66 write tests (loaded from PRIVATE_KEY env)
-# Required for: write tests, publishing events
-keys:
-  # Keys are loaded from environment variable, no config needed here
+processing:
+  chunk_size: 100                            # Relays per batch
+  max_relays: null                           # Max relays per cycle (null = unlimited)
+  nip11_max_size: 1048576                    # Max NIP-11 response size (bytes)
+  geohash_precision: 9                       # Geohash precision (1-12)
 
-# Default relay list for publishing events
-publishing:
-  relays: []                     # Relay URLs for publishing
-
-# Kind 30166 relay discovery events
-discovery:
-  enabled: true
-  interval: 3600                 # Re-check interval (Range: >= 60)
-  include:                       # Metadata to include in events
+  compute:                                   # What metadata to compute
     nip11_info: true
     nip66_rtt: true
     nip66_ssl: true
@@ -358,24 +429,42 @@ discovery:
     nip66_dns: true
     nip66_http: true
 
-# Kind 10166 monitor announcement
-announcement:
-  enabled: true
-  interval: 86400                # Announcement interval (Range: >= 60)
+  store:                                     # What metadata to persist (must be subset of compute)
+    nip11_info: true
+    nip66_rtt: true
+    nip66_ssl: true
+    nip66_geo: true
+    nip66_net: true
+    nip66_dns: true
+    nip66_http: true
 
-# Geolocation database configuration
-# MaxMind databases are auto-downloaded from GitHub mirror if missing
+  retry:                                     # Per-metadata-type retry settings
+    nip11_info:
+      max_attempts: 0                        # 0 = no retry
+      initial_delay: 1.0
+      max_delay: 10.0
+      jitter: 0.5
+    nip66_rtt:
+      max_attempts: 0
+      initial_delay: 1.0
+      max_delay: 10.0
+      jitter: 0.5
+    # nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http: same structure
+
 geo:
   city_database_path: "static/GeoLite2-City.mmdb"
   asn_database_path: "static/GeoLite2-ASN.mmdb"
   city_download_url: "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb"
   asn_download_url: "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb"
-  max_age_days: 30               # Auto-update if older (null = never)
+  max_age_days: 30                           # Re-download if older (null = never)
 
-# Processing settings
-processing:
-  chunk_size: 100                # Relays per batch (Range: 10-1000)
-  compute:                       # What metadata to compute
+publishing:
+  relays: []                                 # Default relay list for publishing
+
+discovery:
+  enabled: true
+  interval: 3600                             # Seconds between kind 30166 publishes
+  include:                                   # Metadata to include in events
     nip11_info: true
     nip66_rtt: true
     nip66_ssl: true
@@ -383,46 +472,84 @@ processing:
     nip66_net: true
     nip66_dns: true
     nip66_http: true
-  store:                         # What to store in database
-    nip11_info: true
-    nip66_rtt: true
-    nip66_ssl: true
-    nip66_geo: true
-    nip66_net: true
-    nip66_dns: true
-    nip66_http: true
+  relays: []                                 # Override publishing.relays
+
+announcement:
+  enabled: true
+  interval: 86400                            # Seconds between kind 10166 announcements
+
+profile:
+  enabled: false
+  interval: 86400
+  relays: []
+  name: null
+  about: null
+  picture: null
+  nip05: null
+  website: null
+  banner: null
+  lud16: null
 ```
 
-#### Monitor Configuration Reference
+### Processing Reference
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `interval` | float | `3600.0` | >= 60.0 | Seconds between cycles |
-| `networks.*.enabled` | bool | varies | - | Enable network |
-| `networks.*.max_tasks` | int | varies | 1-500 | Concurrent checks |
-| `networks.*.timeout` | float | varies | 5.0-180.0 | Check timeout |
-| `networks.*.proxy_url` | string | - | - | SOCKS5 proxy URL |
-| `discovery.enabled` | bool | `true` | - | Enable Kind 30166 events |
-| `discovery.interval` | int | `3600` | >= 60 | Re-check interval |
-| `announcement.enabled` | bool | `true` | - | Enable Kind 10166 events |
-| `announcement.interval` | int | `86400` | >= 60 | Announcement interval |
-| `geo.city_download_url` | string | GitHub URL | - | Auto-download URL for City DB |
-| `geo.asn_download_url` | string | GitHub URL | - | Auto-download URL for ASN DB |
-| `geo.max_age_days` | int | `30` | null or >= 1 | Auto-update threshold |
 | `processing.chunk_size` | int | `100` | 10-1000 | Relays per batch |
+| `processing.max_relays` | int or null | `null` | >= 1 | Max relays per cycle |
+| `processing.nip11_max_size` | int | `1048576` | 1024-10485760 | Max NIP-11 response size (bytes) |
+| `processing.geohash_precision` | int | `9` | 1-12 | Geohash precision for geolocation |
+| `processing.compute.*` | bool | `true` | - | Enable computation per metadata type |
+| `processing.store.*` | bool | `true` | - | Enable persistence per metadata type |
 
-### Synchronizer (`config/services/synchronizer.yaml`)
+### Retry Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `retry.*.max_attempts` | int | `0` | >= 0 | Max retry attempts (0 = no retry) |
+| `retry.*.initial_delay` | float | `1.0` | - | Initial delay between retries |
+| `retry.*.max_delay` | float | `10.0` | - | Maximum delay between retries |
+| `retry.*.jitter` | float | `0.5` | - | Random jitter factor |
+
+### Geo Reference
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `geo.city_database_path` | string | `static/GeoLite2-City.mmdb` | Path to MaxMind City database |
+| `geo.asn_database_path` | string | `static/GeoLite2-ASN.mmdb` | Path to MaxMind ASN database |
+| `geo.city_download_url` | string | GitHub mirror URL | Auto-download URL for City DB |
+| `geo.asn_download_url` | string | GitHub mirror URL | Auto-download URL for ASN DB |
+| `geo.max_age_days` | int or null | `30` | Re-download threshold in days (null = never) |
+
+### Publishing Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `publishing.relays` | list[string] | `[]` | - | Default relay list for all publishing |
+| `discovery.enabled` | bool | `true` | - | Publish kind 30166 relay monitoring events |
+| `discovery.interval` | int | `3600` | >= 60 | Seconds between discovery publishes |
+| `discovery.include.*` | bool | `true` | - | Metadata types to include in events |
+| `announcement.enabled` | bool | `true` | - | Publish kind 10166 monitor announcements |
+| `announcement.interval` | int | `86400` | >= 60 | Seconds between announcements |
+| `profile.enabled` | bool | `false` | - | Publish kind 0 monitor profile |
+| `profile.name` | string or null | `null` | - | Display name |
+| `profile.about` | string or null | `null` | - | Profile description |
+
+---
+
+## Synchronizer Configuration
+
+Connects to validated relays and archives Nostr events using multiprocessing.
 
 ```yaml
-# Cycle interval
-interval: 900.0                  # 15 minutes (Range: >= 60.0)
+interval: 900.0
 
-# Prometheus metrics endpoint
 metrics:
   enabled: true
   port: 8004
 
-# Network-specific settings
+keys: {}                                     # Loaded from PRIVATE_KEY env var (for NIP-42)
+
 networks:
   clearnet:
     enabled: true
@@ -433,259 +560,124 @@ networks:
     proxy_url: "socks5://tor:9050"
     max_tasks: 5
     timeout: 60.0
-  i2p:
-    enabled: false
-    proxy_url: "socks5://i2p:4447"
-    max_tasks: 3
-    timeout: 90.0
-  loki:
-    enabled: false
-    proxy_url: "socks5://lokinet:1080"
-    max_tasks: 3
-    timeout: 60.0
 
-# Nostr keys for NIP-42 authentication (loaded from PRIVATE_KEY env)
-# Used for relays that require authentication
-keys:
-  # Keys are loaded from environment variable, no config needed here
-
-# Event filter settings (null = accept all)
 filter:
-  ids: null                      # Event IDs to sync
-  kinds: null                    # Event kinds to sync
-  authors: null                  # Authors to sync
-  tags: null                     # Tag filters (format: {e: [...], p: [...]})
-  limit: 500                     # Events per request (Range: 1-5000)
+  ids: null                                  # Specific event IDs (null = all)
+  kinds: null                                # Event kinds to sync (null = all)
+  authors: null                              # Author pubkeys (null = all)
+  tags: null                                 # Tag filters: {"e": [...], "p": [...]}
+  limit: 500                                 # Events per REQ request
 
-# Time range for sync
 time_range:
-  default_start: 0               # Default start timestamp (0 = epoch)
-  use_relay_state: true          # Use per-relay incremental state
-  lookback_seconds: 86400        # Lookback window (Range: 3600-604800)
+  default_start: 0                           # Default start timestamp (0 = epoch)
+  use_relay_state: true                      # Use per-relay incremental cursors
+  lookback_seconds: 86400                    # Lookback window from cursor
 
-# Per-relay sync timeouts
 sync_timeouts:
-  relay_clearnet: 1800.0         # Max time per relay (Range: 60.0-14400.0)
-  relay_tor: 3600.0
+  relay_clearnet: 1800.0                     # Max time per clearnet relay (30 min)
+  relay_tor: 3600.0                          # Max time per Tor relay (1 hour)
   relay_i2p: 3600.0
   relay_loki: 3600.0
 
-# Concurrency settings
 concurrency:
-  max_parallel: 10               # Parallel connections per process (Range: 1-100)
-  max_processes: 4               # Worker processes (Range: 1-32)
-  stagger_delay: [0, 60]         # Random delay range to prevent thundering herd
+  max_parallel: 10                           # Concurrent relays per process
+  cursor_flush_interval: 50                  # Flush cursors every N relays
+  stagger_delay: [0, 60]                     # Random delay range [min, max] seconds
 
-# Relay source settings
 source:
-  from_database: true            # Fetch relays from database
-  max_metadata_age: 43200        # Only sync recently checked relays (seconds)
-  require_readable: true         # Only sync relays marked readable
+  from_database: true                        # Fetch relay list from database
+  max_metadata_age: 43200                    # Only sync recently-checked relays (seconds)
+  require_readable: true                     # Only sync relays marked readable
 
-# Per-relay overrides
-overrides:
-  - url: "wss://relay.damus.io"
-    timeouts:
-      request: 60.0
-      relay: 7200.0              # 2 hours for high-traffic relay
+overrides: []                                # Per-relay timeout overrides
+# - url: "wss://relay.damus.io"
+#   timeouts:
+#     request: 60.0
+#     relay: 7200.0
 ```
 
-#### Synchronizer Configuration Reference
+### Filter Reference
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `interval` | float | `900.0` | >= 60.0 | Seconds between cycles |
-| `networks.*.enabled` | bool | varies | - | Enable network |
-| `networks.*.max_tasks` | int | varies | 1-100 | Connections per process |
-| `networks.*.timeout` | float | varies | 5.0-120.0 | WebSocket timeout |
-| `filter.limit` | int | `500` | 1-5000 | Events per request |
-| `time_range.lookback_seconds` | int | `86400` | 3600-604800 | Lookback window |
-| `sync_timeouts.relay_*` | float | varies | 60.0-14400.0 | Per-relay timeout |
-| `concurrency.max_parallel` | int | `10` | 1-100 | Connections per process |
-| `concurrency.max_processes` | int | `4` | 1-32 | Worker processes |
-| `source.max_metadata_age` | int | `43200` | >= 0 | Max metadata age |
+| `filter.ids` | list[string] or null | `null` | - | Specific event IDs to sync |
+| `filter.kinds` | list[int] or null | `null` | 0-65535 | Event kinds to sync |
+| `filter.authors` | list[string] or null | `null` | 64-char hex | Author pubkeys |
+| `filter.tags` | dict or null | `null` | - | Tag filters |
+| `filter.limit` | int | `500` | 1-5000 | Events per REQ request |
+
+### Time Range Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `time_range.default_start` | int | `0` | - | Default start Unix timestamp |
+| `time_range.use_relay_state` | bool | `true` | - | Use per-relay incremental cursors |
+| `time_range.lookback_seconds` | int | `86400` | 3600-604800 | Lookback window from cursor position |
+
+### Sync Timeouts Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `sync_timeouts.relay_clearnet` | float | `1800.0` | 60.0-14400.0 | Max time per clearnet relay |
+| `sync_timeouts.relay_tor` | float | `3600.0` | 60.0-14400.0 | Max time per Tor relay |
+| `sync_timeouts.relay_i2p` | float | `3600.0` | 60.0-14400.0 | Max time per I2P relay |
+| `sync_timeouts.relay_loki` | float | `3600.0` | 60.0-14400.0 | Max time per Lokinet relay |
+
+### Concurrency Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `concurrency.max_parallel` | int | `10` | 1-100 | Concurrent relays per process |
+| `concurrency.cursor_flush_interval` | int | `50` | - | Flush cursors every N relays |
+| `concurrency.stagger_delay` | list[int] | `[0, 60]` | - | Random delay range [min, max] seconds |
+
+### Source Reference
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `source.from_database` | bool | `true` | Fetch relay list from database |
+| `source.max_metadata_age` | int | `43200` | Only sync relays checked within N seconds |
+| `source.require_readable` | bool | `true` | Only sync relays with successful read test |
 
 ---
 
 ## Configuration Validation
 
-### Pydantic Validation
+### Pydantic Constraints
 
-All configuration uses Pydantic models with built-in validation:
+All configuration uses Pydantic v2 models with `Field()` constraints:
 
 ```python
-from pydantic import BaseModel, Field
-
-class TimeoutsConfig(BaseModel):
-    clearnet: float = Field(default=30.0, ge=5.0, le=120.0)
-    tor: float = Field(default=60.0, ge=10.0, le=180.0)
+class LimitsConfig(BaseModel):
+    min_size: int = Field(default=5, ge=1, le=100)
+    max_size: int = Field(default=20, ge=1, le=200)
 ```
-
-### Validation Errors
 
 Invalid configuration fails at startup with clear error messages:
 
-```
-pydantic_core._pydantic_core.ValidationError: 1 validation error for TimeoutsConfig
-clearnet
-  Input should be greater than or equal to 5 [type=greater_than_equal, input_value=2.0, input_type=float]
+```text
+pydantic_core._pydantic_core.ValidationError: 1 validation error for LimitsConfig
+max_size
+  Input should be greater than or equal to 1 [type=greater_than_equal]
 ```
 
 ### Cross-Field Validation
 
-Some configurations have cross-field validation:
+Some models enforce relationships between fields:
 
-```python
-class PoolLimitsConfig(BaseModel):
-    min_size: int = Field(default=5, ge=1, le=100)
-    max_size: int = Field(default=20, ge=1, le=100)
-
-    @model_validator(mode='after')
-    def validate_sizes(self) -> Self:
-        if self.max_size < self.min_size:
-            raise ValueError("max_size must be >= min_size")
-        return self
-```
-
----
-
-## Best Practices
-
-### 1. Start with Defaults
-
-The default configuration is designed for typical deployments:
-
-```yaml
-# Minimal finder.yaml - uses all defaults
-interval: 3600.0
-```
-
-### 2. Tune for Your Environment
-
-Adjust based on your resources:
-
-```yaml
-# High-resource environment
-concurrency:
-  max_parallel: 100
-  max_processes: 16
-
-# Low-resource environment
-concurrency:
-  max_parallel: 5
-  max_processes: 2
-```
-
-### 3. Use Per-Relay Overrides
-
-For problematic or high-traffic relays:
-
-```yaml
-overrides:
-  - url: "wss://relay.damus.io"
-    timeouts:
-      relay: 7200.0      # Extended timeout
-  - url: "wss://slow-relay.example.com"
-    timeouts:
-      request: 120.0     # Longer request timeout
-```
-
-### 4. Disable Unused Features
-
-Reduce resource usage:
-
-```yaml
-# Disable Tor if not needed
-tor:
-  enabled: false
-
-# Disable event scanning in Finder
-events:
-  enabled: false
-```
-
-### 5. Secure Your Secrets
-
-```bash
-# .env file permissions
-chmod 600 deployments/bigbrotr/.env
-
-# Never commit secrets
-echo ".env" >> .gitignore
-```
-
-### 6. Monitor Resource Usage
-
-Adjust pool sizes based on actual usage:
-
-```yaml
-pool:
-  limits:
-    # Start conservative
-    min_size: 2
-    max_size: 10
-    # Increase if you see connection wait times
-```
-
-### 7. Test Configuration Changes
-
-Validate configuration before deployment:
-
-```python
-# Quick validation test
-from bigbrotr.services.synchronizer import SynchronizerConfig
-import yaml
-
-with open("config/services/synchronizer.yaml") as f:
-    config_dict = yaml.safe_load(f)
-
-config = SynchronizerConfig(**config_dict)  # Raises on invalid config
-print(f"Config valid: {config}")
-```
-
----
-
-## Troubleshooting
-
-### Common Configuration Errors
-
-**"DB_PASSWORD environment variable not set"**
-```bash
-export DB_PASSWORD=your_password
-# Or add to .env file
-```
-
-**"Connection refused"**
-- Check `pool.database.host` matches your database/PGBouncer hostname
-- In Docker, use service name (`pgbouncer` for pooled connections, or `postgres` for direct)
-- Outside Docker, use `localhost` or actual hostname
-
-**"Pool exhausted"**
-```yaml
-pool:
-  limits:
-    max_size: 50  # Increase pool size
-  timeouts:
-    acquisition: 30.0  # Increase wait timeout
-```
-
-**"Timeout connecting to relay"**
-```yaml
-networks:
-  clearnet:
-    timeout: 60.0  # Increase timeout
-  tor:
-    timeout: 120.0  # Tor needs more time
-```
+- `LimitsConfig`: `max_size` must be >= `min_size`
+- `PoolRetryConfig`: `max_delay` must be >= `initial_delay`
+- `MonitorProcessingConfig`: `store` flags must be a subset of `compute` flags
+- `KeysConfig`: validates hex string length (64 chars) or nsec1 bech32 format
 
 ---
 
 ## Configuration Examples
 
-### Development Configuration
+### Minimal Development
 
 ```yaml
-# brotr.yaml - Development
+# brotr.yaml
 pool:
   database:
     host: localhost
@@ -693,17 +685,15 @@ pool:
   limits:
     min_size: 2
     max_size: 5
-  retry:
-    max_attempts: 1
 ```
 
-### Production Configuration
+### Production with PGBouncer
 
 ```yaml
-# brotr.yaml - Production
+# brotr.yaml
 pool:
   database:
-    host: postgres
+    host: pgbouncer
     port: 5432
   limits:
     min_size: 10
@@ -716,27 +706,50 @@ pool:
 ### High-Volume Synchronizer
 
 ```yaml
-# synchronizer.yaml - High volume
-interval: 300.0  # 5 minutes
-
+# synchronizer.yaml
+interval: 300.0
 concurrency:
   max_parallel: 50
-  max_processes: 16
   stagger_delay: [0, 30]
-
 source:
-  max_metadata_age: 7200  # Check more frequently
+  max_metadata_age: 7200
 ```
+
+### Monitoring-Only (No Event Archiving)
+
+```yaml
+# monitor.yaml - run without Synchronizer
+interval: 1800.0
+processing:
+  compute:
+    nip11_info: true
+    nip66_rtt: true
+    nip66_ssl: true
+    nip66_geo: true
+    nip66_net: false        # skip network info
+    nip66_dns: false        # skip DNS resolution
+    nip66_http: false       # skip HTTP header check
+```
+
+---
+
+## Troubleshooting
+
+**"DB_PASSWORD environment variable not set"** -- Set the environment variable or add it to your `.env` file.
+
+**"Connection refused"** -- Check `pool.database.host`. In Docker, use the service name (`pgbouncer` or `postgres`). Outside Docker, use `localhost`.
+
+**"Pool exhausted"** -- Increase `pool.limits.max_size` or increase `pool.timeouts.acquisition`.
+
+**"Timeout connecting to relay"** -- Increase `networks.<network>.timeout`. Tor relays typically need 30-60s.
+
+**"Validation error for MonitorConfig"** -- The `store` flags must be a subset of `compute`. You cannot store metadata that is not computed.
 
 ---
 
 ## Related Documentation
 
-| Document | Description |
-|----------|-------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture overview |
-| [DATABASE.md](DATABASE.md) | Database schema documentation |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Development setup and guidelines |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Deployment instructions |
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | Contribution guidelines |
-| [CHANGELOG.md](../CHANGELOG.md) | Version history |
+- [ARCHITECTURE.md](ARCHITECTURE.md) -- System architecture and module reference
+- [DATABASE.md](DATABASE.md) -- Database schema and stored procedures
+- [DEPLOYMENT.md](DEPLOYMENT.md) -- Docker and manual deployment guide
+- [DEVELOPMENT.md](DEVELOPMENT.md) -- Development setup and testing

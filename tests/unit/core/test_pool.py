@@ -92,7 +92,7 @@ class TestDatabaseConfig:
         assert config.password.get_secret_value() == "explicit_password"
 
     @pytest.mark.parametrize(
-        "port,expected_error",
+        ("port", "expected_error"),
         [
             (0, "greater than or equal to 1"),
             (-1, "greater than or equal to 1"),
@@ -997,17 +997,28 @@ class TestPoolQueryMethods:
     async def test_fetch_with_parameters(self, mock_pool: Pool) -> None:
         """Test fetch() with query parameters."""
         await mock_pool.fetch("SELECT * FROM test WHERE id = $1", 123)
-        # Verify the mock was called (implicitly tests parameter passing)
+
+        mock_pool._mock_connection.fetch.assert_called_once_with(  # type: ignore[attr-defined]
+            "SELECT * FROM test WHERE id = $1", 123, timeout=None
+        )
 
     @pytest.mark.asyncio
     async def test_fetch_with_timeout(self, mock_pool: Pool) -> None:
         """Test fetch() with custom timeout."""
         await mock_pool.fetch("SELECT 1", timeout=30.0)
 
+        mock_pool._mock_connection.fetch.assert_called_once_with(  # type: ignore[attr-defined]
+            "SELECT 1", timeout=30.0
+        )
+
     @pytest.mark.asyncio
     async def test_fetchval_with_column(self, mock_pool: Pool) -> None:
         """Test fetchval() with column parameter."""
         await mock_pool.fetchval("SELECT 1, 2", column=1)
+
+        mock_pool._mock_connection.fetchval.assert_called_once_with(  # type: ignore[attr-defined]
+            "SELECT 1, 2", timeout=None, column=1
+        )
 
 
 class TestPoolQueryRetry:

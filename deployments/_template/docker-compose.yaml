@@ -43,7 +43,7 @@ services:
       - "127.0.0.1:5432:5432"
 
     networks:
-      - myimpl-network                        # <-- CUSTOMIZE
+      - myimpl-data-network                   # <-- CUSTOMIZE
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d myimpl"]  # <-- CUSTOMIZE db name
@@ -51,6 +51,12 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
 
     logging:
       driver: "json-file"
@@ -85,7 +91,7 @@ services:
       - "127.0.0.1:6432:5432"
 
     networks:
-      - myimpl-network                        # <-- CUSTOMIZE
+      - myimpl-data-network                   # <-- CUSTOMIZE
 
     depends_on:
       postgres:
@@ -96,6 +102,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
     logging:
       driver: "json-file"
@@ -117,7 +129,7 @@ services:
       - "127.0.0.1:9050:9050"
 
     networks:
-      - myimpl-network                        # <-- CUSTOMIZE
+      - myimpl-data-network                   # <-- CUSTOMIZE
 
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 || exit 1"]
@@ -125,6 +137,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
     logging:
       driver: "json-file"
@@ -138,7 +156,9 @@ services:
   seeder:
     build:
       context: ../../
-      dockerfile: deployments/_template/Dockerfile  # <-- CUSTOMIZE path
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: _template              # <-- CUSTOMIZE deployment name
     container_name: myimpl-seeder             # <-- CUSTOMIZE
     restart: "no"
 
@@ -150,13 +170,23 @@ services:
       - ./static:/app/static:ro
 
     networks:
-      - myimpl-network                        # <-- CUSTOMIZE
+      - myimpl-data-network                   # <-- CUSTOMIZE
+      - myimpl-monitoring-network             # <-- CUSTOMIZE
 
     depends_on:
       pgbouncer:
         condition: service_healthy
 
     command: ["python", "-m", "bigbrotr", "seeder"]
+
+    healthcheck:
+      disable: true
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
     logging:
       driver: "json-file"
@@ -170,7 +200,9 @@ services:
   finder:
     build:
       context: ../../
-      dockerfile: deployments/_template/Dockerfile  # <-- CUSTOMIZE path
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: _template              # <-- CUSTOMIZE deployment name
     container_name: myimpl-finder             # <-- CUSTOMIZE
     restart: unless-stopped
 
@@ -185,7 +217,8 @@ services:
       - "127.0.0.1:${FINDER_METRICS_PORT:-8001}:8000"  # Prometheus metrics
 
     networks:
-      - myimpl-network                        # <-- CUSTOMIZE
+      - myimpl-data-network                   # <-- CUSTOMIZE
+      - myimpl-monitoring-network             # <-- CUSTOMIZE
 
     depends_on:
       pgbouncer:
@@ -193,12 +226,20 @@ services:
 
     command: ["python", "-m", "bigbrotr", "finder"]
 
+    stop_grace_period: 60s
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -212,7 +253,9 @@ services:
   validator:
     build:
       context: ../../
-      dockerfile: deployments/_template/Dockerfile  # <-- CUSTOMIZE path
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: _template              # <-- CUSTOMIZE deployment name
     container_name: myimpl-validator          # <-- CUSTOMIZE
     restart: unless-stopped
 
@@ -228,7 +271,8 @@ services:
       - "127.0.0.1:${VALIDATOR_METRICS_PORT:-8002}:8000"  # Prometheus metrics
 
     networks:
-      - myimpl-network                        # <-- CUSTOMIZE
+      - myimpl-data-network                   # <-- CUSTOMIZE
+      - myimpl-monitoring-network             # <-- CUSTOMIZE
 
     depends_on:
       pgbouncer:
@@ -238,12 +282,20 @@ services:
 
     command: ["python", "-m", "bigbrotr", "validator"]
 
+    stop_grace_period: 60s
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -257,7 +309,9 @@ services:
   monitor:
     build:
       context: ../../
-      dockerfile: deployments/_template/Dockerfile  # <-- CUSTOMIZE path
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: _template              # <-- CUSTOMIZE deployment name
     container_name: myimpl-monitor            # <-- CUSTOMIZE
     restart: unless-stopped
 
@@ -274,7 +328,8 @@ services:
       - "127.0.0.1:${MONITOR_METRICS_PORT:-8003}:8000"  # Prometheus metrics
 
     networks:
-      - myimpl-network                        # <-- CUSTOMIZE
+      - myimpl-data-network                   # <-- CUSTOMIZE
+      - myimpl-monitoring-network             # <-- CUSTOMIZE
 
     depends_on:
       pgbouncer:
@@ -284,12 +339,20 @@ services:
 
     command: ["python", "-m", "bigbrotr", "monitor"]
 
+    stop_grace_period: 60s
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -303,7 +366,9 @@ services:
   synchronizer:
     build:
       context: ../../
-      dockerfile: deployments/_template/Dockerfile  # <-- CUSTOMIZE path
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: _template              # <-- CUSTOMIZE deployment name
     container_name: myimpl-synchronizer       # <-- CUSTOMIZE
     restart: unless-stopped
 
@@ -319,7 +384,8 @@ services:
       - "127.0.0.1:${SYNCHRONIZER_METRICS_PORT:-8004}:8000"  # Prometheus metrics
 
     networks:
-      - myimpl-network                        # <-- CUSTOMIZE
+      - myimpl-data-network                   # <-- CUSTOMIZE
+      - myimpl-monitoring-network             # <-- CUSTOMIZE
 
     depends_on:
       pgbouncer:
@@ -329,12 +395,20 @@ services:
 
     command: ["python", "-m", "bigbrotr", "synchronizer"]
 
+    stop_grace_period: 60s
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -359,7 +433,7 @@ services:
       - "127.0.0.1:9090:9090"
 
     networks:
-      - myimpl-network                             # <-- CUSTOMIZE
+      - myimpl-monitoring-network                  # <-- CUSTOMIZE
 
     command:
       - "--config.file=/etc/prometheus/prometheus.yaml"
@@ -372,6 +446,12 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -401,7 +481,7 @@ services:
       - "127.0.0.1:3000:3000"
 
     networks:
-      - myimpl-network                             # <-- CUSTOMIZE
+      - myimpl-monitoring-network                  # <-- CUSTOMIZE
 
     depends_on:
       - prometheus
@@ -411,6 +491,12 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -431,9 +517,12 @@ volumes:
 # Networks
 # ----------------------------------------------------------------------------
 networks:
-  myimpl-network:                             # <-- CUSTOMIZE
+  myimpl-data-network:                        # <-- CUSTOMIZE
     driver: bridge
-    name: myimpl-network                      # <-- CUSTOMIZE
+    name: myimpl-data-network                 # <-- CUSTOMIZE
+  myimpl-monitoring-network:                  # <-- CUSTOMIZE
+    driver: bridge
+    name: myimpl-monitoring-network           # <-- CUSTOMIZE
 
 # ============================================================================
 # USAGE

@@ -15,7 +15,7 @@ from datetime import timedelta
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, NamedTuple, Self
 
-from nostr_sdk import Filter, RelayUrl
+from nostr_sdk import Filter, NostrSdkError, RelayUrl
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
@@ -65,6 +65,7 @@ class Nip66RttMetadata(BaseMetadata):
         deps: Nip66RttDependencies,
         timeout: float | None = None,  # noqa: ASYNC109
         proxy_url: str | None = None,
+        *,
         allow_insecure: bool = True,
     ) -> Self:
         """Test a relay's round-trip times across three phases.
@@ -97,7 +98,7 @@ class Nip66RttMetadata(BaseMetadata):
 
         # Phase 1: Open connection
         client, open_rtt = await cls._test_open(
-            relay, deps.keys, proxy_url, timeout, allow_insecure, logs
+            relay, deps.keys, proxy_url, timeout, allow_insecure=allow_insecure, logs=logs
         )
         if client is None:
             return cls._build_result(rtt_data, logs)
@@ -183,6 +184,7 @@ class Nip66RttMetadata(BaseMetadata):
         keys: Keys,
         proxy_url: str | None,
         timeout: float,  # noqa: ASYNC109
+        *,
         allow_insecure: bool,
         logs: dict[str, Any],
     ) -> tuple[Client | None, int | None]:
@@ -197,11 +199,13 @@ class Nip66RttMetadata(BaseMetadata):
         logger.debug("rtt_connecting relay=%s", relay.url)
         try:
             start = perf_counter()
-            client = await connect_relay(relay, keys, proxy_url, timeout, allow_insecure)
+            client = await connect_relay(
+                relay, keys, proxy_url, timeout, allow_insecure=allow_insecure
+            )
             rtt_open = int((perf_counter() - start) * 1000)
             logger.debug("rtt_open_ok relay=%s rtt_open_ms=%s", relay.url, rtt_open)
             return client, rtt_open
-        except Exception as e:
+        except (OSError, TimeoutError, NostrSdkError, ValueError) as e:
             reason = str(e)
             logger.debug("rtt_open_failed relay=%s reason=%s", relay.url, reason)
             # Cascading failure: mark all phases as failed
@@ -241,7 +245,7 @@ class Nip66RttMetadata(BaseMetadata):
             else:
                 result["read_reason"] = "no events returned"
                 logger.debug("rtt_read_no_events relay=%s", relay_url_str)
-        except Exception as e:
+        except (OSError, TimeoutError, NostrSdkError) as e:
             result["read_reason"] = str(e)
             logger.debug("rtt_read_failed relay=%s reason=%s", relay_url_str, str(e))
 
@@ -290,7 +294,7 @@ class Nip66RttMetadata(BaseMetadata):
             else:
                 result["write_reason"] = "no response from relay"
                 logger.debug("rtt_write_no_response relay=%s", relay_url_str)
-        except Exception as e:
+        except (OSError, TimeoutError, NostrSdkError) as e:
             result["write_reason"] = str(e)
             logger.debug("rtt_write_failed relay=%s reason=%s", relay_url_str, str(e))
 
@@ -316,14 +320,13 @@ class Nip66RttMetadata(BaseMetadata):
             if verify_event is not None:
                 logger.debug("rtt_write_verified relay=%s", relay_url_str)
                 return {"verified": True, "reason": None}
-            else:
-                logger.debug(
-                    "rtt_write_unverified relay=%s reason=%s",
-                    relay_url_str,
-                    "event not retrievable",
-                )
-                return {"verified": False, "reason": "unverified: accepted but not retrievable"}
-        except Exception as e:
+            logger.debug(
+                "rtt_write_unverified relay=%s reason=%s",
+                relay_url_str,
+                "event not retrievable",
+            )
+            return {"verified": False, "reason": "unverified: accepted but not retrievable"}
+        except (OSError, TimeoutError, NostrSdkError) as e:
             logger.debug("rtt_write_unverified relay=%s reason=%s", relay_url_str, str(e))
             return {"verified": False, "reason": str(e)}
 

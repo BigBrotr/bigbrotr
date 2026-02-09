@@ -721,7 +721,7 @@ class Pool:
         except asyncpg.InterfaceError:
             # Pool was closed between the check and the method calls
             return disconnected
-        except Exception as e:
+        except (asyncpg.PostgresError, OSError, RuntimeError) as e:
             # Log unexpected errors but never crash the monitoring path
             self._logger.warning("metrics_error", error=str(e))
             return disconnected

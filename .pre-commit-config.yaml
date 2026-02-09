@@ -120,13 +120,20 @@ repos:
         args: [--fix, --disable, MD013, MD033, MD041]
 
   # --------------------------------------------------------------------------
-  # SQL: Formatting
+  # Docker: Dockerfile linting
+  # --------------------------------------------------------------------------
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        args: [--ignore, DL3008, --ignore, DL3013]
+
+  # --------------------------------------------------------------------------
+  # SQL: Formatting (sqlfluff-fix implies lint — no separate lint hook needed)
   # --------------------------------------------------------------------------
   - repo: https://github.com/sqlfluff/sqlfluff
     rev: 3.5.0
     hooks:
-      - id: sqlfluff-lint
-        args: [--dialect, postgres]
       - id: sqlfluff-fix
         args: [--dialect, postgres, --force]
 

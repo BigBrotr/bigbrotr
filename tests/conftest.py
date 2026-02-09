@@ -23,6 +23,9 @@ from bigbrotr.models.event import Event
 from bigbrotr.models.metadata import Metadata, MetadataType
 
 
+pytest_plugins = ["tests.fixtures.relays"]
+
+
 # ============================================================================
 # Logging Configuration
 # ============================================================================
@@ -315,9 +318,9 @@ def create_mock_record(data: dict[str, Any]) -> MagicMock:
     record = MagicMock()
     record.__getitem__ = lambda _, key: data[key]
     record.get = lambda key, default=None: data.get(key, default)
-    record.keys = lambda: data.keys()
-    record.values = lambda: data.values()
-    record.items = lambda: data.items()
+    record.keys = data.keys
+    record.values = data.values
+    record.items = data.items
     return record
 
 

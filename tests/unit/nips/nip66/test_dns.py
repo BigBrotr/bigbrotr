@@ -270,7 +270,7 @@ class TestNip66DnsMetadataDnsAsync:
     @pytest.mark.asyncio
     async def test_exception_returns_failure(self, relay: Relay) -> None:
         """Exception during DNS resolution returns failure logs."""
-        with patch.object(Nip66DnsMetadata, "_dns", side_effect=Exception("DNS error")):
+        with patch.object(Nip66DnsMetadata, "_dns", side_effect=OSError("DNS error")):
             result = await Nip66DnsMetadata.execute(relay, 5.0)
 
         assert isinstance(result, Nip66DnsMetadata)

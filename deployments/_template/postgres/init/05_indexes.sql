@@ -71,13 +71,9 @@ ON relay_metadata USING btree (relay_url, metadata_type, generated_at DESC);
 -- TABLE INDEXES: service_data
 -- ==========================================================================
 
--- All data for a service: WHERE service_name = ?
-CREATE INDEX IF NOT EXISTS idx_service_data_service_name
-ON service_data USING btree (service_name);
-
--- Specific data type within a service: WHERE service_name = ? AND data_type = ?
-CREATE INDEX IF NOT EXISTS idx_service_data_service_type
-ON service_data USING btree (service_name, data_type);
+-- NOTE: Queries on (service_name) and (service_name, data_type) are served
+-- by the PRIMARY KEY index on (service_name, data_type, data_key) via the
+-- leftmost prefix rule. No additional B-tree indexes are needed.
 
 -- Candidate network filtering: WHERE data->>'network' = ANY($3)
 -- Used by count_candidates() and fetch_candidate_chunk() in the Validator service

@@ -347,7 +347,7 @@ class TestIsNostrRelayMocked:
         relay = Relay("wss://relay.example.com")
 
         with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
-            mock_connect.side_effect = Exception("auth-required: please authenticate")
+            mock_connect.side_effect = OSError("auth-required: please authenticate")
 
             from bigbrotr.utils.transport import is_nostr_relay
 
@@ -360,7 +360,7 @@ class TestIsNostrRelayMocked:
         relay = Relay("wss://relay.example.com")
 
         with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
-            mock_connect.side_effect = Exception("Connection refused")
+            mock_connect.side_effect = OSError("Connection refused")
 
             from bigbrotr.utils.transport import is_nostr_relay
 

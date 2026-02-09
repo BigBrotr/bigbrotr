@@ -20,7 +20,7 @@ class TestMetadataDbParams:
         """MetadataDbParams is a NamedTuple with 3 fields."""
         params = MetadataDbParams(
             id=b"\x00" * 32,
-            value='{"key": "value"}',
+            payload='{"key": "value"}',
             metadata_type=MetadataType.NIP11_INFO,
         )
         assert isinstance(params, tuple)
@@ -31,11 +31,11 @@ class TestMetadataDbParams:
         test_hash = b"\x01\x02\x03" + b"\x00" * 29
         params = MetadataDbParams(
             id=test_hash,
-            value='{"name": "test"}',
+            payload='{"name": "test"}',
             metadata_type=MetadataType.NIP66_RTT,
         )
         assert params.id == test_hash
-        assert params.value == '{"name": "test"}'
+        assert params.payload == '{"name": "test"}'
         assert params.metadata_type == MetadataType.NIP66_RTT
 
     def test_field_access_by_index(self):
@@ -43,7 +43,7 @@ class TestMetadataDbParams:
         test_hash = b"\x00" * 32
         params = MetadataDbParams(
             id=test_hash,
-            value="[]",
+            payload="[]",
             metadata_type=MetadataType.NIP66_SSL,
         )
         assert params[0] == test_hash
@@ -54,11 +54,11 @@ class TestMetadataDbParams:
         """MetadataDbParams is immutable (NamedTuple)."""
         params = MetadataDbParams(
             id=b"\x00" * 32,
-            value="{}",
+            payload="{}",
             metadata_type=MetadataType.NIP11_INFO,
         )
         with pytest.raises(AttributeError):
-            params.value = '{"new": "data"}'
+            params.payload = '{"new": "data"}'
 
 
 # =============================================================================
@@ -250,7 +250,7 @@ class TestSanitize:
         """Non-string keys are filtered out during sanitization."""
         m = Metadata(type=MetadataType.NIP11_INFO, value={"key": "value"})
         params = m.to_db_params()
-        parsed = json.loads(params.value)
+        parsed = json.loads(params.payload)
         assert parsed == {"key": "value"}
 
     def test_non_serializable_filtered_out(self):
@@ -261,7 +261,7 @@ class TestSanitize:
 
         m = Metadata(type=MetadataType.NIP11_INFO, value={"valid": "ok", "invalid": Custom()})
         params = m.to_db_params()
-        parsed = json.loads(params.value)
+        parsed = json.loads(params.payload)
         assert parsed == {"valid": "ok"}
 
     def test_null_bytes_rejected(self):
@@ -297,24 +297,24 @@ class TestToDbParams:
         """Returns valid JSON string."""
         m = Metadata(type=MetadataType.NIP11_INFO, value={"name": "test", "value": 123})
         params = m.to_db_params()
-        parsed = json.loads(params.value)
+        parsed = json.loads(params.payload)
         assert parsed == {"name": "test", "value": 123}
 
     def test_empty_dict(self):
         """Empty dict serializes to '{}'."""
         m = Metadata(type=MetadataType.NIP11_INFO, value={})
-        assert m.to_db_params().value == "{}"
+        assert m.to_db_params().payload == "{}"
 
     def test_unicode(self):
         """Unicode is preserved (ensure_ascii=False)."""
         m = Metadata(type=MetadataType.NIP11_INFO, value={"name": "Relay"})
-        assert "Relay" in m.to_db_params().value
+        assert "Relay" in m.to_db_params().payload
 
     def test_nested(self):
         """Nested structures serialize correctly."""
         m = Metadata(type=MetadataType.NIP11_INFO, value={"a": {"b": {"c": [1, 2, 3]}}})
         params = m.to_db_params()
-        parsed = json.loads(params.value)
+        parsed = json.loads(params.payload)
         assert parsed["a"]["b"]["c"] == [1, 2, 3]
 
 
@@ -332,7 +332,7 @@ class TestFromDbParams:
             "7d9fd2051fc32b32feab10946fab6bb91426ab7e39aa5439289ed892864aa91d"  # pragma: allowlist secret
         )
         params = MetadataDbParams(
-            id=hash_bytes, value='{"name": "test"}', metadata_type=MetadataType.NIP11_INFO
+            id=hash_bytes, payload='{"name": "test"}', metadata_type=MetadataType.NIP11_INFO
         )
         m = Metadata.from_db_params(params)
         assert m.value == {"name": "test"}
@@ -344,7 +344,7 @@ class TestFromDbParams:
             "345cbac42064615b5c54e4b502193eb847ce94a9c62ad47a463fe43d99226e3c"  # pragma: allowlist secret
         )
         params = MetadataDbParams(
-            id=hash_bytes, value='{"a": {"b": [1, 2, 3]}}', metadata_type=MetadataType.NIP66_RTT
+            id=hash_bytes, payload='{"a": {"b": [1, 2, 3]}}', metadata_type=MetadataType.NIP66_RTT
         )
         m = Metadata.from_db_params(params)
         assert m.value["a"]["b"] == [1, 2, 3]
@@ -355,7 +355,7 @@ class TestFromDbParams:
         hash_bytes = bytes.fromhex(
             "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"  # pragma: allowlist secret
         )
-        params = MetadataDbParams(id=hash_bytes, value="{}", metadata_type=MetadataType.NIP66_SSL)
+        params = MetadataDbParams(id=hash_bytes, payload="{}", metadata_type=MetadataType.NIP66_SSL)
         m = Metadata.from_db_params(params)
         assert m.value == {}
         assert m.type == MetadataType.NIP66_SSL
@@ -528,7 +528,7 @@ class TestNormalization:
         """Dict keys are sorted for deterministic output."""
         m1 = Metadata(type=MetadataType.NIP11_INFO, value={"z": 1, "a": 2, "m": 3})
         m2 = Metadata(type=MetadataType.NIP11_INFO, value={"a": 2, "m": 3, "z": 1})
-        assert m1.to_db_params().value == m2.to_db_params().value
+        assert m1.to_db_params().payload == m2.to_db_params().payload
 
     def test_hash_consistency_empty_containers(self):
         """Semantically identical data produces same hash (empty containers)."""
@@ -536,8 +536,8 @@ class TestNormalization:
 
         m1 = Metadata(type=MetadataType.NIP11_INFO, value={"name": "Relay", "limitation": {}})
         m2 = Metadata(type=MetadataType.NIP11_INFO, value={"name": "Relay"})
-        h1 = hashlib.sha256(m1.to_db_params().value.encode()).hexdigest()
-        h2 = hashlib.sha256(m2.to_db_params().value.encode()).hexdigest()
+        h1 = hashlib.sha256(m1.to_db_params().payload.encode()).hexdigest()
+        h2 = hashlib.sha256(m2.to_db_params().payload.encode()).hexdigest()
         assert h1 == h2
 
     def test_hash_consistency_key_order(self):
@@ -546,8 +546,8 @@ class TestNormalization:
 
         m1 = Metadata(type=MetadataType.NIP11_INFO, value={"b": 2, "a": 1})
         m2 = Metadata(type=MetadataType.NIP11_INFO, value={"a": 1, "b": 2})
-        h1 = hashlib.sha256(m1.to_db_params().value.encode()).hexdigest()
-        h2 = hashlib.sha256(m2.to_db_params().value.encode()).hexdigest()
+        h1 = hashlib.sha256(m1.to_db_params().payload.encode()).hexdigest()
+        h2 = hashlib.sha256(m2.to_db_params().payload.encode()).hexdigest()
         assert h1 == h2
 
     def test_empty_in_lists_removed(self):

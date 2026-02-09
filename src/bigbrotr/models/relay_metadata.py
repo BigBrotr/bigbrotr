@@ -24,7 +24,7 @@ class RelayMetadataDbParams(NamedTuple):
         relay_network: Network type string (clearnet, tor, i2p, loki).
         relay_discovered_at: Unix timestamp of relay discovery.
         metadata_id: SHA-256 content hash (32 bytes).
-        metadata_value: Canonical JSON string for JSONB storage.
+        metadata_payload: Canonical JSON string for JSONB storage.
         metadata_type: Metadata type discriminator.
         generated_at: Unix timestamp when the metadata was collected.
     """
@@ -35,7 +35,7 @@ class RelayMetadataDbParams(NamedTuple):
     relay_discovered_at: int
     # Metadata fields
     metadata_id: bytes
-    metadata_value: str
+    metadata_payload: str
     # Junction fields
     metadata_type: MetadataType
     generated_at: int
@@ -71,7 +71,8 @@ class RelayMetadata:
         Returns:
             RelayMetadataDbParams combining relay, metadata, and junction fields.
         """
-        return self._db_params  # type: ignore[return-value]
+        assert self._db_params is not None  # noqa: S101  # Always set in __post_init__
+        return self._db_params
 
     def _compute_db_params(self) -> RelayMetadataDbParams:
         """Convert to positional parameters for the cascade insert procedure.
@@ -86,7 +87,7 @@ class RelayMetadata:
             relay_network=r.network,
             relay_discovered_at=r.discovered_at,
             metadata_id=m.id,
-            metadata_value=m.value,
+            metadata_payload=m.payload,
             metadata_type=m.metadata_type,
             generated_at=self.generated_at,
         )
@@ -111,7 +112,7 @@ class RelayMetadata:
         )
         metadata_params = MetadataDbParams(
             id=params.metadata_id,
-            value=params.metadata_value,
+            payload=params.metadata_payload,
             metadata_type=params.metadata_type,
         )
         relay = Relay.from_db_params(relay_params)

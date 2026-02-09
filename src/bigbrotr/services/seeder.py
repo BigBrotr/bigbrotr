@@ -22,6 +22,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
@@ -126,7 +127,7 @@ class Seeder(BaseService[SeederConfig]):
                     continue
                 try:
                     relays.append(Relay(url))
-                except Exception as e:
+                except (ValueError, TypeError) as e:
                     self._logger.warning("relay_parse_failed", url=url, error=str(e))
 
         return relays
@@ -135,7 +136,7 @@ class Seeder(BaseService[SeederConfig]):
         """Load seed file and dispatch to the appropriate insertion method."""
         path = Path(self._config.seed.file_path)
 
-        if not path.exists():
+        if not await asyncio.to_thread(path.exists):
             self._logger.warning("file_not_found", path=str(path))
             return
 

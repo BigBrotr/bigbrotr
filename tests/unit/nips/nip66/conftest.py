@@ -419,15 +419,13 @@ def mock_nostr_client() -> MagicMock:
 @pytest.fixture
 def mock_city_reader() -> MagicMock:
     """Mock geoip2 City database reader."""
-    reader = MagicMock()
-    return reader
+    return MagicMock()
 
 
 @pytest.fixture
 def mock_asn_reader() -> MagicMock:
     """Mock geoip2 ASN database reader."""
-    reader = MagicMock()
-    return reader
+    return MagicMock()
 
 
 @pytest.fixture

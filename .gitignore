@@ -246,9 +246,8 @@ GeoLite2-*.tar.gz
 # ============================================================================
 # Claude Code
 # ============================================================================
-.claude/resources/
-.claude/settings.local.json
-# Keep .claude/agents/ tracked for version control
+CLAUDE.md
+.claude/
 
 # ============================================================================
 # Miscellaneous

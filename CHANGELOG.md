@@ -9,6 +9,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.0.0] - 2026-02-09
+
+Major quality and operational hardening release: exception hierarchy replaces all bare catches, Monitor split into 3 modules, DAG violation fixed, Docker infrastructure hardened with real healthchecks and network segmentation, CI/CD expanded with security scanning, 4 Prometheus alerting rules, and complete documentation rewrite.
+
+### BREAKING CHANGES
+
+- **Exception hierarchy**: All `except Exception` blocks replaced with specific catches from `bigbrotr.core.exceptions` (`BigBrotrError`, `ConfigurationError`, `DatabaseError`, `ConnectionPoolError`, `QueryError`, `ConnectivityError`, `RelayTimeoutError`, `RelaySSLError`, `ProtocolError`, `PublishingError`)
+- **Monitor split into 3 modules**: `monitor.py` (~1,000 lines orchestration) + `monitor_publisher.py` (~230 lines Nostr broadcasting) + `monitor_tags.py` (~280 lines NIP-66 tag building). Import `MonitorPublisherMixin` and `MonitorTagsMixin` separately.
+- **ServiceState moved**: `ServiceState`, `ServiceStateKey`, `StateType`, `EventKind` moved from `services/common/constants` to `models/service_state.py` (re-exported from constants for backward compatibility)
+- **Per-deployment Dockerfiles deleted**: Single parametric `deployments/Dockerfile` with `ARG DEPLOYMENT` replaces 3 separate Dockerfiles
+- **Docker networks**: Flat bridge network replaced with `data-network` + `monitoring-network` segmentation
+- **SQL functions**: All 22 stored functions now require `SECURITY INVOKER`
+
+### Added
+
+- **Exception hierarchy** (`core/exceptions.py`): 10-class typed exception tree replacing bare `except Exception` across 15 files. Transient errors (`ConnectionPoolError`) distinguished from permanent (`QueryError`) for retry logic
+- **Prometheus alerting rules** (`deployments/bigbrotr/monitoring/prometheus/rules/alerts.yml`): 4 alerts -- ServiceDown (critical, 5m), HighFailureRate (warning, 0.1/s over 5m), PoolExhausted (critical, 2m), DatabaseSlow (warning, p99 > 5s)
+- **Makefile**: 11 targets -- `lint`, `format`, `typecheck`, `test`, `test-fast`, `coverage`, `ci`, `docker-build`, `docker-up`, `docker-down`, `clean`. Parametric Docker targets via `DEPLOYMENT=` variable
+- **CI security scanning**: `pip-audit --strict` for dependency vulnerabilities, Trivy image scanning (CRITICAL/HIGH severity), CodeQL static analysis (`.github/workflows/codeql.yml`), Dependabot for pip/docker/github-actions (`.github/dependabot.yml`)
+- **Shared test fixtures** (`tests/fixtures/relays.py`): Canonical relay fixtures (`relay_clearnet`, `relay_tor`, `relay_i2p`, `relay_loki`, `relay_ipv6`, `relay_clearnet_with_port`, `relay_clearnet_ws`) registered as pytest plugin via `pytest_plugins`
+- **Pre-commit hooks**: Added `hadolint` (Dockerfile linting), `markdownlint` (with `--fix`), `sqlfluff-fix` (PostgreSQL SQL formatting)
+- **Global test timeout**: `--timeout=120` in pytest addopts prevents hanging tests
+
+### Refactored
+
+- **Monitor service split**: Single 1,400+ line `monitor.py` decomposed into 3 modules using mixin pattern -- `MonitorPublisherMixin` (event broadcasting) and `MonitorTagsMixin` (NIP-66 tag building) mixed into `Monitor` class
+- **ServiceState extraction**: `ServiceState`, `ServiceStateKey`, `StateType`, `EventKind` moved from `services/common/constants.py` to `models/service_state.py`, fixing DAG violation where `core/brotr.py` had a `TYPE_CHECKING` import from services layer
+- **Single parametric Dockerfile**: `deployments/Dockerfile` with `ARG DEPLOYMENT=bigbrotr` replaces 3 per-deployment Dockerfiles. Multi-stage build (builder -> production), non-root execution (UID 1000), `tini` as PID 1 for proper signal handling
+- **Docker healthchecks**: Fake `/proc/1/cmdline` checks replaced with real service probes (`pg_isready` for PostgreSQL/PGBouncer, `curl http://localhost:<port>/metrics` for application services)
+- **Docker network segmentation**: Single flat bridge split into `data-network` (postgres, pgbouncer, tor, services) and `monitoring-network` (prometheus, grafana, services)
+- **Docker resource limits**: CPU and memory limits on all containers (postgres 2 CPU/2 GB, services 1 CPU/512 MB, pgbouncer 0.5 CPU/256 MB)
+- **SQL hardening**: `SECURITY INVOKER` on all 22 stored functions, `DISTINCT ON` queries paired with `ORDER BY` for deterministic results, batched cleanup operations
+
+### Changed
+
+- **pyproject.toml**: Version `4.0.0` -> `5.0.0`; coverage `fail_under = 80` (branch coverage); `--timeout=120` in pytest addopts; `pytest-timeout` added to dev dependencies
+- **Logger JSON format**: `_format_json()` now emits `timestamp` (ISO 8601), `level`, `service` fields for cloud log aggregation compatibility
+- **Metrics config**: `MetricsConfig` with `enabled`, `port`, `host`, `path` fields; `host` defaults to `"127.0.0.1"` (use `"0.0.0.0"` in containers)
+- **Docker Compose**: `stop_grace_period: 60s` and `STOPSIGNAL SIGTERM` for graceful shutdown; JSON-file logging driver with size rotation
+- **CI pipeline**: Single coverage run for all Python versions (removed duplicate non-coverage step for 3.11); Trivy scan on both BigBrotr and LilBrotr images; Python 3.14 with `allow-prereleases: true`
+
+### Fixed
+
+- **DAG violation**: Removed `TYPE_CHECKING` import of `ServiceState` from services layer in `core/brotr.py`
+- **Metadata column naming**: `MetadataDbParams` consistently uses `payload` field matching SQL column `metadata.payload`
+- **Grafana dashboards**: Set `editable: false` on provisioned dashboards to prevent drift
+
+### Documentation
+
+- **Complete docs/ rewrite**: All 6 documentation files rewritten from scratch for v5.0.0 accuracy:
+  - `docs/ARCHITECTURE.md` (~970 lines): Diamond DAG, all 5 layers, every service flow, data architecture, design patterns
+  - `docs/CONFIGURATION.md` (~760 lines): Complete YAML reference for all services with Pydantic models, CLI args, env vars
+  - `docs/DATABASE.md` (~620 lines): All 6 tables, 22 stored functions, 7 materialized views, complete index reference
+  - `docs/DEPLOYMENT.md` (~515 lines): Docker Compose and manual deployment, monitoring stack, backup/recovery
+  - `docs/DEVELOPMENT.md` (~460 lines): Setup, testing, code quality, CI/CD pipeline, contribution guide
+  - `docs/README.md` (~33 lines): Documentation index with quick links
+- **README.md** (~460 lines): Complete project overview rewritten with verified data from codebase
+- **Removed obsolete docs**: `OVERVIEW.md` (redundant with README), `TECHNICAL.md` (redundant with ARCHITECTURE), `V5_PLAN.md` (internal planning)
+- **CLAUDE.md**: Updated for v5.0.0 architecture, exception hierarchy, monitor split, ServiceState location
+
+---
+
 ## [4.0.0] - 2026-02-09
 
 Major architectural restructuring: all code moved under `bigbrotr` namespace package with diamond DAG dependency graph. Nine design problems resolved. No functional or behavioral changes — pure structural refactor.
@@ -424,7 +486,9 @@ Initial prototype release.
 
 ---
 
-[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.4...HEAD
+[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.0.0...HEAD
+[5.0.0]: https://github.com/bigbrotr/bigbrotr/compare/v4.0.0...v5.0.0
+[4.0.0]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.4...v4.0.0
 [3.0.4]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.3...v3.0.4
 [3.0.3]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.2...v3.0.3
 [3.0.2]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.1...v3.0.2

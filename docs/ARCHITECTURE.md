@@ -1,778 +1,750 @@
 # Architecture
 
-This document provides a comprehensive overview of BigBrotr v4.0.0's architecture, design patterns, and component interactions.
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Diamond DAG Architecture](#diamond-dag-architecture)
-- [Core Layer](#core-layer)
-- [NIPs Layer](#nips-layer)
-- [Service Layer](#service-layer)
-- [Utils Layer](#utils-layer)
-- [Models Layer](#models-layer)
-- [Deployment Layer](#deployment-layer)
-- [Design Patterns](#design-patterns)
-- [Data Flow](#data-flow)
-- [Concurrency Model](#concurrency-model)
+Comprehensive architecture reference for BigBrotr.
 
 ---
 
 ## Overview
 
-BigBrotr v4.0.0 uses a **Diamond DAG** architecture where the service layer depends on three parallel mid-tier packages (core, nips, utils), all of which converge on the models layer at the bottom:
+BigBrotr uses a **Diamond DAG** architecture. Five layers with strict top-to-bottom import flow:
 
-| Tier | Layers | Role |
-|------|--------|------|
-| **Top** | Services | Business logic, queries, mixins, constants -- where new features land |
-| **Mid** | Core + NIPs + Utils | Infrastructure, NIP protocol models, shared utilities |
-| **Foundation** | Models | Stable data structures -- rarely changes |
-| **Deployment** | Deployments | Deployment-specific configuration and customization |
-
-The layers within the `src/bigbrotr/` package namespace are:
-
-1. **Services Layer** (`bigbrotr/services/`) - Business logic, shared infrastructure, and service orchestration
-2. **Core Layer** (`bigbrotr/core/`) - Reusable infrastructure components with zero business logic
-3. **NIPs Layer** (`bigbrotr/nips/`) - NIP-11 and NIP-66 protocol models (extracted from models)
-4. **Utils Layer** (`bigbrotr/utils/`) - Shared utilities (dns, network, transport, YAML, keys)
-5. **Models Layer** (`bigbrotr/models/`) - Immutable data structures with validation and database mapping
-6. **Deployment Layer** (`deployments/`) - Deployment-specific configuration and customization
-
-This design allows:
-- Multiple deployments from the same codebase
-- Easy testing through dependency injection
-- Configuration-driven behavior without code changes
-- Clear separation between stable foundation and evolving business logic
-
----
-
-## Diamond DAG Architecture
-
-```
-  DEPLOYMENT TIER
- ==================
-
-+-----------------------------------------------------------------------------+
-|                           DEPLOYMENT LAYER                                   |
-|                                                                              |
-|   deployments/                                                               |
-|   ├── bigbrotr/        Full-featured (stores tags, content, Tor support)    |
-|   └── lilbrotr/        Lightweight (no tags/content, clearnet only)         |
-|                                                                              |
-|   Each deployment contains:                                                  |
-|   ├── config/          Configuration files (YAML)                           |
-|   ├── postgres/init/   SQL schema definitions                               |
-|   ├── monitoring/      Grafana dashboards + Prometheus config               |
-|   ├── static/          Seed data and static resources                       |
-|   ├── docker-compose.yaml  Container orchestration                          |
-|   └── Dockerfile       Application container                                |
-|                                                                              |
-|   Purpose: Define HOW this specific deployment behaves                       |
-+----------------------------------+------------------------------------------+
-                                   |
-                                   | Uses
-                                   v
-
-  SERVICE TIER
- ==============
-
-+-----------------------------------------------------------------------------+
-|                             SERVICE LAYER                                    |
-|                                                                              |
-|   src/bigbrotr/services/                                                     |
-|   ├── common/           Shared service infrastructure                       |
-|   │   ├── constants.py  ServiceName and DataType StrEnum enumerations       |
-|   │   ├── mixins.py     BatchProgressMixin, NetworkSemaphoreMixin           |
-|   │   └── queries.py    13 domain-specific SQL query functions              |
-|   ├── seeder.py         Relay seeding for validation                        |
-|   ├── finder.py         Relay URL discovery from APIs and events            |
-|   ├── validator.py      Candidate relay validation                          |
-|   ├── monitor.py        Relay health monitoring (NIP-11/NIP-66)             |
-|   └── synchronizer.py   Event collection and sync                           |
-|                                                                              |
-|   Purpose: Business logic, service coordination, data transformation         |
-+----------------------------------+------------------------------------------+
-                                   |
-                      +------------+------------+
-                      |            |            |
-                      v            v            v
-
-  MID TIER (Diamond DAG — services depend on all three)
- =======================================================
-
-+---------------------+ +---------------------+ +---------------------+
-|     CORE LAYER      | |     NIPS LAYER      | |     UTILS LAYER     |
-|                     | |                     | |                     |
-| src/bigbrotr/core/  | | src/bigbrotr/nips/  | | src/bigbrotr/utils/ |
-| ├── pool.py         | | ├── nip11/          | | ├── dns.py          |
-| ├── brotr.py        | | │   ├── data.py     | | ├── network.py      |
-| ├── base_service.py | | │   ├── fetch.py    | | ├── transport.py    |
-| ├── metrics.py      | | │   ├── logs.py     | | ├── yaml.py         |
-| └── logger.py       | | │   └── nip11.py    | | └── keys.py         |
-|                     | | └── nip66/          | |                     |
-| Purpose: Reusable   | |     ├── rtt.py      | | Purpose: Shared     |
-| foundation, zero    | |     ├── ssl.py      | | utilities used      |
-| business logic      | |     ├── geo.py      | | across layers       |
-+----------+----------+ |     ├── net.py      | +----------+----------+
-           |            |     ├── dns.py      |            |
-           |            |     ├── http.py     |            |
-           |            |     └── nip66.py    |            |
-           |            |                     |            |
-           |            | Purpose: NIP proto- |            |
-           |            | col models          |            |
-           |            +----------+----------+            |
-           |                       |                       |
-           +-----------+-----------+-----------+-----------+
-                       |
-                       v
-
-  FOUNDATION TIER
- =================
-
-+-----------------------------------------------------------------------------+
-|                             MODELS LAYER                                     |
-|                                                                              |
-|   src/bigbrotr/models/                                                       |
-|   ├── event.py         Nostr event with validation                          |
-|   ├── relay.py         Relay URL with network detection                     |
-|   ├── event_relay.py   Event-relay junction                                 |
-|   ├── metadata.py      Generic metadata container                           |
-|   └── relay_metadata.py RelayMetadata junction with MetadataType            |
-|                                                                              |
-|   Purpose: Immutable data structures, validation, database mapping           |
-+-----------------------------------------------------------------------------+
+```text
+              services         src/bigbrotr/services/
+             /   |   \
+          core  nips  utils    src/bigbrotr/{core,nips,utils}/
+             \   |   /
+              models           src/bigbrotr/models/
 ```
 
-### Layer Responsibilities
+| Tier | Layer | Purpose | Changes When |
+|------|-------|---------|--------------|
+| **Top** | Services | Business logic, orchestration | New features, protocol updates |
+| **Mid** | Core | Pool, Brotr, BaseService, Exceptions, Logger, Metrics | Rarely |
+| **Mid** | NIPs | NIP-11 info fetch/parse, NIP-66 health checks (I/O) | Protocol spec updates |
+| **Mid** | Utils | DNS, keys, transport, SOCKS5 proxy | Cross-cutting needs |
+| **Foundation** | Models | Frozen dataclasses, validation, DB mapping | Schema changes |
 
-| Tier | Layer | Responsibility | Changes When |
-|------|-------|----------------|--------------|
-| **Foundation** | Models | Data structures, validation | Schema changes, new data types |
-| **Mid** | Core | Infrastructure, abstractions | Rarely -- foundation is stable |
-| **Mid** | NIPs | NIP-11/NIP-66 protocol models | Protocol updates, new NIP support |
-| **Mid** | Utils | Shared utilities, helpers | When adding cross-cutting functionality |
-| **Top** | Services | Business logic, shared queries, mixins, constants | Feature additions, protocol updates |
-| **Deployment** | Deployments | Configuration, customization | Per-deployment or environment |
-
----
-
-## Core Layer
-
-The core layer (`src/bigbrotr/core/`) provides reusable infrastructure components.
-
-### Pool (`pool.py`)
-
-**Purpose**: Async PostgreSQL client with asyncpg driver.
-
-**Key Features**:
-- Async connection management with asyncpg (works behind PGBouncer)
-- Configurable pool size limits
-- Retry logic with exponential backoff
-- Environment variable password loading (`DB_PASSWORD`)
-- Connection health checking
-- Async context manager support
-
-**Note**: In Docker deployments, services connect to PGBouncer (port 6432/6433) which handles connection pooling at the infrastructure level. The Pool class provides application-level connection management and query methods.
-
-**Configuration Model**:
-```python
-class PoolConfig(BaseModel):
-    database: DatabaseConfig      # host, port, database, user, password
-    limits: PoolLimitsConfig      # min_size, max_size, max_queries
-    timeouts: PoolTimeoutsConfig  # acquisition, health_check
-    retry: PoolRetryConfig        # max_attempts, delays, backoff
-    server_settings: dict         # application_name, timezone
-```
-
-**Usage**:
-```python
-pool = Pool.from_yaml("config/brotr.yaml")
-
-async with pool:
-    result = await pool.fetch("SELECT * FROM relays LIMIT 10")
-
-# Or manual lifecycle
-await pool.connect()
-try:
-    result = await pool.fetchval("SELECT COUNT(*) FROM events")
-finally:
-    await pool.close()
-```
-
-### Brotr (`brotr.py`)
-
-**Purpose**: High-level database interface with stored procedure wrappers.
-
-**Key Features**:
-- Composition pattern: HAS-A Pool (publicly accessible)
-- Stored procedure wrappers for all database operations
-- Batch operations with configurable size limits
-- Automatic hex-to-BYTEA conversion for event IDs
-- Timeout configuration per operation type
-- Context manager (delegates to Pool)
-
-**Stored Functions** (array-based bulk operations):
-- `relays_insert` - Bulk insert relays
-- `events_insert` - Bulk insert events
-- `metadata_insert` - Bulk insert metadata (hash computed in Python)
-- `events_relays_insert` - Bulk insert event-relay junctions
-- `events_relays_insert_cascade` - Atomic bulk insert events + relays + junctions
-- `relay_metadata_insert` - Bulk insert relay-metadata junctions
-- `relay_metadata_insert_cascade` - Atomic bulk insert relays + metadata + junctions
-- `service_data_upsert/get/delete` - Service data operations
-- `orphan_events_delete` - Cleanup orphaned events
-- `orphan_metadata_delete` - Cleanup unreferenced metadata
-
-**Usage**:
-```python
-brotr = Brotr.from_yaml("config/brotr.yaml")
-
-async with brotr:
-    # Insert relays
-    count = await brotr.insert_relays(relays_list)
-
-    # Insert events
-    count = await brotr.insert_events(events_list)
-
-    # Insert events with relays (cascade)
-    count = await brotr.insert_events_relays(event_relays_list)
-
-    # Insert relay metadata (cascade)
-    count = await brotr.insert_relay_metadata(relay_metadata_list)
-
-    # Cleanup orphaned records
-    deleted = await brotr.delete_orphan_events()
-    deleted = await brotr.delete_orphan_metadata()
-```
-
-### BaseService (`base_service.py`)
-
-**Purpose**: Abstract base class for all services.
-
-**Key Features**:
-- Generic type parameter for configuration class
-- `SERVICE_NAME` and `CONFIG_CLASS` class attributes
-- Continuous operation via `run_forever(interval)` with failure tracking
-- Factory methods: `from_yaml()`, `from_dict()`
-- Async context manager for lifecycle management
-- Graceful shutdown via `request_shutdown()`
-- Interruptible wait via `wait(timeout)`
-
-**Interface**:
-```python
-class BaseService(ABC, Generic[ConfigT]):
-    SERVICE_NAME: str              # Unique identifier for the service
-    CONFIG_CLASS: type[ConfigT]    # For automatic config parsing
-
-    _brotr: Brotr                  # Database interface
-    _config: ConfigT               # Pydantic configuration
-
-    @abstractmethod
-    async def run(self) -> None:
-        """Single cycle logic - must be implemented by subclasses."""
-        pass
-
-    async def run_forever(self, interval: float, max_consecutive_failures: int = 10) -> None:
-        """Continuous loop with configurable interval and failure tracking."""
-        pass
-
-    async def health_check(self) -> bool:
-        """Database connectivity check."""
-        pass
-
-    def request_shutdown(self) -> None:
-        """Sync-safe shutdown trigger for signal handlers."""
-        pass
-
-    async def wait(self, timeout: float) -> bool:
-        """Interruptible sleep - returns True if shutdown requested."""
-        pass
-```
-
-### Logger (`bigbrotr/core/logger.py`)
-
-**Purpose**: Structured logging wrapper with key=value formatting.
-
-**Usage**:
-```python
-logger = Logger("synchronizer")
-logger.info("sync_completed", events=1500, duration=45.2, relay="wss://relay.example.com")
-# Output: 2025-01-01 12:00:00 INFO synchronizer: sync_completed events=1500 duration=45.2 relay=wss://relay.example.com
-
-logger.error("connection_failed", relay="wss://relay.example.com", error="timeout")
-logger.debug("processing_event", event_id="abc123")
-```
-
----
-
-## NIPs Layer
-
-The NIPs layer (`src/bigbrotr/nips/`) contains NIP-11 and NIP-66 protocol models, extracted from the former `models/nips/` subpackage into a standalone mid-tier package.
-
-### Subpackages
-
-| Subpackage | Purpose |
-|------------|---------|
-| `nip11/` | NIP-11 relay information document models (data, fetch, logs, nip11) |
-| `nip66/` | NIP-66 relay monitoring models (rtt, ssl, geo, net, dns, http, nip66) |
-
-The NIPs layer depends on the Models layer (for `Relay`, `Metadata`, `RelayMetadata`, `MetadataType`) but has no dependency on Core or Utils. Services import from `bigbrotr.nips` to access NIP protocol models.
-
----
-
-## Utils Layer
-
-The utils layer (`src/bigbrotr/utils/`) provides shared utilities used across core and services.
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| `dns.py` | DNS resolution utilities |
-| `network.py` | Network detection and proxy configuration |
-| `transport.py` | HTTP/WebSocket transport helpers |
-| `yaml.py` | YAML loading with environment variable support |
-| `keys.py` | Nostr key management utilities |
-
-These utilities are stateless functions and classes that can be imported by any layer above Models.
+Deployments (`deployments/{bigbrotr,lilbrotr,_template}/`) sit outside the package and configure behavior through YAML, SQL schemas, and Docker Compose.
 
 ---
 
 ## Models Layer
 
-The models layer (`src/bigbrotr/models/`) contains immutable data structures with validation.
+`src/bigbrotr/models/` -- Pure frozen dataclasses. Zero I/O, zero `bigbrotr` imports. Uses only `import logging` + `logging.getLogger()`.
 
 ### Data Models
 
-| Model | Purpose |
-|-------|---------|
-| `Event` | Nostr event with cryptographic validation |
-| `Relay` | Relay URL with network type detection |
-| `EventRelay` | Event-relay junction with seen_at timestamp |
-| `Metadata` | Generic metadata container (JSON data) |
-| `RelayMetadata` | Relay-metadata junction with type and timestamp |
+| Model | File | Purpose |
+|-------|------|---------|
+| `Relay` | `relay.py` | URL validation (rfc3986), network detection (clearnet/tor/i2p/loki/local), local IP rejection |
+| `Event` | `event.py` | Wraps nostr-sdk Event, extracts hex fields, tag parsing |
+| `EventRelay` | `event_relay.py` | Event-relay junction with `seen_at` timestamp |
+| `Metadata` | `metadata.py` | Content-addressed metadata: SHA-256 hash over canonical JSON |
+| `RelayMetadata` | `relay_metadata.py` | Relay-metadata junction with `metadata_type` and `generated_at` |
+| `ServiceState` | `service_state.py` | Per-service operational state (candidates, cursors, checkpoints) |
 
-**Note**: NIP-11 and NIP-66 protocol models have been extracted to the separate `bigbrotr/nips/` layer (see [NIPs Layer](#nips-layer)).
+### Enumerations
 
-### Key Types
+| Type | File | Values |
+|------|------|--------|
+| `NetworkType` | `constants.py` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
+| `MetadataType` | `metadata.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
+| `StateType` | `service_state.py` | `candidate`, `cursor`, `checkpoint` |
+| `EventKind` | `service_state.py` | `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
 
-| Type | Values |
-|------|--------|
-| `NetworkType` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
-| `MetadataType` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
+### Model Patterns
 
-All models use `@dataclass(frozen=True)` for immutability and provide `to_db_params()` for database insertion.
+All models follow the same frozen dataclass pattern:
+
+```python
+@dataclass(frozen=True, slots=True)
+class Relay:
+    url: str
+    discovered_at: int
+    _db_params: RelayDbParams = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        # Validate and compute derived fields
+        parsed = rfc3986.uri_reference(self.url)
+        network = _detect_network(parsed.host)
+        object.__setattr__(self, "network", network)
+        object.__setattr__(self, "_db_params", self._compute_db_params())
+
+    def _compute_db_params(self) -> RelayDbParams: ...
+    def to_db_params(self) -> RelayDbParams:
+        return self._db_params  # cached, no recomputation
+
+    @classmethod
+    def from_db_params(cls, url: str, ...) -> Relay: ...
+```
+
+Key characteristics:
+
+- `frozen=True` + `slots=True` on all models
+- `_compute_db_params()` runs once in `__post_init__`, cached in `_db_params`
+- `object.__setattr__` for setting fields in frozen `__post_init__`
+- `from_db_params()` classmethod for reconstruction from database rows
+- `to_db_params()` returns a typed NamedTuple matching stored procedure parameter order
+
+### ServiceState and ServiceStateKey
+
+`ServiceState` was extracted from `services/common/constants.py` to `models/service_state.py` to fix a DAG violation (core was importing from services via `TYPE_CHECKING`).
+
+```python
+@dataclass(frozen=True, slots=True)
+class ServiceState:
+    service_name: str
+    state_type: str
+    state_key: str
+    payload: dict[str, Any]
+    updated_at: int
+
+class ServiceStateKey(NamedTuple):
+    service_name: str
+    state_type: str
+    state_key: str
+```
+
+---
+
+## Core Layer
+
+`src/bigbrotr/core/` -- Reusable infrastructure with zero business logic. Depends only on models.
+
+### Pool (`pool.py`)
+
+Async PostgreSQL connection pool via asyncpg with retry/backoff, health-checked acquisition.
+
+**Configuration:**
+
+```python
+class PoolConfig(BaseModel):
+    database: DatabaseConfig       # host, port, database, user (password from DB_PASSWORD env)
+    limits: LimitsConfig           # min_size, max_size, max_queries, max_inactive_connection_lifetime
+    timeouts: PoolTimeoutsConfig   # acquisition, health_check
+    retry: PoolRetryConfig         # max_attempts, initial_delay, max_delay, exponential_backoff
+    server_settings: ServerSettingsConfig  # application_name, timezone, statement_timeout
+```
+
+**Key methods:**
+
+| Method | Purpose |
+|--------|---------|
+| `connect()` | Create asyncpg pool with retry backoff |
+| `close()` | Idempotent pool teardown |
+| `acquire()` | Get connection from pool |
+| `acquire_healthy()` | Get connection with health check retry |
+| `transaction()` | Async context manager for ACID transactions |
+| `fetch()`, `fetchrow()`, `fetchval()` | Query methods with automatic retry on transient errors |
+| `execute()`, `executemany()` | Mutation methods |
+| `metrics` (property) | Pool statistics: size, utilization, is_connected |
+
+In Docker deployments, services connect to **PGBouncer** (port 6432/6433) which provides infrastructure-level connection pooling in transaction mode. Pool provides application-level retry, health checking, and query methods.
+
+### Brotr (`brotr.py`)
+
+High-level database facade. Wraps stored procedures via `_call_procedure()`. Provides generic query methods that services use.
+
+**Configuration:**
+
+```python
+class BrotrConfig(BaseModel):
+    batch: BatchConfig              # max_size (default 1000)
+    timeouts: BrotrTimeoutsConfig   # query (60s), batch (120s), cleanup (90s), refresh (None)
+```
+
+**Insert operations** (all accept lists, auto-batch by `batch.max_size`):
+
+| Method | Stored Function Called | Cascade |
+|--------|----------------------|---------|
+| `insert_relay(relays)` | `relay_insert` | -- |
+| `insert_event(events)` | `event_insert` | -- |
+| `insert_metadata(metadata)` | `metadata_insert` | -- |
+| `insert_event_relay(records, cascade=True)` | `event_relay_insert_cascade` | Relay + Event + Junction |
+| `insert_relay_metadata(records, cascade=True)` | `relay_metadata_insert_cascade` | Relay + Metadata + Junction |
+
+**Service state:**
+
+| Method | Stored Function Called |
+|--------|----------------------|
+| `upsert_service_state(records)` | `service_state_upsert` |
+| `get_service_state(service, type, key?)` | `service_state_get` |
+| `delete_service_state(keys)` | `service_state_delete` |
+
+**Cleanup and maintenance:**
+
+| Method | Stored Function Called |
+|--------|----------------------|
+| `delete_orphan_event()` | `orphan_event_delete` |
+| `delete_orphan_metadata()` | `orphan_metadata_delete` |
+| `refresh_materialized_view(name)` | `{name}_refresh` |
+
+**Generic query facade** (used by services for ad-hoc queries):
+
+- `fetch(query, *args, timeout)` -> `list[Record]`
+- `fetchrow(query, *args, timeout)` -> `Record | None`
+- `fetchval(query, *args, timeout)` -> `Any`
+- `execute(query, *args, timeout)` -> `str`
+- `transaction()` -> async context manager yielding a connection
+
+`Brotr._pool` is **private** -- services use Brotr methods, never pool directly.
+
+### BaseService (`base_service.py`)
+
+Abstract base class for all five services. Generic over configuration type.
+
+```python
+class BaseService(ABC, Generic[ConfigT]):
+    SERVICE_NAME: ClassVar[str]
+    CONFIG_CLASS: ClassVar[type[BaseModel]]
+
+    _brotr: Brotr
+    _config: ConfigT
+```
+
+**Lifecycle:**
+
+| Method | Purpose |
+|--------|---------|
+| `run()` | Abstract -- single cycle logic |
+| `run_forever()` | Loop: `run()` -> `wait(interval)` -> repeat. Tracks consecutive failures. |
+| `request_shutdown()` | Sync-safe flag for signal handlers |
+| `wait(timeout)` -> `bool` | Interruptible sleep. Returns `True` if shutdown was requested. |
+| `is_running` (property) | `True` until shutdown requested |
+
+**Factory methods:**
+
+- `from_yaml(config_path, brotr, **kwargs)` -> configured service instance
+- `from_dict(data, brotr, **kwargs)` -> configured service instance
+
+**Metrics integration:**
+
+- `set_gauge(name, value)` -- custom Prometheus gauge
+- `inc_counter(name, value=1)` -- custom Prometheus counter
+- Automatic cycle duration tracking via `CYCLE_DURATION_SECONDS` histogram
+
+**Context manager** (`async with service:`) handles lifecycle setup/teardown.
+
+### Exceptions (`exceptions.py`)
+
+Structured exception hierarchy replacing bare `except Exception`:
+
+```text
+BigBrotrError (base)
+├── ConfigurationError          # YAML, env vars, CLI args
+├── DatabaseError
+│   ├── ConnectionPoolError     # Transient: pool exhausted, network blip -> retry
+│   └── QueryError              # Permanent: bad SQL, constraint violation -> don't retry
+├── ConnectivityError
+│   ├── RelayTimeoutError       # Connection or response timed out
+│   └── RelaySSLError           # TLS/SSL certificate failures
+├── ProtocolError               # NIP parsing/validation failures
+└── PublishingError             # Nostr event broadcast failures
+```
+
+Services catch specific exceptions for appropriate handling: retry on `ConnectionPoolError`, skip relay on `RelayTimeoutError`, log and continue on `ProtocolError`.
+
+### Logger (`logger.py`)
+
+Structured key=value logging with optional JSON output mode.
+
+```python
+logger = Logger("synchronizer")
+logger.info("sync_completed", events=1500, duration=45.2)
+# Output: 2026-02-09 12:00:00 INFO synchronizer: sync_completed events=1500 duration=45.2
+```
+
+JSON mode output for cloud aggregation:
+
+```json
+{"timestamp": "2026-02-09T12:34:56+00:00", "level": "info", "service": "synchronizer", "message": "sync_completed", "events": 1500}
+```
+
+### Metrics (`metrics.py`)
+
+Prometheus metrics served on `/metrics` (port 8000).
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `service_info` | Info | service | Static service metadata |
+| `service_gauge` | Gauge | service, name | Point-in-time state (consecutive_failures, progress, last_cycle_timestamp) |
+| `service_counter` | Counter | service, name | Cumulative totals (cycles_success, cycles_failed, errors) |
+| `cycle_duration_seconds` | Histogram | service | Cycle latency, 10 buckets (1s to 1h) |
+
+**MetricsConfig:**
+
+- `enabled: bool` (default `False`)
+- `port: int` (default `8000`)
+- `host: str` (default `"127.0.0.1"`, use `"0.0.0.0"` in containers)
+- `path: str` (default `"/metrics"`)
+
+### YAML Loader (`yaml.py`)
+
+YAML configuration loading with environment variable interpolation.
+
+---
+
+## NIPs Layer
+
+`src/bigbrotr/nips/` -- NIP-11 and NIP-66 protocol implementations. Has I/O (HTTP, DNS, SSL, WebSocket, GeoIP). Depends on models, utils, core.
+
+### NIP-11 (`nip11/`)
+
+Relay Information Document (NIP-11) fetch and parse.
+
+| Module | Purpose |
+|--------|---------|
+| `fetch.py` | HTTP GET to relay URL with `Accept: application/nostr+json` |
+| `data.py` | Parsed NIP-11 document fields (name, description, pubkey, contact, supported_nips, etc.) |
+| `logs.py` | Structured logging for NIP-11 operations |
+| `nip11.py` | `Nip11` orchestrator class |
+
+### NIP-66 (`nip66/`)
+
+Relay Monitoring and Discovery (NIP-66) health check implementations.
+
+| Module | What It Measures |
+|--------|-----------------|
+| `rtt.py` | WebSocket round-trip times: open, read, write latency (ms) |
+| `ssl.py` | Certificate validity, expiry date, issuer, cipher suite |
+| `dns.py` | A/AAAA/CNAME/NS/PTR records, query time |
+| `geo.py` | Country, city, coordinates, timezone, geohash (via GeoLite2) |
+| `net.py` | IP address, ASN number, ASN organization (via GeoLite2 ASN) |
+| `http.py` | Server header, X-Powered-By header |
+| `nip66.py` | `Nip66` orchestrator class |
+
+Each module produces a `RelayMetadata` object with the corresponding `MetadataType`. The Monitor service calls these and persists results.
+
+---
+
+## Utils Layer
+
+`src/bigbrotr/utils/` -- Shared utilities. Depends only on models.
+
+| Module | Key Exports | Purpose |
+|--------|-------------|---------|
+| `transport.py` | `connect_relay()`, `is_nostr_relay()`, `create_client()`, `create_insecure_client()` | WebSocket/HTTP transport with SOCKS5 proxy and SSL fallback |
+| `keys.py` | `load_keys_from_env()`, `KeysConfig` | Nostr key management (hex/nsec loading from env) |
+| `dns.py` | DNS resolution utilities | dnspython wrapper |
+
+### Transport SSL Fallback
+
+`connect_relay()` implements a two-phase connection strategy:
+
+1. **Clearnet**: try standard SSL first; fall back to insecure (disabled SSL verification) if `allow_insecure=True`
+2. **Overlay** (Tor/I2P/Loki): require `proxy_url`, no SSL fallback
+
+`InsecureWebSocketAdapter` and `InsecureWebSocketTransport` handle relays with invalid certificates.
 
 ---
 
 ## Service Layer
 
-The service layer (`src/bigbrotr/services/`) contains business logic implementations.
+`src/bigbrotr/services/` -- Business logic. Depends on core, nips, utils, models.
 
-### Service Architecture
+### Service Architecture Pattern
 
-All services follow the same pattern:
-
-1. **Configuration Class** - Pydantic model inheriting from `BaseServiceConfig`
-2. **Service Class** - Inherits from `BaseService[ConfigClass]`
-3. **`run()` Method** - Single cycle logic (abstract method implementation)
-4. **Factory Methods** - `from_yaml()`, `from_dict()` inherited from base
+All five services follow the same pattern:
 
 ```python
-# Example service structure
-SERVICE_NAME = "myservice"
-
-class MyServiceConfig(BaseServiceConfig):
-    # Inherits: interval, max_consecutive_failures, metrics
-    some_setting: str = Field(default="value")
-    # ... other config fields
-
 class MyService(BaseService[MyServiceConfig]):
-    SERVICE_NAME = SERVICE_NAME
+    SERVICE_NAME = "myservice"
     CONFIG_CLASS = MyServiceConfig
 
     def __init__(self, brotr: Brotr, config: MyServiceConfig | None = None):
         super().__init__(brotr=brotr, config=config or MyServiceConfig())
 
     async def run(self) -> None:
-        """Single cycle implementation."""
-        # Business logic here
-        pass
+        """Single cycle -- called repeatedly by run_forever()."""
+        ...
 ```
 
-### Shared Service Infrastructure (`services/common/`)
+Configuration classes inherit from `BaseServiceConfig` which provides:
 
-The `bigbrotr/services/common/` package provides shared infrastructure used by all services:
+- `interval: float` (default 300s, minimum 60s)
+- `max_consecutive_failures: int` (default 5, 0=unlimited)
+- `metrics: MetricsConfig`
+
+### Shared Infrastructure (`services/common/`)
 
 | Module | Purpose |
 |--------|---------|
-| `constants.py` | `ServiceName` and `DataType` StrEnum enumerations eliminating hardcoded strings |
-| `mixins.py` | `BatchProgressMixin` for batch tracking, `NetworkSemaphoreMixin` for per-network concurrency limits |
-| `queries.py` | 13 domain-specific SQL query functions (relay lookups, candidate lifecycle, cursor management) |
+| `constants.py` | `ServiceName` and `DataType` StrEnum enumerations |
+| `queries.py` | 13 domain SQL query functions |
+| `mixins.py` | `BatchProgress` dataclass, `BatchProgressMixin`, `NetworkSemaphoreMixin` |
+| `configs.py` | Per-network Pydantic config models |
 
-Services import from `bigbrotr.services.common` instead of writing inline SQL or using string literals. This consolidation keeps business logic in individual service files focused on orchestration rather than query construction.
+**Domain Query Functions** (13 total in `queries.py`):
 
-### Seeder Service
+| Function | Purpose |
+|----------|---------|
+| `get_all_relay_urls(brotr)` | All relay URLs |
+| `get_all_relays(brotr)` | All relays with network + discovered_at |
+| `filter_new_relay_urls(brotr, urls)` | URLs not yet in relay table |
+| `count_relays_due_for_check(brotr, ...)` | Count relays needing health check |
+| `fetch_relays_due_for_check(brotr, ...)` | Fetch relays needing health check |
+| `get_events_with_relay_urls(brotr, ...)` | Events containing relay URLs |
+| `upsert_candidates(brotr, relays)` | Insert/update validation candidates |
+| `count_candidates(brotr, networks)` | Count pending candidates |
+| `fetch_candidate_chunk(brotr, ...)` | Fetch candidate batch for validation |
+| `delete_stale_candidates(brotr)` | Remove candidates already in relay table |
+| `delete_exhausted_candidates(brotr, ...)` | Remove candidates exceeding max_failures |
+| `promote_candidates(brotr, relays)` | Move validated candidates to relay table |
+| `get_all_service_cursors(brotr, ...)` | Get sync cursors for all relays |
 
-**Purpose**: Relay seeding for validation.
+**Network Configuration** (`configs.py`):
 
-**Lifecycle**: One-shot (runs once, then exits)
+| Config | Default Enabled | Proxy | Max Tasks | Timeout |
+|--------|----------------|-------|-----------|---------|
+| `ClearnetConfig` | Yes | None | 50 | 10s |
+| `TorConfig` | No | `socks5://tor:9050` | 10 | 30s |
+| `I2pConfig` | No | `socks5://i2p:4447` | 5 | 45s |
+| `LokiConfig` | No | `socks5://lokinet:1080` | 5 | 30s |
 
-**Operations**:
-1. Parse seed relay URLs from configured file
-2. Validate URLs and detect network type (clearnet/tor/i2p/loki)
-3. Store as candidates in `service_data` table for Validator
+`NetworkConfig` wraps all four and provides `get(network)`, `is_enabled(network)`, `get_proxy_url(network)`, `get_enabled_networks()`.
 
-### Finder Service
+**BatchProgress** (`mixins.py`):
 
-**Purpose**: Relay URL discovery from multiple sources.
+Mutable tracker for batch operations (not frozen -- has `reset()` method):
 
-**Lifecycle**: Continuous (`run_forever`)
-
-**Operations**:
-1. Fetch relay lists from configured API sources (e.g., nostr.watch)
-2. Scan stored events for relay URLs (NIP-65 relay lists, kind 2/3 events)
-3. Validate URLs using the Relay model
-4. Store discovered URLs as candidates in `service_data` table
-
-**Note**: Finder stores candidates, not relays. The Validator service tests and promotes valid candidates to the `relays` table.
-
-### Validator Service
-
-**Purpose**: Test and validate candidate relay URLs.
-
-**Lifecycle**: Continuous (`run_forever`)
-
-**Architecture**: Streaming with batch processing
-
-**Operations**:
-1. Cleanup exhausted candidates (optional, based on `max_failures`)
-2. Fetch chunk of candidates from `service_data` table
-3. Validate in parallel with per-network semaphores
-4. Persist results (promote or increment failure count)
-5. Repeat until all candidates processed
-
-**Features**:
-- Multi-network support (clearnet, Tor, I2P, Lokinet)
-- Per-network concurrency limits via `max_tasks`
-- Configurable connection timeout per network
-- Prometheus metrics integration
-
-### Monitor Service
-
-**Purpose**: Relay health and capability assessment.
-
-**Lifecycle**: Continuous (`run_forever`)
-
-**Operations**:
-1. Fetch list of relays needing health check
-2. For each relay (concurrently):
-   - Fetch NIP-11 information document
-   - Test NIP-66 capabilities (open, read, write)
-   - Measure round-trip times
-3. Batch insert results with NIP-11/NIP-66 deduplication
-
-**Multi-Network Support**:
-- Configurable SOCKS5 proxy for overlay networks (Tor, I2P, Lokinet)
-- Automatic network detection from URL
-- Per-network timeout and concurrency settings
-- SSL certificate validation and geolocation
-
-### Synchronizer Service
-
-**Purpose**: Event collection from relays.
-
-**Lifecycle**: Continuous (`run_forever`)
-
-**Key Features**:
-- **Multicore Processing**: Uses `aiomultiprocess` for parallel processing
-- **Time-Window Stack**: Algorithm for handling large event volumes
-- **Incremental Sync**: Per-relay timestamp tracking
-- **Per-Relay Overrides**: Custom settings for specific relays
-- **Graceful Shutdown**: Clean worker process termination via `atexit`
-- **Tor Support**: SOCKS5 proxy for .onion relay synchronization
-
-**Processing Flow**:
+```python
+@dataclass(slots=True)
+class BatchProgress:
+    started_at: float      # wall-clock
+    total: int
+    processed: int
+    success: int
+    failure: int
+    chunks: int
 ```
-Main Process                    Worker Processes
-     │                               │
-     ├─── Fetch relays ────────────>│
-     │                               │
-     ├─── Distribute to workers ───>│ ─── Connect to relay
-     │                               │ ─── Request events
-     │                               │ ─── Apply time-window stack
-     │<── Receive batches ──────────│ ─── Return raw events
-     │                               │
-     ├─── Insert to database        │
-     │                               │
-     └─── Continue cycle           │
+
+**NetworkSemaphoreMixin**: creates one `asyncio.Semaphore` per enabled network, limiting concurrency to `max_tasks`.
+
+### Seeder Service (`seeder.py`)
+
+**Purpose**: Load relay URLs from a seed file and insert as candidates for validation.
+
+**Lifecycle**: One-shot (`--once` flag)
+
+**Configuration:**
+
+- `file_path: str` (default `"static/seed_relays.txt"`)
+- `to_validate: bool` (default `True`) -- if True, inserts as candidates; if False, directly to relay table
+
+**Flow:**
+
+1. Read seed file (one URL per line, `#` comments skipped)
+2. Parse each URL into a `Relay` object (validates URL, detects network type)
+3. Insert as candidates via `upsert_candidates()` or directly via `insert_relay()`
+
+### Finder Service (`finder.py`)
+
+**Purpose**: Discover new relay URLs from stored events and external APIs.
+
+**Lifecycle**: Continuous (`run_forever`, default interval 1h)
+
+**Discovery sources:**
+
+1. **Event scanning** -- extracts relay URLs from:
+   - Kind 3 (contact list): content field contains JSON with relay URLs as keys
+   - Kind 10002 (NIP-65 relay list): `r` tags contain relay URLs
+   - Any event with `r` tags
+
+2. **API fetching** -- HTTP requests to external sources:
+   - Default: nostr.watch online/offline relay list endpoints
+   - Configurable timeout, SSL verification, delay between requests
+
+**Flow:**
+
+1. Scan stored events for relay URLs (`_find_from_events()`)
+2. Fetch external API sources (`_find_from_api()`)
+3. Filter out URLs already in the relay table
+4. Insert new URLs as candidates via `upsert_candidates()`
+
+### Validator Service (`validator.py`)
+
+**Purpose**: Test candidate relay URLs and promote valid ones.
+
+**Lifecycle**: Continuous (`run_forever`, default interval 8h)
+
+**Candidate dataclass:**
+
+```python
+@dataclass(frozen=True, slots=True)
+class Candidate:
+    relay: Relay
+    data: dict[str, Any]  # from service_state payload
+
+    @property
+    def failed_attempts(self) -> int:
+        return self.data.get("failed_attempts", 0)
 ```
+
+**Flow:**
+
+1. Delete stale candidates (URLs already in relay table)
+2. Delete exhausted candidates (exceeded `max_failures`)
+3. Fetch chunk of candidates ordered by failure count (ASC) then age (ASC)
+4. Validate in parallel with per-network semaphores via `is_nostr_relay(relay, timeout, proxy_url)`
+5. Promote valid candidates to relay table; increment failure count for invalid ones
+6. Repeat until all candidates processed
+
+**Configuration:**
+
+- `networks: NetworkConfig` -- per-network timeouts and concurrency
+- `processing: ValidatorProcessingConfig` -- chunk_size, max_candidates
+- `cleanup: CleanupConfig` -- enabled, max_failures
+
+### Monitor Service (`monitor.py` + `monitor_publisher.py` + `monitor_tags.py`)
+
+**Purpose**: Health check all relays and publish results as Nostr events.
+
+**Lifecycle**: Continuous (`run_forever`, default interval 1h)
+
+The Monitor service is split across three modules:
+
+| Module | Lines | Responsibility |
+|--------|-------|---------------|
+| `monitor.py` | ~600 | Config models, health check orchestration, GeoIP, DB persistence |
+| `monitor_publisher.py` | ~230 | Nostr event broadcasting: kind 0, 10166, 30166 |
+| `monitor_tags.py` | ~280 | NIP-66 tag building for kind 30166 events |
+
+**Class hierarchy using mixins:**
+
+```python
+class Monitor(
+    MonitorTagsMixin,        # from monitor_tags.py
+    MonitorPublisherMixin,   # from monitor_publisher.py
+    BatchProgressMixin,      # from services/common/mixins.py
+    NetworkSemaphoreMixin,   # from services/common/mixins.py
+    BaseService[MonitorConfig],
+): ...
+```
+
+**CheckResult** (what each relay check produces):
+
+```python
+class CheckResult(NamedTuple):
+    nip11: RelayMetadata | None
+    nip66_rtt: RelayMetadata | None
+    nip66_ssl: RelayMetadata | None
+    nip66_geo: RelayMetadata | None
+    nip66_net: RelayMetadata | None
+    nip66_dns: RelayMetadata | None
+    nip66_http: RelayMetadata | None
+```
+
+**Orchestration flow:**
+
+1. `run()` -- fetch relays due for check, chunk them
+2. `_check_chunk(relays)` -- parallel checks with semaphore
+3. `_check_one(relay)` -- run NIP-11 + all NIP-66 checks, return `CheckResult`
+4. `_persist_results(successful, failed)` -- insert metadata to DB
+5. `_publish_relay_discoveries(successful)` -- build and broadcast kind 30166 events
+6. `_publish_announcement()` -- kind 10166 (monitor capabilities)
+7. `_publish_profile()` -- kind 0 (monitor profile metadata)
+
+**Published Nostr events:**
+
+| Kind | Type | Content |
+|------|------|---------|
+| 0 | Profile | Monitor name, about, picture (NIP-01) |
+| 10166 | Announcement | Monitor capabilities, check frequency, supported checks (NIP-66) |
+| 30166 | Discovery | Per-relay health data: RTT, SSL, DNS, Geo, Net, NIP-11 (addressable, `d` tag = relay URL) |
+
+**Tag building** (`monitor_tags.py`):
+
+| Method | Tags Produced |
+|--------|--------------|
+| `_add_rtt_tags()` | `rtt-open`, `rtt-read`, `rtt-write` |
+| `_add_ssl_tags()` | `ssl`, `ssl-expires`, `ssl-issuer` |
+| `_add_net_tags()` | `net-ip`, `net-ipv6`, `net-asn`, `net-asn-org` |
+| `_add_geo_tags()` | `g` (geohash), `geo-country`, `geo-city`, `geo-lat`, `geo-lon`, `geo-tz` |
+| `_add_nip11_tags()` | `N` (NIPs), `t` (topics), `l` (languages), `R` (requirements), `T` (types) |
+
+### Synchronizer Service (`synchronizer.py`)
+
+**Purpose**: Connect to relays, subscribe to events, archive to PostgreSQL.
+
+**Lifecycle**: Continuous (`run_forever`, default interval 15m)
+
+**EventBatch** -- bounded event buffer:
+
+```python
+class EventBatch:
+    since: int           # filter start timestamp
+    until: int           # filter end timestamp
+    limit: int           # max events
+    events: list[Event]  # collected events
+
+    def append(event) -> None   # raises OverflowError if full
+    def is_full() -> bool
+    def is_empty() -> bool
+```
+
+**SyncContext** -- immutable per-sync configuration:
+
+```python
+@dataclass(frozen=True, slots=True)
+class SyncContext:
+    filter_config: FilterConfig
+    network_config: NetworkConfig
+    request_timeout: float
+    brotr: Brotr
+    keys: Keys
+```
+
+**Flow:**
+
+1. `run()` -- fetch relays from DB, load cursors, distribute work
+2. `_sync_all_relays(relays)` -- `TaskGroup` with semaphore coordination
+3. For each relay: connect via WebSocket, subscribe with filter, collect events
+4. Per-relay cursor tracking via `ServiceState` with `StateType.CURSOR`
+5. Batch insert events + relay junctions via `insert_event_relay(cascade=True)`
+6. Flush cursor updates periodically
+
+**Configuration highlights:**
+
+- `filter: FilterConfig` -- event kinds, authors, tags, limit
+- `time_range: TimeRangeConfig` -- default_start, use_relay_state, lookback_seconds
+- `concurrency: SyncConcurrencyConfig` -- max_parallel, cursor_flush_interval, stagger_delay
+- `overrides: list[RelayOverride]` -- per-relay timeout/URL overrides
 
 ---
 
-## Deployment Layer
+## Database Architecture
 
-The deployment layer contains deployment-specific resources. Two deployments are provided:
+PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver.
 
-### Included Deployments
+### Tables (6)
 
-| Deployment | Purpose | Key Differences |
-|------------|---------|-----------------|
-| **bigbrotr** | Full-featured archiving | Stores tags/content, Tor support, high concurrency |
-| **lilbrotr** | Lightweight indexing | Indexes all events but omits tags/content (~60% disk savings), clearnet only |
+| Table | Primary Key | Purpose |
+|-------|-------------|---------|
+| `relay` | `url` | Validated relay URLs with `network` and `discovered_at` |
+| `event` | `id` (BYTEA) | Nostr events. BYTEA for id/pubkey/sig (space efficiency). `tags` JSONB, `tagvalues` generated column, `content` TEXT. |
+| `event_relay` | `(event_id, relay_url)` | Junction: which events seen at which relays, with `seen_at` |
+| `metadata` | `id` (BYTEA) | Content-addressed NIP-11/NIP-66 documents. SHA-256 hash as ID, `payload` JSONB. |
+| `relay_metadata` | `(relay_url, generated_at, metadata_type)` | Time-series snapshots linking relays to metadata records |
+| `service_state` | `(service_name, state_type, state_key)` | Service operational data: candidates, cursors, checkpoints |
 
-### BigBrotr Structure (Full-Featured)
+**Column naming:**
 
-```
-deployments/bigbrotr/
-├── config/
-│   ├── brotr.yaml               # Database connection, pool settings
-│   └── services/
-│       ├── seeder.yaml          # Seed file configuration
-│       ├── finder.yaml          # API sources, intervals
-│       ├── validator.yaml       # Multi-network validation (Tor enabled)
-│       ├── monitor.yaml         # Health check settings, Tor proxy
-│       └── synchronizer.yaml    # High concurrency (10 parallel, 4 processes)
-├── postgres/
-│   └── init/                    # SQL schema files (00-99)
-│       ├── 02_tables.sql        # Full schema with tags, tagvalues, content
-│       └── ...
-├── monitoring/
-│   ├── prometheus.yaml          # Prometheus scrape configuration
-│   ├── provisioning/            # Grafana dashboard and datasource provisioning
-│   └── dashboards/              # Pre-built Grafana dashboards
-├── static/
-│   └── seed_relays.txt          # 8,865 initial relay URLs
-├── docker-compose.yaml          # Ports: 5432, 6432 (PGBouncer), 9090, 3000, 9050
-├── Dockerfile
-└── .env.example
-```
+- Metadata content: `payload` (NOT `value`)
+- Metadata type: `metadata_type` (NOT `type`)
+- No CHECK constraints -- validation in Python enum layer
 
-### LilBrotr Structure (Lightweight)
+### Stored Functions (22)
 
-```
-deployments/lilbrotr/
-├── config/
-│   ├── brotr.yaml               # Same pool settings
-│   └── services/
-│       ├── synchronizer.yaml    # Overlay networks disabled, lower concurrency (5 parallel)
-│       └── ...                  # Other services inherit defaults
-├── postgres/
-│   └── init/
-│       ├── 02_tables.sql        # Minimal schema (NO tags, tagvalues, content)
-│       └── ...
-├── monitoring/
-│   ├── prometheus.yaml          # Prometheus scrape configuration
-│   ├── provisioning/            # Grafana dashboard and datasource provisioning
-│   └── dashboards/              # Pre-built Grafana dashboards
-├── docker-compose.yaml          # Different ports: 5433, 6433 (PGBouncer), 9091, 3001
-├── Dockerfile
-└── .env.example
-```
+All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO NOTHING`.
 
-**LilBrotr Schema Differences**:
+| Category | Functions | Count |
+|----------|-----------|-------|
+| **Utility** | `tags_to_tagvalues` (extracts single-char tag values for GIN indexing) | 1 |
+| **CRUD** | `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `event_relay_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete` | 10 |
+| **Cleanup** | `orphan_event_delete`, `orphan_metadata_delete`, `relay_metadata_delete_expired` (all batched with LIMIT loops) | 3 |
+| **Refresh** | One per materialized view + `all_statistics_refresh` | 8 |
+
+### Materialized Views (7)
+
+| View | Purpose |
+|------|---------|
+| `relay_metadata_latest` | Most recent metadata per relay per type |
+| `event_stats` | Global event statistics |
+| `relay_stats` | Per-relay event counts |
+| `kind_counts` | Event counts by kind |
+| `kind_counts_by_relay` | Event counts by kind per relay |
+| `pubkey_counts` | Event counts by pubkey |
+| `pubkey_counts_by_relay` | Event counts by pubkey per relay |
+
+All support `REFRESH CONCURRENTLY` via unique indexes.
+
+### Schema Initialization
+
+SQL files in `deployments/*/postgres/init/` are numbered `00-99` and run in order by PostgreSQL's entrypoint:
+
+| File | Content |
+|------|---------|
+| `00_extensions.sql` | Extensions (none currently, pgcrypto removed) |
+| `01_functions_utility.sql` | `tags_to_tagvalues` |
+| `02_tables.sql` | 6 tables |
+| `03_functions_crud.sql` | 10 CRUD functions |
+| `04_functions_cleanup.sql` | 3 cleanup functions |
+| `05_materialized_views.sql` | 7 materialized views |
+| `06_functions_refresh.sql` | 8 refresh functions |
+| `07_triggers.sql` | Triggers |
+| `08_indexes.sql` | Indexes (GIN on tagvalues, B-tree on timestamps, etc.) |
+| `09_permissions.sql` | Role grants |
+
+### Deployment-Specific Schemas
+
+**BigBrotr** (full archive): stores tags JSONB, generated tagvalues, content TEXT.
+
 ```sql
--- BigBrotr events table (full)
-CREATE TABLE events (
+CREATE TABLE event (
     id BYTEA PRIMARY KEY,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
-    tags JSONB NOT NULL,                    -- Stored
-    tagvalues TEXT[] GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED,  -- Indexed
-    content TEXT NOT NULL,                  -- Stored
+    tags JSONB NOT NULL,
+    tagvalues TEXT[] GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED,
+    content TEXT NOT NULL,
     sig BYTEA NOT NULL
 );
+```
 
--- LilBrotr events table (lightweight)
-CREATE TABLE events (
+**LilBrotr** (lightweight): omits tags, tagvalues, content for ~60% disk savings.
+
+```sql
+CREATE TABLE event (
     id BYTEA PRIMARY KEY,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
-    -- tags NOT stored (saves ~40% disk space)
-    -- content NOT stored (saves ~20% disk space)
     sig BYTEA NOT NULL
 );
-```
-
-### Creating Custom Deployments
-
-To create a custom deployment:
-
-1. Copy an existing deployment:
-   ```bash
-   cp -r deployments/bigbrotr deployments/mydeployment
-   ```
-
-2. Modify YAML configurations as needed:
-   ```yaml
-   # config/services/synchronizer.yaml
-   networks:
-     clearnet:
-       enabled: true
-       max_tasks: 3  # Lower concurrency
-     tor:
-       enabled: false  # Disable Tor
-   ```
-
-3. Optionally customize SQL schemas:
-   ```sql
-   -- Store only specific event kinds
-   ALTER TABLE events ADD CONSTRAINT events_kind_check
-     CHECK (kind IN (0, 1, 3, 6, 7));
-   ```
-
-4. Update Docker Compose ports to avoid conflicts:
-   ```yaml
-   ports:
-     - "5434:5432"  # Different port
-   ```
-
-5. Deploy:
-   ```bash
-   cd deployments/mydeployment
-   docker-compose up -d
-   ```
-
-The core and service layers remain unchanged - only configuration differs.
-
----
-
-## Design Patterns
-
-### Dependency Injection
-
-Services receive their dependencies via constructor:
-
-```python
-# Brotr is injected, not created internally
-service = MyService(brotr=brotr, config=config)
-
-# This enables testing with mocks
-mock_brotr = MagicMock(spec=Brotr)
-service = MyService(brotr=mock_brotr)
-```
-
-### Composition
-
-`Brotr` HAS-A `Pool` (rather than IS-A):
-
-```python
-class Brotr:
-    def __init__(self, pool: Pool | None = None, ...):
-        self.pool = pool or Pool(...)
-```
-
-Benefits:
-- Pool is publicly accessible: `brotr.pool.fetch(...)`
-- Brotr can be used without Pool features if needed
-- Easy to inject mock Pool for testing
-
-### Template Method
-
-`BaseService.run_forever()` calls abstract `run()`:
-
-```python
-class BaseService:
-    async def run_forever(self, interval: float) -> None:
-        while not self._shutdown_requested:
-            await self.run()  # Template method
-            if await self.wait(interval):
-                break
-
-    @abstractmethod
-    async def run(self) -> None:
-        """Implemented by subclasses."""
-        pass
-```
-
-### Factory Method
-
-Services provide multiple construction paths:
-
-```python
-# From YAML file
-service = MyService.from_yaml("config.yaml", brotr=brotr)
-
-# From dictionary
-service = MyService.from_dict(config_dict, brotr=brotr)
-
-# Direct construction
-service = MyService(brotr=brotr, config=MyServiceConfig(...))
-```
-
-### Context Manager
-
-Resources are automatically managed:
-
-```python
-async with brotr:           # Connect on enter, close on exit
-    async with service:     # Lifecycle management
-        await service.run_forever(interval=3600)
 ```
 
 ---
 
 ## Data Flow
 
-### Event Synchronization Flow
+### Service Pipeline
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Seeder    │     │   Finder    │     │  Validator  │     │   Monitor   │
-└──────┬──────┘     └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
-       │                   │                   │                   │
-       │ Seed URLs         │ Discover URLs     │ Test candidates   │ Check health
-       │ (one-shot)        │ from APIs/events  │ Promote to relays │ NIP-11/NIP-66
-       v                   v                   v                   v
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              PostgreSQL                                  │
-│  ┌─────────────────┐  ┌─────────┐  ┌──────┐  ┌─────────────────┐       │
-│  │  service_data   │  │ relays  │  │events│  │ relay_metadata  │       │
-│  │  (candidates)   │  │         │  │      │  │    + metadata   │       │
-│  └─────────────────┘  └─────────┘  └──────┘  └─────────────────┘       │
-│                              │          │              │                │
-│                              └──────────┴──────────────┘                │
-│                                   events_relays                         │
-└─────────────────────────────────────────────────────────────────────────┘
-                                        ^
-                                        │
-                              ┌─────────────────┐
-                              │  Synchronizer   │
-                              │ Collect events  │
-                              └─────────────────┘
+```text
+┌──────────┐    ┌──────────┐    ┌───────────┐    ┌──────────┐    ┌──────────────┐
+│  Seeder  │───>│  Finder  │───>│ Validator │───>│ Monitor  │    │ Synchronizer │
+│(one-shot)│    │(discover)│    │  (test)   │    │ (health) │    │  (archive)   │
+└──────────┘    └──────────┘    └───────────┘    └──────────┘    └──────────────┘
+     │               │               │                │                │
+     v               v               v                v                v
+┌────────────────────────────────────────────────────────────────────────────────┐
+│                              PostgreSQL                                       │
+│  service_state ──> relay ──> event_relay <── event                            │
+│  (candidates)                relay_metadata <── metadata                      │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Metadata Deduplication Flow
+1. **Seeder** loads seed URLs -> inserts as candidates in `service_state`
+2. **Finder** discovers URLs from events (kind 3, 10002) and APIs -> inserts as candidates
+3. **Validator** tests candidates via WebSocket -> promotes valid ones to `relay` table
+4. **Monitor** health-checks relays (NIP-11 + NIP-66) -> inserts `metadata` + `relay_metadata`, publishes kind 10166/30166
+5. **Synchronizer** connects to relays, subscribes to events -> inserts `event` + `event_relay`
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                       Monitor Service                         │
-│                                                               │
-│   ┌─────────────┐     ┌─────────────┐     ┌──────────────┐   │
-│   │ Fetch NIP-11│────>│Compute Hash │────>│Check if exists│  │
-│   └─────────────┘     └─────────────┘     └──────────────┘   │
-│                                                  │            │
-│                                    ┌─────────────┴──────────┐│
-│                                    │                        ││
-│                                    v                        v│
-│                           ┌──────────────┐         ┌────────┐│
-│                           │Insert new rec│         │Reuse ID││
-│                           └──────────────┘         └────────┘│
-│                                    │                        ││
-│                                    └─────────────┬──────────┘│
-│                                                  │            │
-│                                                  v            │
-│                                    ┌─────────────────────────┐│
-│                                    │ Insert relay_metadata   ││
-│                                    │ (links relay to metadata││
-│                                    │  by metadata_type and   ││
-│                                    │  hash ID)               ││
-│                                    └─────────────────────────┘│
-└──────────────────────────────────────────────────────────────┘
+### Metadata Deduplication
 
-**Metadata Types**: `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`
+Metadata is content-addressed: SHA-256 hash over canonical JSON. When the Monitor produces identical metadata for a relay, only a new `relay_metadata` row is inserted (linking the relay to the existing `metadata` record). The cascade function handles this:
+
+```text
+Monitor._check_one(relay) -> CheckResult (7 metadata types)
+    |
+    v
+insert_relay_metadata(records, cascade=True)
+    |
+    v
+relay_metadata_insert_cascade(arrays...):
+    1. INSERT INTO relay ON CONFLICT DO NOTHING
+    2. INSERT INTO metadata ON CONFLICT DO NOTHING  (dedup by hash)
+    3. INSERT INTO relay_metadata                    (time-series link)
 ```
 
 ---
@@ -781,91 +753,246 @@ async with brotr:           # Connect on enter, close on exit
 
 ### Async I/O
 
-All I/O operations are async using:
-- `asyncpg` for database operations
-- `aiohttp` for HTTP requests
+All I/O is async:
+
+- `asyncpg` for database
+- `aiohttp` for HTTP
 - `aiohttp-socks` for SOCKS5 proxy
+- `nostr-sdk` for WebSocket (via Rust FFI/PyO3)
 
 ### Connection Pooling
 
-```
-Application                PGBouncer              PostgreSQL
-    │                          │                      │
-    ├── asyncpg pool ─────────>├── connection pool ──>│
-    │   (20 connections)       │   (25 pool size)     │ (100 max_connections)
-    │                          │                      │
-    ├── Service 1 ────────────>│                      │
-    ├── Service 2 ────────────>│                      │
-    ├── Service 3 ────────────>│                      │
-    └── Service 4 ────────────>│                      │
+```text
+Application                 PGBouncer                PostgreSQL
+    │                           │                        │
+    ├── asyncpg pool ──────────>├── connection pool ────>│
+    │   (configurable)          │   (transaction mode)   │ (max_connections)
+    │                           │                        │
+    ├── finder ────────────────>│                        │
+    ├── validator ─────────────>│                        │
+    ├── monitor ───────────────>│                        │
+    └── synchronizer ──────────>│                        │
 ```
 
-### Multicore Processing (Synchronizer)
+### Per-Network Semaphores
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Main Process                              │
-│                                                                  │
-│   ┌────────────────────────────────────────────────────────┐    │
-│   │                   aiomultiprocess Pool                  │    │
-│   │                                                         │    │
-│   │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐       │    │
-│   │  │  Worker 1   │ │  Worker 2   │ │  Worker N   │       │    │
-│   │  │             │ │             │ │             │       │    │
-│   │  │ relay batch │ │ relay batch │ │ relay batch │       │    │
-│   │  │     │       │ │     │       │ │     │       │       │    │
-│   │  │     v       │ │     v       │ │     v       │       │    │
-│   │  │  events     │ │  events     │ │  events     │       │    │
-│   │  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘       │    │
-│   │         │               │               │               │    │
-│   └─────────┴───────────────┴───────────────┴───────────────┘    │
-│                             │                                     │
-│                             v                                     │
-│                    ┌────────────────┐                            │
-│                    │ Aggregate and  │                            │
-│                    │ insert to DB   │                            │
-│                    └────────────────┘                            │
-└─────────────────────────────────────────────────────────────────┘
-```
+Services that contact relays (Validator, Monitor, Synchronizer) use `NetworkSemaphoreMixin` to limit concurrent connections per network type:
+
+| Network | Default Max Tasks | Default Timeout |
+|---------|-------------------|-----------------|
+| Clearnet | 50 | 10s |
+| Tor | 10 | 30s |
+| I2P | 5 | 45s |
+| Lokinet | 5 | 30s |
 
 ### Graceful Shutdown
 
 ```python
-# Signal handler (sync context)
+# Signal handler (sync context, safe to call from signal)
 def handle_signal(signum, frame):
-    service.request_shutdown()  # Sets flag, doesn't await
+    service.request_shutdown()  # Sets asyncio.Event, no await
 
-# Service main loop
-async def run_forever(self, interval: float) -> None:
-    while not self._shutdown_requested:
-        await self.run()
-        if await self.wait(interval):  # Returns early if shutdown
-            break
-    # Cleanup happens in context manager __aexit__
+# run_forever loop
+while not self._shutdown_requested:
+    await self.run()            # Single cycle
+    if await self.wait(interval):  # Interruptible sleep
+        break                      # Shutdown requested during wait
+
+# Cleanup via async context manager __aexit__
 ```
 
 ---
 
-## Summary
+## Deployment Architecture
 
-BigBrotr's architecture provides:
+### Container Stack
 
-1. **Modularity** - Diamond DAG architecture with clear dependency flow enables independent development and testing
-2. **Flexibility** - Configuration-driven behavior without code changes
-3. **Testability** - Dependency injection enables comprehensive unit testing
-4. **Scalability** - Multicore processing and connection pooling for high throughput
-5. **Reliability** - Graceful shutdown, failure tracking, and retry logic
-6. **Maintainability** - Clear patterns and consistent structure throughout
+All deployments use a single parametric Dockerfile (`deployments/Dockerfile` with `ARG DEPLOYMENT`).
+
+| Container | Image | Networks | Purpose |
+|-----------|-------|----------|---------|
+| postgres | postgres:16-alpine | data | Primary storage |
+| pgbouncer | edoburu/pgbouncer | data | Transaction-mode connection pooling |
+| tor | osminogin/tor-simple | data | SOCKS5 proxy for .onion relays |
+| finder | bigbrotr (parametric) | data, monitoring | Relay discovery |
+| validator | bigbrotr (parametric) | data, monitoring | Candidate validation |
+| monitor | bigbrotr (parametric) | data, monitoring | Health monitoring |
+| synchronizer | bigbrotr (parametric) | data, monitoring | Event archiving |
+| prometheus | prom/prometheus | monitoring | Metrics collection |
+| grafana | grafana/grafana | monitoring | Dashboards |
+
+### Network Segmentation
+
+- **data-network**: postgres, pgbouncer, tor, all Python services
+- **monitoring-network**: prometheus, grafana, all Python services (for `/metrics` scraping)
+
+Postgres is only on the data network. Grafana is only on the monitoring network.
+
+### Container Security
+
+- All ports bound to `127.0.0.1` (no external exposure)
+- Non-root container execution (UID 1000)
+- `tini` as PID 1 for proper signal handling and zombie reaping
+- SCRAM-SHA-256 authentication for PostgreSQL and PGBouncer
+- Real healthchecks via `curl -sf http://localhost:8000/metrics` (not fake PID checks)
+- Resource limits on all containers (`deploy.resources.limits`)
+
+### Deployments
+
+| Deployment | Schema | Networks | Use Case |
+|------------|--------|----------|----------|
+| **bigbrotr** | Full (tags, content, 7 mat views) | Clearnet + Tor | Production archiving |
+| **lilbrotr** | Minimal (no tags/content, 5 mat views) | Clearnet only | Lightweight indexing, ~60% disk savings |
+| **_template** | Customizable | Configurable | Starting point for custom deployments |
 
 ---
 
-## Related Documentation
+## Design Patterns
 
-| Document | Description |
-|----------|-------------|
-| [CONFIGURATION.md](CONFIGURATION.md) | Complete configuration reference |
-| [DATABASE.md](DATABASE.md) | Database schema documentation |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Development setup and guidelines |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Deployment instructions |
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | Contribution guidelines |
-| [CHANGELOG.md](../CHANGELOG.md) | Version history |
+### Dependency Injection
+
+Services receive `Brotr` via constructor, enabling mock injection for testing:
+
+```python
+service = Monitor(brotr=brotr, config=config)
+
+# Testing
+mock_brotr = MagicMock(spec=Brotr)
+service = Monitor(brotr=mock_brotr)
+```
+
+### Composition over Inheritance
+
+`Brotr` HAS-A `Pool` (not IS-A). Services HAS-A `Brotr`. This enables independent testing and lifecycle management.
+
+### Template Method
+
+`BaseService.run_forever()` calls the abstract `run()` method in a loop with interval, failure tracking, and shutdown checks. Subclasses implement only `run()`.
+
+### Mixins for Cross-Cutting Concerns
+
+Monitor uses multiple mixins to compose behavior:
+
+- `MonitorTagsMixin` -- tag building (from `monitor_tags.py`)
+- `MonitorPublisherMixin` -- Nostr broadcasting (from `monitor_publisher.py`)
+- `BatchProgressMixin` -- batch tracking (from `services/common/mixins.py`)
+- `NetworkSemaphoreMixin` -- per-network concurrency (from `services/common/mixins.py`)
+
+### Content-Addressed Deduplication
+
+Metadata uses SHA-256 hash as primary key. Identical NIP-11/NIP-66 results across time or relays produce the same hash, deduplicating storage. Time-series tracking is via the `relay_metadata` junction table.
+
+### Factory Methods
+
+All services support three construction paths:
+
+```python
+service = Monitor.from_yaml("config.yaml", brotr=brotr)     # from YAML file
+service = Monitor.from_dict(config_dict, brotr=brotr)        # from dict
+service = Monitor(brotr=brotr, config=MonitorConfig(...))     # direct
+```
+
+### Context Managers
+
+Resources are automatically managed:
+
+```python
+async with brotr:           # connect pool on enter, close on exit
+    async with service:     # lifecycle setup/teardown
+        await service.run_forever()
+```
+
+---
+
+## Configuration System
+
+### Configuration Hierarchy
+
+```text
+deployments/bigbrotr/config/
+├── brotr.yaml                  # Pool, batch size, timeouts
+└── services/
+    ├── seeder.yaml             # file_path, to_validate
+    ├── finder.yaml             # API sources, event scan, interval
+    ├── validator.yaml          # Networks, chunk_size, max_failures, interval
+    ├── monitor.yaml            # Networks, GeoIP, publishing, checks, interval
+    └── synchronizer.yaml       # Networks, filter, concurrency, overrides, interval
+```
+
+### Pydantic Validation
+
+All configuration uses Pydantic v2 models with:
+
+- Typed fields with defaults and constraints (`Field(ge=1, le=65535)`)
+- Nested models (e.g., `MonitorConfig.networks.clearnet.timeout`)
+- `model_validator` for cross-field validation (e.g., Monitor keys at config load time)
+- Environment variable injection for secrets (`DB_PASSWORD`, `PRIVATE_KEY`)
+
+### Environment Variables
+
+| Variable | Required | Used By |
+|----------|----------|---------|
+| `DB_PASSWORD` | Yes | Pool (database password) |
+| `PRIVATE_KEY` | For Monitor | Monitor (Nostr event signing, RTT write tests) |
+| `GRAFANA_PASSWORD` | No | Grafana (admin password) |
+
+---
+
+## Monitoring Stack
+
+### Prometheus
+
+Scrape configuration in `deployments/*/monitoring/prometheus/prometheus.yaml`:
+
+- 4 service targets (finder, validator, monitor, synchronizer) on port 8000
+- 1 self-monitoring target (localhost:9090)
+- 15s global scrape interval, 30s per service
+
+### Alerting Rules
+
+4 rules in `deployments/*/monitoring/prometheus/rules/alerts.yml`:
+
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| ServiceDown | `up == 0` for 5m | critical |
+| HighFailureRate | error rate > 0.1/s for 5m | warning |
+| PoolExhausted | zero available connections for 2m | critical |
+| DatabaseSlow | p99 query latency > 5s for 5m | warning |
+
+### Grafana
+
+Auto-provisioned dashboards and datasources. Per-service panels: last cycle time, cycle duration histogram, error counts (24h), consecutive failures.
+
+---
+
+## Testing Architecture
+
+### Test Structure
+
+```text
+tests/
+├── conftest.py                  # Root: mock_pool, mock_brotr, mock_connection, sample_*
+├── fixtures/
+│   └── relays.py                # Shared relay fixtures (registered as pytest plugin)
+├── unit/                        # 2049 tests, mirrors src/ structure
+│   ├── core/                    # test_pool.py, test_brotr.py, test_base_service.py, ...
+│   ├── models/                  # test_relay.py, test_event.py, test_metadata.py, ...
+│   ├── nips/                    # nip11/, nip66/
+│   ├── services/                # test_monitor.py, test_synchronizer.py, ...
+│   └── utils/                   # test_transport.py, test_keys.py, ...
+└── integration/                 # 8 tests (testcontainers PostgreSQL)
+```
+
+### Test Configuration
+
+- `asyncio_mode = "auto"` -- no `@pytest.mark.asyncio` needed
+- Global timeout: `--timeout=120` per test
+- Coverage threshold: `fail_under = 80` (branch coverage enabled)
+- Fixtures registered via `pytest_plugins = ["tests.fixtures.relays"]`
+- Custom markers: `integration`, `unit`, `slow`
+
+### Mock Patterns
+
+- Mock targets use `bigbrotr.` prefix: `@patch("bigbrotr.services.validator.is_nostr_relay")`
+- Service tests mock query functions at the **service module namespace** (not `bigbrotr.core.queries.*`)
+- Root conftest provides: `mock_pool`, `mock_brotr`, `mock_connection`, `mock_asyncpg_pool`, `sample_event`, `sample_relay`, `sample_metadata`, `sample_events_batch`, `sample_relays_batch`

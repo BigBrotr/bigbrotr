@@ -148,7 +148,7 @@ class Nip66HttpMetadata(BaseMetadata):
             else:
                 logs["reason"] = "no HTTP headers captured"
                 logger.debug("http_no_data relay=%s", relay.url)
-        except Exception as e:
+        except (OSError, TimeoutError, aiohttp.ClientError) as e:
             logs["reason"] = str(e)
             logger.debug("http_error relay=%s error=%s", relay.url, str(e))
 

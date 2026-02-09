@@ -38,7 +38,7 @@ services:
       - "127.0.0.1:5432:5432"
 
     networks:
-      - bigbrotr-network
+      - bigbrotr-data-network
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d bigbrotr"]
@@ -46,6 +46,12 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
 
     logging:
       driver: "json-file"
@@ -73,13 +79,13 @@ services:
       MAX_CLIENT_CONN: 1000
       DEFAULT_POOL_SIZE: 20
       AUTH_TYPE: scram-sha-256
-      IGNORE_STARTUP_PARAMETERS: extra_float_digits,statement_timeout
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits
 
     ports:
       - "127.0.0.1:6432:5432"
 
     networks:
-      - bigbrotr-network
+      - bigbrotr-data-network
 
     depends_on:
       postgres:
@@ -90,6 +96,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
     logging:
       driver: "json-file"
@@ -109,7 +121,7 @@ services:
       - "127.0.0.1:9050:9050"
 
     networks:
-      - bigbrotr-network
+      - bigbrotr-data-network
 
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 || exit 1"]
@@ -117,6 +129,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
     logging:
       driver: "json-file"
@@ -144,7 +162,7 @@ services:
   #     - i2p-data:/i2p/.i2p
   #
   #   networks:
-  #     - bigbrotr-network
+  #     - bigbrotr-data-network
   #
   #   healthcheck:
   #     test: ["CMD-SHELL", "nc -z 127.0.0.1 4447 || exit 1"]
@@ -179,7 +197,7 @@ services:
   #     - lokinet-data:/var/lib/lokinet
   #
   #   networks:
-  #     - bigbrotr-network
+  #     - bigbrotr-data-network
   #
   #   healthcheck:
   #     test: ["CMD-SHELL", "nc -z 127.0.0.1 1080 || exit 1"]
@@ -200,7 +218,9 @@ services:
   seeder:
     build:
       context: ../../
-      dockerfile: deployments/bigbrotr/Dockerfile
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: bigbrotr
     container_name: bigbrotr-seeder
     restart: "no"
 
@@ -212,13 +232,23 @@ services:
       - ./static:/app/static:ro
 
     networks:
-      - bigbrotr-network
+      - bigbrotr-data-network
+      - bigbrotr-monitoring-network
 
     depends_on:
       pgbouncer:
         condition: service_healthy
 
     command: ["python", "-m", "bigbrotr", "seeder", "--once"]
+
+    healthcheck:
+      disable: true
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
     logging:
       driver: "json-file"
@@ -232,7 +262,9 @@ services:
   finder:
     build:
       context: ../../
-      dockerfile: deployments/bigbrotr/Dockerfile
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: bigbrotr
     container_name: bigbrotr-finder
     restart: unless-stopped
 
@@ -246,7 +278,8 @@ services:
       - "127.0.0.1:${FINDER_METRICS_PORT:-8001}:8000"  # Prometheus metrics
 
     networks:
-      - bigbrotr-network
+      - bigbrotr-data-network
+      - bigbrotr-monitoring-network
 
     depends_on:
       pgbouncer:
@@ -254,12 +287,20 @@ services:
 
     command: ["python", "-m", "bigbrotr", "finder"]
 
+    stop_grace_period: 60s
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -273,7 +314,9 @@ services:
   validator:
     build:
       context: ../../
-      dockerfile: deployments/bigbrotr/Dockerfile
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: bigbrotr
     container_name: bigbrotr-validator
     restart: unless-stopped
 
@@ -288,7 +331,8 @@ services:
       - "127.0.0.1:${VALIDATOR_METRICS_PORT:-8002}:8000"  # Prometheus metrics
 
     networks:
-      - bigbrotr-network
+      - bigbrotr-data-network
+      - bigbrotr-monitoring-network
 
     depends_on:
       pgbouncer:
@@ -302,12 +346,20 @@ services:
 
     command: ["python", "-m", "bigbrotr", "validator"]
 
+    stop_grace_period: 60s
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -321,7 +373,9 @@ services:
   monitor:
     build:
       context: ../../
-      dockerfile: deployments/bigbrotr/Dockerfile
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: bigbrotr
     container_name: bigbrotr-monitor
     restart: unless-stopped
 
@@ -337,7 +391,8 @@ services:
       - "127.0.0.1:${MONITOR_METRICS_PORT:-8003}:8000"  # Prometheus metrics
 
     networks:
-      - bigbrotr-network
+      - bigbrotr-data-network
+      - bigbrotr-monitoring-network
 
     depends_on:
       pgbouncer:
@@ -351,12 +406,20 @@ services:
 
     command: ["python", "-m", "bigbrotr", "monitor"]
 
+    stop_grace_period: 60s
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -370,7 +433,9 @@ services:
   synchronizer:
     build:
       context: ../../
-      dockerfile: deployments/bigbrotr/Dockerfile
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: bigbrotr
     container_name: bigbrotr-synchronizer
     restart: unless-stopped
 
@@ -385,7 +450,8 @@ services:
       - "127.0.0.1:${SYNCHRONIZER_METRICS_PORT:-8004}:8000"  # Prometheus metrics
 
     networks:
-      - bigbrotr-network
+      - bigbrotr-data-network
+      - bigbrotr-monitoring-network
 
     depends_on:
       pgbouncer:
@@ -399,12 +465,20 @@ services:
 
     command: ["python", "-m", "bigbrotr", "synchronizer"]
 
+    stop_grace_period: 60s
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/proc/1/cmdline') else 1)"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -422,13 +496,14 @@ services:
 
     volumes:
       - ./monitoring/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
 
     ports:
       - "127.0.0.1:9090:9090"
 
     networks:
-      - bigbrotr-network
+      - bigbrotr-monitoring-network
 
     command:
       - "--config.file=/etc/prometheus/prometheus.yaml"
@@ -441,6 +516,12 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -469,7 +550,7 @@ services:
       - "127.0.0.1:3000:3000"
 
     networks:
-      - bigbrotr-network
+      - bigbrotr-monitoring-network
 
     depends_on:
       - prometheus
@@ -479,6 +560,12 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
     logging:
       driver: "json-file"
@@ -504,9 +591,12 @@ volumes:
 # Networks
 # ----------------------------------------------------------------------------
 networks:
-  bigbrotr-network:
+  bigbrotr-data-network:
     driver: bridge
-    name: bigbrotr-network
+    name: bigbrotr-data-network
+  bigbrotr-monitoring-network:
+    driver: bridge
+    name: bigbrotr-monitoring-network
 
 # ============================================================================
 # USAGE

@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 
     from bigbrotr.models import Event, EventRelay, Metadata, Relay, RelayMetadata
-    from bigbrotr.services.common.constants import ServiceState, ServiceStateKey
+    from bigbrotr.models.service_state import ServiceState, ServiceStateKey
 
 
 # ---------------------------------------------------------------------------
@@ -510,7 +510,7 @@ class Brotr:
 
         params = [metadata.to_db_params() for metadata in records]
         ids = [p.id for p in params]
-        values = [p.value for p in params]
+        values = [p.payload for p in params]
 
         async with self._pool.transaction() as conn:
             inserted: int = (

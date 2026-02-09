@@ -12,7 +12,8 @@ import asyncio
 import logging
 from typing import Any, Self
 
-import geoip2.database  # noqa: TC002
+import geoip2.database
+import geoip2.errors
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
@@ -72,7 +73,7 @@ class Nip66NetMetadata(BaseMetadata):
                     result["net_asn_org"] = asn_response.autonomous_system_organization
                 if asn_response.network:
                     result["net_network"] = str(asn_response.network)
-            except Exception as e:
+            except (geoip2.errors.GeoIP2Error, ValueError) as e:
                 logger.debug("net_asn_ipv4_lookup_error ip=%s error=%s", ipv4, str(e))
 
         if ipv6:
@@ -87,7 +88,7 @@ class Nip66NetMetadata(BaseMetadata):
                         result["net_asn"] = asn_response.autonomous_system_number
                     if asn_response.autonomous_system_organization:
                         result["net_asn_org"] = asn_response.autonomous_system_organization
-            except Exception as e:
+            except (geoip2.errors.GeoIP2Error, ValueError) as e:
                 logger.debug("net_asn_ipv6_lookup_error ip=%s error=%s", ipv6, str(e))
 
         return result

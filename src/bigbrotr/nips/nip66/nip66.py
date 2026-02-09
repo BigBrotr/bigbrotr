@@ -222,7 +222,7 @@ class Nip66(BaseModel):
                     rtt_deps,
                     timeout,
                     proxy_url,
-                    options.allow_insecure,
+                    allow_insecure=options.allow_insecure,
                 )
             )
             task_names.append("rtt")

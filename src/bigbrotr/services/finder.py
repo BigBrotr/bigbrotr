@@ -32,6 +32,7 @@ import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiohttp
+import asyncpg
 from nostr_sdk import RelayUrl
 from pydantic import BaseModel, Field
 
@@ -183,7 +184,7 @@ class Finder(BaseService[FinderConfig]):
         # Fetch all relays from database
         try:
             relay_urls = await get_all_relay_urls(self._brotr)
-        except Exception as e:
+        except (asyncpg.PostgresError, OSError) as e:
             self._logger.warning("fetch_relays_failed", error=str(e), error_type=type(e).__name__)
             return
 
@@ -196,7 +197,7 @@ class Finder(BaseService[FinderConfig]):
         # Fetch all cursors in a single query to avoid N+1 per-relay lookups
         try:
             cursors = await self._fetch_all_cursors()
-        except Exception as e:
+        except (asyncpg.PostgresError, OSError) as e:
             self._logger.warning("fetch_cursors_failed", error=str(e), error_type=type(e).__name__)
             return
 
@@ -248,7 +249,7 @@ class Finder(BaseService[FinderConfig]):
                     self._config.events.kinds,
                     self._config.events.batch_size,
                 )
-            except Exception as e:
+            except (asyncpg.PostgresError, OSError) as e:
                 self._logger.warning(
                     "relay_event_query_failed",
                     error=str(e),
@@ -343,7 +344,7 @@ class Finder(BaseService[FinderConfig]):
         if relays:
             try:
                 found = await upsert_candidates(self._brotr, relays.values())
-            except Exception as e:
+            except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
                     "insert_candidates_failed",
                     error=str(e),
@@ -385,7 +386,7 @@ class Finder(BaseService[FinderConfig]):
 
         try:
             return Relay(url)
-        except Exception:
+        except (ValueError, TypeError):
             return None
 
     async def _find_from_api(self) -> None:
@@ -428,7 +429,7 @@ class Finder(BaseService[FinderConfig]):
                     if self._config.api.delay_between_requests > 0 and i < len(enabled_sources) - 1:
                         await asyncio.sleep(self._config.api.delay_between_requests)
 
-                except Exception as e:
+                except (TimeoutError, OSError, aiohttp.ClientError) as e:
                     self._logger.warning(
                         "api_fetch_failed",
                         error=str(e),
@@ -440,7 +441,7 @@ class Finder(BaseService[FinderConfig]):
         if relays:
             try:
                 self._found_relays += await upsert_candidates(self._brotr, relays.values())
-            except Exception as e:
+            except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
                     "insert_candidates_failed",
                     error=str(e),
@@ -482,7 +483,7 @@ class Finder(BaseService[FinderConfig]):
                         try:
                             relay_url = RelayUrl.parse(item)
                             relays.append(relay_url)
-                        except Exception:
+                        except Exception:  # nostr_sdk raises NostrSdkError (not a stdlib type)
                             self._logger.debug("invalid_relay_url", url=item)
                     else:
                         self._logger.debug("unexpected_item_type", url=source.url, item=item)

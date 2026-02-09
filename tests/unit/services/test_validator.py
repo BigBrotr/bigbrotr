@@ -341,7 +341,7 @@ class TestChunkProcessing:
 
             if mock_fetch._call_count == 1:
                 return [make_candidate_row(f"wss://relay{i}.com") for i in range(min(limit, 100))]
-            elif mock_fetch._call_count == 2:
+            if mock_fetch._call_count == 2:
                 return [
                     make_candidate_row(f"wss://relay{i + 100}.com") for i in range(min(limit, 100))
                 ]
@@ -523,7 +523,7 @@ class TestErrorHandling:
         mock_validator_brotr._pool.fetch = AsyncMock(
             side_effect=[[make_candidate_row("wss://relay.com")], []]
         )
-        mock_validator_brotr.upsert_service_state = AsyncMock(side_effect=Exception("DB error"))
+        mock_validator_brotr.upsert_service_state = AsyncMock(side_effect=OSError("DB error"))
 
         validator = Validator(brotr=mock_validator_brotr)
 

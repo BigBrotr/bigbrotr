@@ -93,7 +93,7 @@ class TestRelayMetadataDbParams:
             relay_network="clearnet",
             relay_discovered_at=1234567890,
             metadata_id=b"\x00" * 32,
-            metadata_value='{"key": "value"}',
+            metadata_payload='{"key": "value"}',
             metadata_type="nip11_info",
             generated_at=1234567891,
         )
@@ -108,7 +108,7 @@ class TestRelayMetadataDbParams:
             relay_network="tor",
             relay_discovered_at=1000000000,
             metadata_id=test_hash,
-            metadata_value='{"name": "test"}',
+            metadata_payload='{"name": "test"}',
             metadata_type="nip66_rtt",
             generated_at=2000000000,
         )
@@ -116,7 +116,7 @@ class TestRelayMetadataDbParams:
         assert params.relay_network == "tor"
         assert params.relay_discovered_at == 1000000000
         assert params.metadata_id == test_hash
-        assert params.metadata_value == '{"name": "test"}'
+        assert params.metadata_payload == '{"name": "test"}'
         assert params.metadata_type == "nip66_rtt"
         assert params.generated_at == 2000000000
 
@@ -128,7 +128,7 @@ class TestRelayMetadataDbParams:
             relay_network="tor",
             relay_discovered_at=1111111111,
             metadata_id=test_hash,
-            metadata_value="{}",
+            metadata_payload="{}",
             metadata_type="nip66_ssl",
             generated_at=2222222222,
         )
@@ -147,7 +147,7 @@ class TestRelayMetadataDbParams:
             relay_network="clearnet",
             relay_discovered_at=1234567890,
             metadata_id=b"\x00" * 32,
-            metadata_value="{}",
+            metadata_payload="{}",
             metadata_type="nip11_info",
             generated_at=1234567891,
         )
@@ -266,7 +266,7 @@ class TestToDbParams:
         assert result.relay_url == "wss://relay.example.com:8080/nostr"
         assert result.relay_network == "clearnet"
         assert result.relay_discovered_at == 1234567890
-        parsed = json.loads(result.metadata_value)
+        parsed = json.loads(result.metadata_payload)
         assert parsed == {"name": "Test", "value": 42}
         assert result.metadata_type == "nip66_rtt"
         assert result.generated_at == 9999999999
@@ -308,7 +308,7 @@ class TestFromDbParams:
             relay_network="clearnet",
             relay_discovered_at=1234567890,
             metadata_id=hash_bytes,
-            metadata_value='{"name": "Test"}',
+            metadata_payload='{"name": "Test"}',
             metadata_type=MetadataType.NIP11_INFO,
             generated_at=9999999999,
         )
@@ -330,7 +330,7 @@ class TestFromDbParams:
             relay_network="tor",
             relay_discovered_at=1234567890,
             metadata_id=hash_bytes,
-            metadata_value="{}",
+            metadata_payload="{}",
             metadata_type=MetadataType.NIP66_RTT,
             generated_at=1234567891,
         )
@@ -419,7 +419,7 @@ class TestEdgeCases:
         empty_metadata = Metadata(type=MetadataType.NIP11_INFO, value={})
         rm = RelayMetadata(relay=relay, metadata=empty_metadata, generated_at=1234567890)
         result = rm.to_db_params()
-        assert result.metadata_value == "{}"
+        assert result.metadata_payload == "{}"
 
     def test_with_complex_metadata(self, relay):
         """Works with complex nested metadata."""
@@ -433,7 +433,7 @@ class TestEdgeCases:
         )
         rm = RelayMetadata(relay=relay, metadata=complex_metadata, generated_at=1234567890)
         result = rm.to_db_params()
-        parsed = json.loads(result.metadata_value)
+        parsed = json.loads(result.metadata_payload)
         assert parsed["nested"]["deep"]["value"] == [1, 2, 3]
 
     def test_generated_at_zero(self, relay):

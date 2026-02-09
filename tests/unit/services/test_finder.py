@@ -761,7 +761,7 @@ class TestFinderFindFromEvents:
     @pytest.mark.asyncio
     async def test_exception_handling_during_database_query(self, mock_brotr: Brotr) -> None:
         """Exception handling during database query."""
-        mock_brotr._pool.fetch = AsyncMock(side_effect=Exception("Database connection error"))  # type: ignore[method-assign]
+        mock_brotr._pool.fetch = AsyncMock(side_effect=OSError("Database connection error"))  # type: ignore[method-assign]
 
         finder = Finder(brotr=mock_brotr)
         await finder._find_from_events()

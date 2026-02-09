@@ -56,7 +56,7 @@ class Nip11InfoMetadata(BaseMetadata):
         headers: dict[str, str],
         timeout: float,  # noqa: ASYNC109
         max_size: int,
-        ssl_context: ssl.SSLContext | bool,
+        ssl_context: ssl.SSLContext | bool,  # noqa: FBT001
         proxy_url: str | None = None,
     ) -> dict[str, Any]:
         """Execute a single HTTP GET request and return the parsed JSON body.
@@ -117,6 +117,7 @@ class Nip11InfoMetadata(BaseMetadata):
         timeout: float | None = None,  # noqa: ASYNC109
         max_size: int | None = None,
         proxy_url: str | None = None,
+        *,
         allow_insecure: bool = True,
     ) -> Self:
         """Fetch the NIP-11 information document from a relay.
@@ -171,12 +172,26 @@ class Nip11InfoMetadata(BaseMetadata):
                 data = await cls._fetch(http_url, headers, timeout, max_size, ctx, proxy_url)
 
             elif protocol == "http":
-                data = await cls._fetch(http_url, headers, timeout, max_size, False, proxy_url)
+                data = await cls._fetch(
+                    http_url,
+                    headers,
+                    timeout,
+                    max_size,
+                    ssl_context=False,
+                    proxy_url=proxy_url,
+                )
 
             else:
                 # HTTPS: try verified first, optionally fall back to insecure
                 try:
-                    data = await cls._fetch(http_url, headers, timeout, max_size, True, proxy_url)
+                    data = await cls._fetch(
+                        http_url,
+                        headers,
+                        timeout,
+                        max_size,
+                        ssl_context=True,
+                        proxy_url=proxy_url,
+                    )
                 except aiohttp.ClientConnectorCertificateError:
                     if not allow_insecure:
                         raise
@@ -190,7 +205,7 @@ class Nip11InfoMetadata(BaseMetadata):
 
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
-        except Exception as e:
+        except (OSError, TimeoutError, aiohttp.ClientError, ValueError) as e:
             logs["success"] = False
             logs["reason"] = str(e)
 

@@ -45,6 +45,7 @@ CREATE OR REPLACE FUNCTION relays_insert(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     row_count INTEGER;
@@ -98,6 +99,7 @@ CREATE OR REPLACE FUNCTION events_insert(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     row_count INTEGER;
@@ -144,6 +146,7 @@ CREATE OR REPLACE FUNCTION metadata_insert(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     row_count INTEGER;
@@ -177,6 +180,7 @@ CREATE OR REPLACE FUNCTION events_relays_insert(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     row_count INTEGER;
@@ -216,6 +220,7 @@ CREATE OR REPLACE FUNCTION relay_metadata_insert(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     row_count INTEGER;
@@ -267,6 +272,7 @@ CREATE OR REPLACE FUNCTION events_relays_insert_cascade(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     row_count INTEGER;
@@ -281,6 +287,7 @@ BEGIN
     INSERT INTO events_relays (event_id, relay_url, seen_at)
     SELECT DISTINCT ON (event_id, relay_url) event_id, relay_url, seen_at
     FROM unnest(p_event_ids, p_relay_urls, p_seen_ats) AS t(event_id, relay_url, seen_at)
+    ORDER BY event_id, relay_url, seen_at ASC
     ON CONFLICT (event_id, relay_url) DO NOTHING;
 
     GET DIAGNOSTICS row_count = ROW_COUNT;
@@ -316,6 +323,7 @@ CREATE OR REPLACE FUNCTION relay_metadata_insert_cascade(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     row_count INTEGER;
@@ -364,6 +372,7 @@ CREATE OR REPLACE FUNCTION service_data_upsert(
 )
 RETURNS VOID
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 BEGIN
     INSERT INTO service_data (service_name, data_type, data_key, data, updated_at)
@@ -376,6 +385,7 @@ BEGIN
         p_datas,
         p_updated_ats
     ) AS t(service_name, data_type, data_key, data, updated_at)
+    ORDER BY service_name, data_type, data_key, updated_at DESC
     ON CONFLICT (service_name, data_type, data_key)
     DO UPDATE SET
         data = EXCLUDED.data,
@@ -405,6 +415,7 @@ RETURNS TABLE (
     updated_at BIGINT
 )
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 BEGIN
     IF p_data_key IS NOT NULL THEN
@@ -443,6 +454,7 @@ CREATE OR REPLACE FUNCTION service_data_delete(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     row_count INTEGER;

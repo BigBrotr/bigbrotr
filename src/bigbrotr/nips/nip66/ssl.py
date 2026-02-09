@@ -78,7 +78,7 @@ class CertificateExtractor:
         for san_type, san_value in cert.get("subjectAltName", ()):
             if san_type == "DNS" and isinstance(san_value, str):
                 san_list.append(san_value)
-        return san_list if san_list else None
+        return san_list or None
 
     @staticmethod
     def extract_serial_and_version(cert: dict[str, Any]) -> dict[str, Any]:
@@ -194,7 +194,7 @@ class Nip66SslMetadata(BaseMetadata):
 
         except ssl.SSLError as e:
             logger.debug("ssl_cert_extraction_failed error=%s", str(e))
-        except Exception as e:
+        except OSError as e:
             logger.debug("ssl_cert_extraction_error error=%s", str(e))
 
         return result
@@ -231,7 +231,7 @@ class Nip66SslMetadata(BaseMetadata):
                 return True
         except ssl.SSLError:
             return False
-        except Exception as e:
+        except OSError as e:
             logger.debug("ssl_validation_error error=%s", str(e))
             return False
 
@@ -275,7 +275,7 @@ class Nip66SslMetadata(BaseMetadata):
             else:
                 logs["reason"] = "no certificate data extracted"
                 logger.debug("ssl_no_data relay=%s", relay.url)
-        except Exception as e:
+        except OSError as e:
             logs["reason"] = str(e)
             logger.debug("ssl_error relay=%s error=%s", relay.url, str(e))
 

@@ -27,6 +27,7 @@
 CREATE OR REPLACE FUNCTION orphan_metadata_delete(p_batch_size BIGINT DEFAULT 10000)
 RETURNS BIGINT
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     v_deleted BIGINT := 0;
@@ -51,34 +52,45 @@ COMMENT ON FUNCTION orphan_metadata_delete(BIGINT) IS
 
 
 /*
- * orphan_events_delete() -> BIGINT
+ * orphan_events_delete(p_batch_size) -> BIGINT
  *
- * Removes events that have no associated relay in events_relays. This
- * enforces the invariant that every event must be associated with at least
- * one relay. Orphans can appear when a relay is deleted via CASCADE on
- * events_relays but the event itself remains.
+ * Removes events that have no associated relay in events_relays,
+ * processing in configurable batches to limit lock duration and WAL volume.
+ * This enforces the invariant that every event must be associated with at
+ * least one relay. Orphans can appear when a relay is deleted via CASCADE
+ * on events_relays but the event itself remains.
  *
- * Returns: Number of deleted rows
+ * Parameters:
+ *   p_batch_size  Maximum rows to delete per iteration (default 10,000)
+ *
+ * Returns: Total number of deleted rows across all batches
  * Schedule: Daily, or after relay deletions
  */
-CREATE OR REPLACE FUNCTION orphan_events_delete()
+CREATE OR REPLACE FUNCTION orphan_events_delete(p_batch_size BIGINT DEFAULT 10000)
 RETURNS BIGINT
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
-    v_deleted BIGINT;
+    v_deleted BIGINT := 0;
+    v_batch BIGINT;
 BEGIN
-    DELETE FROM events e
-    WHERE NOT EXISTS (
-        SELECT 1 FROM events_relays er WHERE er.event_id = e.id
-    );
-    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    LOOP
+        DELETE FROM events e WHERE e.id IN (
+            SELECT e2.id FROM events e2
+            WHERE NOT EXISTS (SELECT 1 FROM events_relays er WHERE er.event_id = e2.id)
+            LIMIT p_batch_size
+        );
+        GET DIAGNOSTICS v_batch = ROW_COUNT;
+        v_deleted := v_deleted + v_batch;
+        EXIT WHEN v_batch < p_batch_size;
+    END LOOP;
     RETURN v_deleted;
 END;
 $$;
 
-COMMENT ON FUNCTION orphan_events_delete() IS
-'Delete events without any relay association (maintains 1:N invariant)';
+COMMENT ON FUNCTION orphan_events_delete(BIGINT) IS
+'Delete events without any relay association in batches (maintains 1:N invariant)';
 
 
 /*
@@ -101,6 +113,7 @@ CREATE OR REPLACE FUNCTION relay_metadata_prune(
 )
 RETURNS BIGINT
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     v_cutoff BIGINT;
@@ -109,12 +122,14 @@ DECLARE
 BEGIN
     v_cutoff := EXTRACT(EPOCH FROM NOW())::BIGINT - p_max_age_seconds;
     LOOP
-        DELETE FROM relay_metadata
-        WHERE (relay_url, generated_at, metadata_type) IN (
-            SELECT relay_url, generated_at, metadata_type
-            FROM relay_metadata
-            WHERE generated_at < v_cutoff LIMIT p_batch_size
-        );
+        WITH expired AS (
+            SELECT ctid FROM relay_metadata
+            WHERE generated_at < v_cutoff
+            LIMIT p_batch_size
+        )
+        DELETE FROM relay_metadata rm
+        USING expired
+        WHERE rm.ctid = expired.ctid;
         GET DIAGNOSTICS v_batch = ROW_COUNT;
         v_deleted := v_deleted + v_batch;
         EXIT WHEN v_batch < p_batch_size;
