@@ -9,7 +9,7 @@
 ARG DEPLOYMENT=bigbrotr
 
 # Stage 1: Build wheels
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /build
 
@@ -27,7 +27,7 @@ COPY src/ ./src/
 RUN pip wheel --no-cache-dir --wheel-dir /build/wheels .
 
 # Stage 2: Production image
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Re-declare ARG after FROM to make it available in this stage
 ARG DEPLOYMENT=bigbrotr
