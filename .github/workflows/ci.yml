@@ -113,6 +113,10 @@ jobs:
   # --------------------------------------------------------------------------
   build:
     name: Build Docker Images
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
     runs-on: ubuntu-latest
     needs: [pre-commit, test]
     # Only run on main branch or when explicitly requested
@@ -149,21 +153,57 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Scan BigBrotr image for vulnerabilities
+      - name: Scan BigBrotr image (gate)
         uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: bigbrotr:${{ github.sha }}
           format: table
           exit-code: 1
+          ignore-unfixed: true
           severity: CRITICAL,HIGH
 
-      - name: Scan LilBrotr image for vulnerabilities
+      - name: Scan BigBrotr image (report)
+        uses: aquasecurity/trivy-action@0.33.1
+        if: always()
+        with:
+          image-ref: bigbrotr:${{ github.sha }}
+          format: sarif
+          output: trivy-bigbrotr.sarif
+          exit-code: 0
+          severity: CRITICAL,HIGH,MEDIUM
+
+      - name: Upload BigBrotr scan results
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: trivy-bigbrotr.sarif
+          category: trivy-bigbrotr
+
+      - name: Scan LilBrotr image (gate)
         uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: lilbrotr:${{ github.sha }}
           format: table
           exit-code: 1
+          ignore-unfixed: true
           severity: CRITICAL,HIGH
+
+      - name: Scan LilBrotr image (report)
+        uses: aquasecurity/trivy-action@0.33.1
+        if: always()
+        with:
+          image-ref: lilbrotr:${{ github.sha }}
+          format: sarif
+          output: trivy-lilbrotr.sarif
+          exit-code: 0
+          severity: CRITICAL,HIGH,MEDIUM
+
+      - name: Upload LilBrotr scan results
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: trivy-lilbrotr.sarif
+          category: trivy-lilbrotr
 
   # --------------------------------------------------------------------------
   # Status Check: Summary job for branch protection
