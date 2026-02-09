@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.0.4-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-4.0.0-blue?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/postgresql-16+-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
@@ -33,7 +33,7 @@ BigBrotr is a production-ready system for archiving and monitoring the [Nostr pr
 
 | Principle | Description |
 |-----------|-------------|
-| **Four-Layer Architecture** | Implementation > Services > Core > Utils > Models |
+| **Five-Layer Architecture** | Deployments > Services > {Core, NIPs, Utils} > Models (Diamond DAG) |
 | **Dependency Injection** | Services receive database interface via constructor |
 | **Configuration-Driven** | YAML configuration with Pydantic validation |
 | **Type Safety** | Full type hints with strict mypy checking |
@@ -57,7 +57,7 @@ git clone https://github.com/bigbrotr/bigbrotr.git
 cd bigbrotr
 
 # Configure environment
-cd implementations/bigbrotr
+cd deployments/bigbrotr
 cp .env.example .env
 nano .env  # Set DB_PASSWORD (required)
 
@@ -84,19 +84,19 @@ docker-compose logs -f seeder
 
 ## Architecture
 
-BigBrotr uses a four-layer architecture that separates concerns and enables flexibility:
+BigBrotr uses a five-layer diamond DAG architecture that separates concerns and enables flexibility:
 
 ```
 +=============================================================================+
-|                         IMPLEMENTATION LAYER                                |
-|                      implementations/bigbrotr/                              |
+|                         DEPLOYMENT LAYER                                    |
+|                      deployments/bigbrotr/                                  |
 |                 (YAML configs, SQL schemas, Docker, seed data)              |
 +=====================================+=======================================+
                                       |
                                       v
 +=============================================================================+
 |                           SERVICE LAYER                                     |
-|                          src/services/                                      |
+|                       src/bigbrotr/services/                                |
 +-----------------------------------------------------------------------------+
 |                                                                             |
 |  +--------+  +--------+  +-----------+  +---------+  +--------------+       |
@@ -104,37 +104,26 @@ BigBrotr uses a four-layer architecture that separates concerns and enables flex
 |  | (seed) |  |(disco) |  |  (test)   |  |(health) |  |   (events)   |       |
 |  +--------+  +--------+  +-----------+  +---------+  +--------------+       |
 |                                                                             |
-+=====================================+=======================================+
-                                      |
-                                      v
-+=============================================================================+
-|                            CORE LAYER                                       |
-|                           src/core/                                         |
-+-----------------------------------------------------------------------------+
-|                                                                             |
-|  +--------+     +--------+     +-------------+     +---------+  +--------+  |
-|  |  Pool  |---->| Brotr  |     | BaseService |     | Metrics |  | Logger |  |
-|  +--------+     +--------+     +-------------+     +---------+  +--------+  |
-|                                                                             |
-+=====================================+=======================================+
-                                      |
-                                      v
-+=============================================================================+
-|                           UTILS LAYER                                       |
-|                           src/utils/                                        |
-+-----------------------------------------------------------------------------+
-|                                                                             |
-|  NetworkConfig, KeysConfig, create_client, load_yaml, resolve_host          |
-|                                                                             |
-+=====================================+=======================================+
-                                      |
-                                      v
++================+==================+==================+======================+
+                 |                  |                  |
+                 v                  v                  v
++================+===+  +=========+========+  +=======+========+
+|    CORE LAYER      |  |    NIPS LAYER    |  |  UTILS LAYER   |
+| src/bigbrotr/core/ |  | src/bigbrotr/nips|  | src/bigbrotr/  |
+|                    |  |                  |  |     utils/     |
+| Pool, Brotr,       |  | Nip11, Nip66    |  | DNS, Keys,     |
+| BaseService,       |  | (I/O capable)   |  | Network,       |
+| Metrics, Logger,   |  |                 |  | Transport      |
+| load_yaml          |  |                 |  |                |
++=========+==========+  +========+========+  +=======+========+
+          |                      |                    |
+          v                      v                    v
 +=============================================================================+
 |                          MODELS LAYER                                       |
-|                          src/models/                                        |
+|                       src/bigbrotr/models/                                  |
 +-----------------------------------------------------------------------------+
 |                                                                             |
-|  Event, Relay, EventRelay, Metadata, Nip11, Nip66, RelayMetadata            |
+|  Event, Relay, EventRelay, Metadata, RelayMetadata                          |
 |  NetworkType, MetadataType                                                  |
 |                                                                             |
 +=============================================================================+
@@ -166,13 +155,13 @@ For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITE
 
 ---
 
-## Implementations
+## Deployments
 
-The four-layer architecture enables multiple deployment configurations from the same codebase.
+The five-layer architecture enables multiple deployment configurations from the same codebase.
 
 ### BigBrotr (Full-Featured)
 
-The default implementation with complete event storage:
+The default deployment with complete event storage:
 
 | Feature | Description |
 |---------|-------------|
@@ -182,13 +171,13 @@ The default implementation with complete event storage:
 | **Monitoring** | Prometheus (9090), Grafana (3000), PostgreSQL (5432), PGBouncer (6432), Tor (9050) |
 
 ```bash
-cd implementations/bigbrotr
+cd deployments/bigbrotr
 docker-compose up -d
 ```
 
 ### LilBrotr (Lightweight)
 
-A lightweight implementation that indexes all events but omits storage-heavy fields:
+A lightweight deployment that indexes all events but omits storage-heavy fields:
 
 | Feature | Description |
 |---------|-------------|
@@ -198,24 +187,24 @@ A lightweight implementation that indexes all events but omits storage-heavy fie
 | **Monitoring** | Prometheus (9091), Grafana (3001), PostgreSQL (5433), PGBouncer (6433) |
 
 ```bash
-cd implementations/lilbrotr
+cd deployments/lilbrotr
 docker-compose up -d
 ```
 
-### Creating Custom Implementations
+### Creating Custom Deployments
 
 ```bash
-# Copy an existing implementation
-cp -r implementations/bigbrotr implementations/myimpl
+# Copy an existing deployment
+cp -r deployments/bigbrotr deployments/myimpl
 
 # Customize configuration
-nano implementations/myimpl/yaml/services/synchronizer.yaml
+nano deployments/myimpl/config/services/synchronizer.yaml
 
 # Modify SQL schema if needed
-nano implementations/myimpl/postgres/init/02_tables.sql
+nano deployments/myimpl/postgres/init/02_tables.sql
 
 # Deploy
-cd implementations/myimpl
+cd deployments/myimpl
 docker-compose up -d
 ```
 
@@ -240,7 +229,7 @@ The Seeder runs once at startup to seed the database:
 - Network type (clearnet/tor) is auto-detected from URL
 
 ```bash
-python -m services seeder
+python -m bigbrotr seeder
 ```
 
 ### Finder
@@ -255,8 +244,8 @@ The Finder service discovers new Nostr relays:
 - Runs continuously with configurable intervals
 
 ```bash
-python -m services finder
-python -m services finder --log-level DEBUG
+python -m bigbrotr finder
+python -m bigbrotr finder --log-level DEBUG
 ```
 
 ### Validator
@@ -272,7 +261,7 @@ The Validator service tests candidates discovered by Finder and Seeder:
 - Uses probabilistic selection based on retry count
 
 ```bash
-python -m services validator
+python -m bigbrotr validator
 ```
 
 ### Monitor
@@ -289,10 +278,10 @@ The Monitor service continuously evaluates relay health:
 - Supports Tor proxy for .onion relays
 
 ```bash
-python -m services monitor
+python -m bigbrotr monitor
 
 # With NIP-66 write tests (requires Nostr private key)
-PRIVATE_KEY=<hex_private_key> python -m services monitor
+PRIVATE_KEY=<hex_private_key> python -m bigbrotr monitor
 ```
 
 ### Synchronizer
@@ -309,7 +298,7 @@ The Synchronizer is the core data collection engine:
 - **Graceful Shutdown**: Clean worker process termination
 
 ```bash
-python -m services synchronizer
+python -m bigbrotr synchronizer
 ```
 
 For service configuration details, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
@@ -331,9 +320,8 @@ BigBrotr uses a YAML-driven configuration system with Pydantic validation.
 ### Configuration Files
 
 ```
-implementations/bigbrotr/yaml/
-├── core/
-│   └── brotr.yaml              # Database pool and connection settings
+deployments/bigbrotr/config/
+├── brotr.yaml                  # Database pool and connection settings
 └── services/
     ├── seeder.yaml             # Seed file path
     ├── finder.yaml             # API sources, discovery intervals
@@ -397,7 +385,7 @@ For complete database documentation, see [docs/DATABASE.md](docs/DATABASE.md).
 ### Docker Compose (Recommended)
 
 ```bash
-cd implementations/bigbrotr
+cd deployments/bigbrotr
 
 # Configure
 cp .env.example .env
@@ -428,18 +416,18 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -e .
 
 # Set environment
 export DB_PASSWORD=your_secure_password
 
-# Run services (from implementations/bigbrotr/)
-cd implementations/bigbrotr
-python -m services seeder
-python -m services finder &
-python -m services validator &
-python -m services monitor &
-python -m services synchronizer &
+# Run services (from deployments/bigbrotr/)
+cd deployments/bigbrotr
+python -m bigbrotr seeder
+python -m bigbrotr finder &
+python -m bigbrotr validator &
+python -m bigbrotr monitor &
+python -m bigbrotr synchronizer &
 ```
 
 ---
@@ -455,7 +443,7 @@ cd bigbrotr
 python3 -m venv .venv
 source .venv/bin/activate
 
-pip install -r requirements.txt -r requirements-dev.txt
+pip install -e ".[dev]"
 pre-commit install
 ```
 
@@ -463,7 +451,7 @@ pre-commit install
 
 ```bash
 pytest tests/ -v                             # All tests
-pytest tests/ --cov=src --cov-report=html    # With coverage
+pytest tests/ --cov=src/bigbrotr --cov-report=html  # With coverage
 pytest tests/unit/services/test_synchronizer.py -v  # Single file
 pytest -k "health_check" -v                  # Pattern match
 ```
@@ -482,72 +470,90 @@ pre-commit run --all-files   # All pre-commit hooks
 ```
 bigbrotr/
 ├── src/
-│   ├── __init__.py
-│   ├── core/                          # Foundation layer
-│   │   ├── __init__.py
-│   │   ├── pool.py                    # PostgreSQL connection pool
-│   │   ├── brotr.py                   # Database interface
-│   │   ├── base_service.py            # Abstract service base
-│   │   ├── metrics.py                 # Prometheus metrics server
-│   │   └── logger.py                  # Structured key=value logging
-│   │
-│   ├── utils/                         # Shared utilities
-│   │   ├── __init__.py
-│   │   ├── dns.py                     # DNS resolution
-│   │   ├── keys.py                    # Nostr key management
-│   │   ├── network.py                 # Network detection and proxy config
-│   │   ├── transport.py               # HTTP/WebSocket transport helpers
-│   │   └── yaml.py                    # YAML loading with env var support
-│   │
-│   ├── models/                        # Data models
-│   │   ├── __init__.py
-│   │   ├── event.py                   # Nostr event model
-│   │   ├── relay.py                   # Relay URL model
-│   │   ├── event_relay.py             # Event-relay junction
-│   │   ├── metadata.py                # Content-addressed metadata
-│   │   ├── relay_metadata.py          # Relay-metadata junction
-│   │   └── nips/                      # NIP model subpackages
-│   │       ├── base.py                # Base NIP model
-│   │       ├── parsing.py             # NIP data parsing utilities
-│   │       ├── nip11/                 # NIP-11 relay information
-│   │       └── nip66/                 # NIP-66 monitoring data
-│   │
-│   └── services/                      # Service layer
-│       ├── __init__.py
-│       ├── __main__.py                # CLI entry point
-│       ├── seeder.py                  # Relay seeding
-│       ├── finder.py                  # Relay discovery
-│       ├── validator.py               # Relay validation
-│       ├── monitor.py                 # Health monitoring
-│       ├── synchronizer.py            # Event sync
-│       └── common/                    # Shared service infrastructure
+│   └── bigbrotr/                     # Main package
+│       ├── __init__.py               # Package root (v4.0.0)
+│       ├── __main__.py               # CLI entry point
+│       ├── py.typed                  # PEP 561 marker
+│       ├── core/                     # Foundation layer
+│       │   ├── __init__.py
+│       │   ├── pool.py               # PostgreSQL connection pool
+│       │   ├── brotr.py              # Database interface
+│       │   ├── base_service.py       # Abstract service base
+│       │   ├── metrics.py            # Prometheus metrics server
+│       │   ├── logger.py             # Structured key=value logging
+│       │   └── yaml.py              # YAML config loading
+│       │
+│       ├── models/                   # Data models (frozen dataclasses)
+│       │   ├── __init__.py
+│       │   ├── event.py              # Nostr event model
+│       │   ├── relay.py              # Relay URL model
+│       │   ├── event_relay.py        # Event-relay junction
+│       │   ├── metadata.py           # Content-addressed metadata
+│       │   ├── relay_metadata.py     # Relay-metadata junction
+│       │   └── constants.py          # NetworkType enum
+│       │
+│       ├── nips/                     # NIP protocol models (I/O capable)
+│       │   ├── __init__.py
+│       │   ├── base.py              # Base NIP model
+│       │   ├── parsing.py           # NIP data parsing
+│       │   ├── nip11/               # NIP-11 relay information
+│       │   │   ├── nip11.py, data.py, fetch.py, logs.py
+│       │   └── nip66/               # NIP-66 monitoring data
+│       │       ├── nip66.py, data.py, dns.py, geo.py,
+│       │       ├── http.py, logs.py, net.py, rtt.py, ssl.py
+│       │
+│       ├── utils/                    # Shared utilities
+│       │   ├── __init__.py
+│       │   ├── dns.py               # DNS resolution
+│       │   ├── keys.py              # Nostr key management
+│       │   ├── network.py           # Network detection and proxy config
+│       │   └── transport.py         # HTTP/WebSocket transport
+│       │
+│       └── services/                 # Service layer
 │           ├── __init__.py
-│           ├── constants.py           # ServiceName, DataType enums
-│           ├── mixins.py              # BatchProgressMixin, NetworkSemaphoreMixin
-│           └── queries.py             # Domain-specific SQL queries
+│           ├── seeder.py            # Relay seeding
+│           ├── finder.py            # Relay discovery
+│           ├── validator.py         # Relay validation
+│           ├── monitor.py           # Health monitoring
+│           ├── synchronizer.py      # Event sync
+│           └── common/              # Shared service infrastructure
+│               ├── constants.py     # ServiceName, DataType enums
+│               ├── configs.py       # Network config Pydantic models
+│               ├── mixins.py        # BatchProgress, semaphores
+│               └── queries.py       # Domain SQL queries
 │
-├── implementations/
-│   ├── bigbrotr/                      # Full-featured implementation
-│   │   ├── yaml/                      # Configuration files
-│   │   ├── postgres/init/             # SQL schema (full storage)
-│   │   ├── static/seed_relays.txt     # 8,865 seed relay URLs
+├── deployments/                      # Deployment configurations
+│   ├── _template/                   # Base templates
+│   ├── bigbrotr/                    # Full-featured deployment
+│   │   ├── config/                  # YAML configuration files
+│   │   │   ├── brotr.yaml
+│   │   │   └── services/*.yaml
+│   │   ├── postgres/init/           # SQL schema
+│   │   ├── monitoring/              # Grafana + Prometheus
+│   │   ├── static/seed_relays.txt
 │   │   ├── docker-compose.yaml
 │   │   └── Dockerfile
-│   │
-│   └── lilbrotr/                      # Lightweight implementation
-│       ├── yaml/                      # Minimal config overrides
-│       ├── postgres/init/             # SQL schema (no tags/content)
+│   └── lilbrotr/                    # Lightweight deployment
+│       ├── config/
+│       ├── postgres/init/
 │       ├── docker-compose.yaml
 │       └── Dockerfile
 │
 ├── tests/
-│   ├── conftest.py                    # Shared fixtures
-│   ├── unit/                          # Unit tests
-│   │   ├── core/                      # Core layer tests
-│   │   ├── utils/                     # Utils layer tests
-│   │   ├── models/                    # Models tests (incl. nips/)
-│   │   └── services/                  # Service layer tests
-│   └── integration/                   # Integration tests (planned)
+│   ├── conftest.py
+│   ├── unit/
+│   │   ├── core/
+│   │   ├── models/
+│   │   ├── nips/                    # NIP model tests
+│   │   │   ├── nip11/
+│   │   │   └── nip66/
+│   │   ├── services/
+│   │   └── utils/
+│   └── integration/
+│
+├── tools/                            # Development tooling
+│   ├── generate_sql.py
+│   └── templates/sql/
 │
 ├── docs/                              # Documentation
 │   ├── OVERVIEW.md
@@ -561,9 +567,7 @@ bigbrotr/
 ├── CONTRIBUTING.md                    # Contribution guide
 ├── SECURITY.md                        # Security policy
 ├── CODE_OF_CONDUCT.md                 # Code of conduct
-├── requirements.txt                   # Runtime dependencies
-├── requirements-dev.txt               # Development dependencies
-├── pyproject.toml                     # Project configuration
+├── pyproject.toml                     # Project configuration (manages all deps)
 └── README.md
 ```
 
@@ -632,7 +636,7 @@ For security issues, see [SECURITY.md](SECURITY.md).
 - [x] Grafana dashboards for monitoring
 - [x] Multi-network support (Clearnet, Tor, I2P, Lokinet)
 - [x] Docker Compose deployment
-- [x] Unit test suite (1776 tests)
+- [x] Unit test suite (1896 tests)
 - [x] Pre-commit hooks and CI configuration
 
 ### Planned

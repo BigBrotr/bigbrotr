@@ -4,7 +4,8 @@
 
 - **Core architecture** (Pool, Brotr, BaseService, Logger)
 - **Service development** (Seeder, Finder, Validator, Monitor, Synchronizer)
-- **Data models** (Event, Relay, Metadata, Nip11, Nip66, NetworkType, MetadataType)
+- **Data models** (Event, Relay, Metadata, NetworkType, MetadataType)
+- **NIP models** (Nip11, Nip66 -- extracted to `bigbrotr/nips/`)
 - **Database design** (PostgreSQL schema, stored procedures, views)
 - **Testing** (unit tests, fixtures, mocking patterns)
 
@@ -18,11 +19,13 @@ BigBrotr is a modular Nostr data archiving and monitoring system built with:
 - **nostr-sdk** (Python bindings for rust-nostr)
 - **Tor support** (SOCKS5 proxy for .onion relays)
 
-### Three-Tier Architecture
+### Diamond DAG Architecture
+
+All code lives under `src/bigbrotr/`. The dependency graph forms a diamond DAG (not strictly linear layers):
 
 ```
 +-------------------------------------------------------+
-|  Implementation Layer                                 |
+|  Deployment Layer                                     |
 |  +------------------+  +------------------+           |
 |  | bigbrotr/        |  | lilbrotr/        |           |
 |  | (with tags)      |  | (essential only) |           |
@@ -31,38 +34,32 @@ BigBrotr is a modular Nostr data archiving and monitoring system built with:
                           |
                           v
 +-------------------------------------------------------+
-|  Service Layer (src/services/)                        |
+|  Service Layer (src/bigbrotr/services/)                |
 |  +--------+ +--------+ +-----------+ +-------------+  |
 |  | seeder | | finder | | validator | | monitor     |  |
 |  +--------+ +--------+ +-----------+ +-------------+  |
 |                    +----------------+                 |
 |                    | synchronizer   |                 |
 |                    +----------------+                 |
-+-------------------------+-----------------------------+
-                          |
-                          v
++----------+--------------------+-----------------------+
+           |                    |
+           v                    v
++---------------------+  +---------------------+
+| NIP Layer           |  | Core Layer          |
+| (src/bigbrotr/nips/)|  | (src/bigbrotr/core/)|
+| Nip11, Nip66        |  | pool, brotr,        |
+|                     |  | base_service, logger|
++----------+----------+  +----------+----------+
+           |                    |
+           v                    v
 +-------------------------------------------------------+
-|  Core Layer (src/core/)                               |
-|  +------+ +-------+ +-------------+ +--------+        |
-|  +------+ +-------+ +-------------+ +---------+       |
-|  | pool | | brotr | | base_service | | metrics |      |
-|  +------+ +-------+ +--------------+ +---------+      |
-+-------------------------+-----------------------------+
-                          |
-                          v
-+-------------------------------------------------------+
-|  Utils Layer (src/utils/)                             |
-|  NetworkConfig, KeysConfig, create_client,            |
-|  load_yaml, transport, parse_*                        |
-+-------------------------+-----------------------------+
-                          |
-                          v
-+-------------------------------------------------------+
-|  Models (src/models/)                                 |
-|  Event, Relay, EventRelay, Metadata, Nip11, Nip66,    |
+|  Models (src/bigbrotr/models/)                        |
+|  Event, Relay, EventRelay, Metadata,                  |
 |  RelayMetadata, NetworkType, MetadataType             |
 +-------------------------------------------------------+
 ```
+
+Utils (`src/bigbrotr/utils/`) is available to all layers as a cross-cutting utility package.
 
 ---
 
@@ -79,7 +76,7 @@ BigBrotr is a modular Nostr data archiving and monitoring system built with:
 
 ## Core Layer API
 
-### Pool (`src/core/pool.py`)
+### Pool (`src/bigbrotr/core/pool.py`)
 
 Async PostgreSQL connection pooling with health checks and retry logic.
 
@@ -121,13 +118,13 @@ metrics = pool.metrics
 
 **Factory:**
 ```python
-pool = Pool.from_yaml("implementations/bigbrotr/yaml/core/brotr.yaml")
+pool = Pool.from_yaml("deployments/bigbrotr/config/core/brotr.yaml")
 pool = Pool.from_dict(config_dict)
 ```
 
 ---
 
-### Brotr (`src/core/brotr.py`)
+### Brotr (`src/bigbrotr/core/brotr.py`)
 
 High-level database interface using stored procedures for all mutations.
 
@@ -187,7 +184,7 @@ rows = await brotr.fetch("SELECT url FROM relays WHERE network = $1", "tor")
 
 ---
 
-### BaseService (`src/core/base_service.py`)
+### BaseService (`src/bigbrotr/core/base_service.py`)
 
 Abstract base class for all services with lifecycle management.
 
@@ -227,7 +224,7 @@ await service.run_forever(
 **Factory:**
 ```python
 service = MyService.from_yaml(
-    "implementations/bigbrotr/yaml/services/myservice.yaml",
+    "deployments/bigbrotr/config/services/myservice.yaml",
     brotr=brotr
 )
 
@@ -238,7 +235,7 @@ async with service:
 
 ---
 
-### Logger (`src/core/logger.py`)
+### Logger (`src/bigbrotr/core/logger.py`)
 
 Structured key-value logging with optional JSON output.
 
@@ -271,7 +268,7 @@ logger_json.info("started", version="1.0")
 
 ## Service Layer Patterns
 
-### Shared Infrastructure (`services/common/`)
+### Shared Infrastructure (`bigbrotr/services/common/`)
 
 The `services/common/` package provides three stable modules shared by all services:
 
@@ -280,9 +277,9 @@ The `services/common/` package provides three stable modules shared by all servi
 - **queries.py**: 13 domain SQL query functions parameterized with `ServiceName`/`DataType` enums
 
 ```python
-from services.common.constants import ServiceName, DataType
-from services.common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
-from services.common.queries import get_all_relay_urls, fetch_candidate_chunk
+from bigbrotr.services.common.constants import ServiceName, DataType
+from bigbrotr.services.common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
+from bigbrotr.services.common.queries import get_all_relay_urls, fetch_candidate_chunk
 ```
 
 Future additions go **into** existing modules rather than creating new files.
@@ -291,9 +288,9 @@ Future additions go **into** existing modules rather than creating new files.
 
 ```python
 from pydantic import Field
-from core.base_service import BaseService, BaseServiceConfig
-from core.brotr import Brotr
-from core.logger import Logger
+from bigbrotr.core.base_service import BaseService, BaseServiceConfig
+from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.logger import Logger
 
 class MyServiceConfig(BaseServiceConfig):
     interval: float = Field(ge=60.0, description="Seconds between cycles")
@@ -325,14 +322,14 @@ class MyService(BaseService[MyServiceConfig]):
 
 ### Service Registration
 
-Add to `src/services/__main__.py`:
+Add to `src/bigbrotr/services/__main__.py`:
 ```python
 SERVICE_REGISTRY = {
-    ServiceName.MYSERVICE: ServiceEntry(cls=MyService, config_path=YAML_BASE / "services" / "myservice.yaml"),
+    ServiceName.MYSERVICE: ServiceEntry(cls=MyService, config_path=CONFIG_BASE / "services" / "myservice.yaml"),
 }
 ```
 
-Export from `src/services/__init__.py`:
+Export from `src/bigbrotr/services/__init__.py`:
 ```python
 from .myservice import MyService, MyServiceConfig
 
@@ -391,7 +388,7 @@ CREATE TABLE metadata (
 CREATE TABLE relay_metadata (
     relay_url TEXT REFERENCES relays(url) ON DELETE CASCADE,
     generated_at BIGINT NOT NULL,
-    metadata_type TEXT NOT NULL,         -- nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
+    metadata_type TEXT NOT NULL,         -- nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
     metadata_id BYTEA REFERENCES metadata(id) ON DELETE CASCADE,
     PRIMARY KEY (relay_url, generated_at, metadata_type)
 );
@@ -451,7 +448,7 @@ REFRESH MATERIALIZED VIEW CONCURRENTLY relay_metadata_latest;
 ```python
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from src.services.myservice import MyService, MyServiceConfig
+from bigbrotr.services.myservice import MyService, MyServiceConfig
 
 @pytest.mark.asyncio
 async def test_myservice_basic_operation(mock_brotr):
@@ -528,7 +525,7 @@ pre-commit run --all-files              # All hooks
 
 ```bash
 # Start all services
-cd implementations/bigbrotr
+cd deployments/bigbrotr
 docker-compose up -d
 
 # View logs
@@ -547,11 +544,11 @@ export DB_PASSWORD="your_password"
 export PRIVATE_KEY="nsec1..."           # Optional (for Monitor/Validator)
 
 # Run services
-python -m services seeder --log-level DEBUG
-python -m services finder --log-level INFO
-python -m services validator
-python -m services monitor
-python -m services synchronizer
+python -m bigbrotr seeder --log-level DEBUG
+python -m bigbrotr finder --log-level INFO
+python -m bigbrotr validator
+python -m bigbrotr monitor
+python -m bigbrotr synchronizer
 ```
 
 ---
@@ -560,7 +557,7 @@ python -m services synchronizer
 
 ### Adding a New Service
 
-1. **Create service file** (`src/services/myservice.py`):
+1. **Create service file** (`src/bigbrotr/services/myservice.py`):
 ```python
 class MyServiceConfig(BaseServiceConfig):
     interval: float = Field(ge=60.0)
@@ -579,7 +576,7 @@ class MyService(BaseService[MyServiceConfig]):
         pass
 ```
 
-2. **Add YAML config** (`implementations/bigbrotr/yaml/services/myservice.yaml`):
+2. **Add YAML config** (`deployments/bigbrotr/config/services/myservice.yaml`):
 ```yaml
 interval: 300.0
 # ... config values
@@ -608,10 +605,10 @@ async def test_myservice(mock_brotr):
 
 ### Adding a New Metadata Type
 
-1. **Extend `MetadataType` enum** in `src/models/metadata.py` (inner class `Metadata.Type`):
+1. **Extend `MetadataType` enum** in `src/bigbrotr/models/metadata.py` (inner class `Metadata.Type`):
 ```python
 class MetadataType(StrEnum):
-    NIP11_FETCH = "nip11_fetch"
+    NIP11_INFO = "nip11_info"
     NIP66_RTT = "nip66_rtt"
     NIP66_SSL = "nip66_ssl"
     NIP66_GEO = "nip66_geo"
@@ -625,7 +622,7 @@ class MetadataType(StrEnum):
 ```sql
 ALTER TABLE relay_metadata DROP CONSTRAINT IF EXISTS relay_metadata_type_check;
 ALTER TABLE relay_metadata ADD CONSTRAINT relay_metadata_type_check
-    CHECK (type IN ('nip11_fetch', 'nip66_rtt', 'nip66_ssl',
+    CHECK (type IN ('nip11_info', 'nip66_rtt', 'nip66_ssl',
                     'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http', 'my_new_type'));
 ```
 
@@ -640,12 +637,12 @@ metadata = RelayMetadata(
 await brotr.insert_relay_metadata([metadata])
 ```
 
-### Creating a New Implementation
+### Creating a New Deployment
 
-1. **Copy existing implementation**:
+1. **Copy existing deployment**:
 ```bash
-cp -r implementations/bigbrotr implementations/myimpl
-cd implementations/myimpl
+cp -r deployments/bigbrotr deployments/myimpl
+cd deployments/myimpl
 ```
 
 2. **Customize SQL schema** (`postgres/init/02_tables.sql`):
@@ -672,7 +669,7 @@ services:
       - "5433:5432"                    # Avoid port conflicts
 ```
 
-4. **Adjust service configs** (`yaml/services/*.yaml`):
+4. **Adjust service configs** (`config/services/*.yaml`):
 ```yaml
 # Reduce resource usage
 concurrency:
@@ -819,7 +816,7 @@ class Relay:
 
 Deduplication via SHA-256 hashing computed in Python:
 ```python
-# Python side (src/models/metadata.py)
+# Python side (src/bigbrotr/models/metadata.py)
 import hashlib
 content_hash = hashlib.sha256(canonical.encode("utf-8")).digest()
 
@@ -894,7 +891,7 @@ await pool.fetch(f"SELECT * FROM relays WHERE network = '{network}'")
 
 **Correct:**
 ```python
-from src.models.relay import Relay
+from bigbrotr.models.relay import Relay
 
 try:
     relay = Relay(raw="wss://relay.example.com")
@@ -983,9 +980,11 @@ await asyncio.gather(*tasks)
 
 ## Key File Locations
 
-- **Core layer:** `src/core/pool.py`, `src/core/brotr.py`, `src/core/base_service.py`, `src/core/logger.py`, `src/core/metrics.py`
-- **Services:** `src/services/<service>.py`
-- **Models:** `src/models/<model>.py` (MetadataType is inner class `Metadata.Type` in `src/models/metadata.py`)
-- **SQL schema:** `implementations/bigbrotr/postgres/init/`
+- **Core layer:** `src/bigbrotr/core/pool.py`, `src/bigbrotr/core/brotr.py`, `src/bigbrotr/core/base_service.py`, `src/bigbrotr/core/logger.py`, `src/bigbrotr/core/metrics.py`, `src/bigbrotr/core/yaml.py`
+- **Services:** `src/bigbrotr/services/<service>.py`
+- **Models:** `src/bigbrotr/models/<model>.py` (MetadataType is inner class `Metadata.Type` in `src/bigbrotr/models/metadata.py`)
+- **NIPs:** `src/bigbrotr/nips/nip11/`, `src/bigbrotr/nips/nip66/` (extracted from models)
+- **Utils:** `src/bigbrotr/utils/` (dns, keys, network, transport)
+- **SQL schema:** `deployments/bigbrotr/postgres/init/`
 - **Tests:** `tests/unit/<layer>/test_<module>.py`
-- **Config examples:** `implementations/bigbrotr/yaml/`
+- **Config examples:** `deployments/bigbrotr/config/`

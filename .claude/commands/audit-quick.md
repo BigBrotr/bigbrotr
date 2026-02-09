@@ -158,7 +158,7 @@ Then analyze these key areas:
 - src/core/ - Pool, Brotr, BaseService, Logger
 - src/services/ - All services
 - src/models/ - Data models
-- implementations/bigbrotr/postgres/init/ - SQL schema
+- deployments/bigbrotr/postgres/init/ - SQL schema
 - tests/ - Test coverage
 
 YOUR OUTPUT MUST BE A JSON ARRAY wrapped in a ```json code block.

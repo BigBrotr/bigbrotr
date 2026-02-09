@@ -36,13 +36,13 @@ source .venv/bin/activate  # Linux/macOS
 # or: .venv\Scripts\activate  # Windows
 
 # Install all dependencies
-pip install -r requirements.txt -r requirements-dev.txt
+pip install -e ".[dev]"
 
 # Install pre-commit hooks
 pre-commit install
 
 # Verify installation
-python -c "from core import Pool, Brotr, BaseService, Logger; print('OK')"
+python -c "from bigbrotr.core import Pool, Brotr, BaseService, Logger; print('OK')"
 ```
 
 ### Environment Configuration
@@ -59,7 +59,7 @@ export PRIVATE_KEY=your_hex_private_key
 
 ```bash
 # Start database only
-cd implementations/bigbrotr
+cd deployments/bigbrotr
 docker-compose up -d postgres pgbouncer
 
 # Verify database
@@ -72,72 +72,81 @@ docker-compose exec postgres psql -U admin -d bigbrotr -c "\dt"
 
 ```
 bigbrotr/
-├── src/                              # Source code
-│   ├── __init__.py                   # Package root
-│   ├── core/                         # Core layer (foundation)
-│   │   ├── __init__.py               # Exports: Pool, Brotr, BaseService, Logger, etc.
-│   │   ├── pool.py                   # PostgreSQL connection pool
-│   │   ├── brotr.py                  # Database interface
-│   │   ├── base_service.py           # Abstract service base
-│   │   ├── metrics.py                # Prometheus metrics endpoint
-│   │   └── logger.py                 # Structured key=value logging
-│   │
-│   ├── models/                       # Data models layer
-│   │   ├── __init__.py               # Exports: Event, Relay, Metadata, etc.
-│   │   ├── event.py                  # Immutable wrapper for nostr_sdk.Event
-│   │   ├── event_relay.py            # Junction model: Event <-> Relay
-│   │   ├── relay.py                  # Validated Nostr relay URL
-│   │   ├── metadata.py               # Content-addressed metadata payload
-│   │   ├── relay_metadata.py         # Junction: Relay <-> Metadata
-│   │   └── nips/                     # NIP-specific models
-│   │       ├── __init__.py
-│   │       ├── base.py               # Base NIP model
-│   │       ├── parsing.py            # NIP data parsing utilities
-│   │       ├── nip11/                # NIP-11 relay information
-│   │       │   ├── __init__.py
-│   │       │   ├── nip11.py
-│   │       │   ├── data.py
-│   │       │   ├── fetch.py
-│   │       │   └── logs.py
-│   │       └── nip66/                # NIP-66 relay monitoring
-│   │           ├── __init__.py
-│   │           ├── nip66.py
-│   │           ├── data.py
-│   │           ├── dns.py
-│   │           ├── geo.py
-│   │           ├── http.py
-│   │           ├── logs.py
-│   │           ├── net.py
-│   │           ├── rtt.py
-│   │           └── ssl.py
-│   │
-│   ├── utils/                        # Utilities layer
-│   │   ├── __init__.py
-│   │   ├── dns.py                    # DNS resolution utilities
-│   │   ├── keys.py                   # Key loading from environment
-│   │   ├── network.py                # NetworkType, NetworkConfig
-│   │   ├── transport.py              # Transport/client creation
-│   │   └── yaml.py                   # YAML loading utilities
-│   │
-│   └── services/                     # Service layer (business logic)
-│       ├── __init__.py               # Service exports
+├── src/
+│   └── bigbrotr/                     # Main package
+│       ├── __init__.py               # Package root (v4.0.0)
 │       ├── __main__.py               # CLI entry point
-│       ├── seeder.py                 # Database bootstrap and seeding
-│       ├── finder.py                 # Relay URL discovery
-│       ├── validator.py              # Candidate relay validation
-│       ├── monitor.py                # Health monitoring (NIP-11/NIP-66)
-│       ├── synchronizer.py           # Event synchronization
-│       └── common/                    # Shared service infrastructure
-│           ├── __init__.py
-│           ├── constants.py           # ServiceName, DataType enums
-│           ├── mixins.py              # BatchProgressMixin, NetworkSemaphoreMixin
-│           └── queries.py             # Domain-specific SQL queries
+│       ├── py.typed                  # PEP 561 marker
+│       │
+│       ├── core/                     # Foundation layer
+│       │   ├── __init__.py           # Exports: Pool, Brotr, BaseService, Logger, etc.
+│       │   ├── pool.py               # PostgreSQL connection pool
+│       │   ├── brotr.py              # Database interface
+│       │   ├── base_service.py       # Abstract service base
+│       │   ├── metrics.py            # Prometheus metrics endpoint
+│       │   ├── logger.py             # Structured key=value logging
+│       │   └── yaml.py               # YAML loading utilities
+│       │
+│       ├── models/                   # Pure data models layer
+│       │   ├── __init__.py           # Exports: Event, Relay, Metadata, etc.
+│       │   ├── event.py              # Immutable wrapper for nostr_sdk.Event
+│       │   ├── event_relay.py        # Junction model: Event <-> Relay
+│       │   ├── relay.py              # Validated Nostr relay URL
+│       │   ├── metadata.py           # Content-addressed metadata payload
+│       │   ├── relay_metadata.py     # Junction: Relay <-> Metadata
+│       │   └── constants.py          # NetworkType, MetadataType
+│       │
+│       ├── nips/                     # NIP protocol models
+│       │   ├── __init__.py
+│       │   ├── base.py              # Base NIP model
+│       │   ├── parsing.py           # NIP data parsing utilities
+│       │   ├── nip11/               # NIP-11 relay information
+│       │   │   ├── __init__.py
+│       │   │   ├── nip11.py
+│       │   │   ├── data.py
+│       │   │   ├── fetch.py
+│       │   │   └── logs.py
+│       │   └── nip66/               # NIP-66 relay monitoring
+│       │       ├── __init__.py
+│       │       ├── nip66.py
+│       │       ├── data.py
+│       │       ├── dns.py
+│       │       ├── geo.py
+│       │       ├── http.py
+│       │       ├── logs.py
+│       │       ├── net.py
+│       │       ├── rtt.py
+│       │       └── ssl.py
+│       │
+│       ├── utils/                    # Shared utilities
+│       │   ├── __init__.py
+│       │   ├── dns.py               # DNS resolution utilities
+│       │   ├── keys.py              # Key loading from environment
+│       │   ├── network.py           # NetworkConfig
+│       │   └── transport.py         # Transport/client creation
+│       │
+│       └── services/                 # Service layer
+│           ├── __init__.py           # Public API for services
+│           ├── seeder.py             # Database bootstrap and seeding
+│           ├── finder.py             # Relay URL discovery
+│           ├── validator.py          # Candidate relay validation
+│           ├── monitor.py            # Health monitoring (NIP-11/NIP-66)
+│           ├── synchronizer.py       # Event synchronization
+│           └── common/               # Shared service infrastructure
+│               ├── __init__.py
+│               ├── constants.py      # ServiceName, DataType enums
+│               ├── mixins.py         # BatchProgressMixin, NetworkSemaphoreMixin
+│               └── queries.py        # Domain-specific SQL queries
 │
-├── implementations/                  # Implementation layer
-│   ├── bigbrotr/                     # Full-featured implementation
-│   │   ├── yaml/                     # Configuration files
-│   │   │   ├── core/brotr.yaml
-│   │   │   └── services/*.yaml
+├── deployments/                      # Deployment configurations
+│   ├── bigbrotr/                     # Full-featured deployment
+│   │   ├── config/                   # Configuration files
+│   │   │   ├── brotr.yaml            # Core database config
+│   │   │   └── services/             # Per-service config
+│   │   │       ├── finder.yaml
+│   │   │       ├── monitor.yaml
+│   │   │       ├── synchronizer.yaml
+│   │   │       └── validator.yaml
 │   │   ├── postgres/init/            # SQL schema (full storage)
 │   │   ├── static/seed_relays.txt    # 8,865 seed relay URLs
 │   │   ├── pgbouncer/                # PGBouncer config
@@ -145,8 +154,8 @@ bigbrotr/
 │   │   ├── Dockerfile
 │   │   └── .env.example
 │   │
-│   └── lilbrotr/                     # Lightweight implementation
-│       ├── yaml/                     # Minimal config overrides
+│   └── lilbrotr/                     # Lightweight deployment
+│       ├── config/                   # Minimal config overrides
 │       ├── postgres/init/            # SQL schema (no tags/content)
 │       ├── docker-compose.yaml       # Ports: 5433, 6433, 9051
 │       └── Dockerfile
@@ -162,33 +171,34 @@ bigbrotr/
 │       │   ├── test_brotr.py
 │       │   ├── test_base_service.py
 │       │   ├── test_metrics.py
-│       │   └── test_logger.py
+│       │   ├── test_logger.py
+│       │   └── test_yaml.py
 │       ├── models/                   # Models layer tests
 │       │   ├── test_event.py
 │       │   ├── test_relay.py
 │       │   ├── test_event_relay.py
 │       │   ├── test_metadata.py
-│       │   ├── test_relay_metadata.py
-│       │   └── nips/                 # NIP model tests
-│       │       ├── test_base.py
-│       │       ├── test_parsing.py
-│       │       ├── nip11/
-│       │       │   ├── test_nip11.py
-│       │       │   ├── test_data.py
-│       │       │   ├── test_fetch.py
-│       │       │   └── test_logs.py
-│       │       └── nip66/
-│       │           ├── test_nip66.py
-│       │           ├── test_data.py
-│       │           ├── test_dns.py
-│       │           ├── test_geo.py
-│       │           ├── test_http.py
-│       │           ├── test_logs.py
-│       │           ├── test_net.py
-│       │           ├── test_rtt.py
-│       │           └── test_ssl.py
+│       │   └── test_relay_metadata.py
+│       ├── nips/                     # NIP model tests
+│       │   ├── test_base.py
+│       │   ├── test_parsing.py
+│       │   ├── nip11/
+│       │   │   ├── test_nip11.py
+│       │   │   ├── test_data.py
+│       │   │   ├── test_fetch.py
+│       │   │   └── test_logs.py
+│       │   └── nip66/
+│       │       ├── test_nip66.py
+│       │       ├── test_data.py
+│       │       ├── test_dns.py
+│       │       ├── test_geo.py
+│       │       ├── test_http.py
+│       │       ├── test_logs.py
+│       │       ├── test_net.py
+│       │       ├── test_rtt.py
+│       │       └── test_ssl.py
 │       ├── services/                 # Services layer tests
-│       │   ├── common/                # services/common tests
+│       │   ├── common/               # services/common tests
 │       │   │   ├── test_constants.py
 │       │   │   ├── test_mixins.py
 │       │   │   └── test_queries.py
@@ -203,8 +213,11 @@ bigbrotr/
 │           ├── test_dns.py
 │           ├── test_keys.py
 │           ├── test_network.py
-│           ├── test_transport.py
-│           └── test_yaml.py
+│           └── test_transport.py
+│
+├── tools/                            # Development utilities
+│   ├── generate_sql.py               # SQL generation from templates
+│   └── templates/sql/                # SQL Jinja2 templates
 │
 ├── docs/                             # Documentation
 │   ├── OVERVIEW.md
@@ -223,9 +236,7 @@ bigbrotr/
 ├── CONTRIBUTING.md                   # Contribution guide
 ├── SECURITY.md                       # Security policy
 ├── CODE_OF_CONDUCT.md                # Code of conduct
-├── requirements.txt                  # Runtime dependencies
-├── requirements-dev.txt              # Development dependencies
-├── pyproject.toml                    # Project configuration
+├── pyproject.toml                    # Project config and dependencies
 ├── .pre-commit-config.yaml           # Pre-commit hooks
 ├── .gitignore
 └── README.md
@@ -235,9 +246,9 @@ bigbrotr/
 
 | File | Purpose |
 |------|---------|
-| `src/core/__init__.py` | Public API for core layer |
-| `src/services/__init__.py` | Public API for services |
-| `src/services/__main__.py` | CLI entry point (`python -m services`) |
+| `src/bigbrotr/core/__init__.py` | Public API for core layer |
+| `src/bigbrotr/services/__init__.py` | Public API for services |
+| `src/bigbrotr/__main__.py` | CLI entry point (`python -m bigbrotr`) |
 | `pyproject.toml` | Project metadata, tool configuration |
 | `conftest.py` | Shared pytest fixtures |
 
@@ -252,7 +263,7 @@ bigbrotr/
 pytest tests/ -v
 
 # Run with coverage report
-pytest tests/ --cov=src --cov-report=html
+pytest tests/ --cov=src/bigbrotr --cov-report=html
 
 # Open coverage report
 open htmlcov/index.html  # macOS
@@ -428,16 +439,16 @@ From `.pre-commit-config.yaml`:
 ### 1. Create Service File
 
 ```python
-# src/services/myservice.py
+# src/bigbrotr/services/myservice.py
 """
 My Service - Description of what it does.
 """
 
 from pydantic import Field
 
-from core.base_service import BaseService, BaseServiceConfig
-from core.brotr import Brotr
-from core.logger import Logger
+from bigbrotr.core.base_service import BaseService, BaseServiceConfig
+from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.logger import Logger
 
 SERVICE_NAME = "myservice"
 
@@ -488,7 +499,7 @@ class MyService(BaseService[MyServiceConfig]):
 ### 2. Create Configuration File
 
 ```yaml
-# implementations/bigbrotr/yaml/services/myservice.yaml
+# deployments/bigbrotr/config/services/myservice.yaml
 interval: 300.0
 some_setting: "custom_value"
 ```
@@ -496,20 +507,20 @@ some_setting: "custom_value"
 ### 3. Register Service
 
 ```python
-# src/services/__main__.py
+# src/bigbrotr/__main__.py
 from .myservice import MyService
 
 SERVICE_REGISTRY = {
     # ... existing services ...
-    "myservice": (MyService, YAML_BASE / "services" / "myservice.yaml"),
+    "myservice": (MyService, CONFIG_BASE / "services" / "myservice.yaml"),
 }
 ```
 
 ### 4. Export from Package
 
 ```python
-# src/services/__init__.py
-from services.myservice import MyService, MyServiceConfig
+# src/bigbrotr/services/__init__.py
+from bigbrotr.services.myservice import MyService, MyServiceConfig
 
 __all__ = [
     # ... existing exports ...
@@ -527,7 +538,7 @@ __all__ = [
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
-from services.myservice import MyService, MyServiceConfig
+from bigbrotr.services.myservice import MyService, MyServiceConfig
 
 
 class TestMyServiceConfig:
@@ -563,17 +574,17 @@ class TestMyService:
 ### 6. Add Docker Service (Optional)
 
 ```yaml
-# implementations/bigbrotr/docker-compose.yaml
+# deployments/bigbrotr/docker-compose.yaml
 myservice:
   build:
     context: ../../
-    dockerfile: implementations/bigbrotr/Dockerfile
+    dockerfile: deployments/bigbrotr/Dockerfile
   container_name: bigbrotr-myservice
   restart: unless-stopped
   environment:
     DB_PASSWORD: ${DB_PASSWORD}
   volumes:
-    - ./yaml:/app/yaml:ro
+    - ./config:/app/config:ro
   networks:
     - bigbrotr-network
   depends_on:
@@ -581,7 +592,7 @@ myservice:
       condition: service_healthy
     seeder:
       condition: service_completed_successfully
-  command: ["python", "-m", "services", "myservice"]
+  command: ["python", "-m", "bigbrotr", "myservice"]
 ```
 
 ---
@@ -643,9 +654,9 @@ import os
     reason="DB_PASSWORD not set"
 )
 async def test_brotr_connection():
-    from core.brotr import Brotr
+    from bigbrotr.core.brotr import Brotr
 
-    brotr = Brotr.from_yaml("implementations/bigbrotr/yaml/core/brotr.yaml")
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
     async with brotr:
         result = await brotr.pool.fetchval("SELECT 1")
         assert result == 1
@@ -658,7 +669,7 @@ async def test_brotr_connection():
 ### Logging
 
 ```python
-from core.logger import Logger
+from bigbrotr.core.logger import Logger
 
 logger = Logger("mymodule")
 logger.debug("detailed_info", key="value")
@@ -671,7 +682,7 @@ logger.error("operation_failed", error=str(e))
 
 ```bash
 # Run service with debug logging
-python -m services finder --log-level DEBUG
+python -m bigbrotr finder --log-level DEBUG
 ```
 
 ### Async Debugging
@@ -683,7 +694,7 @@ import asyncio
 asyncio.get_event_loop().set_debug(True)
 
 # Or via environment
-# PYTHONASYNCIODEBUG=1 python -m services finder
+# PYTHONASYNCIODEBUG=1 python -m bigbrotr finder
 ```
 
 ### VS Code Configuration
@@ -697,9 +708,9 @@ asyncio.get_event_loop().set_debug(True)
             "name": "Debug Service",
             "type": "python",
             "request": "launch",
-            "module": "services",
+            "module": "bigbrotr",
             "args": ["finder", "--log-level", "DEBUG"],
-            "cwd": "${workspaceFolder}/implementations/bigbrotr",
+            "cwd": "${workspaceFolder}/deployments/bigbrotr",
             "env": {
                 "PYTHONPATH": "${workspaceFolder}/src",
                 "DB_PASSWORD": "your_password"
@@ -723,9 +734,9 @@ asyncio.get_event_loop().set_debug(True)
 ### PyCharm Configuration
 
 1. **Run Configuration**:
-   - Module: `services`
+   - Module: `bigbrotr`
    - Parameters: `finder --log-level DEBUG`
-   - Working directory: `implementations/bigbrotr`
+   - Working directory: `deployments/bigbrotr`
    - Environment: `PYTHONPATH=../../src;DB_PASSWORD=your_password`
 
 2. **Test Configuration**:
@@ -801,12 +812,12 @@ chore: update dependencies
 # Development
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
+pip install -e ".[dev]"
 pre-commit install
 
 # Testing
 pytest tests/ -v
-pytest tests/ --cov=src --cov-report=html
+pytest tests/ --cov=src/bigbrotr --cov-report=html
 pytest -k "pattern" -v
 
 # Code Quality
@@ -816,9 +827,9 @@ mypy src/
 pre-commit run --all-files
 
 # Running Services
-cd implementations/bigbrotr
-python -m services seeder
-python -m services finder --log-level DEBUG
+cd deployments/bigbrotr
+python -m bigbrotr seeder
+python -m bigbrotr finder --log-level DEBUG
 
 # Docker
 docker-compose up -d

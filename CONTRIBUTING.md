@@ -49,13 +49,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
-pip install -r requirements.txt -r requirements-dev.txt
+pip install -e ".[dev]"
 
 # Install pre-commit hooks
 pre-commit install
 
 # Start database for testing
-cd implementations/bigbrotr
+cd deployments/bigbrotr
 docker-compose up -d postgres pgbouncer
 cd ../..
 

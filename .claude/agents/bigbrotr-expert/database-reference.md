@@ -15,6 +15,8 @@ BigBrotr uses PostgreSQL 15+ with extensions for efficient Nostr data storage:
 - Generated columns for computed indexes
 - Idempotent stored procedures with `ON CONFLICT DO NOTHING`
 
+**SQL Schema Location**: `deployments/bigbrotr/postgres/init/`
+
 ---
 
 ## Tables
@@ -131,7 +133,7 @@ CREATE TABLE relay_metadata (
 **Columns**:
 - `relay_url`: Reference to relays.url
 - `generated_at`: Unix timestamp when metadata was collected
-- `metadata_type`: Metadata type ('nip11_fetch', 'nip66_rtt', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http')
+- `metadata_type`: Metadata type ('nip11_info', 'nip66_rtt', 'nip66_ssl', 'nip66_geo', 'nip66_net', 'nip66_dns', 'nip66_http')
 - `metadata_id`: Reference to metadata.id
 
 **Purpose**: Tracks metadata changes over time. Each relay can have multiple snapshots per metadata_type.
@@ -491,7 +493,7 @@ SELECT
 FROM relay_metadata rm
 JOIN metadata m ON rm.metadata_id = m.id
 WHERE rm.relay_url = 'relay.example.com'
-  AND rm.metadata_type = 'nip11_fetch'
+  AND rm.metadata_type = 'nip11_info'
 ORDER BY rm.generated_at DESC;
 ```
 

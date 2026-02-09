@@ -235,7 +235,7 @@ Key areas to analyze:
 - src/core/ - Pool, Brotr, BaseService, Logger
 - src/services/ - Seeder, Finder, Validator, Monitor, Synchronizer
 - src/models/ - Data models
-- implementations/bigbrotr/postgres/init/ - SQL schema (10 files)
+- deployments/bigbrotr/postgres/init/ - SQL schema (10 files)
 - tests/ - Test coverage (18 files)
 - docker-compose.yaml, Dockerfile - Container config
 - requirements.txt - Dependencies

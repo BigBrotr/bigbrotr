@@ -11,7 +11,7 @@ Comprehensive technical documentation for developers, architects, and contributo
 3. [Service Layer](#service-layer)
 4. [Data Models](#data-models)
 5. [Database Schema](#database-schema)
-6. [Implementation Layer](#implementation-layer)
+6. [Deployment Layer](#deployment-layer)
 7. [Design Patterns](#design-patterns)
 8. [Performance Characteristics](#performance-characteristics)
 9. [Security Model](#security-model)
@@ -21,14 +21,14 @@ Comprehensive technical documentation for developers, architects, and contributo
 
 ## System Architecture
 
-BigBrotr employs a **four-layer architecture** that separates infrastructure, business logic, utilities, and deployment concerns.
+BigBrotr v4.0.0 employs a **Diamond DAG architecture** where the service layer depends on three parallel mid-tier packages (core, nips, utils), all converging on the models layer.
 
-### Layered Design
+### Diamond DAG Design
 
 ```
 +======================================================================+
-|                      IMPLEMENTATION LAYER                            |
-|         Multiple deployments sharing same service/core codebase      |
+|                      DEPLOYMENT LAYER                                |
+|         Multiple deployments sharing same bigbrotr package           |
 +----------------------------------------------------------------------+
 |                                                                      |
 |   +----------------------+         +----------------------+          |
@@ -54,62 +54,65 @@ BigBrotr employs a **four-layer architecture** that separates infrastructure, bu
 |   | (seed) |  |(disco) |  |  (test)   |  |(health) |  |  (events)  | |
 |   +--------+  +--------+  +-----------+  +---------+  +------------+ |
 |                                                                      |
-+================================+=====+===============================+
-                                 |
-                                 v
-+======================================================================+
-|                         CORE LAYER                                   |
-|              Infrastructure primitives, shared utilities             |
-+----------------------------------------------------------------------+
-|                                                                      |
-|   +--------+     +--------+     +-------------+     +--------+       |
-|   |  Pool  |---->| Brotr  |     | BaseService |     | Logger |       |
-|   +--------+     +--------+     +-------------+     +--------+       |
-|                                                                      |
-+================================+=====+===============================+
-                                 |
-                                 v
++=========+===================+=====+===================+==============+
+          |                   |                         |
+          v                   v                         v
++================+  +================+  +================+
+|   CORE LAYER   |  |   NIPS LAYER   |  |  UTILS LAYER   |
+|  Pool, Brotr,  |  |  NIP-11/NIP-66 |  |  dns, network, |
+|  BaseService,  |  |  protocol      |  |  transport,    |
+|  Logger        |  |  models        |  |  yaml, keys    |
++========+=======+  +========+=======+  +========+=======+
+         |                   |                   |
+         +-------------------+-------------------+
+                             |
+                             v
 +======================================================================+
 |                        DATA MODELS                                   |
 |        Immutable data structures, validation, database mapping       |
 +----------------------------------------------------------------------+
 |                                                                      |
 |   Event   Relay   EventRelay   RelayMetadata   Metadata              |
-|   Nip11   Nip66   NetworkType  MetadataType                          |
+|   NetworkType  MetadataType                                          |
 |                                                                      |
 +======================================================================+
 ```
 
 ### Layer Responsibilities
 
-**Implementation Layer**
+**Deployment Layer** (`deployments/`)
 - Deployment-specific configurations (YAML)
 - SQL schema definitions (DDL)
 - Docker orchestration
 - Environment variables
 - Seed data
 
-**Service Layer**
+**Service Layer** (`src/bigbrotr/services/`)
 - Nostr protocol implementation
 - Business logic workflows
 - State management
 - External API integration
 - Event processing
 
-**Core Layer**
+**Core Layer** (`src/bigbrotr/core/`)
 - Database connection pooling
 - High-level database interface
 - Service lifecycle management
 - Structured logging
 
-**Utils Layer**
+**NIPs Layer** (`src/bigbrotr/nips/`)
+- NIP-11 relay information models
+- NIP-66 monitoring data models
+- Protocol-specific data structures
+
+**Utils Layer** (`src/bigbrotr/utils/`)
 - Network detection and proxy configuration
 - URL and data parsing utilities
 - HTTP/WebSocket transport helpers
 - YAML loading with environment variable support
 - Nostr key management utilities
 
-**Models Layer**
+**Models Layer** (`src/bigbrotr/models/`)
 - Type-safe data structures
 - Validation logic
 - Database parameter extraction
@@ -123,7 +126,7 @@ The core layer provides infrastructure primitives used by all services.
 
 ### Pool: PostgreSQL Connection Manager
 
-**File**: `src/core/pool.py`
+**File**: `src/bigbrotr/core/pool.py`
 
 #### Architecture
 
@@ -242,7 +245,7 @@ def metrics(self) -> Dict[str, Any]:
 
 ### Brotr: Database Interface
 
-**File**: `src/core/brotr.py`
+**File**: `src/bigbrotr/core/brotr.py`
 
 #### Architecture
 
@@ -281,7 +284,7 @@ async def insert_events(
     """Insert events atomically via stored function with array parameters."""
 
     # Validate batch size
-    if len(records) > self.config.batch.max_batch_size:
+    if len(records) > self.config.batch.max_size:
         raise ValueError(f"Batch size {len(records)} exceeds limit")
 
     # Extract array parameters from records
@@ -350,7 +353,7 @@ async def upsert_service_data(
 
 ### BaseService: Service Lifecycle
 
-**File**: `src/core/base_service.py`
+**File**: `src/bigbrotr/core/base_service.py`
 
 #### Architecture
 
@@ -475,7 +478,7 @@ async def __aexit__(self, exc_type, exc_val, exc_tb):
 
 ### Logger: Structured Logging
 
-**File**: `src/core/logger.py`
+**File**: `src/bigbrotr/core/logger.py`
 
 #### Output Formats
 
@@ -811,7 +814,7 @@ class ChecksConfig:
     open: bool = True      # WebSocket connection
     read: bool = True      # REQ/EOSE subscription
     write: bool = True     # EVENT/OK publication
-    nip11_fetch: bool = True  # Info document fetch
+    nip11_info: bool = True  # Info document fetch
     ssl: bool = True       # Certificate validation
     dns: bool = True       # DNS resolution timing
     geo: bool = True       # Geolocation lookup
@@ -1242,7 +1245,7 @@ CREATE INDEX idx_metadata_value ON metadata USING GIN(value jsonb_path_ops);
 CREATE TABLE relay_metadata (
     relay_url TEXT NOT NULL REFERENCES relays(url) ON DELETE CASCADE,
     generated_at BIGINT NOT NULL,
-    metadata_type TEXT NOT NULL,        -- nip11_fetch, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
+    metadata_type TEXT NOT NULL,        -- nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http
     metadata_id BYTEA NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
 
     PRIMARY KEY (relay_url, generated_at, metadata_type)
@@ -1720,7 +1723,7 @@ services:
 
   seeder:
     build: ../..
-    command: python -m services seeder
+    command: python -m bigbrotr seeder
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -1728,7 +1731,7 @@ services:
 
   finder:
     build: ../..
-    command: python -m services finder
+    command: python -m bigbrotr finder
     depends_on:
       seeder:
         condition: service_completed_successfully
@@ -1736,7 +1739,7 @@ services:
 
   validator:
     build: ../..
-    command: python -m services validator
+    command: python -m bigbrotr validator
     depends_on:
       - finder
       - tor
@@ -1744,7 +1747,7 @@ services:
 
   monitor:
     build: ../..
-    command: python -m services monitor
+    command: python -m bigbrotr monitor
     depends_on:
       - validator
     environment:
@@ -1753,7 +1756,7 @@ services:
 
   synchronizer:
     build: ../..
-    command: python -m services synchronizer
+    command: python -m bigbrotr synchronizer
     depends_on:
       - monitor
     deploy:
@@ -1780,7 +1783,7 @@ spec:
       containers:
       - name: synchronizer
         image: bigbrotr:latest
-        command: ["python", "-m", "services", "synchronizer"]
+        command: ["python", "-m", "bigbrotr", "synchronizer"]
         resources:
           requests:
             cpu: 2000m
@@ -1826,7 +1829,7 @@ with event_insert_duration.time():
 BigBrotr is a production-ready, scalable platform for Nostr network intelligence. Its modular architecture, async-first design, and comprehensive monitoring make it suitable for both personal projects and large-scale deployments.
 
 **Key Strengths**:
-- Modular four-layer architecture
+- Diamond DAG architecture with clear dependency flow
 - Async-first with high concurrency
 - Multiprocessing for CPU-bound tasks
 - Immutable data models with validation
