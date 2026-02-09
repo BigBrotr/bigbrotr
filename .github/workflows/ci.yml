@@ -83,7 +83,9 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit --strict --progress-spinner off --skip-editable
+        run: |
+          pip freeze --exclude bigbrotr > /tmp/deps.txt
+          pip-audit --strict --progress-spinner off -r /tmp/deps.txt
         continue-on-error: ${{ matrix.python-version == '3.14' }}
 
       - name: Run tests with coverage
