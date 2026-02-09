@@ -238,7 +238,7 @@ Key areas to analyze:
 - deployments/bigbrotr/postgres/init/ - SQL schema (10 files)
 - tests/ - Test coverage (18 files)
 - docker-compose.yaml, Dockerfile - Container config
-- requirements.txt - Dependencies
+- pyproject.toml - Dependencies
 
 YOUR OUTPUT MUST BE A JSON ARRAY wrapped in a ```json code block.
 

@@ -89,7 +89,7 @@ from bigbrotr.utils.transport import is_nostr_relay
 import logging
 logger = logging.getLogger(__name__)
 
-# Tests: src/ is on sys.path via conftest.py
+# Tests: package installed via pip install -e ".[dev]"
 from bigbrotr.core.logger import Logger, format_kv_pairs
 from bigbrotr.models.event import Event
 from bigbrotr.nips.nip11 import Nip11

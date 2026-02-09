@@ -321,12 +321,11 @@ sudo systemctl enable pgbouncer
 python3 -m venv /opt/bigbrotr/venv
 source /opt/bigbrotr/venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install package
+pip install .
 
 # Set environment
 export DB_PASSWORD=your_secure_password
-export PYTHONPATH=/opt/bigbrotr/src
 ```
 
 ### 4. Running Services
@@ -360,7 +359,6 @@ User=bigbrotr
 Group=bigbrotr
 WorkingDirectory=/opt/bigbrotr/deployments/bigbrotr
 Environment="PATH=/opt/bigbrotr/venv/bin"
-Environment="PYTHONPATH=/opt/bigbrotr/src"
 Environment="DB_PASSWORD=your_secure_password"
 ExecStart=/opt/bigbrotr/venv/bin/python -m bigbrotr finder
 Restart=always

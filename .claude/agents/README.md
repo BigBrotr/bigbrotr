@@ -108,7 +108,7 @@ nostr-expert/
 | Agent | Description | Use in BigBrotr |
 |-------|-------------|-----------------|
 | **refactoring-specialist.md** | Safe and incremental refactoring | Code smell removal, complexity reduction |
-| **dependency-manager.md** | Dependency management and security | requirements.txt, CVE scanning |
+| **dependency-manager.md** | Dependency management and security | pyproject.toml, CVE scanning |
 | **documentation-engineer.md** | Technical documentation | docs/, README, API docs |
 | **legacy-modernizer.md** | System modernization | Python version updates |
 | **data-engineer.md** | Data pipelines and ETL | Event sync pipelines |

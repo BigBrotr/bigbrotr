@@ -504,7 +504,7 @@ Available in `tests/conftest.py`:
 
 ```bash
 # Install dependencies
-pip install -r requirements.txt -r requirements-dev.txt
+pip install -e ".[dev]"
 pre-commit install
 
 # Run tests

@@ -712,7 +712,6 @@ asyncio.get_event_loop().set_debug(True)
             "args": ["finder", "--log-level", "DEBUG"],
             "cwd": "${workspaceFolder}/deployments/bigbrotr",
             "env": {
-                "PYTHONPATH": "${workspaceFolder}/src",
                 "DB_PASSWORD": "your_password"
             }
         },
@@ -723,7 +722,6 @@ asyncio.get_event_loop().set_debug(True)
             "module": "pytest",
             "args": ["tests/", "-v", "-s"],
             "env": {
-                "PYTHONPATH": "${workspaceFolder}/src",
                 "DB_PASSWORD": "test_password"
             }
         }
@@ -737,7 +735,7 @@ asyncio.get_event_loop().set_debug(True)
    - Module: `bigbrotr`
    - Parameters: `finder --log-level DEBUG`
    - Working directory: `deployments/bigbrotr`
-   - Environment: `PYTHONPATH=../../src;DB_PASSWORD=your_password`
+   - Environment: `DB_PASSWORD=your_password`
 
 2. **Test Configuration**:
    - Target: `tests/`

@@ -2,10 +2,10 @@
 # BigBrotr Application Dockerfile
 # ============================================================================
 # Multi-stage build for minimal production image
-# Usage: docker build -t bigbrotr .
+# Usage: docker build -t bigbrotr -f deployments/bigbrotr/Dockerfile .
 # ============================================================================
 
-# Stage 1: Build dependencies
+# Stage 1: Build wheels
 FROM python:3.11-slim AS builder
 
 WORKDIR /build
@@ -18,9 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsecp256k1-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install dependencies
-COPY requirements.txt .
-RUN pip wheel --no-cache-dir --no-deps --wheel-dir /build/wheels -r requirements.txt
+# Build wheels from pyproject.toml (includes bigbrotr + all dependencies)
+COPY pyproject.toml .
+COPY src/ ./src/
+RUN pip wheel --no-cache-dir --wheel-dir /build/wheels .
 
 # Stage 2: Production image
 FROM python:3.11-slim
@@ -28,7 +29,7 @@ FROM python:3.11-slim
 # Labels
 LABEL maintainer="BigBrotr Contributors"
 LABEL description="BigBrotr - Nostr data archiving and monitoring system"
-LABEL version="0.1.0"
+LABEL version="4.0.0"
 
 # Create non-root user for security
 RUN groupadd --gid 1000 bigbrotr && \
@@ -36,31 +37,19 @@ RUN groupadd --gid 1000 bigbrotr && \
 
 WORKDIR /app
 
-# Install runtime and build dependencies for secp256k1
+# Install runtime dependencies for secp256k1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libsecp256k1-dev \
-    pkg-config \
-    gcc \
-    make \
-    automake \
-    libtool \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy wheels from builder and install
+# Install wheels from builder (includes bigbrotr package + console_scripts)
 COPY --from=builder /build/wheels /wheels
 RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
 
-# Remove build dependencies to reduce image size (keep libsecp256k1 runtime)
-RUN apt-get purge -y --auto-remove gcc pkg-config make automake libtool && \
-    apt-get clean
-
-# Copy application source and set ownership
-COPY --chown=bigbrotr:bigbrotr src/ /app/src/
+# Copy config (needed at runtime, not part of the package)
 COPY --chown=bigbrotr:bigbrotr deployments/bigbrotr/config/ /app/config/
 
-# Set Python path
-ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
 
 # Default environment variables
@@ -75,5 +64,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)"
 
 # Default command - can be overridden
-# Usage: docker run bigbrotr python -m bigbrotr seeder
+# Usage: docker run bigbrotr bigbrotr seeder
 CMD ["python", "-c", "print('BigBrotr ready. Specify service to run.')"]
