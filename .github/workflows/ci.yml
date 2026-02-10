@@ -34,15 +34,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION_DEFAULT }}
 
       - name: Run pre-commit
-        uses: pre-commit/action@v3.0.1
+        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
   # --------------------------------------------------------------------------
   # Test: Run tests across Python versions (all with coverage)
@@ -60,16 +60,16 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: ${{ matrix.allow-prereleases || false }}
 
       - name: Cache pip dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.11'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0561704f0f02c16a585d4c7555e57fa2e44cf909 # v5.5.2
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
@@ -124,13 +124,13 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build BigBrotr image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           file: deployments/Dockerfile
@@ -142,7 +142,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build LilBrotr image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           file: deployments/Dockerfile
@@ -154,7 +154,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Scan BigBrotr image (gate)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
           image-ref: bigbrotr:${{ github.sha }}
           format: table
@@ -163,7 +163,7 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Scan BigBrotr image (report)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         if: always()
         with:
           image-ref: bigbrotr:${{ github.sha }}
@@ -174,14 +174,14 @@ jobs:
           severity: CRITICAL,HIGH,MEDIUM
 
       - name: Upload BigBrotr scan results
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@f3a6ee42055dd5f618fb31d987aae7b94518f043 # v4.32.2
         if: always()
         with:
           sarif_file: trivy-bigbrotr.sarif
           category: trivy-bigbrotr
 
       - name: Scan LilBrotr image (gate)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
           image-ref: lilbrotr:${{ github.sha }}
           format: table
@@ -190,7 +190,7 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Scan LilBrotr image (report)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         if: always()
         with:
           image-ref: lilbrotr:${{ github.sha }}
@@ -201,7 +201,7 @@ jobs:
           severity: CRITICAL,HIGH,MEDIUM
 
       - name: Upload LilBrotr scan results
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@f3a6ee42055dd5f618fb31d987aae7b94518f043 # v4.32.2
         if: always()
         with:
           sarif_file: trivy-lilbrotr.sarif
