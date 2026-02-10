@@ -287,14 +287,18 @@ pre-commit install
 make lint          # ruff check src/ tests/
 make format        # ruff format src/ tests/
 make typecheck     # mypy src/bigbrotr (strict mode)
-make test          # pytest tests/ (2049 unit tests)
-make test-fast     # pytest -m "not slow"
-make coverage      # pytest --cov with HTML report
-make ci            # all checks: lint + format + typecheck + test
-make docker-build  # build Docker image (DEPLOYMENT=bigbrotr)
-make docker-up     # start Docker stack
-make docker-down   # stop Docker stack
-make clean         # remove build artifacts and caches
+make test-unit        # pytest unit tests (2049 tests)
+make test-integration # pytest integration tests (requires Docker)
+make test-fast        # pytest -m "not slow"
+make coverage         # pytest --cov with HTML report
+make ci               # all checks: lint + format + typecheck + test-unit
+make docs             # build MkDocs documentation site
+make docs-serve       # serve docs locally with live reload
+make build            # build Python package (sdist + wheel)
+make docker-build     # build Docker image (DEPLOYMENT=bigbrotr)
+make docker-up        # start Docker stack
+make docker-down      # stop Docker stack
+make clean            # remove build artifacts and caches
 ```
 
 ### Test Suite
@@ -310,9 +314,12 @@ make clean         # remove build artifacts and caches
 | Stage | Tool | Purpose |
 |-------|------|---------|
 | Pre-commit | ruff, mypy, yamllint, detect-secrets, markdownlint, hadolint, sqlfluff | Code quality gates |
-| Test | pytest (Python 3.11--3.14 matrix) | Unit + coverage |
+| Unit Test | pytest (Python 3.11--3.14 matrix) | Unit tests + coverage |
+| Integration Test | pytest + testcontainers | PostgreSQL integration tests |
+| Build | Docker Buildx (matrix) | Multi-deployment image builds + Trivy scan |
 | Security | pip-audit, Trivy, CodeQL | Dependency vulns, container scanning, static analysis |
-| Build | Docker Buildx | Multi-deployment image builds |
+| Release | PyPI (OIDC) + GHCR | Package + Docker image publishing, SBOM generation |
+| Docs | MkDocs Material | Auto-generated API docs deployed to GitHub Pages |
 | Dependencies | Dependabot | Weekly updates for pip, Docker, GitHub Actions |
 
 ---

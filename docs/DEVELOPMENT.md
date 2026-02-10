@@ -83,16 +83,21 @@ bigbrotr/
 make lint           # ruff check src/ tests/
 make format         # ruff format src/ tests/
 make typecheck      # mypy src/bigbrotr
-make test           # pytest (excluding integration tests)
-make test-fast      # pytest -m "not slow"
-make coverage       # pytest with HTML coverage report
-make ci             # All checks: lint + format + typecheck + test
+make test-unit        # pytest unit tests (excluding integration)
+make test-integration # pytest integration tests (requires Docker)
+make test-fast        # pytest -m "not slow"
+make coverage         # pytest with HTML coverage report
+make ci               # All checks: lint + format + typecheck + test-unit
 
-make docker-build   # Build Docker image (DEPLOYMENT=bigbrotr)
-make docker-up      # Start Docker stack
-make docker-down    # Stop Docker stack
+make docs             # Build MkDocs documentation site
+make docs-serve       # Serve docs locally with live reload
+make build            # Build Python package (sdist + wheel)
 
-make clean          # Remove build artifacts and caches
+make docker-build     # Build Docker image (DEPLOYMENT=bigbrotr)
+make docker-up        # Start Docker stack
+make docker-down      # Stop Docker stack
+
+make clean            # Remove build artifacts and caches
 ```
 
 ### Direct Commands
@@ -181,10 +186,10 @@ mock_brotr.execute.return_value = "DELETE 5"
 
 ```bash
 # All unit tests
-pytest tests/ -v
+make test-unit
 
 # Skip slow tests
-pytest -m "not slow" -v
+make test-fast
 
 # Single file or class
 pytest tests/unit/core/test_pool.py -v
@@ -197,7 +202,7 @@ pytest -k "test_health_check" -v
 pytest tests/integration/ -v
 
 # Coverage report
-pytest tests/ --cov=src/bigbrotr --cov-report=html
+make coverage
 open htmlcov/index.html
 ```
 
