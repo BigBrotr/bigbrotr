@@ -19,6 +19,15 @@ class NetworkType(StrEnum):
 
     Values: CLEARNET (wss://), TOR (.onion), I2P (.i2p), LOKI (.loki),
     LOCAL (private/rejected), UNKNOWN (invalid/rejected).
+
+    Examples:
+        Network detection is performed by `Relay._detect_network()`:
+
+        ```python
+        Relay("wss://relay.damus.io").network   # NetworkType.CLEARNET
+        Relay("ws://abc123.onion").network       # NetworkType.TOR
+        Relay("ws://relay.i2p").network          # NetworkType.I2P
+        ```
     """
 
     CLEARNET = "clearnet"

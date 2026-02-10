@@ -76,6 +76,22 @@ class Metadata:
     Attributes:
         type: The metadata classification (see ``MetadataType``).
         value: Sanitized JSON-compatible dictionary.
+
+    Examples:
+        ```python
+        meta = Metadata(type=MetadataType.NIP11_INFO, value={"name": "My Relay"})
+        meta.content_hash    # 32-byte SHA-256 digest
+        meta.canonical_json  # '{"name":"My Relay"}'
+        meta.to_db_params()  # MetadataDbParams(...)
+        ```
+
+        Identical values always produce the same hash (content-addressed):
+
+        ```python
+        m1 = Metadata(type=MetadataType.NIP11_INFO, value={"b": 2, "a": 1})
+        m2 = Metadata(type=MetadataType.NIP11_INFO, value={"a": 1, "b": 2})
+        m1.content_hash == m2.content_hash  # True
+        ```
     """
 
     _DEFAULT_MAX_DEPTH: ClassVar[int] = 50

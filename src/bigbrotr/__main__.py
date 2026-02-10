@@ -4,15 +4,13 @@ Provides a unified command-line interface to run any BigBrotr service.
 Services can run in one-shot mode (``--once``) or continuously with a
 Prometheus metrics server.
 
-Usage::
-
+Examples:
+    ```bash
     python -m bigbrotr <service> [options]
-
-Examples::
-
     python -m bigbrotr seeder --once
     python -m bigbrotr finder --log-level DEBUG
     python -m bigbrotr monitor --config config/services/monitor.yaml
+    ```
 """
 
 import argparse

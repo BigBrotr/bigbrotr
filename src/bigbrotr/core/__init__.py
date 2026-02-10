@@ -1,21 +1,29 @@
-"""
-Core layer providing the foundation for all BigBrotr services.
+"""Core layer providing the foundation for all BigBrotr services.
 
-Components:
-    Pool:           Async PostgreSQL connection pool with retry and health checks.
-    Brotr:          High-level database interface wrapping stored procedures.
-    BaseService:    Abstract generic base class for services with typed config.
-    Logger:         Structured logger supporting key=value and JSON output.
-    MetricsServer:  Prometheus HTTP endpoint for metrics exposition.
+Sits in the middle of the diamond DAG -- depends only on
+`bigbrotr.models` and is depended upon by `bigbrotr.services`.
 
-Example:
+Attributes:
+    Pool: Async PostgreSQL connection pool with retry/backoff and health checks.
+    Brotr: High-level database facade wrapping stored procedures via
+        `_call_procedure()`. Services use Brotr, never Pool directly.
+    BaseService: Abstract generic base class with lifecycle management
+        (`run`/`run_forever`/shutdown), factory methods (`from_yaml`,
+        `from_dict`), and Prometheus metrics integration.
+    Logger: Structured logger supporting key=value and JSON output modes.
+    MetricsServer: Prometheus `/metrics` HTTP endpoint for metrics exposition.
+    Exceptions: `BigBrotrError` hierarchy with transient vs permanent distinction.
+    YAML: Safe YAML loading with `yaml.safe_load()` to prevent code execution.
+
+Examples:
+    ```python
     from bigbrotr.core import Pool, Brotr, Logger
 
     pool = Pool.from_yaml("config.yaml")
     brotr = Brotr(pool=pool)
-
     async with brotr:
         await brotr.insert_relay([...])
+    ```
 """
 
 from .base_service import (

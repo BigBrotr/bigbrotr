@@ -5,20 +5,21 @@ Lokinet). Each network type has its own config class with sensible defaults,
 allowing partial YAML overrides (e.g., setting only ``tor.enabled: true``
 inherits the default ``proxy_url``).
 
-Per-network config fields:
-    - ``enabled``: Whether to process relays on this network.
-    - ``proxy_url``: SOCKS5 proxy URL for overlay networks.
-    - ``max_tasks``: Maximum concurrent connections.
-    - ``timeout``: Connection timeout in seconds.
+Attributes:
+    enabled: Whether to process relays on this network.
+    proxy_url: SOCKS5 proxy URL for overlay networks.
+    max_tasks: Maximum concurrent connections.
+    timeout: Connection timeout in seconds.
 
-Example YAML::
-
+Examples:
+    ```yaml
     networks:
       clearnet:
         enabled: true
         max_tasks: 100
       tor:
         enabled: true  # Inherits default proxy_url
+    ```
 """
 
 from __future__ import annotations
@@ -100,12 +101,13 @@ class NetworkConfig(BaseModel):
     enabled state, proxy URLs, and network-specific configs. Designed to
     be embedded in service configuration models.
 
-    Example::
-
+    Examples:
+        ```python
         config = NetworkConfig(tor=TorConfig(enabled=True))
         config.is_enabled(NetworkType.TOR)  # True
         config.get_proxy_url(NetworkType.TOR)  # 'socks5://tor:9050'
         config.get_enabled_networks()  # ['clearnet', 'tor']
+        ```
     """
 
     clearnet: ClearnetConfig = Field(default_factory=ClearnetConfig)

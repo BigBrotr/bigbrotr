@@ -74,8 +74,8 @@ class BatchProgressMixin:
     Services that process items in batches compose this mixin to get
     a ``_progress`` attribute with counters and timing.
 
-    Example::
-
+    Examples:
+        ```python
         class MyService(BatchProgressMixin, BaseService[MyConfig]):
             def __init__(self, brotr, config):
                 super().__init__(brotr=brotr, config=config)
@@ -84,6 +84,7 @@ class BatchProgressMixin:
             async def run(self):
                 self._progress.reset()
                 ...
+        ```
     """
 
     _progress: BatchProgress

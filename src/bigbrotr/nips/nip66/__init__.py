@@ -1,37 +1,38 @@
-"""
-NIP-66 Relay Monitoring and Discovery models.
+"""NIP-66 Relay Monitoring and Discovery models.
 
 Implements relay capability testing and monitoring data collection as
 defined by NIP-66. Each test type (RTT, SSL, GEO, NET, DNS, HTTP) has
 its own data model, logs model, and metadata container. Raw data is
-sanitized through ``parse()`` methods and validated into typed, frozen
+sanitized through `parse()` methods and validated into typed, frozen
 Pydantic models. Invalid fields or wrong types are silently dropped.
 
 See: https://github.com/nostr-protocol/nips/blob/master/66.md
 
-Model hierarchy::
+Model hierarchy:
 
-    Nip66                                        Top-level container
-    +-- relay: Relay                             Source relay reference
-    +-- generated_at: int                        Unix timestamp
-    +-- rtt_metadata: Nip66RttMetadata           Round-trip time probes
-    |   +-- data: Nip66RttData
-    |   +-- logs: Nip66RttMultiPhaseLogs          (open/read/write results)
-    +-- ssl_metadata: Nip66SslMetadata           SSL/TLS certificate
-    |   +-- data: Nip66SslData
-    |   +-- logs: Nip66SslLogs
-    +-- geo_metadata: Nip66GeoMetadata           Geolocation (GeoIP)
-    |   +-- data: Nip66GeoData
-    |   +-- logs: Nip66GeoLogs
-    +-- net_metadata: Nip66NetMetadata           Network/ASN info
-    |   +-- data: Nip66NetData
-    |   +-- logs: Nip66NetLogs
-    +-- dns_metadata: Nip66DnsMetadata           DNS resolution
-    |   +-- data: Nip66DnsData
-    |   +-- logs: Nip66DnsLogs
-    +-- http_metadata: Nip66HttpMetadata         HTTP server headers
-        +-- data: Nip66HttpData
-        +-- logs: Nip66HttpLogs
+```text
+Nip66                                        Top-level container
++-- relay: Relay                             Source relay reference
++-- generated_at: int                        Unix timestamp
++-- rtt_metadata: Nip66RttMetadata           Round-trip time probes
+|   +-- data: Nip66RttData
+|   +-- logs: Nip66RttMultiPhaseLogs          (open/read/write results)
++-- ssl_metadata: Nip66SslMetadata           SSL/TLS certificate
+|   +-- data: Nip66SslData
+|   +-- logs: Nip66SslLogs
++-- geo_metadata: Nip66GeoMetadata           Geolocation (GeoIP)
+|   +-- data: Nip66GeoData
+|   +-- logs: Nip66GeoLogs
++-- net_metadata: Nip66NetMetadata           Network/ASN info
+|   +-- data: Nip66NetData
+|   +-- logs: Nip66NetLogs
++-- dns_metadata: Nip66DnsMetadata           DNS resolution
+|   +-- data: Nip66DnsData
+|   +-- logs: Nip66DnsLogs
++-- http_metadata: Nip66HttpMetadata         HTTP server headers
+    +-- data: Nip66HttpData
+    +-- logs: Nip66HttpLogs
+```
 """
 
 from .data import (

@@ -11,7 +11,8 @@ automatically on transient connection errors (InterfaceError,
 ConnectionDoesNotExistError) but do not retry on query-level errors such as
 syntax errors or constraint violations.
 
-Example:
+Examples:
+    ```python
     pool = Pool.from_yaml("config.yaml")
 
     async with pool:
@@ -19,6 +20,7 @@ Example:
 
         async with pool.transaction() as conn:
             await conn.execute("INSERT INTO relay ...")
+    ```
 """
 
 from __future__ import annotations
@@ -216,7 +218,8 @@ class Pool:
     ``PoolConfig`` object, or factory methods ``from_yaml()``/``from_dict()``
     for configuration-driven setup.
 
-    Example:
+    Examples:
+        ```python
         pool = Pool.from_yaml("config.yaml")
 
         async with pool:
@@ -224,6 +227,7 @@ class Pool:
 
             async with pool.transaction() as conn:
                 await conn.execute("INSERT INTO ...")
+        ```
     """
 
     def __init__(self, config: PoolConfig | None = None) -> None:
@@ -378,9 +382,11 @@ class Pool:
         Raises:
             RuntimeError: If the pool has not been connected yet.
 
-        Example:
+        Examples:
+            ```python
             async with pool.acquire() as conn:
                 result = await conn.fetch("SELECT * FROM event")
+            ```
         """
         if not self._is_connected or self._pool is None:
             raise RuntimeError("Pool not connected. Call connect() first.")
@@ -457,11 +463,13 @@ class Pool:
             RuntimeError: If the pool has not been connected yet.
             asyncpg.PostgresError: On database errors (triggers rollback).
 
-        Example:
+        Examples:
+            ```python
             async with pool.transaction() as conn:
                 await conn.execute("INSERT INTO events ...")
                 await conn.execute("INSERT INTO relays ...")
                 # Both succeed together or roll back on error.
+            ```
         """
         async with self.acquire() as conn, conn.transaction():
             yield conn

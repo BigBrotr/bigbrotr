@@ -1,18 +1,23 @@
-"""BigBrotr utility package.
+"""DNS resolution, Nostr key management, and WebSocket/HTTP transport.
 
-Re-exports commonly used utilities for convenient imports across the codebase:
+The utils layer sits in the middle of the diamond DAG, depending only on
+`bigbrotr.models`. It provides low-level network and cryptographic utilities
+used by `bigbrotr.nips` and `bigbrotr.services`.
 
-- **Configuration**: ``KeysConfig``
-- **Transport**: ``create_client`` (Nostr client factory)
-- **DNS**: ``resolve_host``, ``ResolvedHost``
-- **Network types**: ``NetworkType`` (canonical home: ``bigbrotr.models.constants``)
+Attributes:
+    dns: Async DNS resolution of A, AAAA, and CNAME records via the system
+        resolver. Used by NIP-66 DNS tests.
+    keys: Nostr key pair loading from environment variables (nsec1 bech32 or
+        hex format) with Pydantic validation. Required by Monitor for signing.
+    transport: WebSocket/HTTP client factory with SSL fallback strategy.
+        Clearnet tries verified SSL first, falls back to insecure if cert errors
+        and `allow_insecure=True`. Overlay networks (Tor/I2P/Lokinet) require
+        `proxy_url` and always use insecure SSL context.
 
-Network configuration models (``NetworkConfig``, ``ClearnetConfig``, etc.) live in
-``bigbrotr.services.common.configs``.  Import them directly from there.
-
-Example::
-
+Examples:
+    ```python
     from bigbrotr.utils import create_client, KeysConfig
+    ```
 """
 
 from bigbrotr.models.constants import NetworkType

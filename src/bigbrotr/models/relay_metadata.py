@@ -52,6 +52,17 @@ class RelayMetadata:
         relay: The relay this metadata belongs to.
         metadata: The metadata payload (with type and content hash).
         generated_at: Unix timestamp when the metadata was collected (defaults to now).
+
+    Examples:
+        ```python
+        relay = Relay("wss://relay.damus.io")
+        meta = Metadata(type=MetadataType.NIP11_INFO, value={"name": "Damus"})
+        rm = RelayMetadata(relay=relay, metadata=meta)
+        rm.generated_at       # Auto-set to current time
+        params = rm.to_db_params()
+        params.relay_url      # 'wss://relay.damus.io'
+        params.metadata_type  # MetadataType.NIP11_INFO
+        ```
     """
 
     relay: Relay

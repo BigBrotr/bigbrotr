@@ -37,6 +37,13 @@ async def resolve_host(host: str) -> ResolvedHost:
 
     Returns:
         ResolvedHost with resolved addresses (None for failed lookups).
+
+    Examples:
+        ```python
+        result = await resolve_host("relay.damus.io")
+        result.ipv4    # '35.232.163.46'
+        result.has_ip  # True
+        ```
     """
     ipv4: str | None = None
     ipv6: str | None = None

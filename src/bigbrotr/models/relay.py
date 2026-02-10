@@ -51,6 +51,24 @@ class Relay:
     Raises:
         ValueError: If the URL is malformed, uses an unsupported scheme,
             resolves to a local/private address, or contains null bytes.
+
+    Examples:
+        ```python
+        relay = Relay("wss://relay.damus.io")
+        relay.url       # 'wss://relay.damus.io'
+        relay.network   # NetworkType.CLEARNET
+        relay.scheme    # 'wss'
+        relay.to_db_params()
+        # RelayDbParams(url='wss://relay.damus.io', network='clearnet', ...)
+        ```
+
+        Overlay networks automatically use `ws://`:
+
+        ```python
+        tor_relay = Relay("wss://abc123.onion")
+        tor_relay.scheme    # 'ws'
+        tor_relay.network   # NetworkType.TOR
+        ```
     """
 
     # Input fields

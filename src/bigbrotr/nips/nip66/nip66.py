@@ -120,6 +120,16 @@ class Nip66(BaseModel):
         dns: DNS resolution data (clearnet only).
         http: HTTP server headers.
         generated_at: Unix timestamp of when monitoring was performed.
+
+    Examples:
+        ```python
+        relay = Relay("wss://relay.damus.io")
+        selection = Nip66TestSelection(rtt=False, geo=False, net=False)
+        nip66 = await Nip66.create(relay, timeout=10.0, selection=selection)
+        nip66.ssl is not None    # True (SSL test ran)
+        nip66.rtt is None        # True (RTT was disabled)
+        records = nip66.to_relay_metadata_tuple()
+        ```
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)

@@ -7,13 +7,14 @@ private key formats.
 Private keys must never be stored in configuration files or source code.
 Always use environment variables or a secure secret management system.
 
-Example::
-
+Examples:
+    ```python
     import os
 
     os.environ["PRIVATE_KEY"] = "nsec1..."  # pragma: allowlist secret
     keys = load_keys_from_env("PRIVATE_KEY")
     print(keys.public_key().to_bech32())
+    ```
 """
 
 from __future__ import annotations

@@ -15,7 +15,8 @@ and appends it as key=value pairs. When installed on the root handler, it
 unifies output from both ``Logger`` and plain ``logging.getLogger()`` calls
 used in the models and utils layers.
 
-Example:
+Examples:
+    ```python
     from core.logger import Logger
 
     logger = Logger("finder")
@@ -25,6 +26,7 @@ Example:
     json_logger = Logger("finder", json_output=True)
     json_logger.info("started", cycle=1)
     # Output: {"message": "started", "cycle": 1}
+    ```
 """
 
 import datetime
@@ -97,13 +99,15 @@ class Logger:
     key=value pairs or JSON, depending on configuration. All public methods
     mirror the standard logging API with an added ``**kwargs`` parameter.
 
-    Example:
+    Examples:
+        ```python
         logger = Logger("finder")
         logger.info("cycle_completed", cycle=1, duration=2.5)
         # Output: cycle_completed cycle=1 duration=2.5
 
         logger.info("relay_found", url="wss://relay.example.com")
         # Output: relay_found url=wss://relay.example.com
+        ```
     """
 
     _DEFAULT_MAX_VALUE_LENGTH: ClassVar[int] = 1000

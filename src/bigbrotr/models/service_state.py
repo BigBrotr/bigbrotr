@@ -40,6 +40,18 @@ class ServiceState:
 
     Used as input to ``Brotr.upsert_service_state()`` and as return type
     from ``Brotr.get_service_state()``.
+
+    Examples:
+        ```python
+        state = ServiceState(
+            service_name="synchronizer",
+            state_type="cursor",
+            state_key="wss://relay.damus.io",
+            payload={"last_seen": 1700000000},
+            updated_at=1700000001,
+        )
+        state.service_name  # 'synchronizer'
+        ```
     """
 
     service_name: str

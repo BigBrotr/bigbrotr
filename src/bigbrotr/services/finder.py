@@ -11,8 +11,8 @@ Discovers Nostr relay URLs from two sources:
 
 Discovered URLs are inserted as validation candidates for the Validator service.
 
-Usage::
-
+Examples:
+    ```python
     from bigbrotr.core import Brotr
     from bigbrotr.services import Finder
 
@@ -22,6 +22,7 @@ Usage::
     async with brotr:
         async with finder:
             await finder.run_forever()
+    ```
 """
 
 from __future__ import annotations

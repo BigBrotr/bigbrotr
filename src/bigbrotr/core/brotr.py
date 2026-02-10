@@ -109,7 +109,8 @@ class Brotr:
     execute, transaction) as a facade over the pool. Implements async
     context manager for automatic pool lifecycle management.
 
-    Example:
+    Examples:
+        ```python
         brotr = Brotr.from_yaml("config.yaml")
 
         async with brotr:
@@ -118,6 +119,7 @@ class Brotr:
 
             event_relay = EventRelay(Event(nostr_event), relay)
             await brotr.insert_event_relay(records=[event_relay])
+        ```
     """
 
     def __init__(
@@ -352,10 +354,12 @@ class Brotr:
         The transaction commits automatically on normal exit and rolls back
         if an exception propagates.
 
-        Example:
+        Examples:
+            ```python
             async with self._brotr.transaction() as conn:
                 await conn.execute("INSERT INTO ...")
                 await conn.execute("DELETE FROM ...")
+            ```
         """
         return self._pool.transaction()
 

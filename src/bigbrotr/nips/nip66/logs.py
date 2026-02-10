@@ -22,13 +22,10 @@ class Nip66RttMultiPhaseLogs(BaseModel):
     Unlike other log models, RTT probes track three separate phases
     (open, read, write), each with its own success/reason pair.
 
-    Validation rules:
-
-    * ``open_success`` is mandatory; read and write are optional.
-    * If ``open_success`` is False, read and write must also be False
-      (cascading failure).
-    * For each phase: ``success=True`` requires ``reason=None``;
-      ``success=False`` requires a non-None ``reason`` string.
+    The ``open_success`` field is mandatory; read and write are optional.
+    If ``open_success`` is False, read and write must also be False
+    (cascading failure). For each phase, ``success=True`` requires
+    ``reason=None``; ``success=False`` requires a non-None ``reason`` string.
     """
 
     model_config = ConfigDict(frozen=True)

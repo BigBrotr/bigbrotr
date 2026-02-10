@@ -3,15 +3,16 @@
 Collects Nostr events from validated relays and stores them in the database.
 Uses asyncio.TaskGroup with a semaphore for structured, bounded concurrency.
 
-Workflow:
-    1. Fetch relays from the database (optionally filtered by metadata age).
-    2. Load per-relay sync cursors from the service_state table.
-    3. Connect to each relay and fetch events since the last sync timestamp.
-    4. Validate event signatures and timestamps before insertion.
-    5. Update per-relay cursors for the next cycle.
+The synchronization workflow proceeds as follows:
 
-Usage::
+1. Fetch relays from the database (optionally filtered by metadata age).
+2. Load per-relay sync cursors from the service_state table.
+3. Connect to each relay and fetch events since the last sync timestamp.
+4. Validate event signatures and timestamps before insertion.
+5. Update per-relay cursors for the next cycle.
 
+Examples:
+    ```python
     from bigbrotr.core import Brotr
     from bigbrotr.services import Synchronizer
 
@@ -21,6 +22,7 @@ Usage::
     async with brotr:
         async with sync:
             await sync.run_forever()
+    ```
 """
 
 from __future__ import annotations
@@ -496,12 +498,10 @@ class Synchronizer(BaseService[SynchronizerConfig]):
     database. Uses asyncio.TaskGroup with a semaphore for structured,
     bounded concurrency.
 
-    Workflow:
-        1. Fetch relays from the database (plus any configured overrides).
-        2. Load per-relay sync cursors from service_state.
-        3. Connect to each relay and fetch events since the last sync.
-        4. Validate signatures and timestamps, then batch-insert events.
-        5. Update per-relay cursors for the next cycle.
+    Each cycle fetches relays from the database, loads per-relay sync
+    cursors from service_state, connects to each relay to fetch events
+    since the last sync, validates signatures and timestamps, batch-inserts
+    events, and updates per-relay cursors for the next cycle.
     """
 
     SERVICE_NAME: ClassVar[str] = ServiceName.SYNCHRONIZER

@@ -1,11 +1,15 @@
 """Shared infrastructure for all BigBrotr services.
 
-This package provides four stable modules:
-
-- **configs**: ``NetworkConfig`` and per-network configuration models.
-- **constants**: ``ServiceName``, ``StateType``, ``ServiceState``, ``ServiceStateKey``.
-- **mixins**: ``BatchProgressMixin`` and ``NetworkSemaphoreMixin``.
-- **queries**: Domain-specific SQL query functions.
+Attributes:
+    configs: Per-network Pydantic configuration models (`ClearnetConfig`,
+        `TorConfig`, `I2pConfig`, `LokiConfig`) with sensible defaults
+        for timeouts, proxy URLs, and max concurrent tasks.
+    constants: `ServiceName` and `DataType` StrEnums identifying pipeline
+        services and data categories.
+    mixins: `BatchProgress` dataclass for tracking batch processing cycles
+        and `NetworkSemaphoreMixin` for per-network concurrency control.
+    queries: 13 domain-specific SQL query functions centralized in one module
+        to avoid scattering inline SQL across services.
 """
 
 from .configs import (

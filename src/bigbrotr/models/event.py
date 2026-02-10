@@ -48,6 +48,18 @@ class Event:
     Raises:
         ValueError: If content or tags contain null bytes, or if
             database parameter conversion fails.
+
+    Examples:
+        ```python
+        from nostr_sdk import Event as NostrEvent
+
+        nostr_event = NostrEvent.from_json('{"id": "ab...", ...}')
+        event = Event(nostr_event)
+        event.id()         # Delegates to nostr_sdk.Event
+        event.content()    # Delegates to nostr_sdk.Event
+        params = event.to_db_params()
+        params.kind        # Integer event kind (e.g. 1)
+        ```
     """
 
     _nostr_event: NostrEvent

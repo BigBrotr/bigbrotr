@@ -4,17 +4,13 @@ Performs comprehensive health checks on relays and stores results as
 content-addressed metadata. Optionally publishes Kind 30166 relay discovery
 events and Kind 10166 monitor announcements to the Nostr network.
 
-Health checks performed:
-    - NIP-11: Fetch relay information document.
-    - RTT: Round-trip time measurement for open/read/write operations.
-    - SSL: Certificate chain validation and expiry check (clearnet only).
-    - DNS: Hostname resolution timing and record lookup (clearnet only).
-    - Geo: IP geolocation with country, city, and coordinates (clearnet only).
-    - Net: Network information including ASN and organization (clearnet only).
-    - HTTP: HTTP metadata including status codes and headers.
+Health checks include NIP-11 (relay info document), RTT (open/read/write
+round-trip times), SSL (certificate chain validation, clearnet only),
+DNS (hostname resolution, clearnet only), Geo (IP geolocation, clearnet only),
+Net (ASN/organization info, clearnet only), and HTTP (status codes and headers).
 
-Usage::
-
+Examples:
+    ```python
     from bigbrotr.core import Brotr
     from bigbrotr.services import Monitor
 
@@ -24,6 +20,7 @@ Usage::
     async with brotr:
         async with monitor:
             await monitor.run_forever()
+    ```
 """
 
 from __future__ import annotations
@@ -350,15 +347,11 @@ class Monitor(
     - Kind 10166: Monitor announcement (capabilities, frequency, timeouts).
     - Kind 30166: Per-relay discovery event (RTT, SSL, geo, NIP-11 tags).
 
-    Workflow:
-        1. Update and open GeoLite2 databases if geo/net checks are enabled.
-        2. Publish profile (Kind 0) and announcement (Kind 10166) if due.
-        3. Fetch relays needing checks (not checked within the discovery interval).
-        4. Process relays in configurable chunks with per-network semaphores.
-        5. Persist metadata results and save checkpoints for all checked relays.
-        6. Publish Kind 30166 discovery events for successful checks.
-
-    Network support: clearnet (direct), Tor, I2P, and Lokinet (via SOCKS5 proxy).
+    Each cycle updates GeoLite2 databases, publishes profile/announcement
+    events if due, fetches relays needing checks, processes them in chunks
+    with per-network semaphores, persists metadata results, and publishes
+    Kind 30166 discovery events. Supports clearnet (direct), Tor, I2P,
+    and Lokinet (via SOCKS5 proxy).
     """
 
     SERVICE_NAME: ClassVar[str] = ServiceName.MONITOR

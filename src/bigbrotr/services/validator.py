@@ -8,8 +8,8 @@ retried in future cycles.
 Validation criteria: a candidate is valid if it accepts a WebSocket connection
 and responds to a Nostr REQ message with EOSE, EVENT, NOTICE, or AUTH.
 
-Usage::
-
+Examples:
+    ```python
     from bigbrotr.core import Brotr
     from bigbrotr.services import Validator
 
@@ -19,6 +19,7 @@ Usage::
     async with brotr:
         async with validator:
             await validator.run_forever()
+    ```
 """
 
 from __future__ import annotations
@@ -132,17 +133,11 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
     promoted to the relays table; invalid ones have their failure counter
     incremented for retry in future cycles.
 
-    Workflow:
-        1. Initialize per-network concurrency semaphores.
-        2. Clean up stale candidates (URLs already in the relays table).
-        3. Optionally remove exhausted candidates (exceeded max failures).
-        4. Process remaining candidates in configurable chunks:
-           a. Fetch chunk ordered by failure count ASC, then age ASC.
-           b. Validate concurrently (respecting per-network semaphores).
-           c. Promote valid relays; increment failure count for invalid ones.
-        5. Emit Prometheus metrics and log completion statistics.
-
-    Network support: clearnet (direct), Tor (.onion via SOCKS5), I2P (.i2p via SOCKS5).
+    Each cycle initializes per-network semaphores, cleans up stale/exhausted
+    candidates, then processes remaining candidates in configurable chunks.
+    Valid relays are promoted; invalid ones have their failure count
+    incremented. Supports clearnet (direct), Tor (.onion via SOCKS5),
+    and I2P (.i2p via SOCKS5).
     """
 
     SERVICE_NAME: ClassVar[str] = ServiceName.VALIDATOR

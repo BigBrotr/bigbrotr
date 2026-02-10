@@ -8,8 +8,8 @@ Relay URLs are read from a text file (one URL per line) and can be
 inserted either as validation candidates (picked up by Validator) or
 directly into the relays table.
 
-Usage::
-
+Examples:
+    ```python
     from bigbrotr.core import Brotr
     from bigbrotr.services import Seeder
 
@@ -18,6 +18,7 @@ Usage::
 
     async with brotr:
         await seeder.run()
+    ```
 """
 
 from __future__ import annotations

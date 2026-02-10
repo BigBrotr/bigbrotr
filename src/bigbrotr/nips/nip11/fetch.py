@@ -5,9 +5,9 @@ Pairs ``Nip11FetchData`` with ``Nip11FetchLogs`` and provides the
 ``execute()`` class method that performs the actual HTTP request to
 retrieve a relay's NIP-11 information document.
 
-.. note::
-   The class was renamed from ``Nip11FetchMetadata`` to ``Nip11InfoMetadata``
-   in v3.1.0 to describe the *data* (info) rather than the *operation* (fetch).
+Note:
+    The class was renamed from ``Nip11FetchMetadata`` to ``Nip11InfoMetadata``
+    in v3.1.0 to describe the *data* (info) rather than the *operation* (fetch).
 """
 
 from __future__ import annotations
@@ -125,13 +125,10 @@ class Nip11InfoMetadata(BaseMetadata):
         Connects via HTTP(S) with the ``Accept: application/nostr+json``
         header per the NIP-11 specification.
 
-        SSL strategy:
-
-        * **Clearnet HTTPS** -- Verify certificate first; on failure,
-          fall back to insecure if *allow_insecure* is True.
-        * **Overlay networks** -- Always use an insecure SSL context
-          (the overlay provides encryption).
-        * **HTTP** -- No SSL.
+        For clearnet HTTPS, verifies the certificate first and falls back to
+        insecure if *allow_insecure* is True. Overlay networks always use an
+        insecure SSL context (the overlay provides encryption). Plain HTTP
+        connections use no SSL.
 
         This method never raises and never returns None. Check
         ``logs.success`` for the operation outcome.

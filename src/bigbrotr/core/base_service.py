@@ -65,10 +65,9 @@ ConfigT = TypeVar("ConfigT", bound=BaseServiceConfig)
 class BaseService(ABC, Generic[ConfigT]):
     """Abstract base class for all BigBrotr services.
 
-    Subclasses must:
-        1. Set ``SERVICE_NAME`` to a unique string identifier.
-        2. Set ``CONFIG_CLASS`` to their Pydantic config model.
-        3. Implement ``run()`` with the main service logic.
+    Subclasses must set ``SERVICE_NAME`` to a unique string identifier,
+    set ``CONFIG_CLASS`` to their Pydantic config model, and implement
+    ``run()`` with the main service logic.
 
     Attributes:
         SERVICE_NAME: Unique service identifier used in logging and metrics.
@@ -141,13 +140,10 @@ class BaseService(ABC, Generic[ConfigT]):
         consecutive failure limit (``config.max_consecutive_failures``) is
         reached. A value of 0 disables the failure limit.
 
-        Prometheus metrics tracked automatically:
-            - ``service_counter{name="cycles_success"}``: Successful cycles.
-            - ``service_counter{name="cycles_failed"}``: Failed cycles.
-            - ``service_counter{name="errors_{ExceptionType}"}``: By error type.
-            - ``service_gauge{name="consecutive_failures"}``: Current streak.
-            - ``service_gauge{name="last_cycle_timestamp"}``: Last success.
-            - ``cycle_duration_seconds``: Histogram of cycle durations.
+        Prometheus metrics are tracked automatically: ``cycles_success``,
+        ``cycles_failed``, ``errors_{ExceptionType}`` (counters),
+        ``consecutive_failures``, ``last_cycle_timestamp`` (gauges),
+        and ``cycle_duration_seconds`` (histogram).
 
         The consecutive failure counter resets after each successful cycle.
         ``CancelledError``, ``KeyboardInterrupt``, and ``SystemExit`` always

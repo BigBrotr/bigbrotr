@@ -4,11 +4,12 @@ Provides safe YAML file loading using ``yaml.safe_load`` to prevent
 arbitrary code execution from untrusted YAML content. Used by all
 services to load their configuration files.
 
-Example::
-
+Examples:
+    ```python
     from bigbrotr.core.yaml import load_yaml
 
     config = load_yaml("config/services/finder.yaml")
+    ```
 """
 
 from __future__ import annotations

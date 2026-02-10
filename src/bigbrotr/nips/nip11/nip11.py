@@ -36,6 +36,14 @@ class Nip11(BaseModel):
         relay: The relay this document belongs to.
         fetch_metadata: Fetch data and logs (None if fetch was not attempted).
         generated_at: Unix timestamp of when the document was fetched.
+
+    Examples:
+        ```python
+        relay = Relay("wss://relay.damus.io")
+        nip11 = await Nip11.create(relay, timeout=10.0)
+        if nip11.fetch_metadata and nip11.fetch_metadata.logs.success:
+            print(nip11.fetch_metadata.data.name)  # 'Damus Relay'
+        ```
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)

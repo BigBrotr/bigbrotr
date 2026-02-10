@@ -46,6 +46,15 @@ class EventRelay:
         event: The Nostr event that was observed.
         relay: The relay where the event was seen.
         seen_at: Unix timestamp of when the event was first seen (defaults to now).
+
+    Examples:
+        ```python
+        event_relay = EventRelay(event=event, relay=relay)
+        event_relay.seen_at       # Auto-set to current time
+        params = event_relay.to_db_params()
+        params.relay_url          # 'wss://relay.damus.io'
+        params.event_id           # Binary event ID (bytes)
+        ```
     """
 
     event: Event

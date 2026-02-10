@@ -10,11 +10,11 @@ The ``MetricsServer`` provides an async HTTP endpoint (via aiohttp) for
 Prometheus scraping. Configuration is handled through ``MetricsConfig``,
 which can be embedded in any service's YAML configuration.
 
-Architecture:
-    SERVICE_INFO:               Static metadata set once at startup.
-    SERVICE_GAUGE:              Point-in-time values (current state).
-    SERVICE_COUNTER:            Cumulative totals (monotonically increasing).
-    CYCLE_DURATION_SECONDS:     Histogram for latency percentiles (p50/p95/p99).
+Attributes:
+    SERVICE_INFO: Static metadata set once at startup.
+    SERVICE_GAUGE: Point-in-time values (current state).
+    SERVICE_COUNTER: Cumulative totals (monotonically increasing).
+    CYCLE_DURATION_SECONDS: Histogram for latency percentiles (p50/p95/p99).
 """
 
 from __future__ import annotations
@@ -105,11 +105,13 @@ class MetricsServer:
     Built on aiohttp for compatibility with the async service architecture.
     The endpoint path is configurable via ``MetricsConfig.path``.
 
-    Example:
+    Examples:
+        ```python
         server = MetricsServer(MetricsConfig(port=8001))
         await server.start()
         # ... service runs ...
         await server.stop()
+        ```
     """
 
     def __init__(self, config: MetricsConfig) -> None:

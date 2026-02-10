@@ -4,21 +4,22 @@ Provides factory functions and custom transport classes for creating Nostr
 clients with proper WebSocket configuration. Supports clearnet and overlay
 network connections (Tor, I2P, Lokinet) via SOCKS5 proxies.
 
-Key components:
-    - ``create_client``: Standard client factory with optional SOCKS5 proxy.
-    - ``create_insecure_client``: Client factory with SSL verification disabled.
-    - ``connect_relay``: High-level helper with automatic SSL fallback.
-    - ``is_nostr_relay``: Check whether a URL hosts a Nostr relay.
+Attributes:
+    create_client: Standard client factory with optional SOCKS5 proxy.
+    create_insecure_client: Client factory with SSL verification disabled.
+    connect_relay: High-level helper with automatic SSL fallback.
+    is_nostr_relay: Check whether a URL hosts a Nostr relay.
 
 Also handles nostr-sdk UniFFI callback noise by filtering stderr output
 from the Rust bindings.
 
-Example::
-
+Examples:
+    ```python
     from utils.transport import create_client, connect_relay
 
     client = create_client(keys=my_keys, proxy_url="socks5://tor:9050")
     client = await connect_relay(relay, keys=my_keys, timeout=10.0)
+    ```
 """
 
 from __future__ import annotations
@@ -366,9 +367,8 @@ async def connect_relay(
 ) -> Client:
     """Connect to a relay with automatic SSL fallback for clearnet.
 
-    Strategy:
-        - Clearnet: Try SSL first; fall back to insecure if allowed.
-        - Overlay (Tor/I2P/Loki): Require proxy, no SSL fallback.
+    For clearnet relays, tries SSL first and falls back to insecure if allowed.
+    Overlay networks (Tor/I2P/Loki) require a proxy and use no SSL fallback.
 
     Args:
         relay: Relay to connect to.

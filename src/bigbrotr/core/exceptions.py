@@ -4,18 +4,20 @@ Provides typed exceptions for all error categories, replacing bare
 ``except Exception`` with specific catches that distinguish transient
 from fatal errors and allow ``CancelledError`` to propagate untouched.
 
-Hierarchy::
+Exception hierarchy:
 
-    BigBrotrError (base — never raised directly)
-    ├── ConfigurationError      — config validation, missing keys, bad YAML
-    ├── DatabaseError            — pool/brotr/query failures
-    │   ├── ConnectionPoolError  — transient: pool exhausted, network blip
-    │   └── QueryError           — permanent: bad SQL, constraint violation
-    ├── ConnectivityError        — relay unreachable, network failures
-    │   ├── RelayTimeoutError    — connection or response timed out
-    │   └── RelaySSLError        — certificate issues
-    ├── ProtocolError            — NIP parsing/validation failures
-    └── PublishingError          — Nostr event broadcast failures
+```text
+BigBrotrError (base — never raised directly)
+├── ConfigurationError      — config validation, missing keys, bad YAML
+├── DatabaseError            — pool/brotr/query failures
+│   ├── ConnectionPoolError  — transient: pool exhausted, network blip
+│   └── QueryError           — permanent: bad SQL, constraint violation
+├── ConnectivityError        — relay unreachable, network failures
+│   ├── RelayTimeoutError    — connection or response timed out
+│   └── RelaySSLError        — certificate issues
+├── ProtocolError            — NIP parsing/validation failures
+└── PublishingError          — Nostr event broadcast failures
+```
 """
 
 from __future__ import annotations
