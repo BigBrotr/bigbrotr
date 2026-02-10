@@ -6,27 +6,5 @@
 #
 # ============================================================================
 
-# Default: maintainers own everything
-*                                   @BigBrotr/maintainers
-
-# Core infrastructure
-src/bigbrotr/core/                  @BigBrotr/maintainers
-
-# Data models
-src/bigbrotr/models/                @BigBrotr/maintainers
-
-# NIP protocol implementations
-src/bigbrotr/nips/                  @BigBrotr/maintainers
-
-# Services
-src/bigbrotr/services/              @BigBrotr/maintainers
-
-# Database schema and stored procedures
-deployments/*/postgres/             @BigBrotr/maintainers
-
-# CI/CD and Docker
-.github/                            @BigBrotr/maintainers
-deployments/Dockerfile              @BigBrotr/maintainers
-
-# Project configuration
-pyproject.toml                      @BigBrotr/maintainers
+# All files owned by maintainers
+* @BigBrotr/maintainers

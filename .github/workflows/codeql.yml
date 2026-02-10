@@ -15,8 +15,9 @@ on:
   pull_request:
     branches: [main, develop]
   schedule:
-    # Run weekly on Monday at 06:00 UTC
     - cron: "0 6 * * 1"
+
+permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,6 +27,7 @@ jobs:
   analyze:
     name: Analyze (Python)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       security-events: write
       actions: read

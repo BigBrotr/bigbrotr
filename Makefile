@@ -3,7 +3,7 @@
 # ============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help install pre-commit lint format typecheck test test-fast coverage ci docker-build docker-up docker-down clean
+.PHONY: help install pre-commit lint format typecheck test-unit test-integration test-fast coverage ci docs docs-serve build docker-build docker-up docker-down clean
 
 DEPLOYMENT ?= bigbrotr
 
@@ -13,7 +13,7 @@ DEPLOYMENT ?= bigbrotr
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install: ## Install package with dev dependencies and pre-commit hooks
 	pip install -e ".[dev]"
@@ -31,16 +31,45 @@ format: ## Run ruff formatter
 typecheck: ## Run mypy type checker
 	mypy src/bigbrotr
 
-test: ## Run all tests with verbose output
+# --------------------------------------------------------------------------
+# Testing
+# --------------------------------------------------------------------------
+
+test-unit: ## Run unit tests with verbose output
 	pytest tests/ --ignore=tests/integration/ -v --tb=short
 
-test-fast: ## Run tests without slow markers
+test-integration: ## Run integration tests (requires Docker)
+	pytest tests/integration/ -v --tb=short --timeout=120
+
+test-fast: ## Run unit tests without slow markers
 	pytest tests/ --ignore=tests/integration/ -v --tb=short -m "not slow"
 
-coverage: ## Run tests with coverage report
+coverage: ## Run unit tests with coverage report
 	pytest tests/ --ignore=tests/integration/ --cov=src/bigbrotr --cov-report=term-missing --cov-report=html -v
 
-ci: lint format typecheck test ## Run all quality checks (lint, format, typecheck, test)
+# --------------------------------------------------------------------------
+# Documentation
+# --------------------------------------------------------------------------
+
+docs: ## Build documentation site
+	mkdocs build --strict
+
+docs-serve: ## Serve documentation locally with live reload
+	mkdocs serve
+
+# --------------------------------------------------------------------------
+# Build
+# --------------------------------------------------------------------------
+
+build: ## Build Python package (sdist + wheel)
+	python -m build
+	twine check dist/*
+
+# --------------------------------------------------------------------------
+# Quality
+# --------------------------------------------------------------------------
+
+ci: lint format typecheck test-unit ## Run all quality checks (lint, format, typecheck, test)
 
 # --------------------------------------------------------------------------
 # Docker
@@ -63,5 +92,6 @@ clean: ## Remove build artifacts and caches
 	rm -rf build/ dist/ *.egg-info .eggs/
 	rm -rf .mypy_cache/ .pytest_cache/ .ruff_cache/
 	rm -rf htmlcov/ coverage.xml .coverage
+	rm -rf site/
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true

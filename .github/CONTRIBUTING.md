@@ -41,24 +41,21 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 ```bash
 # Clone the repository
-git clone https://github.com/bigbrotr/bigbrotr.git
+git clone https://github.com/BigBrotr/bigbrotr.git
 cd bigbrotr
 
 # Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
-pip install -e ".[dev]"
-
-# Install pre-commit hooks
-pre-commit install
+# Install dependencies (includes pre-commit hooks)
+make install
 
 # Start database for testing
 docker compose -f deployments/bigbrotr/docker-compose.yaml up -d postgres pgbouncer
 
 # Run tests to verify setup
-pytest tests/ -v
+make test-unit
 ```
 
 ---
@@ -106,12 +103,16 @@ chore: update dependencies
 ### Before Submitting
 
 1. Run all checks:
-   ```bash
-   # Run tests
-   pytest tests/ -v
 
-   # Run linting and formatting
-   pre-commit run --all-files
+   ```bash
+   # Run all quality checks (lint, format, typecheck, unit tests)
+   make ci
+
+   # Run integration tests
+   make test-integration
+
+   # Run pre-commit hooks
+   make pre-commit
    ```
 
 2. Update documentation if you changed:
@@ -132,11 +133,11 @@ chore: update dependencies
 
 ### PR Requirements
 
-- [ ] Tests pass
-- [ ] Pre-commit hooks pass
+- [ ] Unit tests pass (`make test-unit`)
+- [ ] Integration tests pass (`make test-integration`)
+- [ ] Pre-commit hooks pass (`make pre-commit`)
 - [ ] Documentation updated (if applicable)
 - [ ] CHANGELOG.md updated
-- [ ] PR description explains the changes
 
 ---
 
@@ -153,16 +154,16 @@ chore: update dependencies
 
 ```bash
 # Linting
-ruff check src/ tests/
+make lint
 
 # Formatting
-ruff format src/ tests/
+make format
 
 # Type checking
-mypy src/bigbrotr
+make typecheck
 
 # All checks via pre-commit
-pre-commit run --all-files
+make pre-commit
 ```
 
 ### Architecture Guidelines
@@ -180,14 +181,20 @@ pre-commit run --all-files
 ### Running Tests
 
 ```bash
-# All tests
-pytest tests/ -v
+# Unit tests
+make test-unit
+
+# Integration tests (requires Docker)
+make test-integration
+
+# Unit tests without slow markers
+make test-fast
+
+# With coverage
+make coverage
 
 # Specific file
 pytest tests/unit/core/test_pool.py -v
-
-# With coverage
-pytest tests/ --cov=src/bigbrotr --cov-report=html
 
 # Matching pattern
 pytest -k "health_check" -v
@@ -224,6 +231,16 @@ class TestMyService:
 
 ## Documentation
 
+### Building Docs
+
+```bash
+# Build documentation site
+make docs
+
+# Serve locally with live reload
+make docs-serve
+```
+
 ### When to Update
 
 - New features or services
@@ -255,8 +272,8 @@ class TestMyService:
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/bigbrotr/bigbrotr/discussions) for questions
-- Open an [Issue](https://github.com/bigbrotr/bigbrotr/issues) for bugs or feature requests
+- Open a [Discussion](https://github.com/BigBrotr/bigbrotr/discussions) for questions
+- Open an [Issue](https://github.com/BigBrotr/bigbrotr/issues) for bugs or feature requests
 - Check existing issues before creating new ones
 
 Thank you for contributing!

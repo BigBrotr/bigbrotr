@@ -29,14 +29,15 @@ RUN pip wheel --no-cache-dir --wheel-dir /build/wheels .
 # Stage 2: Production image
 FROM python:3.11.14-slim
 
-# Re-declare ARG after FROM to make it available in this stage
+# Re-declare ARGs after FROM to make them available in this stage
 ARG DEPLOYMENT=bigbrotr
+ARG VERSION=dev
 
 # Labels
 LABEL maintainer="BigBrotr Contributors"
 LABEL org.opencontainers.image.title="${DEPLOYMENT}"
 LABEL org.opencontainers.image.description="BigBrotr - Nostr data archiving and monitoring system"
-LABEL org.opencontainers.image.version="5.0.0"
+LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.source="https://github.com/BigBrotr/bigbrotr"
 LABEL org.opencontainers.image.licenses="MIT"
 

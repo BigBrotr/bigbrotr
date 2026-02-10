@@ -5,7 +5,7 @@
 # yamllint checks YAML files for syntax and style issues.
 #
 # Usage:
-#   yamllint -c .yamllint.yaml .
+#   yamllint -c .yamllint .
 #
 # Documentation:
 #   https://yamllint.readthedocs.io/
@@ -17,7 +17,7 @@ extends: default
 yaml-files:
   - "*.yaml"
   - "*.yml"
-  - .yamllint.yaml
+  - .yamllint
 
 rules:
   # Line length - allow longer lines for URLs and complex values
