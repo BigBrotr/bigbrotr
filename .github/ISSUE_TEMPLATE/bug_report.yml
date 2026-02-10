@@ -83,7 +83,7 @@ body:
     attributes:
       label: Version
       description: What version of BigBrotr are you using?
-      placeholder: "5.0.0"
+      placeholder: "5.0.1"
     validations:
       required: true
 

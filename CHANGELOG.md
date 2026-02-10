@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.0.1] - 2026-02-10
+
+CI/CD infrastructure hardening, automated documentation site, and dependency maintenance.
+
+### Added
+
+- **MkDocs Material documentation site** (`mkdocs.yml`, `docs/reference/`): Auto-generated API reference via mkdocstrings, deployed to GitHub Pages on push to main
+- **Release pipeline** (`.github/workflows/release.yml`): 6-job DAG -- validate, build-python, build-docker, publish-pypi (OIDC), publish-ghcr (semver tags), release (GitHub Release with SBOM artifacts)
+- **Documentation workflow** (`.github/workflows/docs.yml`): Automatic rebuild on docs/source/config/changelog changes
+- **CODEOWNERS** (`.github/CODEOWNERS`): `@BigBrotr/maintainers` for all paths
+
+### Changed
+
+- **CI pipeline overhauled** (`.github/workflows/ci.yml`): Renamed `test` → `unit-test`, added `integration-test` job, `timeout-minutes` on all jobs, `build` added to `ci-success` gate with skipped-allowed logic, Docker cache scoped per deployment
+- **Dependabot grouping** (`.github/dependabot.yml`): `github-actions-all` group for major/minor/patch updates
+- **Makefile**: Renamed `test` → `test-unit`, added `test-integration`, `docs`, `docs-serve`, `build` targets
+- **GitHub Actions pinned by SHA** with `# vX.Y.Z` comments for Dependabot compatibility
+- **Dependencies updated**: upload-artifact v4→v6, download-artifact v4→v7, codeql-action and codecov-action SHA updates
+
+### Fixed
+
+- **Codecov upload on Dependabot PRs**: Added `github.actor != 'dependabot[bot]'` condition to skip upload when secrets are unavailable, unblocking all automated dependency PRs
+- **Docker GHA cache collision**: Added `scope=${{ matrix.deployment }}` to prevent cache eviction between bigbrotr/lilbrotr matrix jobs
+- **docs.yml missing CHANGELOG.md trigger**: Root `CHANGELOG.md` included via pymdownx.snippets but wasn't in the paths filter
+- **release.yml coverage overhead**: Removed unused `--cov` flags from validate job
+
+### Documentation
+
+- **MkDocs site**: Home page, 5 user guide sections (Architecture, Configuration, Database, Deployment, Development), Changelog, and 5 API reference modules (Core, Models, NIPs, Utils, Services)
+- **README.md**: Updated CI/CD pipeline table and make targets
+- **docs/DEVELOPMENT.md**: Updated make targets and test commands
+- **CONTRIBUTING.md**: Migrated all commands to `make` targets, added docs section
+- **PULL_REQUEST_TEMPLATE.md**: Added integration test checkbox
+
+---
+
 ## [5.0.0] - 2026-02-09
 
 Major quality and operational hardening release: exception hierarchy replaces all bare catches, Monitor split into 3 modules, DAG violation fixed, Docker infrastructure hardened with real healthchecks and network segmentation, CI/CD expanded with security scanning, 4 Prometheus alerting rules, and complete documentation rewrite.
@@ -486,7 +522,8 @@ Initial prototype release.
 
 ---
 
-[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.0.0...HEAD
+[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.0.1...HEAD
+[5.0.1]: https://github.com/bigbrotr/bigbrotr/compare/v5.0.0...v5.0.1
 [5.0.0]: https://github.com/bigbrotr/bigbrotr/compare/v4.0.0...v5.0.0
 [4.0.0]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.4...v4.0.0
 [3.0.4]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.3...v3.0.4

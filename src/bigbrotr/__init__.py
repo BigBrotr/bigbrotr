@@ -1,6 +1,6 @@
 """BigBrotr — Modular Nostr data archiving and monitoring system."""
 
-__version__ = "5.0.0"
+__version__ = "5.0.1"
 
 from bigbrotr.core import (
     BaseService,
