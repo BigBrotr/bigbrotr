@@ -55,9 +55,7 @@ pip install -e ".[dev]"
 pre-commit install
 
 # Start database for testing
-cd deployments/bigbrotr
-docker-compose up -d postgres pgbouncer
-cd ../..
+docker compose -f deployments/bigbrotr/docker-compose.yaml up -d postgres pgbouncer
 
 # Run tests to verify setup
 pytest tests/ -v
@@ -148,7 +146,7 @@ chore: update dependencies
 
 - Follow [PEP 8](https://peps.python.org/pep-0008/)
 - Use type hints for all public interfaces
-- Maximum line length: 88 characters (Black default)
+- Maximum line length: 100 characters (configured in pyproject.toml via ruff)
 - Use docstrings for classes and public methods
 
 ### Code Quality Tools
@@ -161,7 +159,7 @@ ruff check src/ tests/
 ruff format src/ tests/
 
 # Type checking
-mypy src/
+mypy src/bigbrotr
 
 # All checks via pre-commit
 pre-commit run --all-files
@@ -186,10 +184,10 @@ pre-commit run --all-files
 pytest tests/ -v
 
 # Specific file
-pytest tests/test_pool.py -v
+pytest tests/unit/core/test_pool.py -v
 
 # With coverage
-pytest tests/ --cov=src --cov-report=html
+pytest tests/ --cov=src/bigbrotr --cov-report=html
 
 # Matching pattern
 pytest -k "health_check" -v
@@ -213,15 +211,13 @@ class TestMyService:
     @pytest.fixture
     def mock_brotr(self) -> MagicMock:
         brotr = MagicMock()
-        brotr.pool = MagicMock()
-        brotr.pool.fetch = AsyncMock(return_value=[])
+        brotr.fetch = AsyncMock(return_value=[])
         return brotr
 
-    @pytest.mark.asyncio
     async def test_run_success(self, mock_brotr: MagicMock) -> None:
         service = MyService(brotr=mock_brotr)
         await service.run()
-        mock_brotr.pool.fetch.assert_called_once()
+        mock_brotr.fetch.assert_called_once()
 ```
 
 ---

@@ -3,7 +3,7 @@
 # ============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help lint format typecheck test test-fast coverage ci docker-build docker-up docker-down clean
+.PHONY: help install pre-commit lint format typecheck test test-fast coverage ci docker-build docker-up docker-down clean
 
 DEPLOYMENT ?= bigbrotr
 
@@ -14,6 +14,13 @@ DEPLOYMENT ?= bigbrotr
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
+
+install: ## Install package with dev dependencies and pre-commit hooks
+	pip install -e ".[dev]"
+	pre-commit install
+
+pre-commit: ## Run all pre-commit hooks on all files
+	pre-commit run --all-files
 
 lint: ## Run ruff linter
 	ruff check src/ tests/
