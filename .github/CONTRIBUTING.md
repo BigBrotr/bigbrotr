@@ -41,26 +41,21 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 ```bash
 # Clone the repository
-git clone https://github.com/bigbrotr/bigbrotr.git
+git clone https://github.com/BigBrotr/bigbrotr.git
 cd bigbrotr
 
 # Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
-pip install -e ".[dev]"
-
-# Install pre-commit hooks
-pre-commit install
+# Install dependencies (includes pre-commit hooks)
+make install
 
 # Start database for testing
-cd deployments/bigbrotr
-docker-compose up -d postgres pgbouncer
-cd ../..
+docker compose -f deployments/bigbrotr/docker-compose.yaml up -d postgres pgbouncer
 
 # Run tests to verify setup
-pytest tests/ -v
+make test-unit
 ```
 
 ---
@@ -108,12 +103,16 @@ chore: update dependencies
 ### Before Submitting
 
 1. Run all checks:
-   ```bash
-   # Run tests
-   pytest tests/ -v
 
-   # Run linting and formatting
-   pre-commit run --all-files
+   ```bash
+   # Run all quality checks (lint, format, typecheck, unit tests)
+   make ci
+
+   # Run integration tests
+   make test-integration
+
+   # Run pre-commit hooks
+   make pre-commit
    ```
 
 2. Update documentation if you changed:
@@ -134,11 +133,11 @@ chore: update dependencies
 
 ### PR Requirements
 
-- [ ] Tests pass
-- [ ] Pre-commit hooks pass
+- [ ] Unit tests pass (`make test-unit`)
+- [ ] Integration tests pass (`make test-integration`)
+- [ ] Pre-commit hooks pass (`make pre-commit`)
 - [ ] Documentation updated (if applicable)
 - [ ] CHANGELOG.md updated
-- [ ] PR description explains the changes
 
 ---
 
@@ -148,23 +147,23 @@ chore: update dependencies
 
 - Follow [PEP 8](https://peps.python.org/pep-0008/)
 - Use type hints for all public interfaces
-- Maximum line length: 88 characters (Black default)
+- Maximum line length: 100 characters (configured in pyproject.toml via ruff)
 - Use docstrings for classes and public methods
 
 ### Code Quality Tools
 
 ```bash
 # Linting
-ruff check src/ tests/
+make lint
 
 # Formatting
-ruff format src/ tests/
+make format
 
 # Type checking
-mypy src/
+make typecheck
 
 # All checks via pre-commit
-pre-commit run --all-files
+make pre-commit
 ```
 
 ### Architecture Guidelines
@@ -182,14 +181,20 @@ pre-commit run --all-files
 ### Running Tests
 
 ```bash
-# All tests
-pytest tests/ -v
+# Unit tests
+make test-unit
 
-# Specific file
-pytest tests/test_pool.py -v
+# Integration tests (requires Docker)
+make test-integration
+
+# Unit tests without slow markers
+make test-fast
 
 # With coverage
-pytest tests/ --cov=src --cov-report=html
+make coverage
+
+# Specific file
+pytest tests/unit/core/test_pool.py -v
 
 # Matching pattern
 pytest -k "health_check" -v
@@ -213,20 +218,28 @@ class TestMyService:
     @pytest.fixture
     def mock_brotr(self) -> MagicMock:
         brotr = MagicMock()
-        brotr.pool = MagicMock()
-        brotr.pool.fetch = AsyncMock(return_value=[])
+        brotr.fetch = AsyncMock(return_value=[])
         return brotr
 
-    @pytest.mark.asyncio
     async def test_run_success(self, mock_brotr: MagicMock) -> None:
         service = MyService(brotr=mock_brotr)
         await service.run()
-        mock_brotr.pool.fetch.assert_called_once()
+        mock_brotr.fetch.assert_called_once()
 ```
 
 ---
 
 ## Documentation
+
+### Building Docs
+
+```bash
+# Build documentation site
+make docs
+
+# Serve locally with live reload
+make docs-serve
+```
 
 ### When to Update
 
@@ -259,8 +272,8 @@ class TestMyService:
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/bigbrotr/bigbrotr/discussions) for questions
-- Open an [Issue](https://github.com/bigbrotr/bigbrotr/issues) for bugs or feature requests
+- Open a [Discussion](https://github.com/BigBrotr/bigbrotr/discussions) for questions
+- Open an [Issue](https://github.com/BigBrotr/bigbrotr/issues) for bugs or feature requests
 - Check existing issues before creating new ones
 
 Thank you for contributing!

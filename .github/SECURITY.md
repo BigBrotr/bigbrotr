@@ -4,10 +4,13 @@
 
 | Version | Supported          |
 |---------|--------------------|
-| 2.0.x   | :white_check_mark: |
+| 5.0.x   | :white_check_mark: |
+| 4.0.x   | :x:                |
+| 3.0.x   | :x:                |
+| 2.0.x   | :x:                |
 | 1.0.x   | :x:                |
 
-Only the latest major version receives security updates.
+Only the latest major version receives security updates. Older versions are not maintained.
 
 ---
 
@@ -17,7 +20,7 @@ Only the latest major version receives security updates.
 
 ### How to Report
 
-1. **Email**: Send details to the project maintainers (check repository for contact info)
+1. **GitHub Security Advisory**: Report via [GitHub Security Advisories](https://github.com/BigBrotr/bigbrotr/security/advisories/new)
 2. **Include**:
    - Description of the vulnerability
    - Steps to reproduce
@@ -121,7 +124,7 @@ When using Tor for .onion relays:
 
 ## Security Updates
 
-Security updates are released as patch versions (e.g., 2.0.1).
+Security updates are released as patch versions (e.g., 5.0.1).
 
 To stay informed:
 - Watch the repository for releases

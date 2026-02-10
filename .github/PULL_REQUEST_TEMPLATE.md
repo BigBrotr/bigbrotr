@@ -31,7 +31,8 @@
 
 <!-- Describe how you tested your changes -->
 
-- [ ] Unit tests pass (`pytest tests/ -v`)
+- [ ] Unit tests pass (`make test-unit`)
+- [ ] Integration tests pass (`make test-integration`)
 - [ ] New tests added for new functionality
 - [ ] Manual testing performed
 
@@ -40,7 +41,7 @@
 <!-- Mark completed items with an 'x' -->
 
 - [ ] My code follows the project's coding standards
-- [ ] I have run `pre-commit run --all-files` and all checks pass
+- [ ] I have run `make pre-commit` and all checks pass
 - [ ] I have updated the documentation (if applicable)
 - [ ] I have added my changes to `CHANGELOG.md` under `[Unreleased]`
 - [ ] My changes do not introduce new warnings

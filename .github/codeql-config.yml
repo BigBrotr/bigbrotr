@@ -1,0 +1,18 @@
+# ============================================================================
+# CodeQL Configuration
+# ============================================================================
+#
+# Custom query configuration for BigBrotr.
+# Excludes test files (false positives on URL patterns) and suppresses
+# the insecure-protocol rule (intentional: monitor tests relay SSL support).
+#
+# ============================================================================
+
+name: "BigBrotr CodeQL Config"
+
+paths-ignore:
+  - tests/
+
+query-filters:
+  - exclude:
+      id: py/insecure-protocol

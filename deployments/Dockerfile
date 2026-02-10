@@ -9,7 +9,7 @@
 ARG DEPLOYMENT=bigbrotr
 
 # Stage 1: Build wheels
-FROM python:3.11-slim AS builder
+FROM python:3.11.14-slim AS builder
 
 WORKDIR /build
 
@@ -27,16 +27,19 @@ COPY src/ ./src/
 RUN pip wheel --no-cache-dir --wheel-dir /build/wheels .
 
 # Stage 2: Production image
-FROM python:3.11-slim
+FROM python:3.11.14-slim
 
-# Re-declare ARG after FROM to make it available in this stage
+# Re-declare ARGs after FROM to make them available in this stage
 ARG DEPLOYMENT=bigbrotr
+ARG VERSION=dev
 
 # Labels
 LABEL maintainer="BigBrotr Contributors"
 LABEL org.opencontainers.image.title="${DEPLOYMENT}"
 LABEL org.opencontainers.image.description="BigBrotr - Nostr data archiving and monitoring system"
-LABEL version="5.0.0"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.source="https://github.com/BigBrotr/bigbrotr"
+LABEL org.opencontainers.image.licenses="MIT"
 
 # Create non-root user with deployment name
 RUN groupadd -g 1000 ${DEPLOYMENT} && \
