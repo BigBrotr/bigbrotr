@@ -3,16 +3,22 @@
 # ============================================================================
 #
 # Automated dependency updates for pip, Docker, and GitHub Actions.
+# Groups minor/patch updates to reduce PR noise.
 #
 # ============================================================================
 
 version: 2
 updates:
+  # --------------------------------------------------------------------------
   # Python dependencies (pyproject.toml)
+  # --------------------------------------------------------------------------
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Etc/UTC"
     reviewers:
       - BigBrotr/maintainers
     labels:
@@ -20,12 +26,28 @@ updates:
       - python
     commit-message:
       prefix: "chore(deps):"
+    open-pull-requests-limit: 10
+    groups:
+      python-minor-patch:
+        update-types:
+          - minor
+          - patch
+      python-dev:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
 
+  # --------------------------------------------------------------------------
   # Docker base images
+  # --------------------------------------------------------------------------
   - package-ecosystem: docker
     directory: /deployments
     schedule:
       interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Etc/UTC"
     reviewers:
       - BigBrotr/maintainers
     labels:
@@ -33,12 +55,18 @@ updates:
       - docker
     commit-message:
       prefix: "chore(deps):"
+    open-pull-requests-limit: 5
 
-  # GitHub Actions
+  # --------------------------------------------------------------------------
+  # GitHub Actions (SHA-pinned, Dependabot reads version comments)
+  # --------------------------------------------------------------------------
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Etc/UTC"
     reviewers:
       - BigBrotr/maintainers
     labels:
@@ -46,3 +74,10 @@ updates:
       - ci
     commit-message:
       prefix: "chore(deps):"
+    open-pull-requests-limit: 10
+    groups:
+      github-actions-all:
+        update-types:
+          - major
+          - minor
+          - patch

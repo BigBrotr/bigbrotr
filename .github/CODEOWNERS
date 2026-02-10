@@ -1,0 +1,32 @@
+# ============================================================================
+# CODEOWNERS - Automatic PR review assignments
+# ============================================================================
+#
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# ============================================================================
+
+# Default: maintainers own everything
+*                                   @BigBrotr/maintainers
+
+# Core infrastructure
+src/bigbrotr/core/                  @BigBrotr/maintainers
+
+# Data models
+src/bigbrotr/models/                @BigBrotr/maintainers
+
+# NIP protocol implementations
+src/bigbrotr/nips/                  @BigBrotr/maintainers
+
+# Services
+src/bigbrotr/services/              @BigBrotr/maintainers
+
+# Database schema and stored procedures
+deployments/*/postgres/             @BigBrotr/maintainers
+
+# CI/CD and Docker
+.github/                            @BigBrotr/maintainers
+deployments/Dockerfile              @BigBrotr/maintainers
+
+# Project configuration
+pyproject.toml                      @BigBrotr/maintainers
