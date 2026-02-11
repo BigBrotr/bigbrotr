@@ -25,49 +25,22 @@ Attributes:
     nips: NIP-11 relay information, NIP-66 relay monitoring. Has I/O.
     utils: DNS resolution, Nostr key management, WebSocket/HTTP transport.
     services: Business logic. The five-service pipeline.
+
+Note:
+    For lightweight usage, import directly from subpackages::
+
+        from bigbrotr.models import Relay
+        from bigbrotr.core import Brotr
+
+    Top-level imports (``from bigbrotr import Relay``) use lazy loading
+    and resolve on first access.
 """
 
-__version__ = "5.0.1"
+import importlib
+from importlib.metadata import version as _get_version
 
-from bigbrotr.core import (
-    BaseService,
-    BatchConfig,
-    Brotr,
-    BrotrConfig,
-    BrotrTimeoutsConfig,
-    ConfigT,
-    DatabaseConfig,
-    Logger,
-    Pool,
-    PoolConfig,
-    PoolLimitsConfig,
-    PoolRetryConfig,
-    PoolTimeoutsConfig,
-    ServerSettingsConfig,
-)
-from bigbrotr.models import (
-    Event,
-    EventRelay,
-    Metadata,
-    MetadataType,
-    NetworkType,
-    Relay,
-    RelayMetadata,
-)
-from bigbrotr.nips import Nip11, Nip66
-from bigbrotr.services import (
-    Finder,
-    FinderConfig,
-    Monitor,
-    MonitorConfig,
-    Seeder,
-    SeederConfig,
-    Synchronizer,
-    SynchronizerConfig,
-    Validator,
-    ValidatorConfig,
-)
 
+__version__ = _get_version("bigbrotr")
 
 __all__ = [
     "BaseService",
@@ -104,3 +77,58 @@ __all__ = [
     "Validator",
     "ValidatorConfig",
 ]
+
+# Lazy import mapping: name -> (module, attribute)
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    # core
+    "BaseService": ("bigbrotr.core", "BaseService"),
+    "BatchConfig": ("bigbrotr.core", "BatchConfig"),
+    "Brotr": ("bigbrotr.core", "Brotr"),
+    "BrotrConfig": ("bigbrotr.core", "BrotrConfig"),
+    "BrotrTimeoutsConfig": ("bigbrotr.core", "BrotrTimeoutsConfig"),
+    "ConfigT": ("bigbrotr.core", "ConfigT"),
+    "DatabaseConfig": ("bigbrotr.core", "DatabaseConfig"),
+    "Logger": ("bigbrotr.core", "Logger"),
+    "Pool": ("bigbrotr.core", "Pool"),
+    "PoolConfig": ("bigbrotr.core", "PoolConfig"),
+    "PoolLimitsConfig": ("bigbrotr.core", "PoolLimitsConfig"),
+    "PoolRetryConfig": ("bigbrotr.core", "PoolRetryConfig"),
+    "PoolTimeoutsConfig": ("bigbrotr.core", "PoolTimeoutsConfig"),
+    "ServerSettingsConfig": ("bigbrotr.core", "ServerSettingsConfig"),
+    # models
+    "Event": ("bigbrotr.models", "Event"),
+    "EventRelay": ("bigbrotr.models", "EventRelay"),
+    "Metadata": ("bigbrotr.models", "Metadata"),
+    "MetadataType": ("bigbrotr.models", "MetadataType"),
+    "NetworkType": ("bigbrotr.models", "NetworkType"),
+    "Relay": ("bigbrotr.models", "Relay"),
+    "RelayMetadata": ("bigbrotr.models", "RelayMetadata"),
+    # nips
+    "Nip11": ("bigbrotr.nips", "Nip11"),
+    "Nip66": ("bigbrotr.nips", "Nip66"),
+    # services
+    "Finder": ("bigbrotr.services", "Finder"),
+    "FinderConfig": ("bigbrotr.services", "FinderConfig"),
+    "Monitor": ("bigbrotr.services", "Monitor"),
+    "MonitorConfig": ("bigbrotr.services", "MonitorConfig"),
+    "Seeder": ("bigbrotr.services", "Seeder"),
+    "SeederConfig": ("bigbrotr.services", "SeederConfig"),
+    "Synchronizer": ("bigbrotr.services", "Synchronizer"),
+    "SynchronizerConfig": ("bigbrotr.services", "SynchronizerConfig"),
+    "Validator": ("bigbrotr.services", "Validator"),
+    "ValidatorConfig": ("bigbrotr.services", "ValidatorConfig"),
+}
+
+
+def __getattr__(name: str) -> object:
+    if name in _LAZY_IMPORTS:
+        module_path, attr_name = _LAZY_IMPORTS[name]
+        module = importlib.import_module(module_path)
+        value = getattr(module, attr_name)
+        globals()[name] = value  # Cache for subsequent access
+        return value
+    raise AttributeError(f"module 'bigbrotr' has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return __all__
