@@ -1,9 +1,25 @@
 """
 NIP-66 monitoring data models.
 
-Defines the typed Pydantic models for each NIP-66 monitoring test result:
-RTT (round-trip time), SSL certificate, geolocation, network/ASN,
-DNS resolution, and HTTP server headers.
+Defines the typed Pydantic models for each
+[NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md) monitoring
+test result: RTT (round-trip time), SSL certificate, geolocation,
+network/ASN, DNS resolution, and HTTP server headers.
+
+Note:
+    All data classes extend [BaseData][bigbrotr.nips.base.BaseData] and use
+    declarative [FieldSpec][bigbrotr.nips.parsing.FieldSpec] parsing.
+    Field names are prefixed with their test type (e.g., ``rtt_``, ``ssl_``,
+    ``geo_``, ``net_``, ``dns_``, ``http_``) to avoid collisions when
+    multiple test results are serialized alongside each other.
+
+See Also:
+    [bigbrotr.nips.nip66.logs][bigbrotr.nips.nip66.logs]: Corresponding log
+        models for each test type.
+    [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
+        Top-level model that aggregates all test results.
+    [bigbrotr.nips.base.BaseData][bigbrotr.nips.base.BaseData]: Base class
+        providing the ``parse()`` / ``from_dict()`` / ``to_dict()`` interface.
 """
 
 from __future__ import annotations
@@ -20,6 +36,17 @@ class Nip66RttData(BaseData):
     """Round-trip time measurements in milliseconds.
 
     Captures connection open, event read, and event write latencies.
+
+    Note:
+        RTT values are measured using ``time.perf_counter()`` and converted
+        to integer milliseconds. A ``None`` value indicates the corresponding
+        phase was not reached (e.g., read/write are ``None`` if open failed).
+
+    See Also:
+        [bigbrotr.nips.nip66.rtt.Nip66RttMetadata][bigbrotr.nips.nip66.rtt.Nip66RttMetadata]:
+            Container that pairs this data with multi-phase logs.
+        [bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]:
+            Corresponding log model with per-phase success/reason.
     """
 
     rtt_open: StrictInt | None = None
@@ -36,6 +63,18 @@ class Nip66SslData(BaseData):
 
     Includes certificate identity, validity dates, Subject Alternative Names,
     fingerprint, and negotiated cipher information.
+
+    Note:
+        Certificate extraction uses a non-validating SSL context
+        (``CERT_NONE``) to read the certificate regardless of chain validity.
+        Chain validation is performed separately and recorded in ``ssl_valid``.
+        The fingerprint is a SHA-256 hash of the DER-encoded certificate.
+
+    See Also:
+        [bigbrotr.nips.nip66.ssl.Nip66SslMetadata][bigbrotr.nips.nip66.ssl.Nip66SslMetadata]:
+            Container that pairs this data with SSL inspection logs.
+        [bigbrotr.nips.nip66.ssl.CertificateExtractor][bigbrotr.nips.nip66.ssl.CertificateExtractor]:
+            Utility class that extracts fields from Python SSL cert dicts.
     """
 
     ssl_valid: StrictBool | None = None
@@ -82,6 +121,19 @@ class Nip66GeoData(BaseData):
 
     Includes country, continent, city, coordinates, timezone, and a
     geohash computed from latitude/longitude.
+
+    Note:
+        The geohash is computed at precision 9 by default (approximately
+        5 meters), using the ``geohash2`` library. Country data prefers the
+        physical country over the registered country when available.
+
+    See Also:
+        [bigbrotr.nips.nip66.geo.Nip66GeoMetadata][bigbrotr.nips.nip66.geo.Nip66GeoMetadata]:
+            Container that pairs this data with geolocation logs.
+        [bigbrotr.nips.nip66.geo.GeoExtractor][bigbrotr.nips.nip66.geo.GeoExtractor]:
+            Utility class that extracts fields from GeoIP2 City responses.
+        [bigbrotr.nips.nip66.data.Nip66NetData][bigbrotr.nips.nip66.data.Nip66NetData]:
+            Related network/ASN data that also relies on IP resolution.
     """
 
     geo_country: str | None = None
@@ -124,6 +176,19 @@ class Nip66NetData(BaseData):
 
     Includes resolved IP addresses, autonomous system number and
     organization, and CIDR network ranges.
+
+    Note:
+        IPv4 ASN data takes priority; IPv6 ASN data is used as a fallback
+        when IPv4 is not available. IPv6-specific network ranges are always
+        recorded separately in ``net_network_v6``.
+
+    See Also:
+        [bigbrotr.nips.nip66.net.Nip66NetMetadata][bigbrotr.nips.nip66.net.Nip66NetMetadata]:
+            Container that pairs this data with network lookup logs.
+        [bigbrotr.nips.nip66.data.Nip66GeoData][bigbrotr.nips.nip66.data.Nip66GeoData]:
+            Related geolocation data that also relies on IP resolution.
+        [bigbrotr.utils.dns.resolve_host][bigbrotr.utils.dns.resolve_host]:
+            DNS resolution used upstream to obtain IP addresses.
     """
 
     net_ip: str | None = None
@@ -152,6 +217,18 @@ class Nip66DnsData(BaseData):
 
     Includes A/AAAA records, CNAME, reverse DNS (PTR), nameservers,
     and record TTL.
+
+    Note:
+        This is the comprehensive DNS data model used by the NIP-66 DNS test.
+        Unlike the simpler [resolve_host][bigbrotr.utils.dns.resolve_host]
+        utility (which only resolves A/AAAA), this includes CNAME, NS, PTR,
+        and TTL records collected via the ``dnspython`` library.
+
+    See Also:
+        [bigbrotr.nips.nip66.dns.Nip66DnsMetadata][bigbrotr.nips.nip66.dns.Nip66DnsMetadata]:
+            Container that pairs this data with DNS resolution logs.
+        [bigbrotr.utils.dns.resolve_host][bigbrotr.utils.dns.resolve_host]:
+            Simpler A/AAAA-only resolution used by geo and net tests.
     """
 
     dns_ips: list[str] | None = None
@@ -172,6 +249,16 @@ class Nip66HttpData(BaseData):
     """HTTP server headers captured during WebSocket handshake.
 
     Records the ``Server`` and ``X-Powered-By`` response headers.
+
+    Note:
+        Headers are captured using aiohttp trace hooks during the WebSocket
+        upgrade handshake, not from a separate HTTP request. A non-validating
+        SSL context is used to ensure headers can be captured regardless of
+        certificate validity.
+
+    See Also:
+        [bigbrotr.nips.nip66.http.Nip66HttpMetadata][bigbrotr.nips.nip66.http.Nip66HttpMetadata]:
+            Container that pairs this data with HTTP extraction logs.
     """
 
     http_server: str | None = None

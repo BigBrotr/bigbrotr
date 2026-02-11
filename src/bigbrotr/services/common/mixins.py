@@ -3,6 +3,13 @@
 All service extensions live here as mixin classes.  Future extensions
 follow the same pattern: a mixin class with an ``_init_*()`` method
 for lazy initialization.
+
+See Also:
+    [BaseService][bigbrotr.core.base_service.BaseService]: The base class
+        that mixin classes are composed with via multiple inheritance.
+    [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
+        Provides ``max_tasks`` values consumed by
+        [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin].
 """
 
 from __future__ import annotations
@@ -29,14 +36,26 @@ class BatchProgress:
     """Tracks progress of a batch processing cycle.
 
     All counters are reset at the start of each cycle via ``reset()``.
+    Used internally by
+    [BatchProgressMixin][bigbrotr.services.common.mixins.BatchProgressMixin]
+    to provide ``_progress`` to services.
 
     Attributes:
-        started_at: Timestamp when the cycle started.
+        started_at: Timestamp when the cycle started (``time.time()``).
         total: Total items to process.
         processed: Items processed so far.
         success: Items that succeeded.
         failure: Items that failed.
         chunks: Number of chunks completed.
+
+    Note:
+        ``started_at`` uses ``time.time()`` for Unix timestamps (used in
+        SQL comparisons), while ``elapsed`` uses ``time.monotonic()`` for
+        accurate duration measurement unaffected by clock adjustments.
+
+    See Also:
+        [BatchProgressMixin][bigbrotr.services.common.mixins.BatchProgressMixin]:
+            Mixin that exposes a ``_progress`` attribute of this type.
     """
 
     started_at: float = field(default=0.0)
@@ -74,6 +93,17 @@ class BatchProgressMixin:
     Services that process items in batches compose this mixin to get
     a ``_progress`` attribute with counters and timing.
 
+    Note:
+        Call ``_init_progress()`` in ``__init__`` and ``_progress.reset()``
+        at the start of each ``run()`` cycle to reset all counters.
+
+    See Also:
+        [BatchProgress][bigbrotr.services.common.mixins.BatchProgress]:
+            The dataclass this mixin manages.
+        [Validator][bigbrotr.services.validator.Validator],
+        [Monitor][bigbrotr.services.monitor.Monitor]: Services that
+            compose this mixin.
+
     Examples:
         ```python
         class MyService(BatchProgressMixin, BaseService[MyConfig]):
@@ -102,13 +132,21 @@ class BatchProgressMixin:
 class NetworkSemaphoreMixin:
     """Mixin providing per-network concurrency semaphores.
 
-    Creates an ``asyncio.Semaphore`` for each network type (clearnet, Tor,
+    Creates an ``asyncio.Semaphore`` for each
+    [NetworkType][bigbrotr.models.constants.NetworkType] (clearnet, Tor,
     I2P, Lokinet) to cap the number of simultaneous connections.  This is
     especially important for overlay networks like Tor, where excessive
     concurrency degrades circuit performance.
 
-    Call ``_init_semaphores()`` at the start of each run cycle to pick up
+    Call ``_init_semaphores()`` at the start of each ``run()`` cycle to pick up
     any configuration changes to ``max_tasks`` values.
+
+    See Also:
+        [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
+            Provides ``max_tasks`` per network type.
+        [Validator][bigbrotr.services.validator.Validator],
+        [Monitor][bigbrotr.services.monitor.Monitor]: Services that
+            compose this mixin for bounded concurrency.
     """
 
     _semaphores: dict[NetworkType, asyncio.Semaphore]
@@ -117,8 +155,8 @@ class NetworkSemaphoreMixin:
         """Create a semaphore for each network type from the configuration.
 
         Args:
-            networks: Network configuration providing ``max_tasks`` per
-                network type.
+            networks: [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]
+                providing ``max_tasks`` per network type.
         """
         self._semaphores = {
             network: asyncio.Semaphore(networks.get(network).max_tasks) for network in NetworkType
@@ -128,9 +166,10 @@ class NetworkSemaphoreMixin:
         """Look up the concurrency semaphore for a network type.
 
         Args:
-            network: The network type to retrieve the semaphore for.
+            network: The [NetworkType][bigbrotr.models.constants.NetworkType]
+                to retrieve the semaphore for.
 
         Returns:
-            The semaphore, or None if the network has not been initialized.
+            The semaphore, or ``None`` if the network has not been initialized.
         """
         return self._semaphores.get(network)

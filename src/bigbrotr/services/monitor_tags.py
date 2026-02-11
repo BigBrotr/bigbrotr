@@ -1,4 +1,36 @@
-"""Kind 30166 tag building for NIP-66 relay discovery events."""
+"""Kind 30166 tag building for NIP-66 relay discovery events.
+
+Provides the [MonitorTagsMixin][bigbrotr.services.monitor_tags.MonitorTagsMixin]
+class that is mixed into [Monitor][bigbrotr.services.monitor.Monitor] via
+multiple inheritance. Converts
+[CheckResult][bigbrotr.services.monitor.CheckResult] data into NIP-66
+compliant tags for Kind 30166 events.
+
+The following NIP-66 tag types are supported:
+
+- **RTT tags**: ``rtt-open``, ``rtt-read``, ``rtt-write`` (milliseconds).
+- **SSL tags**: ``ssl``, ``ssl-expires``, ``ssl-issuer``.
+- **Net tags**: ``net-ip``, ``net-ipv6``, ``net-asn``, ``net-asn-org``.
+- **Geo tags**: ``g`` (geohash), ``geo-country``, ``geo-city``,
+  ``geo-lat``, ``geo-lon``, ``geo-tz``.
+- **NIP-11 tags**: ``N`` (supported NIPs), ``t`` (topics), ``l``
+  (ISO 639-1 languages), ``R`` (requirements), ``T`` (relay types).
+
+Note:
+    All tag values are formatted as strings per NIP-66. Numeric values
+    (RTT, ASN, coordinates) are stringified. Boolean requirements use
+    the ``!`` prefix for negation (e.g., ``!auth``, ``!payment``).
+
+See Also:
+    [Monitor][bigbrotr.services.monitor.Monitor]: The host class that
+        composes this mixin.
+    [MonitorPublisherMixin][bigbrotr.services.monitor_publisher.MonitorPublisherMixin]:
+        Companion mixin that broadcasts the built events.
+    [CheckResult][bigbrotr.services.monitor.CheckResult]: The data
+        source for tag construction.
+    [MetadataFlags][bigbrotr.services.monitor.MetadataFlags]: Controls
+        which tag categories are included via ``discovery.include``.
+"""
 
 from __future__ import annotations
 
@@ -34,7 +66,11 @@ _NIP_CAP_BLOSSOM = 95
 
 
 class _AccessFlags(NamedTuple):
-    """Relay access restriction flags derived from NIP-11 and RTT probe results."""
+    """Relay access restriction flags derived from NIP-11 and RTT probe results.
+
+    Used internally by ``_add_requirement_and_type_tags`` to combine
+    NIP-11 declared restrictions with actual RTT probe behavior.
+    """
 
     payment: bool
     auth: bool
@@ -50,10 +86,26 @@ class _AccessFlags(NamedTuple):
 class MonitorTagsMixin:
     """Tag-building methods for Kind 30166 relay discovery events (NIP-66).
 
-    Mixed into ``Monitor`` to provide tag construction without cluttering the
-    main orchestration module.  All methods assume that the host class provides
-    ``self._config`` with a ``discovery.include`` attribute of type
-    ``MetadataFlags``.
+    Mixed into [Monitor][bigbrotr.services.monitor.Monitor] to provide
+    tag construction without cluttering the main orchestration module.
+    All methods assume that the host class provides ``self._config``
+    ([MonitorConfig][bigbrotr.services.monitor.MonitorConfig]) with a
+    ``discovery.include`` attribute of type
+    [MetadataFlags][bigbrotr.services.monitor.MetadataFlags].
+
+    Note:
+        Tag formatting follows the NIP-66 specification strictly. All
+        numeric values are converted to strings, geohash precision is
+        configurable via ``processing.geohash_precision``, and language
+        tags use ISO 639-1 two-letter codes.
+
+    See Also:
+        [MonitorPublisherMixin][bigbrotr.services.monitor_publisher.MonitorPublisherMixin]:
+            Companion mixin that broadcasts the events built here.
+        [CheckResult][bigbrotr.services.monitor.CheckResult]: The data
+            source consumed by tag-building methods.
+        [Monitor][bigbrotr.services.monitor.Monitor]: The host class
+            that composes this mixin.
     """
 
     # -------------------------------------------------------------------------
@@ -61,7 +113,7 @@ class MonitorTagsMixin:
     # -------------------------------------------------------------------------
 
     def _add_rtt_tags(self, tags: list[Tag], result: CheckResult, include: MetadataFlags) -> None:
-        """Add round-trip time tags: rtt-open, rtt-read, rtt-write."""
+        """Add round-trip time tags: ``rtt-open``, ``rtt-read``, ``rtt-write``."""
         if not result.nip66_rtt or not include.nip66_rtt:
             return
         rtt_data = result.nip66_rtt.metadata.value.get("data", {})
@@ -73,7 +125,7 @@ class MonitorTagsMixin:
             tags.append(Tag.parse(["rtt-write", str(rtt_data["rtt_write"])]))
 
     def _add_ssl_tags(self, tags: list[Tag], result: CheckResult, include: MetadataFlags) -> None:
-        """Add SSL certificate tags: ssl, ssl-expires, ssl-issuer."""
+        """Add SSL certificate tags: ``ssl``, ``ssl-expires``, ``ssl-issuer``."""
         if not result.nip66_ssl or not include.nip66_ssl:
             return
         ssl_data = result.nip66_ssl.metadata.value.get("data", {})
@@ -88,7 +140,7 @@ class MonitorTagsMixin:
             tags.append(Tag.parse(["ssl-issuer", ssl_issuer]))
 
     def _add_net_tags(self, tags: list[Tag], result: CheckResult, include: MetadataFlags) -> None:
-        """Add network information tags: net-ip, net-ipv6, net-asn, net-asn-org."""
+        """Add network information tags: ``net-ip``, ``net-ipv6``, ``net-asn``, ``net-asn-org``."""
         if not result.nip66_net or not include.nip66_net:
             return
         net_data = result.nip66_net.metadata.value.get("data", {})
@@ -106,7 +158,11 @@ class MonitorTagsMixin:
             tags.append(Tag.parse(["net-asn-org", net_asn_org]))
 
     def _add_geo_tags(self, tags: list[Tag], result: CheckResult, include: MetadataFlags) -> None:
-        """Add geolocation tags: g (geohash), geo-country, geo-city, geo-lat, geo-lon, geo-tz."""
+        """Add geolocation tags.
+
+        Tags: ``g`` (geohash), ``geo-country``, ``geo-city``,
+        ``geo-lat``, ``geo-lon``, ``geo-tz``.
+        """
         if not result.nip66_geo or not include.nip66_geo:
             return
         geo_data = result.nip66_geo.metadata.value.get("data", {})
@@ -130,7 +186,11 @@ class MonitorTagsMixin:
             tags.append(Tag.parse(["geo-tz", geo_tz]))
 
     def _add_nip11_tags(self, tags: list[Tag], result: CheckResult, include: MetadataFlags) -> None:
-        """Add NIP-11-derived capability tags: N (NIPs), t (topics), l (languages), R, T."""
+        """Add NIP-11-derived capability tags.
+
+        Tags: ``N`` (NIPs), ``t`` (topics), ``l`` (languages),
+        ``R`` (requirements), ``T`` (types).
+        """
         if not result.nip11 or not include.nip11_info:
             return
         nip11_data = result.nip11.metadata.value.get("data", {})
@@ -152,7 +212,14 @@ class MonitorTagsMixin:
         self._add_requirement_and_type_tags(tags, result, nip11_data, supported_nips)
 
     def _add_language_tags(self, tags: list[Tag], nip11_data: dict[str, Any]) -> None:
-        """Add ISO 639-1 language tags derived from NIP-11 language_tags field."""
+        """Add ISO 639-1 language tags derived from NIP-11 ``language_tags`` field.
+
+        Note:
+            Wildcard entries (``*``) cause all language tags to be
+            skipped, as the relay accepts all languages. Primary subtags
+            are extracted by splitting on ``-`` (e.g., ``en-US`` yields
+            ``en``).
+        """
         language_tags = nip11_data.get("language_tags")
         if not language_tags or "*" in language_tags:
             return
@@ -170,7 +237,16 @@ class MonitorTagsMixin:
         nip11_data: dict[str, Any],
         supported_nips: list[int] | None,
     ) -> None:
-        """Add R (requirement) and T (type) tags by combining NIP-11 data with RTT probe logs."""
+        """Add ``R`` and ``T`` tags from NIP-11 data and RTT probe logs.
+
+        Note:
+            Requirement determination uses a two-source strategy: NIP-11
+            ``limitation`` fields declare what the relay claims, while
+            RTT write probe logs reveal actual behavior. The final value
+            is the union of both sources (either claiming a restriction
+            is sufficient). Write restrictions are cleared if the probe
+            actually succeeded.
+        """
         limitation = nip11_data.get("limitation") or {}
         nip11_auth = limitation.get("auth_required", False)
         nip11_payment = limitation.get("payment_required", False)
@@ -216,12 +292,23 @@ class MonitorTagsMixin:
         supported_nips: list[int] | None,
         access: _AccessFlags,
     ) -> None:
-        """Add T (type) tags classifying the relay based on NIPs and access restrictions.
+        """Add ``T`` (type) tags classifying the relay based on NIPs and access restrictions.
+
+        Note:
+            Type classification follows NIP-66 conventions:
+
+            - **Capability types** (``Search``, ``Community``, ``Blob``)
+              are derived from supported NIP numbers (50, 29, 95).
+            - **Access types** (``Paid``, ``PrivateStorage``,
+              ``PrivateInbox``, ``PublicOutbox``, ``PublicInbox``) are
+              derived from the combined NIP-11 + RTT access flags.
+            - A relay can have multiple type tags.
 
         Args:
             tags: Mutable tag list to append to.
             supported_nips: NIP numbers advertised by the relay (from NIP-11).
-            access: Relay access restriction flags derived from NIP-11 and RTT probe results.
+            access: Relay access restriction flags derived from NIP-11
+                and RTT probe results.
         """
         nips = set(supported_nips) if supported_nips else set()
 
@@ -251,8 +338,21 @@ class MonitorTagsMixin:
     def _build_kind_30166(self, relay: Relay, result: CheckResult) -> EventBuilder:
         """Build a Kind 30166 relay discovery event per NIP-66.
 
-        The event's ``d`` tag is the relay URL. The content field contains the
-        stringified NIP-11 JSON document if available, per the NIP-66 spec.
+        The event's ``d`` tag is the relay URL. The content field contains
+        the stringified NIP-11 JSON document if available, per the NIP-66
+        spec. Tags are added by the ``_add_*_tags`` helper methods based
+        on the ``discovery.include``
+        [MetadataFlags][bigbrotr.services.monitor.MetadataFlags].
+
+        Note:
+            Kind 30166 is a parameterized replaceable event (30000-39999
+            range). The ``d`` tag (relay URL) acts as the replacement key,
+            so each relay has at most one active discovery event per
+            monitor identity.
+
+        See Also:
+            ``MonitorPublisherMixin._publish_relay_discoveries()``:
+                Broadcasts the events built by this method.
         """
         include = self._config.discovery.include  # type: ignore[attr-defined]
         content = result.nip11.metadata.canonical_json if result.nip11 else ""

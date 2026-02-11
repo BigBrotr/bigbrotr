@@ -5,8 +5,29 @@ This is a one-shot service intended to run once at startup to bootstrap
 the relay discovery pipeline.
 
 Relay URLs are read from a text file (one URL per line) and can be
-inserted either as validation candidates (picked up by Validator) or
-directly into the relays table.
+inserted either as validation candidates (picked up by
+[Validator][bigbrotr.services.validator.Validator]) or directly into
+the relays table.
+
+Note:
+    The seeder is the only one-shot service in the pipeline. Call
+    ``run()`` once at startup; do not use ``run_forever()``. In the
+    default configuration (``to_validate=True``), seed URLs are inserted
+    as candidates in ``service_state`` so that the
+    [Validator][bigbrotr.services.validator.Validator] verifies them
+    before promoting to the ``relay`` table.
+
+See Also:
+    [SeederConfig][bigbrotr.services.seeder.SeederConfig]: Configuration
+        model for seed file path and insertion mode.
+    [BaseService][bigbrotr.core.base_service.BaseService]: Abstract base
+        class providing ``run()`` and ``from_yaml()`` lifecycle.
+    [Brotr][bigbrotr.core.brotr.Brotr]: Database facade used for relay
+        insertion.
+    [filter_new_relay_urls][bigbrotr.services.common.queries.filter_new_relay_urls]:
+        Query used to deduplicate seed URLs.
+    [upsert_candidates][bigbrotr.services.common.queries.upsert_candidates]:
+        Query used to insert seed URLs as validation candidates.
 
 Examples:
     ```python
@@ -47,7 +68,12 @@ if TYPE_CHECKING:
 
 
 class SeedConfig(BaseModel):
-    """Configuration for seed data source and insertion mode."""
+    """Configuration for seed data source and insertion mode.
+
+    See Also:
+        [SeederConfig][bigbrotr.services.seeder.SeederConfig]: Parent
+            config that embeds this model.
+    """
 
     file_path: str = Field(default="static/seed_relays.txt", description="Seed file path")
     to_validate: bool = Field(
@@ -57,7 +83,14 @@ class SeedConfig(BaseModel):
 
 
 class SeederConfig(BaseServiceConfig):
-    """Seeder service configuration."""
+    """Seeder service configuration.
+
+    See Also:
+        [Seeder][bigbrotr.services.seeder.Seeder]: The service class
+            that consumes this configuration.
+        [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
+            Base class providing ``interval`` and ``log_level`` fields.
+    """
 
     seed: SeedConfig = Field(default_factory=SeedConfig)
 
@@ -71,10 +104,17 @@ class Seeder(BaseService[SeederConfig]):
     """Database seeding service.
 
     Reads relay URLs from a seed file and inserts them into the database.
-    URLs can be added as validation candidates (for Validator to process)
-    or inserted directly into the relays table.
+    URLs can be added as validation candidates (for
+    [Validator][bigbrotr.services.validator.Validator] to process) or
+    inserted directly into the relays table.
 
     This is a one-shot service; call ``run()`` once at startup.
+
+    See Also:
+        [SeederConfig][bigbrotr.services.seeder.SeederConfig]: Configuration
+            model for this service.
+        [Finder][bigbrotr.services.finder.Finder]: The next stage in the
+            pipeline that discovers additional relay URLs continuously.
     """
 
     SERVICE_NAME: ClassVar[str] = ServiceName.SEEDER
@@ -110,14 +150,17 @@ class Seeder(BaseService[SeederConfig]):
     # -------------------------------------------------------------------------
 
     def _parse_seed_file(self, path: Path) -> list[Relay]:
-        """
-        Parse seed file and validate relay URLs.
+        """Parse seed file and validate relay URLs.
+
+        Each line is passed to the [Relay][bigbrotr.models.relay.Relay]
+        constructor for URL validation and network detection. Lines
+        starting with ``#`` are treated as comments and skipped.
 
         Args:
-            path: Path to the seed file
+            path: Path to the seed file (one URL per line).
 
         Returns:
-            List of validated Relay objects
+            List of validated [Relay][bigbrotr.models.relay.Relay] objects.
         """
         relays: list[Relay] = []
 
@@ -154,10 +197,14 @@ class Seeder(BaseService[SeederConfig]):
             await self._seed_as_relays(relays)
 
     async def _seed_as_candidates(self, relays: list[Relay]) -> None:
-        """Add relays as validation candidates in the service_state table.
+        """Add relays as validation candidates in the ``service_state`` table.
 
         Filters out URLs that already exist in the relays table or are
         already registered as candidates, preventing duplicate work.
+        Uses [filter_new_relay_urls][bigbrotr.services.common.queries.filter_new_relay_urls]
+        for deduplication and
+        [upsert_candidates][bigbrotr.services.common.queries.upsert_candidates]
+        for insertion.
         """
         all_urls = [relay.url for relay in relays]
 
@@ -181,7 +228,14 @@ class Seeder(BaseService[SeederConfig]):
     async def _seed_as_relays(self, relays: list[Relay]) -> None:
         """Insert relays directly into the relays table.
 
-        Uses ON CONFLICT DO NOTHING so duplicates are silently skipped.
+        Uses ``ON CONFLICT DO NOTHING`` so duplicates are silently skipped.
+        Bypasses the [Validator][bigbrotr.services.validator.Validator]
+        pipeline entirely.
+
+        Warning:
+            Relays inserted via this path skip WebSocket validation.
+            Use ``to_validate=True`` (the default) unless you are certain
+            the seed URLs are valid Nostr relays.
         """
         batch_size = self._brotr.config.batch.max_size
         inserted = 0

@@ -1,15 +1,44 @@
 """Synchronizer service for BigBrotr.
 
 Collects Nostr events from validated relays and stores them in the database.
-Uses asyncio.TaskGroup with a semaphore for structured, bounded concurrency.
+Uses ``asyncio.TaskGroup`` with a semaphore for structured, bounded concurrency.
 
 The synchronization workflow proceeds as follows:
 
-1. Fetch relays from the database (optionally filtered by metadata age).
-2. Load per-relay sync cursors from the service_state table.
+1. Fetch relays from the database via
+   [get_all_relays][bigbrotr.services.common.queries.get_all_relays]
+   (optionally filtered by metadata age).
+2. Load per-relay sync cursors from ``service_state`` via
+   [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors].
 3. Connect to each relay and fetch events since the last sync timestamp.
 4. Validate event signatures and timestamps before insertion.
 5. Update per-relay cursors for the next cycle.
+
+Note:
+    Cursor-based pagination ensures each relay is synced incrementally.
+    The cursor (``last_synced_at``) is stored as a
+    [ServiceState][bigbrotr.models.service_state.ServiceState] record
+    with ``state_type='cursor'``. Cursor updates are batched (flushed
+    every ``cursor_flush_interval`` relays) for crash resilience.
+
+    The stagger delay (``concurrency.stagger_delay``) randomizes the
+    relay processing order to avoid thundering-herd effects when multiple
+    synchronizer instances run concurrently.
+
+See Also:
+    [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
+        Configuration model for networks, filters, time ranges,
+        concurrency, and relay overrides.
+    [BaseService][bigbrotr.core.base_service.BaseService]: Abstract base
+        class providing ``run()``, ``run_forever()``, and ``from_yaml()``.
+    [Brotr][bigbrotr.core.brotr.Brotr]: Database facade used for event
+        insertion and cursor management.
+    [Monitor][bigbrotr.services.monitor.Monitor]: Upstream service that
+        health-checks the relays synced here.
+    [Finder][bigbrotr.services.finder.Finder]: Downstream consumer that
+        discovers relay URLs from the events collected here.
+    [create_client][bigbrotr.utils.transport.create_client]: Factory for
+        the nostr-sdk client used for WebSocket connections.
 
 Examples:
     ```python
@@ -112,9 +141,15 @@ class EventBatch:
         until: Inclusive upper bound timestamp.
         limit: Maximum number of events allowed.
         size: Current event count.
-        events: Collected NostrEvent objects.
-        min_created_at: Earliest ``created_at`` in the batch (or None if empty).
-        max_created_at: Latest ``created_at`` in the batch (or None if empty).
+        events: Collected ``NostrEvent`` objects.
+        min_created_at: Earliest ``created_at`` in the batch (or ``None``
+            if empty).
+        max_created_at: Latest ``created_at`` in the batch (or ``None``
+            if empty).
+
+    See Also:
+        ``_insert_batch``:
+            Validates and persists batch contents to the database.
     """
 
     def __init__(self, since: int, until: int, limit: int) -> None:
@@ -169,7 +204,14 @@ class EventBatch:
 
 
 class FilterConfig(BaseModel):
-    """Nostr event filter configuration for sync subscriptions."""
+    """Nostr event filter configuration for sync subscriptions.
+
+    See Also:
+        ``_create_filter``:
+            Converts this config into a nostr-sdk ``Filter`` object.
+        [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
+            Parent config that embeds this model.
+    """
 
     ids: list[str] | None = Field(default=None, description="Event IDs to sync (None = all)")
     kinds: list[int] | None = Field(default=None, description="Event kinds to sync (None = all)")
@@ -207,7 +249,22 @@ class FilterConfig(BaseModel):
 
 
 class TimeRangeConfig(BaseModel):
-    """Time range configuration controlling the sync window boundaries."""
+    """Time range configuration controlling the sync window boundaries.
+
+    Note:
+        When ``use_relay_state`` is ``True`` (the default), the sync
+        start time is determined by the per-relay cursor plus one second
+        (to avoid re-fetching the last event). When ``False``, all relays
+        start from ``default_start``. The ``lookback_seconds`` parameter
+        controls how far back from ``now()`` the sync window extends.
+
+    See Also:
+        [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
+            Parent config that embeds this model.
+        [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors]:
+            Fetches the per-relay cursor values used when
+            ``use_relay_state`` is enabled.
+    """
 
     default_start: int = Field(default=0, ge=0, description="Default start timestamp (0 = epoch)")
     use_relay_state: bool = Field(
@@ -225,7 +282,12 @@ class SyncTimeoutsConfig(BaseModel):
     """Per-relay sync timeout limits by network type.
 
     These are the maximum total times allowed for syncing a single relay.
-    The per-request WebSocket timeout comes from ``NetworkConfig``.
+    The per-request WebSocket timeout comes from
+    [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig].
+
+    See Also:
+        [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
+            Parent config that embeds this model.
     """
 
     relay_clearnet: float = Field(
@@ -253,7 +315,12 @@ class SyncTimeoutsConfig(BaseModel):
 
 
 class SyncConcurrencyConfig(BaseModel):
-    """Concurrency settings for parallel relay connections."""
+    """Concurrency settings for parallel relay connections.
+
+    See Also:
+        [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
+            Parent config that embeds this model.
+    """
 
     max_parallel: int = Field(
         default=10, ge=1, le=100, description="Max concurrent relay connections"
@@ -267,7 +334,14 @@ class SyncConcurrencyConfig(BaseModel):
 
 
 class SourceConfig(BaseModel):
-    """Configuration for selecting which relays to sync from."""
+    """Configuration for selecting which relays to sync from.
+
+    See Also:
+        [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
+            Parent config that embeds this model.
+        [get_all_relays][bigbrotr.services.common.queries.get_all_relays]:
+            Query used when ``from_database`` is ``True``.
+    """
 
     from_database: bool = Field(default=True, description="Fetch relays from database")
     max_metadata_age: int = Field(
@@ -293,7 +367,18 @@ class RelayOverride(BaseModel):
 
 
 class SynchronizerConfig(BaseServiceConfig):
-    """Synchronizer service configuration."""
+    """Synchronizer service configuration.
+
+    See Also:
+        [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]: The
+            service class that consumes this configuration.
+        [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
+            Base class providing ``interval`` and ``log_level`` fields.
+        [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
+            Per-network timeout and proxy settings.
+        [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key management
+            for NIP-42 authentication during event fetching.
+    """
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
     keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
@@ -311,10 +396,15 @@ class SynchronizerConfig(BaseServiceConfig):
 
 
 def _create_filter(since: int, until: int, config: FilterConfig) -> Filter:
-    """Build a nostr-sdk Filter from the given time range and filter configuration.
+    """Build a nostr-sdk ``Filter`` from the given time range and filter configuration.
 
-    Supports standard fields (ids, kinds, authors) and tag filters specified
-    as ``{tag_letter: [values]}`` (e.g., ``{"e": ["event_id"], "t": ["hashtag"]}``).
+    Supports standard fields (``ids``, ``kinds``, ``authors``) and tag
+    filters specified as ``{tag_letter: [values]}`` (e.g.,
+    ``{"e": ["event_id"], "t": ["hashtag"]}``).
+
+    See Also:
+        [FilterConfig][bigbrotr.services.synchronizer.FilterConfig]:
+            The configuration model consumed by this function.
     """
     f = (
         Filter()
@@ -363,14 +453,21 @@ async def _insert_batch(
     insertion. Invalid events are counted but not inserted.
 
     Args:
-        batch: EventBatch containing nostr-sdk Events.
-        relay: Source relay for attribution.
-        brotr: Database interface.
+        batch: [EventBatch][bigbrotr.services.synchronizer.EventBatch]
+            containing nostr-sdk Events.
+        relay: Source [Relay][bigbrotr.models.relay.Relay] for attribution.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         since: Lower timestamp bound (events must be >= this).
         until: Upper timestamp bound (events must be <= this).
 
     Returns:
         Tuple of (events_inserted, events_invalid, events_skipped).
+
+    Note:
+        Events are inserted via the ``event_relay_insert_cascade`` stored
+        procedure, which atomically inserts the event, relay, and
+        junction record. The batch is split into sub-batches of
+        ``brotr.config.batch.max_size`` for insertion.
     """
     if batch.is_empty():
         return 0, 0, 0
@@ -422,7 +519,12 @@ async def _insert_batch(
 
 @dataclass(frozen=True, slots=True)
 class SyncContext:
-    """Immutable context shared across all relay sync operations in a cycle."""
+    """Immutable context shared across all relay sync operations in a cycle.
+
+    See Also:
+        ``_sync_relay_events``:
+            The function that consumes this context.
+    """
 
     filter_config: FilterConfig
     network_config: NetworkConfig
@@ -439,11 +541,17 @@ async def _sync_relay_events(
 ) -> tuple[int, int, int]:
     """Core sync algorithm: connect to a relay, fetch events, and insert into the database.
 
+    Uses [create_client][bigbrotr.utils.transport.create_client] to
+    establish a WebSocket connection (with optional SOCKS5 proxy for
+    overlay networks), fetches events matching the configured filter,
+    and batch-inserts valid events.
+
     Args:
-        relay: Relay to sync from.
+        relay: [Relay][bigbrotr.models.relay.Relay] to sync from.
         start_time: Inclusive start timestamp (since).
         end_time: Inclusive end timestamp (until).
-        ctx: Immutable context with filter, network, timeout, database, and key settings.
+        ctx: [SyncContext][bigbrotr.services.synchronizer.SyncContext]
+            with filter, network, timeout, database, and key settings.
 
     Returns:
         Tuple of (events_synced, invalid_events, skipped_events).
@@ -495,13 +603,29 @@ class Synchronizer(BaseService[SynchronizerConfig]):
     """Event synchronization service.
 
     Collects Nostr events from validated relays and stores them in the
-    database. Uses asyncio.TaskGroup with a semaphore for structured,
+    database. Uses ``asyncio.TaskGroup`` with a semaphore for structured,
     bounded concurrency.
 
     Each cycle fetches relays from the database, loads per-relay sync
-    cursors from service_state, connects to each relay to fetch events
+    cursors from ``service_state``, connects to each relay to fetch events
     since the last sync, validates signatures and timestamps, batch-inserts
     events, and updates per-relay cursors for the next cycle.
+
+    Note:
+        The relay list is shuffled before processing to prevent all
+        synchronizer instances from hitting the same relays in the same
+        order, reducing thundering-herd effects. Relay overrides can
+        customize per-relay timeouts for high-traffic relays.
+
+    See Also:
+        [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
+            Configuration model for this service.
+        [Monitor][bigbrotr.services.monitor.Monitor]: Upstream service
+            that health-checks relays before they are synced.
+        [Finder][bigbrotr.services.finder.Finder]: Downstream consumer
+            that discovers relay URLs from the events collected here.
+        [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors]:
+            Pre-fetches all per-relay cursor values.
     """
 
     SERVICE_NAME: ClassVar[str] = ServiceName.SYNCHRONIZER
@@ -570,7 +694,17 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         )
 
     async def _sync_all_relays(self, relays: list[Relay]) -> None:  # noqa: PLR0915
-        """Sync all relays concurrently using structured concurrency."""
+        """Sync all relays concurrently using structured concurrency.
+
+        Note:
+            Uses ``asyncio.TaskGroup`` for structured concurrency with
+            a semaphore (``max_parallel``) to bound the number of
+            simultaneous WebSocket connections. Cursor updates are
+            batched in memory and flushed every
+            ``cursor_flush_interval`` relays for crash resilience.
+            A ``counter_lock`` protects shared counters for
+            future-proofing against free-threaded Python.
+        """
         semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel)
 
         # Pre-fetch all cursors in one query to avoid N+1 pattern
@@ -677,7 +811,12 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                 )
 
     async def _fetch_relays(self) -> list[Relay]:
-        """Fetch validated relays from the database for synchronization."""
+        """Fetch validated relays from the database for synchronization.
+
+        See Also:
+            [get_all_relays][bigbrotr.services.common.queries.get_all_relays]:
+                The SQL query executed by this method.
+        """
         relays: list[Relay] = []
 
         if not self._config.source.from_database:
@@ -701,6 +840,10 @@ class Synchronizer(BaseService[SynchronizerConfig]):
 
         Returns:
             Dict mapping relay URL to ``last_synced_at`` timestamp.
+
+        See Also:
+            [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors]:
+                The SQL query executed by this method.
         """
         if not self._config.time_range.use_relay_state:
             return {}

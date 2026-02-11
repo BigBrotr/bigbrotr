@@ -2,8 +2,29 @@
 NIP-66 HTTP metadata container with header extraction capabilities.
 
 Captures ``Server`` and ``X-Powered-By`` HTTP headers from the WebSocket
-upgrade handshake response. Supports both clearnet and overlay network
-relays (overlay networks require a SOCKS5 proxy).
+upgrade handshake response as part of
+[NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md)
+monitoring. Supports both clearnet and overlay network relays (overlay
+networks require a SOCKS5 proxy).
+
+Note:
+    Headers are captured using aiohttp's ``TraceConfig`` hooks during the
+    WebSocket upgrade handshake, not from a separate HTTP request. This
+    ensures the captured headers reflect the actual relay WebSocket endpoint
+    rather than a potentially different HTTP endpoint.
+
+    A non-validating SSL context (``CERT_NONE``) is used to ensure headers
+    can be captured regardless of certificate validity. This is the only
+    NIP-66 test that supports **both** clearnet and overlay networks.
+
+See Also:
+    [bigbrotr.nips.nip66.data.Nip66HttpData][bigbrotr.nips.nip66.data.Nip66HttpData]:
+        Data model for HTTP header fields.
+    [bigbrotr.nips.nip66.logs.Nip66HttpLogs][bigbrotr.nips.nip66.logs.Nip66HttpLogs]:
+        Log model for HTTP extraction results.
+    [bigbrotr.nips.nip11.fetch.Nip11InfoMetadata][bigbrotr.nips.nip11.fetch.Nip11InfoMetadata]:
+        NIP-11 fetch that also makes HTTP requests to relays (but uses
+        ``Accept: application/nostr+json`` for JSON document retrieval).
 """
 
 from __future__ import annotations
@@ -33,6 +54,12 @@ class Nip66HttpMetadata(BaseMetadata):
     Provides the ``execute()`` class method that initiates a WebSocket
     connection and captures server identification headers from the
     upgrade response.
+
+    See Also:
+        [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
+            Top-level model that orchestrates this alongside other tests.
+        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+            The ``NIP66_HTTP`` variant used when storing these results.
     """
 
     data: Nip66HttpData

@@ -1,10 +1,29 @@
 """
 Top-level NIP-66 model with factory method and database serialization.
 
-Orchestrates all NIP-66 monitoring tests (RTT, SSL, GEO, NET, DNS, HTTP)
-via the ``create()`` async factory method, and provides
-``to_relay_metadata_tuple()`` for converting results into database-ready
-``RelayMetadata`` records.
+Orchestrates all [NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md)
+monitoring tests (RTT, SSL, GEO, NET, DNS, HTTP) via the ``create()``
+async factory method, and provides ``to_relay_metadata_tuple()`` for
+converting results into database-ready
+[RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] records.
+
+See Also:
+    [bigbrotr.nips.nip66.rtt.Nip66RttMetadata][bigbrotr.nips.nip66.rtt.Nip66RttMetadata]:
+        RTT test implementation.
+    [bigbrotr.nips.nip66.ssl.Nip66SslMetadata][bigbrotr.nips.nip66.ssl.Nip66SslMetadata]:
+        SSL test implementation.
+    [bigbrotr.nips.nip66.dns.Nip66DnsMetadata][bigbrotr.nips.nip66.dns.Nip66DnsMetadata]:
+        DNS test implementation.
+    [bigbrotr.nips.nip66.geo.Nip66GeoMetadata][bigbrotr.nips.nip66.geo.Nip66GeoMetadata]:
+        Geolocation test implementation.
+    [bigbrotr.nips.nip66.net.Nip66NetMetadata][bigbrotr.nips.nip66.net.Nip66NetMetadata]:
+        Network/ASN test implementation.
+    [bigbrotr.nips.nip66.http.Nip66HttpMetadata][bigbrotr.nips.nip66.http.Nip66HttpMetadata]:
+        HTTP test implementation.
+    [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+        Enum with ``NIP66_*`` variants for each test type.
+    [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
+        Companion NIP-11 model with the same factory/serialization pattern.
 """
 
 from __future__ import annotations
@@ -42,7 +61,14 @@ class Nip66TestSelection(BaseModel):
     """Which NIP-66 checks to execute.
 
     All checks are enabled by default. Set individual fields to ``False``
-    to skip specific test types during ``Nip66.create()``.
+    to skip specific test types during
+    [Nip66.create][bigbrotr.nips.nip66.nip66.Nip66.create].
+
+    See Also:
+        [Nip66TestOptions][bigbrotr.nips.nip66.nip66.Nip66TestOptions]:
+            Controls *how* tests are executed (e.g., allow insecure SSL).
+        [Nip66Dependencies][bigbrotr.nips.nip66.nip66.Nip66Dependencies]:
+            Provides optional dependencies required by specific tests.
     """
 
     rtt: bool = True
@@ -58,7 +84,13 @@ class Nip66TestOptions(BaseModel):
 
     Attributes:
         allow_insecure: Fall back to unverified SSL for clearnet relays
-            with invalid certificates (default: False). Used by RTT.
+            with invalid certificates (default: ``False``). Used by RTT.
+
+    See Also:
+        [Nip66TestSelection][bigbrotr.nips.nip66.nip66.Nip66TestSelection]:
+            Controls *which* tests are executed.
+        [bigbrotr.utils.transport.InsecureWebSocketTransport][bigbrotr.utils.transport.InsecureWebSocketTransport]:
+            Transport used when ``allow_insecure`` triggers a fallback.
     """
 
     allow_insecure: bool = False
@@ -74,6 +106,19 @@ class Nip66Dependencies(NamedTuple):
     All fields default to ``None``. RTT tests require ``keys``,
     ``event_builder``, and ``read_filter``. Geo/net tests require
     the corresponding GeoIP database readers.
+
+    Note:
+        Tests whose dependencies are ``None`` are silently skipped in
+        [Nip66.create][bigbrotr.nips.nip66.nip66.Nip66.create], even if
+        enabled in [Nip66TestSelection][bigbrotr.nips.nip66.nip66.Nip66TestSelection].
+        This allows a single code path to handle deployments with and
+        without GeoIP databases or signing keys.
+
+    See Also:
+        [bigbrotr.nips.nip66.rtt.Nip66RttDependencies][bigbrotr.nips.nip66.rtt.Nip66RttDependencies]:
+            Focused dependency tuple for RTT-specific needs.
+        [bigbrotr.utils.keys.load_keys_from_env][bigbrotr.utils.keys.load_keys_from_env]:
+            Function used to load the signing keys.
     """
 
     keys: Keys | None = None
@@ -84,11 +129,17 @@ class Nip66Dependencies(NamedTuple):
 
 
 class RelayNip66MetadataTuple(NamedTuple):
-    """Database-ready tuple of NIP-66 RelayMetadata records.
+    """Database-ready tuple of NIP-66 ``RelayMetadata`` records.
 
     Each field is ``None`` if the corresponding test was not run or
     was not applicable to the relay's network type. No ``nip66_`` prefix
     because this is a NIP-66-only container.
+
+    See Also:
+        [Nip66.to_relay_metadata_tuple][bigbrotr.nips.nip66.nip66.Nip66.to_relay_metadata_tuple]:
+            Method that produces instances of this tuple.
+        [bigbrotr.nips.nip11.nip11.RelayNip11MetadataTuple][bigbrotr.nips.nip11.nip11.RelayNip11MetadataTuple]:
+            Companion tuple for NIP-11 metadata records.
     """
 
     rtt: RelayMetadata | None
@@ -112,7 +163,7 @@ class Nip66(BaseModel):
     container where the field names are unambiguous.
 
     Attributes:
-        relay: The relay being monitored.
+        relay: The [Relay][bigbrotr.models.relay.Relay] being monitored.
         rtt: RTT probe results (requires keys, event_builder, read_filter).
         ssl: SSL/TLS certificate data (clearnet only).
         geo: Geolocation data (requires GeoIP City database).
@@ -120,6 +171,20 @@ class Nip66(BaseModel):
         dns: DNS resolution data (clearnet only).
         http: HTTP server headers.
         generated_at: Unix timestamp of when monitoring was performed.
+
+    Note:
+        The ``create()`` factory method runs all enabled tests concurrently
+        via ``asyncio.gather``. Individual test failures do not affect other
+        tests -- each test handles its own exceptions and records the outcome
+        in its logs field.
+
+    See Also:
+        [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
+            Companion NIP-11 model with the same factory/serialization pattern.
+        [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
+            Service that calls ``create()`` during health check cycles.
+        [bigbrotr.services.monitor_tags][bigbrotr.services.monitor_tags]:
+            Tag builder that converts results into kind 30166 event tags.
 
     Examples:
         ```python
@@ -148,11 +213,15 @@ class Nip66(BaseModel):
     # -------------------------------------------------------------------------
 
     def to_relay_metadata_tuple(self) -> RelayNip66MetadataTuple:
-        """Convert to a tuple of RelayMetadata records for database storage.
+        """Convert to a ``RelayMetadata`` tuple for database storage.
 
         Returns:
-            A ``RelayNip66MetadataTuple`` with one ``RelayMetadata`` per test
-            that produced results, or ``None`` for tests that were skipped.
+            A [RelayNip66MetadataTuple][bigbrotr.nips.nip66.nip66.RelayNip66MetadataTuple]
+            with one [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+            per test that produced results, or ``None`` for tests that were
+            skipped. Each record is tagged with the corresponding
+            [MetadataType][bigbrotr.models.metadata.MetadataType] variant
+            (``NIP66_RTT``, ``NIP66_SSL``, etc.).
         """
 
         def make(

@@ -1,15 +1,33 @@
 """Shared infrastructure for all BigBrotr services.
 
+Provides the foundational building blocks used across all five pipeline
+services: configuration models, constants, mixins, and centralized SQL
+query functions.
+
 Attributes:
-    configs: Per-network Pydantic configuration models (`ClearnetConfig`,
-        `TorConfig`, `I2pConfig`, `LokiConfig`) with sensible defaults
-        for timeouts, proxy URLs, and max concurrent tasks.
-    constants: `ServiceName` and `DataType` StrEnums identifying pipeline
-        services and data categories.
-    mixins: `BatchProgress` dataclass for tracking batch processing cycles
-        and `NetworkSemaphoreMixin` for per-network concurrency control.
+    configs: Per-network Pydantic configuration models
+        ([ClearnetConfig][bigbrotr.services.common.configs.ClearnetConfig],
+        [TorConfig][bigbrotr.services.common.configs.TorConfig],
+        [I2pConfig][bigbrotr.services.common.configs.I2pConfig],
+        [LokiConfig][bigbrotr.services.common.configs.LokiConfig]) with
+        sensible defaults for timeouts, proxy URLs, and max concurrent tasks.
+    constants: [ServiceName][bigbrotr.services.common.constants.ServiceName]
+        StrEnum identifying pipeline services, plus re-exports of model-layer
+        types ([ServiceState][bigbrotr.models.service_state.ServiceState],
+        [StateType][bigbrotr.models.service_state.StateType],
+        [EventKind][bigbrotr.models.service_state.EventKind]).
+    mixins: [BatchProgress][bigbrotr.services.common.mixins.BatchProgress]
+        dataclass for tracking batch processing cycles and
+        [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin]
+        for per-network concurrency control.
     queries: 13 domain-specific SQL query functions centralized in one module
         to avoid scattering inline SQL across services.
+
+See Also:
+    [BaseService][bigbrotr.core.base_service.BaseService]: Abstract base
+        class that all services extend.
+    [Brotr][bigbrotr.core.brotr.Brotr]: Database facade consumed by all
+        query functions in this package.
 """
 
 from .configs import (

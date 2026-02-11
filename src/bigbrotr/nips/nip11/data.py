@@ -1,9 +1,25 @@
 """
 NIP-11 relay information data models.
 
-Defines the typed Pydantic models that represent the fields of a NIP-11
-relay information document, including server limitations, retention policies,
+Defines the typed Pydantic models that represent the fields of a
+[NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md) relay
+information document, including server limitations, retention policies,
 and fee schedules.
+
+Note:
+    All data classes extend [BaseData][bigbrotr.nips.base.BaseData] and use
+    declarative [FieldSpec][bigbrotr.nips.parsing.FieldSpec] parsing.
+    Complex nested structures (limitation, retention, fees) override
+    ``parse()`` with custom logic while still leveraging the base mechanism
+    for flat fields.
+
+See Also:
+    [bigbrotr.nips.nip11.fetch.Nip11InfoMetadata][bigbrotr.nips.nip11.fetch.Nip11InfoMetadata]:
+        Container that pairs these data models with fetch logs.
+    [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
+        Top-level model that wraps the fetch result.
+    [bigbrotr.nips.base.BaseData][bigbrotr.nips.base.BaseData]: Base class
+        providing the ``parse()`` / ``from_dict()`` / ``to_dict()`` interface.
 """
 
 from __future__ import annotations
@@ -23,6 +39,10 @@ class Nip11FetchDataLimitation(BaseData):
     """Server-imposed limitations advertised in the NIP-11 document.
 
     All fields are optional; relays may omit any or all of them.
+
+    See Also:
+        [Nip11FetchData][bigbrotr.nips.nip11.data.Nip11FetchData]: Parent
+            model that contains this as the ``limitation`` field.
     """
 
     max_message_length: StrictInt | None = None
@@ -69,6 +89,16 @@ class Nip11FetchDataRetentionEntry(BaseData):
 
     The ``kinds`` field can contain plain integers or ``[start, end]``
     range pairs, requiring custom parsing logic in ``parse()``.
+
+    Note:
+        The ``parse()`` override handles the mixed ``int | [int, int]``
+        format specified by NIP-11. Lists are converted to tuples for
+        immutability, and ``to_dict()`` uses ``mode="json"`` to convert
+        tuples back to lists for JSON serialization.
+
+    See Also:
+        [Nip11FetchData][bigbrotr.nips.nip11.data.Nip11FetchData]: Parent
+            model that contains these as the ``retention`` list.
     """
 
     kinds: list[StrictInt | KindRange] | None = None
@@ -119,7 +149,12 @@ class Nip11FetchDataRetentionEntry(BaseData):
 
 
 class Nip11FetchDataFeeEntry(BaseData):
-    """Single fee entry (admission, subscription, or publication)."""
+    """Single fee entry (admission, subscription, or publication).
+
+    See Also:
+        [Nip11FetchDataFees][bigbrotr.nips.nip11.data.Nip11FetchDataFees]:
+            Parent model that groups fee entries by category.
+    """
 
     amount: StrictInt | None = None
     unit: str | None = None
@@ -136,8 +171,13 @@ class Nip11FetchDataFeeEntry(BaseData):
 class Nip11FetchDataFees(BaseData):
     """Fee schedule categories from a NIP-11 document.
 
-    Contains nested lists of ``Nip11FetchDataFeeEntry`` objects for
-    admission, subscription, and publication fees.
+    Contains nested lists of
+    [Nip11FetchDataFeeEntry][bigbrotr.nips.nip11.data.Nip11FetchDataFeeEntry]
+    objects for admission, subscription, and publication fees.
+
+    See Also:
+        [Nip11FetchData][bigbrotr.nips.nip11.data.Nip11FetchData]: Parent
+            model that contains this as the ``fees`` field.
     """
 
     admission: list[Nip11FetchDataFeeEntry] | None = None
@@ -172,6 +212,20 @@ class Nip11FetchData(BaseData):
     Overrides ``parse()`` to handle nested objects (limitation, retention,
     fees) and ``to_dict()`` to use ``by_alias=True`` for the ``self``
     field, which maps to ``self_pubkey`` internally.
+
+    Note:
+        The NIP-11 ``self`` field is a reserved Python keyword, so it is
+        mapped to ``self_pubkey`` with a Pydantic alias. The ``to_dict()``
+        method uses ``by_alias=True`` to ensure the JSON output uses the
+        correct ``self`` key name as specified by the NIP.
+
+    See Also:
+        [Nip11InfoMetadata][bigbrotr.nips.nip11.fetch.Nip11InfoMetadata]:
+            Container that wraps this data model with fetch logs.
+        [Nip11FetchDataLimitation][bigbrotr.nips.nip11.data.Nip11FetchDataLimitation]:
+            Nested limitation sub-model.
+        [Nip11FetchDataFees][bigbrotr.nips.nip11.data.Nip11FetchDataFees]:
+            Nested fee schedule sub-model.
     """
 
     model_config = ConfigDict(frozen=True, populate_by_name=True)

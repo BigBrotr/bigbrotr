@@ -9,15 +9,17 @@ Values containing spaces, equals signs, or quotes are automatically escaped
 and wrapped in double quotes. Long values are truncated to a configurable
 maximum length.
 
-The ``StructuredFormatter`` is a stdlib ``logging.Formatter`` that reads
-structured data from the ``structured_kv`` extra field (attached by Logger)
-and appends it as key=value pairs. When installed on the root handler, it
-unifies output from both ``Logger`` and plain ``logging.getLogger()`` calls
-used in the models and utils layers.
+The [StructuredFormatter][bigbrotr.core.logger.StructuredFormatter] is a
+stdlib ``logging.Formatter`` that reads structured data from the
+``structured_kv`` extra field (attached by
+[Logger][bigbrotr.core.logger.Logger]) and appends it as key=value pairs.
+When installed on the root handler, it unifies output from both
+[Logger][bigbrotr.core.logger.Logger] and plain ``logging.getLogger()``
+calls used in the models and utils layers.
 
 Examples:
     ```python
-    from core.logger import Logger
+    from bigbrotr.core.logger import Logger
 
     logger = Logger("finder")
     logger.info("started", cycle=1, count=42)
@@ -27,6 +29,15 @@ Examples:
     json_logger.info("started", cycle=1)
     # Output: {"message": "started", "cycle": 1}
     ```
+
+See Also:
+    [BaseService][bigbrotr.core.base_service.BaseService]: Creates a
+        [Logger][bigbrotr.core.logger.Logger] instance for each service
+        using ``SERVICE_NAME``.
+    [format_kv_pairs()][bigbrotr.core.logger.format_kv_pairs]: Standalone
+        formatting utility used by both
+        [Logger][bigbrotr.core.logger.Logger] and
+        [StructuredFormatter][bigbrotr.core.logger.StructuredFormatter].
 """
 
 import datetime
@@ -42,19 +53,25 @@ def format_kv_pairs(
 ) -> str:
     """Format a dictionary as space-separated key=value pairs.
 
-    Used by Logger and worker processes to produce consistent structured output.
-    Values are truncated to ``max_value_length`` characters, and values containing
-    whitespace, equals signs, or quotes are automatically escaped and quoted.
+    Used by [Logger][bigbrotr.core.logger.Logger] and
+    [StructuredFormatter][bigbrotr.core.logger.StructuredFormatter] to
+    produce consistent structured output. Values are truncated to
+    ``max_value_length`` characters, and values containing whitespace,
+    equals signs, or quotes are automatically escaped and quoted.
 
     Args:
         kwargs: Key-value pairs to format.
         max_value_length: Maximum characters per value before truncation.
-            Pass None to disable truncation.
+            Pass ``None`` to disable truncation.
         prefix: String prepended to the output (default: single space).
 
     Returns:
-        Formatted string, e.g. ' key1=value1 key2="value with spaces"'.
-        Returns empty string if kwargs is empty.
+        Formatted string, e.g. ``' key1=value1 key2="value with spaces"'``.
+        Returns empty string if ``kwargs`` is empty.
+
+    See Also:
+        [Logger][bigbrotr.core.logger.Logger]: Primary consumer of this
+            function.
     """
     if not kwargs:
         return ""
@@ -78,10 +95,18 @@ class StructuredFormatter(logging.Formatter):
     """Formats all log records as structured key=value output.
 
     Reads structured data from the ``structured_kv`` extra field
-    (attached by Logger) and appends it as key=value pairs.  When no
+    (attached by [Logger][bigbrotr.core.logger.Logger]) and appends it
+    as key=value pairs via
+    [format_kv_pairs()][bigbrotr.core.logger.format_kv_pairs]. When no
     ``structured_kv`` is present (e.g. plain ``logging.getLogger()``
     calls from models/utils), the message is emitted as-is with the
     same ``level name message`` prefix for consistency.
+
+    See Also:
+        [Logger][bigbrotr.core.logger.Logger]: Attaches the
+            ``structured_kv`` extra field to log records.
+        [format_kv_pairs()][bigbrotr.core.logger.format_kv_pairs]:
+            Formatting utility used by the ``format()`` method.
     """
 
     def format(self, record: logging.LogRecord) -> str:
@@ -108,6 +133,20 @@ class Logger:
         logger.info("relay_found", url="wss://relay.example.com")
         # Output: relay_found url=wss://relay.example.com
         ```
+
+    Note:
+        This class intentionally does not use ``__slots__``. Adding
+        ``__slots__`` would break ``unittest.mock.patch.object()`` which
+        needs to set arbitrary attributes on the instance during testing.
+
+    See Also:
+        [StructuredFormatter][bigbrotr.core.logger.StructuredFormatter]:
+            Stdlib formatter that reads the ``structured_kv`` extra field
+            attached by this class.
+        [format_kv_pairs()][bigbrotr.core.logger.format_kv_pairs]: Standalone
+            formatting utility.
+        [BaseService][bigbrotr.core.base_service.BaseService]: Creates a Logger
+            instance per service via ``Logger(SERVICE_NAME)``.
     """
 
     _DEFAULT_MAX_VALUE_LENGTH: ClassVar[int] = 1000
@@ -124,9 +163,12 @@ class Logger:
         Args:
             name: Logger name, typically the service or module name.
                 Maps to the underlying ``logging.getLogger(name)`` call.
-            json_output: If True, emit JSON objects instead of key=value pairs.
+            json_output: If ``True``, emit JSON objects instead of
+                key=value pairs. JSON output includes ``timestamp``
+                (ISO 8601), ``level``, and ``service`` fields for
+                compatibility with log aggregators.
             max_value_length: Maximum character length for individual values
-                before truncation. Defaults to 1000.
+                before truncation. Defaults to ``1000``.
         """
         if max_value_length is None:
             max_value_length = self._DEFAULT_MAX_VALUE_LENGTH

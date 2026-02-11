@@ -3,7 +3,30 @@ NIP-66 SSL metadata container with certificate inspection capabilities.
 
 Connects to a relay's TLS endpoint, extracts certificate details (subject,
 issuer, validity, SANs, fingerprint, cipher), and separately validates the
-certificate chain. Clearnet relays only.
+certificate chain as part of
+[NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md) monitoring.
+Clearnet relays only.
+
+Note:
+    The SSL test uses a two-connection methodology:
+
+    1. **Extraction** -- connects with ``CERT_NONE`` to read the certificate
+       regardless of chain validity. This allows inspecting self-signed or
+       expired certificates.
+    2. **Validation** -- connects with the default (validating) SSL context
+       to verify the certificate chain against the system trust store.
+
+    Both connections are synchronous socket operations delegated to a thread
+    pool via ``asyncio.to_thread`` to avoid blocking the event loop.
+
+See Also:
+    [bigbrotr.nips.nip66.data.Nip66SslData][bigbrotr.nips.nip66.data.Nip66SslData]:
+        Data model for SSL certificate fields.
+    [bigbrotr.nips.nip66.logs.Nip66SslLogs][bigbrotr.nips.nip66.logs.Nip66SslLogs]:
+        Log model for SSL inspection results.
+    [bigbrotr.utils.transport.InsecureWebSocketTransport][bigbrotr.utils.transport.InsecureWebSocketTransport]:
+        Related insecure transport used for WebSocket connections (distinct
+        from the raw socket approach used here for certificate extraction).
 """
 
 from __future__ import annotations
@@ -31,6 +54,12 @@ class CertificateExtractor:
 
     The certificate dictionary is obtained from ``SSLSocket.getpeercert()``
     and follows the format documented in the Python ``ssl`` module.
+
+    See Also:
+        [Nip66SslMetadata][bigbrotr.nips.nip66.ssl.Nip66SslMetadata]:
+            Container that uses this extractor during certificate inspection.
+        [bigbrotr.nips.nip66.data.Nip66SslData][bigbrotr.nips.nip66.data.Nip66SslData]:
+            Data model populated by the extracted fields.
     """
 
     @staticmethod
@@ -132,6 +161,20 @@ class Nip66SslMetadata(BaseMetadata):
 
     Provides the ``execute()`` class method that performs certificate
     extraction and chain validation against a relay's TLS endpoint.
+
+    Warning:
+        The certificate extraction phase uses ``CERT_NONE`` to read
+        certificates from relays with invalid chains. This is intentional
+        for monitoring purposes and does not affect the ``ssl_valid`` field,
+        which is determined by a separate validating connection.
+
+    See Also:
+        [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
+            Top-level model that orchestrates this alongside other tests.
+        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+            The ``NIP66_SSL`` variant used when storing these results.
+        [bigbrotr.nips.nip66.rtt.Nip66RttMetadata][bigbrotr.nips.nip66.rtt.Nip66RttMetadata]:
+            RTT test that also involves SSL connections.
     """
 
     data: Nip66SslData
