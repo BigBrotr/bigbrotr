@@ -284,9 +284,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION event_relay_insert_cascade(
-    BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA [], TEXT [], TEXT [], BIGINT [], BIGINT []
-) IS
+COMMENT ON FUNCTION event_relay_insert_cascade(BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA [], TEXT [], TEXT [], BIGINT [], BIGINT []) IS
 'Atomically insert events with relays and junctions (lightweight), returns junction row count';
 
 

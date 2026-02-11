@@ -39,13 +39,13 @@
  * Returns: Number of newly inserted rows
 {% endblock %}
 {% block events_insert_params %}
-    p_event_ids BYTEA[],
-    p_pubkeys BYTEA[],
-    p_created_ats BIGINT[],
-    p_kinds INTEGER[],
-    p_tags JSONB[],           -- Used to compute tagvalues, NOT stored
-    p_content_values TEXT[],  -- Accepted but NOT stored
-    p_sigs BYTEA[]            -- Accepted but NOT stored
+    p_event_ids BYTEA [],
+    p_pubkeys BYTEA [],
+    p_created_ats BIGINT [],
+    p_kinds INTEGER [],
+    p_tags JSONB [],           -- Used to compute tagvalues, NOT stored
+    p_content_values TEXT [],  -- Accepted but NOT stored
+    p_sigs BYTEA []            -- Accepted but NOT stored
 {% endblock %}
 {% block events_insert_body %}
     -- Store only essential fields; compute tagvalues from tags, discard the rest
@@ -70,17 +70,17 @@
  * Returns: Number of junction rows inserted in event_relay
  */
 CREATE OR REPLACE FUNCTION event_relay_insert_cascade(
-    p_event_ids BYTEA[],
-    p_pubkeys BYTEA[],
-    p_created_ats BIGINT[],
-    p_kinds INTEGER[],
-    p_tags JSONB[],           -- Used to compute tagvalues, NOT stored
-    p_content_values TEXT[],  -- Accepted but NOT stored
-    p_sigs BYTEA[],           -- Accepted but NOT stored
-    p_relay_urls TEXT[],
-    p_relay_networks TEXT[],
-    p_relay_discovered_ats BIGINT[],
-    p_seen_ats BIGINT[]
+    p_event_ids BYTEA [],
+    p_pubkeys BYTEA [],
+    p_created_ats BIGINT [],
+    p_kinds INTEGER [],
+    p_tags JSONB [],           -- Used to compute tagvalues, NOT stored
+    p_content_values TEXT [],  -- Accepted but NOT stored
+    p_sigs BYTEA [],           -- Accepted but NOT stored
+    p_relay_urls TEXT [],
+    p_relay_networks TEXT [],
+    p_relay_discovered_ats BIGINT [],
+    p_seen_ats BIGINT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -105,7 +105,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION event_relay_insert_cascade(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[], TEXT[], TEXT[], BIGINT[], BIGINT[]) IS
+COMMENT ON FUNCTION event_relay_insert_cascade(BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA [], TEXT [], TEXT [], BIGINT [], BIGINT []) IS
 'Atomically insert events with relays and junctions (lightweight), returns junction row count';
 {% endblock %}
 {% block service_data_functions %}
@@ -122,11 +122,11 @@ COMMENT ON FUNCTION event_relay_insert_cascade(BYTEA[], BYTEA[], BIGINT[], INTEG
  * and timestamp are fully replaced. DISTINCT ON deduplicates within the batch.
  */
 CREATE OR REPLACE FUNCTION service_state_upsert(
-    p_service_names TEXT[],
-    p_state_types TEXT[],
-    p_state_keys TEXT[],
-    p_payloads JSONB[],
-    p_updated_ats BIGINT[]
+    p_service_names TEXT [],
+    p_state_types TEXT [],
+    p_state_keys TEXT [],
+    p_payloads JSONB [],
+    p_updated_ats BIGINT []
 )
 RETURNS VOID
 LANGUAGE plpgsql
@@ -149,7 +149,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION service_state_upsert(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[]) IS
+COMMENT ON FUNCTION service_state_upsert(TEXT [], TEXT [], TEXT [], JSONB [], BIGINT []) IS
 'Bulk upsert service state with deduplication and full replacement semantics';
 
 
@@ -203,9 +203,9 @@ COMMENT ON FUNCTION service_state_get IS
  * Returns: Number of rows deleted
  */
 CREATE OR REPLACE FUNCTION service_state_delete(
-    p_service_names TEXT[],
-    p_state_types TEXT[],
-    p_state_keys TEXT[]
+    p_service_names TEXT [],
+    p_state_types TEXT [],
+    p_state_keys TEXT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -228,6 +228,6 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION service_state_delete(TEXT[], TEXT[], TEXT[]) IS
+COMMENT ON FUNCTION service_state_delete(TEXT [], TEXT [], TEXT []) IS
 'Bulk delete service state records, returns number of rows deleted';
 {% endblock %}
