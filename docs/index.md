@@ -96,4 +96,4 @@ For a complete walkthrough, see the [Getting Started](getting-started/index.md) 
 | Step-by-step deployment and operational procedures | [How-to Guides](how-to/index.md) |
 | Development environment, testing, contributing | [Development](development/index.md) |
 | Python API documentation (auto-generated) | [API Reference](reference/index.md) |
-| Version history | [Changelog](CHANGELOG.md) |
+| Version history | [Changelog](changelog.md) |
