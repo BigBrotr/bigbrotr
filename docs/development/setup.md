@@ -82,7 +82,7 @@ bigbrotr/
 |   +-- core/                         # Pool, Brotr, BaseService, Logger, Metrics, YAML
 |   |   +-- exceptions.py             # Exception hierarchy (BigBrotrError)
 |   +-- models/                       # Frozen dataclasses (pure, zero I/O)
-|   |   +-- service_state.py          # ServiceState, ServiceStateKey
+|   |   +-- service_state.py          # ServiceState, ServiceStateType
 |   +-- nips/                         # NIP-11 and NIP-66 protocol I/O
 |   |   +-- nip11/                    # Relay info document fetch/parse
 |   |   +-- nip66/                    # Monitoring: dns, geo, http, net, rtt, ssl

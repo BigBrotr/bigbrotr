@@ -190,7 +190,8 @@ from bigbrotr.core.logger import Logger
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.core.exceptions import ConnectivityError, RelayTimeoutError
 from bigbrotr.models.constants import NetworkType
-from bigbrotr.models.service_state import ServiceState, EventKind, StateType
+from bigbrotr.models.constants import EventKind, ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.nips.nip11 import Nip11
 from bigbrotr.utils.transport import connect_relay, is_nostr_relay
 ```
@@ -199,7 +200,7 @@ from bigbrotr.utils.transport import connect_relay, is_nostr_relay
 
 ```python
 from .logger import Logger
-from .common.constants import DataType, ServiceName
+from .common.queries import get_all_relay_urls
 ```
 
 ### Models Layer: stdlib Only
@@ -229,7 +230,8 @@ Key type locations:
 
 - `NetworkType` in `models/constants.py`
 - `MetadataType` in `models/metadata.py`
-- `ServiceState`, `ServiceStateKey`, `StateType`, `EventKind` in `models/service_state.py`
+- `ServiceState`, `ServiceStateType`, `ServiceStateDbParams` in `models/service_state.py`
+- `ServiceName`, `EventKind`, `EVENT_KIND_MAX` in `models/constants.py`
 
 ---
 
@@ -280,7 +282,7 @@ Imports flow strictly downward. No layer may import from a layer above it:
     )
     ```
 
-3. Add `ServiceName.MYSERVICE` to `src/bigbrotr/services/common/constants.py`
+3. Add `ServiceName.MYSERVICE` to `src/bigbrotr/models/constants.py`
 
 4. Create `deployments/*/config/services/myservice.yaml`
 

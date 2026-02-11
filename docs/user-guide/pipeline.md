@@ -338,7 +338,7 @@ flowchart TD
 1. `run()` -- fetch relays from DB, load cursors, distribute work
 2. `_sync_all_relays(relays)` -- `TaskGroup` with semaphore coordination
 3. For each relay: connect via WebSocket, subscribe with filter, collect events
-4. Per-relay cursor tracking via `ServiceState` with `StateType.CURSOR`
+4. Per-relay cursor tracking via `ServiceState` with `ServiceStateType.CURSOR`
 5. Batch insert events + relay junctions via `insert_event_relay(cascade=True)`
 6. Flush cursor updates periodically
 

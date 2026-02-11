@@ -343,8 +343,8 @@ bigbrotr/
 |   |   +-- relay.py                 # URL validation, network detection
 |   |   +-- event.py                 # Nostr event wrapper
 |   |   +-- metadata.py              # Content-addressed metadata (SHA-256)
-|   |   +-- service_state.py         # ServiceState, EventKind, StateType
-|   |   +-- constants.py             # NetworkType enum
+|   |   +-- service_state.py         # ServiceState, ServiceStateType, ServiceStateDbParams
+|   |   +-- constants.py             # NetworkType, ServiceName, EventKind enums
 |   |   +-- event_relay.py           # Event-relay junction
 |   |   +-- relay_metadata.py        # Relay-metadata junction
 |   +-- nips/                        # NIP protocol implementations (I/O)
