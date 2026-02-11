@@ -27,7 +27,6 @@ on:
       - "LICENSE"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/CODE_OF_CONDUCT.md"
-      - ".github/CONTRIBUTING.md"
       - ".github/SECURITY.md"
       - ".github/PULL_REQUEST_TEMPLATE.md"
   pull_request:
@@ -38,7 +37,6 @@ on:
       - "LICENSE"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/CODE_OF_CONDUCT.md"
-      - ".github/CONTRIBUTING.md"
       - ".github/SECURITY.md"
       - ".github/PULL_REQUEST_TEMPLATE.md"
   workflow_dispatch:

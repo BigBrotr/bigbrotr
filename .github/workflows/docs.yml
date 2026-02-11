@@ -17,6 +17,7 @@ on:
       - "src/bigbrotr/**"
       - "mkdocs.yml"
       - "CHANGELOG.md"
+      - "CONTRIBUTING.md"
   workflow_dispatch:
 
 permissions: {}
