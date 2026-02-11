@@ -205,7 +205,7 @@ timeouts:
   # Default: 120.0
   batch: 120.0
 
-  # Timeout (seconds) for cleanup procedures (orphan_events_delete, etc.)
+  # Timeout (seconds) for cleanup procedures (orphan_event_delete, etc.)
   # These scan and delete unreferenced records
   # null = no timeout
   # Range: >= 0.1 or null

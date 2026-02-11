@@ -2,51 +2,56 @@
  * Template - 05_indexes.sql
  *
  * Performance indexes for tables. Based on common Nostr relay query patterns.
- * For minimal storage mode (events table with only id), remove the events
+ * For minimal storage mode (event table with only id), remove the event
  * index section entirely since only the primary key index is needed.
  *
  * Dependencies: 02_tables.sql
- * Customization: YES -- adjust events indexes to match your table columns
+ * Customization: YES -- adjust event indexes to match your table columns
  */
 
 
 -- ==========================================================================
--- TABLE INDEXES: events
+-- TABLE INDEXES: event
 -- ==========================================================================
 
 -- Author lookup: WHERE pubkey = ?
-CREATE INDEX IF NOT EXISTS idx_events_pubkey
-ON events USING btree (pubkey);
+CREATE INDEX IF NOT EXISTS idx_event_pubkey
+ON event USING btree (pubkey);
 
 -- Global timeline queries: ORDER BY created_at DESC LIMIT N
-CREATE INDEX IF NOT EXISTS idx_events_created_at
-ON events USING btree (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_event_created_at
+ON event USING btree (created_at DESC);
 
 -- Kind filtering: WHERE kind = ? or WHERE kind IN (...)
-CREATE INDEX IF NOT EXISTS idx_events_kind
-ON events USING btree (kind);
+CREATE INDEX IF NOT EXISTS idx_event_kind
+ON event USING btree (kind);
 
 -- Kind + timeline: WHERE kind = ? ORDER BY created_at DESC
-CREATE INDEX IF NOT EXISTS idx_events_kind_created_at
-ON events USING btree (kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_event_kind_created_at
+ON event USING btree (kind, created_at DESC);
 
 -- Tag value containment: WHERE tagvalues @> ARRAY['<value>']
 -- Requires the btree_gin extension for GIN support on text arrays
-CREATE INDEX IF NOT EXISTS idx_events_tagvalues
-ON events USING gin (tagvalues);
+CREATE INDEX IF NOT EXISTS idx_event_tagvalues
+ON event USING gin (tagvalues);
 
 
 -- ==========================================================================
--- TABLE INDEXES: events_relays
+-- TABLE INDEXES: event_relay
 -- ==========================================================================
 
 -- All events from a relay: WHERE relay_url = ?
-CREATE INDEX IF NOT EXISTS idx_events_relays_relay_url
-ON events_relays USING btree (relay_url);
+CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url
+ON event_relay USING btree (relay_url);
 
 -- All relays for an event: WHERE event_id = ?
-CREATE INDEX IF NOT EXISTS idx_events_relays_event_id
-ON events_relays USING btree (event_id);
+CREATE INDEX IF NOT EXISTS idx_event_relay_event_id
+ON event_relay USING btree (event_id);
+
+-- Synchronizer progress tracking: WHERE relay_url = ? ORDER BY seen_at DESC
+-- Enables index-only scans for SELECT MAX(seen_at) WHERE relay_url = ?
+CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url_seen_at
+ON event_relay USING btree (relay_url, seen_at DESC);
 
 
 -- ==========================================================================
@@ -68,15 +73,15 @@ ON relay_metadata USING btree (relay_url, metadata_type, generated_at DESC);
 
 
 -- ==========================================================================
--- TABLE INDEXES: service_data
+-- TABLE INDEXES: service_state
 -- ==========================================================================
 
--- NOTE: Queries on (service_name) and (service_name, data_type) are served
--- by the PRIMARY KEY index on (service_name, data_type, data_key) via the
+-- NOTE: Queries on (service_name) and (service_name, state_type) are served
+-- by the PRIMARY KEY index on (service_name, state_type, state_key) via the
 -- leftmost prefix rule. No additional B-tree indexes are needed.
 
--- Candidate network filtering: WHERE data->>'network' = ANY($3)
+-- Candidate network filtering: WHERE payload->>'network' = ANY($3)
 -- Used by count_candidates() and fetch_candidate_chunk() in the Validator service
-CREATE INDEX IF NOT EXISTS idx_service_data_candidate_network
-ON service_data USING btree ((data ->> 'network'))
-WHERE service_name = 'validator' AND data_type = 'candidate';
+CREATE INDEX IF NOT EXISTS idx_service_state_candidate_network
+ON service_state USING btree ((payload ->> 'network'))
+WHERE service_name = 'validator' AND state_type = 'candidate';

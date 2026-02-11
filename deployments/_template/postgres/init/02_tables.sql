@@ -1,45 +1,45 @@
 /*
  * Template - 02_tables.sql
  *
- * Core database tables for Nostr data storage. All tables except events
- * have fixed structures that must not be changed. The events table is
+ * Core database tables for Nostr data storage. All tables except event
+ * have fixed structures that must not be changed. The event table is
  * the primary customization point: only the id column is mandatory.
  *
  * Dependencies: 01_functions_utility.sql (only if using generated column for tagvalues)
- * Customization: YES -- events table columns can be customized (see examples below)
+ * Customization: YES -- event table columns can be customized (see examples below)
  */
 
 
 -- ==========================================================================
--- relays: Registry of validated Nostr relays (mandatory structure)
+-- relay: Registry of validated Nostr relays (mandatory structure)
 -- ==========================================================================
 
-CREATE TABLE IF NOT EXISTS relays (
+CREATE TABLE IF NOT EXISTS relay (
     url TEXT PRIMARY KEY,                    -- WebSocket URL (e.g., wss://relay.example.com)
     network TEXT NOT NULL,                   -- Network type: clearnet, tor, i2p, loki
     discovered_at BIGINT NOT NULL            -- Unix timestamp when first discovered
 );
 
-COMMENT ON TABLE relays IS 'Registry of validated Nostr relays across all networks';
-COMMENT ON COLUMN relays.url IS 'WebSocket URL of the relay (e.g., wss://relay.example.com)';
-COMMENT ON COLUMN relays.network IS 'Network type: clearnet, tor, i2p, or loki';
-COMMENT ON COLUMN relays.discovered_at IS 'Unix timestamp when relay was first discovered and validated';
+COMMENT ON TABLE relay IS 'Registry of validated Nostr relays across all networks';
+COMMENT ON COLUMN relay.url IS 'WebSocket URL of the relay (e.g., wss://relay.example.com)';
+COMMENT ON COLUMN relay.network IS 'Network type: clearnet, tor, i2p, or loki';
+COMMENT ON COLUMN relay.discovered_at IS 'Unix timestamp when relay was first discovered and validated';
 
 
 -- ==========================================================================
--- events: Nostr event storage (customizable)
+-- event: Nostr event storage (customizable)
 -- ==========================================================================
--- Only the id column (BYTEA PRIMARY KEY) is mandatory for the events_relays
--- foreign key. All other columns are optional. Customize the events_insert()
+-- Only the id column (BYTEA PRIMARY KEY) is mandatory for the event_relay
+-- foreign key. All other columns are optional. Customize the event_insert()
 -- function in 03_functions_crud.sql to match your chosen schema.
 --
 -- Storage modes:
 --
 --   Minimal (tracking event IDs per relay only):
---     CREATE TABLE events (id BYTEA PRIMARY KEY);
+--     CREATE TABLE event (id BYTEA PRIMARY KEY);
 --
 --   Lightweight (metadata + tag filtering, ~60% disk savings):
---     CREATE TABLE events (
+--     CREATE TABLE event (
 --         id BYTEA PRIMARY KEY,
 --         pubkey BYTEA NOT NULL,
 --         created_at BIGINT NOT NULL,
@@ -50,7 +50,7 @@ COMMENT ON COLUMN relays.discovered_at IS 'Unix timestamp when relay was first d
 --   Full (complete event reconstruction, used below):
 --     Includes all NIP-01 fields with auto-computed tagvalues.
 
-CREATE TABLE IF NOT EXISTS events (
+CREATE TABLE IF NOT EXISTS event (
     id BYTEA PRIMARY KEY,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
@@ -61,34 +61,34 @@ CREATE TABLE IF NOT EXISTS events (
     sig BYTEA NOT NULL
 );
 
-COMMENT ON TABLE events IS 'Nostr events with computed tag values for efficient querying';
-COMMENT ON COLUMN events.id IS 'SHA-256 event hash (32 bytes, stored as bytea)';
-COMMENT ON COLUMN events.pubkey IS 'Author public key (32 bytes, stored as bytea)';
-COMMENT ON COLUMN events.created_at IS 'Unix timestamp of event creation';
-COMMENT ON COLUMN events.kind IS 'Event kind per NIP-01 (0=metadata, 1=text note, 3=contacts, etc.)';
-COMMENT ON COLUMN events.tags IS 'JSONB array of [key, value, ...] tag arrays per NIP-01';
-COMMENT ON COLUMN events.tagvalues IS 'Auto-computed array of single-char tag values for GIN indexing';
-COMMENT ON COLUMN events.content IS 'Event content (plaintext or encrypted depending on kind)';
-COMMENT ON COLUMN events.sig IS 'Schnorr signature (64 bytes, stored as bytea)';
+COMMENT ON TABLE event IS 'Nostr events with computed tag values for efficient querying';
+COMMENT ON COLUMN event.id IS 'SHA-256 event hash (32 bytes, stored as bytea)';
+COMMENT ON COLUMN event.pubkey IS 'Author public key (32 bytes, stored as bytea)';
+COMMENT ON COLUMN event.created_at IS 'Unix timestamp of event creation';
+COMMENT ON COLUMN event.kind IS 'Event kind per NIP-01 (0=metadata, 1=text note, 3=contacts, etc.)';
+COMMENT ON COLUMN event.tags IS 'JSONB array of [key, value, ...] tag arrays per NIP-01';
+COMMENT ON COLUMN event.tagvalues IS 'Auto-computed array of single-char tag values for GIN indexing';
+COMMENT ON COLUMN event.content IS 'Event content (plaintext or encrypted depending on kind)';
+COMMENT ON COLUMN event.sig IS 'Schnorr signature (64 bytes, stored as bytea)';
 
 
 -- ==========================================================================
--- events_relays: Event-to-relay junction table (mandatory structure)
+-- event_relay: Event-to-relay junction table (mandatory structure)
 -- ==========================================================================
 
-CREATE TABLE IF NOT EXISTS events_relays (
+CREATE TABLE IF NOT EXISTS event_relay (
     event_id BYTEA NOT NULL,
     relay_url TEXT NOT NULL,
     seen_at BIGINT NOT NULL,
     PRIMARY KEY (event_id, relay_url),
-    FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
-    FOREIGN KEY (relay_url) REFERENCES relays (url) ON DELETE CASCADE
+    FOREIGN KEY (event_id) REFERENCES event (id) ON DELETE CASCADE,
+    FOREIGN KEY (relay_url) REFERENCES relay (url) ON DELETE CASCADE
 );
 
-COMMENT ON TABLE events_relays IS 'Tracks which events appear on which relays, with first-seen timestamps';
-COMMENT ON COLUMN events_relays.event_id IS 'Foreign key to events.id';
-COMMENT ON COLUMN events_relays.relay_url IS 'Foreign key to relays.url';
-COMMENT ON COLUMN events_relays.seen_at IS 'Unix timestamp when event was first seen on this relay';
+COMMENT ON TABLE event_relay IS 'Tracks which events appear on which relays, with first-seen timestamps';
+COMMENT ON COLUMN event_relay.event_id IS 'Foreign key to event.id';
+COMMENT ON COLUMN event_relay.relay_url IS 'Foreign key to relay.url';
+COMMENT ON COLUMN event_relay.seen_at IS 'Unix timestamp when event was first seen on this relay';
 
 
 -- ==========================================================================
@@ -96,13 +96,13 @@ COMMENT ON COLUMN events_relays.seen_at IS 'Unix timestamp when event was first 
 -- ==========================================================================
 
 CREATE TABLE IF NOT EXISTS metadata (
-    id BYTEA PRIMARY KEY,                    -- SHA-256 hash of value (computed in application layer)
-    value JSONB NOT NULL                     -- Complete JSON document
+    id BYTEA PRIMARY KEY,                    -- SHA-256 hash of payload (computed in application layer)
+    payload JSONB NOT NULL                   -- Complete JSON document
 );
 
 COMMENT ON TABLE metadata IS 'Content-addressed storage for NIP-11/NIP-66 metadata (deduplicated by SHA-256 hash)';
-COMMENT ON COLUMN metadata.id IS 'SHA-256 hash of the JSON value (content-addressed primary key)';
-COMMENT ON COLUMN metadata.value IS 'Complete JSON document (NIP-11 relay info or NIP-66 check result)';
+COMMENT ON COLUMN metadata.id IS 'SHA-256 hash of the JSON payload (content-addressed primary key)';
+COMMENT ON COLUMN metadata.payload IS 'Complete JSON document (NIP-11 relay info or NIP-66 check result)';
 
 
 -- ==========================================================================
@@ -116,33 +116,33 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
     metadata_type TEXT NOT NULL,
     metadata_id BYTEA NOT NULL,
     PRIMARY KEY (relay_url, generated_at, metadata_type),
-    FOREIGN KEY (relay_url) REFERENCES relays (url) ON DELETE CASCADE,
+    FOREIGN KEY (relay_url) REFERENCES relay (url) ON DELETE CASCADE,
     FOREIGN KEY (metadata_id) REFERENCES metadata (id) ON DELETE CASCADE
 );
 
 COMMENT ON TABLE relay_metadata IS 'Time-series relay metadata snapshots linking relays to metadata documents';
-COMMENT ON COLUMN relay_metadata.relay_url IS 'Foreign key to relays.url';
+COMMENT ON COLUMN relay_metadata.relay_url IS 'Foreign key to relay.url';
 COMMENT ON COLUMN relay_metadata.generated_at IS 'Unix timestamp when the metadata was collected';
 COMMENT ON COLUMN relay_metadata.metadata_type IS 'Check type: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
 COMMENT ON COLUMN relay_metadata.metadata_id IS 'Foreign key to metadata.id (content-addressed hash)';
 
 
 -- ==========================================================================
--- service_data: Persistent key-value store (mandatory structure)
+-- service_state: Persistent key-value store (mandatory structure)
 -- ==========================================================================
 
-CREATE TABLE IF NOT EXISTS service_data (
-    service_name TEXT NOT NULL,              -- finder, validator, synchronizer, monitor
-    data_type TEXT NOT NULL,                 -- candidate, cursor, checkpoint, config
-    data_key TEXT NOT NULL,                  -- Usually relay URL or entity ID
-    data JSONB NOT NULL DEFAULT '{}',
+CREATE TABLE IF NOT EXISTS service_state (
+    service_name TEXT NOT NULL,              -- seeder, finder, validator, monitor, synchronizer
+    state_type TEXT NOT NULL,                -- candidate, cursor, checkpoint
+    state_key TEXT NOT NULL,                 -- Usually relay URL or entity ID
+    payload JSONB NOT NULL DEFAULT '{}',
     updated_at BIGINT NOT NULL,
-    PRIMARY KEY (service_name, data_type, data_key)
+    PRIMARY KEY (service_name, state_type, state_key)
 );
 
-COMMENT ON TABLE service_data IS 'Per-service persistent state (candidates, cursors, checkpoints)';
-COMMENT ON COLUMN service_data.service_name IS 'Service identifier (finder, validator, synchronizer, monitor)';
-COMMENT ON COLUMN service_data.data_type IS 'Data category (candidate, cursor, checkpoint, config)';
-COMMENT ON COLUMN service_data.data_key IS 'Unique key within service+type (typically a relay URL or entity ID)';
-COMMENT ON COLUMN service_data.data IS 'JSONB payload specific to the service and data type';
-COMMENT ON COLUMN service_data.updated_at IS 'Unix timestamp of last update';
+COMMENT ON TABLE service_state IS 'Per-service persistent state (candidates, cursors, checkpoints)';
+COMMENT ON COLUMN service_state.service_name IS 'Service identifier (seeder, finder, validator, monitor, synchronizer)';
+COMMENT ON COLUMN service_state.state_type IS 'State category (candidate, cursor, checkpoint)';
+COMMENT ON COLUMN service_state.state_key IS 'Unique key within service+type (typically a relay URL or entity ID)';
+COMMENT ON COLUMN service_state.payload IS 'JSONB payload specific to the service and state type';
+COMMENT ON COLUMN service_state.updated_at IS 'Unix timestamp of last update';
