@@ -43,8 +43,9 @@ Deployments (`deployments/{bigbrotr,lilbrotr,_template}/`) sit outside the packa
 |------|------|--------|
 | `NetworkType` | `constants.py` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
 | `MetadataType` | `metadata.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
-| `StateType` | `service_state.py` | `candidate`, `cursor`, `checkpoint` |
-| `EventKind` | `service_state.py` | `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
+| `ServiceStateType` | `service_state.py` | `candidate`, `cursor`, `checkpoint` |
+| `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer` |
+| `EventKind` | `constants.py` | `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
 
 ### Model Patterns
 
@@ -80,9 +81,9 @@ Key characteristics:
 - `from_db_params()` classmethod for reconstruction from database rows
 - `to_db_params()` returns a typed NamedTuple matching stored procedure parameter order
 
-### ServiceState and ServiceStateKey
+### ServiceState
 
-`ServiceState` was extracted from `services/common/constants.py` to `models/service_state.py` to fix a DAG violation (core was importing from services via `TYPE_CHECKING`).
+`ServiceState` follows the same DbParams pattern as other models, with typed `ServiceName` and `ServiceStateType` enum fields.
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -452,7 +453,6 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 
 | Module | Purpose |
 |--------|---------|
-| `constants.py` | `ServiceName` and `DataType` StrEnum enumerations |
 | `queries.py` | 13 domain SQL query functions |
 | `mixins.py` | `BatchProgress` dataclass, `BatchProgressMixin`, `NetworkSemaphoreMixin` |
 | `configs.py` | Per-network Pydantic config models |

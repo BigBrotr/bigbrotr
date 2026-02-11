@@ -32,7 +32,7 @@ from typing import Any, ClassVar, NamedTuple, TypeVar, overload
 
 
 class MetadataType(StrEnum):
-    """Metadata type identifiers stored in the ``metadata.type`` column.
+    """Metadata type identifiers stored in the ``metadata.metadata_type`` column.
 
     Each value corresponds to a specific data source or monitoring test
     performed by the [Monitor][bigbrotr.services.monitor.Monitor] service.
@@ -70,9 +70,9 @@ class MetadataDbParams(NamedTuple):
     and consumed by the ``metadata_insert`` stored procedure in PostgreSQL.
 
     Attributes:
-        id: SHA-256 content hash (32 bytes), part of composite PK ``(id, type)``.
+        id: SHA-256 content hash (32 bytes), part of composite PK ``(id, metadata_type)``.
         metadata_type: [MetadataType][bigbrotr.models.metadata.MetadataType] discriminator,
-            part of composite PK ``(id, type)``.
+            part of composite PK ``(id, metadata_type)``.
         data: Canonical JSON string for PostgreSQL JSONB storage.
 
     See Also:
@@ -103,7 +103,7 @@ class Metadata:
 
     The hash is derived from ``data`` only -- ``type`` is not included in
     the hash computation but is part of the composite primary key
-    ``(id, type)`` in the database.
+    ``(id, metadata_type)`` in the database.
 
     Attributes:
         type: The metadata classification
@@ -129,7 +129,7 @@ class Metadata:
     Note:
         The content hash is derived from ``data`` alone. The ``type`` is stored
         alongside the hash on the ``metadata`` table with composite primary key
-        ``(id, type)``, ensuring each document is tied to exactly one type.
+        ``(id, metadata_type)``, ensuring each document is tied to exactly one type.
         The ``relay_metadata`` junction table references metadata via a
         compound foreign key on ``(metadata_id, metadata_type)``.
 

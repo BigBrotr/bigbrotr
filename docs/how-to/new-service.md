@@ -22,7 +22,7 @@ Create `src/bigbrotr/services/pruner.py`:
 """Pruner service -- removes stale relay metadata on a schedule."""
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
-from bigbrotr.services.common.constants import ServiceName
+from bigbrotr.models.constants import ServiceName
 
 from pydantic import Field
 
@@ -64,7 +64,7 @@ class Pruner(BaseService[PrunerConfig]):
 
 ## Step 2: Add the Service Name
 
-Add the new name to `src/bigbrotr/services/common/constants.py`:
+Add the new name to `src/bigbrotr/models/constants.py`:
 
 ```python
 class ServiceName(StrEnum):
