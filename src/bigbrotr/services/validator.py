@@ -338,7 +338,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
                 ``'DELETE N'`` format, or ``None`` if the query failed.
 
         Returns:
-            Number of deleted rows, or 0 if unparseable.
+            Number of deleted rows, or 0 if unparsable.
         """
         if not result:
             return 0
