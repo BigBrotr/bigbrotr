@@ -15,23 +15,16 @@ BigBrotr uses hierarchical YAML configuration with Pydantic model validation:
 
 ### Configuration Loading
 
-```text
-CLI invocation (python -m bigbrotr <service>)
-  |
-  v
-Brotr.from_yaml("config/brotr.yaml")     -- pool, batch, timeouts
-  |
-  v
-Service.from_yaml("config/services/<service>.yaml", brotr)
-  |
-  v
-Pydantic validation (field constraints, cross-field checks)
-  |
-  v
-Environment variable resolution (DB_PASSWORD, PRIVATE_KEY)
-  |
-  v
-Service starts with validated configuration
+```mermaid
+flowchart TD
+    A["CLI invocation<br/><small>python -m bigbrotr &lt;service&gt;</small>"] --> B["Brotr.from_yaml<br/><small>config/brotr.yaml</small>"]
+    B --> C["Service.from_yaml<br/><small>config/services/&lt;service&gt;.yaml</small>"]
+    C --> D["Pydantic validation<br/><small>field constraints, cross-field checks</small>"]
+    D --> E["Environment variable resolution<br/><small>DB_PASSWORD, PRIVATE_KEY</small>"]
+    E --> F["Service starts<br/><small>validated configuration</small>"]
+
+    style A fill:#7B1FA2,color:#fff,stroke:#4A148C
+    style F fill:#1B5E20,color:#fff,stroke:#0D3B0F
 ```
 
 ### File Structure
@@ -62,7 +55,8 @@ deployments/
         +-- synchronizer.yaml
 ```
 
-The `_template` deployment contains every field with comments and is the canonical reference for defaults.
+!!! tip
+    The `_template` deployment contains every field with comments and is the canonical reference for defaults.
 
 ---
 
@@ -120,6 +114,9 @@ options:
 ## Core Configuration (brotr.yaml)
 
 The Brotr configuration controls the database connection pool and query behavior shared by all services.
+
+!!! tip "API Reference"
+    See [`bigbrotr.core.pool.PoolConfig`](../reference/core/pool.md) and [`bigbrotr.core.brotr.BrotrConfig`](../reference/core/brotr.md) for the config class APIs.
 
 ### Full Example
 
@@ -229,6 +226,9 @@ timeouts:
 
 All services inherit from `BaseServiceConfig` and share these fields:
 
+!!! tip "API Reference"
+    See [`bigbrotr.core.base_service.BaseServiceConfig`](../reference/core/base_service.md) for the config class API.
+
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
 | `interval` | float | `300.0` | >= 60.0 | Seconds between service cycles |
@@ -243,6 +243,9 @@ All services inherit from `BaseServiceConfig` and share these fields:
 ## Network Configuration
 
 Services that connect to relays (Validator, Monitor, Synchronizer) share a unified network configuration:
+
+!!! tip "API Reference"
+    See [`bigbrotr.services.common.configs.NetworkConfig`](../reference/services/common/configs.md) for the config class API.
 
 ```yaml
 networks:
@@ -670,6 +673,9 @@ Some models enforce relationships between fields:
 - `MonitorProcessingConfig`: `store` flags must be a subset of `compute` flags
 - `KeysConfig`: validates hex string length (64 chars) or nsec1 bech32 format
 
+!!! warning
+    Cross-field validation errors surface at startup. The Monitor's `store` flags must be a subset of `compute` -- you cannot store metadata that is not computed.
+
 ---
 
 ## Configuration Examples
@@ -749,7 +755,7 @@ processing:
 
 ## Related Documentation
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) -- System architecture and module reference
-- [DATABASE.md](DATABASE.md) -- Database schema and stored procedures
-- [DEPLOYMENT.md](DEPLOYMENT.md) -- Docker and manual deployment guide
-- [DEVELOPMENT.md](DEVELOPMENT.md) -- Development setup and testing
+- [Architecture](architecture.md) -- System architecture and module reference
+- [Service Pipeline](pipeline.md) -- Deep dive into the five-service pipeline
+- [Database](database.md) -- Database schema and stored procedures
+- [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

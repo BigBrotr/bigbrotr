@@ -23,6 +23,61 @@ Two schema variants exist:
 
 ---
 
+## Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    relay {
+        TEXT url PK
+        TEXT network
+        BIGINT discovered_at
+    }
+
+    event {
+        BYTEA id PK
+        BYTEA pubkey
+        BIGINT created_at
+        INTEGER kind
+        JSONB tags
+        TEXT_ARRAY tagvalues
+        TEXT content
+        BYTEA sig
+    }
+
+    event_relay {
+        BYTEA event_id PK_FK
+        TEXT relay_url PK_FK
+        BIGINT seen_at
+    }
+
+    metadata {
+        BYTEA id PK
+        JSONB payload
+    }
+
+    relay_metadata {
+        TEXT relay_url PK_FK
+        BIGINT generated_at PK
+        TEXT metadata_type PK
+        BYTEA metadata_id FK
+    }
+
+    service_state {
+        TEXT service_name PK
+        TEXT state_type PK
+        TEXT state_key PK
+        JSONB payload
+        BIGINT updated_at
+    }
+
+    relay ||--o{ event_relay : "has events"
+    event ||--o{ event_relay : "seen at relays"
+    relay ||--o{ relay_metadata : "has metadata"
+    metadata ||--o{ relay_metadata : "referenced by"
+```
+
+---
+
 ## Extensions
 
 | Extension | Purpose | BigBrotr | LilBrotr |
@@ -59,7 +114,8 @@ Complete NIP-01 event storage with all fields preserved.
 | `content` | TEXT | NOT NULL | Event content |
 | `sig` | BYTEA | NOT NULL | Schnorr signature (64 bytes) |
 
-The `tagvalues` column is a **generated stored column**, automatically computed from `tags` via the `tags_to_tagvalues()` function.
+!!! note
+    The `tagvalues` column is a **generated stored column**, automatically computed from `tags` via the `tags_to_tagvalues()` function.
 
 ### event (LilBrotr)
 
@@ -73,7 +129,8 @@ Lightweight variant storing only essential metadata.
 | `kind` | INTEGER | NOT NULL | NIP-01 event kind |
 | `tagvalues` | TEXT[] | Regular column | Computed at insert time by `event_insert()`, not a generated column |
 
-In LilBrotr, `tagvalues` is a **regular column** computed by `event_insert()` from the `tags` parameter, which is then discarded along with `content` and `sig`.
+!!! note
+    In LilBrotr, `tagvalues` is a **regular column** computed by `event_insert()` from the `tags` parameter, which is then discarded along with `content` and `sig`.
 
 ### event_relay
 
@@ -140,10 +197,9 @@ All foreign keys use `ON DELETE CASCADE`:
 | `relay_metadata` | `relay_url` | `relay(url)` | Deleting a relay removes all metadata snapshots |
 | `relay_metadata` | `metadata_id` | `metadata(id)` | Deleting metadata removes all references |
 
-**Invariants**:
-
-- Every event must have at least one relay in `event_relay` (enforced by `orphan_event_delete()`)
-- Orphaned metadata rows accumulate naturally; clean up with `orphan_metadata_delete()`
+!!! warning "Invariants"
+    - Every event must have at least one relay in `event_relay` (enforced by `orphan_event_delete()`)
+    - Orphaned metadata rows accumulate naturally; clean up with `orphan_metadata_delete()`
 
 ---
 
@@ -330,7 +386,8 @@ Retention policy: deletes `relay_metadata` snapshots older than `p_max_age_secon
 
 ## Materialized Views (BigBrotr Only)
 
-LilBrotr has no materialized views. All views use `REFRESH MATERIALIZED VIEW CONCURRENTLY` which requires a unique index.
+!!! note
+    LilBrotr has no materialized views. All views use `REFRESH MATERIALIZED VIEW CONCURRENTLY` which requires a unique index.
 
 ### relay_metadata_latest
 
@@ -460,7 +517,8 @@ Refreshes all materialized views in dependency order:
 6. `pubkey_counts_refresh()`
 7. `pubkey_counts_by_relay_refresh()`
 
-Schedule: daily maintenance window (high I/O cost).
+!!! warning
+    Schedule during a daily maintenance window -- this operation has high I/O cost.
 
 ---
 
@@ -506,7 +564,8 @@ Schedule: daily maintenance window (high I/O cost).
 | PK | `service_name, state_type, state_key` | BTREE | Covers single and double-prefix queries |
 | `idx_service_state_candidate_network` | `payload ->> 'network'` (partial) | BTREE | Validator: filter candidates by network |
 
-The partial index on `service_state` has a WHERE clause: `WHERE service_name = 'validator' AND state_type = 'candidate'`.
+!!! note
+    The partial index on `service_state` has a WHERE clause: `WHERE service_name = 'validator' AND state_type = 'candidate'`.
 
 ### BigBrotr Materialized View Indexes
 
@@ -579,6 +638,37 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 
 ---
 
+## Deployment-Specific Schemas
+
+**BigBrotr** (full archive): stores tags JSONB, generated tagvalues, content TEXT.
+
+```sql
+CREATE TABLE event (
+    id BYTEA PRIMARY KEY,
+    pubkey BYTEA NOT NULL,
+    created_at BIGINT NOT NULL,
+    kind INTEGER NOT NULL,
+    tags JSONB NOT NULL,
+    tagvalues TEXT[] GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED,
+    content TEXT NOT NULL,
+    sig BYTEA NOT NULL
+);
+```
+
+**LilBrotr** (lightweight): omits tags, tagvalues, content for ~60% disk savings.
+
+```sql
+CREATE TABLE event (
+    id BYTEA PRIMARY KEY,
+    pubkey BYTEA NOT NULL,
+    created_at BIGINT NOT NULL,
+    kind INTEGER NOT NULL,
+    sig BYTEA NOT NULL
+);
+```
+
+---
+
 ## Function Summary
 
 | Category | Count | Functions |
@@ -607,7 +697,7 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 
 ## Related Documentation
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) -- System architecture and module reference
-- [CONFIGURATION.md](CONFIGURATION.md) -- YAML configuration reference
-- [DEPLOYMENT.md](DEPLOYMENT.md) -- Docker and manual deployment guide
-- [DEVELOPMENT.md](DEVELOPMENT.md) -- Development setup and testing
+- [Architecture](architecture.md) -- System architecture and module reference
+- [Service Pipeline](pipeline.md) -- Deep dive into the five-service pipeline
+- [Configuration](configuration.md) -- YAML configuration reference
+- [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

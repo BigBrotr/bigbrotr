@@ -5,6 +5,7 @@
   <img src="https://img.shields.io/badge/docker-compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="MIT License">
   <a href="https://codecov.io/gh/Bigbrotr/bigbrotr"><img src="https://img.shields.io/codecov/c/github/Bigbrotr/bigbrotr?token=LM9D3ABW0L&style=for-the-badge&logo=codecov&logoColor=white&label=coverage" alt="Coverage"></a>
+  <a href="https://bigbrotr.github.io/bigbrotr/"><img src="https://img.shields.io/badge/docs-latest-brightgreen?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Documentation"></a>
 </p>
 
 <h1 align="center">BigBrotr</h1>
@@ -445,7 +446,24 @@ BigBrotrError
 
 ---
 
+## Documentation
+
+Full documentation is available at **[bigbrotr.github.io/bigbrotr](https://bigbrotr.github.io/bigbrotr/)**.
+
+| Section | Description |
+|---------|-------------|
+| [Getting Started](https://bigbrotr.github.io/bigbrotr/getting-started/) | Installation, quick start tutorial, first deployment |
+| [User Guide](https://bigbrotr.github.io/bigbrotr/user-guide/) | Architecture, configuration, database, monitoring |
+| [How-to Guides](https://bigbrotr.github.io/bigbrotr/how-to/) | Docker deploy, manual deploy, Tor setup, troubleshooting |
+| [Development](https://bigbrotr.github.io/bigbrotr/development/) | Setup, testing, contributing |
+| [API Reference](https://bigbrotr.github.io/bigbrotr/reference/) | Auto-generated Python API docs |
+| [Changelog](CHANGELOG.md) | Version history and migration guides |
+
+---
+
 ## Contributing
+
+See the [Contributing Guide](https://bigbrotr.github.io/bigbrotr/development/contributing/) for detailed instructions.
 
 1. Fork and clone
 2. `pip install -e ".[dev]"` and `pre-commit install`
@@ -465,6 +483,8 @@ MIT -- see [LICENSE](LICENSE).
 
 ## Links
 
+- [Full Documentation](https://bigbrotr.github.io/bigbrotr/)
+- [Changelog](CHANGELOG.md)
 - [Nostr Protocol](https://nostr.com)
 - [NIP-11: Relay Information Document](https://github.com/nostr-protocol/nips/blob/master/11.md)
 - [NIP-66: Relay Discovery and Monitoring](https://github.com/nostr-protocol/nips/blob/master/66.md)

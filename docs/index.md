@@ -1,50 +1,99 @@
 # BigBrotr
 
-A modular Nostr data archiving and monitoring system.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://www.postgresql.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Documentation](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://bigbrotr.github.io/bigbrotr/)
 
-BigBrotr discovers, monitors, and archives data from the Nostr relay network. Five async services form a processing pipeline:
+**A modular Nostr relay discovery, monitoring, and event archiving system.**
 
-```
-Seeder -> Finder -> Validator -> Monitor -> Synchronizer
-```
+BigBrotr continuously discovers Nostr relays across all network types, validates their connectivity, performs comprehensive health checks, and archives events from the relay network. Built on Python 3.11+ with strict typing, asyncio, and PostgreSQL 16.
 
-| Service | Role |
-|---------|------|
-| **Seeder** | Bootstraps initial relay URLs from a seed file (one-shot) |
-| **Finder** | Discovers new relays from events and external APIs |
-| **Validator** | Verifies URLs are live Nostr relays via WebSocket |
-| **Monitor** | Runs NIP-11 + NIP-66 health checks, publishes kind 10166/30166 events |
-| **Synchronizer** | Collects events from relays using cursor-based pagination |
+---
+
+## How It Works
+
+Five async services form a processing pipeline, each running independently and communicating through a shared PostgreSQL database:
+
+--8<-- "docs/_snippets/pipeline.md"
+
+--8<-- "docs/_snippets/service-table.md"
 
 ## Key Features
 
-- **Multi-network support**: clearnet, Tor (.onion), I2P (.i2p), Lokinet (.loki)
-- **NIP compliance**: NIP-11 relay information, NIP-66 relay monitoring metadata
-- **PostgreSQL 16**: 22 stored functions, 7 materialized views, 44 indexes
-- **Fully async**: asyncpg, aiohttp, per-network semaphore concurrency control
-- **Docker ready**: single parametric Dockerfile for all deployments
-- **Type safe**: strict mypy, frozen dataclasses, Pydantic v2 configs
+<div class="grid cards" markdown>
+
+-   :material-earth:{ .lg .middle } **Multi-Network Support**
+
+    ---
+
+    Discover and monitor relays across clearnet, Tor (.onion), I2P (.i2p), and Lokinet (.loki) networks with per-network concurrency control.
+
+-   :material-shield-check:{ .lg .middle } **NIP Compliance**
+
+    ---
+
+    Full NIP-11 relay information and NIP-66 relay monitoring (RTT, SSL, DNS, GeoIP, HTTP, network ASN) with kind 10166/30166 event publishing.
+
+-   :material-database:{ .lg .middle } **PostgreSQL Backend**
+
+    ---
+
+    22 stored functions, 7 materialized views, 44 indexes. Content-addressed metadata with SHA-256 deduplication.
+
+-   :material-lightning-bolt:{ .lg .middle } **Fully Async**
+
+    ---
+
+    asyncpg connection pooling, aiohttp HTTP client, per-network semaphore concurrency, graceful shutdown.
+
+-   :material-docker:{ .lg .middle } **Docker Ready**
+
+    ---
+
+    Single parametric Dockerfile for all deployments. Full monitoring stack with Prometheus and Grafana.
+
+-   :material-language-python:{ .lg .middle } **Type Safe**
+
+    ---
+
+    Strict mypy, frozen dataclasses with `slots=True`, Pydantic v2 configuration models.
+
+</div>
+
+## Architecture
+
+The codebase follows a strict Diamond DAG -- imports flow strictly downward:
+
+--8<-- "docs/_snippets/dag-diagram.md"
+
+| Layer | Responsibility | I/O |
+|-------|---------------|-----|
+| **models** | Pure frozen dataclasses, enums, type definitions | None |
+| **core** | Pool, Brotr, BaseService, Logger, Exceptions | Database |
+| **nips** | NIP-11 info fetch, NIP-66 health checks | HTTP, DNS, SSL, WebSocket, GeoIP |
+| **utils** | DNS resolution, key management, WebSocket transport | Network |
+| **services** | Business logic: Seeder, Finder, Validator, Monitor, Synchronizer | All |
 
 ## Quick Start
 
 ```bash
-# Clone and install
 git clone https://github.com/BigBrotr/bigbrotr.git
 cd bigbrotr
 pip install -e ".[dev]"
-
-# Start infrastructure
 docker compose -f deployments/bigbrotr/docker-compose.yaml up -d postgres pgbouncer
-
-# Run the seeder
 python -m bigbrotr seeder --once
 ```
 
-## Documentation
+For a complete walkthrough, see the [Getting Started](getting-started/index.md) guide.
 
-- [Architecture](ARCHITECTURE.md) -- system design, diamond DAG, module reference
-- [Configuration](CONFIGURATION.md) -- YAML config reference for all services
-- [Database](DATABASE.md) -- schema, stored functions, views, indexes
-- [Deployment](DEPLOYMENT.md) -- Docker Compose and manual deployment
-- [Development](DEVELOPMENT.md) -- setup, testing, code quality, CI/CD
-- [API Reference](reference/index.md) -- auto-generated from source code
+## Documentation Guide
+
+| Looking for... | Go to... |
+|---------------|----------|
+| First-time setup and installation | [Getting Started](getting-started/index.md) |
+| System design, architecture, configuration | [User Guide](user-guide/index.md) |
+| Step-by-step deployment and operational procedures | [How-to Guides](how-to/index.md) |
+| Development environment, testing, contributing | [Development](development/index.md) |
+| Python API documentation (auto-generated) | [API Reference](reference/index.md) |
+| Version history | [Changelog](CHANGELOG.md) |
