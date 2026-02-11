@@ -2,7 +2,7 @@
 Unit tests for core.pool module.
 
 Tests:
-- Configuration models (DatabaseConfig, LimitsConfig, PoolTimeoutsConfig, PoolRetryConfig, ServerSettingsConfig)
+- Configuration models (DatabaseConfig, PoolLimitsConfig, PoolTimeoutsConfig, PoolRetryConfig, ServerSettingsConfig)
 - Pool initialization with defaults and custom config
 - Factory methods (from_yaml, from_dict)
 - Connection lifecycle (connect, close)
@@ -24,9 +24,9 @@ from pydantic import SecretStr, ValidationError
 
 from bigbrotr.core.pool import (
     DatabaseConfig,
-    LimitsConfig,
     Pool,
     PoolConfig,
+    PoolLimitsConfig,
     PoolRetryConfig,
     PoolTimeoutsConfig,
     ServerSettingsConfig,
@@ -141,12 +141,12 @@ class TestDatabaseConfig:
             DatabaseConfig(user="")
 
 
-class TestLimitsConfig:
-    """Tests for LimitsConfig Pydantic model."""
+class TestPoolLimitsConfig:
+    """Tests for PoolLimitsConfig Pydantic model."""
 
     def test_defaults(self) -> None:
         """Test default configuration values."""
-        config = LimitsConfig()
+        config = PoolLimitsConfig()
 
         assert config.min_size == 5
         assert config.max_size == 20
@@ -155,7 +155,7 @@ class TestLimitsConfig:
 
     def test_custom_values(self) -> None:
         """Test configuration with custom values."""
-        config = LimitsConfig(
+        config = PoolLimitsConfig(
             min_size=10,
             max_size=50,
             max_queries=100000,
@@ -170,47 +170,47 @@ class TestLimitsConfig:
     def test_max_size_greater_than_or_equal_to_min_size(self) -> None:
         """Test that max_size must be >= min_size."""
         # Valid case: equal sizes are allowed
-        config = LimitsConfig(min_size=10, max_size=10)
+        config = PoolLimitsConfig(min_size=10, max_size=10)
         assert config.max_size == 10
 
         # Invalid case: smaller max_size should fail
         with pytest.raises(ValidationError, match="max_size"):
-            LimitsConfig(min_size=10, max_size=5)
+            PoolLimitsConfig(min_size=10, max_size=5)
 
     def test_min_size_boundaries(self) -> None:
         """Test min_size boundary validations."""
         # Valid minimum
-        config = LimitsConfig(min_size=1)
+        config = PoolLimitsConfig(min_size=1)
         assert config.min_size == 1
 
         # Invalid: below minimum
         with pytest.raises(ValidationError):
-            LimitsConfig(min_size=0)
+            PoolLimitsConfig(min_size=0)
 
         # Invalid: above maximum
         with pytest.raises(ValidationError):
-            LimitsConfig(min_size=101)
+            PoolLimitsConfig(min_size=101)
 
     def test_max_size_boundaries(self) -> None:
         """Test max_size boundary validations."""
         # Valid at boundaries
-        config_min = LimitsConfig(min_size=1, max_size=1)
+        config_min = PoolLimitsConfig(min_size=1, max_size=1)
         assert config_min.max_size == 1
 
-        config_max = LimitsConfig(max_size=200)
+        config_max = PoolLimitsConfig(max_size=200)
         assert config_max.max_size == 200
 
         # Invalid: above maximum
         with pytest.raises(ValidationError):
-            LimitsConfig(max_size=201)
+            PoolLimitsConfig(max_size=201)
 
     def test_max_queries_minimum(self) -> None:
         """Test max_queries minimum validation."""
-        config = LimitsConfig(max_queries=100)
+        config = PoolLimitsConfig(max_queries=100)
         assert config.max_queries == 100
 
         with pytest.raises(ValidationError):
-            LimitsConfig(max_queries=99)
+            PoolLimitsConfig(max_queries=99)
 
 
 class TestPoolTimeoutsConfig:
@@ -355,7 +355,7 @@ class TestPoolConfig:
                 user="customuser",
                 password="custompass",  # pragma: allowlist secret
             ),
-            limits=LimitsConfig(min_size=10, max_size=50),
+            limits=PoolLimitsConfig(min_size=10, max_size=50),
             timeouts=PoolTimeoutsConfig(acquisition=30.0),
             retry=PoolRetryConfig(max_attempts=5),
             server_settings=ServerSettingsConfig(application_name="custom_app"),
@@ -414,7 +414,7 @@ class TestPoolInit:
                 user="myuser",
                 password="mypass",
             ),
-            limits=LimitsConfig(min_size=10, max_size=50),
+            limits=PoolLimitsConfig(min_size=10, max_size=50),
         )
         pool = Pool(config=config)
 

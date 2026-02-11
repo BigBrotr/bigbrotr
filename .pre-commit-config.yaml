@@ -137,6 +137,16 @@ repos:
       - id: sqlfluff-fix
         args: [--dialect, postgres, --force]
 
+  # --------------------------------------------------------------------------
+  # Spell checking
+  # --------------------------------------------------------------------------
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell
+        args: [--skip, "*.lock,*.json,*.svg,site/*", --ignore-words-list, "nostr,brotr,nips,nd"]
+        types_or: [markdown, python, yaml]
+
 # ============================================================================
 # CI Configuration (pre-commit.ci)
 # ============================================================================
