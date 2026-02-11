@@ -64,7 +64,7 @@ class Pruner(BaseService[PrunerConfig]):
 
 ## Step 2: Add the Service Name
 
-Add the new name to `src/bigbrotr/services/common/constants.py`:
+Add the new name to `src/bigbrotr/models/constants.py`:
 
 ```python
 class ServiceName(StrEnum):
