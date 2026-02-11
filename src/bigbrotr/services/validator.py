@@ -60,11 +60,14 @@ from pydantic import BaseModel, Field
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models import Relay
-from bigbrotr.models.constants import NetworkType  # noqa: TC001
+from bigbrotr.models.constants import (
+    NetworkType,
+    ServiceName,
+)
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.utils.transport import is_nostr_relay
 
 from .common.configs import NetworkConfig
-from .common.constants import ServiceName, ServiceState, StateType
 from .common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
 from .common.queries import (
     count_candidates,
@@ -206,7 +209,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             WebSocket probe used by ``_validate_one()``.
     """
 
-    SERVICE_NAME: ClassVar[str] = ServiceName.VALIDATOR
+    SERVICE_NAME: ClassVar[ServiceName] = ServiceName.VALIDATOR
     CONFIG_CLASS: ClassVar[type[ValidatorConfig]] = ValidatorConfig
 
     def __init__(self, brotr: Brotr, config: ValidatorConfig | None = None) -> None:
@@ -437,7 +440,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         for row in rows:
             try:
                 relay = Relay(row["state_key"])
-                candidates.append(Candidate(relay=relay, data=dict(row["payload"])))
+                candidates.append(Candidate(relay=relay, data=dict(row["state_value"])))
             except (ValueError, TypeError) as e:
                 self._logger.warning("parse_failed", url=row["state_key"], error=str(e))
 
@@ -535,9 +538,9 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             updates: list[ServiceState] = [
                 ServiceState(
                     service_name=self.SERVICE_NAME,
-                    state_type=StateType.CANDIDATE,
+                    state_type=ServiceStateType.CANDIDATE,
                     state_key=c.relay.url,
-                    payload={**c.data, "failed_attempts": c.failed_attempts + 1},
+                    state_value={**c.data, "failed_attempts": c.failed_attempts + 1},
                     updated_at=now,
                 )
                 for c in invalid

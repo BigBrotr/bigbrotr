@@ -148,7 +148,7 @@ PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 | `relay` | Validated relay URLs with network type and discovery timestamp |
 | `event` | Nostr events (BYTEA ids/pubkeys/sigs for space efficiency) |
 | `event_relay` | Junction: which events were seen at which relays |
-| `metadata` | Content-addressed NIP-11/NIP-66 documents (SHA-256 dedup, `payload` JSONB) |
+| `metadata` | Content-addressed NIP-11/NIP-66 documents (SHA-256 dedup, `data` JSONB) |
 | `relay_metadata` | Time-series snapshots linking relays to metadata records (`metadata_type` column) |
 | `service_state` | Per-service operational data (candidates, cursors, checkpoints) |
 

@@ -202,8 +202,8 @@ class TestNip11Serialization:
         result = nip11.to_relay_metadata_tuple()
         metadata = result.nip11_info.metadata
         assert isinstance(metadata, Metadata)
-        assert metadata.value["data"]["name"] == "Test Relay"
-        assert metadata.value["logs"]["success"] is True
+        assert metadata.data["data"]["name"] == "Test Relay"
+        assert metadata.data["logs"]["success"] is True
 
     def test_to_relay_metadata_tuple_none_fetch_metadata(self, nip11_no_fetch_metadata: Nip11):
         """to_relay_metadata_tuple returns None for nip11_info when fetch_metadata is None."""
@@ -690,7 +690,7 @@ class TestNip11Integration:
 
         result = nip11.to_relay_metadata_tuple()
         assert result.nip11_info is not None
-        assert result.nip11_info.metadata.value["data"]["name"] == "Test Relay"
+        assert result.nip11_info.metadata.data["data"]["name"] == "Test Relay"
 
     def test_full_workflow_failure(self, relay: Relay):
         """Full workflow with failed fetch."""
@@ -704,7 +704,7 @@ class TestNip11Integration:
 
         result = nip11.to_relay_metadata_tuple()
         assert result.nip11_info is not None
-        assert result.nip11_info.metadata.value["logs"]["success"] is False
+        assert result.nip11_info.metadata.data["logs"]["success"] is False
 
     def test_roundtrip_through_metadata(
         self,
@@ -718,7 +718,7 @@ class TestNip11Integration:
         nip11 = Nip11(relay=relay, fetch_metadata=fetch_metadata)
 
         result = nip11.to_relay_metadata_tuple()
-        metadata_dict = result.nip11_info.metadata.value
+        metadata_dict = result.nip11_info.metadata.data
         reconstructed = Nip11InfoMetadata.from_dict(metadata_dict)
 
         assert reconstructed.data.name == fetch_data.name

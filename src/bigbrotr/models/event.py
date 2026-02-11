@@ -107,7 +107,7 @@ class Event:
         [EventRelay][bigbrotr.models.event_relay.EventRelay]: Junction linking
             this event to the [Relay][bigbrotr.models.relay.Relay] where it was
             observed.
-        [EventKind][bigbrotr.models.service_state.EventKind]: Well-known Nostr
+        [EventKind][bigbrotr.models.constants.EventKind]: Well-known Nostr
             event kinds used across services.
     """
 

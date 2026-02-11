@@ -521,7 +521,7 @@ class TestNip11:
         assert metadata_tuple.nip11_info is not None
         assert metadata_tuple.nip11_info.metadata.type == "nip11_info"
         assert metadata_tuple.nip11_info.relay == relay
-        assert metadata_tuple.nip11_info.metadata.value["data"]["name"] == "Test"
+        assert metadata_tuple.nip11_info.metadata.data["data"]["name"] == "Test"
 
     def test_additional_properties(self) -> None:
         """Test additional NIP-11 properties via fetch_metadata.data."""
@@ -571,7 +571,7 @@ class TestNip66:
         assert metadata_tuple.rtt is not None
         assert metadata_tuple.rtt.metadata.type == "nip66_rtt"
         assert metadata_tuple.rtt.relay == relay
-        assert metadata_tuple.rtt.metadata.value["data"]["rtt_open"] == 100
+        assert metadata_tuple.rtt.metadata.data["data"]["rtt_open"] == 100
         assert metadata_tuple.ssl is None
         assert metadata_tuple.geo is None
         assert metadata_tuple.net is None
@@ -591,12 +591,12 @@ class TestNip66:
 
         assert metadata_tuple.rtt is not None
         assert metadata_tuple.rtt.metadata.type == "nip66_rtt"
-        assert metadata_tuple.rtt.metadata.value["data"]["rtt_open"] == 100
+        assert metadata_tuple.rtt.metadata.data["data"]["rtt_open"] == 100
         assert metadata_tuple.ssl is None
         assert metadata_tuple.geo is not None
         assert metadata_tuple.geo.metadata.type == "nip66_geo"
-        assert metadata_tuple.geo.metadata.value["data"]["geo_hash"] == "abc123"
-        assert metadata_tuple.geo.metadata.value["data"]["geo_country"] == "US"
+        assert metadata_tuple.geo.metadata.data["data"]["geo_hash"] == "abc123"
+        assert metadata_tuple.geo.metadata.data["data"]["geo_country"] == "US"
         assert metadata_tuple.net is None
         assert metadata_tuple.dns is None
         assert metadata_tuple.http is None
@@ -616,8 +616,8 @@ class TestNip66:
         assert metadata_tuple.rtt.metadata.type == "nip66_rtt"
         assert metadata_tuple.ssl is not None
         assert metadata_tuple.ssl.metadata.type == "nip66_ssl"
-        assert metadata_tuple.ssl.metadata.value["data"]["ssl_valid"] is True
-        assert metadata_tuple.ssl.metadata.value["data"]["ssl_issuer"] == "Let's Encrypt"
+        assert metadata_tuple.ssl.metadata.data["data"]["ssl_valid"] is True
+        assert metadata_tuple.ssl.metadata.data["data"]["ssl_issuer"] == "Let's Encrypt"
         assert metadata_tuple.geo is None
         assert metadata_tuple.net is None
         assert metadata_tuple.dns is None
@@ -637,8 +637,8 @@ class TestNip66:
         assert metadata_tuple.rtt is not None
         assert metadata_tuple.net is not None
         assert metadata_tuple.net.metadata.type == "nip66_net"
-        assert metadata_tuple.net.metadata.value["data"]["net_ip"] == "8.8.8.8"
-        assert metadata_tuple.net.metadata.value["data"]["net_asn"] == 15169
+        assert metadata_tuple.net.metadata.data["data"]["net_ip"] == "8.8.8.8"
+        assert metadata_tuple.net.metadata.data["data"]["net_asn"] == 15169
 
     def test_to_relay_metadata_with_dns(self) -> None:
         """Test NIP-66 to_relay_metadata_tuple with RTT and DNS data."""
@@ -689,12 +689,12 @@ class TestNip66:
         assert metadata_tuple.rtt.metadata.type == "nip66_rtt"
         assert metadata_tuple.ssl is not None
         assert metadata_tuple.ssl.metadata.type == "nip66_ssl"
-        assert metadata_tuple.ssl.metadata.value["data"]["ssl_valid"] is True
-        assert metadata_tuple.ssl.metadata.value["data"]["ssl_issuer"] == "Let's Encrypt"
+        assert metadata_tuple.ssl.metadata.data["data"]["ssl_valid"] is True
+        assert metadata_tuple.ssl.metadata.data["data"]["ssl_issuer"] == "Let's Encrypt"
         assert metadata_tuple.geo is not None
         assert metadata_tuple.geo.metadata.type == "nip66_geo"
-        assert metadata_tuple.geo.metadata.value["data"]["geo_hash"] == "abc123"
-        assert metadata_tuple.geo.metadata.value["data"]["geo_country"] == "US"
+        assert metadata_tuple.geo.metadata.data["data"]["geo_hash"] == "abc123"
+        assert metadata_tuple.geo.metadata.data["data"]["geo_country"] == "US"
         assert metadata_tuple.net is not None
         assert metadata_tuple.dns is not None
         assert metadata_tuple.http is not None
@@ -741,7 +741,7 @@ class TestRelayMetadataType:
         from bigbrotr.models.metadata import Metadata
 
         relay = Relay("wss://relay.example.com")
-        metadata_obj = Metadata(type=MetadataType.NIP11_INFO, value={"name": "Test"})
+        metadata_obj = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Test"})
 
         rm = RelayMetadata(
             relay=relay,
@@ -752,7 +752,7 @@ class TestRelayMetadataType:
         assert "relay.example.com" in rm.relay.url
         assert rm.relay.network == NetworkType.CLEARNET
         assert rm.metadata.type == MetadataType.NIP11_INFO
-        assert rm.metadata.value == {"name": "Test"}
+        assert rm.metadata.data == {"name": "Test"}
         assert rm.generated_at == 1700000001
 
     def test_to_db_params(self) -> None:
@@ -761,7 +761,7 @@ class TestRelayMetadataType:
         from bigbrotr.models.metadata import Metadata
 
         relay = Relay("wss://relay.example.com")
-        metadata_obj = Metadata(type=MetadataType.NIP66_RTT, value={"rtt_open": 100})
+        metadata_obj = Metadata(type=MetadataType.NIP66_RTT, data={"rtt_open": 100})
 
         rm = RelayMetadata(
             relay=relay,
@@ -776,8 +776,8 @@ class TestRelayMetadataType:
         assert params[1] == "clearnet"
         assert isinstance(params[3], bytes)
         assert len(params[3]) == 32
-        assert params[4] == metadata_obj.to_db_params().payload
-        assert params[5] == "nip66_rtt"
+        assert params[4] == "nip66_rtt"
+        assert params[5] == metadata_obj.to_db_params().data
         assert params[6] == 1700000001
 
 
@@ -1230,7 +1230,7 @@ class TestTagBuilders:
         relay = Relay("wss://relay.example.com")
         return RelayMetadata(
             relay=relay,
-            metadata=Metadata(type=MetadataType(metadata_type), value=value),
+            metadata=Metadata(type=MetadataType(metadata_type), data=value),
             generated_at=1700000000,
         )
 

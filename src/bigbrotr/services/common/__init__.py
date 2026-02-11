@@ -1,8 +1,7 @@
 """Shared infrastructure for all BigBrotr services.
 
 Provides the foundational building blocks used across all five pipeline
-services: configuration models, constants, mixins, and centralized SQL
-query functions.
+services: configuration models, mixins, and centralized SQL query functions.
 
 Attributes:
     configs: Per-network Pydantic configuration models
@@ -11,11 +10,6 @@ Attributes:
         [I2pConfig][bigbrotr.services.common.configs.I2pConfig],
         [LokiConfig][bigbrotr.services.common.configs.LokiConfig]) with
         sensible defaults for timeouts, proxy URLs, and max concurrent tasks.
-    constants: [ServiceName][bigbrotr.services.common.constants.ServiceName]
-        StrEnum identifying pipeline services, plus re-exports of model-layer
-        types ([ServiceState][bigbrotr.models.service_state.ServiceState],
-        [StateType][bigbrotr.models.service_state.StateType],
-        [EventKind][bigbrotr.models.service_state.EventKind]).
     mixins: [BatchProgress][bigbrotr.services.common.mixins.BatchProgress]
         dataclass for tracking batch processing cycles and
         [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin]
@@ -38,14 +32,6 @@ from .configs import (
     NetworkTypeConfig,
     TorConfig,
 )
-from .constants import (
-    EVENT_KIND_MAX,
-    EventKind,
-    ServiceName,
-    ServiceState,
-    ServiceStateKey,
-    StateType,
-)
 from .mixins import BatchProgress, BatchProgressMixin, NetworkSemaphoreMixin
 from .queries import (
     count_candidates,
@@ -65,20 +51,14 @@ from .queries import (
 
 
 __all__ = [
-    "EVENT_KIND_MAX",
     "BatchProgress",
     "BatchProgressMixin",
     "ClearnetConfig",
-    "EventKind",
     "I2pConfig",
     "LokiConfig",
     "NetworkConfig",
     "NetworkSemaphoreMixin",
     "NetworkTypeConfig",
-    "ServiceName",
-    "ServiceState",
-    "ServiceStateKey",
-    "StateType",
     "TorConfig",
     "count_candidates",
     "count_relays_due_for_check",

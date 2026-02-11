@@ -231,7 +231,7 @@ class Nip66(BaseModel):
                 return None
             return RelayMetadata(
                 relay=self.relay,
-                metadata=Metadata(type=metadata_type, value=metadata.to_dict()),
+                metadata=Metadata(type=metadata_type, data=metadata.to_dict()),
                 generated_at=self.generated_at,
             )
 

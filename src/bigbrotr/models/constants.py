@@ -8,11 +8,13 @@ See Also:
     [bigbrotr.models.relay][]: Uses [NetworkType][bigbrotr.models.constants.NetworkType]
         to classify relay URLs during construction.
     [bigbrotr.nips.nip66][]: Relies on network type for overlay-specific health checks.
+    [bigbrotr.models.service_state][]: Uses [ServiceName][bigbrotr.models.constants.ServiceName]
+        and imports [EventKind][bigbrotr.models.constants.EventKind] for service state types.
 """
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from typing import Final
 
 
@@ -62,3 +64,71 @@ class NetworkType(StrEnum):
     LOKI = "loki"
     LOCAL = "local"
     UNKNOWN = "unknown"
+
+
+class ServiceName(StrEnum):
+    """Canonical service identifiers used in logging, metrics, and persistence.
+
+    Each member corresponds to one of the five pipeline services. The string
+    values are used as the ``service_name`` column in the ``service_state``
+    table and as the ``service`` label in Prometheus metrics.
+
+    Attributes:
+        SEEDER: One-shot bootstrapping service
+            ([Seeder][bigbrotr.services.seeder.Seeder]).
+        FINDER: Continuous relay URL discovery service
+            ([Finder][bigbrotr.services.finder.Finder]).
+        VALIDATOR: WebSocket-based Nostr protocol validation service
+            ([Validator][bigbrotr.services.validator.Validator]).
+        MONITOR: NIP-11 / NIP-66 health monitoring service
+            ([Monitor][bigbrotr.services.monitor.Monitor]).
+        SYNCHRONIZER: Cursor-based event collection service
+            ([Synchronizer][bigbrotr.services.synchronizer.Synchronizer]).
+
+    See Also:
+        [BaseService][bigbrotr.core.base_service.BaseService]: Abstract
+            base class that uses ``SERVICE_NAME`` for logging context.
+        [queries][bigbrotr.services.common.queries]: SQL functions that
+            filter ``service_state`` rows by service name.
+    """
+
+    SEEDER = "seeder"
+    FINDER = "finder"
+    VALIDATOR = "validator"
+    MONITOR = "monitor"
+    SYNCHRONIZER = "synchronizer"
+
+
+class EventKind(IntEnum):
+    """Well-known Nostr event kinds used across services.
+
+    Each member corresponds to a NIP-defined event kind that BigBrotr
+    processes or publishes.
+
+    Attributes:
+        RECOMMEND_RELAY: Kind 2 -- legacy relay recommendation (NIP-01, deprecated).
+        CONTACTS: Kind 3 -- contact list with relay hints (NIP-02).
+        RELAY_LIST: Kind 10002 -- NIP-65 relay list metadata.
+        NIP66_TEST: Kind 22456 -- ephemeral NIP-66 relay test event.
+        MONITOR_ANNOUNCEMENT: Kind 10166 -- NIP-66 monitor announcement
+            (replaceable, published by the
+            [Monitor][bigbrotr.services.monitor.Monitor] service).
+        RELAY_DISCOVERY: Kind 30166 -- NIP-66 relay discovery event
+            (parameterized replaceable, published by the
+            [Monitor][bigbrotr.services.monitor.Monitor] service).
+
+    See Also:
+        [Event][bigbrotr.models.event.Event]: The event wrapper that carries
+            these kinds.
+        ``EVENT_KIND_MAX``: Maximum valid event kind value (65535).
+    """
+
+    RECOMMEND_RELAY = 2
+    CONTACTS = 3
+    RELAY_LIST = 10_002
+    NIP66_TEST = 22_456
+    MONITOR_ANNOUNCEMENT = 10_166
+    RELAY_DISCOVERY = 30_166
+
+
+EVENT_KIND_MAX = 65_535

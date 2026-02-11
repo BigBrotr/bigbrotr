@@ -273,7 +273,7 @@ def sample_metadata() -> RelayMetadata:
     relay = Relay("wss://relay.example.com", discovered_at=1700000000)
     metadata = Metadata(
         type=MetadataType.NIP11_INFO,
-        value={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
+        data={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
     )
     return RelayMetadata(
         relay=relay,

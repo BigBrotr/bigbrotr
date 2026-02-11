@@ -41,7 +41,7 @@ def make_candidate_row(url: str, network: str = "clearnet", failed_attempts: int
     """Create a mock candidate row from database."""
     return {
         "state_key": url,
-        "payload": {"network": network, "failed_attempts": failed_attempts},
+        "state_value": {"network": network, "failed_attempts": failed_attempts},
     }
 
 
@@ -645,7 +645,7 @@ class TestPersistence:
 
         mock_validator_brotr.upsert_service_state.assert_called_once()
         call_args = mock_validator_brotr.upsert_service_state.call_args[0][0]
-        assert call_args[0].payload["failed_attempts"] == 3
+        assert call_args[0].state_value["failed_attempts"] == 3
 
     @pytest.mark.asyncio
     async def test_invalid_candidates_preserve_data_fields(
@@ -668,7 +668,7 @@ class TestPersistence:
 
         mock_validator_brotr.upsert_service_state.assert_called_once()
         call_args = mock_validator_brotr.upsert_service_state.call_args[0][0]
-        data = call_args[0].payload
+        data = call_args[0].state_value
         assert data["failed_attempts"] == 2
         assert data["network"] == "tor"  # Preserved from original data
 

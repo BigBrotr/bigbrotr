@@ -242,7 +242,7 @@ class TestNip66ToRelayMetadataTuple:
         """Returns None for missing metadata types."""
         result = nip66_rtt_only.to_relay_metadata_tuple()
         assert isinstance(result.rtt, RelayMetadata)
-        assert result.rtt.metadata.value["data"]["rtt_open"] == 100
+        assert result.rtt.metadata.data["data"]["rtt_open"] == 100
         assert result.ssl is None
         assert result.geo is None
         assert result.net is None

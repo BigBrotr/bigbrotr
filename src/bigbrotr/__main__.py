@@ -24,7 +24,7 @@ from typing import Any, NamedTuple
 from bigbrotr.core import Brotr, start_metrics_server
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.core.logger import Logger, StructuredFormatter
-from bigbrotr.services.common.constants import ServiceName
+from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.finder import Finder
 from bigbrotr.services.monitor import Monitor
 from bigbrotr.services.seeder import Seeder

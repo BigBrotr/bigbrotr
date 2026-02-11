@@ -52,7 +52,7 @@ erDiagram
 
     metadata {
         BYTEA id PK
-        JSONB payload
+        JSONB data
     }
 
     relay_metadata {
@@ -66,7 +66,7 @@ erDiagram
         TEXT service_name PK
         TEXT state_type PK
         TEXT state_key PK
-        JSONB payload
+        JSONB state_value
         BIGINT updated_at
     }
 
@@ -151,7 +151,7 @@ Content-addressed storage for NIP-11 and NIP-66 metadata documents.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | BYTEA | PRIMARY KEY | SHA-256 content hash (32 bytes) |
-| `payload` | JSONB | NOT NULL | Complete JSON document |
+| `data` | JSONB | NOT NULL | Complete JSON document |
 
 The SHA-256 hash is computed in the application layer. Multiple relays with identical metadata reference the same row, providing significant deduplication.
 
@@ -179,7 +179,7 @@ Generic key-value store for per-service persistent state between restarts.
 | `service_name` | TEXT | PK (partial) | Service identifier |
 | `state_type` | TEXT | PK (partial) | State category: `candidate`, `cursor`, `checkpoint`, `config` |
 | `state_key` | TEXT | PK (partial) | Unique key within service+type |
-| `payload` | JSONB | NOT NULL, DEFAULT `{}` | Service-specific JSONB payload |
+| `state_value` | JSONB | NOT NULL, DEFAULT `{}` | Service-specific JSONB state value |
 | `updated_at` | BIGINT | NOT NULL | Unix timestamp of last update |
 
 Primary key: `(service_name, state_type, state_key)`.
@@ -253,7 +253,7 @@ Bulk-inserts Nostr events. Duplicate events (by id) are silently skipped.
 ### metadata_insert
 
 ```sql
-metadata_insert(p_ids BYTEA[], p_payloads JSONB[]) -> INTEGER
+metadata_insert(p_ids BYTEA[], p_metadata_types TEXT[], p_data JSONB[]) -> INTEGER
 ```
 
 Bulk-inserts content-addressed metadata documents. Duplicate hashes are silently skipped.
@@ -282,7 +282,7 @@ Bulk-inserts relay-metadata junction records. Both relay and metadata must alrea
 ```sql
 service_state_upsert(
     p_service_names TEXT[], p_state_types TEXT[], p_state_keys TEXT[],
-    p_payloads JSONB[], p_updated_ats BIGINT[]
+    p_state_values JSONB[], p_updated_ats BIGINT[]
 ) -> VOID
 ```
 
@@ -293,7 +293,7 @@ Bulk upsert service state records. Uses `DISTINCT ON` within the batch to dedupl
 ```sql
 service_state_get(
     p_service_name TEXT, p_state_type TEXT, p_state_key TEXT DEFAULT NULL
-) -> TABLE(state_key TEXT, payload JSONB, updated_at BIGINT)
+) -> TABLE(state_key TEXT, state_value JSONB, updated_at BIGINT)
 ```
 
 Retrieves service state records. If `p_state_key` is NULL, returns all records for the service+type ordered by `updated_at ASC`.
@@ -336,8 +336,8 @@ Returns the number of junction rows inserted.
 ```sql
 relay_metadata_insert_cascade(
     p_relay_urls TEXT[], p_relay_networks TEXT[], p_relay_discovered_ats BIGINT[],
-    p_metadata_ids BYTEA[], p_metadata_payloads JSONB[],
-    p_metadata_types TEXT[], p_generated_ats BIGINT[]
+    p_metadata_ids BYTEA[], p_metadata_types TEXT[],
+    p_metadata_data JSONB[], p_generated_ats BIGINT[]
 ) -> INTEGER
 ```
 
@@ -399,7 +399,7 @@ Latest metadata snapshot per relay and check type.
 | `metadata_type` | TEXT | Check type |
 | `generated_at` | BIGINT | Timestamp of latest snapshot |
 | `metadata_id` | BYTEA | Content-addressed hash |
-| `payload` | JSONB | Complete JSON document |
+| `data` | JSONB | Complete JSON document |
 
 Uses `DISTINCT ON (relay_url, metadata_type) ... ORDER BY generated_at DESC` to select the most recent snapshot.
 
@@ -562,7 +562,7 @@ Refreshes all materialized views in dependency order:
 | Index | Columns | Type | Purpose |
 |-------|---------|------|---------|
 | PK | `service_name, state_type, state_key` | BTREE | Covers single and double-prefix queries |
-| `idx_service_state_candidate_network` | `payload ->> 'network'` (partial) | BTREE | Validator: filter candidates by network |
+| `idx_service_state_candidate_network` | `state_value ->> 'network'` (partial) | BTREE | Validator: filter candidates by network |
 
 !!! note
     The partial index on `service_state` has a WHERE clause: `WHERE service_name = 'validator' AND state_type = 'candidate'`.
@@ -601,7 +601,7 @@ LilBrotr has a simpler index set (no materialized views).
 | `idx_relay_metadata_generated_at` | relay_metadata | `generated_at DESC` | BTREE |
 | `idx_relay_metadata_metadata_id` | relay_metadata | `metadata_id` | BTREE |
 | `idx_relay_metadata_relay_url_metadata_type_generated_at` | relay_metadata | `relay_url, metadata_type, generated_at DESC` | BTREE |
-| `idx_service_state_candidate_network` | service_state | `payload ->> 'network'` (partial) | BTREE |
+| `idx_service_state_candidate_network` | service_state | `state_value ->> 'network'` (partial) | BTREE |
 
 ---
 

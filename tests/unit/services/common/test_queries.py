@@ -22,7 +22,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from bigbrotr.services.common.constants import ServiceName, StateType
+from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.queries import (
     count_candidates,
     count_relays_due_for_check,
@@ -193,7 +194,7 @@ class TestFilterNewRelayUrls:
 
     @pytest.mark.asyncio
     async def test_calls_fetch_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes urls, ServiceName.VALIDATOR, and StateType.CANDIDATE."""
+        """Passes urls, ServiceName.VALIDATOR, and ServiceStateType.CANDIDATE."""
         urls = ["wss://new1.example.com", "wss://new2.example.com"]
 
         await filter_new_relay_urls(mock_brotr, urls, timeout=10.0)
@@ -207,7 +208,7 @@ class TestFilterNewRelayUrls:
         # Positional params
         assert args[0][1] == urls
         assert args[0][2] == ServiceName.VALIDATOR
-        assert args[0][3] == StateType.CANDIDATE
+        assert args[0][3] == ServiceStateType.CANDIDATE
         assert args[1]["timeout"] == 10.0
 
     @pytest.mark.asyncio
@@ -241,7 +242,7 @@ class TestCountRelaysDueForCheck:
 
     @pytest.mark.asyncio
     async def test_calls_fetchrow_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes service_name, StateType.CHECKPOINT, networks, and threshold."""
+        """Passes service_name, ServiceStateType.CHECKPOINT, networks, and threshold."""
         mock_brotr.fetchrow = AsyncMock(return_value={"count": 42})
 
         result = await count_relays_due_for_check(
@@ -261,7 +262,7 @@ class TestCountRelaysDueForCheck:
         assert "state_type = $2" in sql
         # Positional params
         assert args[0][1] == "monitor"
-        assert args[0][2] == StateType.CHECKPOINT
+        assert args[0][2] == ServiceStateType.CHECKPOINT
         assert args[0][3] == ["clearnet", "tor"]
         assert args[0][4] == 1700000000
         assert args[1]["timeout"] == 5.0
@@ -287,7 +288,7 @@ class TestFetchRelaysDueForCheck:
 
     @pytest.mark.asyncio
     async def test_calls_fetch_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes service_name, StateType.CHECKPOINT, networks, threshold, limit."""
+        """Passes service_name, ServiceStateType.CHECKPOINT, networks, threshold, limit."""
         await fetch_relays_due_for_check(
             mock_brotr,
             service_name="monitor",
@@ -305,7 +306,7 @@ class TestFetchRelaysDueForCheck:
         assert "LIMIT $5" in sql
         # Positional params
         assert args[0][1] == "monitor"
-        assert args[0][2] == StateType.CHECKPOINT
+        assert args[0][2] == ServiceStateType.CHECKPOINT
         assert args[0][3] == ["clearnet"]
         assert args[0][4] == 1700000000
         assert args[0][5] == 100
@@ -411,7 +412,7 @@ class TestUpsertCandidates:
 
     @pytest.mark.asyncio
     async def test_calls_upsert_service_state(self, mock_brotr: MagicMock) -> None:
-        """Builds records with ServiceName.VALIDATOR/StateType.CANDIDATE and upserts."""
+        """Builds records with ServiceName.VALIDATOR/ServiceStateType.CANDIDATE and upserts."""
         relay = _make_mock_relay()
 
         result = await upsert_candidates(mock_brotr, [relay])
@@ -421,11 +422,11 @@ class TestUpsertCandidates:
         assert len(records) == 1
         record = records[0]
         assert record.service_name == ServiceName.VALIDATOR
-        assert record.state_type == StateType.CANDIDATE
+        assert record.state_type == ServiceStateType.CANDIDATE
         assert record.state_key == "wss://relay.example.com"
-        assert record.payload["network"] == "clearnet"
-        assert record.payload["failed_attempts"] == 0
-        assert "inserted_at" in record.payload
+        assert record.state_value["network"] == "clearnet"
+        assert record.state_value["failed_attempts"] == 0
+        assert "inserted_at" in record.state_value
         assert result == 1
 
     @pytest.mark.asyncio
@@ -462,7 +463,7 @@ class TestCountCandidates:
 
     @pytest.mark.asyncio
     async def test_calls_fetchrow_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes ServiceName.VALIDATOR, StateType.CANDIDATE, and networks."""
+        """Passes ServiceName.VALIDATOR, ServiceStateType.CANDIDATE, and networks."""
         mock_brotr.fetchrow = AsyncMock(return_value={"count": 15})
 
         result = await count_candidates(mock_brotr, networks=["clearnet", "tor"], timeout=5.0)
@@ -475,7 +476,7 @@ class TestCountCandidates:
         assert "service_name = $1" in sql
         assert "state_type = $2" in sql
         assert args[0][1] == ServiceName.VALIDATOR
-        assert args[0][2] == StateType.CANDIDATE
+        assert args[0][2] == ServiceStateType.CANDIDATE
         assert args[0][3] == ["clearnet", "tor"]
         assert args[1]["timeout"] == 5.0
         assert result == 15
@@ -500,7 +501,7 @@ class TestFetchCandidateChunk:
 
     @pytest.mark.asyncio
     async def test_calls_fetch_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes ServiceName.VALIDATOR, StateType.CANDIDATE, networks, timestamp, limit."""
+        """Passes ServiceName.VALIDATOR, ServiceStateType.CANDIDATE, networks, timestamp, limit."""
         await fetch_candidate_chunk(
             mock_brotr,
             networks=["clearnet"],
@@ -520,7 +521,7 @@ class TestFetchCandidateChunk:
         assert "LIMIT $5" in sql
         # Positional params
         assert args[0][1] == ServiceName.VALIDATOR
-        assert args[0][2] == StateType.CANDIDATE
+        assert args[0][2] == ServiceStateType.CANDIDATE
         assert args[0][3] == ["clearnet"]
         assert args[0][4] == 1700000000
         assert args[0][5] == 50
@@ -528,11 +529,11 @@ class TestFetchCandidateChunk:
 
     @pytest.mark.asyncio
     async def test_returns_list_of_dicts(self, mock_brotr: MagicMock) -> None:
-        """Returns candidate dicts with state_key and payload."""
+        """Returns candidate dicts with state_key and value."""
         row = _make_dict_row(
             {
                 "state_key": "wss://relay.example.com",
-                "payload": {"failed_attempts": 0, "network": "clearnet"},
+                "value": {"failed_attempts": 0, "network": "clearnet"},
             }
         )
         mock_brotr.fetch = AsyncMock(return_value=[row])
@@ -560,7 +561,7 @@ class TestDeleteStaleCandidates:
 
     @pytest.mark.asyncio
     async def test_calls_execute_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Calls execute with ServiceName.VALIDATOR and StateType.CANDIDATE."""
+        """Calls execute with ServiceName.VALIDATOR and ServiceStateType.CANDIDATE."""
         mock_brotr.execute = AsyncMock(return_value="DELETE 5")
 
         result = await delete_stale_candidates(mock_brotr, timeout=10.0)
@@ -573,7 +574,7 @@ class TestDeleteStaleCandidates:
         assert "state_type = $2" in sql
         assert "EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)" in sql
         assert args[0][1] == ServiceName.VALIDATOR
-        assert args[0][2] == StateType.CANDIDATE
+        assert args[0][2] == ServiceStateType.CANDIDATE
         assert args[1]["timeout"] == 10.0
         assert result == "DELETE 5"
 
@@ -597,7 +598,7 @@ class TestDeleteExhaustedCandidates:
 
     @pytest.mark.asyncio
     async def test_calls_execute_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes ServiceName.VALIDATOR, StateType.CANDIDATE, and max_failures."""
+        """Passes ServiceName.VALIDATOR, ServiceStateType.CANDIDATE, and max_failures."""
         mock_brotr.execute = AsyncMock(return_value="DELETE 3")
 
         result = await delete_exhausted_candidates(mock_brotr, max_failures=5, timeout=10.0)
@@ -611,7 +612,7 @@ class TestDeleteExhaustedCandidates:
         assert "failed_attempts" in sql
         assert ">= $3" in sql
         assert args[0][1] == ServiceName.VALIDATOR
-        assert args[0][2] == StateType.CANDIDATE
+        assert args[0][2] == ServiceStateType.CANDIDATE
         assert args[0][3] == 5
         assert args[1]["timeout"] == 10.0
         assert result == "DELETE 3"
@@ -669,7 +670,7 @@ class TestPromoteCandidates:
         assert "service_name = $1" in delete_sql
         assert "state_type = $2" in delete_sql
         assert execute_args[0][1] == ServiceName.VALIDATOR
-        assert execute_args[0][2] == StateType.CANDIDATE
+        assert execute_args[0][2] == ServiceStateType.CANDIDATE
 
     @pytest.mark.asyncio
     async def test_empty_relay_list(self, mock_brotr: MagicMock) -> None:
@@ -720,19 +721,19 @@ class TestGetAllServiceCursors:
 
     @pytest.mark.asyncio
     async def test_calls_fetch_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes cursor_field, service_name, and StateType.CURSOR."""
+        """Passes cursor_field, service_name, and ServiceStateType.CURSOR."""
         await get_all_service_cursors(mock_brotr, service_name="finder")
 
         mock_brotr.fetch.assert_awaited_once()
         args = mock_brotr.fetch.call_args
         sql = args[0][0]
         assert "state_key" in sql
-        assert "payload->>$1" in sql
+        assert "value->>$1" in sql
         assert "service_name = $2" in sql
         assert "state_type = $3" in sql
         assert args[0][1] == "last_synced_at"
         assert args[0][2] == "finder"
-        assert args[0][3] == StateType.CURSOR
+        assert args[0][3] == ServiceStateType.CURSOR
 
     @pytest.mark.asyncio
     async def test_custom_cursor_field(self, mock_brotr: MagicMock) -> None:

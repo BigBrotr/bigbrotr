@@ -22,9 +22,10 @@ import pytest
 from nostr_sdk import Keys, Tag
 
 from bigbrotr.models import Relay, RelayMetadata
+from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.metadata import Metadata, MetadataType
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.configs import ClearnetConfig, NetworkConfig
-from bigbrotr.services.common.constants import ServiceName
 from bigbrotr.services.monitor import (
     AnnouncementConfig,
     CheckResult,
@@ -173,7 +174,7 @@ def _make_relay_metadata(
     relay = Relay("wss://relay.example.com")
     return RelayMetadata(
         relay=relay,
-        metadata=Metadata(type=MetadataType(metadata_type), value=value),
+        metadata=Metadata(type=MetadataType(metadata_type), data=value),
         generated_at=1700000000,
     )
 
@@ -429,8 +430,17 @@ class TestPublishAnnouncement:
         self, publisher: _PublisherHarness
     ) -> None:
         """Test that announcement is skipped when interval has not elapsed."""
+        now = time.time()
         publisher._brotr.get_service_state = AsyncMock(
-            return_value=[{"payload": {"timestamp": time.time()}}]
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.MONITOR,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="last_announcement",
+                    state_value={"timestamp": now},
+                    updated_at=int(now),
+                )
+            ]
         )
         with patch(
             "bigbrotr.services.monitor_publisher.create_client",
@@ -461,7 +471,15 @@ class TestPublishAnnouncement:
         """Test successful announcement publish when interval has elapsed."""
         old_timestamp = time.time() - 100000  # well past the 86400 interval
         publisher._brotr.get_service_state = AsyncMock(
-            return_value=[{"payload": {"timestamp": old_timestamp}}]
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.MONITOR,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="last_announcement",
+                    state_value={"timestamp": old_timestamp},
+                    updated_at=int(old_timestamp),
+                )
+            ]
         )
         mock_client = AsyncMock()
 
@@ -535,8 +553,17 @@ class TestPublishProfile:
 
     async def test_publish_profile_interval_not_elapsed(self, publisher: _PublisherHarness) -> None:
         """Test that profile is skipped when interval has not elapsed."""
+        now = time.time()
         publisher._brotr.get_service_state = AsyncMock(
-            return_value=[{"payload": {"timestamp": time.time()}}]
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.MONITOR,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="last_profile",
+                    state_value={"timestamp": now},
+                    updated_at=int(now),
+                )
+            ]
         )
         with patch(
             "bigbrotr.services.monitor_publisher.create_client",

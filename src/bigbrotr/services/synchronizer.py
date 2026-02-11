@@ -83,12 +83,12 @@ from pydantic import BaseModel, Field, field_validator
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.core.logger import format_kv_pairs
 from bigbrotr.models import Event, EventRelay, Relay
-from bigbrotr.models.constants import NetworkType
+from bigbrotr.models.constants import EVENT_KIND_MAX, NetworkType, ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.utils.keys import KeysConfig
 from bigbrotr.utils.transport import create_client
 
 from .common.configs import NetworkConfig
-from .common.constants import EVENT_KIND_MAX, ServiceName, ServiceState, StateType
 from .common.queries import get_all_relays, get_all_service_cursors
 
 
@@ -628,7 +628,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
             Pre-fetches all per-relay cursor values.
     """
 
-    SERVICE_NAME: ClassVar[str] = ServiceName.SYNCHRONIZER
+    SERVICE_NAME: ClassVar[ServiceName] = ServiceName.SYNCHRONIZER
     CONFIG_CLASS: ClassVar[type[SynchronizerConfig]] = SynchronizerConfig
 
     def __init__(
@@ -765,9 +765,9 @@ class Synchronizer(BaseService[SynchronizerConfig]):
                         cursor_updates.append(
                             ServiceState(
                                 service_name=self.SERVICE_NAME,
-                                state_type=StateType.CURSOR,
+                                state_type=ServiceStateType.CURSOR,
                                 state_key=relay.url,
-                                payload={"last_synced_at": end_time},
+                                state_value={"last_synced_at": end_time},
                                 updated_at=int(time.time()),
                             )
                         )

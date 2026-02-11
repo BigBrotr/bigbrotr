@@ -1,12 +1,10 @@
 /*
  * Template - 01_functions_utility.sql
  *
- * Utility functions that must be created before tables. Required if the
- * events table uses a generated column referencing tags_to_tagvalues().
- * Also used at insert time in lightweight schemas.
+ * Utility functions that must be created before tables, because they are
+ * referenced by generated columns in the event table.
  *
  * Dependencies: 00_extensions.sql
- * Customization: None required -- this function is mandatory.
  */
 
 /*
@@ -17,6 +15,13 @@
  * "t", etc.). Multi-character keys like "relay" are excluded because they
  * are non-standard for filtering purposes.
  *
+ * Used by the event.tagvalues generated column to enable efficient GIN
+ * index lookups (WHERE tagvalues @> ARRAY['<hex-id>']).
+ *
+ * Note: If using the lightweight or minimal event table (no generated
+ * column), this function is still needed by event_insert() to compute
+ * tagvalues at insert time.
+ *
  * Example:
  *   Input:  [["e", "abc123"], ["p", "def456"], ["relay", "wss://..."]]
  *   Output: ARRAY['abc123', 'def456']
@@ -26,5 +31,4 @@ RETURNS TEXT []
 LANGUAGE SQL
 IMMUTABLE
 RETURNS NULL ON NULL INPUT
-SECURITY INVOKER
-AS 'SELECT COALESCE(array_agg(t->>1), ARRAY[]::text[]) FROM (SELECT jsonb_array_elements($1) AS t)s WHERE length(t->>0) = 1;';
+AS 'SELECT array_agg(t->>1) FROM (SELECT jsonb_array_elements($1) AS t)s WHERE length(t->>0) = 1;';
