@@ -14,9 +14,10 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import EventRelay, Relay, RelayMetadata
+from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.event import Event
 from bigbrotr.models.metadata import Metadata, MetadataType
-from bigbrotr.services.common.constants import ServiceName, ServiceState, ServiceStateKey, StateType
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from tests.conftest import make_mock_event
 
 
@@ -117,9 +118,9 @@ async def test_service_state_roundtrip(brotr: Brotr):
     records = [
         ServiceState(
             service_name=ServiceName.FINDER,
-            state_type=StateType.CURSOR,
+            state_type=ServiceStateType.CURSOR,
             state_key="wss://example.com",
-            payload={"last_synced_at": 1700000000},
+            state_value={"last_synced_at": 1700000000},
             updated_at=now,
         )
     ]
@@ -127,14 +128,14 @@ async def test_service_state_roundtrip(brotr: Brotr):
     assert count == 1
 
     # Read back
-    rows = await brotr.get_service_state(ServiceName.FINDER, StateType.CURSOR)
+    rows = await brotr.get_service_state(ServiceName.FINDER, ServiceStateType.CURSOR)
     assert len(rows) == 1
-    assert rows[0]["state_key"] == "wss://example.com"
-    assert rows[0]["payload"]["last_synced_at"] == 1700000000
+    assert rows[0].state_key == "wss://example.com"
+    assert rows[0].state_value["last_synced_at"] == 1700000000
 
     # Read by specific key
     rows_single = await brotr.get_service_state(
-        ServiceName.FINDER, StateType.CURSOR, key="wss://example.com"
+        ServiceName.FINDER, ServiceStateType.CURSOR, key="wss://example.com"
     )
     assert len(rows_single) == 1
 
@@ -142,29 +143,25 @@ async def test_service_state_roundtrip(brotr: Brotr):
     updated_records = [
         ServiceState(
             service_name=ServiceName.FINDER,
-            state_type=StateType.CURSOR,
+            state_type=ServiceStateType.CURSOR,
             state_key="wss://example.com",
-            payload={"last_synced_at": 1700001000},
+            state_value={"last_synced_at": 1700001000},
             updated_at=now,
         )
     ]
     await brotr.upsert_service_state(updated_records)
-    rows = await brotr.get_service_state(ServiceName.FINDER, StateType.CURSOR)
-    assert rows[0]["payload"]["last_synced_at"] == 1700001000
+    rows = await brotr.get_service_state(ServiceName.FINDER, ServiceStateType.CURSOR)
+    assert rows[0].state_value["last_synced_at"] == 1700001000
 
     # Delete
     deleted = await brotr.delete_service_state(
-        [
-            ServiceStateKey(
-                service_name=ServiceName.FINDER,
-                state_type=StateType.CURSOR,
-                state_key="wss://example.com",
-            )
-        ]
+        [ServiceName.FINDER],
+        [ServiceStateType.CURSOR],
+        ["wss://example.com"],
     )
     assert deleted == 1
 
-    rows = await brotr.get_service_state(ServiceName.FINDER, StateType.CURSOR)
+    rows = await brotr.get_service_state(ServiceName.FINDER, ServiceStateType.CURSOR)
     assert len(rows) == 0
 
 
@@ -224,7 +221,7 @@ async def test_relay_metadata_cascade(brotr: Brotr):
     relay = Relay("wss://meta.example.com", discovered_at=1700000000)
     metadata = Metadata(
         type=MetadataType.NIP11_INFO,
-        value={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
+        data={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
     )
     rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1700000001)
 
@@ -235,10 +232,11 @@ async def test_relay_metadata_cascade(brotr: Brotr):
     relay_rows = await brotr.fetch("SELECT url FROM relay WHERE url = $1", "wss://meta.example.com")
     assert len(relay_rows) == 1
 
-    # Verify metadata created (content-addressed)
-    meta_rows = await brotr.fetch("SELECT id, payload FROM metadata")
+    # Verify metadata created (content-addressed with type)
+    meta_rows = await brotr.fetch("SELECT id, data, metadata_type FROM metadata")
     assert len(meta_rows) == 1
-    assert meta_rows[0]["payload"]["name"] == "Test Relay"
+    assert meta_rows[0]["data"]["name"] == "Test Relay"
+    assert meta_rows[0]["metadata_type"] == "nip11_info"
 
     # Verify junction
     junction_rows = await brotr.fetch(

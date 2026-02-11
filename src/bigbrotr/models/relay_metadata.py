@@ -3,7 +3,7 @@ Junction model linking a [Relay][bigbrotr.models.relay.Relay] to a
 [Metadata][bigbrotr.models.metadata.Metadata] record.
 
 Maps to the ``relay_metadata`` table, representing a time-series snapshot
-that associates a relay with a specific metadata payload. Metadata records
+that associates a relay with a specific metadata record. Metadata records
 are deduplicated via content-addressed hashing (SHA-256 computed in Python).
 The database uses the ``relay_metadata_insert_cascade`` stored procedure
 to atomically insert the relay, metadata, and junction record in a single call.
@@ -42,8 +42,8 @@ class RelayMetadataDbParams(NamedTuple):
         relay_discovered_at: Unix timestamp of relay discovery.
         metadata_id: SHA-256 content hash (32 bytes,
             from [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams]).
-        metadata_payload: Canonical JSON string for JSONB storage.
         metadata_type: [MetadataType][bigbrotr.models.metadata.MetadataType] discriminator.
+        metadata_data: Canonical JSON string for JSONB storage.
         generated_at: Unix timestamp when the metadata was collected.
 
     See Also:
@@ -58,33 +58,34 @@ class RelayMetadataDbParams(NamedTuple):
     relay_url: str
     relay_network: str
     relay_discovered_at: int
-    # Metadata fields
+    # Metadata fields (matching metadata table order: id, type, data)
     metadata_id: bytes
-    metadata_payload: str
-    # Junction fields
     metadata_type: MetadataType
+    metadata_data: str
+    # Junction field
     generated_at: int
 
 
 @dataclass(frozen=True, slots=True)
 class RelayMetadata:
     """Immutable junction linking a [Relay][bigbrotr.models.relay.Relay] to a
-    [Metadata][bigbrotr.models.metadata.Metadata] payload.
+    [Metadata][bigbrotr.models.metadata.Metadata] record.
 
     The [MetadataType][bigbrotr.models.metadata.MetadataType] is carried by the
-    [Metadata][bigbrotr.models.metadata.Metadata] object and written to the
-    junction table to allow type-filtered queries.
+    [Metadata][bigbrotr.models.metadata.Metadata] object and stored on both the
+    ``metadata`` table (as part of the composite PK) and the ``relay_metadata``
+    junction table (as part of the compound FK) for type-filtered queries.
 
     Attributes:
         relay: The [Relay][bigbrotr.models.relay.Relay] this metadata belongs to.
-        metadata: The [Metadata][bigbrotr.models.metadata.Metadata] payload
+        metadata: The [Metadata][bigbrotr.models.metadata.Metadata] record
             (with type and content hash).
         generated_at: Unix timestamp when the metadata was collected (defaults to now).
 
     Examples:
         ```python
         relay = Relay("wss://relay.damus.io")
-        meta = Metadata(type=MetadataType.NIP11_INFO, value={"name": "Damus"})
+        meta = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Damus"})
         rm = RelayMetadata(relay=relay, metadata=meta)
         rm.generated_at       # Auto-set to current time
         params = rm.to_db_params()
@@ -93,11 +94,12 @@ class RelayMetadata:
         ```
 
     Note:
-        The ``metadata_type`` is denormalized onto the junction table
-        (``relay_metadata``) even though it also exists on the
-        [Metadata][bigbrotr.models.metadata.Metadata] object. This allows
-        efficient type-filtered queries (e.g., "latest NIP-11 info for all
-        relays") without joining through the ``metadata`` table.
+        The ``metadata_type`` exists on both the ``metadata`` table (composite
+        PK ``(id, type)``) and the ``relay_metadata`` junction table
+        (compound FK ``(metadata_id, metadata_type)``). This enforces referential
+        integrity at the type level and enables efficient type-filtered queries
+        (e.g., "latest NIP-11 info for all relays") without joining through
+        the ``metadata`` table.
 
     See Also:
         [Relay][bigbrotr.models.relay.Relay]: The relay half of this junction.
@@ -152,8 +154,8 @@ class RelayMetadata:
             relay_network=r.network,
             relay_discovered_at=r.discovered_at,
             metadata_id=m.id,
-            metadata_payload=m.payload,
             metadata_type=m.metadata_type,
+            metadata_data=m.data,
             generated_at=self.generated_at,
         )
 
@@ -186,7 +188,7 @@ class RelayMetadata:
         )
         metadata_params = MetadataDbParams(
             id=params.metadata_id,
-            payload=params.metadata_payload,
+            data=params.metadata_data,
             metadata_type=params.metadata_type,
         )
         relay = Relay.from_db_params(relay_params)

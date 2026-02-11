@@ -1,13 +1,13 @@
 """
-Content-addressed metadata payload with SHA-256 deduplication.
+Content-addressed metadata with SHA-256 deduplication.
 
 Stores arbitrary JSON-compatible data with a type classification
 ([MetadataType][bigbrotr.models.metadata.MetadataType]). A deterministic
 content hash is computed from the canonical JSON representation of the
-value, enabling content-addressed deduplication in PostgreSQL.
+data, enabling content-addressed deduplication in PostgreSQL.
 
 The [Metadata][bigbrotr.models.metadata.Metadata] class is agnostic about
-the internal structure of ``value``; higher-level models in
+the internal structure of ``data``; higher-level models in
 [bigbrotr.nips.nip11][] and [bigbrotr.nips.nip66][] define their own
 conventions for what goes inside it.
 
@@ -32,7 +32,7 @@ from typing import Any, ClassVar, NamedTuple, TypeVar, overload
 
 
 class MetadataType(StrEnum):
-    """Metadata type identifiers stored in the ``relay_metadata.metadata_type`` column.
+    """Metadata type identifiers stored in the ``metadata.type`` column.
 
     Each value corresponds to a specific data source or monitoring test
     performed by the [Monitor][bigbrotr.services.monitor.Monitor] service.
@@ -49,9 +49,9 @@ class MetadataType(StrEnum):
     See Also:
         [Metadata][bigbrotr.models.metadata.Metadata]: The content-addressed container
             that carries a [MetadataType][bigbrotr.models.metadata.MetadataType] alongside
-            its payload.
+            its data.
         [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]: Junction model
-            that stores the type on the ``relay_metadata`` table for filtered queries.
+            linking a relay to a metadata record.
     """
 
     NIP11_INFO = "nip11_info"
@@ -70,9 +70,10 @@ class MetadataDbParams(NamedTuple):
     and consumed by the ``metadata_insert`` stored procedure in PostgreSQL.
 
     Attributes:
-        id: SHA-256 content hash (32 bytes) used as the primary key.
-        payload: Canonical JSON string for PostgreSQL JSONB storage.
-        metadata_type: [MetadataType][bigbrotr.models.metadata.MetadataType] discriminator.
+        id: SHA-256 content hash (32 bytes), part of composite PK ``(id, type)``.
+        metadata_type: [MetadataType][bigbrotr.models.metadata.MetadataType] discriminator,
+            part of composite PK ``(id, type)``.
+        data: Canonical JSON string for PostgreSQL JSONB storage.
 
     See Also:
         [Metadata][bigbrotr.models.metadata.Metadata]: The model that produces these
@@ -83,8 +84,8 @@ class MetadataDbParams(NamedTuple):
     """
 
     id: bytes
-    payload: str
     metadata_type: MetadataType
+    data: str
 
 
 T = TypeVar("T")
@@ -93,50 +94,51 @@ _UNSET: Any = object()  # Sentinel for missing default in _get()
 
 @dataclass(frozen=True, slots=True)
 class Metadata:
-    """Immutable metadata payload with deterministic content hashing.
+    """Immutable metadata with deterministic content hashing.
 
-    On construction, the ``value`` dict is sanitized (null values and
+    On construction, the ``data`` dict is sanitized (null values and
     empty containers removed, keys sorted) and a canonical JSON string
     is produced. The SHA-256 hash of that string serves as a
     content-addressed identifier for deduplication.
 
-    The hash is derived from ``value`` only -- ``type`` is not included.
+    The hash is derived from ``data`` only -- ``type`` is not included in
+    the hash computation but is part of the composite primary key
+    ``(id, type)`` in the database.
 
     Attributes:
         type: The metadata classification
             (see [MetadataType][bigbrotr.models.metadata.MetadataType]).
-        value: Sanitized JSON-compatible dictionary.
+        data: Sanitized JSON-compatible dictionary.
 
     Examples:
         ```python
-        meta = Metadata(type=MetadataType.NIP11_INFO, value={"name": "My Relay"})
+        meta = Metadata(type=MetadataType.NIP11_INFO, data={"name": "My Relay"})
         meta.content_hash    # 32-byte SHA-256 digest
         meta.canonical_json  # '{"name":"My Relay"}'
         meta.to_db_params()  # MetadataDbParams(...)
         ```
 
-        Identical values always produce the same hash (content-addressed):
+        Identical data always produces the same hash (content-addressed):
 
         ```python
-        m1 = Metadata(type=MetadataType.NIP11_INFO, value={"b": 2, "a": 1})
-        m2 = Metadata(type=MetadataType.NIP11_INFO, value={"a": 1, "b": 2})
+        m1 = Metadata(type=MetadataType.NIP11_INFO, data={"b": 2, "a": 1})
+        m2 = Metadata(type=MetadataType.NIP11_INFO, data={"a": 1, "b": 2})
         m1.content_hash == m2.content_hash  # True
         ```
 
     Note:
-        The content hash is derived from ``value`` alone, meaning two
-        [Metadata][bigbrotr.models.metadata.Metadata] instances with the same
-        ``value`` but different ``type`` fields will share the same hash. This is
-        intentional -- the ``type`` is stored on the
-        [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] junction
-        table, not on the metadata record itself.
+        The content hash is derived from ``data`` alone. The ``type`` is stored
+        alongside the hash on the ``metadata`` table with composite primary key
+        ``(id, type)``, ensuring each document is tied to exactly one type.
+        The ``relay_metadata`` junction table references metadata via a
+        compound foreign key on ``(metadata_id, metadata_type)``.
 
         Computed fields (``_canonical_json``, ``_content_hash``, ``_db_params``)
         are set via ``object.__setattr__`` in ``__post_init__`` because the
         dataclass is frozen.
 
     Warning:
-        String values containing null bytes (``\\x00``) will raise ``ValueError``
+        String data containing null bytes (``\\x00``) will raise ``ValueError``
         during sanitization. PostgreSQL TEXT and JSONB columns do not support null
         bytes.
 
@@ -153,7 +155,7 @@ class Metadata:
     _DEFAULT_MAX_DEPTH: ClassVar[int] = 50
 
     type: MetadataType
-    value: dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
 
     # Cached computed values (set in __post_init__)
     _canonical_json: str = field(default="", init=False, repr=False, compare=False)
@@ -163,9 +165,9 @@ class Metadata:
     )
 
     def __post_init__(self) -> None:
-        """Sanitize the value dict and compute the canonical JSON and hash."""
-        sanitized = self._sanitize(self.value) if self.value else {}
-        object.__setattr__(self, "value", sanitized)
+        """Sanitize the data dict and compute the canonical JSON and hash."""
+        sanitized = self._sanitize(self.data) if self.data else {}
+        object.__setattr__(self, "data", sanitized)
 
         canonical = json.dumps(
             sanitized,
@@ -258,7 +260,7 @@ class Metadata:
     ) -> T | None:
         """Retrieve a nested value with type checking.
 
-        Traverses the ``value`` dict using the given key path and returns
+        Traverses the ``data`` dict using the given key path and returns
         the leaf value if it matches ``expected_type``.
 
         Args:
@@ -271,7 +273,7 @@ class Metadata:
             The value at the key path if it matches ``expected_type``,
             otherwise *default*.
         """
-        current: Any = self.value
+        current: Any = self.data
         for key in keys:
             if not isinstance(current, dict):
                 return default if default is not _UNSET else None
@@ -319,13 +321,13 @@ class Metadata:
 
         Returns:
             [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams] with
-            the content hash as ``id``, the canonical JSON as ``payload``,
+            the content hash as ``id``, the canonical JSON as ``data``,
             and the metadata type.
         """
         return MetadataDbParams(
             id=self._content_hash,
-            payload=self._canonical_json,
             metadata_type=self.type,
+            data=self._canonical_json,
         )
 
     def to_db_params(self) -> MetadataDbParams:
@@ -336,7 +338,7 @@ class Metadata:
 
         Returns:
             [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams] with
-            the content hash as ``id``, the canonical JSON as ``payload``,
+            the content hash as ``id``, the canonical JSON as ``data``,
             and the metadata type.
         """
         assert self._db_params is not None  # noqa: S101  # Always set in __post_init__
@@ -367,8 +369,8 @@ class Metadata:
             silent data corruption that could otherwise propagate through the
             pipeline.
         """
-        value_dict = json.loads(params.payload)
-        instance = cls(type=params.metadata_type, value=value_dict)
+        value_dict = json.loads(params.data)
+        instance = cls(type=params.metadata_type, data=value_dict)
 
         if instance._content_hash != params.id:
             raise ValueError(
@@ -394,12 +396,12 @@ class Metadata:
         Raises:
             json.JSONDecodeError: If *json_str* is not valid JSON.
         """
-        return cls(type=metadata_type, value=json.loads(json_str))
+        return cls(type=metadata_type, data=json.loads(json_str))
 
     def __bool__(self) -> bool:
-        """Return True if the value dict is non-empty."""
-        return bool(self.value)
+        """Return True if the data dict is non-empty."""
+        return bool(self.data)
 
     def __len__(self) -> int:
-        """Return the number of top-level keys in the value dict."""
-        return len(self.value)
+        """Return the number of top-level keys in the data dict."""
+        return len(self.data)

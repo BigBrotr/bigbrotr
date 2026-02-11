@@ -53,8 +53,8 @@ from pydantic import BaseModel, Field
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models import Relay
+from bigbrotr.models.constants import ServiceName
 
-from .common.constants import ServiceName
 from .common.queries import filter_new_relay_urls, upsert_candidates
 
 
@@ -117,7 +117,7 @@ class Seeder(BaseService[SeederConfig]):
             pipeline that discovers additional relay URLs continuously.
     """
 
-    SERVICE_NAME: ClassVar[str] = ServiceName.SEEDER
+    SERVICE_NAME: ClassVar[ServiceName] = ServiceName.SEEDER
     CONFIG_CLASS: ClassVar[type[SeederConfig]] = SeederConfig
 
     def __init__(

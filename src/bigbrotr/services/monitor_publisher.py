@@ -46,9 +46,9 @@ import asyncpg
 from nostr_sdk import EventBuilder, Kind, RelayUrl, Tag
 from nostr_sdk import Metadata as NostrMetadata
 
+from bigbrotr.models.constants import EventKind
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.utils.transport import create_client
-
-from .common.constants import EventKind, ServiceState, StateType
 
 
 if TYPE_CHECKING:
@@ -150,10 +150,11 @@ class MonitorPublisherMixin:
 
         results = await self._brotr.get_service_state(  # type: ignore[attr-defined]
             self.SERVICE_NAME,  # type: ignore[attr-defined]
-            StateType.CURSOR,
+            ServiceStateType.CURSOR,
             "last_announcement",
         )
-        last_announcement = results[0].get("payload", {}).get("timestamp", 0.0) if results else 0.0
+        state = results[0].state_value if results else {}
+        last_announcement = state.get("timestamp", 0.0)
         elapsed = time.time() - last_announcement
         if elapsed < ann.interval:
             return
@@ -167,9 +168,9 @@ class MonitorPublisherMixin:
                 [
                     ServiceState(
                         service_name=self.SERVICE_NAME,  # type: ignore[attr-defined]
-                        state_type=StateType.CURSOR,
+                        state_type=ServiceStateType.CURSOR,
                         state_key="last_announcement",
-                        payload={"timestamp": now},
+                        state_value={"timestamp": now},
                         updated_at=int(now),
                     )
                 ]
@@ -192,10 +193,10 @@ class MonitorPublisherMixin:
 
         results = await self._brotr.get_service_state(  # type: ignore[attr-defined]
             self.SERVICE_NAME,  # type: ignore[attr-defined]
-            StateType.CURSOR,
+            ServiceStateType.CURSOR,
             "last_profile",
         )
-        last_profile = results[0].get("payload", {}).get("timestamp", 0.0) if results else 0.0
+        last_profile = results[0].state_value.get("timestamp", 0.0) if results else 0.0
         elapsed = time.time() - last_profile
         if elapsed < profile.interval:
             return
@@ -209,9 +210,9 @@ class MonitorPublisherMixin:
                 [
                     ServiceState(
                         service_name=self.SERVICE_NAME,  # type: ignore[attr-defined]
-                        state_type=StateType.CURSOR,
+                        state_type=ServiceStateType.CURSOR,
                         state_key="last_profile",
-                        payload={"timestamp": now},
+                        state_value={"timestamp": now},
                         updated_at=int(now),
                     )
                 ]

@@ -27,7 +27,8 @@ from bigbrotr.core.brotr import (
     BrotrTimeoutsConfig,
 )
 from bigbrotr.core.pool import Pool
-from bigbrotr.services.common.constants import ServiceState, ServiceStateKey
+from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 
 
 # ============================================================================
@@ -491,6 +492,16 @@ class TestInsertMetadata:
         inserted = await mock_brotr.insert_metadata([])
         assert inserted == 0
 
+    @pytest.mark.asyncio
+    async def test_single_metadata(
+        self, mock_brotr: Brotr, mock_pool: Pool, sample_metadata: Any
+    ) -> None:
+        """Test that metadata_insert is called with 3 params (ids, data, types)."""
+        await mock_brotr.insert_metadata([sample_metadata.metadata])
+        mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
+        call_args = mock_conn.fetchval.call_args
+        assert "metadata_insert($1, $2, $3)" in call_args[0][0]
+
 
 class TestInsertRelayMetadata:
     """Tests for Brotr.insert_relay_metadata() method."""
@@ -548,10 +559,10 @@ class TestUpsertServiceState:
         """Test upserting single record."""
         records = [
             ServiceState(
-                service_name="finder",
-                state_type="cursor",
+                service_name=ServiceName.FINDER,
+                state_type=ServiceStateType.CURSOR,
                 state_key="key1",
-                payload={"count": 1},
+                state_value={"count": 1},
                 updated_at=1700000000,
             )
         ]
@@ -563,24 +574,24 @@ class TestUpsertServiceState:
         """Test upserting multiple records."""
         records = [
             ServiceState(
-                service_name="finder",
-                state_type="cursor",
+                service_name=ServiceName.FINDER,
+                state_type=ServiceStateType.CURSOR,
                 state_key="key1",
-                payload={"count": 1},
+                state_value={"count": 1},
                 updated_at=1700000000,
             ),
             ServiceState(
-                service_name="finder",
-                state_type="cursor",
+                service_name=ServiceName.FINDER,
+                state_type=ServiceStateType.CURSOR,
                 state_key="key2",
-                payload={"count": 2},
+                state_value={"count": 2},
                 updated_at=1700000000,
             ),
             ServiceState(
-                service_name="monitor",
-                state_type="state",
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CHECKPOINT,
                 state_key="key3",
-                payload={"status": "ok"},
+                state_value={"status": "ok"},
                 updated_at=1700000000,
             ),
         ]
@@ -592,10 +603,10 @@ class TestUpsertServiceState:
         """Test that dict values are passed directly (JSON codec handles encoding)."""
         records = [
             ServiceState(
-                service_name="finder",
-                state_type="cursor",
+                service_name=ServiceName.FINDER,
+                state_type=ServiceStateType.CURSOR,
                 state_key="key1",
-                payload={"nested": {"level": 1}},
+                state_value={"nested": {"level": 1}},
                 updated_at=1700000000,
             )
         ]
@@ -611,10 +622,10 @@ class TestUpsertServiceState:
         """Test that list values are passed directly (JSON codec handles encoding)."""
         records = [
             ServiceState(
-                service_name="finder",
-                state_type="cursor",
+                service_name=ServiceName.FINDER,
+                state_type=ServiceStateType.CURSOR,
                 state_key="key1",
-                payload=["item1", "item2", "item3"],  # type: ignore[arg-type]
+                state_value=["item1", "item2", "item3"],  # type: ignore[arg-type]
                 updated_at=1700000000,
             )
         ]
@@ -635,10 +646,10 @@ class TestUpsertServiceState:
         }
         records = [
             ServiceState(
-                service_name="monitor",
-                state_type="state",
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CHECKPOINT,
                 state_key="complex_key",
-                payload=complex_value,
+                state_value=complex_value,
                 updated_at=1700000000,
             )
         ]
@@ -657,18 +668,20 @@ class TestGetServiceState:
     @pytest.mark.asyncio
     async def test_returns_list(self, mock_brotr: Brotr) -> None:
         """Test that get returns a list."""
-        result = await mock_brotr.get_service_state("finder", "cursor")
+        result = await mock_brotr.get_service_state(ServiceName.FINDER, ServiceStateType.CURSOR)
         assert isinstance(result, list)
 
     @pytest.mark.asyncio
     async def test_with_specific_key(self, mock_brotr: Brotr) -> None:
         """Test getting specific key."""
-        await mock_brotr.get_service_state("finder", "cursor", key="specific_key")
+        await mock_brotr.get_service_state(
+            ServiceName.FINDER, ServiceStateType.CURSOR, key="specific_key"
+        )
 
     @pytest.mark.asyncio
     async def test_without_key(self, mock_brotr: Brotr) -> None:
         """Test getting all records without specific key."""
-        await mock_brotr.get_service_state("finder", "cursor", key=None)
+        await mock_brotr.get_service_state(ServiceName.FINDER, ServiceStateType.CURSOR, key=None)
 
 
 class TestDeleteServiceState:
@@ -677,26 +690,26 @@ class TestDeleteServiceState:
     @pytest.mark.asyncio
     async def test_empty_keys_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty keys list returns 0."""
-        result = await mock_brotr.delete_service_state([])
+        result = await mock_brotr.delete_service_state([], [], [])
         assert result == 0
 
     @pytest.mark.asyncio
     async def test_single_key(self, mock_brotr: Brotr) -> None:
         """Test deleting single key."""
-        keys = [ServiceStateKey(service_name="finder", state_type="cursor", state_key="key1")]
-        result = await mock_brotr.delete_service_state(keys)
+        result = await mock_brotr.delete_service_state(
+            [ServiceName.FINDER], [ServiceStateType.CURSOR], ["key1"]
+        )
         assert result == 1
 
     @pytest.mark.asyncio
     async def test_multiple_keys(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
         """Test deleting multiple keys."""
         mock_pool._mock_connection.fetchval = AsyncMock(return_value=3)  # type: ignore[attr-defined]
-        keys = [
-            ServiceStateKey(service_name="finder", state_type="cursor", state_key="key1"),
-            ServiceStateKey(service_name="finder", state_type="cursor", state_key="key2"),
-            ServiceStateKey(service_name="monitor", state_type="state", state_key="key3"),
-        ]
-        result = await mock_brotr.delete_service_state(keys)
+        result = await mock_brotr.delete_service_state(
+            [ServiceName.FINDER, ServiceName.FINDER, ServiceName.MONITOR],
+            [ServiceStateType.CURSOR, ServiceStateType.CURSOR, ServiceStateType.CHECKPOINT],
+            ["key1", "key2", "key3"],
+        )
         assert result == 3
 
 

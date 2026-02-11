@@ -445,7 +445,7 @@ class TestSeedAsCandidates:
         await seeder._seed_as_candidates(relays)
 
         call_args = mock_seeder_brotr.upsert_service_state.call_args[0][0]
-        networks = [record.payload["network"] for record in call_args]
+        networks = [record.state_value["network"] for record in call_args]
         assert "clearnet" in networks
         assert "tor" in networks
 

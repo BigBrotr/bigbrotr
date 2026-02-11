@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from nostr_sdk import EventBuilder, Kind, Tag
 
-from .common.constants import EventKind
+from bigbrotr.models.constants import EventKind
 
 
 if TYPE_CHECKING:
@@ -116,7 +116,7 @@ class MonitorTagsMixin:
         """Add round-trip time tags: ``rtt-open``, ``rtt-read``, ``rtt-write``."""
         if not result.nip66_rtt or not include.nip66_rtt:
             return
-        rtt_data = result.nip66_rtt.metadata.value.get("data", {})
+        rtt_data = result.nip66_rtt.metadata.data.get("data", {})
         if rtt_data.get("rtt_open") is not None:
             tags.append(Tag.parse(["rtt-open", str(rtt_data["rtt_open"])]))
         if rtt_data.get("rtt_read") is not None:
@@ -128,7 +128,7 @@ class MonitorTagsMixin:
         """Add SSL certificate tags: ``ssl``, ``ssl-expires``, ``ssl-issuer``."""
         if not result.nip66_ssl or not include.nip66_ssl:
             return
-        ssl_data = result.nip66_ssl.metadata.value.get("data", {})
+        ssl_data = result.nip66_ssl.metadata.data.get("data", {})
         ssl_valid = ssl_data.get("ssl_valid")
         if ssl_valid is not None:
             tags.append(Tag.parse(["ssl", "valid" if ssl_valid else "!valid"]))
@@ -143,7 +143,7 @@ class MonitorTagsMixin:
         """Add network information tags: ``net-ip``, ``net-ipv6``, ``net-asn``, ``net-asn-org``."""
         if not result.nip66_net or not include.nip66_net:
             return
-        net_data = result.nip66_net.metadata.value.get("data", {})
+        net_data = result.nip66_net.metadata.data.get("data", {})
         net_ip = net_data.get("net_ip")
         if net_ip:
             tags.append(Tag.parse(["net-ip", net_ip]))
@@ -165,7 +165,7 @@ class MonitorTagsMixin:
         """
         if not result.nip66_geo or not include.nip66_geo:
             return
-        geo_data = result.nip66_geo.metadata.value.get("data", {})
+        geo_data = result.nip66_geo.metadata.data.get("data", {})
         geohash = geo_data.get("geo_hash")
         if geohash:
             tags.append(Tag.parse(["g", geohash]))
@@ -193,7 +193,7 @@ class MonitorTagsMixin:
         """
         if not result.nip11 or not include.nip11_info:
             return
-        nip11_data = result.nip11.metadata.value.get("data", {})
+        nip11_data = result.nip11.metadata.data.get("data", {})
 
         # N tags: supported NIPs
         supported_nips = nip11_data.get("supported_nips")
@@ -254,7 +254,7 @@ class MonitorTagsMixin:
         pow_diff = limitation.get("min_pow_difficulty", 0)
 
         # Get probe results from RTT logs for verification
-        rtt_logs = result.nip66_rtt.metadata.value.get("logs", {}) if result.nip66_rtt else {}
+        rtt_logs = result.nip66_rtt.metadata.data.get("logs", {}) if result.nip66_rtt else {}
         write_success = rtt_logs.get("write_success")
         write_reason = (rtt_logs.get("write_reason") or "").lower()
         read_success = rtt_logs.get("read_success")

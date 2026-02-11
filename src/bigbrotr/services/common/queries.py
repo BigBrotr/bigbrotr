@@ -38,7 +38,8 @@ import time
 from collections.abc import Iterable  # noqa: TC003
 from typing import TYPE_CHECKING, Any
 
-from .constants import ServiceName, ServiceState, StateType
+from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 
 
 if TYPE_CHECKING:
@@ -125,7 +126,7 @@ async def filter_new_relay_urls(
         """,
         urls,
         ServiceName.VALIDATOR,
-        StateType.CANDIDATE,
+        ServiceStateType.CANDIDATE,
         timeout=timeout,
     )
     return [row["url"] for row in rows]
@@ -145,13 +146,13 @@ _RELAYS_DUE_FOR_CHECK_BASE = """
         AND ss.state_key = r.url
     WHERE
         r.network = ANY($3)
-        AND (ss.state_key IS NULL OR (ss.payload->>'last_check_at')::BIGINT < $4)
+        AND (ss.state_key IS NULL OR (ss.state_value->>'last_check_at')::BIGINT < $4)
 """
 
 
 async def count_relays_due_for_check(
     brotr: Brotr,
-    service_name: str,
+    service_name: ServiceName,
     threshold: int,
     networks: list[str],
     *,
@@ -182,7 +183,7 @@ async def count_relays_due_for_check(
     row = await brotr.fetchrow(
         f"SELECT COUNT(*)::int AS count {_RELAYS_DUE_FOR_CHECK_BASE}",
         service_name,
-        StateType.CHECKPOINT,
+        ServiceStateType.CHECKPOINT,
         networks,
         threshold,
         timeout=timeout,
@@ -192,7 +193,7 @@ async def count_relays_due_for_check(
 
 async def fetch_relays_due_for_check(  # noqa: PLR0913
     brotr: Brotr,
-    service_name: str,
+    service_name: ServiceName,
     threshold: int,
     networks: list[str],
     limit: int,
@@ -228,12 +229,12 @@ async def fetch_relays_due_for_check(  # noqa: PLR0913
         SELECT r.url, r.network, r.discovered_at
         {_RELAYS_DUE_FOR_CHECK_BASE}
         ORDER BY
-            COALESCE((ss.payload->>'last_check_at')::BIGINT, 0) ASC,
+            COALESCE((ss.state_value->>'last_check_at')::BIGINT, 0) ASC,
             r.discovered_at ASC
         LIMIT $5
         """,
         service_name,
-        StateType.CHECKPOINT,
+        ServiceStateType.CHECKPOINT,
         networks,
         threshold,
         limit,
@@ -344,9 +345,9 @@ async def upsert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
     records: list[ServiceState] = [
         ServiceState(
             service_name=ServiceName.VALIDATOR,
-            state_type=StateType.CANDIDATE,
+            state_type=ServiceStateType.CANDIDATE,
             state_key=relay.url,
-            payload={"failed_attempts": 0, "network": relay.network.value, "inserted_at": now},
+            state_value={"failed_attempts": 0, "network": relay.network.value, "inserted_at": now},
             updated_at=now,
         )
         for relay in relays
@@ -386,10 +387,10 @@ async def count_candidates(
         FROM service_state
         WHERE service_name = $1
           AND state_type = $2
-          AND payload->>'network' = ANY($3)
+          AND state_value->>'network' = ANY($3)
         """,
         ServiceName.VALIDATOR,
-        StateType.CANDIDATE,
+        ServiceStateType.CANDIDATE,
         networks,
         timeout=timeout,
     )
@@ -421,7 +422,7 @@ async def fetch_candidate_chunk(
         timeout: Query timeout override.
 
     Returns:
-        List of dicts with keys: ``state_key``, ``payload``.
+        List of dicts with keys: ``state_key``, ``state_value``.
 
     See Also:
         [count_candidates][bigbrotr.services.common.queries.count_candidates]:
@@ -432,18 +433,18 @@ async def fetch_candidate_chunk(
     """
     rows = await brotr.fetch(
         """
-        SELECT state_key, payload
+        SELECT state_key, state_value
         FROM service_state
         WHERE service_name = $1
           AND state_type = $2
-          AND payload->>'network' = ANY($3)
+          AND state_value->>'network' = ANY($3)
           AND updated_at < $4
-        ORDER BY COALESCE((payload->>'failed_attempts')::int, 0) ASC,
+        ORDER BY COALESCE((state_value->>'failed_attempts')::int, 0) ASC,
                  updated_at ASC
         LIMIT $5
         """,
         ServiceName.VALIDATOR,
-        StateType.CANDIDATE,
+        ServiceStateType.CANDIDATE,
         networks,
         before_timestamp,
         limit,
@@ -475,7 +476,7 @@ async def delete_stale_candidates(brotr: Brotr, *, timeout: float | None = None)
           AND EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)
         """,
         ServiceName.VALIDATOR,
-        StateType.CANDIDATE,
+        ServiceStateType.CANDIDATE,
         timeout=timeout,
     )
 
@@ -511,10 +512,10 @@ async def delete_exhausted_candidates(
         DELETE FROM service_state
         WHERE service_name = $1
           AND state_type = $2
-          AND COALESCE((payload->>'failed_attempts')::int, 0) >= $3
+          AND COALESCE((state_value->>'failed_attempts')::int, 0) >= $3
         """,
         ServiceName.VALIDATOR,
-        StateType.CANDIDATE,
+        ServiceStateType.CANDIDATE,
         max_failures,
         timeout=timeout,
     )
@@ -574,7 +575,7 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
               AND state_key = ANY($3::text[])
             """,
             ServiceName.VALIDATOR,
-            StateType.CANDIDATE,
+            ServiceStateType.CANDIDATE,
             urls,
         )
 
@@ -588,7 +589,7 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
 
 async def get_all_service_cursors(
     brotr: Brotr,
-    service_name: str,
+    service_name: ServiceName,
     cursor_field: str = "last_synced_at",
 ) -> dict[str, int]:
     """Batch-fetch all cursor positions for a service.
@@ -602,7 +603,7 @@ async def get_all_service_cursors(
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         service_name: Service owning the cursors (e.g.,
             ``ServiceName.SYNCHRONIZER``).
-        cursor_field: JSON key in ``payload`` containing the cursor value
+        cursor_field: JSON key in ``state_value`` containing the cursor value
             (e.g., ``"last_synced_at"`` or ``"last_seen_at"``).
 
     Returns:
@@ -613,17 +614,17 @@ async def get_all_service_cursors(
         excluded from the result.
 
     See Also:
-        [StateType.CURSOR][bigbrotr.models.service_state.StateType]:
+        [ServiceStateType.CURSOR][bigbrotr.models.service_state.ServiceStateType]:
             The ``state_type`` filter used in this query.
     """
     rows = await brotr.fetch(
         """
-        SELECT state_key, (payload->>$1)::BIGINT as cursor_value
+        SELECT state_key, (state_value->>$1)::BIGINT as cursor_value
         FROM service_state
         WHERE service_name = $2 AND state_type = $3
         """,
         cursor_field,
         service_name,
-        StateType.CURSOR,
+        ServiceStateType.CURSOR,
     )
     return {r["state_key"]: r["cursor_value"] for r in rows if r["cursor_value"] is not None}

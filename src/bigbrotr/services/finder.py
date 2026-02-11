@@ -19,7 +19,7 @@ Note:
     [Synchronizer][bigbrotr.services.synchronizer.Synchronizer] are
     eventually processed. Cursors are stored as
     [ServiceState][bigbrotr.models.service_state.ServiceState] records
-    with ``state_type='cursor'`` and ``payload.last_seen_at``.
+    with ``state_type='cursor'`` and ``state_value.last_seen_at``.
 
 See Also:
     [FinderConfig][bigbrotr.services.finder.FinderConfig]: Configuration
@@ -61,8 +61,9 @@ from pydantic import BaseModel, Field
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models import Relay
+from bigbrotr.models.constants import EventKind, ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 
-from .common.constants import EventKind, ServiceName, ServiceState, StateType
 from .common.queries import get_all_relay_urls, get_events_with_relay_urls, upsert_candidates
 
 
@@ -191,7 +192,7 @@ class Finder(BaseService[FinderConfig]):
             service that validates discovered candidates.
     """
 
-    SERVICE_NAME: ClassVar[str] = ServiceName.FINDER
+    SERVICE_NAME: ClassVar[ServiceName] = ServiceName.FINDER
     CONFIG_CLASS: ClassVar[type[FinderConfig]] = FinderConfig
 
     def __init__(
@@ -278,8 +279,8 @@ class Finder(BaseService[FinderConfig]):
 
     async def _fetch_all_cursors(self) -> dict[str, int]:
         """Fetch all event-scanning cursors in a single query."""
-        results = await self._brotr.get_service_state(self.SERVICE_NAME, StateType.CURSOR)
-        return {r["state_key"]: r.get("payload", {}).get("last_seen_at", 0) for r in results}
+        results = await self._brotr.get_service_state(self.SERVICE_NAME, ServiceStateType.CURSOR)
+        return {r.state_key: r.state_value.get("last_seen_at", 0) for r in results}
 
     async def _scan_relay_events(self, relay_url: str, cursors: dict[str, int]) -> tuple[int, int]:
         """
@@ -422,9 +423,9 @@ class Finder(BaseService[FinderConfig]):
             [
                 ServiceState(
                     service_name=self.SERVICE_NAME,
-                    state_type=StateType.CURSOR,
+                    state_type=ServiceStateType.CURSOR,
                     state_key=relay_url,
-                    payload={"last_seen_at": last_seen_at},
+                    state_value={"last_seen_at": last_seen_at},
                     updated_at=int(time.time()),
                 )
             ]

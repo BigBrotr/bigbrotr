@@ -36,6 +36,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import asyncpg  # noqa: TC002
 from pydantic import BaseModel, Field, field_validator
 
+from bigbrotr.models.service_state import ServiceState
+
 from .logger import Logger
 from .pool import Pool, PoolConfig
 from .yaml import load_yaml
@@ -49,7 +51,8 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 
     from bigbrotr.models import Event, EventRelay, Metadata, Relay, RelayMetadata
-    from bigbrotr.models.service_state import ServiceState, ServiceStateKey
+    from bigbrotr.models.constants import ServiceName
+    from bigbrotr.models.service_state import ServiceStateType
 
 
 # ---------------------------------------------------------------------------
@@ -653,9 +656,10 @@ class Brotr:
     async def insert_metadata(self, records: list[Metadata]) -> int:
         """Bulk-insert metadata records into the ``metadata`` table.
 
-        Metadata is content-addressed: each record's SHA-256 hash serves as
-        its primary key, providing automatic deduplication. The hash is
-        computed in Python for deterministic behavior across environments.
+        Metadata is content-addressed: each record's SHA-256 hash combined
+        with its metadata type forms the composite primary key, providing
+        automatic deduplication within each type. The hash is computed in
+        Python for deterministic behavior across environments.
 
         Use
         [insert_relay_metadata()][bigbrotr.core.brotr.Brotr.insert_relay_metadata]
@@ -675,7 +679,8 @@ class Brotr:
                 from [BatchConfig][bigbrotr.core.brotr.BatchConfig].
 
         Note:
-            The ``metadata`` table column is named ``payload`` (not ``value``).
+            The ``metadata`` table has columns ``id``, ``type``, and
+            ``data`` with composite PK ``(id, type)``.
             The SHA-256 hash is computed over the canonical JSON representation
             in the [Metadata][bigbrotr.models.metadata.Metadata] model's
             ``__post_init__`` method.
@@ -691,13 +696,15 @@ class Brotr:
 
         params = [metadata.to_db_params() for metadata in records]
         ids = [p.id for p in params]
-        values = [p.payload for p in params]
+        types = [p.metadata_type for p in params]
+        values = [p.data for p in params]
 
         async with self._pool.transaction() as conn:
             inserted: int = (
                 await conn.fetchval(
-                    "SELECT metadata_insert($1, $2)",
+                    "SELECT metadata_insert($1, $2, $3)",
                     ids,
+                    types,
                     values,
                     timeout=self._config.timeouts.batch,
                 )
@@ -875,27 +882,13 @@ class Brotr:
 
         self._validate_batch_size(records, "upsert_service_state")
 
-        service_names: list[str] = []
-        state_types: list[str] = []
-        state_keys: list[str] = []
-        payloads: list[dict[str, Any]] = []
-        updated_ats: list[int] = []
-
-        for record in records:
-            service_names.append(record.service_name)
-            state_types.append(record.state_type)
-            state_keys.append(record.state_key)
-            payloads.append(record.payload)  # asyncpg JSON codec handles dict -> JSONB encoding
-            updated_ats.append(record.updated_at)
+        params = [r.to_db_params() for r in records]
+        columns = self._transpose_to_columns(params)
 
         async with self._pool.transaction() as conn:
             await conn.execute(
                 "SELECT service_state_upsert($1, $2, $3, $4::jsonb[], $5)",
-                service_names,
-                state_types,
-                state_keys,
-                payloads,
-                updated_ats,
+                *columns,
                 timeout=self._config.timeouts.batch,
             )
 
@@ -904,25 +897,26 @@ class Brotr:
 
     async def get_service_state(
         self,
-        service_name: str,
-        state_type: str,
+        service_name: ServiceName,
+        state_type: ServiceStateType,
         key: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[ServiceState]:
         """Retrieve persisted service state records.
 
         Calls the ``service_state_get`` stored procedure.
 
         Args:
-            service_name: Owning service name (e.g. ``"finder"``).
-            state_type: Category of state (e.g. ``"cursor"``,
-                ``"checkpoint"``). See
-                [StateType][bigbrotr.models.service_state.StateType] for
-                the canonical enum values.
+            service_name: Owning service name (e.g.
+                ``ServiceName.FINDER``).
+            state_type: Category of state. See
+                [ServiceStateType][bigbrotr.models.service_state.ServiceStateType]
+                for the canonical enum values.
             key: Specific record key, or ``None`` to retrieve all records
                 matching the service/type combination.
 
         Returns:
-            List of dicts with keys: ``state_key``, ``payload``, ``updated_at``.
+            List of [ServiceState][bigbrotr.models.service_state.ServiceState]
+            instances reconstructed from the database rows.
 
         See Also:
             [upsert_service_state()][bigbrotr.core.brotr.Brotr.upsert_service_state]:
@@ -939,23 +933,31 @@ class Brotr:
         )
 
         return [
-            {
-                "state_key": row["state_key"],
-                "payload": row["payload"],
-                "updated_at": row["updated_at"],
-            }
+            ServiceState(
+                service_name=service_name,
+                state_type=state_type,
+                state_key=row["state_key"],
+                state_value=row["state_value"],
+                updated_at=row["updated_at"],
+            )
             for row in rows
         ]
 
-    async def delete_service_state(self, keys: list[ServiceStateKey]) -> int:
+    async def delete_service_state(
+        self,
+        service_names: list[ServiceName],
+        state_types: list[ServiceStateType],
+        state_keys: list[str],
+    ) -> int:
         """Atomically delete service state records by composite key.
 
-        Calls the ``service_state_delete`` stored procedure.
+        Calls the ``service_state_delete`` stored procedure with three
+        parallel arrays identifying the records to remove.
 
         Args:
-            keys: List of
-                [ServiceStateKey][bigbrotr.models.service_state.ServiceStateKey]
-                named tuples identifying the records to remove.
+            service_names: Service name for each record.
+            state_types: State type for each record.
+            state_keys: State key for each record.
 
         Returns:
             Number of records actually deleted.
@@ -966,14 +968,10 @@ class Brotr:
             [get_service_state()][bigbrotr.core.brotr.Brotr.get_service_state]:
                 Retrieve state records.
         """
-        if not keys:
+        if not service_names:
             return 0
 
-        self._validate_batch_size(keys, "delete_service_state")
-
-        service_names = [k.service_name for k in keys]
-        state_types = [k.state_type for k in keys]
-        state_keys = [k.state_key for k in keys]
+        self._validate_batch_size(service_names, "delete_service_state")
 
         async with self._pool.transaction() as conn:
             deleted: int = (
@@ -987,7 +985,11 @@ class Brotr:
                 or 0
             )
 
-        self._logger.debug("service_state_deleted", count=deleted, attempted=len(keys))
+        self._logger.debug(
+            "service_state_deleted",
+            count=deleted,
+            attempted=len(service_names),
+        )
         return deleted
 
     # -------------------------------------------------------------------------

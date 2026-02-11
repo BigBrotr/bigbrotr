@@ -19,7 +19,7 @@ Attributes:
     EventRelay: Junction linking an [Event][bigbrotr.models.event.Event] to the
         [Relay][bigbrotr.models.relay.Relay] where it was observed, with cascade
         insert support for atomic multi-table writes.
-    Metadata: Content-addressed metadata payload with SHA-256 hashing.
+    Metadata: Content-addressed metadata with SHA-256 hashing.
         Supports seven [MetadataType][bigbrotr.models.metadata.MetadataType]
         values (nip11_info, nip66_rtt, etc.).
     RelayMetadata: Junction linking a [Relay][bigbrotr.models.relay.Relay] to a
@@ -47,19 +47,13 @@ See Also:
     [bigbrotr.nips][]: NIP-11 and NIP-66 models (separate package with I/O).
 """
 
-from .constants import NetworkType
+from .constants import EVENT_KIND_MAX, EventKind, NetworkType, ServiceName
 from .event import Event
 from .event_relay import EventRelay
 from .metadata import Metadata, MetadataType
 from .relay import Relay
 from .relay_metadata import RelayMetadata
-from .service_state import (
-    EVENT_KIND_MAX,
-    EventKind,
-    ServiceState,
-    ServiceStateKey,
-    StateType,
-)
+from .service_state import ServiceState, ServiceStateDbParams, ServiceStateType
 
 
 __all__ = [
@@ -72,7 +66,8 @@ __all__ = [
     "NetworkType",
     "Relay",
     "RelayMetadata",
+    "ServiceName",
     "ServiceState",
-    "ServiceStateKey",
-    "StateType",
+    "ServiceStateDbParams",
+    "ServiceStateType",
 ]

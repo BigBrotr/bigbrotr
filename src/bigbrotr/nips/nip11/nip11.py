@@ -105,7 +105,7 @@ class Nip11(BaseModel):
                 relay=self.relay,
                 metadata=Metadata(
                     type=MetadataType.NIP11_INFO,
-                    value=self.fetch_metadata.to_dict(),
+                    data=self.fetch_metadata.to_dict(),
                 ),
                 generated_at=self.generated_at,
             )

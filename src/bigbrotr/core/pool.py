@@ -56,8 +56,8 @@ def _json_encode(value: Any) -> str:
     and Python objects (dicts, lists) transparently. This allows the same
     codec to work correctly for both:
 
-    * Direct dict/list values (e.g., ``service_state.payload``)
-    * Pre-serialized JSON strings (e.g., ``event.tags``, ``metadata.value``)
+    * Direct dict/list values (e.g., ``service_state.value``)
+    * Pre-serialized JSON strings (e.g., ``event.tags``, ``metadata.data``)
 
     Without this, ``json.dumps(string)`` double-encodes pre-serialized JSON.
     """

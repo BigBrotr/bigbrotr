@@ -78,7 +78,8 @@ from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer, model_v
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models import Metadata, MetadataType, Relay, RelayMetadata
-from bigbrotr.models.constants import NetworkType
+from bigbrotr.models.constants import EventKind, NetworkType, ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.nips.base import BaseMetadata  # noqa: TC001
 from bigbrotr.nips.nip11 import Nip11
 from bigbrotr.nips.nip66 import (
@@ -93,7 +94,6 @@ from bigbrotr.nips.nip66 import (
 from bigbrotr.utils.keys import KeysConfig
 
 from .common.configs import NetworkConfig
-from .common.constants import EventKind, ServiceName, ServiceState, StateType
 from .common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
 from .common.queries import count_relays_due_for_check, fetch_relays_due_for_check
 from .monitor_publisher import MonitorPublisherMixin
@@ -517,7 +517,7 @@ class Monitor(
             Downstream service that collects events from monitored relays.
     """
 
-    SERVICE_NAME: ClassVar[str] = ServiceName.MONITOR
+    SERVICE_NAME: ClassVar[ServiceName] = ServiceName.MONITOR
     CONFIG_CLASS: ClassVar[type[MonitorConfig]] = MonitorConfig
 
     def __init__(self, brotr: Brotr, config: MonitorConfig | None = None) -> None:
@@ -1030,7 +1030,7 @@ class Monitor(
                     return None
                 return RelayMetadata(
                     relay=relay,
-                    metadata=Metadata(type=meta_type, value=meta.to_dict()),
+                    metadata=Metadata(type=meta_type, data=meta.to_dict()),
                     generated_at=generated_at,
                 )
 
@@ -1200,9 +1200,9 @@ class Monitor(
             checkpoints: list[ServiceState] = [
                 ServiceState(
                     service_name=self.SERVICE_NAME,
-                    state_type=StateType.CHECKPOINT,
+                    state_type=ServiceStateType.CHECKPOINT,
                     state_key=relay.url,
-                    payload={"last_check_at": now},
+                    state_value={"last_check_at": now},
                     updated_at=int(now),
                 )
                 for relay in all_relays
