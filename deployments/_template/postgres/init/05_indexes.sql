@@ -14,10 +14,6 @@
 -- TABLE INDEXES: event
 -- ==========================================================================
 
--- Author lookup: WHERE pubkey = ?
-CREATE INDEX IF NOT EXISTS idx_event_pubkey
-ON event USING btree (pubkey);
-
 -- Global timeline queries: ORDER BY created_at DESC LIMIT N
 CREATE INDEX IF NOT EXISTS idx_event_created_at
 ON event USING btree (created_at DESC);
@@ -29,6 +25,10 @@ ON event USING btree (kind);
 -- Kind + timeline: WHERE kind = ? ORDER BY created_at DESC
 CREATE INDEX IF NOT EXISTS idx_event_kind_created_at
 ON event USING btree (kind, created_at DESC);
+
+-- Author lookup: WHERE pubkey = ?
+CREATE INDEX IF NOT EXISTS idx_event_pubkey
+ON event USING btree (pubkey);
 
 -- Tag value containment: WHERE tagvalues @> ARRAY['<value>']
 -- Requires the btree_gin extension for GIN support on text arrays
@@ -48,11 +48,6 @@ ON event_relay USING btree (relay_url);
 CREATE INDEX IF NOT EXISTS idx_event_relay_event_id
 ON event_relay USING btree (event_id);
 
--- Synchronizer progress tracking: WHERE relay_url = ? ORDER BY seen_at DESC
--- Enables index-only scans for SELECT MAX(seen_at) WHERE relay_url = ?
-CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url_seen_at
-ON event_relay USING btree (relay_url, seen_at DESC);
-
 
 -- ==========================================================================
 -- TABLE INDEXES: relay_metadata
@@ -62,13 +57,15 @@ ON event_relay USING btree (relay_url, seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_generated_at
 ON relay_metadata USING btree (generated_at DESC);
 
--- Content-addressed lookups: WHERE metadata_id = ?
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id
-ON relay_metadata USING btree (metadata_id);
+-- Compound FK lookups: WHERE metadata_id = ? AND metadata_type = ?
+-- Also used by orphan_metadata_delete() to verify references
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id_type
+ON relay_metadata USING btree (metadata_id, metadata_type);
 
--- Latest metadata per relay and type:
--- WHERE relay_url = ? AND metadata_type = ? ORDER BY generated_at DESC LIMIT 1
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_url_type_generated
+-- Latest metadata per relay and type (powers relay_metadata_latest view):
+-- WHERE relay_url = ? AND metadata_type = ? ORDER BY generated_at DESC
+-- Also covers (relay_url) and (relay_url, metadata_type) via leftmost prefix
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url_metadata_type_generated_at
 ON relay_metadata USING btree (relay_url, metadata_type, generated_at DESC);
 
 
@@ -76,12 +73,16 @@ ON relay_metadata USING btree (relay_url, metadata_type, generated_at DESC);
 -- TABLE INDEXES: service_state
 -- ==========================================================================
 
--- NOTE: Queries on (service_name) and (service_name, state_type) are served
--- by the PRIMARY KEY index on (service_name, state_type, state_key) via the
--- leftmost prefix rule. No additional B-tree indexes are needed.
+-- All data for a service: WHERE service_name = ?
+CREATE INDEX IF NOT EXISTS idx_service_state_service_name
+ON service_state USING btree (service_name);
 
--- Candidate network filtering: WHERE payload->>'network' = ANY($3)
+-- Specific state type within a service: WHERE service_name = ? AND state_type = ?
+CREATE INDEX IF NOT EXISTS idx_service_state_service_name_state_type
+ON service_state USING btree (service_name, state_type);
+
+-- Candidate network filtering: WHERE state_value->>'network' = ANY($3)
 -- Used by count_candidates() and fetch_candidate_chunk() in the Validator service
 CREATE INDEX IF NOT EXISTS idx_service_state_candidate_network
-ON service_state USING btree ((payload ->> 'network'))
+ON service_state USING btree ((state_value ->> 'network'))
 WHERE service_name = 'validator' AND state_type = 'candidate';

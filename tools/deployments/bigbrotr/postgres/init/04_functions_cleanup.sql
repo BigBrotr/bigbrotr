@@ -31,9 +31,12 @@ DECLARE
     v_batch INTEGER;
 BEGIN
     LOOP
-        DELETE FROM metadata m WHERE m.id IN (
-            SELECT m2.id FROM metadata m2
-            WHERE NOT EXISTS (SELECT 1 FROM relay_metadata rm WHERE rm.metadata_id = m2.id)
+        DELETE FROM metadata m WHERE (m.id, m.metadata_type) IN (
+            SELECT m2.id, m2.metadata_type FROM metadata m2
+            WHERE NOT EXISTS (
+                SELECT 1 FROM relay_metadata rm
+                WHERE rm.metadata_id = m2.id AND rm.metadata_type = m2.metadata_type
+            )
             LIMIT p_batch_size
         );
         GET DIAGNOSTICS v_batch = ROW_COUNT;

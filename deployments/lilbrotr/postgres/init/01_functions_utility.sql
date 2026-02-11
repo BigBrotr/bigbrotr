@@ -28,5 +28,4 @@ RETURNS TEXT []
 LANGUAGE SQL
 IMMUTABLE
 RETURNS NULL ON NULL INPUT
-SECURITY INVOKER
-AS 'SELECT COALESCE(array_agg(t->>1), ARRAY[]::text[]) FROM (SELECT jsonb_array_elements($1) AS t)s WHERE length(t->>0) = 1;';
+AS 'SELECT array_agg(t->>1) FROM (SELECT jsonb_array_elements($1) AS t)s WHERE length(t->>0) = 1;';

@@ -24,7 +24,8 @@ BEGIN
     RAISE NOTICE '  metadata_insert, event_relay_insert, relay_metadata_insert,';
     RAISE NOTICE '  event_relay_insert_cascade, relay_metadata_insert_cascade,';
     RAISE NOTICE '  service_state_upsert, service_state_get, service_state_delete,';
-    RAISE NOTICE '  orphan_metadata_delete, orphan_event_delete, relay_metadata_delete_expired';
+    RAISE NOTICE '  orphan_metadata_delete, orphan_event_delete,';
+    RAISE NOTICE '  relay_metadata_delete_expired';
     RAISE NOTICE '';
     RAISE NOTICE '============================================================================';
 END $$;

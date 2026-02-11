@@ -87,18 +87,23 @@ COMMENT ON COLUMN event_relay.seen_at IS 'Unix timestamp when event was first ob
 -- ==========================================================================
 -- metadata: Content-addressed NIP-11 and NIP-66 document storage
 -- ==========================================================================
--- Stores JSON metadata documents deduplicated by their SHA-256 content hash.
--- Multiple relays sharing identical metadata will reference the same row,
--- significantly reducing storage for common configurations.
+-- Stores JSON metadata documents deduplicated by their SHA-256 content hash
+-- and metadata type. The composite primary key (id, metadata_type) ensures
+-- each document is associated with exactly one type. Content-addressed
+-- deduplication still operates within a type: identical data with the same
+-- type shares a single row.
 
 CREATE TABLE IF NOT EXISTS metadata (
-    id BYTEA PRIMARY KEY,
-    payload JSONB NOT NULL
+    id BYTEA NOT NULL,
+    metadata_type TEXT NOT NULL,
+    data JSONB NOT NULL,
+    PRIMARY KEY (id, metadata_type)
 );
 
-COMMENT ON TABLE metadata IS 'Content-addressed storage for NIP-11/NIP-66 metadata (deduplicated by SHA-256 hash)';
-COMMENT ON COLUMN metadata.id IS 'SHA-256 hash of the JSON payload (content-addressed primary key)';
-COMMENT ON COLUMN metadata.payload IS 'Complete JSON document (NIP-11 relay info or NIP-66 check result)';
+COMMENT ON TABLE metadata IS 'Content-addressed storage for NIP-11/NIP-66 metadata (deduplicated by SHA-256 hash + metadata_type)';
+COMMENT ON COLUMN metadata.id IS 'SHA-256 hash of the JSON data (content-addressed key, part of composite PK)';
+COMMENT ON COLUMN metadata.metadata_type IS 'Check type: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
+COMMENT ON COLUMN metadata.data IS 'Complete JSON document (NIP-11 relay info or NIP-66 check result)';
 
 
 -- ==========================================================================
@@ -114,20 +119,20 @@ COMMENT ON COLUMN metadata.payload IS 'Complete JSON document (NIP-11 relay info
 
 CREATE TABLE IF NOT EXISTS relay_metadata (
     relay_url TEXT NOT NULL,
-    generated_at BIGINT NOT NULL,
-    metadata_type TEXT NOT NULL,
     metadata_id BYTEA NOT NULL,
+    metadata_type TEXT NOT NULL,
+    generated_at BIGINT NOT NULL,
 
     PRIMARY KEY (relay_url, generated_at, metadata_type),
     FOREIGN KEY (relay_url) REFERENCES relay (url) ON DELETE CASCADE,
-    FOREIGN KEY (metadata_id) REFERENCES metadata (id) ON DELETE CASCADE
+    FOREIGN KEY (metadata_id, metadata_type) REFERENCES metadata (id, metadata_type) ON DELETE CASCADE
 );
 
 COMMENT ON TABLE relay_metadata IS 'Time-series relay metadata snapshots linking relays to metadata documents';
 COMMENT ON COLUMN relay_metadata.relay_url IS 'Foreign key to relay.url';
-COMMENT ON COLUMN relay_metadata.generated_at IS 'Unix timestamp when the metadata was collected';
+COMMENT ON COLUMN relay_metadata.metadata_id IS 'Foreign key to metadata(id, metadata_type) (content-addressed hash)';
 COMMENT ON COLUMN relay_metadata.metadata_type IS 'Check type: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
-COMMENT ON COLUMN relay_metadata.metadata_id IS 'Foreign key to metadata.id (content-addressed hash)';
+COMMENT ON COLUMN relay_metadata.generated_at IS 'Unix timestamp when the metadata was collected';
 
 
 -- ==========================================================================
@@ -144,7 +149,7 @@ CREATE TABLE IF NOT EXISTS service_state (
     service_name TEXT NOT NULL,
     state_type TEXT NOT NULL,
     state_key TEXT NOT NULL,
-    payload JSONB NOT NULL DEFAULT '{}',
+    state_value JSONB NOT NULL DEFAULT '{}',
     updated_at BIGINT NOT NULL,
     PRIMARY KEY (service_name, state_type, state_key)
 );
@@ -153,5 +158,5 @@ COMMENT ON TABLE service_state IS 'Per-service persistent state (candidates, cur
 COMMENT ON COLUMN service_state.service_name IS 'Service identifier (finder, validator, synchronizer, monitor)';
 COMMENT ON COLUMN service_state.state_type IS 'State category (candidate, cursor, checkpoint, config)';
 COMMENT ON COLUMN service_state.state_key IS 'Unique key within service+type (typically a relay URL or entity ID)';
-COMMENT ON COLUMN service_state.payload IS 'JSONB payload specific to the service and state type';
+COMMENT ON COLUMN service_state.state_value IS 'JSONB value specific to the service and state type';
 COMMENT ON COLUMN service_state.updated_at IS 'Unix timestamp of last update';
