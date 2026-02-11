@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.1.0] - 2026-02-11
+
+Schema alignment, model hardening, SQL generation tooling, and documentation consolidation.
+
+### Added
+
+- **Lazy imports** (`__init__.py`): Deferred importing via `__getattr__` across all subpackages, reducing startup latency. Consolidated `py.typed` markers for PEP 561 compliance.
+- **Jinja2 SQL generation tooling** (`tools/generate_sql.py`, `tools/templates/`): SQL deployment files are now generated from Jinja2 templates with inheritance. `make sql-check` validates zero drift between templates and deployments in CI.
+- **ServiceState DbParams pattern**: `ServiceState` now follows the same `to_db_params()` / `from_db_params()` pattern as all other models, with typed `ServiceName` and `ServiceStateType` fields and cached `ServiceStateDbParams`.
+- **`Brotr.get_service_state()`** now returns `list[ServiceState]` instead of `list[dict]`, providing typed attribute access throughout the codebase.
+
+### Changed
+
+- **`StateType` renamed to `ServiceStateType`**: Clearer name scoped to service state context.
+- **`ServiceStateKey` removed**: `Brotr.delete_service_state()` now accepts 3 parallel lists directly, consistent with all other bulk stored procedure calls.
+- **`EventKind`, `ServiceName` moved to `models/constants.py`**: Previously in `services/common/constants.py` (DAG violation). `services/common/constants.py` deleted.
+- **SQL column renames**: `metadata.type` → `metadata.metadata_type`, `service_state.value` → `service_state.state_value`. Stored procedure parameters, indexes, and materialized views updated across all 3 deployments.
+- **`CONTRIBUTING.md` consolidated**: Single source of truth in repository root, docs site includes via `pymdownx.snippets` (same pattern as `CHANGELOG.md`). `.github/CONTRIBUTING.md` deleted.
+- **`docs/CHANGELOG.md` renamed to `docs/changelog.md`**: Docs pages use lowercase; uppercase reserved for root repository files.
+
+### Fixed
+
+- **Dockerfile `HEALTHCHECK` port**: Corrected to match actual metrics port per service.
+- **`console_scripts` entrypoint**: Docker Compose and README now use the `bigbrotr` console script instead of `python -m bigbrotr`.
+- **SQL `_template` schema**: Aligned with `brotr.py` runtime interface (parameter count and order).
+- **Compound index**: Added missing `(metadata_id, metadata_type)` compound index on `relay_metadata` for foreign key lookups.
+- **SQL enum comments**: Corrected inline comments on stored procedure parameters to match actual column names.
+- **`release.yml` shell injection**: Hardened tag name extraction against shell injection in GitHub Actions.
+- **SQLfluff formatting**: Aligned SQL templates with sqlfluff line-length and select-target rules.
+
+### Documentation
+
+- **MkDocs restructured**: Reorganized into Getting Started, User Guide, How-to Guides, Development, and API Reference sections with mkdocs-material navigation tabs.
+- **Docstrings standardized**: All public classes and functions documented with Google-style docstrings and mkdocstrings cross-references.
+- **CI expanded**: Added `docs` job (mkdocs `--strict` build), `sql-check` job (template drift detection), and `mike` versioned deployment.
+- **Stale references fixed**: Updated all docstrings, guides, and how-to pages for renamed types, deleted constants module, and SQL column renames.
+
+---
+
 ## [5.0.1] - 2026-02-10
 
 CI/CD infrastructure hardening, automated documentation site, and dependency maintenance.
