@@ -77,5 +77,9 @@ STOPSIGNAL SIGTERM
 # Use tini as PID 1 init process
 ENTRYPOINT ["tini", "--"]
 
-# Default command
-CMD ["python", "-m", "bigbrotr"]
+# Health check (Prometheus metrics endpoint)
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')" || exit 1
+
+# Default command (uses console_scripts entry point)
+CMD ["bigbrotr"]
