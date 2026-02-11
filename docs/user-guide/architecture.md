@@ -87,16 +87,11 @@ Key characteristics:
 ```python
 @dataclass(frozen=True, slots=True)
 class ServiceState:
-    service_name: str
-    state_type: str
+    service_name: ServiceName
+    state_type: ServiceStateType
     state_key: str
-    payload: dict[str, Any]
+    state_value: dict[str, Any]
     updated_at: int
-
-class ServiceStateKey(NamedTuple):
-    service_name: str
-    state_type: str
-    state_key: str
 ```
 
 ---
