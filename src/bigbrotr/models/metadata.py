@@ -2,13 +2,23 @@
 Content-addressed metadata payload with SHA-256 deduplication.
 
 Stores arbitrary JSON-compatible data with a type classification
-(``MetadataType``). A deterministic content hash is computed from the
-canonical JSON representation of the value, enabling content-addressed
-deduplication in PostgreSQL.
+([MetadataType][bigbrotr.models.metadata.MetadataType]). A deterministic
+content hash is computed from the canonical JSON representation of the
+value, enabling content-addressed deduplication in PostgreSQL.
 
-The ``Metadata`` class is agnostic about the internal structure of
-``value``; higher-level models such as ``Nip11`` and ``Nip66`` define
-their own conventions for what goes inside it.
+The [Metadata][bigbrotr.models.metadata.Metadata] class is agnostic about
+the internal structure of ``value``; higher-level models in
+[bigbrotr.nips.nip11][] and [bigbrotr.nips.nip66][] define their own
+conventions for what goes inside it.
+
+See Also:
+    [bigbrotr.models.relay_metadata][]: Junction model linking a
+        [Relay][bigbrotr.models.relay.Relay] to a
+        [Metadata][bigbrotr.models.metadata.Metadata] record.
+    [bigbrotr.nips.nip11][]: Produces ``nip11_info``-typed metadata from
+        relay information documents.
+    [bigbrotr.nips.nip66][]: Produces ``nip66_*``-typed metadata from
+        health check results (RTT, SSL, DNS, Geo, Net, HTTP).
 """
 
 from __future__ import annotations
@@ -24,15 +34,24 @@ from typing import Any, ClassVar, NamedTuple, TypeVar, overload
 class MetadataType(StrEnum):
     """Metadata type identifiers stored in the ``relay_metadata.metadata_type`` column.
 
-    Each value corresponds to a specific data source or monitoring test:
+    Each value corresponds to a specific data source or monitoring test
+    performed by the [Monitor][bigbrotr.services.monitor.Monitor] service.
 
-    * ``nip11_info`` -- NIP-11 relay information document
-    * ``nip66_rtt``   -- NIP-66 round-trip time measurements
-    * ``nip66_ssl``   -- NIP-66 SSL/TLS certificate information
-    * ``nip66_geo``   -- NIP-66 geolocation data
-    * ``nip66_net``   -- NIP-66 network and ASN information
-    * ``nip66_dns``   -- NIP-66 DNS resolution data
-    * ``nip66_http``  -- NIP-66 HTTP header information
+    Attributes:
+        NIP11_INFO: NIP-11 relay information document fetched via HTTP(S).
+        NIP66_RTT: NIP-66 round-trip time measurements (WebSocket latency).
+        NIP66_SSL: NIP-66 SSL/TLS certificate information (expiry, issuer, chain).
+        NIP66_GEO: NIP-66 geolocation data (country, city, coordinates).
+        NIP66_NET: NIP-66 network and ASN information (provider, AS number).
+        NIP66_DNS: NIP-66 DNS resolution data (A/AAAA records, response times).
+        NIP66_HTTP: NIP-66 HTTP header information (server, content-type, CORS).
+
+    See Also:
+        [Metadata][bigbrotr.models.metadata.Metadata]: The content-addressed container
+            that carries a [MetadataType][bigbrotr.models.metadata.MetadataType] alongside
+            its payload.
+        [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]: Junction model
+            that stores the type on the ``relay_metadata`` table for filtered queries.
     """
 
     NIP11_INFO = "nip11_info"
@@ -47,10 +66,20 @@ class MetadataType(StrEnum):
 class MetadataDbParams(NamedTuple):
     """Positional parameters for the metadata database insert procedure.
 
+    Produced by [Metadata.to_db_params()][bigbrotr.models.metadata.Metadata.to_db_params]
+    and consumed by the ``metadata_insert`` stored procedure in PostgreSQL.
+
     Attributes:
         id: SHA-256 content hash (32 bytes) used as the primary key.
         payload: Canonical JSON string for PostgreSQL JSONB storage.
-        metadata_type: Metadata type discriminator.
+        metadata_type: [MetadataType][bigbrotr.models.metadata.MetadataType] discriminator.
+
+    See Also:
+        [Metadata][bigbrotr.models.metadata.Metadata]: The model that produces these
+            parameters.
+        [Metadata.from_db_params()][bigbrotr.models.metadata.Metadata.from_db_params]:
+            Reconstructs a [Metadata][bigbrotr.models.metadata.Metadata] instance from
+            these parameters with integrity verification.
     """
 
     id: bytes
@@ -74,7 +103,8 @@ class Metadata:
     The hash is derived from ``value`` only -- ``type`` is not included.
 
     Attributes:
-        type: The metadata classification (see ``MetadataType``).
+        type: The metadata classification
+            (see [MetadataType][bigbrotr.models.metadata.MetadataType]).
         value: Sanitized JSON-compatible dictionary.
 
     Examples:
@@ -92,6 +122,32 @@ class Metadata:
         m2 = Metadata(type=MetadataType.NIP11_INFO, value={"a": 1, "b": 2})
         m1.content_hash == m2.content_hash  # True
         ```
+
+    Note:
+        The content hash is derived from ``value`` alone, meaning two
+        [Metadata][bigbrotr.models.metadata.Metadata] instances with the same
+        ``value`` but different ``type`` fields will share the same hash. This is
+        intentional -- the ``type`` is stored on the
+        [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] junction
+        table, not on the metadata record itself.
+
+        Computed fields (``_canonical_json``, ``_content_hash``, ``_db_params``)
+        are set via ``object.__setattr__`` in ``__post_init__`` because the
+        dataclass is frozen.
+
+    Warning:
+        String values containing null bytes (``\\x00``) will raise ``ValueError``
+        during sanitization. PostgreSQL TEXT and JSONB columns do not support null
+        bytes.
+
+    See Also:
+        [MetadataType][bigbrotr.models.metadata.MetadataType]: Enum of supported
+            metadata classifications.
+        [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams]: Database
+            parameter container produced by
+            [to_db_params()][bigbrotr.models.metadata.Metadata.to_db_params].
+        [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]: Junction
+            linking a [Relay][bigbrotr.models.relay.Relay] to this metadata record.
     """
 
     _DEFAULT_MAX_DEPTH: ClassVar[int] = 50
@@ -231,10 +287,15 @@ class Metadata:
         """SHA-256 digest of the canonical JSON representation.
 
         Computed once at construction time. Identical semantic data always
-        produces the same 32-byte hash.
+        produces the same 32-byte hash, enabling content-addressed
+        deduplication in the ``metadata`` table.
 
         Returns:
             32-byte SHA-256 digest suitable for PostgreSQL BYTEA columns.
+
+        See Also:
+            [canonical_json][bigbrotr.models.metadata.Metadata.canonical_json]:
+                The JSON string from which this hash is derived.
         """
         return self._content_hash
 
@@ -252,9 +313,14 @@ class Metadata:
     def _compute_db_params(self) -> MetadataDbParams:
         """Compute positional parameters for the database insert procedure.
 
+        Called once during ``__post_init__`` to populate the ``_db_params``
+        cache. All subsequent access goes through
+        [to_db_params()][bigbrotr.models.metadata.Metadata.to_db_params].
+
         Returns:
-            MetadataDbParams with the content hash as ``id``, the canonical
-            JSON as ``payload``, and the metadata type.
+            [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams] with
+            the content hash as ``id``, the canonical JSON as ``payload``,
+            and the metadata type.
         """
         return MetadataDbParams(
             id=self._content_hash,
@@ -263,30 +329,43 @@ class Metadata:
         )
 
     def to_db_params(self) -> MetadataDbParams:
-        """Convert to positional parameters for the database insert procedure.
+        """Return cached positional parameters for the database insert procedure.
+
+        The result is computed once during construction and cached for the
+        lifetime of the (frozen) instance.
 
         Returns:
-            MetadataDbParams with the content hash as ``id``, the canonical
-            JSON as ``payload``, and the metadata type.
+            [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams] with
+            the content hash as ``id``, the canonical JSON as ``payload``,
+            and the metadata type.
         """
         assert self._db_params is not None  # noqa: S101  # Always set in __post_init__
         return self._db_params
 
     @classmethod
     def from_db_params(cls, params: MetadataDbParams) -> Metadata:
-        """Reconstruct a Metadata instance from database parameters.
+        """Reconstruct a ``Metadata`` instance from database parameters.
 
         Re-parses the stored JSON and verifies that the recomputed hash
         matches the stored ``id`` to detect data corruption.
 
         Args:
-            params: Database row values previously produced by ``to_db_params()``.
+            params: Database row values previously produced by
+                [to_db_params()][bigbrotr.models.metadata.Metadata.to_db_params].
 
         Returns:
-            A new Metadata instance.
+            A new [Metadata][bigbrotr.models.metadata.Metadata] instance.
 
         Raises:
-            ValueError: If the recomputed hash does not match ``params.id``.
+            ValueError: If the recomputed hash does not match ``params.id``,
+                indicating data corruption in the database.
+
+        Note:
+            Unlike [Relay.from_db_params()][bigbrotr.models.relay.Relay.from_db_params],
+            this method performs an explicit integrity check by comparing the
+            recomputed SHA-256 hash against the stored ``id``. This catches
+            silent data corruption that could otherwise propagate through the
+            pipeline.
         """
         value_dict = json.loads(params.payload)
         instance = cls(type=params.metadata_type, value=value_dict)
@@ -301,14 +380,16 @@ class Metadata:
 
     @classmethod
     def from_json(cls, metadata_type: MetadataType, json_str: str) -> Metadata:
-        """Create a Metadata instance from a raw JSON string.
+        """Create a [Metadata][bigbrotr.models.metadata.Metadata] instance from a raw JSON string.
 
         Args:
-            metadata_type: The type classification for this metadata.
+            metadata_type: The [MetadataType][bigbrotr.models.metadata.MetadataType]
+                classification for this metadata.
             json_str: JSON string to parse into the value dict.
 
         Returns:
-            A new Metadata instance.
+            A new [Metadata][bigbrotr.models.metadata.Metadata] instance with the
+            parsed and sanitized value.
 
         Raises:
             json.JSONDecodeError: If *json_str* is not valid JSON.

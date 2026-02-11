@@ -4,7 +4,7 @@
 #
 # Build: mkdocs build --strict
 # Serve: mkdocs serve
-# Deploy: automatic via .github/workflows/docs.yml
+# Deploy: automatic via .github/workflows/docs.yml (mike versioned)
 #
 # ============================================================================
 
@@ -17,6 +17,7 @@ copyright: Copyright &copy; BigBrotr Contributors
 
 theme:
   name: material
+  custom_dir: docs/overrides
   palette:
     - scheme: default
       primary: deep purple
@@ -33,12 +34,16 @@ theme:
   features:
     - content.code.copy
     - content.code.annotate
+    - content.tabs.link
+    - content.tooltips
     - navigation.sections
     - navigation.expand
     - navigation.indexes
     - navigation.top
     - navigation.tabs
     - navigation.tabs.sticky
+    - navigation.path
+    - navigation.footer
     - search.suggest
     - search.highlight
     - toc.follow
@@ -47,17 +52,43 @@ theme:
 
 nav:
   - Home: index.md
+  - Getting Started:
+      - getting-started/index.md
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quickstart.md
+      - First Deployment: getting-started/first-deployment.md
   - User Guide:
-      - Architecture: ARCHITECTURE.md
-      - Configuration: CONFIGURATION.md
-      - Database: DATABASE.md
-      - Deployment: DEPLOYMENT.md
-      - Development: DEVELOPMENT.md
-  - Changelog: CHANGELOG.md
+      - user-guide/index.md
+      - Architecture: user-guide/architecture.md
+      - Service Pipeline: user-guide/pipeline.md
+      - Configuration: user-guide/configuration.md
+      - Database: user-guide/database.md
+      - Monitoring: user-guide/monitoring.md
+  - How-to Guides:
+      - how-to/index.md
+      - Deploy with Docker: how-to/docker-deploy.md
+      - Deploy Manually: how-to/manual-deploy.md
+      - Add a New Service: how-to/new-service.md
+      - Custom Deployment: how-to/custom-deployment.md
+      - Tor Relay Support: how-to/tor-relays.md
+      - Monitoring Setup: how-to/monitoring-setup.md
+      - Backup & Restore: how-to/backup-restore.md
+      - Troubleshooting: how-to/troubleshooting.md
+  - Development:
+      - development/index.md
+      - Setup: development/setup.md
+      - Testing: development/testing.md
+      - Contributing: development/contributing.md
   - API Reference: reference/
+  - Changelog: CHANGELOG.md
 
 plugins:
   - search
+  - social:
+      enabled: !ENV [CI, false]
+      cards_layout_options:
+        background_color: "#4A148C"
+        color: "#FFFFFF"
   - gen-files:
       scripts:
         - docs/gen_ref_pages.py
@@ -67,6 +98,9 @@ plugins:
       handlers:
         python:
           paths: [src]
+          import:
+            - https://docs.python.org/3/objects.inv
+            - https://docs.pydantic.dev/latest/objects.inv
           options:
             show_source: true
             show_root_heading: true
@@ -90,17 +124,38 @@ plugins:
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.details
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.snippets:
+      check_paths: true
+      base_path: ["."]
   - admonition
   - attr_list
   - def_list
-  - pymdownx.snippets:
-      check_paths: true
+  - footnotes
+  - md_in_html
   - toc:
       permalink: true
+
+extra:
+  version:
+    provider: mike
+    default: latest
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/BigBrotr/bigbrotr
+  generator: false
+
+extra_css:
+  - assets/stylesheets/extra.css

@@ -3,7 +3,7 @@
 # ============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help install pre-commit lint format typecheck test-unit test-integration test-fast coverage ci docs docs-serve build docker-build docker-up docker-down clean
+.PHONY: help install pre-commit lint format typecheck test-unit test-integration test-fast coverage sql-check ci docs docs-serve docs-check build docker-build docker-up docker-down clean
 
 DEPLOYMENT ?= bigbrotr
 
@@ -16,7 +16,7 @@ help: ## Show this help
 		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install: ## Install package with dev dependencies and pre-commit hooks
-	pip install -e ".[dev]"
+	pip install -e ".[dev,docs]"
 	pre-commit install
 
 pre-commit: ## Run all pre-commit hooks on all files
@@ -57,6 +57,9 @@ docs: ## Build documentation site
 docs-serve: ## Serve documentation locally with live reload
 	mkdocs serve
 
+docs-check: ## Check documentation build (strict mode)
+	mkdocs build --strict
+
 # --------------------------------------------------------------------------
 # Build
 # --------------------------------------------------------------------------
@@ -69,7 +72,10 @@ build: ## Build Python package (sdist + wheel)
 # Quality
 # --------------------------------------------------------------------------
 
-ci: lint format typecheck test-unit ## Run all quality checks (lint, format, typecheck, test)
+sql-check: ## Verify generated SQL matches templates
+	python3 tools/generate_sql.py --check
+
+ci: lint format typecheck test-unit sql-check ## Run all quality checks (lint, format, typecheck, test)
 
 # --------------------------------------------------------------------------
 # Docker

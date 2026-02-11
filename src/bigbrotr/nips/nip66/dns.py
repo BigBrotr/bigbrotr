@@ -2,7 +2,34 @@
 NIP-66 DNS metadata container with resolution capabilities.
 
 Performs comprehensive DNS resolution for a relay hostname, including
-A, AAAA, CNAME, NS, and PTR record lookups. Clearnet relays only.
+A, AAAA, CNAME, NS, and PTR record lookups as part of
+[NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md)
+monitoring. Clearnet relays only.
+
+Note:
+    Unlike the simpler [resolve_host][bigbrotr.utils.dns.resolve_host]
+    utility (which uses the system resolver for A/AAAA only), this module
+    uses the ``dnspython`` library for comprehensive record collection.
+    Individual record type lookups are wrapped in exception suppression so
+    that a failure in one type does not prevent the others from being
+    collected.
+
+    NS records are resolved against the **registered domain** (e.g.,
+    ``damus.io`` for ``relay.damus.io``) using ``tldextract`` to identify
+    the public suffix boundary. Reverse DNS (PTR) uses the first resolved
+    IPv4 address.
+
+See Also:
+    [bigbrotr.nips.nip66.data.Nip66DnsData][bigbrotr.nips.nip66.data.Nip66DnsData]:
+        Data model for DNS resolution results.
+    [bigbrotr.nips.nip66.logs.Nip66DnsLogs][bigbrotr.nips.nip66.logs.Nip66DnsLogs]:
+        Log model for DNS resolution results.
+    [bigbrotr.utils.dns.resolve_host][bigbrotr.utils.dns.resolve_host]:
+        Simpler A/AAAA-only resolution used by geo and net tests.
+    [bigbrotr.nips.nip66.geo.Nip66GeoMetadata][bigbrotr.nips.nip66.geo.Nip66GeoMetadata]:
+        Geolocation test that depends on IP resolution.
+    [bigbrotr.nips.nip66.net.Nip66NetMetadata][bigbrotr.nips.nip66.net.Nip66NetMetadata]:
+        Network/ASN test that depends on IP resolution.
 """
 
 from __future__ import annotations
@@ -41,6 +68,12 @@ class Nip66DnsMetadata(BaseMetadata):
     Provides the ``execute()`` class method that performs a comprehensive
     set of DNS queries (A, AAAA, CNAME, NS, reverse PTR) for a relay
     hostname.
+
+    See Also:
+        [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
+            Top-level model that orchestrates this alongside other tests.
+        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+            The ``NIP66_DNS`` variant used when storing these results.
     """
 
     data: Nip66DnsData

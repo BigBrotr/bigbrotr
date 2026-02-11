@@ -1,9 +1,22 @@
 """
 Top-level NIP-11 model with factory method and database serialization.
 
-Wraps the ``Nip11InfoMetadata`` container and provides ``create()`` for
-fetching a relay's information document, and ``to_relay_metadata_tuple()``
-for converting the result into database-ready ``RelayMetadata`` records.
+Wraps the [Nip11InfoMetadata][bigbrotr.nips.nip11.fetch.Nip11InfoMetadata]
+container and provides ``create()`` for fetching a relay's
+[NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md) information
+document, and ``to_relay_metadata_tuple()`` for converting the result into
+database-ready [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+records.
+
+See Also:
+    [bigbrotr.nips.nip11.fetch.Nip11InfoMetadata][bigbrotr.nips.nip11.fetch.Nip11InfoMetadata]:
+        The metadata container with HTTP fetch capabilities.
+    [bigbrotr.models.metadata.Metadata][bigbrotr.models.metadata.Metadata]:
+        Content-addressed metadata model used for database storage.
+    [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+        The ``NIP11_INFO`` variant used when creating metadata records.
+    [bigbrotr.models.relay_metadata.RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]:
+        Junction model linking a relay to its metadata.
 """
 
 from __future__ import annotations
@@ -21,7 +34,14 @@ from .fetch import Nip11InfoMetadata
 
 
 class RelayNip11MetadataTuple(NamedTuple):
-    """Database-ready tuple of NIP-11 RelayMetadata records."""
+    """Database-ready tuple of NIP-11 ``RelayMetadata`` records.
+
+    See Also:
+        [Nip11.to_relay_metadata_tuple][bigbrotr.nips.nip11.nip11.Nip11.to_relay_metadata_tuple]:
+            Method that produces instances of this tuple.
+        [bigbrotr.nips.nip66.nip66.RelayNip66MetadataTuple][bigbrotr.nips.nip66.nip66.RelayNip66MetadataTuple]:
+            Companion tuple for NIP-66 metadata records.
+    """
 
     nip11_info: RelayMetadata | None
 
@@ -33,9 +53,21 @@ class Nip11(BaseModel):
     relay's information document over HTTP and packages the result.
 
     Attributes:
-        relay: The relay this document belongs to.
-        fetch_metadata: Fetch data and logs (None if fetch was not attempted).
+        relay: The [Relay][bigbrotr.models.relay.Relay] this document belongs to.
+        fetch_metadata: Fetch data and logs (``None`` if fetch was not attempted).
         generated_at: Unix timestamp of when the document was fetched.
+
+    Note:
+        The ``create()`` factory method **never raises exceptions**. Always
+        check ``fetch_metadata.logs.success`` for the operation outcome.
+        This design allows batch processing of many relays without individual
+        error handling.
+
+    See Also:
+        [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
+            Companion NIP-66 model with the same factory/serialization pattern.
+        [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
+            Service that calls ``create()`` during health check cycles.
 
     Examples:
         ```python
@@ -57,11 +89,15 @@ class Nip11(BaseModel):
     # -------------------------------------------------------------------------
 
     def to_relay_metadata_tuple(self) -> RelayNip11MetadataTuple:
-        """Convert to a tuple of RelayMetadata records for database storage.
+        """Convert to a ``RelayMetadata`` tuple for database storage.
 
         Returns:
-            A ``RelayNip11MetadataTuple`` with the fetch metadata wrapped in
-            a ``RelayMetadata`` junction record, or ``None`` if no fetch was performed.
+            A [RelayNip11MetadataTuple][bigbrotr.nips.nip11.nip11.RelayNip11MetadataTuple]
+            with the fetch metadata wrapped in a
+            [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] junction
+            record tagged as
+            [MetadataType.NIP11_INFO][bigbrotr.models.metadata.MetadataType],
+            or ``None`` if no fetch was performed.
         """
         nip11_info: RelayMetadata | None = None
         if self.fetch_metadata is not None:

@@ -1,11 +1,10 @@
 """NIP-11 Relay Information Document models.
 
-Implements fetching, parsing, and validation of relay information documents
-as defined by NIP-11. Raw JSON responses are sanitized through `parse()`
-methods and validated into typed, frozen Pydantic models. Invalid fields
-or wrong types are silently dropped to handle non-conformant relays.
-
-See: https://github.com/nostr-protocol/nips/blob/master/11.md
+Implements [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md)
+-- fetching, parsing, and validation of relay information documents.
+Raw JSON responses are sanitized through ``parse()`` methods and validated
+into typed, frozen Pydantic models. Invalid fields or wrong types are
+silently dropped to handle non-conformant relays.
 
 Model hierarchy:
 
@@ -26,6 +25,23 @@ Nip11                                    Top-level container
         +-- success: bool
         +-- reason: str | None
 ```
+
+Note:
+    NIP-11 results are stored as
+    [MetadataType.NIP11_INFO][bigbrotr.models.metadata.MetadataType] records
+    in the database via
+    [Nip11.to_relay_metadata_tuple][bigbrotr.nips.nip11.nip11.Nip11.to_relay_metadata_tuple].
+
+See Also:
+    [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+        The ``NIP11_INFO`` variant that tags these records.
+    [bigbrotr.models.metadata.Metadata][bigbrotr.models.metadata.Metadata]:
+        Content-addressed wrapper for NIP-11 payloads.
+    [bigbrotr.nips.nip66][bigbrotr.nips.nip66]: Companion NIP-66 monitoring
+        module that collects health metrics alongside NIP-11 info.
+    [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
+        Service that invokes [Nip11.create][bigbrotr.nips.nip11.nip11.Nip11.create]
+        during health check cycles.
 """
 
 from .data import (

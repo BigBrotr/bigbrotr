@@ -1,0 +1,11 @@
+{% extends "base/04_functions_cleanup.sql.j2" %}
+{% block header_comment %}
+ * Template - 04_functions_cleanup.sql
+ *
+ * Cleanup functions that remove orphaned records to maintain data integrity.
+ * These should be run periodically or after bulk deletions from parent tables.
+ * Called by Brotr.cleanup_orphan_*() methods in the application layer.
+ *
+ * Dependencies: 02_tables.sql
+ * Customization: None required -- these functions are mandatory.
+{% endblock %}

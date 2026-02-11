@@ -3,7 +3,15 @@ Immutable Nostr event wrapper with database serialization.
 
 Wraps ``nostr_sdk.Event`` in a frozen dataclass that transparently delegates
 attribute access to the underlying SDK object while adding database conversion
-via ``to_db_params()`` and ``from_db_params()``.
+via [to_db_params()][bigbrotr.models.event.Event.to_db_params] and
+[from_db_params()][bigbrotr.models.event.Event.from_db_params].
+
+See Also:
+    [bigbrotr.models.event_relay][]: Junction model linking an
+        [Event][bigbrotr.models.event.Event] to the
+        [Relay][bigbrotr.models.relay.Relay] where it was observed.
+    [bigbrotr.services.synchronizer][]: The service that collects events from
+        relays and persists them via this model.
 """
 
 from __future__ import annotations
@@ -16,7 +24,27 @@ from nostr_sdk import Event as NostrEvent
 
 
 class EventDbParams(NamedTuple):
-    """Positional parameters for the event database insert procedure."""
+    """Positional parameters for the event database insert procedure.
+
+    Produced by [Event.to_db_params()][bigbrotr.models.event.Event.to_db_params]
+    and consumed by the ``event_insert`` stored procedure in PostgreSQL.
+
+    Attributes:
+        id: Event ID as 32-byte binary (SHA-256 of the serialized event).
+        pubkey: Author public key as 32-byte binary.
+        created_at: Unix timestamp of event creation.
+        kind: Integer event kind (e.g., 1 for text notes, 10002 for relay lists).
+        tags: JSON-encoded array of tag arrays.
+        content: Raw event content string.
+        sig: Schnorr signature as 64-byte binary.
+
+    See Also:
+        [Event][bigbrotr.models.event.Event]: The model that produces these parameters.
+        [Event.from_db_params()][bigbrotr.models.event.Event.from_db_params]: Reconstructs
+            an [Event][bigbrotr.models.event.Event] from these parameters.
+        [EventRelayDbParams][bigbrotr.models.event_relay.EventRelayDbParams]: Extends
+            these fields with relay and junction data for cascade inserts.
+    """
 
     id: bytes
     pubkey: bytes
@@ -39,8 +67,9 @@ class Event:
 
     * Content and tag values are checked for null bytes, which
       PostgreSQL TEXT columns reject.
-    * ``to_db_params()`` is called to ensure the event can be
-      serialized before it leaves the constructor (fail-fast).
+    * [to_db_params()][bigbrotr.models.event.Event.to_db_params] is called
+      to ensure the event can be serialized before it leaves the constructor
+      (fail-fast).
 
     Args:
         _nostr_event: The underlying ``nostr_sdk.Event`` instance.
@@ -60,6 +89,26 @@ class Event:
         params = event.to_db_params()
         params.kind        # Integer event kind (e.g. 1)
         ```
+
+    Note:
+        Binary fields (``id``, ``pubkey``, ``sig``) are stored as ``bytes``
+        in [EventDbParams][bigbrotr.models.event.EventDbParams] for direct
+        insertion into PostgreSQL BYTEA columns. The hex-to-bytes conversion
+        happens once during ``__post_init__`` and is cached.
+
+        The ``__getattr__`` delegation means this class does **not** define
+        ``id``, ``kind``, ``content``, etc. as attributes -- they are resolved
+        at runtime from the wrapped ``nostr_sdk.Event``.
+
+    See Also:
+        [EventDbParams][bigbrotr.models.event.EventDbParams]: Database parameter
+            container produced by
+            [to_db_params()][bigbrotr.models.event.Event.to_db_params].
+        [EventRelay][bigbrotr.models.event_relay.EventRelay]: Junction linking
+            this event to the [Relay][bigbrotr.models.relay.Relay] where it was
+            observed.
+        [EventKind][bigbrotr.models.service_state.EventKind]: Well-known Nostr
+            event kinds used across services.
     """
 
     _nostr_event: NostrEvent
@@ -100,8 +149,9 @@ class Event:
         and tag serialization.
 
         Returns:
-            EventDbParams with binary id/pubkey/sig, integer timestamps,
-            JSON-encoded tags, and raw content string.
+            [EventDbParams][bigbrotr.models.event.EventDbParams] with binary
+            id/pubkey/sig, integer timestamps, JSON-encoded tags, and raw
+            content string.
         """
         assert self._db_params is not None  # noqa: S101  # Always set in __post_init__
         return self._db_params
@@ -110,11 +160,13 @@ class Event:
         """Compute positional parameters for the database insert procedure.
 
         Called once during ``__post_init__`` to populate the ``_db_params``
-        cache.  All subsequent access goes through ``to_db_params()``.
+        cache. All subsequent access goes through
+        [to_db_params()][bigbrotr.models.event.Event.to_db_params].
 
         Returns:
-            EventDbParams with binary id/pubkey/sig, integer timestamps,
-            JSON-encoded tags, and raw content string.
+            [EventDbParams][bigbrotr.models.event.EventDbParams] with binary
+            id/pubkey/sig, integer timestamps, JSON-encoded tags, and raw
+            content string.
         """
         inner = self._nostr_event
         tags_list = [list(tag.as_vec()) for tag in inner.tags().to_vec()]
@@ -130,16 +182,23 @@ class Event:
 
     @classmethod
     def from_db_params(cls, params: EventDbParams) -> Event:
-        """Reconstruct an Event from database parameters.
+        """Reconstruct an [Event][bigbrotr.models.event.Event] from database parameters.
 
         Converts the stored binary/integer fields back into a JSON
         representation that ``nostr_sdk.Event.from_json()`` can parse.
 
         Args:
-            params: Database row values previously produced by ``to_db_params()``.
+            params: Database row values previously produced by
+                [to_db_params()][bigbrotr.models.event.Event.to_db_params].
 
         Returns:
-            A new Event wrapping the reconstructed NostrEvent.
+            A new [Event][bigbrotr.models.event.Event] wrapping the
+            reconstructed ``nostr_sdk.Event``.
+
+        Note:
+            The reconstructed event passes through ``__post_init__`` validation
+            again, including null-byte checks and DB parameter caching, ensuring
+            consistency regardless of the data source.
         """
         tags = json.loads(params.tags)
         inner = NostrEvent.from_json(

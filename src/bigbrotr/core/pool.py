@@ -6,9 +6,13 @@ retry with exponential backoff on connection failures, health-checked connection
 acquisition, and transactional context managers. Compatible with PGBouncer for
 connection multiplexing in containerized deployments.
 
-All query methods (fetch, fetchrow, fetchval, execute, executemany) retry
-automatically on transient connection errors (InterfaceError,
-ConnectionDoesNotExistError) but do not retry on query-level errors such as
+All query methods ([fetch()][bigbrotr.core.pool.Pool.fetch],
+[fetchrow()][bigbrotr.core.pool.Pool.fetchrow],
+[fetchval()][bigbrotr.core.pool.Pool.fetchval],
+[execute()][bigbrotr.core.pool.Pool.execute],
+[executemany()][bigbrotr.core.pool.Pool.executemany]) retry
+automatically on transient connection errors (``InterfaceError``,
+``ConnectionDoesNotExistError``) but do not retry on query-level errors such as
 syntax errors or constraint violations.
 
 Examples:
@@ -21,6 +25,12 @@ Examples:
         async with pool.transaction() as conn:
             await conn.execute("INSERT INTO relay ...")
     ```
+
+See Also:
+    [Brotr][bigbrotr.core.brotr.Brotr]: High-level database facade that wraps
+        this pool and exposes domain-specific insert/query methods.
+    [PoolConfig][bigbrotr.core.pool.PoolConfig]: Aggregate configuration grouping
+        all pool-related settings.
 """
 
 from __future__ import annotations
@@ -95,6 +105,16 @@ class DatabaseConfig(BaseModel):
     The password is loaded from the environment variable named by
     ``password_env`` (default: ``DB_PASSWORD``). It is never read from
     configuration files directly.
+
+    Warning:
+        The ``password`` field is a ``SecretStr`` and will never appear in
+        string representations or serialized output. Ensure the environment
+        variable named by ``password_env`` is set before constructing this
+        model.
+
+    See Also:
+        [PoolConfig][bigbrotr.core.pool.PoolConfig]: Parent configuration that
+            embeds this model.
     """
 
     host: str = Field(default="localhost", min_length=1, description="Database hostname")
@@ -121,12 +141,21 @@ class DatabaseConfig(BaseModel):
         return data
 
 
-class LimitsConfig(BaseModel):
+class PoolLimitsConfig(BaseModel):
     """Connection pool size and resource limits.
 
     Controls the minimum and maximum number of connections maintained by
     the pool, the query count before a connection is recycled, and the
     idle timeout before an unused connection is closed.
+
+    Note:
+        ``max_queries`` triggers connection recycling to prevent memory leaks in
+        long-lived connections. The default of 50,000 queries balances connection
+        reuse against the overhead of establishing new connections.
+
+    See Also:
+        [PoolConfig][bigbrotr.core.pool.PoolConfig]: Parent configuration that
+            embeds this model.
     """
 
     min_size: int = Field(default=5, ge=1, le=100, description="Minimum connections")
@@ -147,7 +176,14 @@ class LimitsConfig(BaseModel):
 
 
 class PoolTimeoutsConfig(BaseModel):
-    """Timeout settings for pool operations (in seconds)."""
+    """Timeout settings for pool operations (in seconds).
+
+    See Also:
+        [BrotrTimeoutsConfig][bigbrotr.core.brotr.BrotrTimeoutsConfig]: Higher-level
+            timeouts for query, batch, cleanup, and refresh operations.
+        [PoolConfig][bigbrotr.core.pool.PoolConfig]: Parent configuration that
+            embeds this model.
+    """
 
     acquisition: float = Field(default=10.0, ge=0.1, description="Connection acquisition timeout")
     health_check: float = Field(default=5.0, ge=0.1, description="Health check timeout")
@@ -157,6 +193,17 @@ class PoolRetryConfig(BaseModel):
     """Retry strategy for failed connection attempts.
 
     Supports both exponential and linear backoff between retries.
+
+    Note:
+        Exponential backoff (the default) doubles the delay each attempt:
+        ``initial_delay * 2^attempt``, capped at ``max_delay``. Linear backoff
+        increases linearly: ``initial_delay * (attempt + 1)``. Exponential
+        backoff is preferred for production to reduce thundering-herd effects
+        during database recovery.
+
+    See Also:
+        [PoolConfig][bigbrotr.core.pool.PoolConfig]: Parent configuration that
+            embeds this model.
     """
 
     max_attempts: int = Field(default=3, ge=1, le=10, description="Max retry attempts")
@@ -179,6 +226,17 @@ class ServerSettingsConfig(BaseModel):
 
     These are sent as ``server_settings`` when creating the asyncpg pool
     and apply to every connection in the pool.
+
+    Note:
+        ``statement_timeout`` is specified in milliseconds (PostgreSQL convention)
+        and acts as a safety net against runaway queries. Set to ``0`` to disable.
+        This is distinct from the per-query ``timeout`` parameter on
+        [Pool][bigbrotr.core.pool.Pool] methods, which is enforced client-side
+        by asyncpg.
+
+    See Also:
+        [PoolConfig][bigbrotr.core.pool.PoolConfig]: Parent configuration that
+            embeds this model.
     """
 
     application_name: str = Field(default="bigbrotr", description="Application name")
@@ -193,10 +251,24 @@ class PoolConfig(BaseModel):
 
     Groups all pool-related settings: database credentials, connection
     limits, timeouts, retry strategy, and PostgreSQL server settings.
+
+    See Also:
+        [DatabaseConfig][bigbrotr.core.pool.DatabaseConfig]: PostgreSQL
+            connection credentials.
+        [PoolLimitsConfig][bigbrotr.core.pool.PoolLimitsConfig]: Min/max connections and
+            recycling thresholds.
+        [PoolTimeoutsConfig][bigbrotr.core.pool.PoolTimeoutsConfig]: Acquisition
+            and health-check timeouts.
+        [PoolRetryConfig][bigbrotr.core.pool.PoolRetryConfig]: Backoff strategy
+            for connection failures.
+        [ServerSettingsConfig][bigbrotr.core.pool.ServerSettingsConfig]: PostgreSQL
+            session-level settings.
+        [Pool][bigbrotr.core.pool.Pool]: The pool class that consumes this
+            configuration.
     """
 
     database: DatabaseConfig = Field(default_factory=lambda: DatabaseConfig.model_validate({}))
-    limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    limits: PoolLimitsConfig = Field(default_factory=PoolLimitsConfig)
     timeouts: PoolTimeoutsConfig = Field(default_factory=PoolTimeoutsConfig)
     retry: PoolRetryConfig = Field(default_factory=PoolRetryConfig)
     server_settings: ServerSettingsConfig = Field(default_factory=ServerSettingsConfig)
@@ -215,8 +287,10 @@ class Pool:
     with JSON/JSONB codecs for transparent dict serialization.
 
     Supports two construction patterns: direct instantiation with a
-    ``PoolConfig`` object, or factory methods ``from_yaml()``/``from_dict()``
-    for configuration-driven setup.
+    [PoolConfig][bigbrotr.core.pool.PoolConfig] object, or factory methods
+    [from_yaml()][bigbrotr.core.pool.Pool.from_yaml] /
+    [from_dict()][bigbrotr.core.pool.Pool.from_dict] for configuration-driven
+    setup.
 
     Examples:
         ```python
@@ -228,14 +302,39 @@ class Pool:
             async with pool.transaction() as conn:
                 await conn.execute("INSERT INTO ...")
         ```
+
+    Note:
+        Services should never use ``Pool`` directly for domain operations.
+        Instead, use [Brotr][bigbrotr.core.brotr.Brotr] which wraps a private
+        ``Pool`` instance and provides typed insert/query methods. ``Pool`` is
+        exposed for advanced use cases such as custom health checks or direct
+        SQL access outside the stored-procedure layer.
+
+    See Also:
+        [Brotr][bigbrotr.core.brotr.Brotr]: High-level database facade that
+            wraps this pool.
+        [PoolConfig][bigbrotr.core.pool.PoolConfig]: Full configuration model
+            for this class.
+        [DatabaseConfig][bigbrotr.core.pool.DatabaseConfig]: Connection
+            credential subset of the configuration.
     """
 
     def __init__(self, config: PoolConfig | None = None) -> None:
         """Initialize pool with optional configuration.
 
+        The pool is created in a disconnected state. Call
+        [connect()][bigbrotr.core.pool.Pool.connect] or use the async
+        context manager to establish the connection.
+
         Args:
             config: Pool configuration. If not provided, uses defaults
                 which read ``DB_PASSWORD`` from the environment.
+
+        See Also:
+            [from_yaml()][bigbrotr.core.pool.Pool.from_yaml]: Construct from
+                a YAML file.
+            [from_dict()][bigbrotr.core.pool.Pool.from_dict]: Construct from
+                a dictionary.
         """
         self._config = config or PoolConfig()
         self._pool: asyncpg.Pool[asyncpg.Record] | None = None
@@ -247,6 +346,10 @@ class Pool:
     def from_yaml(cls, config_path: str) -> Pool:
         """Create a Pool from a YAML configuration file.
 
+        Delegates to [load_yaml()][bigbrotr.core.yaml.load_yaml] for safe
+        YAML parsing, then to
+        [from_dict()][bigbrotr.core.pool.Pool.from_dict] for construction.
+
         Args:
             config_path: Path to the YAML configuration file.
 
@@ -255,6 +358,10 @@ class Pool:
 
         Raises:
             FileNotFoundError: If the configuration file does not exist.
+
+        See Also:
+            [from_dict()][bigbrotr.core.pool.Pool.from_dict]: Construct from
+                a pre-parsed dictionary.
         """
         return cls.from_dict(load_yaml(config_path))
 
@@ -264,7 +371,7 @@ class Pool:
 
         Args:
             config_dict: Dictionary with pool settings matching
-                PoolConfig field names.
+                [PoolConfig][bigbrotr.core.pool.PoolConfig] field names.
 
         Returns:
             A configured Pool instance (not yet connected).
@@ -288,12 +395,20 @@ class Pool:
     async def connect(self) -> None:
         """Create the asyncpg connection pool with retry on failure.
 
-        Uses exponential or linear backoff (per PoolRetryConfig) between attempts.
-        Thread-safe: guarded by an internal asyncio lock to prevent concurrent
-        pool creation.
+        Uses exponential or linear backoff (per
+        [PoolRetryConfig][bigbrotr.core.pool.PoolRetryConfig]) between
+        attempts. Thread-safe: guarded by an internal asyncio lock to prevent
+        concurrent pool creation.
 
         Raises:
             ConnectionError: If all retry attempts are exhausted.
+
+        Note:
+            The retry strategy uses exponential backoff by default
+            (``initial_delay * 2^attempt``, capped at ``max_delay``) to
+            avoid overwhelming a recovering database. Each new connection
+            is initialized with JSON/JSONB codecs via ``_init_connection``
+            for transparent dict serialization.
         """
         async with self._connection_lock:
             if self._is_connected:
@@ -376,8 +491,12 @@ class Pool:
     def acquire(self) -> AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]:
         """Acquire a connection from the pool.
 
-        Returns an async context manager; the connection is automatically
-        returned to the pool when the context exits.
+        Returns an async context manager that yields a connection. The
+        connection is automatically returned to the pool when the context
+        exits.
+
+        Yields:
+            An asyncpg connection from the pool.
 
         Raises:
             RuntimeError: If the pool has not been connected yet.
@@ -387,6 +506,12 @@ class Pool:
             async with pool.acquire() as conn:
                 result = await conn.fetch("SELECT * FROM event")
             ```
+
+        See Also:
+            [acquire_healthy()][bigbrotr.core.pool.Pool.acquire_healthy]:
+                Acquire with a ``SELECT 1`` health check.
+            [transaction()][bigbrotr.core.pool.Pool.transaction]: Acquire
+                with an active database transaction.
         """
         if not self._is_connected or self._pool is None:
             raise RuntimeError("Pool not connected. Call connect() first.")
@@ -409,14 +534,34 @@ class Pool:
 
         Args:
             max_attempts: Maximum attempts to acquire a healthy connection.
-                Defaults to ``retry.max_attempts`` from pool config.
+                Defaults to
+                [retry.max_attempts][bigbrotr.core.pool.PoolRetryConfig]
+                from pool config.
             health_check_timeout: Timeout in seconds for the health check
-                query. Defaults to the configured ``timeouts.health_check``.
+                query. Defaults to the configured
+                [timeouts.health_check][bigbrotr.core.pool.PoolTimeoutsConfig].
+
+        Yields:
+            An asyncpg connection that has passed the ``SELECT 1``
+            health check.
 
         Raises:
             RuntimeError: If the pool has not been connected yet.
             ConnectionError: If no healthy connection can be acquired
                 after all retry attempts.
+
+        Note:
+            The health check executes ``SELECT 1`` with a configurable timeout
+            to detect stale or broken connections that the pool may have
+            retained. This is especially useful after database restarts or
+            network partitions where the TCP connection appears open but the
+            PostgreSQL session is no longer valid.
+
+        See Also:
+            [acquire()][bigbrotr.core.pool.Pool.acquire]: Acquire without a
+                health check (faster, suitable for non-critical paths).
+            [transaction()][bigbrotr.core.pool.Pool.transaction]: Acquire with
+                an active transaction.
         """
         if not self._is_connected or self._pool is None:
             raise RuntimeError("Pool not connected. Call connect() first.")
@@ -459,6 +604,10 @@ class Pool:
         The transaction commits automatically on normal exit and rolls back
         if an exception propagates out of the context manager.
 
+        Yields:
+            An asyncpg connection with an active transaction. The
+            transaction commits on normal exit and rolls back on exception.
+
         Raises:
             RuntimeError: If the pool has not been connected yet.
             asyncpg.PostgresError: On database errors (triggers rollback).
@@ -466,10 +615,16 @@ class Pool:
         Examples:
             ```python
             async with pool.transaction() as conn:
-                await conn.execute("INSERT INTO events ...")
-                await conn.execute("INSERT INTO relays ...")
+                await conn.execute("INSERT INTO event ...")
+                await conn.execute("INSERT INTO relay ...")
                 # Both succeed together or roll back on error.
             ```
+
+        See Also:
+            [acquire()][bigbrotr.core.pool.Pool.acquire]: Acquire without
+                a transaction (auto-commit mode).
+            [Brotr.transaction()][bigbrotr.core.brotr.Brotr.transaction]:
+                Higher-level facade that delegates to this method.
         """
         async with self.acquire() as conn, conn.transaction():
             yield conn
@@ -489,20 +644,27 @@ class Pool:
     ) -> Any:
         """Execute a named asyncpg operation with retry on transient errors.
 
-        Retries only on connection-level errors (InterfaceError,
-        ConnectionDoesNotExistError) with exponential backoff. Query-level
+        Retries only on connection-level errors (``InterfaceError``,
+        ``ConnectionDoesNotExistError``) with exponential backoff. Query-level
         errors (syntax, constraint violations) propagate immediately.
 
         Args:
-            operation: Name of the asyncpg connection method (e.g. "fetch").
-            query: SQL query string with $1, $2, ... placeholders.
+            operation: Name of the asyncpg connection method (e.g. ``"fetch"``).
+            query: SQL query string with ``$1``, ``$2``, ... placeholders.
             args: Positional query parameters.
-            timeout: Query timeout in seconds (None = no timeout).
-            max_attempts: Override the default retry count.
+            timeout: Query timeout in seconds (``None`` = no timeout).
+            max_attempts: Override the default retry count from
+                [PoolRetryConfig][bigbrotr.core.pool.PoolRetryConfig].
             **kwargs: Additional keyword arguments passed to the operation.
 
         Returns:
             The result of the asyncpg operation.
+
+        Note:
+            This method acquires a fresh connection for each retry attempt.
+            If the connection was broken mid-query, the new attempt uses a
+            different connection from the pool, avoiding repeated failures
+            on the same socket.
         """
         if max_attempts is None:
             max_attempts = self._config.retry.max_attempts
@@ -626,14 +788,23 @@ class Pool:
     ) -> None:
         """Execute a query repeatedly with different parameter sets.
 
-        Implemented separately from ``_execute_with_retry`` because asyncpg's
-        ``executemany`` accepts an iterable of argument tuples rather than
-        variadic positional args.
+        Implemented separately from
+        ``_execute_with_retry()``
+        because asyncpg's ``executemany`` accepts an iterable of argument
+        tuples rather than variadic positional args.
 
         Args:
-            query: SQL query with $1, $2, ... placeholders.
+            query: SQL query with ``$1``, ``$2``, ... placeholders.
             args_list: List of parameter tuples, one per execution.
-            timeout: Query timeout in seconds (None = no timeout).
+            timeout: Query timeout in seconds (``None`` = no timeout).
+
+        Note:
+            Retries use the same connection-level error detection and backoff
+            strategy as the single-query methods. However, partial execution
+            is possible if the error occurs mid-batch on a non-transactional
+            connection. Wrap in
+            [transaction()][bigbrotr.core.pool.Pool.transaction] for
+            all-or-nothing semantics.
         """
         max_attempts = self._config.retry.max_attempts
         last_error: Exception | None = None
@@ -690,9 +861,21 @@ class Pool:
 
         Returns:
             Dictionary with keys: ``size``, ``idle_size``, ``min_size``,
-            ``max_size``, ``free_size``, ``utilization`` (0.0-1.0),
+            ``max_size``, ``free_size``, ``utilization`` (0.0--1.0),
             and ``is_connected``. Returns zeroed metrics if the pool
             is not connected.
+
+        Note:
+            This property is safe to call at any time, including during
+            pool shutdown. A local reference to the pool object prevents
+            race conditions with concurrent
+            [close()][bigbrotr.core.pool.Pool.close] calls. Unexpected
+            errors are logged and swallowed to prevent monitoring from
+            crashing the service.
+
+        See Also:
+            [MetricsServer][bigbrotr.core.metrics.MetricsServer]: Prometheus
+                HTTP endpoint that may consume these statistics.
         """
         disconnected = {
             "size": 0,

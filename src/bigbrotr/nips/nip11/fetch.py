@@ -1,13 +1,35 @@
 """
 NIP-11 metadata container with HTTP fetch capabilities.
 
-Pairs ``Nip11FetchData`` with ``Nip11FetchLogs`` and provides the
-``execute()`` class method that performs the actual HTTP request to
-retrieve a relay's NIP-11 information document.
+Pairs [Nip11FetchData][bigbrotr.nips.nip11.data.Nip11FetchData] with
+[Nip11FetchLogs][bigbrotr.nips.nip11.logs.Nip11FetchLogs] and provides
+the ``execute()`` class method that performs the actual HTTP request to
+retrieve a relay's
+[NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md)
+information document.
 
 Note:
     The class was renamed from ``Nip11FetchMetadata`` to ``Nip11InfoMetadata``
     in v3.1.0 to describe the *data* (info) rather than the *operation* (fetch).
+
+    The HTTP fetch converts the relay's WebSocket URL scheme (``wss`` -> ``https``,
+    ``ws`` -> ``http``) and sends the ``Accept: application/nostr+json`` header
+    as required by the NIP-11 specification. Responses larger than 64 KB are
+    rejected to guard against resource exhaustion.
+
+    The SSL fallback strategy mirrors
+    [connect_relay][bigbrotr.utils.transport.connect_relay]: clearnet relays
+    try verified SSL first, then fall back to ``CERT_NONE`` if
+    ``allow_insecure=True``. Overlay networks always use an insecure SSL
+    context because the overlay provides its own encryption layer.
+
+See Also:
+    [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
+        Top-level model that wraps this container.
+    [bigbrotr.nips.base.BaseMetadata][bigbrotr.nips.base.BaseMetadata]:
+        Base class providing ``from_dict()`` / ``to_dict()`` interface.
+    [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+        The ``NIP11_INFO`` variant used when storing these results.
 """
 
 from __future__ import annotations
@@ -37,8 +59,19 @@ class Nip11InfoMetadata(BaseMetadata):
     """Container for NIP-11 info data and operation logs.
 
     Provides the ``execute()`` class method for retrieving a relay's NIP-11
-    document over HTTP(S). The result always contains both a data object
-    and a logs object -- check ``logs.success`` for the operation status.
+    document over HTTP(S). The result always contains both a
+    [Nip11FetchData][bigbrotr.nips.nip11.data.Nip11FetchData] object and a
+    [Nip11FetchLogs][bigbrotr.nips.nip11.logs.Nip11FetchLogs] object --
+    check ``logs.success`` for the operation status.
+
+    Warning:
+        The ``execute()`` method **never raises exceptions**. All errors are
+        captured in the ``logs.reason`` field. Callers must always check
+        ``logs.success`` before accessing data fields.
+
+    See Also:
+        [bigbrotr.nips.nip11.nip11.Nip11.create][bigbrotr.nips.nip11.nip11.Nip11.create]:
+            Factory method that delegates to ``execute()``.
     """
 
     data: Nip11FetchData

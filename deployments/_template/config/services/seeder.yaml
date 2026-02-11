@@ -43,7 +43,7 @@ seed:
   file_path: static/seed_relays.txt
 
   # How to process seed relays:
-  #   true  = Add as validation candidates (stored in service_data table)
+  #   true  = Add as validation candidates (stored in service_state table)
   #           Validator service will test them before adding to relays table
   #   false = Insert directly into relays table (skip validation)
   #           Use only if you trust all URLs in the seed file

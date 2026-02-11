@@ -1,12 +1,38 @@
 """Validator service for BigBrotr.
 
-Validates relay candidates discovered by the Finder service by checking whether
-they speak the Nostr protocol via WebSocket. Valid candidates are promoted to
-the relays table; invalid ones have their failure counter incremented and are
-retried in future cycles.
+Validates relay candidates discovered by the
+[Finder][bigbrotr.services.finder.Finder] service by checking whether
+they speak the Nostr protocol via WebSocket. Valid candidates are promoted
+to the relays table; invalid ones have their failure counter incremented
+and are retried in future cycles.
 
-Validation criteria: a candidate is valid if it accepts a WebSocket connection
-and responds to a Nostr REQ message with EOSE, EVENT, NOTICE, or AUTH.
+Validation criteria: a candidate is valid if it accepts a WebSocket
+connection and responds to a Nostr REQ message with EOSE, EVENT, NOTICE,
+or AUTH, as determined by
+[is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay].
+
+Note:
+    Each cycle initializes per-network semaphores from
+    [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig],
+    cleans up stale/exhausted candidates, then processes remaining
+    candidates in configurable chunks. Candidate priority is ordered by
+    fewest failures first (most likely to succeed).
+
+See Also:
+    [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig]:
+        Configuration model for networks, processing, and cleanup.
+    [BaseService][bigbrotr.core.base_service.BaseService]: Abstract base
+        class providing ``run()``, ``run_forever()``, and ``from_yaml()``.
+    [Brotr][bigbrotr.core.brotr.Brotr]: Database facade used for
+        candidate queries and relay promotion.
+    [Finder][bigbrotr.services.finder.Finder]: Upstream service that
+        discovers and inserts candidates.
+    [Monitor][bigbrotr.services.monitor.Monitor]: Downstream service
+        that health-checks promoted relays.
+    [is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay]: WebSocket
+        probe function used for validation.
+    [promote_candidates][bigbrotr.services.common.queries.promote_candidates]:
+        Atomic insert+delete query for promotion.
 
 Examples:
     ```python
@@ -62,12 +88,19 @@ if TYPE_CHECKING:
 class Candidate:
     """Relay candidate pending validation.
 
-    Wraps a Relay object with its service_state metadata, providing
-    convenient access to validation state (e.g., failure count).
+    Wraps a [Relay][bigbrotr.models.relay.Relay] object with its
+    ``service_state`` metadata, providing convenient access to validation
+    state (e.g., failure count).
 
     Attributes:
-        relay: Relay object with URL and network information.
-        data: Metadata from the service_state table (network, failed_attempts, etc.).
+        relay: [Relay][bigbrotr.models.relay.Relay] object with URL and
+            network information.
+        data: Metadata from the ``service_state`` table (``network``,
+            ``failed_attempts``, etc.).
+
+    See Also:
+        [fetch_candidate_chunk][bigbrotr.services.common.queries.fetch_candidate_chunk]:
+            Query that produces the rows from which candidates are built.
     """
 
     relay: Relay
@@ -91,7 +124,12 @@ class ValidatorProcessingConfig(BaseModel):
     Attributes:
         chunk_size: Candidates to fetch and validate per iteration. Larger
             chunks reduce DB round-trips but increase memory usage.
-        max_candidates: Optional cap on total candidates per cycle (None = all).
+        max_candidates: Optional cap on total candidates per cycle
+            (``None`` = all).
+
+    See Also:
+        [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig]:
+            Parent config that embeds this model.
     """
 
     chunk_size: int = Field(default=100, ge=10, le=1000)
@@ -107,6 +145,12 @@ class CleanupConfig(BaseModel):
     Attributes:
         enabled: Whether to enable exhausted candidate cleanup.
         max_failures: Failure threshold after which candidates are removed.
+
+    See Also:
+        [delete_exhausted_candidates][bigbrotr.services.common.queries.delete_exhausted_candidates]:
+            The SQL query driven by ``max_failures``.
+        [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig]:
+            Parent config that embeds this model.
     """
 
     enabled: bool = Field(default=False)
@@ -114,7 +158,16 @@ class CleanupConfig(BaseModel):
 
 
 class ValidatorConfig(BaseServiceConfig):
-    """Validator service configuration."""
+    """Validator service configuration.
+
+    See Also:
+        [Validator][bigbrotr.services.validator.Validator]: The service
+            class that consumes this configuration.
+        [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
+            Base class providing ``interval`` and ``log_level`` fields.
+        [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
+            Per-network timeout and proxy settings.
+    """
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
     processing: ValidatorProcessingConfig = Field(default_factory=ValidatorProcessingConfig)
@@ -129,15 +182,28 @@ class ValidatorConfig(BaseServiceConfig):
 class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
     """Validates relay candidates by checking if they speak the Nostr protocol.
 
-    Processes candidate URLs discovered by the Finder service. Valid relays are
-    promoted to the relays table; invalid ones have their failure counter
-    incremented for retry in future cycles.
+    Processes candidate URLs discovered by the
+    [Finder][bigbrotr.services.finder.Finder] service. Valid relays are
+    promoted to the relays table via
+    [promote_candidates][bigbrotr.services.common.queries.promote_candidates];
+    invalid ones have their failure counter incremented for retry in
+    future cycles.
 
-    Each cycle initializes per-network semaphores, cleans up stale/exhausted
-    candidates, then processes remaining candidates in configurable chunks.
-    Valid relays are promoted; invalid ones have their failure count
-    incremented. Supports clearnet (direct), Tor (.onion via SOCKS5),
-    and I2P (.i2p via SOCKS5).
+    Each cycle initializes per-network semaphores via
+    [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin],
+    cleans up stale/exhausted candidates, then processes remaining
+    candidates in configurable chunks. Supports clearnet (direct),
+    Tor (.onion via SOCKS5), and I2P (.i2p via SOCKS5).
+
+    See Also:
+        [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig]:
+            Configuration model for this service.
+        [Finder][bigbrotr.services.finder.Finder]: Upstream service that
+            creates the candidates validated here.
+        [Monitor][bigbrotr.services.monitor.Monitor]: Downstream service
+            that health-checks promoted relays.
+        [is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay]:
+            WebSocket probe used by ``_validate_one()``.
     """
 
     SERVICE_NAME: ClassVar[str] = ServiceName.VALIDATOR
@@ -214,8 +280,13 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         """Remove candidates whose URLs already exist in the relays table.
 
         Stale candidates appear when a relay was validated by another cycle,
-        manually added, or re-discovered by the Finder. Removing them prevents
+        manually added, or re-discovered by the
+        [Finder][bigbrotr.services.finder.Finder]. Removing them prevents
         wasted validation attempts.
+
+        See Also:
+            [delete_stale_candidates][bigbrotr.services.common.queries.delete_stale_candidates]:
+                The SQL query executed by this method.
         """
         result = await delete_stale_candidates(
             self._brotr, timeout=self._brotr.config.timeouts.query
@@ -229,7 +300,11 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         """Remove candidates that have exceeded the maximum failure threshold.
 
         Prevents permanently broken relays from consuming validation resources.
-        Controlled by ``cleanup.enabled`` and ``cleanup.max_failures``.
+        Controlled by ``cleanup.enabled`` and ``cleanup.max_failures`` in
+        [CleanupConfig][bigbrotr.services.validator.CleanupConfig].
+
+        See Also:
+            ``delete_exhausted_candidates``: The SQL query executed.
         """
         if not self._config.cleanup.enabled:
             return
@@ -252,12 +327,18 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
     def _parse_delete_result(result: str | None) -> int:
         """Extract the row count from a PostgreSQL DELETE result string.
 
+        Note:
+            asyncpg returns command status as a plain string (e.g.,
+            ``'DELETE 5'``). There is no structured alternative in the
+            asyncpg protocol; this parser splits on whitespace and
+            converts the trailing integer.
+
         Args:
-            result: Raw result from asyncpg execute() in ``'DELETE N'`` format,
-                or None if the query failed.
+            result: Raw result from ``asyncpg.execute()`` in
+                ``'DELETE N'`` format, or ``None`` if the query failed.
 
         Returns:
-            Number of deleted rows, or 0 if unparseable.
+            Number of deleted rows, or 0 if unparsable.
         """
         if not result:
             return 0
@@ -401,14 +482,17 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
     async def _validate_one(self, candidate: Candidate) -> bool:
         """Validate a single relay candidate by connecting and testing the Nostr protocol.
 
-        Uses the network-specific semaphore and proxy settings. Returns True
-        if the relay responds to a Nostr REQ message, False otherwise.
+        Uses the network-specific semaphore and proxy settings from
+        [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig].
+        Delegates the actual WebSocket probe to
+        [is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay].
 
         Args:
-            candidate: Candidate to validate.
+            candidate: [Candidate][bigbrotr.services.validator.Candidate]
+                to validate.
 
         Returns:
-            True if the relay speaks Nostr protocol, False otherwise.
+            ``True`` if the relay speaks Nostr protocol, ``False`` otherwise.
         """
         relay = candidate.relay
         semaphore = self._semaphores.get(relay.network)
@@ -432,13 +516,18 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
     async def _persist_results(self, valid: list[Relay], invalid: list[Candidate]) -> None:
         """Persist validation results to the database.
 
-        Invalid candidates have their failure counter incremented for
-        prioritization in future cycles. Valid relays are inserted into
-        the relays table and their candidate records are deleted.
+        Invalid candidates have their failure counter incremented (as
+        [ServiceState][bigbrotr.models.service_state.ServiceState]
+        updates) for prioritization in future cycles. Valid relays are
+        atomically inserted into the relays table and their candidate
+        records deleted via
+        [promote_candidates][bigbrotr.services.common.queries.promote_candidates].
 
         Args:
-            valid: Relays that passed validation.
-            invalid: Candidates that failed validation.
+            valid: [Relay][bigbrotr.models.relay.Relay] objects that
+                passed validation.
+            invalid: [Candidate][bigbrotr.services.validator.Candidate]
+                objects that failed validation.
         """
         # Update failed candidates
         if invalid:

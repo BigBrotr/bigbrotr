@@ -13,9 +13,31 @@ Attributes:
 Also handles nostr-sdk UniFFI callback noise by filtering stderr output
 from the Rust bindings.
 
+Note:
+    The SSL fallback strategy for clearnet relays follows a two-phase
+    approach: first attempt a fully verified TLS connection, then fall back
+    to [InsecureWebSocketTransport][bigbrotr.utils.transport.InsecureWebSocketTransport]
+    only if the error is SSL-related and ``allow_insecure=True``. This
+    ensures security by default while accommodating relays with self-signed
+    or expired certificates.
+
+    Overlay networks (Tor, I2P, Lokinet) always use
+    ``nostr_sdk.ConnectionMode.PROXY`` with a SOCKS5 proxy and do not
+    attempt SSL fallback, as the overlay itself provides encryption.
+
+See Also:
+    [bigbrotr.models.relay.Relay][bigbrotr.models.relay.Relay]: The relay
+        model consumed by all connection functions.
+    [bigbrotr.models.constants.NetworkType][bigbrotr.models.constants.NetworkType]:
+        Enum used to select between clearnet and overlay transport strategies.
+    [bigbrotr.core.pool][bigbrotr.core.pool]: Database connection pool (distinct
+        from the WebSocket transport layer managed here).
+    [bigbrotr.nips.nip66.rtt.Nip66RttMetadata][bigbrotr.nips.nip66.rtt.Nip66RttMetadata]:
+        RTT probe that uses ``connect_relay`` for latency measurement.
+
 Examples:
     ```python
-    from utils.transport import create_client, connect_relay
+    from bigbrotr.utils.transport import create_client, connect_relay
 
     client = create_client(keys=my_keys, proxy_url="socks5://tor:9050")
     client = await connect_relay(relay, keys=my_keys, timeout=10.0)
@@ -82,6 +104,11 @@ class _NostrSdkStderrFilter:
 
     Stateful: enters suppression mode on seeing a UniFFI error header and
     exits on the next empty line (end of traceback).
+
+    Note:
+        This filter is installed globally at module import time. It wraps
+        ``sys.stderr`` once, checked via ``isinstance`` to prevent double-
+        wrapping on repeated imports.
     """
 
     def __init__(self, original: TextIO) -> None:
@@ -157,8 +184,17 @@ _WS_CLOSE_TIMEOUT = 5.0
 class InsecureWebSocketAdapter(WebSocketAdapter):
     """aiohttp-based WebSocket adapter with SSL verification disabled.
 
-    Implements the nostr-sdk ``WebSocketAdapter`` interface. Allows connections
+    Implements the ``nostr_sdk.WebSocketAdapter`` interface. Allows connections
     to relays with self-signed, expired, or otherwise invalid certificates.
+
+    Warning:
+        This adapter creates an ``ssl.SSLContext`` with ``CERT_NONE`` and
+        ``check_hostname=False``, disabling all certificate verification.
+        It should only be used as a fallback after standard SSL has failed.
+
+    See Also:
+        [InsecureWebSocketTransport][bigbrotr.utils.transport.InsecureWebSocketTransport]:
+            The transport class that creates instances of this adapter.
     """
 
     def __init__(
@@ -221,8 +257,26 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
     Used as a fallback for clearnet relays with invalid/expired certificates.
     Creates aiohttp sessions with an SSL context that accepts any certificate.
 
-    Warning: Disables important security checks. Only use when SSL
-    verification has already failed and the connection is still desired.
+    Warning:
+        Disables **all** SSL/TLS certificate verification, including hostname
+        checking and chain validation. This makes the connection vulnerable to
+        man-in-the-middle attacks. Only use when standard SSL verification has
+        already failed and the connection is still desired (e.g., monitoring
+        relays with self-signed certificates).
+
+    Note:
+        This transport implements the ``nostr_sdk.CustomWebSocketTransport``
+        interface so it can be injected into the nostr-sdk client via
+        ``ClientBuilder.websocket_transport()``. The UniFFI event loop must
+        be set via ``uniffi_set_event_loop()`` before using this transport.
+
+    See Also:
+        [InsecureWebSocketAdapter][bigbrotr.utils.transport.InsecureWebSocketAdapter]:
+            The per-connection adapter created by this transport.
+        [create_insecure_client][bigbrotr.utils.transport.create_insecure_client]:
+            Factory function that wires this transport into a client.
+        [connect_relay][bigbrotr.utils.transport.connect_relay]: High-level
+            function that uses this transport as an SSL fallback.
     """
 
     def __init__(
@@ -303,11 +357,22 @@ def create_client(
     ``ConnectionMode.PROXY``. For clearnet, uses standard SSL connections.
 
     Args:
-        keys: Optional signing keys (None = read-only client).
+        keys: Optional signing keys (``None`` = read-only client).
         proxy_url: SOCKS5 proxy URL for overlay networks (e.g., ``socks5://tor:9050``).
 
     Returns:
-        Configured Client instance (call ``add_relay()`` before use).
+        Configured ``Client`` instance (call ``add_relay()`` before use).
+
+    Note:
+        When a ``proxy_url`` hostname is not already an IP address, it is
+        resolved synchronously via ``socket.gethostbyname`` because nostr-sdk
+        requires a numeric IP for the proxy connection.
+
+    See Also:
+        [create_insecure_client][bigbrotr.utils.transport.create_insecure_client]:
+            Alternative factory with SSL verification disabled.
+        [connect_relay][bigbrotr.utils.transport.connect_relay]: Higher-level
+            function that handles connection and SSL fallback.
     """
     builder = ClientBuilder()
 
@@ -340,10 +405,19 @@ def create_insecure_client(keys: Keys | None = None) -> Client:
     Fallback for clearnet relays with invalid/expired SSL certificates.
 
     Args:
-        keys: Optional signing keys (None = read-only client).
+        keys: Optional signing keys (``None`` = read-only client).
 
     Returns:
-        Client with insecure WebSocket transport.
+        ``Client`` with
+        [InsecureWebSocketTransport][bigbrotr.utils.transport.InsecureWebSocketTransport].
+
+    Warning:
+        The returned client bypasses all SSL/TLS certificate verification.
+        Only use when standard SSL has already been attempted and failed.
+
+    See Also:
+        [create_client][bigbrotr.utils.transport.create_client]: Standard
+            factory with full SSL verification.
     """
     builder = ClientBuilder()
 
@@ -371,19 +445,34 @@ async def connect_relay(
     Overlay networks (Tor/I2P/Loki) require a proxy and use no SSL fallback.
 
     Args:
-        relay: Relay to connect to.
+        relay: [Relay][bigbrotr.models.relay.Relay] to connect to.
         keys: Optional signing keys.
         proxy_url: SOCKS5 proxy URL (required for overlay networks).
         timeout: Connection timeout in seconds.
-        allow_insecure: If True, fall back to insecure transport on SSL failure.
+        allow_insecure: If ``True``, fall back to insecure transport on SSL failure.
 
     Returns:
-        Connected Client ready for use.
+        Connected ``Client`` ready for use.
 
     Raises:
         TimeoutError: If connection times out.
-        ValueError: If overlay relay requested without proxy_url.
-        ssl.SSLCertVerificationError: If SSL fails and allow_insecure is False.
+        ValueError: If overlay relay requested without ``proxy_url``.
+        ssl.SSLCertVerificationError: If SSL fails and ``allow_insecure`` is ``False``.
+
+    Note:
+        The clearnet fallback path requires calling ``uniffi_set_event_loop()``
+        before creating the
+        [InsecureWebSocketTransport][bigbrotr.utils.transport.InsecureWebSocketTransport],
+        because the custom transport uses UniFFI callbacks that need access
+        to the running asyncio event loop.
+
+    See Also:
+        [create_client][bigbrotr.utils.transport.create_client]: Used for the
+            initial SSL-verified connection attempt.
+        [create_insecure_client][bigbrotr.utils.transport.create_insecure_client]:
+            Used for the fallback insecure connection.
+        [is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay]: Higher-level
+            validation that uses this function internally.
     """
     relay_url = RelayUrl.parse(relay.url)
     is_overlay = relay.network in (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
@@ -448,7 +537,12 @@ async def connect_relay(
 
 @dataclass(frozen=True, slots=True)
 class RelayValidationConfig:
-    """Tuning parameters for relay validation timeouts."""
+    """Tuning parameters for relay validation timeouts.
+
+    See Also:
+        [is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay]: The
+            validation function that consumes this config.
+    """
 
     suppress_stderr: bool = True
     overall_timeout_multiplier: float = 3.0
@@ -465,17 +559,33 @@ async def is_nostr_relay(
     """Check if a URL hosts a Nostr relay by attempting a protocol handshake.
 
     A relay is considered valid if it responds with EOSE to a REQ, sends
-    an AUTH challenge (NIP-42), or returns a CLOSED with "auth-required".
+    an AUTH challenge (NIP-42), or returns a CLOSED with ``"auth-required"``.
 
     Args:
-        relay: Relay to validate.
+        relay: [Relay][bigbrotr.models.relay.Relay] to validate.
         proxy_url: SOCKS5 proxy URL (required for overlay networks).
         timeout: Timeout in seconds for connect and fetch operations.
         config: Optional validation tuning parameters (timeouts, stderr
-            suppression). Uses ``RelayValidationConfig()`` defaults when None.
+            suppression). Uses
+            [RelayValidationConfig][bigbrotr.utils.transport.RelayValidationConfig]
+            defaults when ``None``.
 
     Returns:
-        True if the relay speaks the Nostr protocol, False otherwise.
+        ``True`` if the relay speaks the Nostr protocol, ``False`` otherwise.
+
+    Note:
+        The overall timeout is computed as
+        ``timeout * overall_timeout_multiplier + overall_timeout_buffer``
+        to account for the potential SSL fallback retry in
+        [connect_relay][bigbrotr.utils.transport.connect_relay]. Stderr
+        suppression is enabled by default to silence verbose UniFFI
+        tracebacks during batch validation.
+
+    See Also:
+        [connect_relay][bigbrotr.utils.transport.connect_relay]: Used
+            internally to establish the WebSocket connection.
+        [bigbrotr.services.validator.Validator][bigbrotr.services.validator.Validator]:
+            Service that calls this function to promote candidates to relays.
     """
     cfg = config or RelayValidationConfig()
 

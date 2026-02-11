@@ -109,7 +109,7 @@ ON service_state USING btree (service_name, state_type);
 -- Candidate network filtering: WHERE payload->>'network' = ANY($3)
 -- Used by count_candidates() and fetch_candidate_chunk() in the Validator service
 CREATE INDEX IF NOT EXISTS idx_service_state_candidate_network
-ON service_state USING btree ((payload->>'network'))
+ON service_state USING btree ((payload ->> 'network'))
 WHERE service_name = 'validator' AND state_type = 'candidate';
 {% endblock %}
 {% block matview_indexes %}

@@ -33,7 +33,7 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 - Look for issues labeled `good first issue` for beginner-friendly tasks
 - Issues labeled `help wanted` are open for community contribution
-- Check the [roadmap](README.md#roadmap) for planned features
+- Check the [Issues](https://github.com/BigBrotr/bigbrotr/issues) for planned features
 
 ---
 
@@ -254,11 +254,11 @@ make docs-serve
 | File | Purpose |
 |------|---------|
 | `README.md` | Project overview, quick start |
-| `docs/ARCHITECTURE.md` | System architecture |
-| `docs/CONFIGURATION.md` | Configuration reference |
-| `docs/DATABASE.md` | Database schema |
-| `docs/DEVELOPMENT.md` | Development guide |
-| `docs/DEPLOYMENT.md` | Deployment instructions |
+| `docs/user-guide/architecture.md` | System architecture |
+| `docs/user-guide/configuration.md` | Configuration reference |
+| `docs/user-guide/database.md` | Database schema |
+| `docs/development/` | Development guide |
+| `docs/how-to/` | Deployment and how-to guides |
 | `CHANGELOG.md` | Version history |
 
 ### Style

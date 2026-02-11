@@ -47,6 +47,11 @@ ON event_relay USING btree (relay_url);
 CREATE INDEX IF NOT EXISTS idx_event_relay_event_id
 ON event_relay USING btree (event_id);
 
+-- Synchronizer progress tracking: WHERE relay_url = ? ORDER BY seen_at DESC
+-- Enables index-only scans for SELECT MAX(seen_at) WHERE relay_url = ?
+CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url_seen_at
+ON event_relay USING btree (relay_url, seen_at DESC);
+
 
 -- ==========================================================================
 -- TABLE INDEXES: relay_metadata

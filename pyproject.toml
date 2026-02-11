@@ -47,7 +47,6 @@ dependencies = [
     "dnspython>=2.5.0",
     "geoip2>=4.8.0",
     "geohash2>=1.1",
-    "Jinja2>=3.1.0",
     "nostr-sdk>=0.37.0",
     "prometheus-client>=0.20.0",
     "pydantic>=2.5.0",
@@ -59,6 +58,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "Jinja2>=3.1.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=5.0.0",
@@ -82,10 +82,11 @@ dev = [
 ]
 docs = [
     "mkdocs>=1.6.0",
-    "mkdocs-material>=9.5.0",
+    "mkdocs-material[imaging]>=9.5.0",
     "mkdocstrings[python]>=0.27.0",
     "mkdocs-gen-files>=0.5.0",
     "mkdocs-literate-nav>=0.6.0",
+    "mike>=2.0.0",
 ]
 
 [project.urls]
@@ -103,7 +104,7 @@ where = ["src"]
 include = ["bigbrotr*"]
 
 [tool.setuptools.package-data]
-"*" = ["py.typed"]
+"bigbrotr" = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

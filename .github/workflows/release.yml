@@ -150,10 +150,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Build image
+      - name: Build image (amd64 for scan)
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
@@ -163,6 +166,7 @@ jobs:
             VERSION=${{ github.ref_name }}
           push: false
           load: true
+          platforms: linux/amd64
           tags: ${{ matrix.deployment }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.deployment }}
           cache-to: type=gha,scope=${{ matrix.deployment }},mode=max
@@ -250,6 +254,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
@@ -280,6 +287,7 @@ jobs:
             DEPLOYMENT=${{ matrix.deployment }}
             VERSION=${{ github.ref_name }}
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.deployment }}
@@ -337,9 +345,10 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NOTES: ${{ steps.changelog.outputs.notes }}
         run: |
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
-            --notes "${{ steps.changelog.outputs.notes }}" \
+            --notes "$RELEASE_NOTES" \
             --verify-tag \
             dist/*.tar.gz dist/*.whl sbom/*.cdx.json

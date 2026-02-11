@@ -2,8 +2,35 @@
 NIP-66 RTT metadata container with relay probe capabilities.
 
 Tests a relay's round-trip time by measuring connection open, event
-read, and event write latencies. Results are stored as millisecond
-integers alongside detailed logs for each phase.
+read, and event write latencies as defined by
+[NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md).
+Results are stored as millisecond integers alongside detailed logs
+for each phase.
+
+Note:
+    The RTT test executes three sequential phases:
+
+    1. **Open** -- measures WebSocket connection establishment time via
+       [connect_relay][bigbrotr.utils.transport.connect_relay].
+    2. **Read** -- measures time to receive the first event matching a
+       filter via ``stream_events``.
+    3. **Write** -- measures time to publish an event and verify it can
+       be retrieved back from the relay.
+
+    If the open phase fails, read and write are automatically marked as
+    failed with the same reason (cascading failure). The write phase
+    includes a verification step that re-fetches the published event to
+    confirm the relay actually stored it.
+
+See Also:
+    [bigbrotr.nips.nip66.data.Nip66RttData][bigbrotr.nips.nip66.data.Nip66RttData]:
+        Data model for RTT measurements.
+    [bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]:
+        Multi-phase log model with per-phase success/reason.
+    [bigbrotr.utils.transport.connect_relay][bigbrotr.utils.transport.connect_relay]:
+        Transport function used for the open phase.
+    [bigbrotr.utils.keys.KeysConfig][bigbrotr.utils.keys.KeysConfig]:
+        Key management -- RTT probes require signing keys for the write phase.
 """
 
 from __future__ import annotations
@@ -37,6 +64,12 @@ class Nip66RttDependencies(NamedTuple):
 
     Bundles the signing keys, event builder, and read filter required
     by the RTT measurement phases (open, read, write).
+
+    See Also:
+        [bigbrotr.nips.nip66.nip66.Nip66Dependencies][bigbrotr.nips.nip66.nip66.Nip66Dependencies]:
+            Top-level dependency container that includes these plus GeoIP readers.
+        [bigbrotr.utils.keys.load_keys_from_env][bigbrotr.utils.keys.load_keys_from_env]:
+            Function used to load the signing keys.
     """
 
     keys: Keys
@@ -49,6 +82,19 @@ class Nip66RttMetadata(BaseMetadata):
 
     Provides the ``execute()`` class method that connects to a relay and
     measures open, read, and write round-trip times.
+
+    Warning:
+        The ``execute()`` method **never raises exceptions** for transport
+        errors. All failures are captured in the
+        [Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]
+        fields. However, ``ValueError`` is raised if an overlay network
+        relay is tested without a proxy URL.
+
+    See Also:
+        [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
+            Top-level model that orchestrates this alongside other tests.
+        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+            The ``NIP66_RTT`` variant used when storing these results.
     """
 
     data: Nip66RttData

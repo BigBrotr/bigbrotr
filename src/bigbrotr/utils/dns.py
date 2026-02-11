@@ -1,7 +1,25 @@
 """DNS resolution utilities for BigBrotr.
 
 Provides async hostname resolution for both IPv4 (A record) and IPv6 (AAAA record)
-addresses. Used by the Monitor service for relay DNS checks and IP geolocation.
+addresses. Used by the [Monitor][bigbrotr.services.monitor.Monitor] service for
+relay DNS checks and IP geolocation.
+
+Note:
+    Resolution uses the system resolver via ``socket.gethostbyname`` and
+    ``socket.getaddrinfo``, delegated to threads with ``asyncio.to_thread``
+    to avoid blocking the event loop. Each address family is resolved
+    independently so that failure of one does not affect the other.
+
+    This module provides **basic** A/AAAA resolution only. For comprehensive
+    DNS record collection (CNAME, NS, PTR, TTL), see the NIP-66 DNS module.
+
+See Also:
+    [bigbrotr.nips.nip66.dns.Nip66DnsMetadata][bigbrotr.nips.nip66.dns.Nip66DnsMetadata]:
+        Full DNS record collection (A, AAAA, CNAME, NS, PTR) using ``dnspython``.
+    [bigbrotr.nips.nip66.geo.Nip66GeoMetadata][bigbrotr.nips.nip66.geo.Nip66GeoMetadata]:
+        Geolocation lookup that depends on this module for IP resolution.
+    [bigbrotr.nips.nip66.net.Nip66NetMetadata][bigbrotr.nips.nip66.net.Nip66NetMetadata]:
+        Network/ASN lookup that depends on this module for IP resolution.
 """
 
 from __future__ import annotations
@@ -14,7 +32,12 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class ResolvedHost:
-    """Immutable result of hostname resolution containing IPv4 and IPv6 addresses."""
+    """Immutable result of hostname resolution containing IPv4 and IPv6 addresses.
+
+    See Also:
+        [resolve_host][bigbrotr.utils.dns.resolve_host]: The async function
+            that produces instances of this class.
+    """
 
     ipv4: str | None = None
     ipv6: str | None = None
@@ -36,7 +59,14 @@ async def resolve_host(host: str) -> ResolvedHost:
         host: Hostname to resolve (e.g., ``"relay.damus.io"``).
 
     Returns:
-        ResolvedHost with resolved addresses (None for failed lookups).
+        [ResolvedHost][bigbrotr.utils.dns.ResolvedHost] with resolved
+            addresses (``None`` for failed lookups).
+
+    Note:
+        All exceptions from the underlying socket calls are suppressed.
+        A completely unresolvable hostname returns a
+        [ResolvedHost][bigbrotr.utils.dns.ResolvedHost] with both fields
+        set to ``None`` and ``has_ip == False`` rather than raising.
 
     Examples:
         ```python

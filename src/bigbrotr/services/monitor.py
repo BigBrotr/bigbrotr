@@ -1,13 +1,50 @@
 """Monitor service for relay health monitoring with NIP-66 compliance.
 
 Performs comprehensive health checks on relays and stores results as
-content-addressed metadata. Optionally publishes Kind 30166 relay discovery
-events and Kind 10166 monitor announcements to the Nostr network.
+content-addressed [Metadata][bigbrotr.models.metadata.Metadata]. Optionally
+publishes Kind 30166 relay discovery events and Kind 10166 monitor
+announcements to the Nostr network.
 
-Health checks include NIP-11 (relay info document), RTT (open/read/write
-round-trip times), SSL (certificate chain validation, clearnet only),
-DNS (hostname resolution, clearnet only), Geo (IP geolocation, clearnet only),
-Net (ASN/organization info, clearnet only), and HTTP (status codes and headers).
+Health checks include:
+
+- [Nip11][bigbrotr.nips.nip11.Nip11]: Relay info document (name,
+  description, pubkey, supported NIPs).
+- [Nip66RttMetadata][bigbrotr.nips.nip66.Nip66RttMetadata]: Open/read/write
+  round-trip times in milliseconds.
+- [Nip66SslMetadata][bigbrotr.nips.nip66.Nip66SslMetadata]: SSL certificate
+  validation (clearnet only).
+- [Nip66DnsMetadata][bigbrotr.nips.nip66.Nip66DnsMetadata]: DNS hostname
+  resolution (clearnet only).
+- [Nip66GeoMetadata][bigbrotr.nips.nip66.Nip66GeoMetadata]: IP geolocation
+  (clearnet only).
+- [Nip66NetMetadata][bigbrotr.nips.nip66.Nip66NetMetadata]: ASN/organization
+  info (clearnet only).
+- [Nip66HttpMetadata][bigbrotr.nips.nip66.Nip66HttpMetadata]: HTTP status
+  codes and headers.
+
+Note:
+    The monitor orchestration is split across three modules for clarity:
+
+    - **monitor.py** (this module): Health check orchestration, config,
+      GeoIP management, retry logic, and persistence.
+    - [monitor_publisher][bigbrotr.services.monitor_publisher]: Nostr event
+      signing, broadcasting, and Kind 0/10166/30166 builders.
+    - [monitor_tags][bigbrotr.services.monitor_tags]: NIP-66 tag
+      construction for Kind 30166 events.
+
+See Also:
+    [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]: Configuration
+        model for networks, processing, geo, publishing, and discovery.
+    [BaseService][bigbrotr.core.base_service.BaseService]: Abstract base
+        class providing ``run()``, ``run_forever()``, and ``from_yaml()``.
+    [Brotr][bigbrotr.core.brotr.Brotr]: Database facade used for metadata
+        persistence and checkpoint management.
+    [Validator][bigbrotr.services.validator.Validator]: Upstream service
+        that promotes candidates to the ``relay`` table.
+    [MonitorPublisherMixin][bigbrotr.services.monitor_publisher.MonitorPublisherMixin]:
+        Publishing logic mixed into the Monitor class.
+    [MonitorTagsMixin][bigbrotr.services.monitor_tags.MonitorTagsMixin]:
+        Tag-building logic mixed into the Monitor class.
 
 Examples:
     ```python
@@ -127,9 +164,10 @@ def _download_geolite_db(url: str, dest: Path, timeout: float = 60.0) -> None:
 class CheckResult(NamedTuple):
     """Result of a single relay health check.
 
-    Each field contains RelayMetadata if that check was run and produced data,
-    or None if the check was skipped (disabled in config) or failed completely.
-    A relay is considered successful if any(result) is True.
+    Each field contains [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+    if that check was run and produced data, or ``None`` if the check was
+    skipped (disabled in config) or failed completely. A relay is considered
+    successful if ``any(result)`` is ``True``.
 
     NIP-66 fields use the ``nip66_`` prefix for disambiguation since this
     container mixes NIP-11 and NIP-66 results.
@@ -142,6 +180,14 @@ class CheckResult(NamedTuple):
         nip66_net: Network information (IP address, ASN, organization).
         nip66_dns: DNS resolution data (IPs, CNAME, nameservers, reverse DNS).
         nip66_http: HTTP metadata (status code, headers, redirect chain).
+
+    See Also:
+        [MetadataFlags][bigbrotr.services.monitor.MetadataFlags]: Boolean
+            flags controlling which check types are computed and stored.
+        [MonitorTagsMixin][bigbrotr.services.monitor_tags.MonitorTagsMixin]:
+            Reads these fields to build Kind 30166 tags.
+        [MonitorPublisherMixin][bigbrotr.services.monitor_publisher.MonitorPublisherMixin]:
+            Publishes discovery events from these results.
     """
 
     nip11: RelayMetadata | None
@@ -159,7 +205,17 @@ class CheckResult(NamedTuple):
 
 
 class MetadataFlags(BaseModel):
-    """Boolean flags controlling which metadata types to compute, store, or publish."""
+    """Boolean flags controlling which metadata types to compute, store, or publish.
+
+    Used in three contexts within
+    [MonitorProcessingConfig][bigbrotr.services.monitor.MonitorProcessingConfig]:
+    ``compute`` (which checks to run), ``store`` (which results to persist),
+    and ``discovery.include`` (which results to publish as NIP-66 tags).
+
+    See Also:
+        ``MonitorConfig.validate_store_requires_compute``: Validator
+            ensuring stored flags are a subset of computed flags.
+    """
 
     nip11_info: bool = Field(default=True)
     nip66_rtt: bool = Field(default=True)
@@ -179,7 +235,18 @@ class MetadataFlags(BaseModel):
 
 
 class MonitorRetryConfig(BaseModel):
-    """Retry settings with exponential backoff and jitter for metadata operations."""
+    """Retry settings with exponential backoff and jitter for metadata operations.
+
+    Warning:
+        The ``jitter`` parameter uses ``random.uniform()`` (PRNG, not
+        crypto-safe) which is intentional -- jitter only needs to
+        decorrelate concurrent retries, not provide cryptographic
+        randomness.
+
+    See Also:
+        ``Monitor._with_retry``:
+            The method that consumes these settings.
+    """
 
     max_attempts: int = Field(default=0, ge=0, le=10)
     initial_delay: float = Field(default=1.0, ge=0.1, le=10.0)
@@ -188,7 +255,17 @@ class MonitorRetryConfig(BaseModel):
 
 
 class MetadataRetryConfig(BaseModel):
-    """Per-metadata-type retry settings."""
+    """Per-metadata-type retry settings.
+
+    Each field corresponds to one of the seven health check types and
+    holds a [MonitorRetryConfig][bigbrotr.services.monitor.MonitorRetryConfig]
+    with independent ``max_attempts``, ``initial_delay``, ``max_delay``,
+    and ``jitter`` values.
+
+    See Also:
+        [MonitorProcessingConfig][bigbrotr.services.monitor.MonitorProcessingConfig]:
+            Parent config that embeds this model.
+    """
 
     nip11_info: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
     nip66_rtt: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
@@ -200,7 +277,14 @@ class MetadataRetryConfig(BaseModel):
 
 
 class MonitorProcessingConfig(BaseModel):
-    """Processing settings: chunk size, retry policies, and compute/store flags."""
+    """Processing settings: chunk size, retry policies, and compute/store flags.
+
+    See Also:
+        [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]: Parent
+            config that embeds this model.
+        [MetadataFlags][bigbrotr.services.monitor.MetadataFlags]: The
+            ``compute`` and ``store`` flag sets.
+    """
 
     chunk_size: int = Field(default=100, ge=10, le=1000)
     max_relays: int | None = Field(default=None, ge=1)
@@ -214,7 +298,22 @@ class MonitorProcessingConfig(BaseModel):
 
 
 class GeoConfig(BaseModel):
-    """GeoLite2 database paths, download URLs, and staleness settings."""
+    """GeoLite2 database paths, download URLs, and staleness settings.
+
+    Note:
+        GeoLite2 databases are downloaded at the start of each cycle if
+        missing or stale (older than ``max_age_days``). Downloads are
+        offloaded to a thread via ``asyncio.to_thread()`` to avoid
+        blocking the event loop during large file transfers (10-50 MB).
+
+    See Also:
+        [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]: Parent
+            config that embeds this model.
+        [Nip66GeoMetadata][bigbrotr.nips.nip66.Nip66GeoMetadata]: The
+            NIP-66 check that reads the City database.
+        [Nip66NetMetadata][bigbrotr.nips.nip66.Nip66NetMetadata]: The
+            NIP-66 check that reads the ASN database.
+    """
 
     city_database_path: str = Field(default="static/GeoLite2-City.mmdb")
     asn_database_path: str = Field(default="static/GeoLite2-ASN.mmdb")
@@ -228,13 +327,27 @@ class GeoConfig(BaseModel):
 
 
 class PublishingConfig(BaseModel):
-    """Default relay list used as fallback for event publishing."""
+    """Default relay list used as fallback for event publishing.
+
+    See Also:
+        [DiscoveryConfig][bigbrotr.services.monitor.DiscoveryConfig],
+        [AnnouncementConfig][bigbrotr.services.monitor.AnnouncementConfig],
+        [ProfileConfig][bigbrotr.services.monitor.ProfileConfig]: Each
+            can override this list with their own ``relays`` field.
+    """
 
     relays: RelayList = Field(default_factory=list)
 
 
 class DiscoveryConfig(BaseModel):
-    """Kind 30166 relay discovery event settings (NIP-66)."""
+    """Kind 30166 relay discovery event settings (NIP-66).
+
+    See Also:
+        ``MonitorTagsMixin._build_kind_30166()``: Builds the event
+            from check results using ``include`` flags.
+        ``MonitorPublisherMixin._publish_relay_discoveries()``:
+            Broadcasts the built events to the configured relays.
+    """
 
     enabled: bool = Field(default=True)
     interval: int = Field(default=3600, ge=60)
@@ -243,7 +356,12 @@ class DiscoveryConfig(BaseModel):
 
 
 class AnnouncementConfig(BaseModel):
-    """Kind 10166 monitor announcement settings (NIP-66)."""
+    """Kind 10166 monitor announcement settings (NIP-66).
+
+    See Also:
+        ``MonitorPublisherMixin._build_kind_10166()``: Builds the
+            announcement event with frequency and timeout tags.
+    """
 
     enabled: bool = Field(default=True)
     interval: int = Field(default=86_400, ge=60)
@@ -251,7 +369,12 @@ class AnnouncementConfig(BaseModel):
 
 
 class ProfileConfig(BaseModel):
-    """Kind 0 profile metadata settings (NIP-01)."""
+    """Kind 0 profile metadata settings (NIP-01).
+
+    See Also:
+        ``MonitorPublisherMixin._build_kind_0()``: Builds the profile
+            event from these fields.
+    """
 
     enabled: bool = Field(default=False)
     interval: int = Field(default=86_400, ge=60)
@@ -266,7 +389,26 @@ class ProfileConfig(BaseModel):
 
 
 class MonitorConfig(BaseServiceConfig):
-    """Monitor service configuration with validation for dependency constraints."""
+    """Monitor service configuration with validation for dependency constraints.
+
+    Note:
+        Three ``model_validator`` methods enforce dependency constraints
+        at config load time (fail-fast):
+
+        - ``validate_geo_databases``: GeoLite2 files must be downloadable.
+        - ``validate_store_requires_compute``: Cannot store uncalculated
+          metadata.
+        - ``validate_publish_requires_compute``: Cannot publish uncalculated
+          metadata.
+
+    See Also:
+        [Monitor][bigbrotr.services.monitor.Monitor]: The service class
+            that consumes this configuration.
+        [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
+            Base class providing ``interval`` and ``log_level`` fields.
+        [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key
+            management for event signing.
+    """
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
     keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
@@ -342,16 +484,37 @@ class Monitor(
     """Relay health monitoring service with NIP-66 compliance.
 
     Performs comprehensive health checks on relays and stores results as
-    content-addressed metadata. Optionally publishes NIP-66 events:
+    content-addressed [Metadata][bigbrotr.models.metadata.Metadata].
+    Optionally publishes NIP-66 events:
 
-    - Kind 10166: Monitor announcement (capabilities, frequency, timeouts).
-    - Kind 30166: Per-relay discovery event (RTT, SSL, geo, NIP-11 tags).
+    - **Kind 10166**: Monitor announcement (capabilities, frequency, timeouts).
+    - **Kind 30166**: Per-relay discovery event (RTT, SSL, geo, NIP-11 tags).
 
     Each cycle updates GeoLite2 databases, publishes profile/announcement
     events if due, fetches relays needing checks, processes them in chunks
     with per-network semaphores, persists metadata results, and publishes
     Kind 30166 discovery events. Supports clearnet (direct), Tor, I2P,
     and Lokinet (via SOCKS5 proxy).
+
+    Note:
+        The MRO composes four mixins:
+
+        - [MonitorTagsMixin][bigbrotr.services.monitor_tags.MonitorTagsMixin]:
+          Kind 30166 tag building.
+        - [MonitorPublisherMixin][bigbrotr.services.monitor_publisher.MonitorPublisherMixin]:
+          Event signing and broadcasting.
+        - [BatchProgressMixin][bigbrotr.services.common.mixins.BatchProgressMixin]:
+          Cycle progress tracking.
+        - [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin]:
+          Per-network concurrency control.
+
+    See Also:
+        [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]:
+            Configuration model for this service.
+        [Validator][bigbrotr.services.validator.Validator]: Upstream
+            service that promotes candidates to the ``relay`` table.
+        [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]:
+            Downstream service that collects events from monitored relays.
     """
 
     SERVICE_NAME: ClassVar[str] = ServiceName.MONITOR
@@ -371,7 +534,12 @@ class Monitor(
     # -------------------------------------------------------------------------
 
     async def run(self) -> None:
-        """Execute one complete monitoring cycle."""
+        """Execute one complete monitoring cycle.
+
+        Orchestrates: GeoIP update, profile/announcement publishing,
+        relay counting, chunk-based health checks, metadata persistence,
+        and Kind 30166 event publishing.
+        """
         self._progress.reset()
         self._init_semaphores(self._config.networks)
 
@@ -500,7 +668,12 @@ class Monitor(
     # -------------------------------------------------------------------------
 
     def _emit_metrics(self) -> None:
-        """Emit Prometheus metrics reflecting current cycle state."""
+        """Emit Prometheus metrics reflecting current cycle state.
+
+        See Also:
+            [Metrics][bigbrotr.core.metrics]: Prometheus endpoint that
+                serves the gauge values set here.
+        """
         self.set_gauge("total", self._progress.total)
         self.set_gauge("processed", self._progress.processed)
         self.set_gauge("success", self._progress.success)
@@ -511,7 +684,11 @@ class Monitor(
     # -------------------------------------------------------------------------
 
     async def _count_relays(self, networks: list[str]) -> int:
-        """Count relays needing health checks for the given networks."""
+        """Count relays needing health checks for the given networks.
+
+        See Also:
+            ``count_relays_due_for_check``: The SQL query executed.
+        """
         if not networks:
             self._logger.warning("no_networks_enabled")
             return 0
@@ -534,7 +711,14 @@ class Monitor(
         """Process all pending relays in configurable chunks.
 
         Iterates until no relays remain, the ``max_relays`` limit is reached,
-        or the service is stopped.
+        or the service is stopped. Each chunk undergoes health checking,
+        Kind 30166 publishing, and metadata persistence.
+
+        Note:
+            Chunk processing order: ``_check_chunk`` -> ``_publish_relay_discoveries``
+            -> ``_persist_results``. Publishing happens before persistence
+            so that Kind 30166 events reflect the most recent check data
+            even if the DB write fails.
         """
         if not networks:
             self._logger.warning("no_networks_enabled")
@@ -575,7 +759,11 @@ class Monitor(
             )
 
     async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Relay]:
-        """Fetch the next chunk of relays ordered by least-recently-checked first."""
+        """Fetch the next chunk of relays ordered by least-recently-checked first.
+
+        See Also:
+            ``fetch_relays_due_for_check``: The SQL query executed.
+        """
         threshold = int(self._progress.started_at) - self._config.discovery.interval
 
         rows = await fetch_relays_due_for_check(
@@ -600,6 +788,11 @@ class Monitor(
         self, relays: list[Relay]
     ) -> tuple[list[tuple[Relay, CheckResult]], list[Relay]]:
         """Run health checks on a chunk of relays concurrently.
+
+        Uses ``asyncio.gather`` with per-network semaphores to bound
+        concurrency. A relay is considered successful if any field in
+        its [CheckResult][bigbrotr.services.monitor.CheckResult] is
+        non-``None``.
 
         Returns:
             Tuple of (successful relay-result pairs, failed relays).
@@ -656,16 +849,30 @@ class Monitor(
         """Execute a metadata fetch with exponential backoff retry.
 
         Retries on network failures up to ``retry_config.max_attempts`` times.
-        Returns the result (possibly with success=False) or None on exception.
+        Returns the result (possibly with ``success=False``) or ``None`` on
+        exception.
+
+        Note:
+            The ``coro_factory`` pattern (a callable returning a coroutine)
+            is required because Python coroutines are single-use: once
+            awaited, they cannot be re-awaited. The factory creates a fresh
+            coroutine for each retry attempt.
+
+        Warning:
+            Jitter is computed via ``random.uniform()`` (PRNG, ``# noqa: S311``).
+            This is intentional -- jitter only needs to decorrelate
+            concurrent retries, not provide cryptographic randomness.
 
         Args:
             coro_factory: Callable that creates the coroutine to execute.
-            retry_config: Retry settings (max retries, delays, jitter).
-            operation: Operation name for logging.
+                Must return a fresh coroutine on each call.
+            retry_config: [MonitorRetryConfig][bigbrotr.services.monitor.MonitorRetryConfig]
+                with max retries, delays, and jitter.
+            operation: Operation name for structured log messages.
             relay_url: Relay URL for logging context.
 
         Returns:
-            The metadata result, or None if an exception occurred.
+            The metadata result, or ``None`` if an exception occurred.
         """
         max_retries = retry_config.max_attempts
         result = None
@@ -729,6 +936,15 @@ class Monitor(
         Each entry maps a check name to a retry-wrapped coroutine. Only
         checks that are enabled in ``compute`` and applicable to the
         relay's network type are included.
+
+        Note:
+            SSL, DNS, Geo, and Net checks are clearnet-only because
+            overlay networks (Tor, I2P, Lokinet) do not expose the
+            underlying IP address needed for these probes.
+
+        See Also:
+            [MetadataFlags][bigbrotr.services.monitor.MetadataFlags]:
+                Controls which checks are included.
         """
         tasks: dict[str, Any] = {}
 
@@ -776,11 +992,20 @@ class Monitor(
     async def _check_one(self, relay: Relay) -> CheckResult:
         """Perform all configured health checks on a single relay.
 
-        Runs NIP-11, RTT, SSL, DNS, geo, net, and HTTP checks as configured.
-        Uses the network-specific semaphore to limit concurrency.
+        Runs [Nip11][bigbrotr.nips.nip11.Nip11], RTT, SSL, DNS, geo, net,
+        and HTTP checks as configured. Uses the network-specific semaphore
+        (from [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin])
+        to limit concurrency.
+
+        Note:
+            NIP-11 is fetched first because the RTT write-test may need
+            the ``min_pow_difficulty`` from NIP-11's ``limitation`` object
+            to apply proof-of-work on the test event. All other checks
+            (SSL, DNS, Geo, Net, HTTP) run in parallel after NIP-11 and RTT.
 
         Returns:
-            CheckResult with metadata for each completed check (None if skipped/failed).
+            [CheckResult][bigbrotr.services.monitor.CheckResult] with
+            metadata for each completed check (``None`` if skipped/failed).
         """
         empty = CheckResult(None, None, None, None, None, None, None)
 
@@ -905,14 +1130,18 @@ class Monitor(
         """Collect storable metadata from successful health check results.
 
         Iterates over successful check results and collects each metadata type
-        that is both present in the result and enabled in the store flags.
+        that is both present in the result and enabled in the
+        [MetadataFlags][bigbrotr.services.monitor.MetadataFlags] store flags.
 
         Args:
-            successful: List of (relay, check_result) pairs from health checks.
+            successful: List of ([Relay][bigbrotr.models.relay.Relay],
+                [CheckResult][bigbrotr.services.monitor.CheckResult])
+                pairs from health checks.
             store: Flags controlling which metadata types to persist.
 
         Returns:
-            List of RelayMetadata records ready for database insertion.
+            List of [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+            records ready for database insertion.
         """
         metadata: list[RelayMetadata] = []
         for _, result in successful:
@@ -939,9 +1168,19 @@ class Monitor(
     ) -> None:
         """Persist health check results to the database.
 
-        Inserts metadata records for successful checks and saves checkpoint
-        timestamps for all checked relays (both successful and failed) to
-        avoid re-checking within the same interval.
+        Inserts [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+        records for successful checks and saves checkpoint timestamps
+        (as [ServiceState][bigbrotr.models.service_state.ServiceState]
+        records with ``state_type='checkpoint'``) for all checked relays
+        (both successful and failed) to avoid re-checking within the
+        same interval.
+
+        Note:
+            Checkpoints are saved for *all* relays, including failed ones.
+            This prevents the monitor from repeatedly retrying a relay
+            that is temporarily down within the same discovery interval.
+            The relay will be rechecked in the next cycle after the
+            interval elapses.
         """
         now = int(time.time())
 

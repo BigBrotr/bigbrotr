@@ -238,7 +238,7 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["python", "-m", "bigbrotr", "seeder", "--once"]
+    command: ["bigbrotr", "seeder", "--once"]
 
     healthcheck:
       disable: true
@@ -284,7 +284,7 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["python", "-m", "bigbrotr", "finder"]
+    command: ["bigbrotr", "finder"]
 
     stop_grace_period: 60s
 
@@ -343,7 +343,7 @@ services:
       # lokinet:
       #   condition: service_healthy
 
-    command: ["python", "-m", "bigbrotr", "validator"]
+    command: ["bigbrotr", "validator"]
 
     stop_grace_period: 60s
 
@@ -403,7 +403,7 @@ services:
       # lokinet:
       #   condition: service_healthy
 
-    command: ["python", "-m", "bigbrotr", "monitor"]
+    command: ["bigbrotr", "monitor"]
 
     stop_grace_period: 60s
 
@@ -462,7 +462,7 @@ services:
       # lokinet:
       #   condition: service_healthy
 
-    command: ["python", "-m", "bigbrotr", "synchronizer"]
+    command: ["bigbrotr", "synchronizer"]
 
     stop_grace_period: 60s
 
