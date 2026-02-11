@@ -213,6 +213,7 @@ temp/
 
 # MkDocs
 site/
+.cache/
 
 # Sphinx
 docs/_build/
