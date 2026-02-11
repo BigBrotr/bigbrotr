@@ -58,7 +58,7 @@ class RelayMetadataDbParams(NamedTuple):
     relay_url: str
     relay_network: str
     relay_discovered_at: int
-    # Metadata fields (matching metadata table order: id, type, data)
+    # Metadata fields (matching metadata table order: id, metadata_type, data)
     metadata_id: bytes
     metadata_type: MetadataType
     metadata_data: str
@@ -95,7 +95,7 @@ class RelayMetadata:
 
     Note:
         The ``metadata_type`` exists on both the ``metadata`` table (composite
-        PK ``(id, type)``) and the ``relay_metadata`` junction table
+        PK ``(id, metadata_type)``) and the ``relay_metadata`` junction table
         (compound FK ``(metadata_id, metadata_type)``). This enforces referential
         integrity at the type level and enables efficient type-filtered queries
         (e.g., "latest NIP-11 info for all relays") without joining through

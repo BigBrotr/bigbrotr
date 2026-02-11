@@ -22,7 +22,7 @@ Create `src/bigbrotr/services/pruner.py`:
 """Pruner service -- removes stale relay metadata on a schedule."""
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
-from bigbrotr.services.common.constants import ServiceName
+from bigbrotr.models.constants import ServiceName
 
 from pydantic import Field
 
