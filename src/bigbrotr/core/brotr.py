@@ -679,8 +679,8 @@ class Brotr:
                 from [BatchConfig][bigbrotr.core.brotr.BatchConfig].
 
         Note:
-            The ``metadata`` table has columns ``id``, ``type``, and
-            ``data`` with composite PK ``(id, type)``.
+            The ``metadata`` table has columns ``id``, ``metadata_type``, and
+            ``data`` with composite PK ``(id, metadata_type)``.
             The SHA-256 hash is computed over the canonical JSON representation
             in the [Metadata][bigbrotr.models.metadata.Metadata] model's
             ``__post_init__`` method.
