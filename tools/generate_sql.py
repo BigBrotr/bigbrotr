@@ -46,6 +46,18 @@ IMPLEMENTATIONS: dict[str, dict[str, str]] = {
         "07_functions_refresh.sql.j2": None,  # Produces empty output, skip
         "99_verify.sql.j2": "99_verify.sql",
     },
+    "_template": {
+        "00_extensions.sql.j2": "00_extensions.sql",
+        "01_functions_utility.sql.j2": "01_functions_utility.sql",
+        "02_tables.sql.j2": "02_tables.sql",
+        "03_functions_crud.sql.j2": "03_functions_crud.sql",
+        "04_functions_cleanup.sql.j2": "04_functions_cleanup.sql",
+        "05_views.sql.j2": None,
+        "06_materialized_views.sql.j2": None,
+        "07_functions_refresh.sql.j2": None,
+        "08_indexes.sql.j2": "05_indexes.sql",
+        "99_verify.sql.j2": "99_verify.sql",
+    },
 }
 
 

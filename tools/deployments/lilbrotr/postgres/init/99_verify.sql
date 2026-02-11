@@ -1,0 +1,32 @@
+/*
+ * LilBrotr - 99_verify.sql
+ *
+ * Post-initialization verification script. Prints a summary of all created
+ * database objects to confirm successful schema setup.
+ *
+ * Dependencies: All previous initialization files (00-05)
+ */
+
+DO $$
+BEGIN
+    RAISE NOTICE '============================================================================';
+    RAISE NOTICE 'LilBrotr database schema initialized successfully';
+    RAISE NOTICE '============================================================================';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Extensions: btree_gin';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Tables:';
+    RAISE NOTICE '  relay, event (lightweight), event_relay,';
+    RAISE NOTICE '  metadata, relay_metadata, service_state';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Functions:';
+    RAISE NOTICE '  tags_to_tagvalues, relay_insert, event_insert,';
+    RAISE NOTICE '  metadata_insert, event_relay_insert, relay_metadata_insert,';
+    RAISE NOTICE '  event_relay_insert_cascade, relay_metadata_insert_cascade,';
+    RAISE NOTICE '  service_state_upsert, service_state_get, service_state_delete,';
+    RAISE NOTICE '  orphan_metadata_delete, orphan_event_delete';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Note: Event table stores id, pubkey, created_at, kind, tagvalues only.';
+    RAISE NOTICE '      Tags, content, and sig are discarded at insert time (~60%% savings).';
+    RAISE NOTICE '============================================================================';
+END $$;
