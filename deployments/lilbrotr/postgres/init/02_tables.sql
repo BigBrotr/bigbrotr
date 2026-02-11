@@ -143,8 +143,8 @@ CREATE TABLE IF NOT EXISTS service_state (
 );
 
 COMMENT ON TABLE service_state IS 'Per-service persistent state (candidates, cursors, checkpoints)';
-COMMENT ON COLUMN service_state.service_name IS 'Service identifier (finder, validator, synchronizer, monitor)';
-COMMENT ON COLUMN service_state.state_type IS 'State category (candidate, cursor, checkpoint, config)';
+COMMENT ON COLUMN service_state.service_name IS 'Service identifier (seeder, finder, validator, monitor, synchronizer)';
+COMMENT ON COLUMN service_state.state_type IS 'State category (candidate, cursor, checkpoint)';
 COMMENT ON COLUMN service_state.state_key IS 'Unique key within service+type (typically a relay URL or entity ID)';
 COMMENT ON COLUMN service_state.payload IS 'JSONB payload specific to the service and state type';
 COMMENT ON COLUMN service_state.updated_at IS 'Unix timestamp of last update';
