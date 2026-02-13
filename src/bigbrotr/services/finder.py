@@ -49,7 +49,6 @@ Examples:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -497,8 +496,12 @@ class Finder(BaseService[FinderConfig]):
                     self._logger.debug("api_fetched", url=source.url, count=len(source_relays))
 
                     # Rate-limit between API requests (skip delay after the last source)
-                    if self._config.api.delay_between_requests > 0 and i < len(enabled_sources) - 1:
-                        await asyncio.sleep(self._config.api.delay_between_requests)
+                    if (
+                        self._config.api.delay_between_requests > 0
+                        and i < len(enabled_sources) - 1
+                        and await self.wait(self._config.api.delay_between_requests)
+                    ):
+                        break
 
                 except (TimeoutError, OSError, aiohttp.ClientError) as e:
                     self._logger.warning(

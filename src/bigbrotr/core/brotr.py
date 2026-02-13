@@ -387,78 +387,66 @@ class Brotr:
         self,
         query: str,
         *args: Any,
-        timeout: float | None = None,  # noqa: ASYNC109
     ) -> list[asyncpg.Record]:
         """Execute a query and return all rows.
 
         Delegates to [Pool.fetch()][bigbrotr.core.pool.Pool.fetch] with
-        automatic timeout defaulting.
+        timeout from
+        [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
 
         Args:
             query: SQL query with ``$1``, ``$2``, ... placeholders.
             *args: Query parameters.
-            timeout: Query timeout in seconds. Defaults to
-                [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
         """
-        t = timeout if timeout is not None else self._config.timeouts.query
-        return await self._pool.fetch(query, *args, timeout=t)
+        return await self._pool.fetch(query, *args, timeout=self._config.timeouts.query)
 
     async def fetchrow(
         self,
         query: str,
         *args: Any,
-        timeout: float | None = None,  # noqa: ASYNC109
     ) -> asyncpg.Record | None:
         """Execute a query and return the first row.
 
         Delegates to [Pool.fetchrow()][bigbrotr.core.pool.Pool.fetchrow] with
-        automatic timeout defaulting.
+        timeout from
+        [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
 
         Args:
             query: SQL query with ``$1``, ``$2``, ... placeholders.
             *args: Query parameters.
-            timeout: Query timeout in seconds. Defaults to
-                [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
         """
-        t = timeout if timeout is not None else self._config.timeouts.query
-        return await self._pool.fetchrow(query, *args, timeout=t)
+        return await self._pool.fetchrow(query, *args, timeout=self._config.timeouts.query)
 
-    async def fetchval(self, query: str, *args: Any, timeout: float | None = None) -> Any:  # noqa: ASYNC109
+    async def fetchval(self, query: str, *args: Any) -> Any:
         """Execute a query and return the first column of the first row.
 
         Delegates to [Pool.fetchval()][bigbrotr.core.pool.Pool.fetchval] with
-        automatic timeout defaulting.
+        timeout from
+        [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
 
         Args:
             query: SQL query with ``$1``, ``$2``, ... placeholders.
             *args: Query parameters.
-            timeout: Query timeout in seconds. Defaults to
-                [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
         """
-        t = timeout if timeout is not None else self._config.timeouts.query
-        return await self._pool.fetchval(query, *args, timeout=t)
+        return await self._pool.fetchval(query, *args, timeout=self._config.timeouts.query)
 
-    async def execute(self, query: str, *args: Any, timeout: float | None = None) -> str:  # noqa: ASYNC109
+    async def execute(self, query: str, *args: Any) -> str:
         """Execute a query and return the command status string.
 
         Delegates to [Pool.execute()][bigbrotr.core.pool.Pool.execute] with
-        automatic timeout defaulting.
+        timeout from
+        [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
 
         Args:
             query: SQL query with ``$1``, ``$2``, ... placeholders.
             *args: Query parameters.
-            timeout: Query timeout in seconds. Defaults to
-                [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
         """
-        t = timeout if timeout is not None else self._config.timeouts.query
-        return await self._pool.execute(query, *args, timeout=t)
+        return await self._pool.execute(query, *args, timeout=self._config.timeouts.query)
 
     async def executemany(
         self,
         query: str,
         args_list: list[tuple[Any, ...]],
-        *,
-        timeout: float | None = None,  # noqa: ASYNC109
     ) -> None:
         """Execute a query repeatedly with different parameter sets.
 
@@ -469,11 +457,8 @@ class Brotr:
         Args:
             query: SQL query with ``$1``, ``$2``, ... placeholders.
             args_list: List of parameter tuples, one per execution.
-            timeout: Query timeout in seconds. Defaults to
-                [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
         """
-        t = timeout if timeout is not None else self._config.timeouts.query
-        await self._pool.executemany(query, args_list, timeout=t)
+        await self._pool.executemany(query, args_list, timeout=self._config.timeouts.query)
 
     def transaction(self) -> AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]:
         """Return a transaction context manager from the pool.

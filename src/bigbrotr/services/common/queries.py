@@ -17,12 +17,10 @@ The 13 query functions are grouped into four categories:
 - **Cursor queries**: ``get_all_service_cursors``
 
 Warning:
-    All queries run with the default or caller-supplied ``timeout``. Long-
-    running queries (especially ``fetch_relays_due_for_check`` and
-    ``get_events_with_relay_urls``) should use the
-    ``brotr.config.timeouts.query`` setting to avoid blocking the event
-    loop indefinitely. Consider setting a ``statement_timeout`` at the
-    PostgreSQL connection level as a safety net.
+    All queries use the timeout from
+    [BrotrTimeoutsConfig][bigbrotr.core.brotr.BrotrTimeoutsConfig]
+    (``timeouts.query`` for reads, ``timeouts.batch`` for writes).
+    The PostgreSQL ``statement_timeout`` acts as a server-side safety net.
 
 See Also:
     [Brotr][bigbrotr.core.brotr.Brotr]: Database facade that provides
@@ -93,8 +91,6 @@ async def get_all_relays(brotr: Brotr) -> list[dict[str, Any]]:
 async def filter_new_relay_urls(
     brotr: Brotr,
     urls: list[str],
-    *,
-    timeout: float | None = None,  # noqa: ASYNC109
 ) -> list[str]:
     """Filter URLs to those not already in relays or validator candidates.
 
@@ -105,7 +101,6 @@ async def filter_new_relay_urls(
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         urls: Candidate URLs to check.
-        timeout: Query timeout override.
 
     Returns:
         URLs that are genuinely new (not in relays, not in candidates).
@@ -127,7 +122,6 @@ async def filter_new_relay_urls(
         urls,
         ServiceName.VALIDATOR,
         ServiceStateType.CANDIDATE,
-        timeout=timeout,
     )
     return [row["url"] for row in rows]
 
@@ -155,8 +149,6 @@ async def count_relays_due_for_check(
     service_name: ServiceName,
     threshold: int,
     networks: list[str],
-    *,
-    timeout: float | None = None,  # noqa: ASYNC109
 ) -> int:
     """Count relays needing health checks.
 
@@ -171,7 +163,6 @@ async def count_relays_due_for_check(
         threshold: Unix timestamp cutoff -- relays last checked before this
             are considered due.
         networks: Network type strings to include.
-        timeout: Query timeout override.
 
     Returns:
         Number of relays due for a check.
@@ -186,19 +177,16 @@ async def count_relays_due_for_check(
         ServiceStateType.CHECKPOINT,
         networks,
         threshold,
-        timeout=timeout,
     )
     return row["count"] if row else 0
 
 
-async def fetch_relays_due_for_check(  # noqa: PLR0913
+async def fetch_relays_due_for_check(
     brotr: Brotr,
     service_name: ServiceName,
     threshold: int,
     networks: list[str],
     limit: int,
-    *,
-    timeout: float | None = None,  # noqa: ASYNC109
 ) -> list[dict[str, Any]]:
     """Fetch relays due for health checks, ordered by least-recently-checked.
 
@@ -215,7 +203,6 @@ async def fetch_relays_due_for_check(  # noqa: PLR0913
             are considered due.
         networks: Network type strings to include.
         limit: Maximum relays to return.
-        timeout: Query timeout override.
 
     Returns:
         List of dicts with keys: ``url``, ``network``, ``discovered_at``.
@@ -238,7 +225,6 @@ async def fetch_relays_due_for_check(  # noqa: PLR0913
         networks,
         threshold,
         limit,
-        timeout=timeout,
     )
     return [dict(row) for row in rows]
 
@@ -360,8 +346,6 @@ async def upsert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
 async def count_candidates(
     brotr: Brotr,
     networks: list[str],
-    *,
-    timeout: float | None = None,  # noqa: ASYNC109
 ) -> int:
     """Count pending validation candidates for the given networks.
 
@@ -372,7 +356,6 @@ async def count_candidates(
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         networks: Network type strings (e.g. ``['clearnet', 'tor']``).
-        timeout: Query timeout override.
 
     Returns:
         Total count of matching candidates.
@@ -392,7 +375,6 @@ async def count_candidates(
         ServiceName.VALIDATOR,
         ServiceStateType.CANDIDATE,
         networks,
-        timeout=timeout,
     )
     return row["count"] if row else 0
 
@@ -402,8 +384,6 @@ async def fetch_candidate_chunk(
     networks: list[str],
     before_timestamp: int,
     limit: int,
-    *,
-    timeout: float | None = None,  # noqa: ASYNC109
 ) -> list[dict[str, Any]]:
     """Fetch candidates prioritized by fewest failures, then oldest.
 
@@ -419,7 +399,6 @@ async def fetch_candidate_chunk(
         networks: Network type strings to include.
         before_timestamp: Exclude candidates updated after this time.
         limit: Maximum candidates to return.
-        timeout: Query timeout override.
 
     Returns:
         List of dicts with keys: ``state_key``, ``state_value``.
@@ -448,12 +427,11 @@ async def fetch_candidate_chunk(
         networks,
         before_timestamp,
         limit,
-        timeout=timeout,
     )
     return [dict(row) for row in rows]
 
 
-async def delete_stale_candidates(brotr: Brotr, *, timeout: float | None = None) -> str:  # noqa: ASYNC109
+async def delete_stale_candidates(brotr: Brotr) -> str:
     """Remove candidates whose URLs already exist in the relays table.
 
     Called by [Validator][bigbrotr.services.validator.Validator] during
@@ -477,15 +455,12 @@ async def delete_stale_candidates(brotr: Brotr, *, timeout: float | None = None)
         """,
         ServiceName.VALIDATOR,
         ServiceStateType.CANDIDATE,
-        timeout=timeout,
     )
 
 
 async def delete_exhausted_candidates(
     brotr: Brotr,
     max_failures: int,
-    *,
-    timeout: float | None = None,  # noqa: ASYNC109
 ) -> str:
     """Remove candidates that have exceeded the failure threshold.
 
@@ -498,7 +473,6 @@ async def delete_exhausted_candidates(
         max_failures: Maximum allowed failed attempts (from
             ``cleanup.max_failures`` in
             [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig]).
-        timeout: Query timeout override.
 
     Returns:
         PostgreSQL command status string (e.g. ``'DELETE 3'``).
@@ -517,7 +491,6 @@ async def delete_exhausted_candidates(
         ServiceName.VALIDATOR,
         ServiceStateType.CANDIDATE,
         max_failures,
-        timeout=timeout,
     )
 
 
@@ -545,6 +518,10 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
         The transaction ensures atomicity: if the insert succeeds but
         the delete fails, neither operation is committed.
 
+        Uses ``brotr.transaction()`` for atomicity, which yields a raw
+        asyncpg connection that bypasses Brotr's timeout facade.
+        Timeout uses ``config.timeouts.batch`` explicitly.
+
     See Also:
         [upsert_candidates][bigbrotr.services.common.queries.upsert_candidates]:
             The inverse operation that creates candidate records.
@@ -556,6 +533,7 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
     urls = [p.url for p in params]
     networks = [p.network for p in params]
     discovered_ats = [p.discovered_at for p in params]
+    t = brotr.config.timeouts.batch
 
     async with brotr.transaction() as conn:
         inserted = (
@@ -564,6 +542,7 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
                 urls,
                 networks,
                 discovered_ats,
+                timeout=t,
             )
             or 0
         )
@@ -577,6 +556,7 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
             ServiceName.VALIDATOR,
             ServiceStateType.CANDIDATE,
             urls,
+            timeout=t,
         )
 
     return inserted

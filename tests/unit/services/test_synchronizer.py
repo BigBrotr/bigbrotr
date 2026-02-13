@@ -226,20 +226,8 @@ class TestSyncConcurrencyConfig:
         """Test default concurrency config."""
         config = SyncConcurrencyConfig()
 
-        assert config.max_parallel == 10
         assert config.stagger_delay == (0, 60)
-
-    def test_validation_constraints(self) -> None:
-        """Test validation constraints."""
-        with pytest.raises(ValueError):
-            SyncConcurrencyConfig(max_parallel=0)
-
-        with pytest.raises(ValueError):
-            SyncConcurrencyConfig(max_parallel=101)
-
-    def test_no_max_processes_field(self) -> None:
-        """Test that max_processes field has been removed."""
-        assert not hasattr(SyncConcurrencyConfig(), "max_processes")
+        assert config.cursor_flush_interval == 50
 
 
 # ============================================================================
@@ -289,7 +277,7 @@ class TestSynchronizerConfig:
         assert config.time_range.default_start == 0
         assert config.networks.clearnet.timeout == 10.0
         assert config.sync_timeouts.relay_clearnet == 1800.0
-        assert config.concurrency.max_parallel == 10
+        assert config.concurrency.cursor_flush_interval == 50
         assert config.source.from_database is True
         assert config.interval == 300.0
 
@@ -297,12 +285,12 @@ class TestSynchronizerConfig:
         """Test custom nested configuration with Tor enabled."""
         config = SynchronizerConfig(
             networks=NetworkConfig(tor=TorConfig(enabled=True)),
-            concurrency=SyncConcurrencyConfig(max_parallel=5),
+            concurrency=SyncConcurrencyConfig(cursor_flush_interval=25),
             interval=1800.0,
         )
 
         assert config.networks.tor.enabled is True
-        assert config.concurrency.max_parallel == 5
+        assert config.concurrency.cursor_flush_interval == 25
         assert config.interval == 1800.0
 
     def test_no_worker_log_level_field(self) -> None:
@@ -331,23 +319,23 @@ class TestSynchronizerInit:
         """Test initialization with custom config (Tor enabled)."""
         config = SynchronizerConfig(
             networks=NetworkConfig(tor=TorConfig(enabled=True)),
-            concurrency=SyncConcurrencyConfig(max_parallel=5),
+            concurrency=SyncConcurrencyConfig(cursor_flush_interval=25),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         assert sync.config.networks.tor.enabled is True
-        assert sync.config.concurrency.max_parallel == 5
+        assert sync.config.concurrency.cursor_flush_interval == 25
 
     def test_from_dict(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test factory method from_dict."""
         data = {
             "networks": {"tor": {"enabled": True}},
-            "concurrency": {"max_parallel": 5},
+            "concurrency": {"cursor_flush_interval": 25},
         }
         sync = Synchronizer.from_dict(data, brotr=mock_synchronizer_brotr)
 
         assert sync.config.networks.tor.enabled is True
-        assert sync.config.concurrency.max_parallel == 5
+        assert sync.config.concurrency.cursor_flush_interval == 25
 
 
 # ============================================================================
@@ -462,6 +450,7 @@ class TestSynchronizerSyncAllRelays:
     ) -> None:
         """Test that ExceptionGroup from TaskGroup is handled gracefully."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._init_semaphores(sync._config.networks)
 
         # Mock _fetch_all_cursors to return empty dict
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
@@ -485,6 +474,7 @@ class TestSynchronizerSyncAllRelays:
     async def test_sync_all_relays_empty_list(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test _sync_all_relays with no relays completes without error."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._init_semaphores(sync._config.networks)
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         await sync._sync_all_relays([])

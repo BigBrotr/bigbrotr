@@ -291,9 +291,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             [delete_stale_candidates][bigbrotr.services.common.queries.delete_stale_candidates]:
                 The SQL query executed by this method.
         """
-        result = await delete_stale_candidates(
-            self._brotr, timeout=self._brotr.config.timeouts.query
-        )
+        result = await delete_stale_candidates(self._brotr)
         count = self._parse_delete_result(result)
         if count > 0:
             self.inc_counter("total_stale_removed", count)
@@ -315,7 +313,6 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         result = await delete_exhausted_candidates(
             self._brotr,
             self._config.cleanup.max_failures,
-            timeout=self._brotr.config.timeouts.query,
         )
         count = self._parse_delete_result(result)
         if count > 0:
@@ -359,9 +356,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         Returns:
             Total count of matching candidates, or 0 if none exist.
         """
-        return await count_candidates(
-            self._brotr, networks, timeout=self._brotr.config.timeouts.query
-        )
+        return await count_candidates(self._brotr, networks)
 
     # -------------------------------------------------------------------------
     # Processing
@@ -433,7 +428,6 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             networks,
             int(self._progress.started_at),
             limit,
-            timeout=self._brotr.config.timeouts.query,
         )
 
         candidates = []
