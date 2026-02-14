@@ -21,15 +21,11 @@ Prerequisites, installation, project layout, and tooling for BigBrotr developmen
 git clone https://github.com/BigBrotr/bigbrotr.git
 cd bigbrotr
 
-# Create and activate a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install with development dependencies
-pip install -e ".[dev]"
-
-# Install documentation dependencies (optional)
-pip install -e ".[docs]"
+# Install with development and documentation dependencies
+uv sync --group dev --group docs
 
 # Install pre-commit hooks
 pre-commit install
@@ -39,7 +35,7 @@ make ci
 ```
 
 !!! tip
-    `make install` runs `pip install -e ".[dev]"` and `pre-commit install` in one step.
+    `make install` runs `uv sync --group dev --group docs` and `pre-commit install` in one step.
 
 ---
 
@@ -145,7 +141,7 @@ All common development tasks are available as Makefile targets:
 
 | Target | Command | Description |
 |--------|---------|-------------|
-| `make build` | `python -m build && twine check dist/*` | Build Python package (sdist + wheel) |
+| `make build` | `uv build` | Build Python package (sdist + wheel) |
 | `make docker-build` | `docker build ...` | Build Docker image (`DEPLOYMENT=bigbrotr`) |
 | `make docker-up` | `docker compose ... up -d` | Start Docker stack |
 | `make docker-down` | `docker compose ... down` | Stop Docker stack |
@@ -157,7 +153,7 @@ All common development tasks are available as Makefile targets:
 | `make ci` | lint + format + typecheck + test-unit + sql-check | Run all quality checks |
 | `make sql-check` | `python3 tools/generate_sql.py --check` | Verify generated SQL matches templates |
 | `make clean` | rm -rf build artifacts | Remove build artifacts and caches |
-| `make install` | `pip install -e ".[dev]" && pre-commit install` | Install dev dependencies and hooks |
+| `make install` | `uv sync --group dev --group docs && pre-commit install` | Install dev dependencies and hooks |
 
 !!! note
     The `DEPLOYMENT` variable defaults to `bigbrotr`. Override it for other deployments:

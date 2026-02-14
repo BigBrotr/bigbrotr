@@ -5,7 +5,7 @@
 # Pre-commit hooks run automatically before each commit to ensure code quality.
 #
 # Installation:
-#   pip install pre-commit
+#   uv sync --group dev
 #   pre-commit install
 #
 # Manual run:
@@ -43,6 +43,14 @@ repos:
       - id: check-docstring-first
       - id: mixed-line-ending
         args: [--fix=lf]
+
+  # --------------------------------------------------------------------------
+  # Python: uv lockfile sync
+  # --------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.10.2
+    hooks:
+      - id: uv-lock
 
   # --------------------------------------------------------------------------
   # Python: Ruff (linter + formatter)

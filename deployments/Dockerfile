@@ -8,12 +8,14 @@
 # Build arg must be declared before FROM to be available in both stages
 ARG DEPLOYMENT=bigbrotr
 
-# Stage 1: Build wheels
+# Stage 1: Build with uv
 FROM python:3.11.14-slim AS builder
 
-WORKDIR /build
+COPY --from=ghcr.io/astral-sh/uv:0.10.2 /uv /bin/uv
 
-# Install build dependencies
+WORKDIR /app
+
+# Install build dependencies (native extensions for asyncpg, nostr-sdk)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
@@ -21,10 +23,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsecp256k1-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Build wheels from pyproject.toml (includes bigbrotr + all dependencies)
-COPY pyproject.toml .
+# Layer 1: Install dependencies only (cached unless pyproject.toml or uv.lock change)
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project --no-editable
+
+# Layer 2: Install the project itself (rebuilds when src/ changes)
+COPY README.md ./
 COPY src/ ./src/
-RUN pip wheel --no-cache-dir --wheel-dir /build/wheels .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
 
 # Stage 2: Production image
 FROM python:3.11.14-slim
@@ -54,10 +62,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
     && rm -rf /var/lib/apt/lists/*
 
-# Install wheels from builder (includes bigbrotr package + console_scripts)
-COPY --from=builder /build/wheels /wheels
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir /wheels/* && rm -rf /wheels
+# Copy the virtual environment from builder (no pip/setuptools in production image)
+COPY --from=builder /app/.venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy deployment-specific config (needed at runtime, not part of the package)
 COPY --chown=${DEPLOYMENT}:${DEPLOYMENT} deployments/${DEPLOYMENT}/config/ /app/config/

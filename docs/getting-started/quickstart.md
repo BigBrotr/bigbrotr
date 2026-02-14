@@ -8,8 +8,8 @@ A step-by-step tutorial that walks you through the BigBrotr service pipeline, fr
 
 Before starting, make sure you have:
 
-- [x] Python 3.11+ installed and a virtual environment activated
-- [x] BigBrotr installed with `pip install -e ".[dev]"` (see [Installation](installation.md))
+- [x] Python 3.11+ installed
+- [x] BigBrotr installed with `uv sync --group dev` (see [Installation](installation.md))
 - [x] PostgreSQL and PGBouncer running (Docker or local)
 
 !!! tip "Quickest infrastructure setup"
@@ -24,8 +24,8 @@ If you have not already done so during installation:
 ```bash
 git clone https://github.com/BigBrotr/bigbrotr.git
 cd bigbrotr
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv (one-time)
+uv sync --group dev
 ```
 
 ## Step 2: Start Infrastructure

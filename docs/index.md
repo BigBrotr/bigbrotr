@@ -80,7 +80,8 @@ The codebase follows a strict Diamond DAG -- imports flow strictly downward:
 ```bash
 git clone https://github.com/BigBrotr/bigbrotr.git
 cd bigbrotr
-pip install -e ".[dev]"
+curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv (one-time)
+uv sync --group dev
 docker compose -f deployments/bigbrotr/docker-compose.yaml up -d postgres pgbouncer
 python -m bigbrotr seeder --once
 ```
