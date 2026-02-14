@@ -435,7 +435,7 @@ class TestPublishAnnouncement:
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CURSOR,
+                    state_type=ServiceStateType.CHECKPOINT,
                     state_key="last_announcement",
                     state_value={"timestamp": now},
                     updated_at=int(now),
@@ -474,7 +474,7 @@ class TestPublishAnnouncement:
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CURSOR,
+                    state_type=ServiceStateType.CHECKPOINT,
                     state_key="last_announcement",
                     state_value={"timestamp": old_timestamp},
                     updated_at=int(old_timestamp),
@@ -558,7 +558,7 @@ class TestPublishProfile:
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CURSOR,
+                    state_type=ServiceStateType.CHECKPOINT,
                     state_key="last_profile",
                     state_value={"timestamp": now},
                     updated_at=int(now),

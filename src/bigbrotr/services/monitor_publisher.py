@@ -150,7 +150,7 @@ class MonitorPublisherMixin:
 
         results = await self._brotr.get_service_state(  # type: ignore[attr-defined]
             self.SERVICE_NAME,  # type: ignore[attr-defined]
-            ServiceStateType.CURSOR,
+            ServiceStateType.CHECKPOINT,
             "last_announcement",
         )
         state = results[0].state_value if results else {}
@@ -168,7 +168,7 @@ class MonitorPublisherMixin:
                 [
                     ServiceState(
                         service_name=self.SERVICE_NAME,  # type: ignore[attr-defined]
-                        state_type=ServiceStateType.CURSOR,
+                        state_type=ServiceStateType.CHECKPOINT,
                         state_key="last_announcement",
                         state_value={"timestamp": now},
                         updated_at=int(now),
@@ -193,7 +193,7 @@ class MonitorPublisherMixin:
 
         results = await self._brotr.get_service_state(  # type: ignore[attr-defined]
             self.SERVICE_NAME,  # type: ignore[attr-defined]
-            ServiceStateType.CURSOR,
+            ServiceStateType.CHECKPOINT,
             "last_profile",
         )
         last_profile = results[0].state_value.get("timestamp", 0.0) if results else 0.0
@@ -210,7 +210,7 @@ class MonitorPublisherMixin:
                 [
                     ServiceState(
                         service_name=self.SERVICE_NAME,  # type: ignore[attr-defined]
-                        state_type=ServiceStateType.CURSOR,
+                        state_type=ServiceStateType.CHECKPOINT,
                         state_key="last_profile",
                         state_value={"timestamp": now},
                         updated_at=int(now),
