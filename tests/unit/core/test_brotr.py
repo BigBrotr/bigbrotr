@@ -748,7 +748,7 @@ class TestBrotrQueryOperations:
 
     @pytest.mark.asyncio
     async def test_fetch_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that fetch() delegates to pool.fetch() with default timeout."""
+        """Test that fetch() delegates to pool.fetch() with config timeout."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         brotr = Brotr()
 
@@ -758,16 +758,14 @@ class TestBrotrQueryOperations:
             assert result == []
 
     @pytest.mark.asyncio
-    async def test_fetch_passes_args_and_custom_timeout(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test that fetch() passes query args and custom timeout."""
+    async def test_fetch_passes_args(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that fetch() passes query args with config timeout."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(brotr._pool, "fetch", new_callable=AsyncMock, return_value=[]) as mock:
-            await brotr.fetch("SELECT $1", "arg1", timeout=5.0)
-            mock.assert_called_once_with("SELECT $1", "arg1", timeout=5.0)
+            await brotr.fetch("SELECT $1", "arg1")
+            mock.assert_called_once_with("SELECT $1", "arg1", timeout=brotr._config.timeouts.query)
 
     @pytest.mark.asyncio
     async def test_fetchrow_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -809,22 +807,6 @@ class TestBrotrQueryOperations:
                 timeout=brotr._config.timeouts.query,
             )
             assert result == "DELETE 5"
-
-    @pytest.mark.asyncio
-    async def test_execute_with_custom_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that execute() passes custom timeout to pool."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        brotr = Brotr()
-
-        with patch.object(
-            brotr._pool, "execute", new_callable=AsyncMock, return_value="INSERT 0 1"
-        ) as mock:
-            await brotr.execute("INSERT INTO relay VALUES ($1)", "wss://x", timeout=10.0)
-            mock.assert_called_once_with(
-                "INSERT INTO relay VALUES ($1)",
-                "wss://x",
-                timeout=10.0,
-            )
 
 
 # ============================================================================

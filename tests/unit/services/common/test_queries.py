@@ -197,7 +197,7 @@ class TestFilterNewRelayUrls:
         """Passes urls, ServiceName.VALIDATOR, and ServiceStateType.CANDIDATE."""
         urls = ["wss://new1.example.com", "wss://new2.example.com"]
 
-        await filter_new_relay_urls(mock_brotr, urls, timeout=10.0)
+        await filter_new_relay_urls(mock_brotr, urls)
 
         mock_brotr.fetch.assert_awaited_once()
         args = mock_brotr.fetch.call_args
@@ -209,7 +209,6 @@ class TestFilterNewRelayUrls:
         assert args[0][1] == urls
         assert args[0][2] == ServiceName.VALIDATOR
         assert args[0][3] == ServiceStateType.CANDIDATE
-        assert args[1]["timeout"] == 10.0
 
     @pytest.mark.asyncio
     async def test_returns_filtered_urls(self, mock_brotr: MagicMock) -> None:
@@ -250,7 +249,6 @@ class TestCountRelaysDueForCheck:
             service_name="monitor",
             threshold=1700000000,
             networks=["clearnet", "tor"],
-            timeout=5.0,
         )
 
         mock_brotr.fetchrow.assert_awaited_once()
@@ -265,7 +263,6 @@ class TestCountRelaysDueForCheck:
         assert args[0][2] == ServiceStateType.CHECKPOINT
         assert args[0][3] == ["clearnet", "tor"]
         assert args[0][4] == 1700000000
-        assert args[1]["timeout"] == 5.0
         assert result == 42
 
     @pytest.mark.asyncio
@@ -295,7 +292,6 @@ class TestFetchRelaysDueForCheck:
             threshold=1700000000,
             networks=["clearnet"],
             limit=100,
-            timeout=10.0,
         )
 
         mock_brotr.fetch.assert_awaited_once()
@@ -310,7 +306,6 @@ class TestFetchRelaysDueForCheck:
         assert args[0][3] == ["clearnet"]
         assert args[0][4] == 1700000000
         assert args[0][5] == 100
-        assert args[1]["timeout"] == 10.0
 
     @pytest.mark.asyncio
     async def test_returns_list_of_dicts(self, mock_brotr: MagicMock) -> None:
@@ -466,7 +461,7 @@ class TestCountCandidates:
         """Passes ServiceName.VALIDATOR, ServiceStateType.CANDIDATE, and networks."""
         mock_brotr.fetchrow = AsyncMock(return_value={"count": 15})
 
-        result = await count_candidates(mock_brotr, networks=["clearnet", "tor"], timeout=5.0)
+        result = await count_candidates(mock_brotr, networks=["clearnet", "tor"])
 
         mock_brotr.fetchrow.assert_awaited_once()
         args = mock_brotr.fetchrow.call_args
@@ -478,7 +473,6 @@ class TestCountCandidates:
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CANDIDATE
         assert args[0][3] == ["clearnet", "tor"]
-        assert args[1]["timeout"] == 5.0
         assert result == 15
 
     @pytest.mark.asyncio
@@ -507,7 +501,6 @@ class TestFetchCandidateChunk:
             networks=["clearnet"],
             before_timestamp=1700000000,
             limit=50,
-            timeout=10.0,
         )
 
         mock_brotr.fetch.assert_awaited_once()
@@ -525,7 +518,6 @@ class TestFetchCandidateChunk:
         assert args[0][3] == ["clearnet"]
         assert args[0][4] == 1700000000
         assert args[0][5] == 50
-        assert args[1]["timeout"] == 10.0
 
     @pytest.mark.asyncio
     async def test_returns_list_of_dicts(self, mock_brotr: MagicMock) -> None:
@@ -564,7 +556,7 @@ class TestDeleteStaleCandidates:
         """Calls execute with ServiceName.VALIDATOR and ServiceStateType.CANDIDATE."""
         mock_brotr.execute = AsyncMock(return_value="DELETE 5")
 
-        result = await delete_stale_candidates(mock_brotr, timeout=10.0)
+        result = await delete_stale_candidates(mock_brotr)
 
         mock_brotr.execute.assert_awaited_once()
         args = mock_brotr.execute.call_args
@@ -575,7 +567,6 @@ class TestDeleteStaleCandidates:
         assert "EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CANDIDATE
-        assert args[1]["timeout"] == 10.0
         assert result == "DELETE 5"
 
     @pytest.mark.asyncio
@@ -601,7 +592,7 @@ class TestDeleteExhaustedCandidates:
         """Passes ServiceName.VALIDATOR, ServiceStateType.CANDIDATE, and max_failures."""
         mock_brotr.execute = AsyncMock(return_value="DELETE 3")
 
-        result = await delete_exhausted_candidates(mock_brotr, max_failures=5, timeout=10.0)
+        result = await delete_exhausted_candidates(mock_brotr, max_failures=5)
 
         mock_brotr.execute.assert_awaited_once()
         args = mock_brotr.execute.call_args
@@ -614,7 +605,6 @@ class TestDeleteExhaustedCandidates:
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CANDIDATE
         assert args[0][3] == 5
-        assert args[1]["timeout"] == 10.0
         assert result == "DELETE 3"
 
     @pytest.mark.asyncio

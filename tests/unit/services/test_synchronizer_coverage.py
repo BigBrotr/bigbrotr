@@ -760,6 +760,7 @@ class TestSyncAllRelaysCoverage:
     ) -> None:
         """Test successful sync increments synced_relays and synced_events."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._init_semaphores(sync._config.networks)
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         relay = Relay("wss://success.relay.com")
@@ -781,6 +782,7 @@ class TestSyncAllRelaysCoverage:
     ) -> None:
         """Test TimeoutError from wait_for increments failed_relays."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._init_semaphores(sync._config.networks)
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         relay = Relay("wss://slow.relay.com")
@@ -800,6 +802,7 @@ class TestSyncAllRelaysCoverage:
     ) -> None:
         """Test asyncpg.PostgresError increments failed_relays."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._init_semaphores(sync._config.networks)
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         relay = Relay("wss://db-error.relay.com")
@@ -818,6 +821,7 @@ class TestSyncAllRelaysCoverage:
     ) -> None:
         """Test OSError increments failed_relays."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._init_semaphores(sync._config.networks)
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         relay = Relay("wss://net-error.relay.com")
@@ -839,6 +843,7 @@ class TestSyncAllRelaysCoverage:
             concurrency=SyncConcurrencyConfig(cursor_flush_interval=50),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        sync._init_semaphores(sync._config.networks)
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         relay = Relay("wss://relay.example.com")
@@ -860,10 +865,10 @@ class TestSyncAllRelaysCoverage:
         config = SynchronizerConfig(
             concurrency=SyncConcurrencyConfig(
                 cursor_flush_interval=1,  # Flush after every relay
-                max_parallel=10,
             ),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        sync._init_semaphores(sync._config.networks)
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         relays = [
@@ -889,6 +894,7 @@ class TestSyncAllRelaysCoverage:
             concurrency=SyncConcurrencyConfig(cursor_flush_interval=999),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        sync._init_semaphores(sync._config.networks)
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         relay = Relay("wss://relay.example.com")
@@ -918,6 +924,7 @@ class TestSyncAllRelaysCoverage:
             ),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        sync._init_semaphores(sync._config.networks)
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         relay = Relay("wss://relay.example.com")
@@ -945,6 +952,7 @@ class TestSyncAllRelaysCoverage:
             ],
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        sync._init_semaphores(sync._config.networks)
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         relay = Relay("wss://relay.example.com")
@@ -961,6 +969,7 @@ class TestSyncAllRelaysCoverage:
     async def test_sync_all_relays_with_cached_cursor(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test relay uses cached cursor for start time."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._init_semaphores(sync._config.networks)
         sync._fetch_all_cursors = AsyncMock(  # type: ignore[method-assign]
             return_value={"wss://relay.example.com": 100}
         )
@@ -979,6 +988,7 @@ class TestSyncAllRelaysCoverage:
     async def test_sync_all_relays_exception_group(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test ExceptionGroup from TaskGroup is handled (lines 659-666)."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._init_semaphores(sync._config.networks)
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         relay = Relay("wss://exploding.relay.com")

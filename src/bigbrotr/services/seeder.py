@@ -208,9 +208,7 @@ class Seeder(BaseService[SeederConfig]):
         """
         all_urls = [relay.url for relay in relays]
 
-        new_url_list = await filter_new_relay_urls(
-            self._brotr, all_urls, timeout=self._brotr.config.timeouts.query
-        )
+        new_url_list = await filter_new_relay_urls(self._brotr, all_urls)
         new_urls = set(new_url_list)
 
         skipped_count = len(relays) - len(new_urls)

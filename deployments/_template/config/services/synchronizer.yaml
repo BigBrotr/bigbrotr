@@ -212,12 +212,6 @@ sync_timeouts:
 # Class: src/services/synchronizer.py::SyncConcurrencyConfig
 
 concurrency:
-  # Maximum parallel relay connections (bounded by asyncio.Semaphore)
-  # Higher values = faster sync, more memory/network usage
-  # Range: 1-100
-  # Default: 10
-  max_parallel: 10
-
   # Random delay range [min, max] seconds before starting each relay
   # Prevents thundering herd on startup
   # Default: [0, 60]
@@ -271,12 +265,12 @@ overrides: []
 #
 # MINIMAL RESOURCES (low throughput, low resource usage):
 #   interval: 1800.0
-#   concurrency.max_parallel: 5
+#   networks.clearnet.max_tasks: 3
 #   filter.limit: 200
 #
 # AGGRESSIVE SYNC (high throughput, high resource usage):
 #   interval: 300.0
-#   concurrency.max_parallel: 50
+#   networks.clearnet.max_tasks: 30
 #   filter.limit: 1000
 #
 # DISABLE OVERLAY NETWORKS:

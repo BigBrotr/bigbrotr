@@ -24,5 +24,4 @@ networks:
     max_tasks: 2                   # Reduced concurrency (default: 5)
 
 concurrency:
-  max_parallel: 5                  # Reduced connections (default: 10)
   stagger_delay: [0, 30]           # Shorter delay range (default: [0, 60])

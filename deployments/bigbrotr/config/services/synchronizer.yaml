@@ -24,9 +24,6 @@ networks:
   loki:
     max_tasks: 3                   # Lower concurrency for Lokinet limitations
 
-concurrency:
-  max_parallel: 20                 # Concurrent relay connections
-
 overrides:
   - url: "wss://relay.damus.io"
     timeouts:

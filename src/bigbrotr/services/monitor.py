@@ -700,7 +700,6 @@ class Monitor(
             self.SERVICE_NAME,
             threshold,
             networks,
-            timeout=self._brotr.config.timeouts.query,
         )
 
     # -------------------------------------------------------------------------
@@ -772,7 +771,6 @@ class Monitor(
             threshold,
             networks,
             limit,
-            timeout=self._brotr.config.timeouts.query,
         )
 
         relays: list[Relay] = []
@@ -895,7 +893,8 @@ class Monitor(
             if attempt < max_retries:
                 delay = min(retry_config.initial_delay * (2**attempt), retry_config.max_delay)
                 jitter = random.uniform(0, retry_config.jitter)  # noqa: S311
-                await asyncio.sleep(delay + jitter)
+                if await self.wait(delay + jitter):
+                    return result
                 self._logger.debug(
                     f"{operation}_retry",
                     relay=relay_url,

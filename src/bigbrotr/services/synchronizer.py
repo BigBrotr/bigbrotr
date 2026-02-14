@@ -1,7 +1,7 @@
 """Synchronizer service for BigBrotr.
 
 Collects Nostr events from validated relays and stores them in the database.
-Uses ``asyncio.TaskGroup`` with a semaphore for structured, bounded concurrency.
+Uses ``asyncio.TaskGroup`` with per-network semaphores for structured, bounded concurrency.
 
 The synchronization workflow proceeds as follows:
 
@@ -89,6 +89,7 @@ from bigbrotr.utils.keys import KeysConfig
 from bigbrotr.utils.transport import create_client
 
 from .common.configs import NetworkConfig
+from .common.mixins import NetworkSemaphoreMixin
 from .common.queries import get_all_relays, get_all_service_cursors
 
 
@@ -322,9 +323,6 @@ class SyncConcurrencyConfig(BaseModel):
             Parent config that embeds this model.
     """
 
-    max_parallel: int = Field(
-        default=10, ge=1, le=100, description="Max concurrent relay connections"
-    )
     cursor_flush_interval: int = Field(
         default=50, ge=1, description="Flush cursor updates every N relays"
     )
@@ -599,12 +597,12 @@ async def _sync_relay_events(
 # =============================================================================
 
 
-class Synchronizer(BaseService[SynchronizerConfig]):
+class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
     """Event synchronization service.
 
     Collects Nostr events from validated relays and stores them in the
-    database. Uses ``asyncio.TaskGroup`` with a semaphore for structured,
-    bounded concurrency.
+    database. Uses ``asyncio.TaskGroup`` with per-network semaphores for
+    structured, bounded concurrency.
 
     Each cycle fetches relays from the database, loads per-relay sync
     cursors from ``service_state``, connects to each relay to fetch events
@@ -638,6 +636,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
     ) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: SynchronizerConfig
+        self._semaphores: dict[NetworkType, asyncio.Semaphore] = {}
         self._synced_events: int = 0
         self._synced_relays: int = 0
         self._failed_relays: int = 0
@@ -648,6 +647,7 @@ class Synchronizer(BaseService[SynchronizerConfig]):
 
     async def run(self) -> None:
         """Execute one complete synchronization cycle across all relays."""
+        self._init_semaphores(self._config.networks)
         cycle_start = time.monotonic()
         self._synced_events = 0
         self._synced_relays = 0
@@ -698,15 +698,14 @@ class Synchronizer(BaseService[SynchronizerConfig]):
 
         Note:
             Uses ``asyncio.TaskGroup`` for structured concurrency with
-            a semaphore (``max_parallel``) to bound the number of
-            simultaneous WebSocket connections. Cursor updates are
-            batched in memory and flushed every
+            per-network semaphores (from
+            [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin])
+            to bound simultaneous WebSocket connections per network type.
+            Cursor updates are batched in memory and flushed every
             ``cursor_flush_interval`` relays for crash resilience.
             A ``counter_lock`` protects shared counters for
             future-proofing against free-threaded Python.
         """
-        semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel)
-
         # Pre-fetch all cursors in one query to avoid N+1 pattern
         cursors = await self._fetch_all_cursors()
 
@@ -718,6 +717,10 @@ class Synchronizer(BaseService[SynchronizerConfig]):
         counter_lock = asyncio.Lock()
 
         async def worker(relay: Relay) -> None:
+            semaphore = self._semaphores.get(relay.network)
+            if semaphore is None:
+                self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
+                return
             async with semaphore:
                 network_type_config = self._config.networks.get(relay.network)
                 request_timeout = network_type_config.timeout
