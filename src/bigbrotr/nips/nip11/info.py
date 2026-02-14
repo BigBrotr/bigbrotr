@@ -32,7 +32,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import ssl
 from http import HTTPStatus
@@ -44,6 +43,7 @@ from aiohttp_socks import ProxyConnector
 from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
+from bigbrotr.utils.http import read_bounded_json
 
 from .data import Nip11InfoData
 from .logs import Nip11InfoLogs
@@ -130,11 +130,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
             if content_type_lower not in ("application/nostr+json", "application/json"):
                 raise ValueError(f"Invalid Content-Type: {content_type}")
 
-            body = await resp.content.read(max_size + 1)
-            if len(body) > max_size:
-                raise ValueError(f"Response too large: {len(body)} > {max_size}")
-
-            data = json.loads(body)
+            data = await read_bounded_json(resp, max_size)
             if not isinstance(data, dict):
                 raise ValueError(f"Expected dict, got {type(data).__name__}")
 
