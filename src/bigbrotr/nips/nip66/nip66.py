@@ -30,13 +30,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT
 from bigbrotr.models.metadata import Metadata, MetadataType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_metadata import RelayMetadata
-from bigbrotr.nips.base import BaseNip, BaseNipMetadata, BaseNipOptions, BaseNipSelection
+from bigbrotr.nips.base import (
+    BaseNip,
+    BaseNipDependencies,
+    BaseNipMetadata,
+    BaseNipOptions,
+    BaseNipSelection,
+)
 
 from .dns import Nip66DnsMetadata
 from .geo import Nip66GeoMetadata
@@ -90,7 +97,8 @@ class Nip66Options(BaseNipOptions):
     """
 
 
-class Nip66Dependencies(NamedTuple):
+@dataclass(frozen=True)
+class Nip66Dependencies(BaseNipDependencies):
     """Optional dependencies for NIP-66 monitoring tests.
 
     All fields default to ``None``. RTT tests require ``keys``,

@@ -22,13 +22,19 @@ See Also:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT
 from bigbrotr.models.metadata import Metadata, MetadataType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_metadata import RelayMetadata
-from bigbrotr.nips.base import BaseNip, BaseNipOptions, BaseNipSelection
+from bigbrotr.nips.base import (
+    BaseNip,
+    BaseNipDependencies,
+    BaseNipOptions,
+    BaseNipSelection,
+)
 
 from .info import Nip11InfoMetadata
 
@@ -71,7 +77,8 @@ class Nip11Options(BaseNipOptions):
     max_size: int = Nip11InfoMetadata._INFO_MAX_SIZE
 
 
-class Nip11Dependencies(NamedTuple):
+@dataclass(frozen=True)
+class Nip11Dependencies(BaseNipDependencies):
     """Optional dependencies for NIP-11 metadata retrieval.
 
     Currently empty. NIP-11 info retrieval requires no external

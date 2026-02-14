@@ -30,6 +30,8 @@ Attributes:
         to retrieve.
     BaseNipOptions: Base for options models controlling how metadata is retrieved
         (provides the common ``allow_insecure`` option).
+    BaseNipDependencies: Base for dependency containers holding external objects
+        (keys, database readers) required by specific NIP tests.
 
 See Also:
     [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
@@ -45,6 +47,7 @@ from bigbrotr.nips.base import (
     BaseData,
     BaseLogs,
     BaseNip,
+    BaseNipDependencies,
     BaseNipMetadata,
     BaseNipOptions,
     BaseNipSelection,
@@ -57,6 +60,7 @@ __all__ = [
     "BaseData",
     "BaseLogs",
     "BaseNip",
+    "BaseNipDependencies",
     "BaseNipMetadata",
     "BaseNipOptions",
     "BaseNipSelection",

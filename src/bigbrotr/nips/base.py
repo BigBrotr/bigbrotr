@@ -19,6 +19,9 @@ inherited by NIP-11 and NIP-66 model hierarchies:
         to retrieve.
     [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]
         Base for options models controlling how metadata is retrieved.
+    [BaseNipDependencies][bigbrotr.nips.base.BaseNipDependencies]
+        Base for dependency containers holding external objects
+        (keys, database readers) required by specific NIP tests.
 
 See Also:
     [bigbrotr.nips.parsing][bigbrotr.nips.parsing]: The declarative field
@@ -32,6 +35,7 @@ See Also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from time import time
 from typing import Any, ClassVar, Self
 
@@ -233,6 +237,34 @@ class BaseNipOptions(BaseModel):
     allow_insecure: bool = False
 
 
+@dataclass(frozen=True)
+class BaseNipDependencies:
+    """Optional external dependencies for NIP operations.
+
+    Subclasses define fields for third-party objects (signing keys,
+    GeoIP database readers, etc.) required by specific NIP tests. All
+    fields should default to ``None`` so that tests whose dependencies
+    are missing are silently skipped.
+
+    Note:
+        Uses ``@dataclass(frozen=True)`` instead of Pydantic ``BaseModel``
+        because dependencies hold arbitrary third-party objects that do not
+        benefit from Pydantic validation, and because ``TYPE_CHECKING``
+        imports for heavy optional packages (``nostr_sdk``, ``geoip2``)
+        must remain unavailable at runtime.
+
+    See Also:
+        [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]:
+            Controls *which* metadata is retrieved.
+        [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]:
+            Controls *how* metadata is retrieved.
+        [bigbrotr.nips.nip11.nip11.Nip11Dependencies][bigbrotr.nips.nip11.nip11.Nip11Dependencies]:
+            NIP-11 dependencies (currently empty).
+        [bigbrotr.nips.nip66.nip66.Nip66Dependencies][bigbrotr.nips.nip66.nip66.Nip66Dependencies]:
+            NIP-66 dependencies (keys, GeoIP readers).
+    """
+
+
 class BaseNip(BaseModel, ABC):
     """Abstract base class for top-level NIP models.
 
@@ -262,6 +294,8 @@ class BaseNip(BaseModel, ABC):
             Selection model base controlling which metadata types to retrieve.
         [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]:
             Options model base controlling how metadata is retrieved.
+        [BaseNipDependencies][bigbrotr.nips.base.BaseNipDependencies]:
+            Dependencies base for external objects required by specific tests.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)

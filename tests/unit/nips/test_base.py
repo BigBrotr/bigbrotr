@@ -1,4 +1,4 @@
-"""Unit tests for BaseData, BaseNipMetadata, BaseLogs, BaseNip, BaseNipSelection, BaseNipOptions."""
+"""Unit tests for BaseData, BaseNipMetadata, BaseLogs, BaseNip, BaseNipSelection, BaseNipOptions, BaseNipDependencies."""
 
 import pytest
 from pydantic import ValidationError
@@ -9,12 +9,13 @@ from bigbrotr.nips.base import (
     BaseData,
     BaseLogs,
     BaseNip,
+    BaseNipDependencies,
     BaseNipMetadata,
     BaseNipOptions,
     BaseNipSelection,
 )
-from bigbrotr.nips.nip11 import Nip11, Nip11Options, Nip11Selection
-from bigbrotr.nips.nip66 import Nip66, Nip66Options, Nip66Selection
+from bigbrotr.nips.nip11.nip11 import Nip11, Nip11Dependencies, Nip11Options, Nip11Selection
+from bigbrotr.nips.nip66.nip66 import Nip66, Nip66Dependencies, Nip66Options, Nip66Selection
 from bigbrotr.nips.parsing import FieldSpec
 
 
@@ -757,3 +758,71 @@ class TestOptionsInheritance:
         assert options.allow_insecure is False
         options = Nip66Options(allow_insecure=True)
         assert options.allow_insecure is True
+
+
+# =============================================================================
+# BaseNipDependencies Tests
+# =============================================================================
+
+
+class TestBaseNipDependencies:
+    """Test BaseNipDependencies base class."""
+
+    def test_construction(self):
+        """BaseNipDependencies can be constructed with no fields."""
+        deps = BaseNipDependencies()
+        assert isinstance(deps, BaseNipDependencies)
+
+    def test_is_frozen(self):
+        """BaseNipDependencies is frozen (immutable)."""
+        deps = BaseNipDependencies()
+        with pytest.raises(AttributeError):
+            deps.new_field = "value"
+
+    def test_is_dataclass(self):
+        """BaseNipDependencies is a dataclass."""
+        from dataclasses import is_dataclass
+
+        assert is_dataclass(BaseNipDependencies)
+
+
+# =============================================================================
+# Dependencies Inheritance Tests
+# =============================================================================
+
+
+class TestDependenciesInheritance:
+    """Test Dependencies classes inherit from BaseNipDependencies."""
+
+    def test_nip11_dependencies_is_base(self):
+        """Nip11Dependencies is a BaseNipDependencies."""
+        assert issubclass(Nip11Dependencies, BaseNipDependencies)
+        deps = Nip11Dependencies()
+        assert isinstance(deps, BaseNipDependencies)
+
+    def test_nip11_dependencies_is_frozen(self):
+        """Nip11Dependencies is frozen."""
+        deps = Nip11Dependencies()
+        with pytest.raises(AttributeError):
+            deps.new_field = "value"
+
+    def test_nip66_dependencies_is_base(self):
+        """Nip66Dependencies is a BaseNipDependencies."""
+        assert issubclass(Nip66Dependencies, BaseNipDependencies)
+        deps = Nip66Dependencies()
+        assert isinstance(deps, BaseNipDependencies)
+
+    def test_nip66_dependencies_defaults_to_none(self):
+        """Nip66Dependencies fields default to None."""
+        deps = Nip66Dependencies()
+        assert deps.keys is None
+        assert deps.event_builder is None
+        assert deps.read_filter is None
+        assert deps.city_reader is None
+        assert deps.asn_reader is None
+
+    def test_nip66_dependencies_is_frozen(self):
+        """Nip66Dependencies is frozen."""
+        deps = Nip66Dependencies()
+        with pytest.raises(AttributeError):
+            deps.keys = "value"

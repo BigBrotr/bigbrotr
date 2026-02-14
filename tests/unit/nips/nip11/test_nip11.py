@@ -807,20 +807,26 @@ class TestNip11Options:
 
 
 class TestNip11Dependencies:
-    """Test Nip11Dependencies NamedTuple."""
+    """Test Nip11Dependencies frozen dataclass."""
 
-    def test_is_named_tuple(self):
-        """Nip11Dependencies is a NamedTuple."""
-        assert hasattr(Nip11Dependencies, "_fields")
+    def test_is_dataclass(self):
+        """Nip11Dependencies is a frozen dataclass."""
+        from dataclasses import fields, is_dataclass
+
+        assert is_dataclass(Nip11Dependencies)
+        assert len(fields(Nip11Dependencies)) == 0
 
     def test_construction(self):
         """Nip11Dependencies can be constructed."""
         deps = Nip11Dependencies()
-        assert isinstance(deps, tuple)
+        assert isinstance(deps, Nip11Dependencies)
 
-    def test_empty_fields(self):
-        """Nip11Dependencies has no fields."""
-        assert len(Nip11Dependencies._fields) == 0
+    def test_is_base_nip_dependencies(self):
+        """Nip11Dependencies inherits from BaseNipDependencies."""
+        from bigbrotr.nips.base import BaseNipDependencies
+
+        assert issubclass(Nip11Dependencies, BaseNipDependencies)
+        assert isinstance(Nip11Dependencies(), BaseNipDependencies)
 
 
 # =============================================================================
