@@ -55,7 +55,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiohttp
 import asyncpg
-from nostr_sdk import RelayUrl
+from nostr_sdk import NostrSdkError, RelayUrl
 from pydantic import BaseModel, Field
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
@@ -557,7 +557,7 @@ class Finder(BaseService[FinderConfig]):
                         try:
                             relay_url = RelayUrl.parse(item)
                             relays.append(relay_url)
-                        except Exception:  # nostr_sdk raises NostrSdkError (not a stdlib type)
+                        except NostrSdkError:
                             self._logger.debug("invalid_relay_url", url=item)
                     else:
                         self._logger.debug("unexpected_item_type", url=source.url, item=item)

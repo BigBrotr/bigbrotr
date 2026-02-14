@@ -423,34 +423,37 @@ class TestNip66GeoMetadataGeoAsync:
         assert result.logs.success is True
 
     @pytest.mark.asyncio
-    async def test_tor_raises_value_error(
+    async def test_tor_returns_failure(
         self,
         tor_relay: Relay,
         mock_city_reader: MagicMock,
     ) -> None:
-        """Raises ValueError for Tor relay (geo not applicable)."""
-        with pytest.raises(ValueError, match="geo lookup requires clearnet"):
-            await Nip66GeoMetadata.execute(tor_relay, mock_city_reader)
+        """Returns failure for Tor relay (geo not applicable)."""
+        result = await Nip66GeoMetadata.execute(tor_relay, mock_city_reader)
+        assert result.logs.success is False
+        assert "requires clearnet" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_i2p_raises_value_error(
+    async def test_i2p_returns_failure(
         self,
         i2p_relay: Relay,
         mock_city_reader: MagicMock,
     ) -> None:
-        """Raises ValueError for I2P relay (geo not applicable)."""
-        with pytest.raises(ValueError, match="geo lookup requires clearnet"):
-            await Nip66GeoMetadata.execute(i2p_relay, mock_city_reader)
+        """Returns failure for I2P relay (geo not applicable)."""
+        result = await Nip66GeoMetadata.execute(i2p_relay, mock_city_reader)
+        assert result.logs.success is False
+        assert "requires clearnet" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_loki_raises_value_error(
+    async def test_loki_returns_failure(
         self,
         loki_relay: Relay,
         mock_city_reader: MagicMock,
     ) -> None:
-        """Raises ValueError for Lokinet relay (geo not applicable)."""
-        with pytest.raises(ValueError, match="geo lookup requires clearnet"):
-            await Nip66GeoMetadata.execute(loki_relay, mock_city_reader)
+        """Returns failure for Lokinet relay (geo not applicable)."""
+        result = await Nip66GeoMetadata.execute(loki_relay, mock_city_reader)
+        assert result.logs.success is False
+        assert "requires clearnet" in result.logs.reason
 
     @pytest.mark.asyncio
     async def test_no_ip_resolved_returns_failure(

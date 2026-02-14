@@ -512,6 +512,33 @@ class TestNip66Create:
         assert result.dns is None
         assert result.http is None
 
+    @pytest.mark.asyncio
+    async def test_execute_exception_isolates_to_failed_test(self, relay: Relay) -> None:
+        """Exception in one execute() does not cancel other tests (defense-in-depth)."""
+        dns_metadata = Nip66DnsMetadata(
+            data=Nip66DnsData(dns_ips=["8.8.8.8"], dns_ttl=300),
+            logs=Nip66DnsLogs(success=True, reason=None),
+        )
+        selection = Nip66TestSelection(rtt=False, geo=False, net=False)
+
+        with (
+            patch.object(
+                Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=dns_metadata
+            ),
+            patch.object(
+                Nip66SslMetadata,
+                "execute",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("unexpected bug"),
+            ),
+            patch.object(Nip66HttpMetadata, "execute", new_callable=AsyncMock, return_value=None),
+        ):
+            result = await Nip66.create(relay, selection=selection)
+
+        assert isinstance(result, Nip66)
+        assert result.ssl is None  # Failed test mapped to None
+        assert result.dns.data.dns_ips == ["8.8.8.8"]  # Other test succeeded
+
 
 class TestRelayNip66MetadataTuple:
     """Test RelayNip66MetadataTuple named tuple."""

@@ -174,9 +174,10 @@ class Nip66(BaseModel):
 
     Note:
         The ``create()`` factory method runs all enabled tests concurrently
-        via ``asyncio.gather``. Individual test failures do not affect other
-        tests -- each test handles its own exceptions and records the outcome
-        in its logs field.
+        via ``asyncio.gather(return_exceptions=True)``. Individual test
+        failures are recorded in each test's logs field and never raised.
+        Unexpected exceptions (bugs) are logged at ERROR level and the
+        affected test field is set to ``None``.
 
     See Also:
         [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
@@ -327,13 +328,19 @@ class Nip66(BaseModel):
             task_names.append("http")
 
         logger.debug("create_running tests=%s", task_names)
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Map each result to its corresponding metadata field
         metadata_map: dict[str, Any] = {}
         for name, result in zip(task_names, results, strict=True):
-            logger.debug("create_task_succeeded test=%s", name)
-            metadata_map[name] = result
+            if isinstance(result, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
+                raise result
+            if isinstance(result, BaseException):
+                logger.error("create_task_failed test=%s error=%r", name, result)
+                metadata_map[name] = None
+            else:
+                logger.debug("create_task_succeeded test=%s", name)
+                metadata_map[name] = result
 
         nip66 = cls(relay=relay, **metadata_map)
         logger.debug(

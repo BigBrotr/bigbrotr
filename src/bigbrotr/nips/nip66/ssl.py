@@ -295,15 +295,17 @@ class Nip66SslMetadata(BaseMetadata):
 
         Returns:
             An ``Nip66SslMetadata`` instance with certificate data and logs.
-
-        Raises:
-            ValueError: If the relay is not on the clearnet network.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("ssl_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:
-            raise ValueError(f"SSL test requires clearnet, got {relay.network.value}")
+            return cls(
+                data=Nip66SslData(),
+                logs=Nip66SslLogs(
+                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                ),
+            )
 
         data: dict[str, Any] = {}
         logs: dict[str, Any] = {"success": False, "reason": None}

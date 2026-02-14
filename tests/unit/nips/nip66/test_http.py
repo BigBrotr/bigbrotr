@@ -75,22 +75,25 @@ class TestNip66HttpMetadataHttp:
         assert result.logs.success is True
 
     @pytest.mark.asyncio
-    async def test_tor_without_proxy_raises(self, tor_relay: Relay) -> None:
-        """Raises ValueError for Tor relay without proxy."""
-        with pytest.raises(ValueError, match=r"overlay network tor requires proxy"):
-            await Nip66HttpMetadata.execute(tor_relay, 10.0)
+    async def test_tor_without_proxy_returns_failure(self, tor_relay: Relay) -> None:
+        """Returns failure for Tor relay without proxy."""
+        result = await Nip66HttpMetadata.execute(tor_relay, 10.0)
+        assert result.logs.success is False
+        assert "overlay network tor requires proxy" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_i2p_without_proxy_raises(self, i2p_relay: Relay) -> None:
-        """Raises ValueError for I2P relay without proxy."""
-        with pytest.raises(ValueError, match=r"overlay network i2p requires proxy"):
-            await Nip66HttpMetadata.execute(i2p_relay, 10.0)
+    async def test_i2p_without_proxy_returns_failure(self, i2p_relay: Relay) -> None:
+        """Returns failure for I2P relay without proxy."""
+        result = await Nip66HttpMetadata.execute(i2p_relay, 10.0)
+        assert result.logs.success is False
+        assert "overlay network i2p requires proxy" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_loki_without_proxy_raises(self, loki_relay: Relay) -> None:
-        """Raises ValueError for Lokinet relay without proxy."""
-        with pytest.raises(ValueError, match=r"overlay network loki requires proxy"):
-            await Nip66HttpMetadata.execute(loki_relay, 10.0)
+    async def test_loki_without_proxy_returns_failure(self, loki_relay: Relay) -> None:
+        """Returns failure for Lokinet relay without proxy."""
+        result = await Nip66HttpMetadata.execute(loki_relay, 10.0)
+        assert result.logs.success is False
+        assert "overlay network loki requires proxy" in result.logs.reason
 
     @pytest.mark.asyncio
     async def test_tor_with_proxy_works(self, tor_relay: Relay) -> None:

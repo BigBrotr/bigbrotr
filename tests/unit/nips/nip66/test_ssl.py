@@ -410,22 +410,25 @@ class TestNip66SslMetadataSslAsync:
         assert result.logs.reason is not None
 
     @pytest.mark.asyncio
-    async def test_tor_raises_value_error(self, tor_relay: Relay) -> None:
-        """Raises ValueError for Tor relay (SSL not applicable)."""
-        with pytest.raises(ValueError, match="SSL test requires clearnet"):
-            await Nip66SslMetadata.execute(tor_relay, 10.0)
+    async def test_tor_returns_failure(self, tor_relay: Relay) -> None:
+        """Returns failure for Tor relay (SSL not applicable)."""
+        result = await Nip66SslMetadata.execute(tor_relay, 10.0)
+        assert result.logs.success is False
+        assert "requires clearnet" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_i2p_raises_value_error(self, i2p_relay: Relay) -> None:
-        """Raises ValueError for I2P relay (SSL not applicable)."""
-        with pytest.raises(ValueError, match="SSL test requires clearnet"):
-            await Nip66SslMetadata.execute(i2p_relay, 10.0)
+    async def test_i2p_returns_failure(self, i2p_relay: Relay) -> None:
+        """Returns failure for I2P relay (SSL not applicable)."""
+        result = await Nip66SslMetadata.execute(i2p_relay, 10.0)
+        assert result.logs.success is False
+        assert "requires clearnet" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_loki_raises_value_error(self, loki_relay: Relay) -> None:
-        """Raises ValueError for Lokinet relay (SSL not applicable)."""
-        with pytest.raises(ValueError, match="SSL test requires clearnet"):
-            await Nip66SslMetadata.execute(loki_relay, 10.0)
+    async def test_loki_returns_failure(self, loki_relay: Relay) -> None:
+        """Returns failure for Lokinet relay (SSL not applicable)."""
+        result = await Nip66SslMetadata.execute(loki_relay, 10.0)
+        assert result.logs.success is False
+        assert "requires clearnet" in result.logs.reason
 
     @pytest.mark.asyncio
     async def test_uses_default_port_443(self, relay: Relay) -> None:

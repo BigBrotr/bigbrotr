@@ -151,16 +151,19 @@ class Nip66HttpMetadata(BaseMetadata):
 
         Returns:
             An ``Nip66HttpMetadata`` instance with header data and logs.
-
-        Raises:
-            ValueError: If an overlay network relay has no proxy configured.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("http_testing relay=%s timeout_s=%s proxy=%s", relay.url, timeout, proxy_url)
 
         overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
         if proxy_url is None and relay.network in overlay_networks:
-            raise ValueError(f"overlay network {relay.network.value} requires proxy")
+            return cls(
+                data=Nip66HttpData(),
+                logs=Nip66HttpLogs(
+                    success=False,
+                    reason=f"overlay network {relay.network.value} requires proxy",
+                ),
+            )
 
         logs: dict[str, Any] = {"success": False, "reason": None}
         data: dict[str, Any] = {}

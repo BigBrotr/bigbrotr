@@ -165,15 +165,17 @@ class Nip66DnsMetadata(BaseMetadata):
 
         Returns:
             An ``Nip66DnsMetadata`` instance with resolution data and logs.
-
-        Raises:
-            ValueError: If the relay is not on the clearnet network.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("dns_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:
-            raise ValueError(f"DNS resolve requires clearnet, got {relay.network.value}")
+            return cls(
+                data=Nip66DnsData(),
+                logs=Nip66DnsLogs(
+                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                ),
+            )
 
         logs: dict[str, Any] = {"success": False, "reason": None}
         data: dict[str, Any] = {}

@@ -23,42 +23,6 @@ from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.rtt import Nip66RttDependencies, Nip66RttMetadata
 
 
-class TestNip66RttMetadataValidateNetwork:
-    """Test Nip66RttMetadata._validate_network() method."""
-
-    def test_clearnet_without_proxy_valid(self, relay: Relay) -> None:
-        """Clearnet relay without proxy is valid."""
-        # Should not raise
-        Nip66RttMetadata._validate_network(relay, None)
-
-    def test_clearnet_with_proxy_valid(self, relay: Relay) -> None:
-        """Clearnet relay with proxy is valid."""
-        Nip66RttMetadata._validate_network(relay, "socks5://localhost:9050")
-
-    def test_tor_without_proxy_raises(self, tor_relay: Relay) -> None:
-        """Tor relay without proxy raises ValueError."""
-        with pytest.raises(ValueError, match="overlay network tor requires proxy"):
-            Nip66RttMetadata._validate_network(tor_relay, None)
-
-    def test_tor_with_proxy_valid(self, tor_relay: Relay) -> None:
-        """Tor relay with proxy is valid."""
-        Nip66RttMetadata._validate_network(tor_relay, "socks5://localhost:9050")
-
-    def test_i2p_without_proxy_raises(self, i2p_relay: Relay) -> None:
-        """I2P relay without proxy raises ValueError."""
-        with pytest.raises(ValueError, match="overlay network i2p requires proxy"):
-            Nip66RttMetadata._validate_network(i2p_relay, None)
-
-    def test_i2p_with_proxy_valid(self, i2p_relay: Relay) -> None:
-        """I2P relay with proxy is valid."""
-        Nip66RttMetadata._validate_network(i2p_relay, "socks5://localhost:4447")
-
-    def test_loki_without_proxy_raises(self, loki_relay: Relay) -> None:
-        """Lokinet relay without proxy raises ValueError."""
-        with pytest.raises(ValueError, match="overlay network loki requires proxy"):
-            Nip66RttMetadata._validate_network(loki_relay, None)
-
-
 class TestNip66RttMetadataTestOpen:
     """Test Nip66RttMetadata._test_open() phase method."""
 
@@ -494,19 +458,22 @@ class TestNip66RttMetadataRtt:
         assert result.data.rtt_open is None
 
     @pytest.mark.asyncio
-    async def test_overlay_without_proxy_raises(
+    async def test_overlay_without_proxy_returns_failure(
         self,
         tor_relay: Relay,
         mock_keys: MagicMock,
         mock_event_builder: MagicMock,
         mock_read_filter: MagicMock,
     ) -> None:
-        """Overlay network without proxy raises ValueError."""
+        """Overlay network without proxy returns failure."""
         deps = Nip66RttDependencies(
             keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
         )
-        with pytest.raises(ValueError, match="overlay network tor requires proxy"):
-            await Nip66RttMetadata.execute(tor_relay, deps, timeout=10.0, proxy_url=None)
+        result = await Nip66RttMetadata.execute(tor_relay, deps, timeout=10.0, proxy_url=None)
+        assert result.logs.open_success is False
+        assert "overlay network tor requires proxy" in result.logs.open_reason
+        assert result.logs.read_success is False
+        assert result.logs.write_success is False
 
     @pytest.mark.asyncio
     async def test_overlay_with_proxy_works(
