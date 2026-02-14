@@ -16,7 +16,7 @@ help: ## Show this help
 		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install: ## Install package with dev dependencies and pre-commit hooks
-	pip install -e ".[dev,docs]"
+	uv sync --group dev --group docs
 	pre-commit install
 
 pre-commit: ## Run all pre-commit hooks on all files
@@ -56,8 +56,8 @@ coverage: ## Run unit tests with coverage report
 # Quality
 # --------------------------------------------------------------------------
 
-audit: ## Run pip-audit for dependency vulnerabilities
-	pip-audit --strict
+audit: ## Run uv-secure for dependency vulnerabilities
+	uv-secure uv.lock
 
 sql-check: ## Verify generated SQL matches templates
 	python3 tools/generate_sql.py --check
@@ -79,8 +79,7 @@ docs-serve: ## Serve documentation locally with live reload
 # --------------------------------------------------------------------------
 
 build: ## Build Python package (sdist + wheel)
-	python -m build
-	twine check dist/*
+	uv build
 
 # --------------------------------------------------------------------------
 # Docker

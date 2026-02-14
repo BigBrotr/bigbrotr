@@ -73,9 +73,10 @@ sudo systemctl start pgbouncer && sudo systemctl enable pgbouncer
 ## 3. Set Up the Python Environment
 
 ```bash
-python3 -m venv /opt/bigbrotr/venv
+curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv (one-time)
+uv venv /opt/bigbrotr/venv
 source /opt/bigbrotr/venv/bin/activate
-pip install .
+uv pip install .
 ```
 
 ### Set environment variables

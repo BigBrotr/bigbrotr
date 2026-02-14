@@ -26,9 +26,8 @@ By participating, you are expected to uphold this code.
 git clone https://github.com/BigBrotr/bigbrotr.git
 cd bigbrotr
 
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+# Install uv (one-time)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install dependencies (includes dev tools and pre-commit hooks)
 make install

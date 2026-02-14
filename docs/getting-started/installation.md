@@ -48,15 +48,15 @@ Choose the path that matches your use case:
     # Clone and install Python package
     git clone https://github.com/BigBrotr/bigbrotr.git
     cd bigbrotr
-    python3 -m venv .venv && source .venv/bin/activate
-    pip install -e ".[dev]"
+    curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv (one-time)
+    uv sync --group dev
 
     # Start infrastructure only
     docker compose -f deployments/bigbrotr/docker-compose.yaml up -d postgres pgbouncer
     ```
 
     !!! tip
-        The `[dev]` extra installs pytest, ruff, mypy, and all other development
+        The `dev` dependency group installs pytest, ruff, mypy, and all other development
         tools. See [Quick Start](quickstart.md) to run your first service.
 
 === "Full Manual"
@@ -85,8 +85,8 @@ Choose the path that matches your use case:
 
     # 5. Install BigBrotr
     cd ../..
-    python3 -m venv .venv && source .venv/bin/activate
-    pip install -e ".[dev]"
+    curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv (one-time)
+    uv sync --group dev
     ```
 
     !!! warning

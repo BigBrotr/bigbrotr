@@ -95,7 +95,7 @@ This starts PostgreSQL, PGBouncer, Tor proxy, all 5 services, Prometheus, and Gr
 ### Run a Single Service Locally
 
 ```bash
-pip install -e ".[dev]"
+uv sync --group dev
 cd deployments/bigbrotr
 
 # One cycle
@@ -277,8 +277,8 @@ All configs use Pydantic v2 validation with typed defaults and constraints.
 
 ```bash
 git clone https://github.com/BigBrotr/bigbrotr.git && cd bigbrotr
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv (one-time)
+uv sync --group dev
 pre-commit install
 ```
 
@@ -318,10 +318,10 @@ make clean            # remove build artifacts and caches
 | Unit Test | pytest (Python 3.11--3.14 matrix) | Unit tests + coverage |
 | Integration Test | pytest + testcontainers | PostgreSQL integration tests |
 | Build | Docker Buildx (matrix) | Multi-deployment image builds + Trivy scan |
-| Security | pip-audit, Trivy, CodeQL | Dependency vulns, container scanning, static analysis |
+| Security | uv-secure, Trivy, CodeQL | Dependency vulns, container scanning, static analysis |
 | Release | PyPI (OIDC) + GHCR | Package + Docker image publishing, SBOM generation |
 | Docs | MkDocs Material | Auto-generated API docs deployed to GitHub Pages |
-| Dependencies | Dependabot | Weekly updates for pip, Docker, GitHub Actions |
+| Dependencies | Dependabot | Weekly updates for uv, Docker, GitHub Actions |
 
 ---
 
@@ -441,7 +441,7 @@ BigBrotrError
 | Networking | aiohttp-socks (SOCKS5), dnspython, geoip2, tldextract |
 | Testing | pytest, pytest-asyncio, pytest-cov, testcontainers |
 | Quality | ruff (lint+format), mypy (strict), pre-commit (21 hooks) |
-| CI/CD | GitHub Actions, pip-audit, Trivy, CodeQL, Dependabot |
+| CI/CD | GitHub Actions, uv-secure, Trivy, CodeQL, Dependabot |
 | Containers | Docker, Docker Compose, tini |
 
 ---
@@ -466,7 +466,7 @@ Full documentation is available at **[bigbrotr.github.io/bigbrotr](https://bigbr
 See the [Contributing Guide](https://bigbrotr.github.io/bigbrotr/development/contributing/) for detailed instructions.
 
 1. Fork and clone
-2. `pip install -e ".[dev]"` and `pre-commit install`
+2. `uv sync --group dev` and `pre-commit install`
 3. Write tests for new functionality
 4. `make ci` -- all checks must pass
 5. Submit a pull request

@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=75.0"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.10.2,<0.11"]
+build-backend = "uv_build"
 
 [project]
 name = "bigbrotr"
@@ -56,7 +56,7 @@ dependencies = [
     "typing-extensions>=4.9.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "Jinja2>=3.1.0",
     "pytest>=8.0.0",
@@ -71,9 +71,7 @@ dev = [
     "sqlfluff>=3.5.0",
     "pre-commit>=4.0.0",
     "detect-secrets>=1.5.0",
-    "pip-audit>=2.7.0",
-    "build>=1.0.0",
-    "twine>=6.0.0",
+    "uv-secure>=0.15.0",
     "types-PyYAML>=6.0.12",
     "asyncpg-stubs>=0.30.0",
     "testcontainers[postgres]>=4.0.0",
@@ -98,13 +96,6 @@ Changelog = "https://github.com/BigBrotr/bigbrotr/blob/main/CHANGELOG.md"
 
 [project.scripts]
 bigbrotr = "bigbrotr.__main__:cli"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["bigbrotr*"]
-
-[tool.setuptools.package-data]
-"bigbrotr" = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

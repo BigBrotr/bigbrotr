@@ -255,7 +255,7 @@ For systemd deployments, the `Restart=always` directive provides the same behavi
 
         ```bash
         source /opt/bigbrotr/venv/bin/activate
-        pip install .
+        uv pip install .
         sudo systemctl restart bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer
         ```
 
