@@ -119,11 +119,11 @@ jobs:
         continue-on-error: ${{ matrix.python-version == '3.14' }}
 
       - name: Check SQL template drift
-        run: python tools/generate_sql.py --check
+        run: uv run python tools/generate_sql.py --check
 
       - name: Run unit tests
         run: >-
-          pytest tests/
+          uv run pytest tests/
           --ignore=tests/integration/
           --cov=src/bigbrotr
           --cov-report=xml
@@ -170,7 +170,7 @@ jobs:
 
       - name: Run integration tests
         run: >-
-          pytest tests/integration/
+          uv run pytest tests/integration/
           -v --tb=short --timeout=120
         env:
           DB_PASSWORD: test_password
@@ -203,7 +203,7 @@ jobs:
         run: uv sync --frozen --group docs
 
       - name: Build documentation
-        run: mkdocs build --strict
+        run: uv run mkdocs build --strict
 
   # --------------------------------------------------------------------------
   # Build: Docker images + security scan (main/develop only)

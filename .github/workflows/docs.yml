@@ -67,15 +67,15 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           MAJOR_MINOR=$(echo "$VERSION" | cut -d. -f1-2)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "major_minor=$MAJOR_MINOR" >> "$GITHUB_OUTPUT"
 
       - name: Deploy versioned docs
         run: |
-          mike deploy --push --update-aliases ${{ steps.version.outputs.major_minor }} latest
+          uv run mike deploy --push --update-aliases ${{ steps.version.outputs.major_minor }} latest
 
       - name: Set default version
         run: |
-          mike set-default --push latest
+          uv run mike set-default --push latest

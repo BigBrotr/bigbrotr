@@ -84,11 +84,14 @@ nav:
 
 plugins:
   - search
-  - social:
-      enabled: !ENV [CI, false]
-      cards_layout_options:
-        background_color: "#4A148C"
-        color: "#FFFFFF"
+  # social cards disabled: mkdocs-material[imaging] requires pillow<12,
+  # which has a known vulnerability (GHSA-cfh3-3jmp-rvhc). Re-enable
+  # when upstream supports pillow>=12.1.1.
+  # - social:
+  #     enabled: !ENV [CI, false]
+  #     cards_layout_options:
+  #       background_color: "#4A148C"
+  #       color: "#FFFFFF"
   - gen-files:
       scripts:
         - docs/gen_ref_pages.py
