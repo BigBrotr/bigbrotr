@@ -7,7 +7,7 @@ inherited by NIP-11 and NIP-66 model hierarchies:
     [BaseData][bigbrotr.nips.base.BaseData]
         Frozen model with declarative field parsing via
         [FieldSpec][bigbrotr.nips.parsing.FieldSpec].
-    [BaseMetadata][bigbrotr.nips.base.BaseMetadata]
+    [BaseNipMetadata][bigbrotr.nips.base.BaseNipMetadata]
         Container pairing a data object with a logs object.
     [BaseLogs][bigbrotr.nips.base.BaseLogs]
         Operation log with success/reason semantic validation.
@@ -96,7 +96,7 @@ class BaseData(BaseModel):
         return self.model_dump(exclude_none=True)
 
 
-class BaseMetadata(BaseModel):
+class BaseNipMetadata(BaseModel):
     """Base class for metadata containers that pair data with operation logs.
 
     Provides standard ``from_dict()`` and ``to_dict()`` methods. The

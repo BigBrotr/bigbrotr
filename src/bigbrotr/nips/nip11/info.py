@@ -23,7 +23,7 @@ Note:
 See Also:
     [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
         Top-level model that wraps this container.
-    [bigbrotr.nips.base.BaseMetadata][bigbrotr.nips.base.BaseMetadata]:
+    [bigbrotr.nips.base.BaseNipMetadata][bigbrotr.nips.base.BaseNipMetadata]:
         Base class providing ``from_dict()`` / ``to_dict()`` interface.
     [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
         The ``NIP11_INFO`` variant used when storing these results.
@@ -43,7 +43,7 @@ from aiohttp_socks import ProxyConnector
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 
 from .data import Nip11InfoData
 from .logs import Nip11InfoLogs
@@ -52,7 +52,7 @@ from .logs import Nip11InfoLogs
 logger = logging.getLogger("bigbrotr.nips.nip11")
 
 
-class Nip11InfoMetadata(BaseMetadata):
+class Nip11InfoMetadata(BaseNipMetadata):
     """Container for NIP-11 info data and operation logs.
 
     Provides the ``execute()`` class method for retrieving a relay's NIP-11

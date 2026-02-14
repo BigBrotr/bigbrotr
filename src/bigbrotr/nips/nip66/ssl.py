@@ -40,7 +40,7 @@ from typing import Any, Self
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 
 from .data import Nip66SslData
 from .logs import Nip66SslLogs
@@ -156,7 +156,7 @@ class CertificateExtractor:
         return result
 
 
-class Nip66SslMetadata(BaseMetadata):
+class Nip66SslMetadata(BaseNipMetadata):
     """Container for SSL/TLS certificate data and inspection logs.
 
     Provides the ``execute()`` class method that performs certificate

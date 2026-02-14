@@ -1203,7 +1203,7 @@ class TestTagBuilders:
     """Tests for Kind 30166 tag builder methods.
 
     These verify that tag builders correctly extract fields from the nested
-    ``{"data": {...}, "logs": {...}}`` structure produced by BaseMetadata.to_dict().
+    ``{"data": {...}, "logs": {...}}`` structure produced by BaseNipMetadata.to_dict().
     """
 
     @pytest.fixture

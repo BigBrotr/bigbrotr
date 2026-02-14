@@ -46,7 +46,7 @@ from nostr_sdk import Filter, NostrSdkError, RelayUrl
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 
 from .data import Nip66RttData
 from .logs import Nip66RttMultiPhaseLogs
@@ -77,7 +77,7 @@ class Nip66RttDependencies(NamedTuple):
     read_filter: Filter
 
 
-class Nip66RttMetadata(BaseMetadata):
+class Nip66RttMetadata(BaseNipMetadata):
     """Container for RTT measurement data and multi-phase probe logs.
 
     Provides the ``execute()`` class method that connects to a relay and

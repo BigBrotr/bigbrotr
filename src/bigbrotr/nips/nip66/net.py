@@ -40,7 +40,7 @@ import geoip2.errors
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.dns import resolve_host
 
 from .data import Nip66NetData
@@ -50,7 +50,7 @@ from .logs import Nip66NetLogs
 logger = logging.getLogger("bigbrotr.nips.nip66")
 
 
-class Nip66NetMetadata(BaseMetadata):
+class Nip66NetMetadata(BaseNipMetadata):
     """Container for network/ASN data and lookup logs.
 
     Provides the ``execute()`` class method that resolves the relay hostname

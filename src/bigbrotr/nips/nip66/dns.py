@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 
 from .data import Nip66DnsData
 from .logs import Nip66DnsLogs
@@ -62,7 +62,7 @@ from .logs import Nip66DnsLogs
 logger = logging.getLogger("bigbrotr.nips.nip66")
 
 
-class Nip66DnsMetadata(BaseMetadata):
+class Nip66DnsMetadata(BaseNipMetadata):
     """Container for DNS resolution data and operation logs.
 
     Provides the ``execute()`` class method that performs a comprehensive

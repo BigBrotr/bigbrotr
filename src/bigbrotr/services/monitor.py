@@ -80,7 +80,7 @@ from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models import Metadata, MetadataType, Relay, RelayMetadata
 from bigbrotr.models.constants import EventKind, NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.nips.base import BaseMetadata  # noqa: TC001
+from bigbrotr.nips.base import BaseNipMetadata  # noqa: TC001
 from bigbrotr.nips.nip11 import Nip11, Nip11Options
 from bigbrotr.nips.nip66 import (
     Nip66DnsMetadata,
@@ -1029,7 +1029,7 @@ class Monitor(
             generated_at = int(time.time())
 
             def to_relay_meta(
-                meta: BaseMetadata | None, meta_type: MetadataType
+                meta: BaseNipMetadata | None, meta_type: MetadataType
             ) -> RelayMetadata | None:
                 if meta is None:
                     return None

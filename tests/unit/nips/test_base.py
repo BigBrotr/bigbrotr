@@ -1,4 +1,4 @@
-"""Unit tests for BaseData, BaseMetadata, BaseLogs, BaseNip, BaseNipSelection, BaseNipOptions."""
+"""Unit tests for BaseData, BaseNipMetadata, BaseLogs, BaseNip, BaseNipSelection, BaseNipOptions."""
 
 import pytest
 from pydantic import ValidationError
@@ -8,8 +8,8 @@ from bigbrotr.models.relay import Relay
 from bigbrotr.nips.base import (
     BaseData,
     BaseLogs,
-    BaseMetadata,
     BaseNip,
+    BaseNipMetadata,
     BaseNipOptions,
     BaseNipSelection,
 )
@@ -189,16 +189,16 @@ class TestBaseDataFrozen:
 
 
 # =============================================================================
-# BaseMetadata Tests
+# BaseNipMetadata Tests
 # =============================================================================
 
 
-class TestBaseMetadata:
-    """Test BaseMetadata class."""
+class TestBaseNipMetadata:
+    """Test BaseNipMetadata class."""
 
     @pytest.fixture
     def metadata_subclass(self):
-        """Create a BaseMetadata subclass with data and logs."""
+        """Create a BaseNipMetadata subclass with data and logs."""
 
         class TestData(BaseData):
             name: str | None = None
@@ -210,7 +210,7 @@ class TestBaseMetadata:
         class TestLogs(BaseLogs):
             pass
 
-        class TestMetadata(BaseMetadata):
+        class TestMetadata(BaseNipMetadata):
             data: TestData
             logs: TestLogs
 
@@ -253,7 +253,7 @@ class TestBaseMetadata:
         class TestLogs(BaseLogs):
             pass
 
-        class TestMetadataWithOptional(BaseMetadata):
+        class TestMetadataWithOptional(BaseNipMetadata):
             data: TestData | None = None
             logs: TestLogs | None = None
 
@@ -268,7 +268,7 @@ class TestBaseMetadata:
     def test_to_dict_handles_non_to_dict_values(self, metadata_subclass):
         """to_dict() handles values without to_dict() method."""
 
-        class SimpleMetadata(BaseMetadata):
+        class SimpleMetadata(BaseNipMetadata):
             value: str
             count: int
 
@@ -277,7 +277,7 @@ class TestBaseMetadata:
         assert d == {"value": "test", "count": 10}
 
     def test_model_is_frozen(self, metadata_subclass):
-        """BaseMetadata models are immutable."""
+        """BaseNipMetadata models are immutable."""
         TestMetadata, TestData, TestLogs = metadata_subclass
         model = TestMetadata(
             data=TestData(name="Test"),
@@ -478,7 +478,7 @@ class TestBaseLogsSubclass:
 
 
 class TestIntegration:
-    """Integration tests combining BaseData, BaseMetadata, and BaseLogs."""
+    """Integration tests combining BaseData, BaseNipMetadata, and BaseLogs."""
 
     @pytest.fixture
     def complete_model(self):
@@ -496,7 +496,7 @@ class TestIntegration:
         class MyLogs(BaseLogs):
             elapsed_ms: int | None = None
 
-        class MyMetadata(BaseMetadata):
+        class MyMetadata(BaseNipMetadata):
             data: MyData
             logs: MyLogs
 

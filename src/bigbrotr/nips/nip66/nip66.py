@@ -36,7 +36,7 @@ from bigbrotr.models.constants import DEFAULT_TIMEOUT
 from bigbrotr.models.metadata import Metadata, MetadataType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_metadata import RelayMetadata
-from bigbrotr.nips.base import BaseMetadata, BaseNip, BaseNipOptions, BaseNipSelection
+from bigbrotr.nips.base import BaseNip, BaseNipMetadata, BaseNipOptions, BaseNipSelection
 
 from .dns import Nip66DnsMetadata
 from .geo import Nip66GeoMetadata
@@ -214,7 +214,7 @@ class Nip66(BaseNip):
         """
 
         def make(
-            metadata: BaseMetadata | None, metadata_type: MetadataType
+            metadata: BaseNipMetadata | None, metadata_type: MetadataType
         ) -> RelayMetadata | None:
             if metadata is None:
                 return None

@@ -41,7 +41,7 @@ from aiohttp_socks import ProxyConnector
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 
 from .data import Nip66HttpData
 from .logs import Nip66HttpLogs
@@ -50,7 +50,7 @@ from .logs import Nip66HttpLogs
 logger = logging.getLogger("bigbrotr.nips.nip66")
 
 
-class Nip66HttpMetadata(BaseMetadata):
+class Nip66HttpMetadata(BaseNipMetadata):
     """Container for HTTP header data and extraction logs.
 
     Provides the ``execute()`` class method that initiates a WebSocket

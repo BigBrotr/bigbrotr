@@ -21,7 +21,7 @@ Attributes:
         Net (ASN info), HTTP (response headers). Each test produces a separate
         [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] record
         with the appropriate [MetadataType][bigbrotr.models.metadata.MetadataType].
-    BaseData, BaseLogs, BaseMetadata: Shared abstract base classes inherited by
+    BaseData, BaseLogs, BaseNipMetadata: Shared abstract base classes inherited by
         all NIP data, log, and metadata models.
     BaseNip: Abstract base class for top-level NIP models with ``relay``,
         ``generated_at``, and enforced ``create()`` / ``to_relay_metadata_tuple()``
@@ -44,8 +44,8 @@ See Also:
 from bigbrotr.nips.base import (
     BaseData,
     BaseLogs,
-    BaseMetadata,
     BaseNip,
+    BaseNipMetadata,
     BaseNipOptions,
     BaseNipSelection,
 )
@@ -56,8 +56,8 @@ from bigbrotr.nips.nip66 import Nip66
 __all__ = [
     "BaseData",
     "BaseLogs",
-    "BaseMetadata",
     "BaseNip",
+    "BaseNipMetadata",
     "BaseNipOptions",
     "BaseNipSelection",
     "Nip11",
