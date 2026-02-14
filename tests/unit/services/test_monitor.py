@@ -114,7 +114,7 @@ class TestMonitorProcessingConfig:
         config = MonitorProcessingConfig()
 
         assert config.chunk_size == 100
-        assert config.nip11_max_size == 1048576
+        assert config.nip11_info_max_size == 1048576
         assert config.compute.nip11_info is True
         assert config.store.nip11_info is True
 
@@ -139,10 +139,10 @@ class TestMonitorProcessingConfig:
         config_max = MonitorProcessingConfig(chunk_size=1000)
         assert config_max.chunk_size == 1000
 
-    def test_nip11_max_size_custom(self) -> None:
-        """Test custom NIP-11 max size."""
-        config = MonitorProcessingConfig(nip11_max_size=2097152)  # 2MB
-        assert config.nip11_max_size == 2097152
+    def test_nip11_info_max_size_custom(self) -> None:
+        """Test custom NIP-11 info max size."""
+        config = MonitorProcessingConfig(nip11_info_max_size=2097152)  # 2MB
+        assert config.nip11_info_max_size == 2097152
 
 
 # ============================================================================
