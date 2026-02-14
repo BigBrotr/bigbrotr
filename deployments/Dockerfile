@@ -62,6 +62,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
     && rm -rf /var/lib/apt/lists/*
 
+# Remove pre-installed system Python packages (pip, setuptools, wheel and transitive deps).
+# The production image uses .venv exclusively; these are unused and trigger Trivy findings.
+RUN rm -rf /usr/local/lib/python*/dist-packages /usr/local/lib/python*/ensurepip \
+    && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/wheel
+
 # Copy the virtual environment from builder (no pip/setuptools in production image)
 COPY --from=builder /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
