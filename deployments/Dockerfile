@@ -55,16 +55,17 @@ RUN groupadd -g 1000 ${DEPLOYMENT} && \
 
 WORKDIR /app
 
-# Install runtime dependencies (libpq for asyncpg, libsecp256k1 for crypto, tini for PID 1)
+# Install runtime dependencies then strip the base image's Python packaging toolchain.
+# The production image runs exclusively from the .venv copied from the builder stage;
+# system-level Python packages are unused and only increase the attack surface.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libsecp256k1-dev \
     tini \
-    && rm -rf /var/lib/apt/lists/*
-
-# Remove pre-installed system Python packages (pip, setuptools, wheel and transitive deps).
-# The production image uses .venv exclusively; these are unused and trigger Trivy findings.
-RUN rm -rf /usr/local/lib/python*/dist-packages /usr/local/lib/python*/ensurepip \
+    && rm -rf /var/lib/apt/lists/* \
+              /usr/local/lib/python*/site-packages \
+              /usr/local/lib/python*/dist-packages \
+              /usr/local/lib/python*/ensurepip \
     && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/wheel
 
 # Copy the virtual environment from builder (no pip/setuptools in production image)
