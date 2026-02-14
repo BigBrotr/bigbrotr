@@ -244,16 +244,25 @@ class TestResolveHostFailure:
         assert result.has_ip is False
 
     @pytest.mark.asyncio
-    async def test_generic_exception_handled(self) -> None:
-        """Test generic exceptions are caught and return None."""
+    async def test_unicode_error_handled(self) -> None:
+        """UnicodeError from invalid hostname encoding is caught and returns None."""
         with (
-            patch("socket.gethostbyname", side_effect=Exception("Unexpected error")),
-            patch("socket.getaddrinfo", side_effect=Exception("Unexpected error")),
+            patch("socket.gethostbyname", side_effect=UnicodeError("bad encoding")),
+            patch("socket.getaddrinfo", side_effect=UnicodeError("bad encoding")),
         ):
             result = await resolve_host("example.com")
 
         assert result.ipv4 is None
         assert result.ipv6 is None
+
+    @pytest.mark.asyncio
+    async def test_unexpected_exception_propagates(self) -> None:
+        """Non-OSError/UnicodeError exceptions propagate to the caller."""
+        with (
+            patch("socket.gethostbyname", side_effect=RuntimeError("unexpected")),
+            pytest.raises(RuntimeError, match="unexpected"),
+        ):
+            await resolve_host("example.com")
 
 
 # =============================================================================

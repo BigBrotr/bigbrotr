@@ -79,11 +79,11 @@ async def resolve_host(host: str) -> ResolvedHost:
     ipv6: str | None = None
 
     # Resolve IPv4
-    with contextlib.suppress(Exception):
+    with contextlib.suppress(OSError, UnicodeError):
         ipv4 = await asyncio.to_thread(socket.gethostbyname, host)
 
     # Resolve IPv6
-    with contextlib.suppress(Exception):
+    with contextlib.suppress(OSError, UnicodeError):
         ipv6_result = await asyncio.to_thread(socket.getaddrinfo, host, None, socket.AF_INET6)
         if ipv6_result:
             ipv6 = str(ipv6_result[0][4][0])

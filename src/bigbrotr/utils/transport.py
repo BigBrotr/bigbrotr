@@ -137,6 +137,11 @@ class _NostrSdkStderrFilter:
         return getattr(self._original, name)
 
 
+# nostr-sdk's Rust layer (via UniFFI) prints tracebacks directly to stderr
+# from background threads, bypassing Python's logging entirely. Neither
+# contextlib.redirect_stderr nor logging.Filter can intercept this output
+# because it originates from non-Python threads. A global stderr wrapper is
+# the only way to suppress it.
 if not isinstance(sys.stderr, _NostrSdkStderrFilter):
     sys.stderr = _NostrSdkStderrFilter(sys.stderr)
 
