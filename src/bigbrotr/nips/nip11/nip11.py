@@ -1,16 +1,16 @@
 """
 Top-level NIP-11 model with factory method and database serialization.
 
-Wraps the [Nip11InfoMetadata][bigbrotr.nips.nip11.fetch.Nip11InfoMetadata]
-container and provides ``create()`` for fetching a relay's
+Wraps the [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]
+container and provides ``create()`` for retrieving a relay's
 [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md) information
 document, and ``to_relay_metadata_tuple()`` for converting the result into
 database-ready [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
 records.
 
 See Also:
-    [bigbrotr.nips.nip11.fetch.Nip11InfoMetadata][bigbrotr.nips.nip11.fetch.Nip11InfoMetadata]:
-        The metadata container with HTTP fetch capabilities.
+    [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
+        The metadata container with HTTP info retrieval capabilities.
     [bigbrotr.models.metadata.Metadata][bigbrotr.models.metadata.Metadata]:
         Content-addressed metadata model used for database storage.
     [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
@@ -30,7 +30,7 @@ from bigbrotr.models.metadata import Metadata, MetadataType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_metadata import RelayMetadata
 
-from .fetch import Nip11InfoMetadata
+from .info import Nip11InfoMetadata
 
 
 class RelayNip11MetadataTuple(NamedTuple):
@@ -49,17 +49,17 @@ class RelayNip11MetadataTuple(NamedTuple):
 class Nip11(BaseModel):
     """NIP-11 relay information document.
 
-    Created via the ``create()`` async factory method, which fetches the
+    Created via the ``create()`` async factory method, which retrieves the
     relay's information document over HTTP and packages the result.
 
     Attributes:
         relay: The [Relay][bigbrotr.models.relay.Relay] this document belongs to.
-        fetch_metadata: Fetch data and logs (``None`` if fetch was not attempted).
-        generated_at: Unix timestamp of when the document was fetched.
+        info: Info data and logs (``None`` if retrieval was not attempted).
+        generated_at: Unix timestamp of when the document was retrieved.
 
     Note:
         The ``create()`` factory method **never raises exceptions**. Always
-        check ``fetch_metadata.logs.success`` for the operation outcome.
+        check ``info.logs.success`` for the operation outcome.
         This design allows batch processing of many relays without individual
         error handling.
 
@@ -73,15 +73,15 @@ class Nip11(BaseModel):
         ```python
         relay = Relay("wss://relay.damus.io")
         nip11 = await Nip11.create(relay, timeout=10.0)
-        if nip11.fetch_metadata and nip11.fetch_metadata.logs.success:
-            print(nip11.fetch_metadata.data.name)  # 'Damus Relay'
+        if nip11.info and nip11.info.logs.success:
+            print(nip11.info.data.name)  # 'Damus Relay'
         ```
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     relay: Relay
-    fetch_metadata: Nip11InfoMetadata | None = None
+    info: Nip11InfoMetadata | None = None
     generated_at: StrictInt = Field(default_factory=lambda: int(time()), ge=0)
 
     # -------------------------------------------------------------------------
@@ -93,19 +93,19 @@ class Nip11(BaseModel):
 
         Returns:
             A [RelayNip11MetadataTuple][bigbrotr.nips.nip11.nip11.RelayNip11MetadataTuple]
-            with the fetch metadata wrapped in a
+            with the info metadata wrapped in a
             [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] junction
             record tagged as
             [MetadataType.NIP11_INFO][bigbrotr.models.metadata.MetadataType],
-            or ``None`` if no fetch was performed.
+            or ``None`` if no info retrieval was performed.
         """
         nip11_info: RelayMetadata | None = None
-        if self.fetch_metadata is not None:
+        if self.info is not None:
             nip11_info = RelayMetadata(
                 relay=self.relay,
                 metadata=Metadata(
                     type=MetadataType.NIP11_INFO,
-                    data=self.fetch_metadata.to_dict(),
+                    data=self.info.to_dict(),
                 ),
                 generated_at=self.generated_at,
             )
@@ -125,13 +125,13 @@ class Nip11(BaseModel):
         proxy_url: str | None = None,
         allow_insecure: bool = True,
     ) -> Nip11:
-        """Fetch a relay's NIP-11 document and return a populated Nip11 instance.
+        """Retrieve a relay's NIP-11 document and return a populated Nip11 instance.
 
         This method never raises and never returns None. Check
-        ``fetch_metadata.logs.success`` for the outcome.
+        ``info.logs.success`` for the outcome.
 
         Args:
-            relay: Relay to fetch from.
+            relay: Relay to retrieve from.
             timeout: HTTP request timeout in seconds (default: 10.0).
             max_size: Maximum response body size in bytes (default: 64 KB).
             proxy_url: Optional SOCKS5 proxy URL for overlay networks.
@@ -139,9 +139,9 @@ class Nip11(BaseModel):
                 errors (default: True).
 
         Returns:
-            A new ``Nip11`` instance containing the fetch results.
+            A new ``Nip11`` instance containing the info results.
         """
-        fetch_metadata = await Nip11InfoMetadata.execute(
+        info = await Nip11InfoMetadata.execute(
             relay, timeout, max_size, proxy_url, allow_insecure=allow_insecure
         )
-        return cls(relay=relay, fetch_metadata=fetch_metadata)
+        return cls(relay=relay, info=info)

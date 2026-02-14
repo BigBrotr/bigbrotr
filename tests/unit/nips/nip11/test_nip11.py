@@ -10,8 +10,8 @@ from bigbrotr.models.metadata import Metadata, MetadataType
 from bigbrotr.models.relay import Relay
 from bigbrotr.nips.nip11 import (
     Nip11,
-    Nip11FetchData,
-    Nip11FetchLogs,
+    Nip11InfoData,
+    Nip11InfoLogs,
     Nip11InfoMetadata,
 )
 from bigbrotr.nips.nip11.nip11 import RelayNip11MetadataTuple
@@ -25,73 +25,73 @@ from bigbrotr.nips.nip11.nip11 import RelayNip11MetadataTuple
 class TestNip11Construction:
     """Test Nip11 construction."""
 
-    def test_constructor_with_fetch_metadata(
+    def test_constructor_with_info(
         self,
         relay: Relay,
-        fetch_metadata: Nip11InfoMetadata,
+        info_metadata: Nip11InfoMetadata,
     ):
-        """Constructor creates Nip11 with fetch_metadata."""
+        """Constructor creates Nip11 with info."""
         nip11 = Nip11(
             relay=relay,
-            fetch_metadata=fetch_metadata,
+            info=info_metadata,
             generated_at=1234567890,
         )
         assert nip11.relay == relay
-        assert nip11.fetch_metadata == fetch_metadata
+        assert nip11.info == info_metadata
         assert nip11.generated_at == 1234567890
 
-    def test_constructor_with_fetch_metadata_none(self, relay: Relay):
-        """Constructor accepts fetch_metadata=None."""
+    def test_constructor_with_info_none(self, relay: Relay):
+        """Constructor accepts info=None."""
         nip11 = Nip11(
             relay=relay,
-            fetch_metadata=None,
+            info=None,
             generated_at=1234567890,
         )
         assert nip11.relay == relay
-        assert nip11.fetch_metadata is None
+        assert nip11.info is None
         assert nip11.generated_at == 1234567890
 
-    def test_default_generated_at(self, relay: Relay, fetch_metadata: Nip11InfoMetadata):
+    def test_default_generated_at(self, relay: Relay, info_metadata: Nip11InfoMetadata):
         """Default generated_at is current timestamp."""
         import time
 
         before = int(time.time())
-        nip11 = Nip11(relay=relay, fetch_metadata=fetch_metadata)
+        nip11 = Nip11(relay=relay, info=info_metadata)
         after = int(time.time())
 
         assert before <= nip11.generated_at <= after
 
-    def test_explicit_generated_at(self, relay: Relay, fetch_metadata: Nip11InfoMetadata):
+    def test_explicit_generated_at(self, relay: Relay, info_metadata: Nip11InfoMetadata):
         """Explicit generated_at is preserved."""
         nip11 = Nip11(
             relay=relay,
-            fetch_metadata=fetch_metadata,
+            info=info_metadata,
             generated_at=1000,
         )
         assert nip11.generated_at == 1000
 
-    def test_generated_at_zero(self, relay: Relay, fetch_metadata: Nip11InfoMetadata):
+    def test_generated_at_zero(self, relay: Relay, info_metadata: Nip11InfoMetadata):
         """generated_at=0 is valid."""
         nip11 = Nip11(
             relay=relay,
-            fetch_metadata=fetch_metadata,
+            info=info_metadata,
             generated_at=0,
         )
         assert nip11.generated_at == 0
 
-    def test_negative_generated_at_raises(self, relay: Relay, fetch_metadata: Nip11InfoMetadata):
+    def test_negative_generated_at_raises(self, relay: Relay, info_metadata: Nip11InfoMetadata):
         """Negative generated_at raises ValidationError."""
         with pytest.raises(ValidationError):
             Nip11(
                 relay=relay,
-                fetch_metadata=fetch_metadata,
+                info=info_metadata,
                 generated_at=-1,
             )
 
-    def test_constructor_requires_relay(self, fetch_metadata: Nip11InfoMetadata):
+    def test_constructor_requires_relay(self, info_metadata: Nip11InfoMetadata):
         """Constructor requires relay field."""
         with pytest.raises(ValidationError):
-            Nip11(fetch_metadata=fetch_metadata)
+            Nip11(info=info_metadata)
 
 
 class TestNip11Frozen:
@@ -107,12 +107,10 @@ class TestNip11Frozen:
         with pytest.raises(ValidationError):
             nip11.relay = Relay("wss://other.example.com")
 
-    def test_cannot_modify_fetch_metadata(
-        self, nip11: Nip11, fetch_metadata_failed: Nip11InfoMetadata
-    ):
-        """Cannot modify fetch_metadata field."""
+    def test_cannot_modify_info(self, nip11: Nip11, info_metadata_failed: Nip11InfoMetadata):
+        """Cannot modify info field."""
         with pytest.raises(ValidationError):
-            nip11.fetch_metadata = fetch_metadata_failed
+            nip11.info = info_metadata_failed
 
 
 # =============================================================================
@@ -123,57 +121,57 @@ class TestNip11Frozen:
 class TestNip11DataAccess:
     """Test Nip11 data access."""
 
-    def test_fetch_metadata_data_access(self, nip11: Nip11):
-        """Data accessible via fetch_metadata.data."""
-        assert nip11.fetch_metadata.data.name == "Test Relay"
-        assert nip11.fetch_metadata.data.description is not None
+    def test_info_data_access(self, nip11: Nip11):
+        """Data accessible via info.data."""
+        assert nip11.info.data.name == "Test Relay"
+        assert nip11.info.data.description is not None
 
-    def test_fetch_metadata_logs_access(self, nip11: Nip11):
-        """Logs accessible via fetch_metadata.logs."""
-        assert nip11.fetch_metadata.logs.success is True
-        assert nip11.fetch_metadata.logs.reason is None
+    def test_info_logs_access(self, nip11: Nip11):
+        """Logs accessible via info.logs."""
+        assert nip11.info.logs.success is True
+        assert nip11.info.logs.reason is None
 
-    def test_fetch_metadata_none_access(self, nip11_no_fetch_metadata: Nip11):
-        """Accessing fetch_metadata when None returns None."""
-        assert nip11_no_fetch_metadata.fetch_metadata is None
+    def test_info_none_access(self, nip11_no_info: Nip11):
+        """Accessing info when None returns None."""
+        assert nip11_no_info.info is None
 
     def test_limitation_access(self, nip11: Nip11):
-        """Limitation accessible via fetch_metadata.data.limitation."""
-        limitation = nip11.fetch_metadata.data.limitation
+        """Limitation accessible via info.data.limitation."""
+        limitation = nip11.info.data.limitation
         assert limitation.max_message_length == 65535
         assert limitation.auth_required is False
 
     def test_retention_access(self, nip11: Nip11):
-        """Retention accessible via fetch_metadata.data.retention."""
-        retention = nip11.fetch_metadata.data.retention
+        """Retention accessible via info.data.retention."""
+        retention = nip11.info.data.retention
         assert retention is not None
         assert len(retention) == 3
 
     def test_fees_access(self, nip11: Nip11):
-        """Fees accessible via fetch_metadata.data.fees."""
-        fees = nip11.fetch_metadata.data.fees
+        """Fees accessible via info.data.fees."""
+        fees = nip11.info.data.fees
         assert fees.admission is not None
 
     def test_supported_nips_access(self, nip11: Nip11):
-        """supported_nips accessible via fetch_metadata.data."""
-        assert nip11.fetch_metadata.data.supported_nips == [1, 11, 42, 65]
+        """supported_nips accessible via info.data."""
+        assert nip11.info.data.supported_nips == [1, 11, 42, 65]
 
     def test_self_property_access(self, nip11: Nip11):
-        """self property accessible via fetch_metadata.data."""
-        assert nip11.fetch_metadata.data.self == "b" * 64
+        """self property accessible via info.data."""
+        assert nip11.info.data.self == "b" * 64
 
 
 class TestNip11DataAccessFailed:
-    """Test Nip11 data access with failed fetch."""
+    """Test Nip11 data access with failed info retrieval."""
 
-    def test_failed_fetch_logs(self, nip11_failed: Nip11):
-        """Failed fetch has success=False and reason."""
-        assert nip11_failed.fetch_metadata.logs.success is False
-        assert nip11_failed.fetch_metadata.logs.reason is not None
+    def test_failed_info_logs(self, nip11_failed: Nip11):
+        """Failed info retrieval has success=False and reason."""
+        assert nip11_failed.info.logs.success is False
+        assert nip11_failed.info.logs.reason is not None
 
-    def test_failed_fetch_empty_data(self, nip11_failed: Nip11):
-        """Failed fetch has empty data."""
-        assert nip11_failed.fetch_metadata.data.name is None
+    def test_failed_info_empty_data(self, nip11_failed: Nip11):
+        """Failed info retrieval has empty data."""
+        assert nip11_failed.info.data.name is None
 
 
 # =============================================================================
@@ -198,16 +196,16 @@ class TestNip11Serialization:
         assert result.nip11_info.generated_at == nip11.generated_at
 
     def test_to_relay_metadata_tuple_contains_metadata(self, nip11: Nip11):
-        """RelayMetadata contains Metadata with fetch data."""
+        """RelayMetadata contains Metadata with info data."""
         result = nip11.to_relay_metadata_tuple()
         metadata = result.nip11_info.metadata
         assert isinstance(metadata, Metadata)
         assert metadata.data["data"]["name"] == "Test Relay"
         assert metadata.data["logs"]["success"] is True
 
-    def test_to_relay_metadata_tuple_none_fetch_metadata(self, nip11_no_fetch_metadata: Nip11):
-        """to_relay_metadata_tuple returns None for nip11_info when fetch_metadata is None."""
-        result = nip11_no_fetch_metadata.to_relay_metadata_tuple()
+    def test_to_relay_metadata_tuple_none_info(self, nip11_no_info: Nip11):
+        """to_relay_metadata_tuple returns None for nip11_info when info is None."""
+        result = nip11_no_info.to_relay_metadata_tuple()
         assert result.nip11_info is None
 
 
@@ -273,13 +271,13 @@ class TestNip11CreateSuccess:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(relay)
 
         assert isinstance(result, Nip11)
         assert result.relay == relay
-        assert result.fetch_metadata.logs.success is True
-        assert result.fetch_metadata.data.name == "Test Relay"
+        assert result.info.logs.success is True
+        assert result.info.data.name == "Test Relay"
         assert result.generated_at > 0
 
     @pytest.mark.asyncio
@@ -301,13 +299,13 @@ class TestNip11CreateSuccess:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(relay)
 
-        assert result.fetch_metadata.logs.success is True
-        assert result.fetch_metadata.data.name == "Test Relay"
-        assert result.fetch_metadata.data.supported_nips == [1, 11, 42, 65]
-        assert result.fetch_metadata.data.limitation.max_message_length == 65535
+        assert result.info.logs.success is True
+        assert result.info.data.name == "Test Relay"
+        assert result.info.data.supported_nips == [1, 11, 42, 65]
+        assert result.info.data.limitation.max_message_length == 65535
 
 
 # =============================================================================
@@ -328,12 +326,12 @@ class TestNip11CreateErrors:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(relay)
 
         assert isinstance(result, Nip11)
-        assert result.fetch_metadata.logs.success is False
-        assert "404" in result.fetch_metadata.logs.reason
+        assert result.info.logs.success is False
+        assert "404" in result.info.logs.reason
 
     @pytest.mark.asyncio
     async def test_create_connection_error_returns_failure(self, relay: Relay):
@@ -343,12 +341,12 @@ class TestNip11CreateErrors:
         session.__aenter__ = AsyncMock(return_value=session)
         session.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(relay)
 
         assert isinstance(result, Nip11)
-        assert result.fetch_metadata.logs.success is False
-        assert "Connection refused" in result.fetch_metadata.logs.reason
+        assert result.info.logs.success is False
+        assert "Connection refused" in result.info.logs.reason
 
     @pytest.mark.asyncio
     async def test_create_invalid_content_type(self, relay: Relay, mock_session_factory):
@@ -362,11 +360,11 @@ class TestNip11CreateErrors:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(relay)
 
-        assert result.fetch_metadata.logs.success is False
-        assert "Content-Type" in result.fetch_metadata.logs.reason
+        assert result.info.logs.success is False
+        assert "Content-Type" in result.info.logs.reason
 
     @pytest.mark.asyncio
     async def test_create_response_too_large(self, relay: Relay, mock_session_factory):
@@ -380,11 +378,11 @@ class TestNip11CreateErrors:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(relay, max_size=1000)
 
-        assert result.fetch_metadata.logs.success is False
-        assert "too large" in result.fetch_metadata.logs.reason
+        assert result.info.logs.success is False
+        assert "too large" in result.info.logs.reason
 
     @pytest.mark.asyncio
     async def test_create_invalid_json(self, relay: Relay, mock_session_factory):
@@ -398,10 +396,10 @@ class TestNip11CreateErrors:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(relay)
 
-        assert result.fetch_metadata.logs.success is False
+        assert result.info.logs.success is False
 
     @pytest.mark.asyncio
     async def test_create_non_dict_json(self, relay: Relay, mock_session_factory):
@@ -415,11 +413,11 @@ class TestNip11CreateErrors:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(relay)
 
-        assert result.fetch_metadata.logs.success is False
-        assert "dict" in result.fetch_metadata.logs.reason
+        assert result.info.logs.success is False
+        assert "dict" in result.info.logs.reason
 
 
 # =============================================================================
@@ -442,7 +440,7 @@ class TestNip11CreateUrlScheme:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             await Nip11.create(relay)
 
         call_args = session.get.call_args
@@ -461,7 +459,7 @@ class TestNip11CreateUrlScheme:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             await Nip11.create(tor_relay)
 
         call_args = session.get.call_args
@@ -489,7 +487,7 @@ class TestNip11CreateAcceptHeader:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             await Nip11.create(relay)
 
         call_args = session.get.call_args
@@ -517,10 +515,10 @@ class TestNip11CreateContentType:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(relay)
 
-        assert result.fetch_metadata.logs.success is True
+        assert result.info.logs.success is True
 
     @pytest.mark.asyncio
     async def test_create_accepts_json(self, relay: Relay, mock_session_factory):
@@ -534,10 +532,10 @@ class TestNip11CreateContentType:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(relay)
 
-        assert result.fetch_metadata.logs.success is True
+        assert result.info.logs.success is True
 
     @pytest.mark.asyncio
     async def test_create_accepts_json_with_charset(self, relay: Relay, mock_session_factory):
@@ -551,10 +549,10 @@ class TestNip11CreateContentType:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(relay)
 
-        assert result.fetch_metadata.logs.success is True
+        assert result.info.logs.success is True
 
 
 # =============================================================================
@@ -577,11 +575,11 @@ class TestNip11CreateNetworkTypes:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(tor_relay)
 
         assert result.relay == tor_relay
-        assert result.fetch_metadata.logs.success is True
+        assert result.info.logs.success is True
 
     @pytest.mark.asyncio
     async def test_create_i2p_relay(self, i2p_relay: Relay, mock_session_factory):
@@ -595,11 +593,11 @@ class TestNip11CreateNetworkTypes:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(i2p_relay)
 
         assert result.relay == i2p_relay
-        assert result.fetch_metadata.logs.success is True
+        assert result.info.logs.success is True
 
     @pytest.mark.asyncio
     async def test_create_loki_relay(self, loki_relay: Relay, mock_session_factory):
@@ -613,11 +611,11 @@ class TestNip11CreateNetworkTypes:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(loki_relay)
 
         assert result.relay == loki_relay
-        assert result.fetch_metadata.logs.success is True
+        assert result.info.logs.success is True
 
 
 # =============================================================================
@@ -640,7 +638,7 @@ class TestNip11CreateParameters:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             await Nip11.create(relay, timeout=30.0)
 
         call_args = session.get.call_args
@@ -659,11 +657,11 @@ class TestNip11CreateParameters:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11.create(relay, max_size=1000)
 
-        assert result.fetch_metadata.logs.success is False
-        assert "too large" in result.fetch_metadata.logs.reason
+        assert result.info.logs.success is False
+        assert "too large" in result.info.logs.reason
 
 
 # =============================================================================
@@ -680,27 +678,27 @@ class TestNip11Integration:
         complete_nip11_data: dict[str, Any],
     ):
         """Full workflow: construct -> access data -> serialize."""
-        fetch_data = Nip11FetchData.from_dict(complete_nip11_data)
-        fetch_logs = Nip11FetchLogs(success=True)
-        fetch_metadata = Nip11InfoMetadata(data=fetch_data, logs=fetch_logs)
-        nip11 = Nip11(relay=relay, fetch_metadata=fetch_metadata, generated_at=1234567890)
+        info_data = Nip11InfoData.from_dict(complete_nip11_data)
+        info_logs = Nip11InfoLogs(success=True)
+        info_metadata = Nip11InfoMetadata(data=info_data, logs=info_logs)
+        nip11 = Nip11(relay=relay, info=info_metadata, generated_at=1234567890)
 
-        assert nip11.fetch_metadata.data.name == "Test Relay"
-        assert nip11.fetch_metadata.data.supported_nips == [1, 11, 42, 65]
+        assert nip11.info.data.name == "Test Relay"
+        assert nip11.info.data.supported_nips == [1, 11, 42, 65]
 
         result = nip11.to_relay_metadata_tuple()
         assert result.nip11_info is not None
         assert result.nip11_info.metadata.data["data"]["name"] == "Test Relay"
 
     def test_full_workflow_failure(self, relay: Relay):
-        """Full workflow with failed fetch."""
-        fetch_data = Nip11FetchData()
-        fetch_logs = Nip11FetchLogs(success=False, reason="Connection timeout")
-        fetch_metadata = Nip11InfoMetadata(data=fetch_data, logs=fetch_logs)
-        nip11 = Nip11(relay=relay, fetch_metadata=fetch_metadata, generated_at=1234567890)
+        """Full workflow with failed info retrieval."""
+        info_data = Nip11InfoData()
+        info_logs = Nip11InfoLogs(success=False, reason="Connection timeout")
+        info_metadata = Nip11InfoMetadata(data=info_data, logs=info_logs)
+        nip11 = Nip11(relay=relay, info=info_metadata, generated_at=1234567890)
 
-        assert nip11.fetch_metadata.logs.success is False
-        assert nip11.fetch_metadata.data.name is None
+        assert nip11.info.logs.success is False
+        assert nip11.info.data.name is None
 
         result = nip11.to_relay_metadata_tuple()
         assert result.nip11_info is not None
@@ -712,15 +710,15 @@ class TestNip11Integration:
         complete_nip11_data: dict[str, Any],
     ):
         """Verify data survives roundtrip through Metadata."""
-        fetch_data = Nip11FetchData.from_dict(complete_nip11_data)
-        fetch_logs = Nip11FetchLogs(success=True)
-        fetch_metadata = Nip11InfoMetadata(data=fetch_data, logs=fetch_logs)
-        nip11 = Nip11(relay=relay, fetch_metadata=fetch_metadata)
+        info_data = Nip11InfoData.from_dict(complete_nip11_data)
+        info_logs = Nip11InfoLogs(success=True)
+        info_metadata = Nip11InfoMetadata(data=info_data, logs=info_logs)
+        nip11 = Nip11(relay=relay, info=info_metadata)
 
         result = nip11.to_relay_metadata_tuple()
         metadata_dict = result.nip11_info.metadata.data
         reconstructed = Nip11InfoMetadata.from_dict(metadata_dict)
 
-        assert reconstructed.data.name == fetch_data.name
-        assert reconstructed.data.supported_nips == fetch_data.supported_nips
-        assert reconstructed.logs.success == fetch_logs.success
+        assert reconstructed.data.name == info_data.name
+        assert reconstructed.data.supported_nips == info_data.supported_nips
+        assert reconstructed.logs.success == info_logs.success

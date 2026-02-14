@@ -8,8 +8,8 @@ from pydantic import ValidationError
 
 from bigbrotr.models.relay import Relay
 from bigbrotr.nips.nip11 import (
-    Nip11FetchData,
-    Nip11FetchLogs,
+    Nip11InfoData,
+    Nip11InfoLogs,
     Nip11InfoMetadata,
 )
 
@@ -24,23 +24,23 @@ class TestNip11InfoMetadataConstruction:
 
     def test_constructor_with_data_and_logs(
         self,
-        fetch_data: Nip11FetchData,
-        fetch_logs_success: Nip11FetchLogs,
+        info_data: Nip11InfoData,
+        info_logs_success: Nip11InfoLogs,
     ):
         """Constructor creates container with data and logs."""
-        metadata = Nip11InfoMetadata(data=fetch_data, logs=fetch_logs_success)
-        assert metadata.data == fetch_data
-        assert metadata.logs == fetch_logs_success
+        metadata = Nip11InfoMetadata(data=info_data, logs=info_logs_success)
+        assert metadata.data == info_data
+        assert metadata.logs == info_logs_success
 
-    def test_constructor_requires_data(self, fetch_logs_success: Nip11FetchLogs):
+    def test_constructor_requires_data(self, info_logs_success: Nip11InfoLogs):
         """Constructor requires data field."""
         with pytest.raises(ValidationError):
-            Nip11InfoMetadata(logs=fetch_logs_success)
+            Nip11InfoMetadata(logs=info_logs_success)
 
-    def test_constructor_requires_logs(self, fetch_data: Nip11FetchData):
+    def test_constructor_requires_logs(self, info_data: Nip11InfoData):
         """Constructor requires logs field."""
         with pytest.raises(ValidationError):
-            Nip11InfoMetadata(data=fetch_data)
+            Nip11InfoMetadata(data=info_data)
 
 
 class TestNip11InfoMetadataFromDict:
@@ -80,23 +80,23 @@ class TestNip11InfoMetadataFromDict:
 class TestNip11InfoMetadataToDict:
     """Test Nip11InfoMetadata.to_dict() method."""
 
-    def test_to_dict(self, fetch_metadata: Nip11InfoMetadata):
+    def test_to_dict(self, info_metadata: Nip11InfoMetadata):
         """to_dict returns dict with nested to_dict() calls."""
-        d = fetch_metadata.to_dict()
+        d = info_metadata.to_dict()
         assert "data" in d
         assert "logs" in d
         assert isinstance(d["data"], dict)
         assert isinstance(d["logs"], dict)
 
-    def test_to_dict_success_logs(self, fetch_metadata: Nip11InfoMetadata):
+    def test_to_dict_success_logs(self, info_metadata: Nip11InfoMetadata):
         """to_dict with success logs excludes reason."""
-        d = fetch_metadata.to_dict()
+        d = info_metadata.to_dict()
         assert d["logs"]["success"] is True
         assert "reason" not in d["logs"]
 
-    def test_to_dict_failure_logs(self, fetch_metadata_failed: Nip11InfoMetadata):
+    def test_to_dict_failure_logs(self, info_metadata_failed: Nip11InfoMetadata):
         """to_dict with failure logs includes reason."""
-        d = fetch_metadata_failed.to_dict()
+        d = info_metadata_failed.to_dict()
         assert d["logs"]["success"] is False
         assert "reason" in d["logs"]
 
@@ -104,26 +104,26 @@ class TestNip11InfoMetadataToDict:
 class TestNip11InfoMetadataRoundtrip:
     """Test to_dict -> from_dict roundtrip."""
 
-    def test_roundtrip_success(self, fetch_metadata: Nip11InfoMetadata):
+    def test_roundtrip_success(self, info_metadata: Nip11InfoMetadata):
         """Roundtrip preserves success metadata."""
-        reconstructed = Nip11InfoMetadata.from_dict(fetch_metadata.to_dict())
-        assert reconstructed.data.name == fetch_metadata.data.name
-        assert reconstructed.logs.success == fetch_metadata.logs.success
+        reconstructed = Nip11InfoMetadata.from_dict(info_metadata.to_dict())
+        assert reconstructed.data.name == info_metadata.data.name
+        assert reconstructed.logs.success == info_metadata.logs.success
 
-    def test_roundtrip_failure(self, fetch_metadata_failed: Nip11InfoMetadata):
+    def test_roundtrip_failure(self, info_metadata_failed: Nip11InfoMetadata):
         """Roundtrip preserves failure metadata."""
-        reconstructed = Nip11InfoMetadata.from_dict(fetch_metadata_failed.to_dict())
+        reconstructed = Nip11InfoMetadata.from_dict(info_metadata_failed.to_dict())
         assert reconstructed.logs.success is False
-        assert reconstructed.logs.reason == fetch_metadata_failed.logs.reason
+        assert reconstructed.logs.reason == info_metadata_failed.logs.reason
 
 
 class TestNip11InfoMetadataFrozen:
     """Test Nip11InfoMetadata is frozen (immutable)."""
 
-    def test_model_is_frozen(self, fetch_metadata: Nip11InfoMetadata):
+    def test_model_is_frozen(self, info_metadata: Nip11InfoMetadata):
         """Nip11InfoMetadata models are immutable."""
         with pytest.raises(ValidationError):
-            fetch_metadata.data = Nip11FetchData()
+            info_metadata.data = Nip11InfoData()
 
 
 # =============================================================================
@@ -131,12 +131,12 @@ class TestNip11InfoMetadataFrozen:
 # =============================================================================
 
 
-class TestNip11InfoMetadataFetchSuccess:
+class TestNip11InfoMetadataSuccess:
     """Test Nip11InfoMetadata.execute() success scenarios."""
 
     @pytest.mark.asyncio
-    async def test_fetch_success(self, relay: Relay, mock_session_factory):
-        """Successful fetch returns metadata with data."""
+    async def test_info_success(self, relay: Relay, mock_session_factory):
+        """Successful retrieval returns metadata with data."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/nostr+json"}
@@ -146,17 +146,17 @@ class TestNip11InfoMetadataFetchSuccess:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is True
         assert result.data.name == "Test Relay"
 
     @pytest.mark.asyncio
-    async def test_fetch_with_complete_data(
+    async def test_info_with_complete_data(
         self, relay: Relay, complete_nip11_data: dict[str, Any], mock_session_factory
     ):
-        """Fetch parses complete NIP-11 data."""
+        """Retrieval parses complete NIP-11 data."""
         import json
 
         response = AsyncMock()
@@ -168,7 +168,7 @@ class TestNip11InfoMetadataFetchSuccess:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is True
@@ -177,8 +177,8 @@ class TestNip11InfoMetadataFetchSuccess:
         assert result.data.limitation.max_message_length == 65535
 
     @pytest.mark.asyncio
-    async def test_fetch_empty_json_object(self, relay: Relay, mock_session_factory):
-        """Fetch handles empty JSON object."""
+    async def test_info_empty_json_object(self, relay: Relay, mock_session_factory):
+        """Retrieval handles empty JSON object."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -188,7 +188,7 @@ class TestNip11InfoMetadataFetchSuccess:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is True
@@ -204,7 +204,7 @@ class TestNip11InfoMetadataContentType:
     """Test Content-Type validation in execute()."""
 
     @pytest.mark.asyncio
-    async def test_fetch_accepts_nostr_json(self, relay: Relay, mock_session_factory):
+    async def test_info_accepts_nostr_json(self, relay: Relay, mock_session_factory):
         """application/nostr+json is accepted."""
         response = AsyncMock()
         response.status = 200
@@ -215,13 +215,13 @@ class TestNip11InfoMetadataContentType:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is True
 
     @pytest.mark.asyncio
-    async def test_fetch_accepts_json(self, relay: Relay, mock_session_factory):
+    async def test_info_accepts_json(self, relay: Relay, mock_session_factory):
         """application/json is accepted."""
         response = AsyncMock()
         response.status = 200
@@ -232,13 +232,13 @@ class TestNip11InfoMetadataContentType:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is True
 
     @pytest.mark.asyncio
-    async def test_fetch_accepts_json_with_charset(self, relay: Relay, mock_session_factory):
+    async def test_info_accepts_json_with_charset(self, relay: Relay, mock_session_factory):
         """application/json with charset is accepted."""
         response = AsyncMock()
         response.status = 200
@@ -249,13 +249,13 @@ class TestNip11InfoMetadataContentType:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is True
 
     @pytest.mark.asyncio
-    async def test_fetch_rejects_text_html(self, relay: Relay, mock_session_factory):
+    async def test_info_rejects_text_html(self, relay: Relay, mock_session_factory):
         """text/html is rejected."""
         response = AsyncMock()
         response.status = 200
@@ -266,14 +266,14 @@ class TestNip11InfoMetadataContentType:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is False
         assert "Content-Type" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_fetch_rejects_text_plain(self, relay: Relay, mock_session_factory):
+    async def test_info_rejects_text_plain(self, relay: Relay, mock_session_factory):
         """text/plain is rejected."""
         response = AsyncMock()
         response.status = 200
@@ -284,7 +284,7 @@ class TestNip11InfoMetadataContentType:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is False
@@ -300,7 +300,7 @@ class TestNip11InfoMetadataHttpErrors:
     """Test HTTP error handling in execute()."""
 
     @pytest.mark.asyncio
-    async def test_fetch_404_returns_failure(self, relay: Relay, mock_session_factory):
+    async def test_info_404_returns_failure(self, relay: Relay, mock_session_factory):
         """HTTP 404 returns failure."""
         response = AsyncMock()
         response.status = 404
@@ -309,14 +309,14 @@ class TestNip11InfoMetadataHttpErrors:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is False
         assert "404" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_fetch_500_returns_failure(self, relay: Relay, mock_session_factory):
+    async def test_info_500_returns_failure(self, relay: Relay, mock_session_factory):
         """HTTP 500 returns failure."""
         response = AsyncMock()
         response.status = 500
@@ -325,28 +325,28 @@ class TestNip11InfoMetadataHttpErrors:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is False
         assert "500" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_fetch_connection_error(self, relay: Relay, mock_session_factory):
+    async def test_info_connection_error(self, relay: Relay, mock_session_factory):
         """Connection error returns failure."""
         session = MagicMock()
         session.get = MagicMock(side_effect=ConnectionError("Connection refused"))
         session.__aenter__ = AsyncMock(return_value=session)
         session.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is False
         assert "Connection refused" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_fetch_timeout_error(self, relay: Relay, mock_session_factory):
+    async def test_info_timeout_error(self, relay: Relay, mock_session_factory):
         """Timeout error returns failure."""
 
         session = MagicMock()
@@ -354,7 +354,7 @@ class TestNip11InfoMetadataHttpErrors:
         session.__aenter__ = AsyncMock(return_value=session)
         session.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is False
@@ -369,7 +369,7 @@ class TestNip11InfoMetadataResponseSize:
     """Test response size limit handling."""
 
     @pytest.mark.asyncio
-    async def test_fetch_response_too_large(self, relay: Relay, mock_session_factory):
+    async def test_info_response_too_large(self, relay: Relay, mock_session_factory):
         """Response exceeding max_size returns failure."""
         response = AsyncMock()
         response.status = 200
@@ -380,14 +380,14 @@ class TestNip11InfoMetadataResponseSize:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay, max_size=1000)
 
         assert result.logs.success is False
         assert "too large" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_fetch_response_at_limit(self, relay: Relay, mock_session_factory):
+    async def test_info_response_at_limit(self, relay: Relay, mock_session_factory):
         """Response exactly at max_size is accepted."""
         response = AsyncMock()
         response.status = 200
@@ -398,7 +398,7 @@ class TestNip11InfoMetadataResponseSize:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay, max_size=65536)
 
         assert result.logs.success is True
@@ -413,7 +413,7 @@ class TestNip11InfoMetadataJsonParsing:
     """Test JSON parsing error handling."""
 
     @pytest.mark.asyncio
-    async def test_fetch_invalid_json(self, relay: Relay, mock_session_factory):
+    async def test_info_invalid_json(self, relay: Relay, mock_session_factory):
         """Invalid JSON returns failure."""
         response = AsyncMock()
         response.status = 200
@@ -424,13 +424,13 @@ class TestNip11InfoMetadataJsonParsing:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is False
 
     @pytest.mark.asyncio
-    async def test_fetch_json_array_returns_failure(self, relay: Relay, mock_session_factory):
+    async def test_info_json_array_returns_failure(self, relay: Relay, mock_session_factory):
         """JSON array (not dict) returns failure."""
         response = AsyncMock()
         response.status = 200
@@ -441,14 +441,14 @@ class TestNip11InfoMetadataJsonParsing:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is False
         assert "dict" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_fetch_json_string_returns_failure(self, relay: Relay, mock_session_factory):
+    async def test_info_json_string_returns_failure(self, relay: Relay, mock_session_factory):
         """JSON string (not dict) returns failure."""
         response = AsyncMock()
         response.status = 200
@@ -459,14 +459,14 @@ class TestNip11InfoMetadataJsonParsing:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is False
         assert "dict" in result.logs.reason
 
     @pytest.mark.asyncio
-    async def test_fetch_json_null_returns_failure(self, relay: Relay, mock_session_factory):
+    async def test_info_json_null_returns_failure(self, relay: Relay, mock_session_factory):
         """JSON null returns failure."""
         response = AsyncMock()
         response.status = 200
@@ -477,7 +477,7 @@ class TestNip11InfoMetadataJsonParsing:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is False
@@ -492,7 +492,7 @@ class TestNip11InfoMetadataUrlConstruction:
     """Test URL construction in execute()."""
 
     @pytest.mark.asyncio
-    async def test_fetch_wss_uses_https(self, relay: Relay, mock_session_factory):
+    async def test_info_wss_uses_https(self, relay: Relay, mock_session_factory):
         """wss:// relay uses https://."""
         response = AsyncMock()
         response.status = 200
@@ -503,7 +503,7 @@ class TestNip11InfoMetadataUrlConstruction:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             await Nip11InfoMetadata.execute(relay)
 
         call_args = session.get.call_args
@@ -511,7 +511,7 @@ class TestNip11InfoMetadataUrlConstruction:
         assert url.startswith("https://")
 
     @pytest.mark.asyncio
-    async def test_fetch_ws_uses_http(self, tor_relay: Relay, mock_session_factory):
+    async def test_info_ws_uses_http(self, tor_relay: Relay, mock_session_factory):
         """ws:// relay uses http://."""
         response = AsyncMock()
         response.status = 200
@@ -522,7 +522,7 @@ class TestNip11InfoMetadataUrlConstruction:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             await Nip11InfoMetadata.execute(tor_relay)
 
         call_args = session.get.call_args
@@ -530,7 +530,7 @@ class TestNip11InfoMetadataUrlConstruction:
         assert url.startswith("http://")
 
     @pytest.mark.asyncio
-    async def test_fetch_includes_port(self, relay_with_port: Relay, mock_session_factory):
+    async def test_info_includes_port(self, relay_with_port: Relay, mock_session_factory):
         """Non-default port is included in URL."""
         response = AsyncMock()
         response.status = 200
@@ -541,7 +541,7 @@ class TestNip11InfoMetadataUrlConstruction:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             await Nip11InfoMetadata.execute(relay_with_port)
 
         call_args = session.get.call_args
@@ -549,7 +549,7 @@ class TestNip11InfoMetadataUrlConstruction:
         assert ":8080" in url
 
     @pytest.mark.asyncio
-    async def test_fetch_includes_path(self, relay_with_path: Relay, mock_session_factory):
+    async def test_info_includes_path(self, relay_with_path: Relay, mock_session_factory):
         """Path is included in URL."""
         response = AsyncMock()
         response.status = 200
@@ -560,7 +560,7 @@ class TestNip11InfoMetadataUrlConstruction:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             await Nip11InfoMetadata.execute(relay_with_path)
 
         call_args = session.get.call_args
@@ -568,7 +568,7 @@ class TestNip11InfoMetadataUrlConstruction:
         assert "/nostr" in url
 
     @pytest.mark.asyncio
-    async def test_fetch_ipv6_brackets(self, ipv6_relay: Relay, mock_session_factory):
+    async def test_info_ipv6_brackets(self, ipv6_relay: Relay, mock_session_factory):
         """IPv6 addresses are bracketed in URL."""
         response = AsyncMock()
         response.status = 200
@@ -579,7 +579,7 @@ class TestNip11InfoMetadataUrlConstruction:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             await Nip11InfoMetadata.execute(ipv6_relay)
 
         call_args = session.get.call_args
@@ -596,7 +596,7 @@ class TestNip11InfoMetadataAcceptHeader:
     """Test Accept header in execute()."""
 
     @pytest.mark.asyncio
-    async def test_fetch_sends_accept_header(self, relay: Relay, mock_session_factory):
+    async def test_info_sends_accept_header(self, relay: Relay, mock_session_factory):
         """Request includes Accept: application/nostr+json header."""
         response = AsyncMock()
         response.status = 200
@@ -607,7 +607,7 @@ class TestNip11InfoMetadataAcceptHeader:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             await Nip11InfoMetadata.execute(relay)
 
         call_args = session.get.call_args
@@ -624,8 +624,8 @@ class TestNip11InfoMetadataNetworkBehavior:
     """Test network-specific behavior in execute()."""
 
     @pytest.mark.asyncio
-    async def test_fetch_tor_relay(self, tor_relay: Relay, mock_session_factory):
-        """Tor relay fetch uses http:// (overlay handles encryption)."""
+    async def test_info_tor_relay(self, tor_relay: Relay, mock_session_factory):
+        """Tor relay retrieval uses http:// (overlay handles encryption)."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -635,7 +635,7 @@ class TestNip11InfoMetadataNetworkBehavior:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(tor_relay)
 
         assert result.logs.success is True
@@ -645,8 +645,8 @@ class TestNip11InfoMetadataNetworkBehavior:
         assert ".onion" in url
 
     @pytest.mark.asyncio
-    async def test_fetch_i2p_relay(self, i2p_relay: Relay, mock_session_factory):
-        """I2P relay fetch uses http://."""
+    async def test_info_i2p_relay(self, i2p_relay: Relay, mock_session_factory):
+        """I2P relay retrieval uses http://."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -656,7 +656,7 @@ class TestNip11InfoMetadataNetworkBehavior:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(i2p_relay)
 
         assert result.logs.success is True
@@ -666,8 +666,8 @@ class TestNip11InfoMetadataNetworkBehavior:
         assert ".i2p" in url
 
     @pytest.mark.asyncio
-    async def test_fetch_loki_relay(self, loki_relay: Relay, mock_session_factory):
-        """Lokinet relay fetch uses http://."""
+    async def test_info_loki_relay(self, loki_relay: Relay, mock_session_factory):
+        """Lokinet relay retrieval uses http://."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -677,7 +677,7 @@ class TestNip11InfoMetadataNetworkBehavior:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(loki_relay)
 
         assert result.logs.success is True
@@ -696,8 +696,8 @@ class TestNip11InfoMetadataTimeout:
     """Test timeout configuration in execute()."""
 
     @pytest.mark.asyncio
-    async def test_fetch_uses_default_timeout(self, relay: Relay, mock_session_factory):
-        """Fetch uses default timeout when not specified."""
+    async def test_info_uses_default_timeout(self, relay: Relay, mock_session_factory):
+        """Retrieval uses default timeout when not specified."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -707,7 +707,7 @@ class TestNip11InfoMetadataTimeout:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             await Nip11InfoMetadata.execute(relay)
 
         call_args = session.get.call_args
@@ -715,8 +715,8 @@ class TestNip11InfoMetadataTimeout:
         assert timeout.total == 10.0
 
     @pytest.mark.asyncio
-    async def test_fetch_custom_timeout(self, relay: Relay, mock_session_factory):
-        """Fetch uses custom timeout when specified."""
+    async def test_info_custom_timeout(self, relay: Relay, mock_session_factory):
+        """Retrieval uses custom timeout when specified."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -726,7 +726,7 @@ class TestNip11InfoMetadataTimeout:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             await Nip11InfoMetadata.execute(relay, timeout=30.0)
 
         call_args = session.get.call_args
@@ -743,8 +743,8 @@ class TestNip11InfoMetadataDataParsing:
     """Test data parsing in execute() with invalid fields."""
 
     @pytest.mark.asyncio
-    async def test_fetch_filters_invalid_fields(self, relay: Relay, mock_session_factory):
-        """Fetch filters invalid fields from response."""
+    async def test_info_filters_invalid_fields(self, relay: Relay, mock_session_factory):
+        """Retrieval filters invalid fields from response."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -756,7 +756,7 @@ class TestNip11InfoMetadataDataParsing:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is True
@@ -764,8 +764,8 @@ class TestNip11InfoMetadataDataParsing:
         assert result.data.supported_nips == [1, 11]
 
     @pytest.mark.asyncio
-    async def test_fetch_ignores_unknown_fields(self, relay: Relay, mock_session_factory):
-        """Fetch ignores unknown fields in response."""
+    async def test_info_ignores_unknown_fields(self, relay: Relay, mock_session_factory):
+        """Retrieval ignores unknown fields in response."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -777,7 +777,7 @@ class TestNip11InfoMetadataDataParsing:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is True
@@ -786,16 +786,16 @@ class TestNip11InfoMetadataDataParsing:
 
 
 # =============================================================================
-# Direct _fetch() Method Tests
+# Direct _info() Method Tests
 # =============================================================================
 
 
-class TestNip11InfoMetadataDirectFetch:
-    """Test the direct _fetch() static method."""
+class TestNip11InfoMetadataDirectInfo:
+    """Test the direct _info() static method."""
 
     @pytest.mark.asyncio
-    async def test_direct_fetch_returns_dict(self, mock_session_factory):
-        """_fetch() returns raw dict from relay."""
+    async def test_direct_info_returns_dict(self, mock_session_factory):
+        """_info() returns raw dict from relay."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -805,8 +805,8 @@ class TestNip11InfoMetadataDirectFetch:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata._fetch(
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+            result = await Nip11InfoMetadata._info(
                 http_url="https://relay.example.com",
                 headers={"Accept": "application/nostr+json"},
                 timeout=10.0,
@@ -817,8 +817,8 @@ class TestNip11InfoMetadataDirectFetch:
         assert result == {"name": "Direct Test"}
 
     @pytest.mark.asyncio
-    async def test_direct_fetch_raises_on_non_200(self, mock_session_factory):
-        """_fetch() raises ValueError on non-200 status."""
+    async def test_direct_info_raises_on_non_200(self, mock_session_factory):
+        """_info() raises ValueError on non-200 status."""
         response = AsyncMock()
         response.status = 404
         response.__aenter__ = AsyncMock(return_value=response)
@@ -827,10 +827,10 @@ class TestNip11InfoMetadataDirectFetch:
         session = mock_session_factory(response)
 
         with (
-            patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session),
+            patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session),
             pytest.raises(ValueError, match="HTTP 404"),
         ):
-            await Nip11InfoMetadata._fetch(
+            await Nip11InfoMetadata._info(
                 http_url="https://relay.example.com",
                 headers={},
                 timeout=10.0,
@@ -839,8 +839,8 @@ class TestNip11InfoMetadataDirectFetch:
             )
 
     @pytest.mark.asyncio
-    async def test_direct_fetch_raises_on_invalid_content_type(self, mock_session_factory):
-        """_fetch() raises ValueError on invalid Content-Type."""
+    async def test_direct_info_raises_on_invalid_content_type(self, mock_session_factory):
+        """_info() raises ValueError on invalid Content-Type."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "text/html"}
@@ -851,10 +851,10 @@ class TestNip11InfoMetadataDirectFetch:
         session = mock_session_factory(response)
 
         with (
-            patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session),
+            patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session),
             pytest.raises(ValueError, match="Invalid Content-Type"),
         ):
-            await Nip11InfoMetadata._fetch(
+            await Nip11InfoMetadata._info(
                 http_url="https://relay.example.com",
                 headers={},
                 timeout=10.0,
@@ -863,8 +863,8 @@ class TestNip11InfoMetadataDirectFetch:
             )
 
     @pytest.mark.asyncio
-    async def test_direct_fetch_raises_on_size_exceeded(self, mock_session_factory):
-        """_fetch() raises ValueError when response exceeds max_size."""
+    async def test_direct_info_raises_on_size_exceeded(self, mock_session_factory):
+        """_info() raises ValueError when response exceeds max_size."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -875,10 +875,10 @@ class TestNip11InfoMetadataDirectFetch:
         session = mock_session_factory(response)
 
         with (
-            patch("bigbrotr.nips.nip11.fetch.aiohttp.ClientSession", return_value=session),
+            patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session),
             pytest.raises(ValueError, match="too large"),
         ):
-            await Nip11InfoMetadata._fetch(
+            await Nip11InfoMetadata._info(
                 http_url="https://relay.example.com",
                 headers={},
                 timeout=10.0,

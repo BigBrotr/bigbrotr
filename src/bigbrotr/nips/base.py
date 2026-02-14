@@ -100,8 +100,8 @@ class BaseMetadata(BaseModel):
         serialization to nested objects automatically.
 
     See Also:
-        [bigbrotr.nips.nip11.fetch.Nip11InfoMetadata][bigbrotr.nips.nip11.fetch.Nip11InfoMetadata]:
-            NIP-11 metadata container with HTTP fetch capabilities.
+        [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
+            NIP-11 metadata container with HTTP info retrieval capabilities.
         [bigbrotr.nips.nip66.rtt.Nip66RttMetadata][bigbrotr.nips.nip66.rtt.Nip66RttMetadata]:
             NIP-66 RTT metadata container with relay probe capabilities.
     """
@@ -145,8 +145,8 @@ class BaseLogs(BaseModel):
     * When ``success=False``, ``reason`` is required (non-None string).
 
     See Also:
-        [bigbrotr.nips.nip11.logs.Nip11FetchLogs][bigbrotr.nips.nip11.logs.Nip11FetchLogs]:
-            NIP-11 fetch log subclass.
+        [bigbrotr.nips.nip11.logs.Nip11InfoLogs][bigbrotr.nips.nip11.logs.Nip11InfoLogs]:
+            NIP-11 info log subclass.
         [bigbrotr.nips.nip66.logs.Nip66BaseLogs][bigbrotr.nips.nip66.logs.Nip66BaseLogs]:
             NIP-66 standard log subclass.
         [bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]:

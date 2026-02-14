@@ -1055,8 +1055,8 @@ class Monitor(
                         [Tag.identifier(relay.url)]
                     )
                     # Apply proof-of-work if NIP-11 specifies minimum difficulty
-                    if nip11 and nip11.fetch_metadata and nip11.fetch_metadata.logs.success:
-                        pow_difficulty = nip11.fetch_metadata.data.limitation.min_pow_difficulty
+                    if nip11 and nip11.info and nip11.info.logs.success:
+                        pow_difficulty = nip11.info.data.limitation.min_pow_difficulty
                         if pow_difficulty and pow_difficulty > 0:
                             event_builder = event_builder.pow(pow_difficulty)
                     read_filter = Filter().limit(1)

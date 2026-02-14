@@ -22,8 +22,8 @@ See Also:
         Data model for HTTP header fields.
     [bigbrotr.nips.nip66.logs.Nip66HttpLogs][bigbrotr.nips.nip66.logs.Nip66HttpLogs]:
         Log model for HTTP extraction results.
-    [bigbrotr.nips.nip11.fetch.Nip11InfoMetadata][bigbrotr.nips.nip11.fetch.Nip11InfoMetadata]:
-        NIP-11 fetch that also makes HTTP requests to relays (but uses
+    [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
+        NIP-11 info retrieval that also makes HTTP requests to relays (but uses
         ``Accept: application/nostr+json`` for JSON document retrieval).
 """
 

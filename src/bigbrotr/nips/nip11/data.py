@@ -14,7 +14,7 @@ Note:
     for flat fields.
 
 See Also:
-    [bigbrotr.nips.nip11.fetch.Nip11InfoMetadata][bigbrotr.nips.nip11.fetch.Nip11InfoMetadata]:
+    [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
         Container that pairs these data models with fetch logs.
     [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
         Top-level model that wraps the fetch result.
@@ -35,13 +35,13 @@ from bigbrotr.nips.parsing import FieldSpec
 KindRange = tuple[StrictInt, StrictInt]
 
 
-class Nip11FetchDataLimitation(BaseData):
+class Nip11InfoDataLimitation(BaseData):
     """Server-imposed limitations advertised in the NIP-11 document.
 
     All fields are optional; relays may omit any or all of them.
 
     See Also:
-        [Nip11FetchData][bigbrotr.nips.nip11.data.Nip11FetchData]: Parent
+        [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData]: Parent
             model that contains this as the ``limitation`` field.
     """
 
@@ -84,7 +84,7 @@ class Nip11FetchDataLimitation(BaseData):
     )
 
 
-class Nip11FetchDataRetentionEntry(BaseData):
+class Nip11InfoDataRetentionEntry(BaseData):
     """Single retention policy entry from a NIP-11 document.
 
     The ``kinds`` field can contain plain integers or ``[start, end]``
@@ -97,7 +97,7 @@ class Nip11FetchDataRetentionEntry(BaseData):
         tuples back to lists for JSON serialization.
 
     See Also:
-        [Nip11FetchData][bigbrotr.nips.nip11.data.Nip11FetchData]: Parent
+        [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData]: Parent
             model that contains these as the ``retention`` list.
     """
 
@@ -148,11 +148,11 @@ class Nip11FetchDataRetentionEntry(BaseData):
         return self.model_dump(exclude_none=True, mode="json")
 
 
-class Nip11FetchDataFeeEntry(BaseData):
+class Nip11InfoDataFeeEntry(BaseData):
     """Single fee entry (admission, subscription, or publication).
 
     See Also:
-        [Nip11FetchDataFees][bigbrotr.nips.nip11.data.Nip11FetchDataFees]:
+        [Nip11InfoDataFees][bigbrotr.nips.nip11.data.Nip11InfoDataFees]:
             Parent model that groups fee entries by category.
     """
 
@@ -168,21 +168,21 @@ class Nip11FetchDataFeeEntry(BaseData):
     )
 
 
-class Nip11FetchDataFees(BaseData):
+class Nip11InfoDataFees(BaseData):
     """Fee schedule categories from a NIP-11 document.
 
     Contains nested lists of
-    [Nip11FetchDataFeeEntry][bigbrotr.nips.nip11.data.Nip11FetchDataFeeEntry]
+    [Nip11InfoDataFeeEntry][bigbrotr.nips.nip11.data.Nip11InfoDataFeeEntry]
     objects for admission, subscription, and publication fees.
 
     See Also:
-        [Nip11FetchData][bigbrotr.nips.nip11.data.Nip11FetchData]: Parent
+        [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData]: Parent
             model that contains this as the ``fees`` field.
     """
 
-    admission: list[Nip11FetchDataFeeEntry] | None = None
-    subscription: list[Nip11FetchDataFeeEntry] | None = None
-    publication: list[Nip11FetchDataFeeEntry] | None = None
+    admission: list[Nip11InfoDataFeeEntry] | None = None
+    subscription: list[Nip11InfoDataFeeEntry] | None = None
+    publication: list[Nip11InfoDataFeeEntry] | None = None
 
     @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:
@@ -199,14 +199,14 @@ class Nip11FetchDataFees(BaseData):
         result: dict[str, Any] = {}
         for key in ("admission", "subscription", "publication"):
             if key in data and isinstance(data[key], list):
-                entries = [Nip11FetchDataFeeEntry.parse(e) for e in data[key]]
+                entries = [Nip11InfoDataFeeEntry.parse(e) for e in data[key]]
                 entries = [e for e in entries if e]
                 if entries:
                     result[key] = entries
         return result
 
 
-class Nip11FetchData(BaseData):
+class Nip11InfoData(BaseData):
     """Complete NIP-11 relay information document.
 
     Overrides ``parse()`` to handle nested objects (limitation, retention,
@@ -220,11 +220,11 @@ class Nip11FetchData(BaseData):
         correct ``self`` key name as specified by the NIP.
 
     See Also:
-        [Nip11InfoMetadata][bigbrotr.nips.nip11.fetch.Nip11InfoMetadata]:
+        [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
             Container that wraps this data model with fetch logs.
-        [Nip11FetchDataLimitation][bigbrotr.nips.nip11.data.Nip11FetchDataLimitation]:
+        [Nip11InfoDataLimitation][bigbrotr.nips.nip11.data.Nip11InfoDataLimitation]:
             Nested limitation sub-model.
-        [Nip11FetchDataFees][bigbrotr.nips.nip11.data.Nip11FetchDataFees]:
+        [Nip11InfoDataFees][bigbrotr.nips.nip11.data.Nip11InfoDataFees]:
             Nested fee schedule sub-model.
     """
 
@@ -249,9 +249,9 @@ class Nip11FetchData(BaseData):
 
     # Capabilities
     supported_nips: list[StrictInt] | None = None
-    limitation: Nip11FetchDataLimitation = Field(default_factory=Nip11FetchDataLimitation)
-    retention: list[Nip11FetchDataRetentionEntry] | None = None
-    fees: Nip11FetchDataFees = Field(default_factory=Nip11FetchDataFees)
+    limitation: Nip11InfoDataLimitation = Field(default_factory=Nip11InfoDataLimitation)
+    retention: list[Nip11InfoDataRetentionEntry] | None = None
+    fees: Nip11InfoDataFees = Field(default_factory=Nip11InfoDataFees)
 
     # Content filtering
     relay_countries: list[str] | None = None
@@ -303,18 +303,18 @@ class Nip11FetchData(BaseData):
         result: dict[str, Any] = {}
 
         if "limitation" in data:
-            limitation = Nip11FetchDataLimitation.parse(data["limitation"])
+            limitation = Nip11InfoDataLimitation.parse(data["limitation"])
             if limitation:
                 result["limitation"] = limitation
 
         if "retention" in data and isinstance(data["retention"], list):
-            entries = [Nip11FetchDataRetentionEntry.parse(e) for e in data["retention"]]
+            entries = [Nip11InfoDataRetentionEntry.parse(e) for e in data["retention"]]
             entries = [e for e in entries if e]
             if entries:
                 result["retention"] = entries
 
         if "fees" in data:
-            fees = Nip11FetchDataFees.parse(data["fees"])
+            fees = Nip11InfoDataFees.parse(data["fees"])
             if fees:
                 result["fees"] = fees
 

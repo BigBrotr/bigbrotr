@@ -145,7 +145,7 @@ Major architectural restructuring: all code moved under `bigbrotr` namespace pac
 ### Fixed
 
 - **Stale NIP class references** (pre-existing, exposed by restructuring):
-  - `Nip11FetchMetadata` → `Nip11InfoMetadata` (renamed in v3.1.0 but `__init__.py` not updated)
+  - `Nip11FetchMetadata` → `Nip11InfoMetadata` (renamed in v3.1.0 but `__init__.py` not updated; fully completed in v5.1.0)
   - `Nip66RttLogs` → `Nip66RttMultiPhaseLogs`
   - `RttDependencies` → `Nip66RttDependencies`
   - `Nip66TestFlags` → `Nip66TestSelection` + `Nip66TestOptions`
@@ -291,8 +291,8 @@ Major refactoring release with new NIP models architecture, Python-side hash com
 ### Added
 - **NIP-11 subpackage** (`src/models/nips/nip11/`):
   - `Nip11` main class with database serialization
-  - `Nip11FetchData` with relay info document structure
-  - `Nip11FetchLogs` for fetch status tracking
+  - `Nip11InfoData` with relay info document structure (originally `Nip11FetchData`)
+  - `Nip11InfoLogs` for info retrieval status tracking (originally `Nip11FetchLogs`)
   - HTTP fetch implementation with SSL fallback
 - **NIP-66 subpackage** (`src/models/nips/nip66/`):
   - `Nip66` aggregate class with database serialization
