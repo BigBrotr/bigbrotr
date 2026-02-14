@@ -329,7 +329,7 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
             await session.close()
             logger.debug("insecure_ws_cancelled url=%s", url)
             raise
-        except BaseException as e:
+        except Exception as e:
             await session.close()
             logger.debug("insecure_ws_error url=%s error=%s", url, str(e))
             raise OSError(f"Connection failed: {e}") from e

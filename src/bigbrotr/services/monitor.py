@@ -1217,7 +1217,7 @@ class Monitor(
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key=relay.url,
                     state_value={"last_check_at": now},
-                    updated_at=int(now),
+                    updated_at=now,
                 )
                 for relay in all_relays
             ]

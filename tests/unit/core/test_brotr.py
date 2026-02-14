@@ -329,7 +329,6 @@ class TestCallProcedure:
             "my_procedure",
             "procedure123",
             "_private_proc",
-            "CamelCaseProc",
             "a",
             "_",
             "delete_123_test",
@@ -356,6 +355,7 @@ class TestCallProcedure:
             "proc\nname",  # Newline
             "proc'name",  # Single quote
             'proc"name',  # Double quote
+            "CamelCaseProc",  # Uppercase (convention: lowercase only)
         ]
 
         for name in invalid_names:
