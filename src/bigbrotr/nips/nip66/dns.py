@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 
 from .data import Nip66DnsData
 from .logs import Nip66DnsLogs
@@ -62,7 +62,7 @@ from .logs import Nip66DnsLogs
 logger = logging.getLogger("bigbrotr.nips.nip66")
 
 
-class Nip66DnsMetadata(BaseMetadata):
+class Nip66DnsMetadata(BaseNipMetadata):
     """Container for DNS resolution data and operation logs.
 
     Provides the ``execute()`` class method that performs a comprehensive
@@ -165,15 +165,17 @@ class Nip66DnsMetadata(BaseMetadata):
 
         Returns:
             An ``Nip66DnsMetadata`` instance with resolution data and logs.
-
-        Raises:
-            ValueError: If the relay is not on the clearnet network.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("dns_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:
-            raise ValueError(f"DNS resolve requires clearnet, got {relay.network.value}")
+            return cls(
+                data=Nip66DnsData(),
+                logs=Nip66DnsLogs(
+                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                ),
+            )
 
         logs: dict[str, Any] = {"success": False, "reason": None}
         data: dict[str, Any] = {}

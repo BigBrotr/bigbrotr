@@ -159,7 +159,13 @@ class NetworkSemaphoreMixin:
                 providing ``max_tasks`` per network type.
         """
         self._semaphores = {
-            network: asyncio.Semaphore(networks.get(network).max_tasks) for network in NetworkType
+            network: asyncio.Semaphore(networks.get(network).max_tasks)
+            for network in (
+                NetworkType.CLEARNET,
+                NetworkType.TOR,
+                NetworkType.I2P,
+                NetworkType.LOKI,
+            )
         }
 
     def _get_semaphore(self, network: NetworkType) -> asyncio.Semaphore | None:

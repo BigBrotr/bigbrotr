@@ -237,6 +237,18 @@ geo:
   # Default: 30
   max_age_days: 30
 
+  # Maximum download size per database file in bytes (safety limit)
+  # Prevents memory exhaustion from corrupted or unexpected responses
+  # Range: 1000000-500000000 (1 MB - 500 MB)
+  # Default: 100000000 (100 MB)
+  max_download_size: 100000000
+
+  # Geohash precision for location encoding
+  # Higher values = more precise location (9 = ~4.77m)
+  # Range: 1-12
+  # Default: 9
+  geohash_precision: 9
+
 # -----------------------------------------------------------------------------
 # Processing Configuration
 # -----------------------------------------------------------------------------
@@ -256,10 +268,10 @@ processing:
   # Default: null
   max_relays: null
 
-  # Maximum NIP-11 response size in bytes
+  # Maximum NIP-11 info response size in bytes
   # Prevents memory exhaustion from malformed responses
   # Default: 1048576 (1 MB)
-  nip11_max_size: 1048576
+  nip11_info_max_size: 1048576
 
   # Which metadata types to compute
   # Processing time increases with more types enabled

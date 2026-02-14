@@ -1,16 +1,27 @@
 """
-Shared base classes for all NIP data, metadata, and log models.
+Shared base classes for all NIP data, metadata, log, and top-level models.
 
-Provides three Pydantic base classes that define the common interface
-and behavior inherited by NIP-11 and NIP-66 model hierarchies:
+Provides Pydantic base classes that define the common interface and behavior
+inherited by NIP-11 and NIP-66 model hierarchies:
 
     [BaseData][bigbrotr.nips.base.BaseData]
         Frozen model with declarative field parsing via
         [FieldSpec][bigbrotr.nips.parsing.FieldSpec].
-    [BaseMetadata][bigbrotr.nips.base.BaseMetadata]
+    [BaseNipMetadata][bigbrotr.nips.base.BaseNipMetadata]
         Container pairing a data object with a logs object.
     [BaseLogs][bigbrotr.nips.base.BaseLogs]
         Operation log with success/reason semantic validation.
+    [BaseNip][bigbrotr.nips.base.BaseNip]
+        Abstract top-level NIP model with relay, generated_at, and
+        enforced ``create()`` / ``to_relay_metadata_tuple()`` contract.
+    [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]
+        Base for selection models controlling which metadata types
+        to retrieve.
+    [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]
+        Base for options models controlling how metadata is retrieved.
+    [BaseNipDependencies][bigbrotr.nips.base.BaseNipDependencies]
+        Base for dependency containers holding external objects
+        (keys, database readers) required by specific NIP tests.
 
 See Also:
     [bigbrotr.nips.parsing][bigbrotr.nips.parsing]: The declarative field
@@ -23,9 +34,14 @@ See Also:
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from time import time
 from typing import Any, ClassVar, Self
 
-from pydantic import BaseModel, ConfigDict, StrictBool, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
+
+from bigbrotr.models.relay import Relay  # noqa: TC001
 
 from .parsing import FieldSpec, parse_fields
 
@@ -84,7 +100,7 @@ class BaseData(BaseModel):
         return self.model_dump(exclude_none=True)
 
 
-class BaseMetadata(BaseModel):
+class BaseNipMetadata(BaseModel):
     """Base class for metadata containers that pair data with operation logs.
 
     Provides standard ``from_dict()`` and ``to_dict()`` methods. The
@@ -100,8 +116,8 @@ class BaseMetadata(BaseModel):
         serialization to nested objects automatically.
 
     See Also:
-        [bigbrotr.nips.nip11.fetch.Nip11InfoMetadata][bigbrotr.nips.nip11.fetch.Nip11InfoMetadata]:
-            NIP-11 metadata container with HTTP fetch capabilities.
+        [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
+            NIP-11 metadata container with HTTP info retrieval capabilities.
         [bigbrotr.nips.nip66.rtt.Nip66RttMetadata][bigbrotr.nips.nip66.rtt.Nip66RttMetadata]:
             NIP-66 RTT metadata container with relay probe capabilities.
     """
@@ -145,8 +161,8 @@ class BaseLogs(BaseModel):
     * When ``success=False``, ``reason`` is required (non-None string).
 
     See Also:
-        [bigbrotr.nips.nip11.logs.Nip11FetchLogs][bigbrotr.nips.nip11.logs.Nip11FetchLogs]:
-            NIP-11 fetch log subclass.
+        [bigbrotr.nips.nip11.logs.Nip11InfoLogs][bigbrotr.nips.nip11.logs.Nip11InfoLogs]:
+            NIP-11 info log subclass.
         [bigbrotr.nips.nip66.logs.Nip66BaseLogs][bigbrotr.nips.nip66.logs.Nip66BaseLogs]:
             NIP-66 standard log subclass.
         [bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]:
@@ -175,3 +191,125 @@ class BaseLogs(BaseModel):
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary, excluding fields with ``None`` values."""
         return self.model_dump(exclude_none=True)
+
+
+# =============================================================================
+# Top-level NIP Base Classes
+# =============================================================================
+
+
+class BaseNipSelection(BaseModel):
+    """Which metadata types to retrieve during a NIP operation.
+
+    Subclasses define boolean fields for each metadata type supported
+    by the NIP. All fields should default to ``True`` (all enabled).
+
+    See Also:
+        [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]:
+            Controls *how* metadata is retrieved.
+        [bigbrotr.nips.nip11.nip11.Nip11Selection][bigbrotr.nips.nip11.nip11.Nip11Selection]:
+            NIP-11 selection (``info`` field).
+        [bigbrotr.nips.nip66.nip66.Nip66Selection][bigbrotr.nips.nip66.nip66.Nip66Selection]:
+            NIP-66 selection (``rtt``, ``ssl``, ``geo``, ``net``, ``dns``, ``http``).
+    """
+
+
+class BaseNipOptions(BaseModel):
+    """How to execute NIP metadata retrieval.
+
+    Provides the common ``allow_insecure`` option inherited by all
+    NIP option models. Subclasses add NIP-specific options
+    (e.g., ``max_size`` for NIP-11).
+
+    Attributes:
+        allow_insecure: Fall back to unverified SSL for clearnet relays
+            with invalid certificates (default: ``False``).
+
+    See Also:
+        [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]:
+            Controls *which* metadata is retrieved.
+        [bigbrotr.nips.nip11.nip11.Nip11Options][bigbrotr.nips.nip11.nip11.Nip11Options]:
+            NIP-11 options (adds ``max_size``).
+        [bigbrotr.nips.nip66.nip66.Nip66Options][bigbrotr.nips.nip66.nip66.Nip66Options]:
+            NIP-66 options (inherits only ``allow_insecure``).
+    """
+
+    allow_insecure: bool = False
+
+
+@dataclass(frozen=True)
+class BaseNipDependencies:
+    """Optional external dependencies for NIP operations.
+
+    Subclasses define fields for third-party objects (signing keys,
+    GeoIP database readers, etc.) required by specific NIP tests. All
+    fields should default to ``None`` so that tests whose dependencies
+    are missing are silently skipped.
+
+    Note:
+        Uses ``@dataclass(frozen=True)`` instead of Pydantic ``BaseModel``
+        because dependencies hold arbitrary third-party objects that do not
+        benefit from Pydantic validation, and because ``TYPE_CHECKING``
+        imports for heavy optional packages (``nostr_sdk``, ``geoip2``)
+        must remain unavailable at runtime.
+
+    See Also:
+        [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]:
+            Controls *which* metadata is retrieved.
+        [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]:
+            Controls *how* metadata is retrieved.
+        [bigbrotr.nips.nip11.nip11.Nip11Dependencies][bigbrotr.nips.nip11.nip11.Nip11Dependencies]:
+            NIP-11 dependencies (currently empty).
+        [bigbrotr.nips.nip66.nip66.Nip66Dependencies][bigbrotr.nips.nip66.nip66.Nip66Dependencies]:
+            NIP-66 dependencies (keys, GeoIP readers).
+    """
+
+
+class BaseNip(BaseModel, ABC):
+    """Abstract base class for top-level NIP models.
+
+    Provides the common ``relay`` and ``generated_at`` fields shared by
+    all NIP implementations, and enforces the factory/serialization
+    contract via abstract methods.
+
+    Subclasses must implement:
+
+    * ``to_relay_metadata_tuple()`` — converts results to database-ready
+      [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] records.
+    * ``create()`` — async factory that performs I/O and returns a populated
+      instance. Must **never raise exceptions** — errors are captured in
+      the ``logs.success`` / ``logs.reason`` fields of each metadata container.
+
+    Note:
+        ``BaseNip`` cannot be instantiated directly due to the ABC constraint.
+        Only concrete subclasses with all abstract methods implemented can be
+        created.
+
+    See Also:
+        [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
+            NIP-11 implementation.
+        [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
+            NIP-66 implementation.
+        [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]:
+            Selection model base controlling which metadata types to retrieve.
+        [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]:
+            Options model base controlling how metadata is retrieved.
+        [BaseNipDependencies][bigbrotr.nips.base.BaseNipDependencies]:
+            Dependencies base for external objects required by specific tests.
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    relay: Relay
+    generated_at: StrictInt = Field(default_factory=lambda: int(time()), ge=0)
+
+    @abstractmethod
+    def to_relay_metadata_tuple(self) -> tuple[Any, ...]:
+        """Convert to a database-ready tuple of RelayMetadata records."""
+        ...
+
+    @classmethod
+    @abstractmethod
+    async def create(cls, relay: Relay, **kwargs: Any) -> Self:
+        """Async factory method. Never raises — check logs.success."""
+        ...

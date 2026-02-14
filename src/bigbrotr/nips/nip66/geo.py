@@ -41,7 +41,7 @@ import geoip2.errors
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.dns import resolve_host
 
 from .data import Nip66GeoData
@@ -143,7 +143,7 @@ class GeoExtractor:
         return result
 
 
-class Nip66GeoMetadata(BaseMetadata):
+class Nip66GeoMetadata(BaseNipMetadata):
     """Container for geolocation data and lookup logs.
 
     Provides the ``execute()`` class method that resolves the relay hostname,
@@ -204,14 +204,16 @@ class Nip66GeoMetadata(BaseMetadata):
 
         Returns:
             An ``Nip66GeoMetadata`` instance with location data and logs.
-
-        Raises:
-            ValueError: If the relay is not on the clearnet network.
         """
         logger.debug("geo_testing relay=%s", relay.url)
 
         if relay.network != NetworkType.CLEARNET:
-            raise ValueError(f"geo lookup requires clearnet, got {relay.network.value}")
+            return cls(
+                data=Nip66GeoData(),
+                logs=Nip66GeoLogs(
+                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                ),
+            )
 
         logs: dict[str, Any] = {"success": False, "reason": None}
 

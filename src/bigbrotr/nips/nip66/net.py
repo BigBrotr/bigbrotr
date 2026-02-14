@@ -40,7 +40,7 @@ import geoip2.errors
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.dns import resolve_host
 
 from .data import Nip66NetData
@@ -50,7 +50,7 @@ from .logs import Nip66NetLogs
 logger = logging.getLogger("bigbrotr.nips.nip66")
 
 
-class Nip66NetMetadata(BaseMetadata):
+class Nip66NetMetadata(BaseNipMetadata):
     """Container for network/ASN data and lookup logs.
 
     Provides the ``execute()`` class method that resolves the relay hostname
@@ -141,14 +141,16 @@ class Nip66NetMetadata(BaseMetadata):
 
         Returns:
             An ``Nip66NetMetadata`` instance with network data and logs.
-
-        Raises:
-            ValueError: If the relay is not on the clearnet network.
         """
         logger.debug("net_testing relay=%s", relay.url)
 
         if relay.network != NetworkType.CLEARNET:
-            raise ValueError(f"net lookup requires clearnet, got {relay.network.value}")
+            return cls(
+                data=Nip66NetData(),
+                logs=Nip66NetLogs(
+                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                ),
+            )
 
         logs: dict[str, Any] = {"success": False, "reason": None}
 

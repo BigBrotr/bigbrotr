@@ -10,12 +10,12 @@ import pytest
 from bigbrotr.models.relay import Relay
 from bigbrotr.nips.nip11 import (
     Nip11,
-    Nip11FetchData,
-    Nip11FetchDataFeeEntry,
-    Nip11FetchDataFees,
-    Nip11FetchDataLimitation,
-    Nip11FetchDataRetentionEntry,
-    Nip11FetchLogs,
+    Nip11InfoData,
+    Nip11InfoDataFeeEntry,
+    Nip11InfoDataFees,
+    Nip11InfoDataLimitation,
+    Nip11InfoDataRetentionEntry,
+    Nip11InfoLogs,
     Nip11InfoMetadata,
 )
 
@@ -150,9 +150,9 @@ def unicode_nip11_data() -> dict[str, Any]:
 
 
 @pytest.fixture
-def limitation() -> Nip11FetchDataLimitation:
-    """Nip11FetchDataLimitation instance with common values."""
-    return Nip11FetchDataLimitation(
+def limitation() -> Nip11InfoDataLimitation:
+    """Nip11InfoDataLimitation instance with common values."""
+    return Nip11InfoDataLimitation(
         max_message_length=65535,
         max_subscriptions=20,
         auth_required=False,
@@ -161,18 +161,18 @@ def limitation() -> Nip11FetchDataLimitation:
 
 
 @pytest.fixture
-def retention_entry() -> Nip11FetchDataRetentionEntry:
-    """Nip11FetchDataRetentionEntry instance."""
-    return Nip11FetchDataRetentionEntry(
+def retention_entry() -> Nip11InfoDataRetentionEntry:
+    """Nip11InfoDataRetentionEntry instance."""
+    return Nip11InfoDataRetentionEntry(
         kinds=[1, 2, (10000, 19999)],
         time=86400,
     )
 
 
 @pytest.fixture
-def fee_entry() -> Nip11FetchDataFeeEntry:
-    """Nip11FetchDataFeeEntry instance."""
-    return Nip11FetchDataFeeEntry(
+def fee_entry() -> Nip11InfoDataFeeEntry:
+    """Nip11InfoDataFeeEntry instance."""
+    return Nip11InfoDataFeeEntry(
         amount=1000,
         unit="sats",
         period=2628003,
@@ -180,64 +180,64 @@ def fee_entry() -> Nip11FetchDataFeeEntry:
 
 
 @pytest.fixture
-def fees() -> Nip11FetchDataFees:
-    """Nip11FetchDataFees instance with admission fee."""
-    return Nip11FetchDataFees(
-        admission=[Nip11FetchDataFeeEntry(amount=1000, unit="sats")],
+def fees() -> Nip11InfoDataFees:
+    """Nip11InfoDataFees instance with admission fee."""
+    return Nip11InfoDataFees(
+        admission=[Nip11InfoDataFeeEntry(amount=1000, unit="sats")],
     )
 
 
 @pytest.fixture
-def fetch_data(complete_nip11_data: dict[str, Any]) -> Nip11FetchData:
-    """Nip11FetchData instance from complete data."""
-    return Nip11FetchData.from_dict(complete_nip11_data)
+def info_data(complete_nip11_data: dict[str, Any]) -> Nip11InfoData:
+    """Nip11InfoData instance from complete data."""
+    return Nip11InfoData.from_dict(complete_nip11_data)
 
 
 @pytest.fixture
-def fetch_data_empty() -> Nip11FetchData:
-    """Empty Nip11FetchData instance with defaults."""
-    return Nip11FetchData()
+def info_data_empty() -> Nip11InfoData:
+    """Empty Nip11InfoData instance with defaults."""
+    return Nip11InfoData()
 
 
 @pytest.fixture
-def fetch_logs_success() -> Nip11FetchLogs:
-    """Successful Nip11FetchLogs instance."""
-    return Nip11FetchLogs(success=True)
+def info_logs_success() -> Nip11InfoLogs:
+    """Successful Nip11InfoLogs instance."""
+    return Nip11InfoLogs(success=True)
 
 
 @pytest.fixture
-def fetch_logs_failure() -> Nip11FetchLogs:
-    """Failed Nip11FetchLogs instance with reason."""
-    return Nip11FetchLogs(success=False, reason="Connection timeout")
+def info_logs_failure() -> Nip11InfoLogs:
+    """Failed Nip11InfoLogs instance with reason."""
+    return Nip11InfoLogs(success=False, reason="Connection timeout")
 
 
 @pytest.fixture
-def fetch_metadata(
-    fetch_data: Nip11FetchData,
-    fetch_logs_success: Nip11FetchLogs,
+def info_metadata(
+    info_data: Nip11InfoData,
+    info_logs_success: Nip11InfoLogs,
 ) -> Nip11InfoMetadata:
     """Nip11InfoMetadata instance with successful fetch."""
-    return Nip11InfoMetadata(data=fetch_data, logs=fetch_logs_success)
+    return Nip11InfoMetadata(data=info_data, logs=info_logs_success)
 
 
 @pytest.fixture
-def fetch_metadata_failed(
-    fetch_data_empty: Nip11FetchData,
-    fetch_logs_failure: Nip11FetchLogs,
+def info_metadata_failed(
+    info_data_empty: Nip11InfoData,
+    info_logs_failure: Nip11InfoLogs,
 ) -> Nip11InfoMetadata:
     """Nip11InfoMetadata instance with failed fetch."""
-    return Nip11InfoMetadata(data=fetch_data_empty, logs=fetch_logs_failure)
+    return Nip11InfoMetadata(data=info_data_empty, logs=info_logs_failure)
 
 
 @pytest.fixture
 def nip11(
     relay: Relay,
-    fetch_metadata: Nip11InfoMetadata,
+    info_metadata: Nip11InfoMetadata,
 ) -> Nip11:
-    """Nip11 instance with complete data and successful fetch."""
+    """Nip11 instance with complete data and successful info retrieval."""
     return Nip11(
         relay=relay,
-        fetch_metadata=fetch_metadata,
+        info=info_metadata,
         generated_at=1234567890,
     )
 
@@ -245,22 +245,22 @@ def nip11(
 @pytest.fixture
 def nip11_failed(
     relay: Relay,
-    fetch_metadata_failed: Nip11InfoMetadata,
+    info_metadata_failed: Nip11InfoMetadata,
 ) -> Nip11:
-    """Nip11 instance with failed fetch."""
+    """Nip11 instance with failed info retrieval."""
     return Nip11(
         relay=relay,
-        fetch_metadata=fetch_metadata_failed,
+        info=info_metadata_failed,
         generated_at=1234567890,
     )
 
 
 @pytest.fixture
-def nip11_no_fetch_metadata(relay: Relay) -> Nip11:
-    """Nip11 instance with fetch_metadata=None."""
+def nip11_no_info(relay: Relay) -> Nip11:
+    """Nip11 instance with info=None."""
     return Nip11(
         relay=relay,
-        fetch_metadata=None,
+        info=None,
         generated_at=1234567890,
     )
 

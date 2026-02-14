@@ -326,9 +326,7 @@ class Brotr:
         return tuple(list(col) for col in zip(*params, strict=False))
 
     # Pattern for valid SQL identifiers (prevents injection in procedure calls)
-    _VALID_PROCEDURE_NAME: ClassVar[re.Pattern[str]] = re.compile(
-        r"^[a-z_][a-z0-9_]*$", re.IGNORECASE
-    )
+    _VALID_PROCEDURE_NAME: ClassVar[re.Pattern[str]] = re.compile(r"^[a-z_][a-z0-9_]*$")
 
     async def _call_procedure(
         self,

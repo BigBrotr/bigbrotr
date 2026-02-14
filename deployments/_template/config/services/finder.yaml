@@ -102,6 +102,12 @@ api:
   # Default: true
   verify_ssl: true
 
+  # Maximum response body size in bytes (safety limit)
+  # Prevents memory exhaustion from oversized API responses
+  # Range: 1024-52428800 (1 KB - 50 MB)
+  # Default: 5242880 (5 MB)
+  max_response_size: 5242880
+
   # API sources to fetch relay URLs from
   # Each source should return a JSON array of relay URLs or objects with URLs
   # Class: src/services/finder.py::ApiSourceConfig

@@ -85,6 +85,7 @@ services:
       MAX_CLIENT_CONN: 1000
       DEFAULT_POOL_SIZE: 20
       AUTH_TYPE: scram-sha-256
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits
 
     ports:
       # CUSTOMIZE: Use unique port (e.g., 6433 for second implementation)

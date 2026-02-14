@@ -46,7 +46,7 @@ from nostr_sdk import Filter, NostrSdkError, RelayUrl
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 
 from .data import Nip66RttData
 from .logs import Nip66RttMultiPhaseLogs
@@ -77,7 +77,7 @@ class Nip66RttDependencies(NamedTuple):
     read_filter: Filter
 
 
-class Nip66RttMetadata(BaseMetadata):
+class Nip66RttMetadata(BaseNipMetadata):
     """Container for RTT measurement data and multi-phase probe logs.
 
     Provides the ``execute()`` class method that connects to a relay and
@@ -112,7 +112,7 @@ class Nip66RttMetadata(BaseMetadata):
         timeout: float | None = None,  # noqa: ASYNC109
         proxy_url: str | None = None,
         *,
-        allow_insecure: bool = True,
+        allow_insecure: bool = False,
     ) -> Self:
         """Test a relay's round-trip times across three phases.
 
@@ -125,18 +125,28 @@ class Nip66RttMetadata(BaseMetadata):
             deps: Grouped dependencies (keys, event_builder, read_filter).
             timeout: Connection timeout in seconds (default: 10.0).
             proxy_url: Optional SOCKS5 proxy URL for overlay networks.
-            allow_insecure: Fall back to unverified SSL (default: True).
+            allow_insecure: Fall back to unverified SSL (default: False).
 
         Returns:
             An ``Nip66RttMetadata`` instance with measurement data and logs.
-
-        Raises:
-            ValueError: If an overlay network relay has no proxy configured.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("rtt_started relay=%s timeout_s=%s proxy=%s", relay.url, timeout, proxy_url)
 
-        cls._validate_network(relay, proxy_url)
+        overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
+        if proxy_url is None and relay.network in overlay_networks:
+            reason = f"overlay network {relay.network.value} requires proxy"
+            return cls(
+                data=Nip66RttData(),
+                logs=Nip66RttMultiPhaseLogs(
+                    open_success=False,
+                    open_reason=reason,
+                    read_success=False,
+                    read_reason=reason,
+                    write_success=False,
+                    write_reason=reason,
+                ),
+            )
 
         rtt_data = cls._empty_rtt_data()
         logs = cls._empty_logs()
@@ -182,17 +192,6 @@ class Nip66RttMetadata(BaseMetadata):
     # -------------------------------------------------------------------------
     # Validation and Construction Helpers
     # -------------------------------------------------------------------------
-
-    @staticmethod
-    def _validate_network(relay: Relay, proxy_url: str | None) -> None:
-        """Ensure overlay network relays have a proxy configured.
-
-        Raises:
-            ValueError: If the relay is on an overlay network without a proxy.
-        """
-        overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-        if proxy_url is None and relay.network in overlay_networks:
-            raise ValueError(f"overlay network {relay.network.value} requires proxy")
 
     @staticmethod
     def _empty_rtt_data() -> dict[str, Any]:

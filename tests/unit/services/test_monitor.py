@@ -114,7 +114,7 @@ class TestMonitorProcessingConfig:
         config = MonitorProcessingConfig()
 
         assert config.chunk_size == 100
-        assert config.nip11_max_size == 1048576
+        assert config.nip11_info_max_size == 1048576
         assert config.compute.nip11_info is True
         assert config.store.nip11_info is True
 
@@ -139,10 +139,10 @@ class TestMonitorProcessingConfig:
         config_max = MonitorProcessingConfig(chunk_size=1000)
         assert config_max.chunk_size == 1000
 
-    def test_nip11_max_size_custom(self) -> None:
-        """Test custom NIP-11 max size."""
-        config = MonitorProcessingConfig(nip11_max_size=2097152)  # 2MB
-        assert config.nip11_max_size == 2097152
+    def test_nip11_info_max_size_custom(self) -> None:
+        """Test custom NIP-11 info max size."""
+        config = MonitorProcessingConfig(nip11_info_max_size=2097152)  # 2MB
+        assert config.nip11_info_max_size == 2097152
 
 
 # ============================================================================
@@ -391,14 +391,14 @@ class TestMonitorConfig:
 
 def _create_nip11(relay: Relay, data: dict | None = None, generated_at: int = 1700000001) -> Nip11:
     """Create a Nip11 instance with proper Nip11InfoMetadata structure."""
-    from bigbrotr.nips.nip11 import Nip11FetchData, Nip11FetchLogs, Nip11InfoMetadata
+    from bigbrotr.nips.nip11 import Nip11InfoData, Nip11InfoLogs, Nip11InfoMetadata
 
     if data is None:
         data = {}
-    fetch_data = Nip11FetchData.model_validate(Nip11FetchData.parse(data))
-    fetch_logs = Nip11FetchLogs(success=True)
-    fetch_metadata = Nip11InfoMetadata(data=fetch_data, logs=fetch_logs)
-    return Nip11(relay=relay, fetch_metadata=fetch_metadata, generated_at=generated_at)
+    info_data = Nip11InfoData.model_validate(Nip11InfoData.parse(data))
+    info_logs = Nip11InfoLogs(success=True)
+    info_metadata = Nip11InfoMetadata(data=info_data, logs=info_logs)
+    return Nip11(relay=relay, info=info_metadata, generated_at=generated_at)
 
 
 def _create_nip66(
@@ -496,20 +496,20 @@ class TestNip11:
     """Tests for Nip11 dataclass."""
 
     def test_default_values(self) -> None:
-        """Test NIP-11 with empty data - access via fetch_metadata.data."""
+        """Test NIP-11 with empty data - access via info.data."""
         relay = Relay("wss://relay.example.com")
         nip11 = _create_nip11(relay, {})
 
-        assert nip11.fetch_metadata.data.name is None
-        assert nip11.fetch_metadata.data.supported_nips is None
+        assert nip11.info.data.name is None
+        assert nip11.info.data.supported_nips is None
 
     def test_properties(self) -> None:
-        """Test NIP-11 property access via fetch_metadata.data."""
+        """Test NIP-11 property access via info.data."""
         relay = Relay("wss://relay.example.com")
         nip11 = _create_nip11(relay, {"name": "Test Relay", "supported_nips": [1, 11, 66]})
 
-        assert nip11.fetch_metadata.data.name == "Test Relay"
-        assert nip11.fetch_metadata.data.supported_nips == [1, 11, 66]
+        assert nip11.info.data.name == "Test Relay"
+        assert nip11.info.data.supported_nips == [1, 11, 66]
 
     def test_to_relay_metadata(self) -> None:
         """Test NIP-11 to_relay_metadata_tuple factory method."""
@@ -524,7 +524,7 @@ class TestNip11:
         assert metadata_tuple.nip11_info.metadata.data["data"]["name"] == "Test"
 
     def test_additional_properties(self) -> None:
-        """Test additional NIP-11 properties via fetch_metadata.data."""
+        """Test additional NIP-11 properties via info.data."""
         relay = Relay("wss://relay.example.com")
         nip11 = _create_nip11(
             relay,
@@ -536,7 +536,7 @@ class TestNip11:
             },
         )
 
-        assert nip11.fetch_metadata.data.name == "Test Relay"
+        assert nip11.info.data.name == "Test Relay"
 
 
 class TestNip66:
@@ -1203,7 +1203,7 @@ class TestTagBuilders:
     """Tests for Kind 30166 tag builder methods.
 
     These verify that tag builders correctly extract fields from the nested
-    ``{"data": {...}, "logs": {...}}`` structure produced by BaseMetadata.to_dict().
+    ``{"data": {...}, "logs": {...}}`` structure produced by BaseNipMetadata.to_dict().
     """
 
     @pytest.fixture

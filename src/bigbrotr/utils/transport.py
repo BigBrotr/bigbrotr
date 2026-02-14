@@ -137,6 +137,11 @@ class _NostrSdkStderrFilter:
         return getattr(self._original, name)
 
 
+# nostr-sdk's Rust layer (via UniFFI) prints tracebacks directly to stderr
+# from background threads, bypassing Python's logging entirely. Neither
+# contextlib.redirect_stderr nor logging.Filter can intercept this output
+# because it originates from non-Python threads. A global stderr wrapper is
+# the only way to suppress it.
 if not isinstance(sys.stderr, _NostrSdkStderrFilter):
     sys.stderr = _NostrSdkStderrFilter(sys.stderr)
 
@@ -329,7 +334,7 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
             await session.close()
             logger.debug("insecure_ws_cancelled url=%s", url)
             raise
-        except BaseException as e:
+        except Exception as e:
             await session.close()
             logger.debug("insecure_ws_error url=%s error=%s", url, str(e))
             raise OSError(f"Connection failed: {e}") from e
@@ -437,7 +442,7 @@ async def connect_relay(
     proxy_url: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
     *,
-    allow_insecure: bool = True,
+    allow_insecure: bool = False,
 ) -> Client:
     """Connect to a relay with automatic SSL fallback for clearnet.
 
@@ -555,6 +560,8 @@ async def is_nostr_relay(
     proxy_url: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
     config: RelayValidationConfig | None = None,
+    *,
+    allow_insecure: bool = False,
 ) -> bool:
     """Check if a URL hosts a Nostr relay by attempting a protocol handshake.
 
@@ -604,6 +611,7 @@ async def is_nostr_relay(
                     relay=relay,
                     proxy_url=proxy_url,
                     timeout=timeout,
+                    allow_insecure=allow_insecure,
                 )
 
                 req_filter = Filter().kind(Kind.from_std(KindStandard.TEXT_NOTE)).limit(1)

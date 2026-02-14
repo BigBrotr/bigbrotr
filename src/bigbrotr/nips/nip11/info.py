@@ -1,18 +1,15 @@
 """
-NIP-11 metadata container with HTTP fetch capabilities.
+NIP-11 metadata container with HTTP info retrieval capabilities.
 
-Pairs [Nip11FetchData][bigbrotr.nips.nip11.data.Nip11FetchData] with
-[Nip11FetchLogs][bigbrotr.nips.nip11.logs.Nip11FetchLogs] and provides
+Pairs [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData] with
+[Nip11InfoLogs][bigbrotr.nips.nip11.logs.Nip11InfoLogs] and provides
 the ``execute()`` class method that performs the actual HTTP request to
 retrieve a relay's
 [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md)
 information document.
 
 Note:
-    The class was renamed from ``Nip11FetchMetadata`` to ``Nip11InfoMetadata``
-    in v3.1.0 to describe the *data* (info) rather than the *operation* (fetch).
-
-    The HTTP fetch converts the relay's WebSocket URL scheme (``wss`` -> ``https``,
+    The HTTP request converts the relay's WebSocket URL scheme (``wss`` -> ``https``,
     ``ws`` -> ``http``) and sends the ``Accept: application/nostr+json`` header
     as required by the NIP-11 specification. Responses larger than 64 KB are
     rejected to guard against resource exhaustion.
@@ -26,7 +23,7 @@ Note:
 See Also:
     [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
         Top-level model that wraps this container.
-    [bigbrotr.nips.base.BaseMetadata][bigbrotr.nips.base.BaseMetadata]:
+    [bigbrotr.nips.base.BaseNipMetadata][bigbrotr.nips.base.BaseNipMetadata]:
         Base class providing ``from_dict()`` / ``to_dict()`` interface.
     [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
         The ``NIP11_INFO`` variant used when storing these results.
@@ -35,7 +32,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import ssl
 from http import HTTPStatus
@@ -46,22 +42,23 @@ from aiohttp_socks import ProxyConnector
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
+from bigbrotr.utils.http import read_bounded_json
 
-from .data import Nip11FetchData
-from .logs import Nip11FetchLogs
+from .data import Nip11InfoData
+from .logs import Nip11InfoLogs
 
 
 logger = logging.getLogger("bigbrotr.nips.nip11")
 
 
-class Nip11InfoMetadata(BaseMetadata):
+class Nip11InfoMetadata(BaseNipMetadata):
     """Container for NIP-11 info data and operation logs.
 
     Provides the ``execute()`` class method for retrieving a relay's NIP-11
     document over HTTP(S). The result always contains both a
-    [Nip11FetchData][bigbrotr.nips.nip11.data.Nip11FetchData] object and a
-    [Nip11FetchLogs][bigbrotr.nips.nip11.logs.Nip11FetchLogs] object --
+    [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData] object and a
+    [Nip11InfoLogs][bigbrotr.nips.nip11.logs.Nip11InfoLogs] object --
     check ``logs.success`` for the operation status.
 
     Warning:
@@ -74,17 +71,17 @@ class Nip11InfoMetadata(BaseMetadata):
             Factory method that delegates to ``execute()``.
     """
 
-    data: Nip11FetchData
-    logs: Nip11FetchLogs
+    data: Nip11InfoData
+    logs: Nip11InfoLogs
 
-    _FETCH_MAX_SIZE: ClassVar[int] = 65_536  # 64 KB
+    _INFO_MAX_SIZE: ClassVar[int] = 65_536  # 64 KB
 
     # -------------------------------------------------------------------------
-    # HTTP Fetch Implementation
+    # HTTP Info Retrieval
     # -------------------------------------------------------------------------
 
     @staticmethod
-    async def _fetch(  # noqa: PLR0913
+    async def _info(  # noqa: PLR0913
         http_url: str,
         headers: dict[str, str],
         timeout: float,  # noqa: ASYNC109
@@ -133,11 +130,7 @@ class Nip11InfoMetadata(BaseMetadata):
             if content_type_lower not in ("application/nostr+json", "application/json"):
                 raise ValueError(f"Invalid Content-Type: {content_type}")
 
-            body = await resp.content.read(max_size + 1)
-            if len(body) > max_size:
-                raise ValueError(f"Response too large: {len(body)} > {max_size}")
-
-            data = json.loads(body)
+            data = await read_bounded_json(resp, max_size)
             if not isinstance(data, dict):
                 raise ValueError(f"Expected dict, got {type(data).__name__}")
 
@@ -151,7 +144,7 @@ class Nip11InfoMetadata(BaseMetadata):
         max_size: int | None = None,
         proxy_url: str | None = None,
         *,
-        allow_insecure: bool = True,
+        allow_insecure: bool = False,
     ) -> Self:
         """Fetch the NIP-11 information document from a relay.
 
@@ -172,13 +165,13 @@ class Nip11InfoMetadata(BaseMetadata):
             max_size: Maximum response size in bytes (default: 64 KB).
             proxy_url: Optional SOCKS5 proxy URL for overlay networks.
             allow_insecure: Fall back to unverified SSL on certificate
-                errors (default: True).
+                errors (default: False).
 
         Returns:
             An ``Nip11InfoMetadata`` instance with data and logs.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-        max_size = max_size if max_size is not None else cls._FETCH_MAX_SIZE
+        max_size = max_size if max_size is not None else cls._INFO_MAX_SIZE
 
         # Build the HTTP URL from the relay's WebSocket URL components
         protocol = "https" if relay.scheme == "wss" else "http"
@@ -199,10 +192,10 @@ class Nip11InfoMetadata(BaseMetadata):
                 ctx = ssl.create_default_context()
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
-                data = await cls._fetch(http_url, headers, timeout, max_size, ctx, proxy_url)
+                data = await cls._info(http_url, headers, timeout, max_size, ctx, proxy_url)
 
             elif protocol == "http":
-                data = await cls._fetch(
+                data = await cls._info(
                     http_url,
                     headers,
                     timeout,
@@ -214,7 +207,7 @@ class Nip11InfoMetadata(BaseMetadata):
             else:
                 # HTTPS: try verified first, optionally fall back to insecure
                 try:
-                    data = await cls._fetch(
+                    data = await cls._info(
                         http_url,
                         headers,
                         timeout,
@@ -229,7 +222,7 @@ class Nip11InfoMetadata(BaseMetadata):
                     ctx = ssl.create_default_context()
                     ctx.check_hostname = False
                     ctx.verify_mode = ssl.CERT_NONE
-                    data = await cls._fetch(http_url, headers, timeout, max_size, ctx, proxy_url)
+                    data = await cls._info(http_url, headers, timeout, max_size, ctx, proxy_url)
 
             logs["success"] = True
 
@@ -240,13 +233,13 @@ class Nip11InfoMetadata(BaseMetadata):
             logs["reason"] = str(e)
 
         result = cls(
-            data=Nip11FetchData.model_validate(Nip11FetchData.parse(data)),
-            logs=Nip11FetchLogs.model_validate(logs),
+            data=Nip11InfoData.model_validate(Nip11InfoData.parse(data)),
+            logs=Nip11InfoLogs.model_validate(logs),
         )
 
         if logs["success"]:
             logger.debug(
-                "nip11_fetched relay=%s name=%s ssl_fallback=%s",
+                "nip11_info_succeeded relay=%s name=%s ssl_fallback=%s",
                 relay.url,
                 result.data.name,
                 ssl_fallback,

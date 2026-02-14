@@ -36,6 +36,7 @@ Examples:
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.utils.dns import ResolvedHost, resolve_host
+from bigbrotr.utils.http import read_bounded_json
 from bigbrotr.utils.keys import KeysConfig, load_keys_from_env
 from bigbrotr.utils.transport import create_client
 
@@ -46,5 +47,6 @@ __all__ = [
     "ResolvedHost",
     "create_client",
     "load_keys_from_env",
+    "read_bounded_json",
     "resolve_host",
 ]

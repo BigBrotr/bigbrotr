@@ -10,6 +10,8 @@ Tests:
 - Error handling
 """
 
+import json
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -24,6 +26,20 @@ from bigbrotr.services.finder import (
     FinderConcurrencyConfig,
     FinderConfig,
 )
+
+
+def _mock_api_response(data: Any) -> MagicMock:
+    """Build a mock aiohttp response returning *data* as bounded JSON body."""
+    body = json.dumps(data).encode()
+    content = MagicMock()
+    content.read = AsyncMock(return_value=body)
+
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.content = content
+    resp.__aenter__ = AsyncMock(return_value=resp)
+    resp.__aexit__ = AsyncMock(return_value=None)
+    return resp
 
 
 # ============================================================================
@@ -187,6 +203,24 @@ class TestApiConfig:
         """Test SSL verification can be disabled."""
         config = ApiConfig(verify_ssl=False)
         assert config.verify_ssl is False
+
+    def test_max_response_size_default(self) -> None:
+        """Test default max_response_size is 5 MB."""
+        config = ApiConfig()
+        assert config.max_response_size == 5_242_880
+
+    def test_max_response_size_custom(self) -> None:
+        """Test custom max_response_size."""
+        config = ApiConfig(max_response_size=1_048_576)
+        assert config.max_response_size == 1_048_576
+
+    def test_max_response_size_bounds(self) -> None:
+        """Test max_response_size validation bounds."""
+        with pytest.raises(ValueError):
+            ApiConfig(max_response_size=512)  # Below min (1024)
+
+        with pytest.raises(ValueError):
+            ApiConfig(max_response_size=100_000_000)  # Above max (50 MB)
 
 
 # ============================================================================
@@ -361,11 +395,7 @@ class TestFinderFindFromApi:
         )
         finder = Finder(brotr=mock_brotr, config=config)
 
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(return_value=["wss://relay1.com", "wss://relay2.com"])
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
+        mock_response = _mock_api_response(["wss://relay1.com", "wss://relay2.com"])
 
         with patch("aiohttp.ClientSession") as mock_session_cls:
             mock_session = MagicMock()
@@ -416,12 +446,7 @@ class TestFinderFetchSingleApi:
         finder = Finder(brotr=mock_brotr)
         source = ApiSourceConfig(url="https://api.example.com")
 
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(return_value=["wss://relay1.com", "wss://relay2.com"])
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
+        mock_response = _mock_api_response(["wss://relay1.com", "wss://relay2.com"])
         mock_session = MagicMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
@@ -438,14 +463,7 @@ class TestFinderFetchSingleApi:
         finder = Finder(brotr=mock_brotr)
         source = ApiSourceConfig(url="https://api.example.com")
 
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(
-            return_value=["wss://valid.relay.com", "invalid-url", "not-a-relay"]
-        )
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
+        mock_response = _mock_api_response(["wss://valid.relay.com", "invalid-url", "not-a-relay"])
         mock_session = MagicMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
@@ -461,14 +479,7 @@ class TestFinderFetchSingleApi:
         finder = Finder(brotr=mock_brotr)
         source = ApiSourceConfig(url="https://api.example.com")
 
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(
-            return_value={"relays": ["wss://relay.com"]}
-        )  # Dict, not list
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
+        mock_response = _mock_api_response({"relays": ["wss://relay.com"]})
         mock_session = MagicMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
@@ -482,18 +493,36 @@ class TestFinderFetchSingleApi:
         finder = Finder(brotr=mock_brotr)
         source = ApiSourceConfig(url="https://api.example.com")
 
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(return_value=[])
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
+        mock_response = _mock_api_response([])
         mock_session = MagicMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
         result = await finder._fetch_single_api(mock_session, source)
 
         assert len(result) == 0
+
+    @pytest.mark.asyncio
+    async def test_fetch_single_api_rejects_oversized_response(self, mock_brotr: Brotr) -> None:
+        """Oversized API response raises ValueError (caught by _find_from_api)."""
+        config = FinderConfig(api=ApiConfig(max_response_size=1024))
+        finder = Finder(brotr=mock_brotr, config=config)
+        source = ApiSourceConfig(url="https://api.example.com")
+
+        # Body larger than max_response_size (1024 bytes)
+        oversized_body = b"x" * 1025
+        content = MagicMock()
+        content.read = AsyncMock(return_value=oversized_body)
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.content = content
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        with pytest.raises(ValueError, match="Response body too large"):
+            await finder._fetch_single_api(mock_session, source)
 
 
 # ============================================================================

@@ -79,6 +79,7 @@ services:
       MAX_CLIENT_CONN: 1000
       DEFAULT_POOL_SIZE: 20
       AUTH_TYPE: scram-sha-256
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits
 
     ports:
       - "127.0.0.1:6433:5432"
@@ -495,6 +496,7 @@ services:
 
     volumes:
       - ./monitoring/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
 
     ports:
@@ -502,6 +504,12 @@ services:
 
     networks:
       - lilbrotr-monitoring-network
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yaml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
 
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]

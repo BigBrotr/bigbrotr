@@ -586,6 +586,8 @@ async def _sync_relay_events(
     except (TimeoutError, OSError) as e:
         _log("WARNING", "sync_relay_error", relay=relay.url, error=str(e))
     finally:
+        # nostr-sdk client.shutdown() can raise arbitrary errors from the
+        # Rust FFI layer during cleanup; suppress broadly in this finally block.
         with contextlib.suppress(Exception):
             await client.shutdown()
 

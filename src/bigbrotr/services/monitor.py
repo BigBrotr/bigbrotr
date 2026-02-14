@@ -65,7 +65,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import random
-import shutil
 import time
 import urllib.request
 from pathlib import Path
@@ -80,8 +79,8 @@ from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models import Metadata, MetadataType, Relay, RelayMetadata
 from bigbrotr.models.constants import EventKind, NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.nips.base import BaseMetadata  # noqa: TC001
-from bigbrotr.nips.nip11 import Nip11
+from bigbrotr.nips.base import BaseNipMetadata  # noqa: TC001
+from bigbrotr.nips.nip11 import Nip11, Nip11Options
 from bigbrotr.nips.nip66 import (
     Nip66DnsMetadata,
     Nip66GeoMetadata,
@@ -139,21 +138,26 @@ RelayList = Annotated[
 ]
 
 
-def _download_geolite_db(url: str, dest: Path, timeout: float = 60.0) -> None:
+def _download_geolite_db(url: str, dest: Path, max_size: int, timeout: float = 60.0) -> None:
     """Download a GeoLite2 database file from GitHub mirror.
 
     Args:
         url: Download URL for the .mmdb file.
         dest: Local path to save the database.
+        max_size: Maximum allowed file size in bytes.
         timeout: Socket timeout in seconds for the HTTP request.
 
     Raises:
         urllib.error.URLError: If download fails or times out.
+        ValueError: If the downloaded file exceeds *max_size*.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
     request = urllib.request.Request(url)  # noqa: S310
-    with urllib.request.urlopen(request, timeout=timeout) as response, dest.open("wb") as out:  # noqa: S310
-        shutil.copyfileobj(response, out)
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+        data = response.read(max_size + 1)
+        if len(data) > max_size:
+            raise ValueError(f"GeoLite2 download too large: >{max_size} bytes")
+        dest.write_bytes(data)
 
 
 # =============================================================================
@@ -288,10 +292,8 @@ class MonitorProcessingConfig(BaseModel):
 
     chunk_size: int = Field(default=100, ge=10, le=1000)
     max_relays: int | None = Field(default=None, ge=1)
-    nip11_max_size: int = Field(default=1_048_576, ge=1024, le=10_485_760)
-    geohash_precision: int = Field(
-        default=9, ge=1, le=12, description="Geohash precision (9=~4.77m)"
-    )
+    allow_insecure: bool = Field(default=False)
+    nip11_info_max_size: int = Field(default=1_048_576, ge=1024, le=10_485_760)
     retry: MetadataRetryConfig = Field(default_factory=MetadataRetryConfig)
     compute: MetadataFlags = Field(default_factory=MetadataFlags)
     store: MetadataFlags = Field(default_factory=MetadataFlags)
@@ -324,6 +326,15 @@ class GeoConfig(BaseModel):
         default="https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb"
     )
     max_age_days: int | None = Field(default=30, ge=1)
+    max_download_size: int = Field(
+        default=100_000_000,
+        ge=1_000_000,
+        le=500_000_000,
+        description="Maximum download size per database file in bytes (default: 100 MB)",
+    )
+    geohash_precision: int = Field(
+        default=9, ge=1, le=12, description="Geohash precision (9=~4.77m)"
+    )
 
 
 class PublishingConfig(BaseModel):
@@ -588,15 +599,16 @@ class Monitor(
         Downloads are offloaded to a thread via ``asyncio.to_thread()`` to
         avoid blocking the event loop during large file transfers (10-50MB).
         """
+        max_size = self._config.geo.max_download_size
         if await asyncio.to_thread(path.exists):
             age = time.time() - (await asyncio.to_thread(path.stat)).st_mtime
             if age > max_age_seconds:
                 age_days = round(age / _SECONDS_PER_DAY, 1)
                 self._logger.info("updating_geo_db", db=db_name, age_days=age_days)
-                await asyncio.to_thread(_download_geolite_db, url, path)
+                await asyncio.to_thread(_download_geolite_db, url, path, max_size)
         else:
             self._logger.info("downloading_geo_db", db=db_name)
-            await asyncio.to_thread(_download_geolite_db, url, path)
+            await asyncio.to_thread(_download_geolite_db, url, path, max_size)
 
     async def _update_geo_databases(self) -> None:
         """Download or re-download GeoLite2 databases if missing or stale."""
@@ -607,12 +619,17 @@ class Monitor(
         max_age_days = self._config.geo.max_age_days
         max_age_seconds = max_age_days * _SECONDS_PER_DAY if max_age_days is not None else 0
 
+        max_size = self._config.geo.max_download_size
+
         if compute.nip66_geo:
             city_path = Path(self._config.geo.city_database_path)
             if not await asyncio.to_thread(city_path.exists):
                 self._logger.info("downloading_geo_db", db="city")
                 await asyncio.to_thread(
-                    _download_geolite_db, self._config.geo.city_download_url, city_path
+                    _download_geolite_db,
+                    self._config.geo.city_download_url,
+                    city_path,
+                    max_size,
                 )
             elif max_age_days is not None:
                 await self._update_geo_db_if_stale(
@@ -627,7 +644,10 @@ class Monitor(
             if not await asyncio.to_thread(asn_path.exists):
                 self._logger.info("downloading_geo_db", db="asn")
                 await asyncio.to_thread(
-                    _download_geolite_db, self._config.geo.asn_download_url, asn_path
+                    _download_geolite_db,
+                    self._config.geo.asn_download_url,
+                    asn_path,
+                    max_size,
                 )
             elif max_age_days is not None:
                 await self._update_geo_db_if_stale(
@@ -963,7 +983,7 @@ class Monitor(
             )
         if compute.nip66_geo and self._geo_reader and relay.network == NetworkType.CLEARNET:
             geo_reader = self._geo_reader
-            precision = self._config.processing.geohash_precision
+            precision = self._config.geo.geohash_precision
             tasks["geo"] = self._with_retry(
                 lambda: Nip66GeoMetadata.execute(relay, geo_reader, precision),
                 self._config.processing.retry.nip66_geo,
@@ -980,7 +1000,12 @@ class Monitor(
             )
         if compute.nip66_http:
             tasks["http"] = self._with_retry(
-                lambda: Nip66HttpMetadata.execute(relay, timeout, proxy_url),
+                lambda: Nip66HttpMetadata.execute(
+                    relay,
+                    timeout,
+                    proxy_url,
+                    allow_insecure=self._config.processing.allow_insecure,
+                ),
                 self._config.processing.retry.nip66_http,
                 "nip66_http",
                 relay.url,
@@ -1023,7 +1048,7 @@ class Monitor(
             generated_at = int(time.time())
 
             def to_relay_meta(
-                meta: BaseMetadata | None, meta_type: MetadataType
+                meta: BaseNipMetadata | None, meta_type: MetadataType
             ) -> RelayMetadata | None:
                 if meta is None:
                     return None
@@ -1039,8 +1064,11 @@ class Monitor(
                         lambda: Nip11.create(
                             relay,
                             timeout=timeout,
-                            max_size=self._config.processing.nip11_max_size,
                             proxy_url=proxy_url,
+                            options=Nip11Options(
+                                allow_insecure=self._config.processing.allow_insecure,
+                                max_size=self._config.processing.nip11_info_max_size,
+                            ),
                         ),
                         self._config.processing.retry.nip11_info,
                         "nip11_info",
@@ -1055,8 +1083,8 @@ class Monitor(
                         [Tag.identifier(relay.url)]
                     )
                     # Apply proof-of-work if NIP-11 specifies minimum difficulty
-                    if nip11 and nip11.fetch_metadata and nip11.fetch_metadata.logs.success:
-                        pow_difficulty = nip11.fetch_metadata.data.limitation.min_pow_difficulty
+                    if nip11 and nip11.info and nip11.info.logs.success:
+                        pow_difficulty = nip11.info.data.limitation.min_pow_difficulty
                         if pow_difficulty and pow_difficulty > 0:
                             event_builder = event_builder.pow(pow_difficulty)
                     read_filter = Filter().limit(1)
@@ -1066,7 +1094,13 @@ class Monitor(
                         read_filter=read_filter,
                     )
                     rtt_meta = await self._with_retry(
-                        lambda: Nip66RttMetadata.execute(relay, rtt_deps, timeout, proxy_url),
+                        lambda: Nip66RttMetadata.execute(
+                            relay,
+                            rtt_deps,
+                            timeout,
+                            proxy_url,
+                            allow_insecure=self._config.processing.allow_insecure,
+                        ),
                         self._config.processing.retry.nip66_rtt,
                         "nip66_rtt",
                         relay.url,
@@ -1202,7 +1236,7 @@ class Monitor(
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key=relay.url,
                     state_value={"last_check_at": now},
-                    updated_at=int(now),
+                    updated_at=now,
                 )
                 for relay in all_relays
             ]

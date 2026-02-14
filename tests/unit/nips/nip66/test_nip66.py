@@ -31,7 +31,7 @@ from bigbrotr.nips.nip66 import (
     Nip66SslMetadata,
     RelayNip66MetadataTuple,
 )
-from bigbrotr.nips.nip66.nip66 import Nip66Dependencies, Nip66TestSelection
+from bigbrotr.nips.nip66.nip66 import Nip66Dependencies, Nip66Selection
 
 
 class TestNip66Construction:
@@ -361,7 +361,7 @@ class TestNip66Create:
             data=Nip66DnsData(dns_ips=["8.8.8.8"]),
             logs=Nip66DnsLogs(success=True, reason=None),
         )
-        selection = Nip66TestSelection(rtt=True, geo=False, net=False)
+        selection = Nip66Selection(rtt=True, geo=False, net=False)
 
         with (
             patch.object(
@@ -382,7 +382,7 @@ class TestNip66Create:
             data=Nip66DnsData(dns_ips=["8.8.8.8"], dns_ttl=300),
             logs=Nip66DnsLogs(success=True, reason=None),
         )
-        selection = Nip66TestSelection(rtt=False, ssl=False, geo=False, net=False, http=False)
+        selection = Nip66Selection(rtt=False, ssl=False, geo=False, net=False, http=False)
 
         with patch.object(
             Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=dns_metadata
@@ -404,7 +404,7 @@ class TestNip66Create:
             data=Nip66DnsData(dns_ips=["8.8.8.8"]),
             logs=Nip66DnsLogs(success=True, reason=None),
         )
-        selection = Nip66TestSelection(rtt=False, geo=True, net=False)
+        selection = Nip66Selection(rtt=False, geo=True, net=False)
 
         with (
             patch.object(
@@ -424,7 +424,7 @@ class TestNip66Create:
             data=Nip66DnsData(dns_ips=["8.8.8.8"]),
             logs=Nip66DnsLogs(success=True, reason=None),
         )
-        selection = Nip66TestSelection(rtt=False, geo=False, net=True)
+        selection = Nip66Selection(rtt=False, geo=False, net=True)
 
         with (
             patch.object(
@@ -444,7 +444,7 @@ class TestNip66Create:
             data=Nip66DnsData(dns_ips=["8.8.8.8"]),
             logs=Nip66DnsLogs(success=True, reason=None),
         )
-        selection = Nip66TestSelection(rtt=False, geo=False, net=False)
+        selection = Nip66Selection(rtt=False, geo=False, net=False)
 
         with (
             patch.object(
@@ -494,7 +494,7 @@ class TestNip66Create:
     @pytest.mark.asyncio
     async def test_all_disabled_returns_empty_nip66(self, relay: Relay) -> None:
         """All tests disabled returns Nip66 with all None metadata."""
-        selection = Nip66TestSelection(
+        selection = Nip66Selection(
             rtt=False,
             ssl=False,
             geo=False,
@@ -511,6 +511,33 @@ class TestNip66Create:
         assert result.net is None
         assert result.dns is None
         assert result.http is None
+
+    @pytest.mark.asyncio
+    async def test_execute_exception_isolates_to_failed_test(self, relay: Relay) -> None:
+        """Exception in one execute() does not cancel other tests (defense-in-depth)."""
+        dns_metadata = Nip66DnsMetadata(
+            data=Nip66DnsData(dns_ips=["8.8.8.8"], dns_ttl=300),
+            logs=Nip66DnsLogs(success=True, reason=None),
+        )
+        selection = Nip66Selection(rtt=False, geo=False, net=False)
+
+        with (
+            patch.object(
+                Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=dns_metadata
+            ),
+            patch.object(
+                Nip66SslMetadata,
+                "execute",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("unexpected bug"),
+            ),
+            patch.object(Nip66HttpMetadata, "execute", new_callable=AsyncMock, return_value=None),
+        ):
+            result = await Nip66.create(relay, selection=selection)
+
+        assert isinstance(result, Nip66)
+        assert result.ssl is None  # Failed test mapped to None
+        assert result.dns.data.dns_ips == ["8.8.8.8"]  # Other test succeeded
 
 
 class TestRelayNip66MetadataTuple:

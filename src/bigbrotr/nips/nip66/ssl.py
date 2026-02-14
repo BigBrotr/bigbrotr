@@ -40,7 +40,7 @@ from typing import Any, Self
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 
 from .data import Nip66SslData
 from .logs import Nip66SslLogs
@@ -156,7 +156,7 @@ class CertificateExtractor:
         return result
 
 
-class Nip66SslMetadata(BaseMetadata):
+class Nip66SslMetadata(BaseNipMetadata):
     """Container for SSL/TLS certificate data and inspection logs.
 
     Provides the ``execute()`` class method that performs certificate
@@ -295,15 +295,17 @@ class Nip66SslMetadata(BaseMetadata):
 
         Returns:
             An ``Nip66SslMetadata`` instance with certificate data and logs.
-
-        Raises:
-            ValueError: If the relay is not on the clearnet network.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("ssl_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:
-            raise ValueError(f"SSL test requires clearnet, got {relay.network.value}")
+            return cls(
+                data=Nip66SslData(),
+                logs=Nip66SslLogs(
+                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                ),
+            )
 
         data: dict[str, Any] = {}
         logs: dict[str, Any] = {"success": False, "reason": None}

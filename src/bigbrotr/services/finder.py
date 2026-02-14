@@ -55,13 +55,14 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiohttp
 import asyncpg
-from nostr_sdk import RelayUrl
+from nostr_sdk import NostrSdkError, RelayUrl
 from pydantic import BaseModel, Field
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.utils.http import read_bounded_json
 
 from .common.queries import get_all_relay_urls, get_events_with_relay_urls, upsert_candidates
 
@@ -151,6 +152,12 @@ class ApiConfig(BaseModel):
     verify_ssl: bool = Field(
         default=True,
         description="Verify TLS certificates (disable only for testing/internal APIs)",
+    )
+    max_response_size: int = Field(
+        default=5_242_880,
+        ge=1024,
+        le=52_428_800,
+        description="Maximum API response body size in bytes (default: 5 MB)",
     )
 
 
@@ -503,7 +510,7 @@ class Finder(BaseService[FinderConfig]):
                     ):
                         break
 
-                except (TimeoutError, OSError, aiohttp.ClientError) as e:
+                except (TimeoutError, OSError, aiohttp.ClientError, ValueError) as e:
                     self._logger.warning(
                         "api_fetch_failed",
                         error=str(e),
@@ -549,7 +556,7 @@ class Finder(BaseService[FinderConfig]):
         )
         async with session.get(source.url, timeout=timeout) as resp:
             resp.raise_for_status()
-            data = await resp.json()
+            data = await read_bounded_json(resp, self._config.api.max_response_size)
 
             if isinstance(data, list):
                 for item in data:
@@ -557,7 +564,7 @@ class Finder(BaseService[FinderConfig]):
                         try:
                             relay_url = RelayUrl.parse(item)
                             relays.append(relay_url)
-                        except Exception:  # nostr_sdk raises NostrSdkError (not a stdlib type)
+                        except NostrSdkError:
                             self._logger.debug("invalid_relay_url", url=item)
                     else:
                         self._logger.debug("unexpected_item_type", url=source.url, item=item)
