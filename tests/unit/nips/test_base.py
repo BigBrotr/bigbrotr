@@ -1,10 +1,20 @@
-"""Unit tests for BaseData, BaseMetadata, BaseLogs, and DEFAULT_TIMEOUT."""
+"""Unit tests for BaseData, BaseMetadata, BaseLogs, BaseNip, BaseNipSelection, BaseNipOptions."""
 
 import pytest
 from pydantic import ValidationError
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT
-from bigbrotr.nips.base import BaseData, BaseLogs, BaseMetadata
+from bigbrotr.models.relay import Relay
+from bigbrotr.nips.base import (
+    BaseData,
+    BaseLogs,
+    BaseMetadata,
+    BaseNip,
+    BaseNipOptions,
+    BaseNipSelection,
+)
+from bigbrotr.nips.nip11 import Nip11, Nip11Options, Nip11Selection
+from bigbrotr.nips.nip66 import Nip66, Nip66Options, Nip66Selection
 from bigbrotr.nips.parsing import FieldSpec
 
 
@@ -547,3 +557,203 @@ class TestIntegration:
         assert reconstructed.data.name == original.data.name
         assert reconstructed.logs.success == original.logs.success
         assert reconstructed.logs.elapsed_ms == original.logs.elapsed_ms
+
+
+# =============================================================================
+# BaseNipSelection Tests
+# =============================================================================
+
+
+class TestBaseNipSelection:
+    """Test BaseNipSelection base class."""
+
+    def test_construction(self):
+        """BaseNipSelection can be constructed with no fields."""
+        selection = BaseNipSelection()
+        assert isinstance(selection, BaseNipSelection)
+
+    def test_is_base_model(self):
+        """BaseNipSelection is a Pydantic BaseModel."""
+        from pydantic import BaseModel
+
+        assert issubclass(BaseNipSelection, BaseModel)
+
+
+# =============================================================================
+# BaseNipOptions Tests
+# =============================================================================
+
+
+class TestBaseNipOptions:
+    """Test BaseNipOptions base class."""
+
+    def test_default_allow_insecure(self):
+        """Default allow_insecure is False."""
+        options = BaseNipOptions()
+        assert options.allow_insecure is False
+
+    def test_custom_allow_insecure(self):
+        """allow_insecure can be set to True."""
+        options = BaseNipOptions(allow_insecure=True)
+        assert options.allow_insecure is True
+
+    def test_is_base_model(self):
+        """BaseNipOptions is a Pydantic BaseModel."""
+        from pydantic import BaseModel
+
+        assert issubclass(BaseNipOptions, BaseModel)
+
+
+# =============================================================================
+# BaseNip Tests
+# =============================================================================
+
+
+class TestBaseNip:
+    """Test BaseNip abstract base class."""
+
+    def test_cannot_instantiate_directly(self):
+        """BaseNip cannot be instantiated (ABC enforcement)."""
+        relay = Relay("wss://relay.example.com")
+        with pytest.raises(TypeError):
+            BaseNip(relay=relay)
+
+    def test_is_abstract(self):
+        """BaseNip has abstract methods."""
+        from abc import ABC
+
+        assert issubclass(BaseNip, ABC)
+
+    def test_has_abstract_to_relay_metadata_tuple(self):
+        """BaseNip declares to_relay_metadata_tuple as abstract."""
+        assert "to_relay_metadata_tuple" in BaseNip.__abstractmethods__
+
+    def test_has_abstract_create(self):
+        """BaseNip declares create as abstract."""
+        assert "create" in BaseNip.__abstractmethods__
+
+
+# =============================================================================
+# Nip11 Inheritance Tests
+# =============================================================================
+
+
+class TestNip11Inheritance:
+    """Test Nip11 inherits from BaseNip."""
+
+    def test_nip11_is_base_nip(self):
+        """Nip11 instance is a BaseNip."""
+        relay = Relay("wss://relay.example.com")
+        nip11 = Nip11(relay=relay)
+        assert isinstance(nip11, BaseNip)
+
+    def test_nip11_has_relay(self):
+        """Nip11 inherits relay from BaseNip."""
+        relay = Relay("wss://relay.example.com")
+        nip11 = Nip11(relay=relay)
+        assert nip11.relay == relay
+
+    def test_nip11_has_generated_at(self):
+        """Nip11 inherits generated_at from BaseNip."""
+        relay = Relay("wss://relay.example.com")
+        nip11 = Nip11(relay=relay)
+        assert isinstance(nip11.generated_at, int)
+        assert nip11.generated_at > 0
+
+    def test_nip11_is_frozen(self):
+        """Nip11 is frozen (inherited from BaseNip)."""
+        relay = Relay("wss://relay.example.com")
+        nip11 = Nip11(relay=relay)
+        with pytest.raises(ValidationError):
+            nip11.info = None
+
+
+# =============================================================================
+# Nip66 Inheritance Tests
+# =============================================================================
+
+
+class TestNip66Inheritance:
+    """Test Nip66 inherits from BaseNip."""
+
+    def test_nip66_is_base_nip(self):
+        """Nip66 instance is a BaseNip."""
+        relay = Relay("wss://relay.example.com")
+        nip66 = Nip66(relay=relay)
+        assert isinstance(nip66, BaseNip)
+
+    def test_nip66_has_relay(self):
+        """Nip66 inherits relay from BaseNip."""
+        relay = Relay("wss://relay.example.com")
+        nip66 = Nip66(relay=relay)
+        assert nip66.relay == relay
+
+    def test_nip66_has_generated_at(self):
+        """Nip66 inherits generated_at from BaseNip."""
+        relay = Relay("wss://relay.example.com")
+        nip66 = Nip66(relay=relay)
+        assert isinstance(nip66.generated_at, int)
+        assert nip66.generated_at > 0
+
+    def test_nip66_is_frozen(self):
+        """Nip66 is frozen (inherited from BaseNip)."""
+        relay = Relay("wss://relay.example.com")
+        nip66 = Nip66(relay=relay)
+        with pytest.raises(ValidationError):
+            nip66.rtt = None
+
+
+# =============================================================================
+# Selection Inheritance Tests
+# =============================================================================
+
+
+class TestSelectionInheritance:
+    """Test Selection classes inherit from BaseNipSelection."""
+
+    def test_nip11_selection_is_base(self):
+        """Nip11Selection is a BaseNipSelection."""
+        assert issubclass(Nip11Selection, BaseNipSelection)
+        selection = Nip11Selection()
+        assert isinstance(selection, BaseNipSelection)
+
+    def test_nip66_selection_is_base(self):
+        """Nip66Selection is a BaseNipSelection."""
+        assert issubclass(Nip66Selection, BaseNipSelection)
+        selection = Nip66Selection()
+        assert isinstance(selection, BaseNipSelection)
+
+
+# =============================================================================
+# Options Inheritance Tests
+# =============================================================================
+
+
+class TestOptionsInheritance:
+    """Test Options classes inherit from BaseNipOptions."""
+
+    def test_nip11_options_is_base(self):
+        """Nip11Options is a BaseNipOptions."""
+        assert issubclass(Nip11Options, BaseNipOptions)
+        options = Nip11Options()
+        assert isinstance(options, BaseNipOptions)
+
+    def test_nip11_options_inherits_allow_insecure(self):
+        """Nip11Options inherits allow_insecure from BaseNipOptions."""
+        options = Nip11Options()
+        assert options.allow_insecure is False
+        options = Nip11Options(allow_insecure=True)
+        assert options.allow_insecure is True
+
+    def test_nip66_options_is_base(self):
+        """Nip66Options is a BaseNipOptions."""
+        assert issubclass(Nip66Options, BaseNipOptions)
+        options = Nip66Options()
+        assert isinstance(options, BaseNipOptions)
+
+    def test_nip66_options_inherits_allow_insecure(self):
+        """Nip66Options inherits allow_insecure from BaseNipOptions."""
+        options = Nip66Options()
+        assert options.allow_insecure is False
+        options = Nip66Options(allow_insecure=True)
+        assert options.allow_insecure is True

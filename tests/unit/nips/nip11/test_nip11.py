@@ -10,9 +10,12 @@ from bigbrotr.models.metadata import Metadata, MetadataType
 from bigbrotr.models.relay import Relay
 from bigbrotr.nips.nip11 import (
     Nip11,
+    Nip11Dependencies,
     Nip11InfoData,
     Nip11InfoLogs,
     Nip11InfoMetadata,
+    Nip11Options,
+    Nip11Selection,
 )
 from bigbrotr.nips.nip11.nip11 import RelayNip11MetadataTuple
 
@@ -379,7 +382,7 @@ class TestNip11CreateErrors:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay, max_size=1000)
+            result = await Nip11.create(relay, options=Nip11Options(max_size=1000))
 
         assert result.info.logs.success is False
         assert "too large" in result.info.logs.reason
@@ -646,8 +649,8 @@ class TestNip11CreateParameters:
         assert timeout.total == 30.0
 
     @pytest.mark.asyncio
-    async def test_create_custom_max_size(self, relay: Relay, mock_session_factory):
-        """Create with custom max_size applies limit."""
+    async def test_create_custom_max_size_via_options(self, relay: Relay, mock_session_factory):
+        """Create with Nip11Options max_size applies limit."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -658,10 +661,29 @@ class TestNip11CreateParameters:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay, max_size=1000)
+            result = await Nip11.create(relay, options=Nip11Options(max_size=1000))
 
         assert result.info.logs.success is False
         assert "too large" in result.info.logs.reason
+
+    @pytest.mark.asyncio
+    async def test_create_default_timeout(self, relay: Relay, mock_session_factory):
+        """Create without timeout uses DEFAULT_TIMEOUT."""
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/json"}
+        response.content.read = AsyncMock(return_value=b"{}")
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+            await Nip11.create(relay)
+
+        call_args = session.get.call_args
+        timeout = call_args[1]["timeout"]
+        assert timeout.total == 10.0
 
 
 # =============================================================================
@@ -722,3 +744,192 @@ class TestNip11Integration:
         assert reconstructed.data.name == info_data.name
         assert reconstructed.data.supported_nips == info_data.supported_nips
         assert reconstructed.logs.success == info_logs.success
+
+
+# =============================================================================
+# Nip11Selection Tests
+# =============================================================================
+
+
+class TestNip11Selection:
+    """Test Nip11Selection configuration model."""
+
+    def test_default_all_enabled(self):
+        """Default selection enables all retrievals."""
+        selection = Nip11Selection()
+        assert selection.info is True
+
+    def test_disable_info(self):
+        """info=False disables info retrieval."""
+        selection = Nip11Selection(info=False)
+        assert selection.info is False
+
+    def test_frozen(self):
+        """Nip11Selection is a Pydantic model."""
+        selection = Nip11Selection()
+        assert selection.model_fields_set == set()
+
+
+# =============================================================================
+# Nip11Options Tests
+# =============================================================================
+
+
+class TestNip11Options:
+    """Test Nip11Options configuration model."""
+
+    def test_defaults(self):
+        """Default options have secure defaults."""
+        options = Nip11Options()
+        assert options.allow_insecure is False
+        assert options.max_size == 65_536
+
+    def test_custom_allow_insecure(self):
+        """Custom allow_insecure is preserved."""
+        options = Nip11Options(allow_insecure=True)
+        assert options.allow_insecure is True
+
+    def test_custom_max_size(self):
+        """Custom max_size is preserved."""
+        options = Nip11Options(max_size=1024)
+        assert options.max_size == 1024
+
+    def test_combined_options(self):
+        """Multiple options can be set together."""
+        options = Nip11Options(allow_insecure=True, max_size=2048)
+        assert options.allow_insecure is True
+        assert options.max_size == 2048
+
+
+# =============================================================================
+# Nip11Dependencies Tests
+# =============================================================================
+
+
+class TestNip11Dependencies:
+    """Test Nip11Dependencies NamedTuple."""
+
+    def test_is_named_tuple(self):
+        """Nip11Dependencies is a NamedTuple."""
+        assert hasattr(Nip11Dependencies, "_fields")
+
+    def test_construction(self):
+        """Nip11Dependencies can be constructed."""
+        deps = Nip11Dependencies()
+        assert isinstance(deps, tuple)
+
+    def test_empty_fields(self):
+        """Nip11Dependencies has no fields."""
+        assert len(Nip11Dependencies._fields) == 0
+
+
+# =============================================================================
+# Nip11.create() Tests - Selection
+# =============================================================================
+
+
+class TestNip11CreateSelection:
+    """Test Nip11.create() with Nip11Selection."""
+
+    @pytest.mark.asyncio
+    async def test_info_disabled_returns_none(self, relay: Relay):
+        """selection=Nip11Selection(info=False) returns info=None."""
+        result = await Nip11.create(relay, selection=Nip11Selection(info=False))
+        assert isinstance(result, Nip11)
+        assert result.info is None
+        assert result.relay == relay
+
+    @pytest.mark.asyncio
+    async def test_info_enabled_calls_execute(self, relay: Relay, mock_session_factory):
+        """selection=Nip11Selection(info=True) calls execute."""
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/json"}
+        response.content.read = AsyncMock(return_value=b'{"name": "Test"}')
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+            result = await Nip11.create(relay, selection=Nip11Selection(info=True))
+
+        assert result.info is not None
+        assert result.info.logs.success is True
+
+    @pytest.mark.asyncio
+    async def test_default_selection_fetches_info(self, relay: Relay, mock_session_factory):
+        """Default selection (no selection param) fetches info."""
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/json"}
+        response.content.read = AsyncMock(return_value=b'{"name": "Test"}')
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+            result = await Nip11.create(relay)
+
+        assert result.info is not None
+
+
+# =============================================================================
+# Nip11.create() Tests - Options
+# =============================================================================
+
+
+class TestNip11CreateOptions:
+    """Test Nip11.create() with Nip11Options."""
+
+    @pytest.mark.asyncio
+    async def test_options_max_size_passed_to_execute(self, relay: Relay, mock_session_factory):
+        """Nip11Options.max_size is passed to execute."""
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/json"}
+        response.content.read = AsyncMock(return_value=b"x" * 2000)
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+            result = await Nip11.create(relay, options=Nip11Options(max_size=1000))
+
+        assert result.info.logs.success is False
+        assert "too large" in result.info.logs.reason
+
+    @pytest.mark.asyncio
+    async def test_options_allow_insecure_passed_to_execute(self, relay: Relay):
+        """Nip11Options.allow_insecure is passed to execute."""
+        with patch(
+            "bigbrotr.nips.nip11.info.Nip11InfoMetadata.execute",
+            new_callable=AsyncMock,
+        ) as mock_execute:
+            mock_execute.return_value = Nip11InfoMetadata(
+                data=Nip11InfoData(),
+                logs=Nip11InfoLogs(success=True),
+            )
+            await Nip11.create(relay, options=Nip11Options(allow_insecure=True))
+
+        mock_execute.assert_called_once()
+        call_kwargs = mock_execute.call_args
+        assert call_kwargs[1]["allow_insecure"] is True
+
+    @pytest.mark.asyncio
+    async def test_default_options_secure(self, relay: Relay):
+        """Default options use secure mode."""
+        with patch(
+            "bigbrotr.nips.nip11.info.Nip11InfoMetadata.execute",
+            new_callable=AsyncMock,
+        ) as mock_execute:
+            mock_execute.return_value = Nip11InfoMetadata(
+                data=Nip11InfoData(),
+                logs=Nip11InfoLogs(success=True),
+            )
+            await Nip11.create(relay)
+
+        call_kwargs = mock_execute.call_args
+        assert call_kwargs[1]["allow_insecure"] is False

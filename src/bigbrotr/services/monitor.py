@@ -81,7 +81,7 @@ from bigbrotr.models import Metadata, MetadataType, Relay, RelayMetadata
 from bigbrotr.models.constants import EventKind, NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.nips.base import BaseMetadata  # noqa: TC001
-from bigbrotr.nips.nip11 import Nip11
+from bigbrotr.nips.nip11 import Nip11, Nip11Options
 from bigbrotr.nips.nip66 import (
     Nip66DnsMetadata,
     Nip66GeoMetadata,
@@ -288,6 +288,7 @@ class MonitorProcessingConfig(BaseModel):
 
     chunk_size: int = Field(default=100, ge=10, le=1000)
     max_relays: int | None = Field(default=None, ge=1)
+    allow_insecure: bool = Field(default=False)
     nip11_max_size: int = Field(default=1_048_576, ge=1024, le=10_485_760)
     geohash_precision: int = Field(
         default=9, ge=1, le=12, description="Geohash precision (9=~4.77m)"
@@ -980,7 +981,12 @@ class Monitor(
             )
         if compute.nip66_http:
             tasks["http"] = self._with_retry(
-                lambda: Nip66HttpMetadata.execute(relay, timeout, proxy_url),
+                lambda: Nip66HttpMetadata.execute(
+                    relay,
+                    timeout,
+                    proxy_url,
+                    allow_insecure=self._config.processing.allow_insecure,
+                ),
                 self._config.processing.retry.nip66_http,
                 "nip66_http",
                 relay.url,
@@ -1039,8 +1045,11 @@ class Monitor(
                         lambda: Nip11.create(
                             relay,
                             timeout=timeout,
-                            max_size=self._config.processing.nip11_max_size,
                             proxy_url=proxy_url,
+                            options=Nip11Options(
+                                allow_insecure=self._config.processing.allow_insecure,
+                                max_size=self._config.processing.nip11_max_size,
+                            ),
                         ),
                         self._config.processing.retry.nip11_info,
                         "nip11_info",
@@ -1066,7 +1075,13 @@ class Monitor(
                         read_filter=read_filter,
                     )
                     rtt_meta = await self._with_retry(
-                        lambda: Nip66RttMetadata.execute(relay, rtt_deps, timeout, proxy_url),
+                        lambda: Nip66RttMetadata.execute(
+                            relay,
+                            rtt_deps,
+                            timeout,
+                            proxy_url,
+                            allow_insecure=self._config.processing.allow_insecure,
+                        ),
                         self._config.processing.retry.nip66_rtt,
                         "nip66_rtt",
                         relay.url,

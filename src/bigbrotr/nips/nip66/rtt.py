@@ -112,7 +112,7 @@ class Nip66RttMetadata(BaseMetadata):
         timeout: float | None = None,  # noqa: ASYNC109
         proxy_url: str | None = None,
         *,
-        allow_insecure: bool = True,
+        allow_insecure: bool = False,
     ) -> Self:
         """Test a relay's round-trip times across three phases.
 
@@ -125,7 +125,7 @@ class Nip66RttMetadata(BaseMetadata):
             deps: Grouped dependencies (keys, event_builder, read_filter).
             timeout: Connection timeout in seconds (default: 10.0).
             proxy_url: Optional SOCKS5 proxy URL for overlay networks.
-            allow_insecure: Fall back to unverified SSL (default: True).
+            allow_insecure: Fall back to unverified SSL (default: False).
 
         Returns:
             An ``Nip66RttMetadata`` instance with measurement data and logs.

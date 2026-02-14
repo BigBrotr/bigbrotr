@@ -148,7 +148,7 @@ class Nip11InfoMetadata(BaseMetadata):
         max_size: int | None = None,
         proxy_url: str | None = None,
         *,
-        allow_insecure: bool = True,
+        allow_insecure: bool = False,
     ) -> Self:
         """Fetch the NIP-11 information document from a relay.
 
@@ -169,7 +169,7 @@ class Nip11InfoMetadata(BaseMetadata):
             max_size: Maximum response size in bytes (default: 64 KB).
             proxy_url: Optional SOCKS5 proxy URL for overlay networks.
             allow_insecure: Fall back to unverified SSL on certificate
-                errors (default: True).
+                errors (default: False).
 
         Returns:
             An ``Nip11InfoMetadata`` instance with data and logs.

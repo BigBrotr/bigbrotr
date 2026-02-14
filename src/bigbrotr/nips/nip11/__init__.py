@@ -54,12 +54,19 @@ from .data import (
 )
 from .info import Nip11InfoMetadata
 from .logs import Nip11InfoLogs
-from .nip11 import Nip11, RelayNip11MetadataTuple
+from .nip11 import (
+    Nip11,
+    Nip11Dependencies,
+    Nip11Options,
+    Nip11Selection,
+    RelayNip11MetadataTuple,
+)
 
 
 __all__ = [
     "KindRange",
     "Nip11",
+    "Nip11Dependencies",
     "Nip11InfoData",
     "Nip11InfoDataFeeEntry",
     "Nip11InfoDataFees",
@@ -67,5 +74,7 @@ __all__ = [
     "Nip11InfoDataRetentionEntry",
     "Nip11InfoLogs",
     "Nip11InfoMetadata",
+    "Nip11Options",
+    "Nip11Selection",
     "RelayNip11MetadataTuple",
 ]

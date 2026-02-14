@@ -23,6 +23,13 @@ Attributes:
         with the appropriate [MetadataType][bigbrotr.models.metadata.MetadataType].
     BaseData, BaseLogs, BaseMetadata: Shared abstract base classes inherited by
         all NIP data, log, and metadata models.
+    BaseNip: Abstract base class for top-level NIP models with ``relay``,
+        ``generated_at``, and enforced ``create()`` / ``to_relay_metadata_tuple()``
+        contract.
+    BaseNipSelection: Base for selection models controlling which metadata types
+        to retrieve.
+    BaseNipOptions: Base for options models controlling how metadata is retrieved
+        (provides the common ``allow_insecure`` option).
 
 See Also:
     [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
@@ -34,9 +41,25 @@ See Also:
         Service that orchestrates NIP-11 and NIP-66 checks per relay.
 """
 
-from bigbrotr.nips.base import BaseData, BaseLogs, BaseMetadata
+from bigbrotr.nips.base import (
+    BaseData,
+    BaseLogs,
+    BaseMetadata,
+    BaseNip,
+    BaseNipOptions,
+    BaseNipSelection,
+)
 from bigbrotr.nips.nip11 import Nip11
 from bigbrotr.nips.nip66 import Nip66
 
 
-__all__ = ["BaseData", "BaseLogs", "BaseMetadata", "Nip11", "Nip66"]
+__all__ = [
+    "BaseData",
+    "BaseLogs",
+    "BaseMetadata",
+    "BaseNip",
+    "BaseNipOptions",
+    "BaseNipSelection",
+    "Nip11",
+    "Nip66",
+]

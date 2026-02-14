@@ -76,8 +76,8 @@ from .net import Nip66NetMetadata
 from .nip66 import (
     Nip66,
     Nip66Dependencies,
-    Nip66TestOptions,
-    Nip66TestSelection,
+    Nip66Options,
+    Nip66Selection,
     RelayNip66MetadataTuple,
 )
 from .rtt import Nip66RttDependencies, Nip66RttMetadata
@@ -100,14 +100,14 @@ __all__ = [
     "Nip66NetData",
     "Nip66NetLogs",
     "Nip66NetMetadata",
+    "Nip66Options",
     "Nip66RttData",
     "Nip66RttDependencies",
     "Nip66RttMetadata",
     "Nip66RttMultiPhaseLogs",
+    "Nip66Selection",
     "Nip66SslData",
     "Nip66SslLogs",
     "Nip66SslMetadata",
-    "Nip66TestOptions",
-    "Nip66TestSelection",
     "RelayNip66MetadataTuple",
 ]

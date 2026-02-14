@@ -13,9 +13,11 @@ Note:
     ensures the captured headers reflect the actual relay WebSocket endpoint
     rather than a potentially different HTTP endpoint.
 
-    A non-validating SSL context (``CERT_NONE``) is used to ensure headers
-    can be captured regardless of certificate validity. This is the only
-    NIP-66 test that supports **both** clearnet and overlay networks.
+    For clearnet relays, SSL verification is enabled by default. When
+    ``allow_insecure=True``, a non-validating SSL context (``CERT_NONE``)
+    is used instead. Overlay networks always use ``CERT_NONE`` because
+    the proxy provides encryption. This is the only NIP-66 test that
+    supports **both** clearnet and overlay networks.
 
 See Also:
     [bigbrotr.nips.nip66.data.Nip66HttpData][bigbrotr.nips.nip66.data.Nip66HttpData]:
@@ -74,6 +76,8 @@ class Nip66HttpMetadata(BaseMetadata):
         relay: Relay,
         timeout: float,  # noqa: ASYNC109
         proxy_url: str | None = None,
+        *,
+        allow_insecure: bool = False,
     ) -> dict[str, Any]:
         """Capture Server and X-Powered-By headers from a WebSocket handshake.
 
@@ -84,6 +88,7 @@ class Nip66HttpMetadata(BaseMetadata):
             relay: Relay to connect to.
             timeout: Connection timeout in seconds.
             proxy_url: Optional SOCKS5 proxy URL.
+            allow_insecure: Use non-validating SSL context for clearnet relays.
 
         Returns:
             Dictionary with ``http_server`` and/or ``http_powered_by``.
@@ -102,10 +107,11 @@ class Nip66HttpMetadata(BaseMetadata):
         trace_config = aiohttp.TraceConfig()
         trace_config.on_request_end.append(on_request_end)
 
-        # Use a non-validating SSL context to connect regardless of cert status
+        is_overlay = relay.network in (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
         ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
+        if is_overlay or allow_insecure:
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
 
         connector: aiohttp.BaseConnector
         if proxy_url:
@@ -141,6 +147,8 @@ class Nip66HttpMetadata(BaseMetadata):
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
         proxy_url: str | None = None,
+        *,
+        allow_insecure: bool = False,
     ) -> Self:
         """Extract HTTP headers from a relay's WebSocket handshake response.
 
@@ -148,6 +156,7 @@ class Nip66HttpMetadata(BaseMetadata):
             relay: Relay to connect to.
             timeout: Connection timeout in seconds (default: 10.0).
             proxy_url: Optional SOCKS5 proxy URL (required for overlay networks).
+            allow_insecure: Use non-validating SSL for clearnet relays.
 
         Returns:
             An ``Nip66HttpMetadata`` instance with header data and logs.
@@ -169,7 +178,7 @@ class Nip66HttpMetadata(BaseMetadata):
         data: dict[str, Any] = {}
 
         try:
-            data = await cls._http(relay, timeout, proxy_url)
+            data = await cls._http(relay, timeout, proxy_url, allow_insecure=allow_insecure)
             if data:
                 logs["success"] = True
                 logger.debug(

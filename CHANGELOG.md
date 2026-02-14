@@ -148,7 +148,7 @@ Major architectural restructuring: all code moved under `bigbrotr` namespace pac
   - `Nip11FetchMetadata` → `Nip11InfoMetadata` (renamed in v3.1.0 but `__init__.py` not updated; fully completed in v5.1.0)
   - `Nip66RttLogs` → `Nip66RttMultiPhaseLogs`
   - `RttDependencies` → `Nip66RttDependencies`
-  - `Nip66TestFlags` → `Nip66TestSelection` + `Nip66TestOptions`
+  - `Nip66TestFlags` → `Nip66Selection` + `Nip66Options`
 
 ### Added
 
