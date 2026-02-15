@@ -153,6 +153,8 @@ class EventBatch:
             Validates and persists batch contents to the database.
     """
 
+    __slots__ = ("events", "limit", "max_created_at", "min_created_at", "since", "size", "until")
+
     def __init__(self, since: int, until: int, limit: int) -> None:
         self.since = since
         self.until = until
@@ -515,6 +517,25 @@ async def _insert_batch(
     return total_inserted, invalid_count, 0
 
 
+@dataclass(slots=True)
+class _SyncBatchState:
+    """Shared mutable state across sync workers within a single cycle.
+
+    Groups the locks and cursor update buffer used by
+    [_sync_single_relay][bigbrotr.services.synchronizer.Synchronizer._sync_single_relay]
+    workers running concurrently under a ``TaskGroup``.
+
+    Note:
+        Not frozen because ``cursor_updates`` is mutated under
+        ``cursor_lock`` during concurrent processing.
+    """
+
+    cursor_updates: list[ServiceState]
+    cursor_lock: asyncio.Lock
+    counter_lock: asyncio.Lock
+    cursor_flush_interval: int
+
+
 @dataclass(frozen=True, slots=True)
 class SyncContext:
     """Immutable context shared across all relay sync operations in a cycle.
@@ -695,7 +716,7 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
             duration=round(elapsed, 2),
         )
 
-    async def _sync_all_relays(self, relays: list[Relay]) -> None:  # noqa: PLR0915
+    async def _sync_all_relays(self, relays: list[Relay]) -> None:
         """Sync all relays concurrently using structured concurrency.
 
         Note:
@@ -708,93 +729,18 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
             A ``counter_lock`` protects shared counters for
             future-proofing against free-threaded Python.
         """
-        # Pre-fetch all cursors in one query to avoid N+1 pattern
         cursors = await self._fetch_all_cursors()
-
-        # Batch cursor updates to reduce DB round-trips
-        cursor_updates: list[ServiceState] = []
-        cursor_lock = asyncio.Lock()
-        cursor_batch_size = self._config.concurrency.cursor_flush_interval
-        # Lock for shared counters (future-proof for free-threaded Python)
-        counter_lock = asyncio.Lock()
-
-        async def worker(relay: Relay) -> None:
-            semaphore = self._semaphores.get(relay.network)
-            if semaphore is None:
-                self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
-                return
-            async with semaphore:
-                network_type_config = self._config.networks.get(relay.network)
-                request_timeout = network_type_config.timeout
-                relay_timeout = self._config.sync_timeouts.get_relay_timeout(relay.network)
-
-                for override in self._config.overrides:
-                    if override.url == str(relay.url):
-                        if override.timeouts.relay is not None:
-                            relay_timeout = override.timeouts.relay
-                        if override.timeouts.request is not None:
-                            request_timeout = override.timeouts.request
-                        break
-
-                start = self._get_start_time_from_cache(relay, cursors)
-                end_time = int(time.time()) - self._config.time_range.lookback_seconds
-                if start >= end_time:
-                    return
-
-                ctx = SyncContext(
-                    filter_config=self._config.filter,
-                    network_config=self._config.networks,
-                    request_timeout=request_timeout,
-                    brotr=self._brotr,
-                    keys=self._keys,
-                )
-
-                async def _sync_with_timeout() -> tuple[int, int, int]:
-                    """Inner coroutine for wait_for timeout."""
-                    return await _sync_relay_events(
-                        relay=relay, start_time=start, end_time=end_time, ctx=ctx
-                    )
-
-                try:
-                    events_synced, invalid_events, skipped_events = await asyncio.wait_for(
-                        _sync_with_timeout(), timeout=relay_timeout
-                    )
-
-                    async with counter_lock:
-                        self._synced_events += events_synced
-                        self._invalid_events += invalid_events
-                        self._skipped_events += skipped_events
-                        self._synced_relays += 1
-
-                    async with cursor_lock:
-                        cursor_updates.append(
-                            ServiceState(
-                                service_name=self.SERVICE_NAME,
-                                state_type=ServiceStateType.CURSOR,
-                                state_key=relay.url,
-                                state_value={"last_synced_at": end_time},
-                                updated_at=int(time.time()),
-                            )
-                        )
-                        # Periodic flush for crash resilience
-                        if len(cursor_updates) >= cursor_batch_size:
-                            await self._brotr.upsert_service_state(cursor_updates.copy())
-                            cursor_updates.clear()
-
-                except (TimeoutError, OSError, asyncpg.PostgresError) as e:
-                    self._logger.warning(
-                        "relay_sync_failed",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        url=relay.url,
-                    )
-                    async with counter_lock:
-                        self._failed_relays += 1
+        batch = _SyncBatchState(
+            cursor_updates=[],
+            cursor_lock=asyncio.Lock(),
+            counter_lock=asyncio.Lock(),
+            cursor_flush_interval=self._config.concurrency.cursor_flush_interval,
+        )
 
         try:
             async with asyncio.TaskGroup() as tg:
                 for relay in relays:
-                    tg.create_task(worker(relay))
+                    tg.create_task(self._sync_single_relay(relay, cursors, batch))
         except ExceptionGroup as eg:
             for exc in eg.exceptions:
                 self._logger.error(
@@ -805,15 +751,96 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
                 self._failed_relays += 1
 
         # Flush remaining cursor updates
-        if cursor_updates:
+        if batch.cursor_updates:
             try:
-                await self._brotr.upsert_service_state(cursor_updates)
+                await self._brotr.upsert_service_state(batch.cursor_updates)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
                     "cursor_batch_upsert_failed",
                     error=str(e),
-                    count=len(cursor_updates),
+                    count=len(batch.cursor_updates),
                 )
+
+    async def _sync_single_relay(
+        self, relay: Relay, cursors: dict[str, int], batch: _SyncBatchState
+    ) -> None:
+        """Sync events from a single relay with semaphore-bounded concurrency.
+
+        Acquires the per-network semaphore, resolves timeouts (with per-relay
+        overrides), fetches events via ``_sync_relay_events``, and updates
+        shared counters and cursor buffer.
+
+        Args:
+            relay: Relay to sync from.
+            cursors: Pre-fetched map of relay URL to last_synced_at timestamp.
+            batch: Shared mutable state for cursor updates and locks.
+        """
+        semaphore = self._semaphores.get(relay.network)
+        if semaphore is None:
+            self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
+            return
+
+        async with semaphore:
+            network_type_config = self._config.networks.get(relay.network)
+            request_timeout = network_type_config.timeout
+            relay_timeout = self._config.sync_timeouts.get_relay_timeout(relay.network)
+
+            for override in self._config.overrides:
+                if override.url == str(relay.url):
+                    if override.timeouts.relay is not None:
+                        relay_timeout = override.timeouts.relay
+                    if override.timeouts.request is not None:
+                        request_timeout = override.timeouts.request
+                    break
+
+            start = self._get_start_time_from_cache(relay, cursors)
+            end_time = int(time.time()) - self._config.time_range.lookback_seconds
+            if start >= end_time:
+                return
+
+            ctx = SyncContext(
+                filter_config=self._config.filter,
+                network_config=self._config.networks,
+                request_timeout=request_timeout,
+                brotr=self._brotr,
+                keys=self._keys,
+            )
+
+            try:
+                events_synced, invalid_events, skipped_events = await asyncio.wait_for(
+                    _sync_relay_events(relay=relay, start_time=start, end_time=end_time, ctx=ctx),
+                    timeout=relay_timeout,
+                )
+
+                async with batch.counter_lock:
+                    self._synced_events += events_synced
+                    self._invalid_events += invalid_events
+                    self._skipped_events += skipped_events
+                    self._synced_relays += 1
+
+                async with batch.cursor_lock:
+                    batch.cursor_updates.append(
+                        ServiceState(
+                            service_name=self.SERVICE_NAME,
+                            state_type=ServiceStateType.CURSOR,
+                            state_key=relay.url,
+                            state_value={"last_synced_at": end_time},
+                            updated_at=int(time.time()),
+                        )
+                    )
+                    if len(batch.cursor_updates) >= batch.cursor_flush_interval:
+                        await self._brotr.upsert_service_state(batch.cursor_updates.copy())
+                        batch.cursor_updates.clear()
+
+            except (TimeoutError, OSError, asyncpg.PostgresError) as e:
+                self._logger.warning(
+                    "relay_sync_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    url=relay.url,
+                )
+                async with batch.counter_lock:
+                    self._failed_relays += 1
 
     async def _fetch_relays(self) -> list[Relay]:
         """Fetch validated relays from the database for synchronization.

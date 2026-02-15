@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import asyncpg
 from nostr_sdk import EventBuilder, Kind, RelayUrl, Tag
@@ -52,9 +52,14 @@ from bigbrotr.utils.transport import create_client
 
 
 if TYPE_CHECKING:
-    from bigbrotr.models import Relay
+    from nostr_sdk import Keys
 
-    from .monitor import CheckResult
+    from bigbrotr.core.brotr import Brotr
+    from bigbrotr.core.logger import Logger
+    from bigbrotr.models import Relay
+    from bigbrotr.models.constants import ServiceName
+
+    from .monitor import CheckResult, MonitorConfig
 
 
 class MonitorPublisherMixin:
@@ -81,6 +86,17 @@ class MonitorPublisherMixin:
             that composes this mixin.
     """
 
+    # Attributes provided by the host class (Monitor via BaseService)
+    SERVICE_NAME: ClassVar[ServiceName]
+    _config: MonitorConfig
+    _keys: Keys
+    _brotr: Brotr
+    _logger: Logger
+
+    if TYPE_CHECKING:
+
+        def _build_kind_30166(self, relay: Relay, result: CheckResult) -> EventBuilder: ...
+
     # -------------------------------------------------------------------------
     # Publishing
     # -------------------------------------------------------------------------
@@ -96,7 +112,7 @@ class MonitorPublisherMixin:
         if not builders or not relays:
             return
 
-        client = create_client(self._keys)  # type: ignore[attr-defined]
+        client = create_client(self._keys)
         for relay in relays:
             await client.add_relay(RelayUrl.parse(relay.url))
         try:
@@ -112,7 +128,7 @@ class MonitorPublisherMixin:
         Falls back to
         [PublishingConfig.relays][bigbrotr.services.monitor.PublishingConfig].
         """
-        return self._config.discovery.relays or self._config.publishing.relays  # type: ignore[attr-defined, no-any-return]
+        return self._config.discovery.relays or self._config.publishing.relays
 
     def _get_announcement_relays(self) -> list[Relay]:
         """Get relays for Kind 10166 events.
@@ -120,7 +136,7 @@ class MonitorPublisherMixin:
         Falls back to
         [PublishingConfig.relays][bigbrotr.services.monitor.PublishingConfig].
         """
-        return self._config.announcement.relays or self._config.publishing.relays  # type: ignore[attr-defined, no-any-return]
+        return self._config.announcement.relays or self._config.publishing.relays
 
     def _get_profile_relays(self) -> list[Relay]:
         """Get relays for Kind 0 events.
@@ -128,7 +144,7 @@ class MonitorPublisherMixin:
         Falls back to
         [PublishingConfig.relays][bigbrotr.services.monitor.PublishingConfig].
         """
-        return self._config.profile.relays or self._config.publishing.relays  # type: ignore[attr-defined, no-any-return]
+        return self._config.profile.relays or self._config.publishing.relays
 
     async def _publish_announcement(self) -> None:
         """Publish Kind 10166 monitor announcement if the configured interval has elapsed.
@@ -143,13 +159,13 @@ class MonitorPublisherMixin:
             [AnnouncementConfig][bigbrotr.services.monitor.AnnouncementConfig]:
                 Configuration controlling interval and relay list.
         """
-        ann = self._config.announcement  # type: ignore[attr-defined]
+        ann = self._config.announcement
         relays = self._get_announcement_relays()
         if not ann.enabled or not relays:
             return
 
-        results = await self._brotr.get_service_state(  # type: ignore[attr-defined]
-            self.SERVICE_NAME,  # type: ignore[attr-defined]
+        results = await self._brotr.get_service_state(
+            self.SERVICE_NAME,
             ServiceStateType.CHECKPOINT,
             "last_announcement",
         )
@@ -162,12 +178,12 @@ class MonitorPublisherMixin:
         try:
             builder = self._build_kind_10166()
             await self._broadcast_events([builder], relays)
-            self._logger.info("announcement_published", relays=len(relays))  # type: ignore[attr-defined]
+            self._logger.info("announcement_published", relays=len(relays))
             now = time.time()
-            await self._brotr.upsert_service_state(  # type: ignore[attr-defined]
+            await self._brotr.upsert_service_state(
                 [
                     ServiceState(
-                        service_name=self.SERVICE_NAME,  # type: ignore[attr-defined]
+                        service_name=self.SERVICE_NAME,
                         state_type=ServiceStateType.CHECKPOINT,
                         state_key="last_announcement",
                         state_value={"timestamp": now},
@@ -176,7 +192,7 @@ class MonitorPublisherMixin:
                 ]
             )
         except (TimeoutError, OSError, asyncpg.PostgresError) as e:
-            self._logger.warning("announcement_failed", error=str(e))  # type: ignore[attr-defined]
+            self._logger.warning("announcement_failed", error=str(e))
 
     async def _publish_profile(self) -> None:
         """Publish Kind 0 profile metadata if the configured interval has elapsed.
@@ -186,13 +202,13 @@ class MonitorPublisherMixin:
                 Configuration controlling interval, relay list, and
                 profile fields (name, about, picture, nip05, etc.).
         """
-        profile = self._config.profile  # type: ignore[attr-defined]
+        profile = self._config.profile
         relays = self._get_profile_relays()
         if not profile.enabled or not relays:
             return
 
-        results = await self._brotr.get_service_state(  # type: ignore[attr-defined]
-            self.SERVICE_NAME,  # type: ignore[attr-defined]
+        results = await self._brotr.get_service_state(
+            self.SERVICE_NAME,
             ServiceStateType.CHECKPOINT,
             "last_profile",
         )
@@ -204,12 +220,12 @@ class MonitorPublisherMixin:
         try:
             builder = self._build_kind_0()
             await self._broadcast_events([builder], relays)
-            self._logger.info("profile_published", relays=len(relays))  # type: ignore[attr-defined]
+            self._logger.info("profile_published", relays=len(relays))
             now = time.time()
-            await self._brotr.upsert_service_state(  # type: ignore[attr-defined]
+            await self._brotr.upsert_service_state(
                 [
                     ServiceState(
-                        service_name=self.SERVICE_NAME,  # type: ignore[attr-defined]
+                        service_name=self.SERVICE_NAME,
                         state_type=ServiceStateType.CHECKPOINT,
                         state_key="last_profile",
                         state_value={"timestamp": now},
@@ -218,7 +234,7 @@ class MonitorPublisherMixin:
                 ]
             )
         except (TimeoutError, OSError, asyncpg.PostgresError) as e:
-            self._logger.warning("profile_failed", error=str(e))  # type: ignore[attr-defined]
+            self._logger.warning("profile_failed", error=str(e))
 
     async def _publish_relay_discoveries(self, successful: list[tuple[Relay, CheckResult]]) -> None:
         """Publish Kind 30166 relay discovery events for each successful health check.
@@ -234,7 +250,7 @@ class MonitorPublisherMixin:
                 Configuration controlling interval, relay list, and
                 which metadata types to include.
         """
-        disc = self._config.discovery  # type: ignore[attr-defined]
+        disc = self._config.discovery
         relays = self._get_discovery_relays()
         if not disc.enabled or not relays:
             return
@@ -242,16 +258,16 @@ class MonitorPublisherMixin:
         builders: list[EventBuilder] = []
         for relay, result in successful:
             try:
-                builders.append(self._build_kind_30166(relay, result))  # type: ignore[attr-defined]
+                builders.append(self._build_kind_30166(relay, result))
             except (ValueError, KeyError, TypeError) as e:
-                self._logger.debug("build_30166_failed", url=relay.url, error=str(e))  # type: ignore[attr-defined]
+                self._logger.debug("build_30166_failed", url=relay.url, error=str(e))
 
         if builders:
             try:
                 await self._broadcast_events(builders, relays)
-                self._logger.debug("discoveries_published", count=len(builders))  # type: ignore[attr-defined]
+                self._logger.debug("discoveries_published", count=len(builders))
             except (TimeoutError, OSError) as e:
-                self._logger.warning(  # type: ignore[attr-defined]
+                self._logger.warning(
                     "discoveries_broadcast_failed", count=len(builders), error=str(e)
                 )
 
@@ -266,7 +282,7 @@ class MonitorPublisherMixin:
             [ProfileConfig][bigbrotr.services.monitor.ProfileConfig]:
                 Source of the profile fields serialized into the event.
         """
-        profile = self._config.profile  # type: ignore[attr-defined]
+        profile = self._config.profile
         profile_data: dict[str, str] = {}
         if profile.name:
             profile_data["name"] = profile.name
@@ -301,10 +317,10 @@ class MonitorPublisherMixin:
                 The ``discovery.include`` flags determine which check
                 types are advertised.
         """
-        timeout_ms = str(int(self._config.networks.clearnet.timeout * 1000))  # type: ignore[attr-defined]
-        include = self._config.discovery.include  # type: ignore[attr-defined]
+        timeout_ms = str(int(self._config.networks.clearnet.timeout * 1000))
+        include = self._config.discovery.include
 
-        tags = [Tag.parse(["frequency", str(int(self._config.interval))])]  # type: ignore[attr-defined]
+        tags = [Tag.parse(["frequency", str(int(self._config.interval))])]
 
         # Timeout tags per check type
         if include.nip66_rtt:
