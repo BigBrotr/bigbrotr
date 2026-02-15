@@ -85,10 +85,10 @@ class Nip66RttMetadata(BaseNipMetadata):
 
     Warning:
         The ``execute()`` method **never raises exceptions** for transport
-        errors. All failures are captured in the
+        errors or missing dependencies. All failures are captured in the
         [Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]
-        fields. However, ``ValueError`` is raised if an overlay network
-        relay is tested without a proxy URL.
+        fields. Overlay network relays tested without a proxy URL receive
+        an immediate failure result (all phases marked as failed).
 
     See Also:
         [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
@@ -378,5 +378,6 @@ class Nip66RttMetadata(BaseNipMetadata):
     @staticmethod
     async def _cleanup(client: Client) -> None:
         """Disconnect the client, suppressing any errors."""
+        # nostr-sdk Rust FFI can raise arbitrary exception types during disconnect.
         with contextlib.suppress(Exception):
             await client.disconnect()

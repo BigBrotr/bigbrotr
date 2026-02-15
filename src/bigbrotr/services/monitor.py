@@ -79,7 +79,7 @@ from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models import Metadata, MetadataType, Relay, RelayMetadata
 from bigbrotr.models.constants import EventKind, NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.nips.base import BaseNipMetadata  # noqa: TC001
+from bigbrotr.nips.base import BaseLogs, BaseNipMetadata
 from bigbrotr.nips.nip11 import Nip11, Nip11Options
 from bigbrotr.nips.nip66 import (
     Nip66DnsMetadata,
@@ -90,6 +90,7 @@ from bigbrotr.nips.nip66 import (
     Nip66RttMetadata,
     Nip66SslMetadata,
 )
+from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
 from bigbrotr.utils.keys import KeysConfig
 
 from .common.configs import NetworkConfig
@@ -841,9 +842,9 @@ class Monitor(
     def _get_success(result: Any) -> bool:
         """Extract success status from a metadata result's logs object."""
         logs = result.logs
-        if hasattr(logs, "success"):
+        if isinstance(logs, BaseLogs):
             return bool(logs.success)
-        if hasattr(logs, "open_success"):
+        if isinstance(logs, Nip66RttMultiPhaseLogs):
             return bool(logs.open_success)
         return False
 
@@ -851,9 +852,9 @@ class Monitor(
     def _get_reason(result: Any) -> str | None:
         """Extract failure reason from a metadata result's logs object."""
         logs = result.logs
-        if hasattr(logs, "reason"):
+        if isinstance(logs, BaseLogs):
             return str(logs.reason) if logs.reason else None
-        if hasattr(logs, "open_reason"):
+        if isinstance(logs, Nip66RttMultiPhaseLogs):
             return str(logs.open_reason) if logs.open_reason else None
         return None
 
@@ -914,7 +915,7 @@ class Monitor(
                 delay = min(retry_config.initial_delay * (2**attempt), retry_config.max_delay)
                 jitter = random.uniform(0, retry_config.jitter)  # noqa: S311
                 if await self.wait(delay + jitter):
-                    return result
+                    return None
                 self._logger.debug(
                     f"{operation}_retry",
                     relay=relay_url,

@@ -776,7 +776,7 @@ class TestBaseNipDependencies:
     def test_is_frozen(self):
         """BaseNipDependencies is frozen (immutable)."""
         deps = BaseNipDependencies()
-        with pytest.raises(AttributeError):
+        with pytest.raises((AttributeError, TypeError)):
             deps.new_field = "value"
 
     def test_is_dataclass(self):
@@ -803,7 +803,7 @@ class TestDependenciesInheritance:
     def test_nip11_dependencies_is_frozen(self):
         """Nip11Dependencies is frozen."""
         deps = Nip11Dependencies()
-        with pytest.raises(AttributeError):
+        with pytest.raises((AttributeError, TypeError)):
             deps.new_field = "value"
 
     def test_nip66_dependencies_is_base(self):

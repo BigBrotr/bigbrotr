@@ -111,6 +111,8 @@ class _NostrSdkStderrFilter:
         wrapping on repeated imports.
     """
 
+    __slots__ = ("_original", "_suppressing")
+
     def __init__(self, original: TextIO) -> None:
         self._original = original
         self._suppressing = False
@@ -250,9 +252,11 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
 
     async def close_connection(self) -> None:
         """Close the WebSocket and session with timeouts to prevent hanging."""
-        with contextlib.suppress(TimeoutError, Exception):
+        # aiohttp/websockets can raise ClientError, ServerDisconnectedError, etc.
+        # during close — broad suppression is intentional for cleanup teardown.
+        with contextlib.suppress(Exception):
             await asyncio.wait_for(self._ws.close(), timeout=self._close_timeout)
-        with contextlib.suppress(TimeoutError, Exception):
+        with contextlib.suppress(Exception):
             await asyncio.wait_for(self._session.close(), timeout=self._close_timeout)
 
 
@@ -634,5 +638,6 @@ async def is_nostr_relay(
 
         finally:
             if client is not None:
-                with contextlib.suppress(TimeoutError, Exception):
+                # nostr-sdk Rust FFI can raise arbitrary exception types during disconnect.
+                with contextlib.suppress(Exception):
                     await asyncio.wait_for(client.disconnect(), timeout=cfg.disconnect_timeout)

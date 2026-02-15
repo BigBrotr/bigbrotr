@@ -97,7 +97,7 @@ class Nip66Options(BaseNipOptions):
     """
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Nip66Dependencies(BaseNipDependencies):
     """Optional dependencies for NIP-66 monitoring tests.
 
