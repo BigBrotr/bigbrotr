@@ -85,7 +85,7 @@ services:
       MAX_CLIENT_CONN: 1000
       DEFAULT_POOL_SIZE: 20
       AUTH_TYPE: scram-sha-256
-      IGNORE_STARTUP_PARAMETERS: extra_float_digits
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,statement_timeout
 
     ports:
       # CUSTOMIZE: Use unique port (e.g., 6433 for second implementation)
@@ -99,7 +99,7 @@ services:
         condition: service_healthy
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U admin"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -322,7 +322,7 @@ services:
 
     volumes:
       - ./config:/app/config:ro
-      - ./static:/app/static:ro
+      - ./static:/app/static
 
     ports:
       # CUSTOMIZE: Use unique port to avoid conflicts

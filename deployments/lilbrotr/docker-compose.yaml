@@ -79,7 +79,7 @@ services:
       MAX_CLIENT_CONN: 1000
       DEFAULT_POOL_SIZE: 20
       AUTH_TYPE: scram-sha-256
-      IGNORE_STARTUP_PARAMETERS: extra_float_digits
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,statement_timeout
 
     ports:
       - "127.0.0.1:6433:5432"
@@ -92,7 +92,7 @@ services:
         condition: service_healthy
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U admin"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -385,7 +385,7 @@ services:
 
     volumes:
       - ./config:/app/config:ro
-      - ./static:/app/static:ro
+      - ./static:/app/static
 
     ports:
       - "127.0.0.1:${MONITOR_METRICS_PORT:-9003}:8000"  # Prometheus metrics
