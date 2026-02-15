@@ -140,10 +140,10 @@ AS $$
 DECLARE
     v_row_count INTEGER;
 BEGIN
-    INSERT INTO metadata (id, metadata_type, data)
+    INSERT INTO metadata (id, type, data)
     SELECT * FROM unnest(p_ids, p_metadata_types, p_data)
-        AS t(id, metadata_type, data)
-    ON CONFLICT (id, metadata_type) DO NOTHING;
+        AS t(id, type, data)
+    ON CONFLICT (id, type) DO NOTHING;
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
     RETURN v_row_count;
