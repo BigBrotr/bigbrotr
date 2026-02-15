@@ -128,8 +128,12 @@ class Relay:
     host: str = field(init=False)
     port: int | None = field(init=False)
     path: str | None = field(init=False)
-    _db_params: RelayDbParams | None = field(
-        default=None, init=False, repr=False, compare=False, hash=False
+    _db_params: RelayDbParams = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,  # type: ignore[assignment]
     )
 
     # Standard default ports for WebSocket schemes
@@ -342,7 +346,6 @@ class Relay:
             [RelayDbParams][bigbrotr.models.relay.RelayDbParams] with the
             normalized URL, network name, and discovery timestamp.
         """
-        assert self._db_params is not None  # noqa: S101  # Always set in __post_init__
         return self._db_params
 
     def _compute_db_params(self) -> RelayDbParams:

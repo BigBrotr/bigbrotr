@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import dns.resolver
 import pytest
 
 from bigbrotr.models import Relay
@@ -80,7 +81,7 @@ class TestNip66DnsMetadataDnsSync:
                 return mock_a_response
             if record_type == "AAAA":
                 return mock_aaaa_response
-            raise Exception(f"Unknown record type: {record_type}")
+            raise dns.resolver.NXDOMAIN
 
         mock_resolver.resolve.side_effect = resolve_side_effect
 
@@ -110,7 +111,7 @@ class TestNip66DnsMetadataDnsSync:
                 return mock_a_response
             if record_type == "CNAME":
                 return mock_cname_response
-            raise Exception(f"No {record_type} record")
+            raise dns.resolver.NXDOMAIN
 
         mock_resolver.resolve.side_effect = resolve_side_effect
 
@@ -144,7 +145,7 @@ class TestNip66DnsMetadataDnsSync:
                 return mock_a_response
             if record_type == "NS":
                 return mock_ns_response
-            raise Exception(f"No {record_type} record")
+            raise dns.resolver.NXDOMAIN
 
         mock_resolver.resolve.side_effect = resolve_side_effect
 
@@ -185,7 +186,7 @@ class TestNip66DnsMetadataDnsSync:
                 return mock_a_response
             if args[1] == "PTR":
                 return mock_ptr_response
-            raise Exception("No record")
+            raise dns.resolver.NXDOMAIN
 
         mock_resolver.resolve.side_effect = resolve_side_effect
 
@@ -200,7 +201,7 @@ class TestNip66DnsMetadataDnsSync:
     def test_empty_result_when_no_records(self) -> None:
         """Return empty dict when no DNS records found."""
         mock_resolver = MagicMock()
-        mock_resolver.resolve.side_effect = Exception("NXDOMAIN")
+        mock_resolver.resolve.side_effect = dns.resolver.NXDOMAIN()
 
         with patch("dns.resolver.Resolver", return_value=mock_resolver):
             result = Nip66DnsMetadata._dns("nonexistent.invalid", 5.0)
@@ -210,7 +211,7 @@ class TestNip66DnsMetadataDnsSync:
     def test_sets_timeout_and_lifetime(self) -> None:
         """Sets resolver timeout and lifetime."""
         mock_resolver = MagicMock()
-        mock_resolver.resolve.side_effect = Exception("NXDOMAIN")
+        mock_resolver.resolve.side_effect = dns.resolver.NXDOMAIN()
 
         with patch("dns.resolver.Resolver", return_value=mock_resolver) as mock_resolver_cls:
             Nip66DnsMetadata._dns("example.com", 7.5)

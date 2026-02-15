@@ -103,8 +103,10 @@ class Nip66DnsMetadata(BaseNipMetadata):
         resolver.timeout = timeout
         resolver.lifetime = timeout
 
+        _dns_errors = (OSError, dns.exception.DNSException)
+
         # A records (IPv4)
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(*_dns_errors):
             answers = resolver.resolve(host, "A")
             ips = [cast("A", rdata).address for rdata in answers]
             if ips:
@@ -113,21 +115,21 @@ class Nip66DnsMetadata(BaseNipMetadata):
                     result["dns_ttl"] = answers.rrset.ttl
 
         # AAAA records (IPv6)
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(*_dns_errors):
             answers = resolver.resolve(host, "AAAA")
             ips_v6 = [cast("AAAA", rdata).address for rdata in answers]
             if ips_v6:
                 result["dns_ips_v6"] = ips_v6
 
         # CNAME record
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(*_dns_errors):
             answers = resolver.resolve(host, "CNAME")
             for rdata in answers:
                 result["dns_cname"] = str(cast("CNAME", rdata).target).rstrip(".")
                 break
 
         # NS records (resolved against the registered domain)
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(*_dns_errors):
             ext = tldextract.extract(host)
             if ext.domain and ext.suffix:
                 domain = f"{ext.domain}.{ext.suffix}"
@@ -138,7 +140,7 @@ class Nip66DnsMetadata(BaseNipMetadata):
 
         # Reverse DNS (PTR) using the first resolved IPv4 address
         if result.get("dns_ips"):
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*_dns_errors):
                 ip = result["dns_ips"][0]
                 reverse_name = dns.reversename.from_address(ip)
                 answers = resolver.resolve(reverse_name, "PTR")

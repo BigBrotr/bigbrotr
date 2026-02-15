@@ -112,8 +112,12 @@ class Event:
     """
 
     _nostr_event: NostrEvent
-    _db_params: EventDbParams | None = field(
-        default=None, init=False, repr=False, compare=False, hash=False
+    _db_params: EventDbParams = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,  # type: ignore[assignment]
     )
 
     def __post_init__(self) -> None:
@@ -153,7 +157,6 @@ class Event:
             id/pubkey/sig, integer timestamps, JSON-encoded tags, and raw
             content string.
         """
-        assert self._db_params is not None  # noqa: S101  # Always set in __post_init__
         return self._db_params
 
     def _compute_db_params(self) -> EventDbParams:

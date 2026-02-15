@@ -248,4 +248,4 @@ capitalisation_policy = "upper"
 capitalisation_policy = "upper"
 
 [tool.sqlfluff.rules.references.keywords]
-ignore_words = "value,content,data"
+ignore_words = "value,content,data,type"

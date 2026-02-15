@@ -110,8 +110,12 @@ class EventRelay:
     event: Event
     relay: Relay
     seen_at: int = field(default_factory=lambda: int(time()))
-    _db_params: EventRelayDbParams | None = field(
-        default=None, init=False, repr=False, compare=False, hash=False
+    _db_params: EventRelayDbParams = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,  # type: ignore[assignment]
     )
 
     def __post_init__(self) -> None:
@@ -152,7 +156,6 @@ class EventRelay:
             [EventRelayDbParams][bigbrotr.models.event_relay.EventRelayDbParams]
             combining event, relay, and junction fields.
         """
-        assert self._db_params is not None  # noqa: S101  # Always set in __post_init__
         return self._db_params
 
     @classmethod

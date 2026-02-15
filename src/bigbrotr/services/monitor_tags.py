@@ -44,7 +44,7 @@ from bigbrotr.models.constants import EventKind
 if TYPE_CHECKING:
     from bigbrotr.models import Relay
 
-    from .monitor import CheckResult, MetadataFlags
+    from .monitor import CheckResult, MetadataFlags, MonitorConfig
 
 
 # =============================================================================
@@ -107,6 +107,9 @@ class MonitorTagsMixin:
         [Monitor][bigbrotr.services.monitor.Monitor]: The host class
             that composes this mixin.
     """
+
+    # Attribute provided by the host class (Monitor via BaseService)
+    _config: MonitorConfig
 
     # -------------------------------------------------------------------------
     # Kind 30166 Tag Helpers
@@ -354,7 +357,7 @@ class MonitorTagsMixin:
             ``MonitorPublisherMixin._publish_relay_discoveries()``:
                 Broadcasts the events built by this method.
         """
-        include = self._config.discovery.include  # type: ignore[attr-defined]
+        include = self._config.discovery.include
         content = result.nip11.metadata.canonical_json if result.nip11 else ""
         tags: list[Tag] = [
             Tag.identifier(relay.url),

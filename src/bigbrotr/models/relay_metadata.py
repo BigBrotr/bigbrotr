@@ -117,8 +117,12 @@ class RelayMetadata:
     relay: Relay
     metadata: Metadata
     generated_at: int = field(default_factory=lambda: int(time()))
-    _db_params: RelayMetadataDbParams | None = field(
-        default=None, init=False, repr=False, compare=False, hash=False
+    _db_params: RelayMetadataDbParams = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,  # type: ignore[assignment]
     )
 
     def __post_init__(self) -> None:
@@ -132,7 +136,6 @@ class RelayMetadata:
             [RelayMetadataDbParams][bigbrotr.models.relay_metadata.RelayMetadataDbParams]
             combining relay, metadata, and junction fields.
         """
-        assert self._db_params is not None  # noqa: S101  # Always set in __post_init__
         return self._db_params
 
     def _compute_db_params(self) -> RelayMetadataDbParams:
@@ -154,7 +157,7 @@ class RelayMetadata:
             relay_network=r.network,
             relay_discovered_at=r.discovered_at,
             metadata_id=m.id,
-            metadata_type=m.metadata_type,
+            metadata_type=m.type,
             metadata_data=m.data,
             generated_at=self.generated_at,
         )
@@ -189,7 +192,7 @@ class RelayMetadata:
         metadata_params = MetadataDbParams(
             id=params.metadata_id,
             data=params.metadata_data,
-            metadata_type=params.metadata_type,
+            type=params.metadata_type,
         )
         relay = Relay.from_db_params(relay_params)
         metadata = Metadata.from_db_params(metadata_params)

@@ -20,7 +20,7 @@ class TestMetadataDbParams:
         """MetadataDbParams is a NamedTuple with 3 fields."""
         params = MetadataDbParams(
             id=b"\x00" * 32,
-            metadata_type=MetadataType.NIP11_INFO,
+            type=MetadataType.NIP11_INFO,
             data='{"key": "value"}',
         )
         assert isinstance(params, tuple)
@@ -31,11 +31,11 @@ class TestMetadataDbParams:
         test_hash = b"\x01\x02\x03" + b"\x00" * 29
         params = MetadataDbParams(
             id=test_hash,
-            metadata_type=MetadataType.NIP66_RTT,
+            type=MetadataType.NIP66_RTT,
             data='{"name": "test"}',
         )
         assert params.id == test_hash
-        assert params.metadata_type == MetadataType.NIP66_RTT
+        assert params.type == MetadataType.NIP66_RTT
         assert params.data == '{"name": "test"}'
 
     def test_field_access_by_index(self):
@@ -43,7 +43,7 @@ class TestMetadataDbParams:
         test_hash = b"\x00" * 32
         params = MetadataDbParams(
             id=test_hash,
-            metadata_type=MetadataType.NIP66_SSL,
+            type=MetadataType.NIP66_SSL,
             data="[]",
         )
         assert params[0] == test_hash
@@ -54,7 +54,7 @@ class TestMetadataDbParams:
         """MetadataDbParams is immutable (NamedTuple)."""
         params = MetadataDbParams(
             id=b"\x00" * 32,
-            metadata_type=MetadataType.NIP11_INFO,
+            type=MetadataType.NIP11_INFO,
             data="{}",
         )
         with pytest.raises(AttributeError):
@@ -291,7 +291,7 @@ class TestToDbParams:
         assert len(result) == 3
         assert isinstance(result.id, bytes)
         assert len(result.id) == 32  # SHA-256 hash
-        assert result.metadata_type == MetadataType.NIP11_INFO
+        assert result.type == MetadataType.NIP11_INFO
 
     def test_valid_json(self):
         """Returns valid JSON string."""
@@ -332,7 +332,7 @@ class TestFromDbParams:
             "7d9fd2051fc32b32feab10946fab6bb91426ab7e39aa5439289ed892864aa91d"  # pragma: allowlist secret
         )
         params = MetadataDbParams(
-            id=hash_bytes, metadata_type=MetadataType.NIP11_INFO, data='{"name": "test"}'
+            id=hash_bytes, type=MetadataType.NIP11_INFO, data='{"name": "test"}'
         )
         m = Metadata.from_db_params(params)
         assert m.data == {"name": "test"}
@@ -344,7 +344,7 @@ class TestFromDbParams:
             "345cbac42064615b5c54e4b502193eb847ce94a9c62ad47a463fe43d99226e3c"  # pragma: allowlist secret
         )
         params = MetadataDbParams(
-            id=hash_bytes, metadata_type=MetadataType.NIP66_RTT, data='{"a": {"b": [1, 2, 3]}}'
+            id=hash_bytes, type=MetadataType.NIP66_RTT, data='{"a": {"b": [1, 2, 3]}}'
         )
         m = Metadata.from_db_params(params)
         assert m.data["a"]["b"] == [1, 2, 3]
@@ -355,7 +355,7 @@ class TestFromDbParams:
         hash_bytes = bytes.fromhex(
             "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"  # pragma: allowlist secret
         )
-        params = MetadataDbParams(id=hash_bytes, metadata_type=MetadataType.NIP66_SSL, data="{}")
+        params = MetadataDbParams(id=hash_bytes, type=MetadataType.NIP66_SSL, data="{}")
         m = Metadata.from_db_params(params)
         assert m.data == {}
         assert m.type == MetadataType.NIP66_SSL

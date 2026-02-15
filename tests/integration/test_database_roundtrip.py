@@ -233,10 +233,10 @@ async def test_relay_metadata_cascade(brotr: Brotr):
     assert len(relay_rows) == 1
 
     # Verify metadata created (content-addressed with type)
-    meta_rows = await brotr.fetch("SELECT id, data, metadata_type FROM metadata")
+    meta_rows = await brotr.fetch("SELECT id, data, type FROM metadata")
     assert len(meta_rows) == 1
     assert meta_rows[0]["data"]["name"] == "Test Relay"
-    assert meta_rows[0]["metadata_type"] == "nip11_info"
+    assert meta_rows[0]["type"] == "nip11_info"
 
     # Verify junction
     junction_rows = await brotr.fetch(

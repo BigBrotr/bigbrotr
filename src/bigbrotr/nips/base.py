@@ -237,7 +237,7 @@ class BaseNipOptions(BaseModel):
     allow_insecure: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BaseNipDependencies:
     """Optional external dependencies for NIP operations.
 

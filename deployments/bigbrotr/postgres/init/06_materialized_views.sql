@@ -28,7 +28,7 @@ SELECT DISTINCT ON (rm.relay_url, rm.metadata_type)
     rm.metadata_id,
     m.data
 FROM relay_metadata AS rm
-INNER JOIN metadata AS m ON rm.metadata_id = m.id AND rm.metadata_type = m.metadata_type
+INNER JOIN metadata AS m ON rm.metadata_id = m.id AND rm.metadata_type = m.type
 ORDER BY rm.relay_url ASC, rm.metadata_type ASC, rm.generated_at DESC;
 
 COMMENT ON MATERIALIZED VIEW relay_metadata_latest IS
@@ -146,9 +146,9 @@ LEFT JOIN res ON r.url = res.relay_url
 -- LATERAL join: compute average RTT from the 10 most recent measurements
 LEFT JOIN LATERAL (
     SELECT
-        ROUND(AVG((m.data ->> 'rtt_open')::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
-        ROUND(AVG((m.data ->> 'rtt_read')::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
-        ROUND(AVG((m.data ->> 'rtt_write')::INTEGER)::NUMERIC, 2) AS avg_rtt_write
+        ROUND(AVG((m.data -> 'data' ->> 'rtt_open')::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
+        ROUND(AVG((m.data -> 'data' ->> 'rtt_read')::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
+        ROUND(AVG((m.data -> 'data' ->> 'rtt_write')::INTEGER)::NUMERIC, 2) AS avg_rtt_write
     FROM (
         SELECT
             rm.metadata_id,
@@ -158,7 +158,7 @@ LEFT JOIN LATERAL (
         ORDER BY rm.generated_at DESC
         LIMIT 10
     ) AS recent
-    INNER JOIN metadata AS m ON recent.metadata_id = m.id AND recent.metadata_type = m.metadata_type
+    INNER JOIN metadata AS m ON recent.metadata_id = m.id AND recent.metadata_type = m.type
 ) AS rp ON TRUE
 
 ORDER BY r.url;

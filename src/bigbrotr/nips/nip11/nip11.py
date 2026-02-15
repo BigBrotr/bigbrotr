@@ -77,7 +77,7 @@ class Nip11Options(BaseNipOptions):
     max_size: int = Nip11InfoMetadata._INFO_MAX_SIZE
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Nip11Dependencies(BaseNipDependencies):
     """Optional dependencies for NIP-11 metadata retrieval.
 

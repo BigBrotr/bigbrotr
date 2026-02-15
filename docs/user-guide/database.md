@@ -52,6 +52,7 @@ erDiagram
 
     metadata {
         BYTEA id PK
+        TEXT type PK
         JSONB data
     }
 
@@ -150,10 +151,11 @@ Content-addressed storage for NIP-11 and NIP-66 metadata documents.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
-| `id` | BYTEA | PRIMARY KEY | SHA-256 content hash (32 bytes) |
+| `id` | BYTEA | PK (partial) | SHA-256 content hash (32 bytes) |
+| `type` | TEXT | PK (partial) | Check type (see MetadataType enum) |
 | `data` | JSONB | NOT NULL | Complete JSON document |
 
-The SHA-256 hash is computed in the application layer. Multiple relays with identical metadata reference the same row, providing significant deduplication.
+Primary key: `(id, type)`. The SHA-256 hash is computed in the application layer. Multiple relays with identical metadata reference the same row, providing significant deduplication.
 
 ### relay_metadata
 
@@ -164,7 +166,7 @@ Time-series junction table linking relays to metadata snapshots.
 | `relay_url` | TEXT | PK (partial), FK -> relay(url) ON DELETE CASCADE | Relay URL |
 | `generated_at` | BIGINT | PK (partial) | Unix timestamp of collection |
 | `metadata_type` | TEXT | PK (partial) | Check type (see below) |
-| `metadata_id` | BYTEA | NOT NULL, FK -> metadata(id) ON DELETE CASCADE | Content hash reference |
+| `metadata_id` | BYTEA | NOT NULL, FK -> metadata(id, type) ON DELETE CASCADE | Content hash reference |
 
 Primary key: `(relay_url, generated_at, metadata_type)`.
 
