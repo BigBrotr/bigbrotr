@@ -16,8 +16,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import Relay, RelayMetadata
+from bigbrotr.models import Metadata, Relay, RelayMetadata
 from bigbrotr.models.constants import NetworkType
+from bigbrotr.models.metadata import MetadataType
 from bigbrotr.nips.nip11 import Nip11
 from bigbrotr.nips.nip66 import Nip66
 from bigbrotr.services.common.configs import ClearnetConfig, NetworkConfig, TorConfig
@@ -1075,8 +1076,6 @@ class TestMonitorPersistResults:
     @pytest.mark.asyncio
     async def test_persist_results_with_successful(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test persisting successful check results."""
-        from bigbrotr.models import Metadata
-
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=2)  # type: ignore[method-assign]
         mock_brotr.upsert_service_state = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
@@ -1093,8 +1092,10 @@ class TestMonitorPersistResults:
 
         relay1 = Relay("wss://relay1.example.com")
         relay2 = Relay("wss://relay2.example.com")
-        rtt1 = RelayMetadata(relay1, Metadata({"rtt_open": 100}), "nip66_rtt")
-        rtt2 = RelayMetadata(relay2, Metadata({"rtt_open": 200}), "nip66_rtt")
+        meta1 = Metadata(type=MetadataType.NIP66_RTT, data={"rtt_open": 100})
+        meta2 = Metadata(type=MetadataType.NIP66_RTT, data={"rtt_open": 200})
+        rtt1 = RelayMetadata(relay=relay1, metadata=meta1)
+        rtt2 = RelayMetadata(relay=relay2, metadata=meta2)
 
         # Create CheckResult with rtt metadata
         result1 = CheckResult(
