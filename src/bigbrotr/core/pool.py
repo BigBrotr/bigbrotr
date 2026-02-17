@@ -618,11 +618,13 @@ class Pool:
                     attempts=max_attempts,
                     error=str(e),
                 )
-                raise
+                raise ConnectionError(
+                    f"{operation} failed after {max_attempts} attempts: {e}"
+                ) from e
 
         # Unreachable in practice, but satisfies the type checker
         if last_error:
-            raise last_error
+            raise ConnectionError(str(last_error)) from last_error
         raise RuntimeError("Unexpected state in _execute_with_retry")
 
     async def fetch(

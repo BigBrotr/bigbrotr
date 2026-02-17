@@ -18,11 +18,8 @@
 CREATE INDEX IF NOT EXISTS idx_event_created_at
 ON event USING btree (created_at DESC);
 
--- Kind filtering: WHERE kind = ? or WHERE kind IN (...)
-CREATE INDEX IF NOT EXISTS idx_event_kind
-ON event USING btree (kind);
-
 -- Kind + timeline: WHERE kind = ? ORDER BY created_at DESC
+-- Also covers kind-only lookups via leftmost prefix
 CREATE INDEX IF NOT EXISTS idx_event_kind_created_at
 ON event USING btree (kind, created_at DESC);
 
@@ -40,13 +37,11 @@ ON event USING gin (tagvalues);
 -- TABLE INDEXES: event_relay
 -- ==========================================================================
 
+-- The composite PK (event_id, relay_url) covers event_id lookups via leftmost prefix.
+
 -- All events from a relay: WHERE relay_url = ?
 CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url
 ON event_relay USING btree (relay_url);
-
--- All relays for an event: WHERE event_id = ?
-CREATE INDEX IF NOT EXISTS idx_event_relay_event_id
-ON event_relay USING btree (event_id);
 
 
 -- ==========================================================================
@@ -72,14 +67,8 @@ ON relay_metadata USING btree (relay_url, metadata_type, generated_at DESC);
 -- ==========================================================================
 -- TABLE INDEXES: service_state
 -- ==========================================================================
-
--- All data for a service: WHERE service_name = ?
-CREATE INDEX IF NOT EXISTS idx_service_state_service_name
-ON service_state USING btree (service_name);
-
--- Specific state type within a service: WHERE service_name = ? AND state_type = ?
-CREATE INDEX IF NOT EXISTS idx_service_state_service_name_state_type
-ON service_state USING btree (service_name, state_type);
+-- The PK (service_name, state_type, state_key) covers lookups on
+-- (service_name) and (service_name, state_type) via leftmost prefix.
 
 -- Candidate network filtering: WHERE state_value->>'network' = ANY($3)
 -- Used by count_candidates() and fetch_candidate_chunk() in the Validator service

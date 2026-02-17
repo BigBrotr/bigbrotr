@@ -118,6 +118,15 @@ class KeysConfig(BaseModel):
     )
     keys: Keys = Field(description="Keys loaded from keys_env (required)")
 
+    def __repr__(self) -> str:
+        """Redact private key material — show only the public key."""
+        pubkey = self.keys.public_key().to_hex()
+        return f"KeysConfig(keys_env={self.keys_env!r}, pubkey={pubkey!r})"
+
+    def __str__(self) -> str:
+        """Redact private key material — show only the public key."""
+        return self.__repr__()
+
     @model_validator(mode="before")
     @classmethod
     def _load_keys_from_env(cls, data: Any) -> Any:

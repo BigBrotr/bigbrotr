@@ -21,8 +21,6 @@ Attributes:
         See [Logger][bigbrotr.core.logger.Logger].
     MetricsServer: Prometheus ``/metrics`` HTTP endpoint for metrics exposition.
         See [MetricsServer][bigbrotr.core.metrics.MetricsServer].
-    Exceptions: [BigBrotrError][bigbrotr.core.exceptions.BigBrotrError] hierarchy
-        with transient vs permanent distinction.
     YAML: Safe YAML loading with ``yaml.safe_load()`` to prevent code execution.
         See [load_yaml()][bigbrotr.core.yaml.load_yaml].
 

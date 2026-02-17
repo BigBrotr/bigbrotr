@@ -932,6 +932,14 @@ class Brotr:
         if not service_names:
             return 0
 
+        if not (len(service_names) == len(state_types) == len(state_keys)):
+            raise ValueError(
+                f"Parallel arrays must have equal length: "
+                f"service_names={len(service_names)}, "
+                f"state_types={len(state_types)}, "
+                f"state_keys={len(state_keys)}"
+            )
+
         self._validate_batch_size(service_names, "delete_service_state")
 
         async with self._pool.transaction() as conn:

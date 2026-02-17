@@ -4,7 +4,7 @@ All SQL queries used by services are centralized here.  Each function
 accepts a [Brotr][bigbrotr.core.brotr.Brotr] instance and returns typed
 results.  Services import from this module instead of writing inline SQL.
 
-The 13 query functions are grouped into four categories:
+The 14 query functions are grouped into five categories:
 
 - **Relay queries**: ``get_all_relay_urls``, ``get_all_relays``,
   ``filter_new_relay_urls``
@@ -14,6 +14,7 @@ The 13 query functions are grouped into four categories:
 - **Candidate lifecycle**: ``upsert_candidates``, ``count_candidates``,
   ``fetch_candidate_chunk``, ``delete_stale_candidates``,
   ``delete_exhausted_candidates``, ``promote_candidates``
+- **Retention**: ``delete_expired_relay_metadata``
 - **Cursor queries**: ``get_all_service_cursors``
 
 Warning:
@@ -560,6 +561,42 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
         )
 
     return inserted
+
+
+# ---------------------------------------------------------------------------
+# Retention Queries
+# ---------------------------------------------------------------------------
+
+
+async def delete_expired_relay_metadata(
+    brotr: Brotr,
+    max_age_seconds: int,
+) -> str:
+    """Delete relay_metadata snapshots older than *max_age_seconds*.
+
+    This is a service-level retention policy, not a DB integrity operation.
+    Services decide when and how aggressively to prune historical data.
+    Run [Brotr.delete_orphan_metadata()][bigbrotr.core.brotr.Brotr.delete_orphan_metadata]
+    afterward to clean up dereferenced metadata blobs.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        max_age_seconds: Maximum age in seconds (default 30 days).
+
+    Returns:
+        PostgreSQL command status string (e.g. ``'DELETE 1200'``).
+
+    See Also:
+        [Brotr.delete_orphan_metadata()][bigbrotr.core.brotr.Brotr.delete_orphan_metadata]:
+            Clean up unreferenced metadata after expired snapshots are removed.
+    """
+    return await brotr.execute(
+        """
+        DELETE FROM relay_metadata
+        WHERE generated_at < EXTRACT(EPOCH FROM now())::bigint - $1
+        """,
+        max_age_seconds,
+    )
 
 
 # ---------------------------------------------------------------------------
