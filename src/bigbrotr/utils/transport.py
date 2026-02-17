@@ -652,8 +652,8 @@ async def is_nostr_relay(
         except OSError as e:
             # AUTH-required errors indicate a valid Nostr relay (NIP-42)
             error_msg = str(e).lower()
-            if "auth" in error_msg:
-                logger.debug("validation_success relay=%s reason=%s", relay.url, "auth")
+            if "auth-required" in error_msg:
+                logger.debug("validation_success relay=%s reason=%s", relay.url, "auth-required")
                 return True
             logger.debug("validation_failed relay=%s error=%s", relay.url, str(e))
             return False
