@@ -39,6 +39,13 @@ def validate_str_no_null(value: Any, name: str) -> None:
         raise ValueError(f"{name} contains null bytes")
 
 
+def validate_str_not_empty(value: Any, name: str) -> None:
+    """Raise if *value* is not a non-empty ``str`` without null bytes."""
+    validate_str_no_null(value, name)
+    if not value:
+        raise ValueError(f"{name} must not be empty")
+
+
 def validate_mapping(value: Any, name: str) -> None:
     """Raise ``TypeError`` if *value* is not a ``Mapping``."""
     if not isinstance(value, Mapping):
@@ -105,6 +112,9 @@ def sanitize_data(
                 continue
             result_list.append(v)
         return result_list
+
+    if isinstance(obj, tuple):
+        raise TypeError(f"{name} contains a tuple; use list for JSON-serializable sequences")
 
     return None
 

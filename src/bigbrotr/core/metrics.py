@@ -189,6 +189,7 @@ class MetricsServer:
         """
         if self._runner:
             await self._runner.cleanup()
+            self._runner = None
 
     @staticmethod
     async def _handle_metrics(_request: web.Request) -> web.Response:

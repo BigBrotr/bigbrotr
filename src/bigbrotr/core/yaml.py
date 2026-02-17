@@ -50,6 +50,7 @@ def load_yaml(config_path: str) -> dict[str, Any]:
     Raises:
         FileNotFoundError: If the file does not exist.
         yaml.YAMLError: If the file contains invalid YAML syntax.
+        TypeError: If the file content is not a YAML mapping.
 
     Warning:
         This function does not validate the structure of the returned
@@ -73,4 +74,9 @@ def load_yaml(config_path: str) -> dict[str, Any]:
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
     with path.open(encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        result = yaml.safe_load(f)
+    if result is None:
+        return {}
+    if not isinstance(result, dict):
+        raise TypeError(f"Expected YAML mapping in {config_path}, got {type(result).__name__}")
+    return result

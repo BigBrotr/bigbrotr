@@ -49,6 +49,7 @@ _MIN_TIMEOUT_SECONDS = 0.1  # Floor for all configurable timeouts
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from contextlib import AbstractAsyncContextManager
+    from types import TracebackType
 
     from bigbrotr.models import Event, EventRelay, Metadata, Relay, RelayMetadata
     from bigbrotr.models.constants import ServiceName
@@ -1017,7 +1018,12 @@ class Brotr:
         await self.connect()
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Close the underlying pool on context exit."""
         await self.close()
 

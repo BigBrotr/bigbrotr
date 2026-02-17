@@ -25,9 +25,12 @@ See Also:
 import asyncio
 import time
 from abc import ABC, abstractmethod
+from types import TracebackType
 from typing import Any, ClassVar, Generic, TypeVar, cast
 
 from pydantic import BaseModel, Field
+
+from bigbrotr.models.constants import ServiceName
 
 from .brotr import Brotr
 from .logger import Logger
@@ -123,7 +126,7 @@ class BaseService(ABC, Generic[ConfigT]):
             endpoint started alongside the service.
     """
 
-    SERVICE_NAME: ClassVar[str] = "base_service"
+    SERVICE_NAME: ClassVar[ServiceName]
     CONFIG_CLASS: ClassVar[type[BaseModel]]
 
     def __init__(self, brotr: Brotr, config: ConfigT | None = None) -> None:
@@ -349,7 +352,12 @@ class BaseService(ABC, Generic[ConfigT]):
         self._logger.info("service_started")
         return self
 
-    async def __aexit__(self, _exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
+    async def __aexit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: TracebackType | None,
+    ) -> None:
         """Signal shutdown on context exit."""
         self._shutdown_event.set()
         self._logger.info("service_stopped")
