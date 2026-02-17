@@ -349,6 +349,7 @@ class PublishingConfig(BaseModel):
     """
 
     relays: RelayList = Field(default_factory=list)
+    timeout: float = Field(default=30.0, gt=0, description="Broadcast timeout in seconds")
 
 
 class DiscoveryConfig(BaseModel):
@@ -912,7 +913,7 @@ class Monitor(
                 result = await coro_factory()
                 if self._get_success(result):
                     return result
-            except (TimeoutError, OSError, ValueError, KeyError) as e:
+            except (TimeoutError, OSError) as e:
                 self._logger.debug(
                     f"{operation}_error",
                     relay=relay_url,
@@ -1159,7 +1160,7 @@ class Monitor(
 
                 return result
 
-            except (TimeoutError, OSError, ValueError, KeyError) as e:
+            except (TimeoutError, OSError) as e:
                 self._logger.debug("check_error", url=relay.url, error=str(e))
                 return empty
 

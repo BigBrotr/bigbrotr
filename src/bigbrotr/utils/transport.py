@@ -53,9 +53,11 @@ import os
 import socket
 import ssl
 import sys
+import threading
 from dataclasses import dataclass
 from datetime import timedelta
 from datetime import timedelta as Duration  # noqa: N812
+from ipaddress import AddressValueError, IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Final, TextIO
 from urllib.parse import urlparse
 
@@ -151,40 +153,53 @@ if not isinstance(sys.stderr, _NostrSdkStderrFilter):
     sys.stderr = _NostrSdkStderrFilter(sys.stderr)
 
 
+_stderr_lock = threading.Lock()
+
+
 @contextlib.contextmanager
 def _suppress_stderr() -> Generator[None, None, None]:
     """Completely suppress stderr by redirecting to /dev/null.
 
     More aggressive than ``_NostrSdkStderrFilter``; used during relay
-    validation where UniFFI noise is excessive.
+    validation where UniFFI noise is excessive. Thread-safe via a
+    global lock to prevent interleaved restore of ``sys.stderr``.
     """
-    old_stderr = sys.stderr
-    with open(os.devnull, "w") as devnull:  # noqa: PTH123 (os.devnull is cross-platform)
-        sys.stderr = devnull
-        try:
-            yield
-        finally:
-            sys.stderr = old_stderr
+    with _stderr_lock:
+        old_stderr = sys.stderr
+        with open(os.devnull, "w") as devnull:  # noqa: PTH123 (os.devnull is cross-platform)
+            sys.stderr = devnull
+            try:
+                yield
+            finally:
+                sys.stderr = old_stderr
 
 
-# Keywords indicating SSL/TLS certificate errors in nostr-sdk messages
-_SSL_ERROR_KEYWORDS = frozenset(
-    [
-        "ssl",
-        "tls",
-        "certificate",
-        "cert",
-        "x509",
-        "handshake",
-        "verify",
-    ]
+# Multi-word patterns for SSL/TLS certificate errors in nostr-sdk messages.
+# Single keywords like "verify" or "handshake" are avoided to prevent false
+# positives from unrelated errors (e.g. DNS "cannot verify hostname").
+_SSL_ERROR_PATTERNS: tuple[str, ...] = (
+    "ssl certificate",
+    "certificate verify",
+    "certificate has expired",
+    "self signed certificate",
+    "self-signed certificate",
+    "unable to get local issuer",
+    "x509",
+    "tlsv1 alert",
+    "ssl handshake",
+    "tls handshake failed",
+    "certificate_unknown",
+    "certificate_expired",
+    "ssl error",
+    "tls error",
+    "cert verify failed",
 )
 
 
 def _is_ssl_error(error_message: str) -> bool:
     """Check if an error message indicates an SSL/TLS certificate error."""
     error_lower = error_message.lower()
-    return any(keyword in error_lower for keyword in _SSL_ERROR_KEYWORDS)
+    return any(pattern in error_lower for pattern in _SSL_ERROR_PATTERNS)
 
 
 _WS_RECV_TIMEOUT = 60.0
@@ -398,10 +413,15 @@ async def create_client(
         proxy_port = parsed.port or 9050
 
         # nostr-sdk requires an IP address, not a hostname
+        bare_host = proxy_host.strip("[]")
         try:
-            socket.inet_aton(proxy_host)  # Check if already an IP
-        except OSError:
-            proxy_host = await asyncio.to_thread(socket.gethostbyname, proxy_host)
+            IPv4Address(bare_host)
+        except (AddressValueError, ValueError):
+            try:
+                IPv6Address(bare_host)
+                proxy_host = bare_host
+            except (AddressValueError, ValueError):
+                proxy_host = await asyncio.to_thread(socket.gethostbyname, proxy_host)
 
         proxy_mode = ConnectionMode.PROXY(proxy_host, proxy_port)
         conn = Connection().mode(proxy_mode).target(ConnectionTarget.ONION)
