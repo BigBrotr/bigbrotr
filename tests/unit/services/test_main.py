@@ -412,7 +412,6 @@ pool:
 class TestRunService:
     """Tests for run_service function."""
 
-    @pytest.mark.asyncio
     async def test_oneshot_service_success(self, mock_brotr_for_cli: Brotr, tmp_path: Path) -> None:
         """Test oneshot service completes successfully."""
         from bigbrotr.services.seeder import Seeder
@@ -434,7 +433,6 @@ seed:
 
         assert result == 0
 
-    @pytest.mark.asyncio
     async def test_oneshot_service_config_not_found(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
     ) -> None:
@@ -453,7 +451,6 @@ seed:
 
         assert result == 0
 
-    @pytest.mark.asyncio
     async def test_oneshot_service_failure(self, mock_brotr_for_cli: Brotr, tmp_path: Path) -> None:
         """Test oneshot service failure returns 1."""
         from bigbrotr.services.seeder import Seeder
@@ -476,7 +473,6 @@ seed:
 
         assert result == 1
 
-    @pytest.mark.asyncio
     async def test_continuous_service_success(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
     ) -> None:
@@ -503,7 +499,6 @@ discovery:
 
         assert result == 0
 
-    @pytest.mark.asyncio
     async def test_continuous_service_failure(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
     ) -> None:
@@ -530,7 +525,6 @@ discovery:
 
         assert result == 1
 
-    @pytest.mark.asyncio
     async def test_continuous_service_starts_metrics_server(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path, mock_metrics_server: MagicMock
     ) -> None:
@@ -567,7 +561,6 @@ metrics:
             mock_start.assert_called_once()
             mock_metrics_server.stop.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_continuous_service_stops_metrics_server_on_failure(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path, mock_metrics_server: MagicMock
     ) -> None:
@@ -601,7 +594,6 @@ metrics:
 
             mock_metrics_server.stop.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_oneshot_does_not_start_metrics_server(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
     ) -> None:
@@ -636,7 +628,6 @@ metrics:
 class TestSignalHandling:
     """Tests for signal handling in run_service."""
 
-    @pytest.mark.asyncio
     async def test_signal_handler_registered(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path, mock_metrics_server: MagicMock
     ) -> None:
@@ -682,7 +673,6 @@ discovery:
 class TestMain:
     """Tests for main function."""
 
-    @pytest.mark.asyncio
     async def test_main_with_seeder(self, mock_brotr_for_cli: Brotr, tmp_path: Path) -> None:
         """Test main function with seeder service."""
         config_file = tmp_path / "seeder.yaml"
@@ -721,7 +711,6 @@ pool:
 
         assert result == 0
 
-    @pytest.mark.asyncio
     async def test_main_connection_error(self, tmp_path: Path) -> None:
         """Test main handles connection error."""
         brotr_config = tmp_path / "brotr.yaml"
@@ -753,7 +742,6 @@ pool:
 
         assert result == 1
 
-    @pytest.mark.asyncio
     async def test_main_keyboard_interrupt(self, mock_brotr_for_cli: Brotr, tmp_path: Path) -> None:
         """Test main handles KeyboardInterrupt."""
         brotr_config = tmp_path / "brotr.yaml"
@@ -785,7 +773,6 @@ pool:
 
         assert result == 130
 
-    @pytest.mark.asyncio
     async def test_main_uses_default_config_when_not_specified(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
     ) -> None:
@@ -826,7 +813,6 @@ pool:
         expected_path = CONFIG_BASE / "services" / "finder.yaml"
         assert captured_config_path == expected_path
 
-    @pytest.mark.asyncio
     async def test_main_uses_custom_config_when_specified(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
     ) -> None:
@@ -871,7 +857,6 @@ pool:
 
         assert captured_config_path == custom_config
 
-    @pytest.mark.asyncio
     async def test_main_calls_setup_logging(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
     ) -> None:
@@ -907,7 +892,6 @@ pool:
 
         mock_setup.assert_called_once_with("DEBUG")
 
-    @pytest.mark.asyncio
     async def test_main_passes_correct_service_class(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
     ) -> None:
@@ -982,7 +966,6 @@ pool:
 class TestCLIIntegration:
     """Integration tests for CLI module."""
 
-    @pytest.mark.asyncio
     async def test_full_workflow_seeder_oneshot(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
     ) -> None:

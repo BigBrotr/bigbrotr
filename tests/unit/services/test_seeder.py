@@ -198,7 +198,6 @@ class TestSeederInit:
 class TestSeedRelays:
     """Tests for relay seeding."""
 
-    @pytest.mark.asyncio
     async def test_seed_file_not_found(self, mock_seeder_brotr: Brotr) -> None:
         """Test seeding with non-existent file."""
         config = SeederConfig(seed=SeedConfig(file_path="nonexistent/file.txt"))
@@ -206,7 +205,6 @@ class TestSeedRelays:
 
         await seeder._seed()
 
-    @pytest.mark.asyncio
     async def test_seed_success_as_candidates(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
     ) -> None:
@@ -229,7 +227,6 @@ class TestSeedRelays:
 
         mock_seeder_brotr.upsert_service_state.assert_called()
 
-    @pytest.mark.asyncio
     async def test_seed_success_as_relays(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Seed relays directly into relays table (to_validate=False)."""
         seed_file = tmp_path / "seed_relays.txt"
@@ -244,7 +241,6 @@ class TestSeedRelays:
 
         mock_seeder_brotr.insert_relay.assert_called()
 
-    @pytest.mark.asyncio
     async def test_seed_skips_comments_and_empty(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
     ) -> None:
@@ -262,7 +258,6 @@ class TestSeedRelays:
 
         await seeder._seed()
 
-    @pytest.mark.asyncio
     async def test_seed_skips_invalid_urls(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test seeding skips invalid relay URLs."""
         seed_file = tmp_path / "seed_relays.txt"
@@ -278,7 +273,6 @@ class TestSeedRelays:
 
         await seeder._seed()
 
-    @pytest.mark.asyncio
     async def test_seed_empty_file(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test seeding with empty file."""
         seed_file = tmp_path / "seed_relays.txt"
@@ -289,7 +283,6 @@ class TestSeedRelays:
 
         await seeder._seed()
 
-    @pytest.mark.asyncio
     async def test_seed_all_exist(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test seeding when all relays already exist."""
         seed_file = tmp_path / "seed_relays.txt"
@@ -400,7 +393,6 @@ class TestParseSeedFile:
 class TestSeedAsCandidates:
     """Tests for Seeder._seed_as_candidates() method."""
 
-    @pytest.mark.asyncio
     async def test_seed_as_candidates_filters_existing(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
     ) -> None:
@@ -422,7 +414,6 @@ class TestSeedAsCandidates:
 
         mock_seeder_brotr.upsert_service_state.assert_called()
 
-    @pytest.mark.asyncio
     async def test_seed_as_candidates_includes_network_type(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
     ) -> None:
@@ -458,7 +449,6 @@ class TestSeedAsCandidates:
 class TestSeedAsRelays:
     """Tests for Seeder._seed_as_relays() method."""
 
-    @pytest.mark.asyncio
     async def test_seed_as_relays_inserts_directly(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
     ) -> None:
@@ -476,7 +466,6 @@ class TestSeedAsRelays:
 
         mock_seeder_brotr.insert_relay.assert_called()
 
-    @pytest.mark.asyncio
     async def test_seed_as_relays_batching(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test seeding batches large relay lists."""
         # Create a large relay list
@@ -505,7 +494,6 @@ class TestSeedAsRelays:
 class TestSeederRun:
     """Tests for Seeder.run() method."""
 
-    @pytest.mark.asyncio
     async def test_run_file_missing(self, mock_seeder_brotr: Brotr) -> None:
         """Test run with seed file missing."""
         config = SeederConfig(seed=SeedConfig(file_path="nonexistent.txt"))
@@ -513,7 +501,6 @@ class TestSeederRun:
 
         await seeder.run()
 
-    @pytest.mark.asyncio
     async def test_run_success(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test run completes successfully."""
         seed_file = tmp_path / "seed_relays.txt"
@@ -529,7 +516,6 @@ class TestSeederRun:
 
         await seeder.run()
 
-    @pytest.mark.asyncio
     async def test_run_logs_cycle_completion(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
     ) -> None:
@@ -560,7 +546,6 @@ class TestSeederRun:
 class TestSeederErrorHandling:
     """Tests for error handling in Seeder."""
 
-    @pytest.mark.asyncio
     async def test_database_error_handled(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test database errors are handled gracefully."""
         seed_file = tmp_path / "seed.txt"
@@ -576,7 +561,6 @@ class TestSeederErrorHandling:
         with pytest.raises(Exception, match="Database error"):
             await seeder._seed()
 
-    @pytest.mark.asyncio
     async def test_invalid_url_logged_not_raised(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
     ) -> None:

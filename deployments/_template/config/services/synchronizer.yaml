@@ -230,18 +230,6 @@ source:
   # Default: true
   from_database: true
 
-  # Only sync relays with metadata updated within N seconds
-  # Ensures relays have been recently checked by Monitor
-  # Range: >= 0 (0 = no age limit)
-  # Default: 43200 (12 hours)
-  max_metadata_age: 43200
-
-  # Only sync relays marked as readable by Monitor
-  # true = skip relays that failed read tests
-  # false = attempt sync on all relays regardless of read status
-  # Default: true
-  require_readable: true
-
 # -----------------------------------------------------------------------------
 # Relay Overrides
 # -----------------------------------------------------------------------------

@@ -839,7 +839,6 @@ class TestMonitorInit:
 class TestMonitorFetchChunk:
     """Tests for Monitor._fetch_chunk() method."""
 
-    @pytest.mark.asyncio
     @patch(
         "bigbrotr.services.monitor.fetch_relays_due_for_check",
         new_callable=AsyncMock,
@@ -865,7 +864,6 @@ class TestMonitorFetchChunk:
         assert relays == []
         mock_fetch.assert_awaited_once()
 
-    @pytest.mark.asyncio
     @patch("bigbrotr.services.monitor.fetch_relays_due_for_check", new_callable=AsyncMock)
     async def test_fetch_chunk_with_results(
         self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
@@ -901,7 +899,6 @@ class TestMonitorFetchChunk:
         assert "relay1.example.com" in str(relays[0].url)
         assert "relay2.example.com" in str(relays[1].url)
 
-    @pytest.mark.asyncio
     @patch("bigbrotr.services.monitor.fetch_relays_due_for_check", new_callable=AsyncMock)
     async def test_fetch_chunk_filters_invalid_urls(
         self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
@@ -932,7 +929,6 @@ class TestMonitorFetchChunk:
         assert len(relays) == 1
         assert "valid.relay.com" in str(relays[0].url)
 
-    @pytest.mark.asyncio
     @patch("bigbrotr.services.monitor.fetch_relays_due_for_check", new_callable=AsyncMock)
     async def test_fetch_chunk_respects_limit(
         self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
@@ -970,7 +966,6 @@ class TestMonitorFetchChunk:
 class TestMonitorRun:
     """Tests for Monitor.run() method."""
 
-    @pytest.mark.asyncio
     @patch(
         "bigbrotr.services.monitor.fetch_relays_due_for_check",
         new_callable=AsyncMock,
@@ -1005,7 +1000,6 @@ class TestMonitorRun:
 
         assert monitor._progress.processed == 0
 
-    @pytest.mark.asyncio
     @patch(
         "bigbrotr.services.monitor.fetch_relays_due_for_check",
         new_callable=AsyncMock,
@@ -1053,7 +1047,6 @@ class TestMonitorRun:
 class TestMonitorPersistResults:
     """Tests for Monitor._persist_results() method."""
 
-    @pytest.mark.asyncio
     async def test_persist_results_empty(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test persisting empty results batch."""
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
@@ -1073,7 +1066,6 @@ class TestMonitorPersistResults:
 
         mock_brotr.insert_relay_metadata.assert_not_called()  # type: ignore[attr-defined]
 
-    @pytest.mark.asyncio
     async def test_persist_results_with_successful(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test persisting successful check results."""
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=2)  # type: ignore[method-assign]
@@ -1123,7 +1115,6 @@ class TestMonitorPersistResults:
         mock_brotr.insert_relay_metadata.assert_called_once()  # type: ignore[attr-defined]
         mock_brotr.upsert_service_state.assert_called_once()  # type: ignore[attr-defined]
 
-    @pytest.mark.asyncio
     async def test_persist_results_with_failed(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test persisting failed check results updates checkpoint."""
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]

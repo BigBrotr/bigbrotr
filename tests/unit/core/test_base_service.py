@@ -254,7 +254,6 @@ max_items: -5
 class TestContextManager:
     """Tests for BaseService async context manager."""
 
-    @pytest.mark.asyncio
     async def test_starts_service(self, mock_brotr: Brotr) -> None:
         """Test context manager sets service as running on entry."""
         service = ConcreteService(brotr=mock_brotr)
@@ -264,7 +263,6 @@ class TestContextManager:
 
         assert service.is_running is False
 
-    @pytest.mark.asyncio
     async def test_clears_shutdown_event_on_enter(self, mock_brotr: Brotr) -> None:
         """Test that shutdown event is cleared on context entry."""
         service = ConcreteService(brotr=mock_brotr)
@@ -273,7 +271,6 @@ class TestContextManager:
         async with service:
             assert not service._shutdown_event.is_set()
 
-    @pytest.mark.asyncio
     async def test_sets_shutdown_event_on_exit(self, mock_brotr: Brotr) -> None:
         """Test that shutdown event is set on context exit."""
         service = ConcreteService(brotr=mock_brotr)
@@ -284,7 +281,6 @@ class TestContextManager:
         assert service._shutdown_event.is_set()
         assert service.is_running is False
 
-    @pytest.mark.asyncio
     async def test_sets_shutdown_on_exception(self, mock_brotr: Brotr) -> None:
         """Test that shutdown event is set even when exception occurs."""
         service = ConcreteService(brotr=mock_brotr)
@@ -325,7 +321,6 @@ class TestShutdown:
 
         assert service.is_running is False
 
-    @pytest.mark.asyncio
     async def test_is_running_reflects_event_state(self, mock_brotr: Brotr) -> None:
         """Test is_running property reflects shutdown event state."""
         service = ConcreteService(brotr=mock_brotr)
@@ -347,7 +342,6 @@ class TestShutdown:
 class TestWait:
     """Tests for wait() method."""
 
-    @pytest.mark.asyncio
     async def test_wait_returns_true_on_shutdown(self, mock_brotr: Brotr) -> None:
         """Test wait() returns True when shutdown is requested."""
         service = ConcreteService(brotr=mock_brotr)
@@ -362,7 +356,6 @@ class TestWait:
 
         assert result is True
 
-    @pytest.mark.asyncio
     async def test_wait_returns_false_on_timeout(self, mock_brotr: Brotr) -> None:
         """Test wait() returns False when timeout expires."""
         service = ConcreteService(brotr=mock_brotr)
@@ -372,7 +365,6 @@ class TestWait:
         assert result is False
         assert service.is_running is True
 
-    @pytest.mark.asyncio
     async def test_wait_is_interruptible(self, mock_brotr: Brotr) -> None:
         """Test wait() is interruptible by shutdown request."""
         service = ConcreteService(brotr=mock_brotr)
@@ -404,7 +396,6 @@ class TestWait:
 class TestRunForever:
     """Tests for run_forever() method."""
 
-    @pytest.mark.asyncio
     async def test_executes_run(self, mock_brotr: Brotr) -> None:
         """Test run_forever() calls run() method."""
         config = ConcreteServiceConfig(interval=60.0)
@@ -419,7 +410,6 @@ class TestRunForever:
 
         assert service.run_count >= 1
 
-    @pytest.mark.asyncio
     async def test_multiple_cycles(self, mock_brotr: Brotr) -> None:
         """Test run_forever() executes multiple cycles."""
         config = ConcreteServiceConfig(interval=60.0)
@@ -437,7 +427,6 @@ class TestRunForever:
 
         assert service.run_count == 3
 
-    @pytest.mark.asyncio
     async def test_stops_on_max_failures(self, mock_brotr: Brotr) -> None:
         """Test run_forever() stops after max consecutive failures."""
         config = ConcreteServiceConfig(interval=60.0, max_consecutive_failures=3)
@@ -453,7 +442,6 @@ class TestRunForever:
 
         assert service.fail_count == 3
 
-    @pytest.mark.asyncio
     async def test_unlimited_failures_when_zero(self, mock_brotr: Brotr) -> None:
         """Test run_forever() continues indefinitely when max_consecutive_failures=0."""
         config = ConcreteServiceConfig(interval=60.0, max_consecutive_failures=0)
@@ -469,7 +457,6 @@ class TestRunForever:
 
         assert service.fail_count >= 10
 
-    @pytest.mark.asyncio
     async def test_resets_failures_on_success(self, mock_brotr: Brotr) -> None:
         """Test consecutive failure counter resets after successful run."""
         config = ConcreteServiceConfig(interval=60.0, max_consecutive_failures=5)
@@ -500,7 +487,6 @@ class TestRunForever:
         # Should complete without hitting max failures
         assert cycles == 5
 
-    @pytest.mark.asyncio
     async def test_reads_interval_from_config(self, mock_brotr: Brotr) -> None:
         """Test run_forever() uses interval from config."""
         config = ConcreteServiceConfig(interval=120.0)
@@ -518,7 +504,6 @@ class TestRunForever:
 
         assert recorded_interval == 120.0
 
-    @pytest.mark.asyncio
     async def test_propagates_cancelled_error(self, mock_brotr: Brotr) -> None:
         """Test run_forever() propagates asyncio.CancelledError."""
         service = ConcreteService(brotr=mock_brotr)
@@ -531,7 +516,6 @@ class TestRunForever:
                 with pytest.raises(asyncio.CancelledError):
                     await service.run_forever()
 
-    @pytest.mark.asyncio
     async def test_propagates_keyboard_interrupt(self, mock_brotr: Brotr) -> None:
         """Test run_forever() propagates KeyboardInterrupt."""
         service = ConcreteService(brotr=mock_brotr)
@@ -544,7 +528,6 @@ class TestRunForever:
                 with pytest.raises(KeyboardInterrupt):
                     await service.run_forever()
 
-    @pytest.mark.asyncio
     async def test_propagates_system_exit(self, mock_brotr: Brotr) -> None:
         """Test run_forever() propagates SystemExit."""
         service = ConcreteService(brotr=mock_brotr)
@@ -675,7 +658,6 @@ class TestAbstractBehavior:
 class TestErrorHandling:
     """Tests for error handling in run_forever()."""
 
-    @pytest.mark.asyncio
     async def test_logs_error_on_failure(self, mock_brotr: Brotr) -> None:
         """Test run_forever() logs errors on failure."""
         service = ConcreteService(brotr=mock_brotr)
@@ -693,7 +675,6 @@ class TestErrorHandling:
 
         mock_log.assert_called()
 
-    @pytest.mark.asyncio
     async def test_different_exception_types(self, mock_brotr: Brotr) -> None:
         """Test run_forever() handles different exception types."""
         config = ConcreteServiceConfig(max_consecutive_failures=5)

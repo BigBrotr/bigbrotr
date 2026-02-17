@@ -243,20 +243,14 @@ class TestSourceConfig:
         config = SourceConfig()
 
         assert config.from_database is True
-        assert config.max_metadata_age == 43200
-        assert config.require_readable is True
 
     def test_custom_values(self) -> None:
         """Test custom source config."""
         config = SourceConfig(
             from_database=False,
-            max_metadata_age=0,
-            require_readable=False,
         )
 
         assert config.from_database is False
-        assert config.max_metadata_age == 0
-        assert config.require_readable is False
 
 
 # ============================================================================
@@ -346,7 +340,6 @@ class TestSynchronizerInit:
 class TestSynchronizerFetchRelays:
     """Tests for Synchronizer._fetch_relays() method."""
 
-    @pytest.mark.asyncio
     async def test_fetch_relays_empty(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test fetching relays when none available."""
         mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
@@ -356,7 +349,6 @@ class TestSynchronizerFetchRelays:
 
         assert relays == []
 
-    @pytest.mark.asyncio
     async def test_fetch_relays_disabled(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test fetching relays when source is disabled."""
         config = SynchronizerConfig(source=SourceConfig(from_database=False))
@@ -365,7 +357,6 @@ class TestSynchronizerFetchRelays:
 
         assert relays == []
 
-    @pytest.mark.asyncio
     async def test_fetch_relays_with_results(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test fetching relays from database."""
         mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
@@ -390,7 +381,6 @@ class TestSynchronizerFetchRelays:
         assert "relay1.example.com" in str(relays[0].url)
         assert "relay2.example.com" in str(relays[1].url)
 
-    @pytest.mark.asyncio
     async def test_fetch_relays_filters_invalid(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test fetching relays filters invalid URLs."""
         mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
@@ -424,7 +414,6 @@ class TestSynchronizerFetchRelays:
 class TestSynchronizerRun:
     """Tests for Synchronizer.run() method."""
 
-    @pytest.mark.asyncio
     async def test_run_no_relays(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test run cycle with no relays."""
         mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
@@ -444,7 +433,6 @@ class TestSynchronizerRun:
 class TestSynchronizerSyncAllRelays:
     """Tests for Synchronizer._sync_all_relays() with TaskGroup."""
 
-    @pytest.mark.asyncio
     async def test_sync_all_relays_handles_task_group_errors(
         self, mock_synchronizer_brotr: Brotr
     ) -> None:
@@ -470,7 +458,6 @@ class TestSynchronizerSyncAllRelays:
         # The relay should be counted as failed
         assert sync._failed_relays >= 1
 
-    @pytest.mark.asyncio
     async def test_sync_all_relays_empty_list(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test _sync_all_relays with no relays completes without error."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)

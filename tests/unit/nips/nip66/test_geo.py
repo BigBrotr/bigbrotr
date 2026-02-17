@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.geo import GeoExtractor, Nip66GeoMetadata
 
@@ -388,7 +386,6 @@ class TestNip66GeoMetadataGeoSync:
 class TestNip66GeoMetadataGeoAsync:
     """Test Nip66GeoMetadata.execute() async class method."""
 
-    @pytest.mark.asyncio
     async def test_clearnet_with_reader_returns_geo_metadata(
         self,
         relay: Relay,
@@ -422,7 +419,6 @@ class TestNip66GeoMetadataGeoAsync:
         assert result.data.geo_city == "Mountain View"
         assert result.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_tor_returns_failure(
         self,
         tor_relay: Relay,
@@ -433,7 +429,6 @@ class TestNip66GeoMetadataGeoAsync:
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_i2p_returns_failure(
         self,
         i2p_relay: Relay,
@@ -444,7 +439,6 @@ class TestNip66GeoMetadataGeoAsync:
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_loki_returns_failure(
         self,
         loki_relay: Relay,
@@ -455,7 +449,6 @@ class TestNip66GeoMetadataGeoAsync:
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_no_ip_resolved_returns_failure(
         self,
         relay: Relay,
@@ -477,7 +470,6 @@ class TestNip66GeoMetadataGeoAsync:
         assert result.logs.success is False
         assert "could not resolve hostname" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_no_geo_data_returns_failure(
         self,
         relay: Relay,
@@ -502,7 +494,6 @@ class TestNip66GeoMetadataGeoAsync:
         assert result.logs.success is False
         assert "no geo data found" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_lookup_exception_returns_failure(
         self,
         relay: Relay,
@@ -527,7 +518,6 @@ class TestNip66GeoMetadataGeoAsync:
         assert result.logs.success is False
         assert "Database error" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_prefers_ipv4_for_lookup(
         self,
         relay: Relay,
@@ -552,7 +542,6 @@ class TestNip66GeoMetadataGeoAsync:
 
         mock_geo.assert_called_once_with("8.8.8.8", mock_city_reader, 9)
 
-    @pytest.mark.asyncio
     async def test_falls_back_to_ipv6(
         self,
         relay: Relay,

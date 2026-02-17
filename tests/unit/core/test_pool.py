@@ -495,7 +495,6 @@ class TestPoolRepr:
 class TestPoolConnect:
     """Tests for Pool.connect() method."""
 
-    @pytest.mark.asyncio
     async def test_connect_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test successful connection establishment."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
@@ -508,7 +507,6 @@ class TestPoolConnect:
         assert pool.is_connected is True
         assert pool._pool is mock_asyncpg_pool
 
-    @pytest.mark.asyncio
     async def test_connect_already_connected_is_noop(self, mock_pool: Pool) -> None:
         """Test that connect() on already connected pool is a no-op."""
         with patch("asyncpg.create_pool", new_callable=AsyncMock) as mock_create:
@@ -517,7 +515,6 @@ class TestPoolConnect:
 
         assert mock_pool.is_connected is True
 
-    @pytest.mark.asyncio
     async def test_connect_retry_on_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test connection retry on transient failures."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
@@ -541,7 +538,6 @@ class TestPoolConnect:
         assert call_count == 3
         assert pool.is_connected is True
 
-    @pytest.mark.asyncio
     async def test_connect_max_attempts_exceeded_raises(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -561,7 +557,6 @@ class TestPoolConnect:
         ):
             await pool.connect()
 
-    @pytest.mark.asyncio
     async def test_connect_handles_postgres_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that PostgresError triggers retry."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
@@ -579,7 +574,6 @@ class TestPoolConnect:
         ):
             await pool.connect()
 
-    @pytest.mark.asyncio
     async def test_connect_handles_os_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that OSError triggers retry."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
@@ -597,7 +591,6 @@ class TestPoolConnect:
         ):
             await pool.connect()
 
-    @pytest.mark.asyncio
     async def test_connect_exponential_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test exponential backoff delay calculation."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
@@ -633,7 +626,6 @@ class TestPoolConnect:
         assert sleep_delays[1] == 2.0
         assert sleep_delays[2] == 4.0
 
-    @pytest.mark.asyncio
     async def test_connect_linear_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test linear backoff when exponential is disabled."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
@@ -669,7 +661,6 @@ class TestPoolConnect:
 class TestPoolClose:
     """Tests for Pool.close() method."""
 
-    @pytest.mark.asyncio
     async def test_close_connected_pool(self, mock_pool: Pool) -> None:
         """Test closing a connected pool."""
         await mock_pool.close()
@@ -677,7 +668,6 @@ class TestPoolClose:
         assert mock_pool.is_connected is False
         assert mock_pool._pool is None
 
-    @pytest.mark.asyncio
     async def test_close_not_connected_is_safe(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that close() on unconnected pool is safe."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
@@ -687,7 +677,6 @@ class TestPoolClose:
 
         assert pool.is_connected is False
 
-    @pytest.mark.asyncio
     async def test_close_multiple_times_is_safe(self, mock_pool: Pool) -> None:
         """Test that close() can be called multiple times safely."""
         await mock_pool.close()
@@ -719,7 +708,6 @@ class TestPoolAcquire:
         assert hasattr(ctx, "__aenter__")
         assert hasattr(ctx, "__aexit__")
 
-    @pytest.mark.asyncio
     async def test_acquire_yields_connection(self, mock_pool: Pool) -> None:
         """Test that acquire() context manager yields a connection."""
         async with mock_pool.acquire() as conn:
@@ -729,13 +717,11 @@ class TestPoolAcquire:
 class TestPoolTransaction:
     """Tests for Pool.transaction() method."""
 
-    @pytest.mark.asyncio
     async def test_transaction_yields_connection(self, mock_pool: Pool) -> None:
         """Test that transaction() yields a connection."""
         async with mock_pool.transaction() as conn:
             assert conn is not None
 
-    @pytest.mark.asyncio
     async def test_transaction_not_connected_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that transaction() on unconnected pool raises RuntimeError."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
@@ -754,32 +740,27 @@ class TestPoolTransaction:
 class TestPoolQueryMethods:
     """Tests for Pool query methods (fetch, fetchrow, fetchval, execute)."""
 
-    @pytest.mark.asyncio
     async def test_fetch_returns_list(self, mock_pool: Pool) -> None:
         """Test fetch() returns list of records."""
         result = await mock_pool.fetch("SELECT * FROM test")
         assert isinstance(result, list)
 
-    @pytest.mark.asyncio
     async def test_fetchrow_returns_record_or_none(self, mock_pool: Pool) -> None:
         """Test fetchrow() returns single record or None."""
         result = await mock_pool.fetchrow("SELECT 1")
         # Mock returns None by default
         assert result is None
 
-    @pytest.mark.asyncio
     async def test_fetchval_returns_value(self, mock_pool: Pool) -> None:
         """Test fetchval() returns single value."""
         result = await mock_pool.fetchval("SELECT 1")
         assert result == 1
 
-    @pytest.mark.asyncio
     async def test_execute_returns_status(self, mock_pool: Pool) -> None:
         """Test execute() returns status string."""
         result = await mock_pool.execute("INSERT INTO test VALUES (1)")
         assert result == "OK"
 
-    @pytest.mark.asyncio
     async def test_fetch_with_parameters(self, mock_pool: Pool) -> None:
         """Test fetch() with query parameters."""
         await mock_pool.fetch("SELECT * FROM test WHERE id = $1", 123)
@@ -788,7 +769,6 @@ class TestPoolQueryMethods:
             "SELECT * FROM test WHERE id = $1", 123, timeout=None
         )
 
-    @pytest.mark.asyncio
     async def test_fetch_with_timeout(self, mock_pool: Pool) -> None:
         """Test fetch() with custom timeout."""
         await mock_pool.fetch("SELECT 1", timeout=30.0)
@@ -797,7 +777,6 @@ class TestPoolQueryMethods:
             "SELECT 1", timeout=30.0
         )
 
-    @pytest.mark.asyncio
     async def test_fetchval_with_column(self, mock_pool: Pool) -> None:
         """Test fetchval() with column parameter."""
         await mock_pool.fetchval("SELECT 1, 2", column=1)
@@ -810,7 +789,6 @@ class TestPoolQueryMethods:
 class TestPoolQueryRetry:
     """Tests for query retry logic."""
 
-    @pytest.mark.asyncio
     async def test_retries_on_interface_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that InterfaceError triggers retry."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
@@ -844,7 +822,6 @@ class TestPoolQueryRetry:
         assert result == []
         assert attempt == 3
 
-    @pytest.mark.asyncio
     async def test_retries_on_connection_does_not_exist_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -879,7 +856,6 @@ class TestPoolQueryRetry:
 
         assert result == "OK"
 
-    @pytest.mark.asyncio
     async def test_does_not_retry_query_errors(self, mock_pool: Pool) -> None:
         """Test that query errors (syntax, constraint) are not retried."""
         mock_pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
@@ -924,7 +900,6 @@ class TestPoolProperties:
 class TestPoolContextManager:
     """Tests for Pool async context manager."""
 
-    @pytest.mark.asyncio
     async def test_context_manager_connects_on_enter(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test context manager connects on entry."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
@@ -936,7 +911,6 @@ class TestPoolContextManager:
             async with pool:
                 assert pool.is_connected is True
 
-    @pytest.mark.asyncio
     async def test_context_manager_closes_on_exit(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test context manager closes on exit."""
         monkeypatch.setenv("DB_PASSWORD", "test_pass")
@@ -949,7 +923,6 @@ class TestPoolContextManager:
                 pass
             assert pool.is_connected is False
 
-    @pytest.mark.asyncio
     async def test_context_manager_closes_on_exception(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -975,7 +948,6 @@ class TestPoolContextManager:
 class TestInitConnection:
     """Tests for _init_connection function."""
 
-    @pytest.mark.asyncio
     async def test_sets_jsonb_codec(self) -> None:
         """Test that JSONB type codec is set."""
         mock_conn = MagicMock()
@@ -991,7 +963,6 @@ class TestInitConnection:
         )
         assert jsonb_call is not None
 
-    @pytest.mark.asyncio
     async def test_sets_json_codec(self) -> None:
         """Test that JSON type codec is set."""
         mock_conn = MagicMock()

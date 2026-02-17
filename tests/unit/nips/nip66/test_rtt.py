@@ -17,8 +17,6 @@ from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.rtt import Nip66RttDependencies, Nip66RttMetadata
 
@@ -26,7 +24,6 @@ from bigbrotr.nips.nip66.rtt import Nip66RttDependencies, Nip66RttMetadata
 class TestNip66RttMetadataTestOpen:
     """Test Nip66RttMetadata._test_open() phase method."""
 
-    @pytest.mark.asyncio
     async def test_successful_connection_returns_client_and_rtt(
         self,
         relay: Relay,
@@ -51,7 +48,6 @@ class TestNip66RttMetadataTestOpen:
         # _test_open only sets logs on failure; success is set by the caller
         assert "open_success" not in logs
 
-    @pytest.mark.asyncio
     async def test_connection_failure_returns_none_and_sets_logs(
         self,
         relay: Relay,
@@ -75,7 +71,6 @@ class TestNip66RttMetadataTestOpen:
         assert logs["read_success"] is False
         assert logs["write_success"] is False
 
-    @pytest.mark.asyncio
     async def test_connection_with_proxy(
         self,
         relay: Relay,
@@ -107,7 +102,6 @@ class TestNip66RttMetadataTestOpen:
 class TestNip66RttMetadataTestRead:
     """Test Nip66RttMetadata._test_read() phase method."""
 
-    @pytest.mark.asyncio
     async def test_successful_read_returns_rtt(
         self,
         mock_nostr_client: MagicMock,
@@ -124,7 +118,6 @@ class TestNip66RttMetadataTestRead:
         assert result["rtt_read"] >= 0
         assert result["read_reason"] is None
 
-    @pytest.mark.asyncio
     async def test_no_events_returns_failure(
         self,
         mock_nostr_client: MagicMock,
@@ -143,7 +136,6 @@ class TestNip66RttMetadataTestRead:
         assert result["rtt_read"] is None
         assert "no events returned" in result["read_reason"]
 
-    @pytest.mark.asyncio
     async def test_exception_returns_failure(
         self,
         mock_nostr_client: MagicMock,
@@ -160,7 +152,6 @@ class TestNip66RttMetadataTestRead:
         assert result["rtt_read"] is None
         assert "Stream error" in result["read_reason"]
 
-    @pytest.mark.asyncio
     async def test_uses_timeout_in_stream_events(
         self,
         mock_nostr_client: MagicMock,
@@ -179,7 +170,6 @@ class TestNip66RttMetadataTestRead:
 class TestNip66RttMetadataTestWrite:
     """Test Nip66RttMetadata._test_write() phase method."""
 
-    @pytest.mark.asyncio
     async def test_successful_write_with_verification(
         self,
         mock_nostr_client: MagicMock,
@@ -217,7 +207,6 @@ class TestNip66RttMetadataTestWrite:
         assert isinstance(result["rtt_write"], int)
         assert result["write_reason"] is None
 
-    @pytest.mark.asyncio
     async def test_write_rejected_by_relay(
         self,
         mock_nostr_client: MagicMock,
@@ -246,7 +235,6 @@ class TestNip66RttMetadataTestWrite:
         assert result["rtt_write"] is None
         assert "auth-required" in result["write_reason"]
 
-    @pytest.mark.asyncio
     async def test_no_response_from_relay(
         self,
         mock_nostr_client: MagicMock,
@@ -274,7 +262,6 @@ class TestNip66RttMetadataTestWrite:
         assert result["write_success"] is False
         assert "no response from relay" in result["write_reason"]
 
-    @pytest.mark.asyncio
     async def test_exception_during_write(
         self,
         mock_nostr_client: MagicMock,
@@ -297,7 +284,6 @@ class TestNip66RttMetadataTestWrite:
         assert result["write_success"] is False
         assert "Send error" in result["write_reason"]
 
-    @pytest.mark.asyncio
     async def test_verification_fails(
         self,
         mock_nostr_client: MagicMock,
@@ -335,7 +321,6 @@ class TestNip66RttMetadataTestWrite:
 class TestNip66RttMetadataVerifyWrite:
     """Test Nip66RttMetadata._verify_write() method."""
 
-    @pytest.mark.asyncio
     async def test_successful_verification(self, mock_nostr_client: MagicMock) -> None:
         """Successful verification returns verified=True."""
         from nostr_sdk import EventId
@@ -354,7 +339,6 @@ class TestNip66RttMetadataVerifyWrite:
         assert result["verified"] is True
         assert result["reason"] is None
 
-    @pytest.mark.asyncio
     async def test_event_not_found(self, mock_nostr_client: MagicMock) -> None:
         """Event not found returns verified=False."""
         from nostr_sdk import EventId
@@ -372,7 +356,6 @@ class TestNip66RttMetadataVerifyWrite:
         assert result["verified"] is False
         assert "accepted but not retrievable" in result["reason"]
 
-    @pytest.mark.asyncio
     async def test_exception_during_verification(self, mock_nostr_client: MagicMock) -> None:
         """Exception during verification returns verified=False."""
         from nostr_sdk import EventId
@@ -391,13 +374,11 @@ class TestNip66RttMetadataVerifyWrite:
 class TestNip66RttMetadataCleanup:
     """Test Nip66RttMetadata._cleanup() method."""
 
-    @pytest.mark.asyncio
     async def test_successful_disconnect(self, mock_nostr_client: MagicMock) -> None:
         """Cleanup disconnects the client."""
         await Nip66RttMetadata._cleanup(mock_nostr_client)
         mock_nostr_client.disconnect.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_disconnect_exception_suppressed(self, mock_nostr_client: MagicMock) -> None:
         """Exceptions during disconnect are suppressed."""
         mock_nostr_client.disconnect = AsyncMock(side_effect=Exception("Disconnect error"))
@@ -409,7 +390,6 @@ class TestNip66RttMetadataCleanup:
 class TestNip66RttMetadataRtt:
     """Test Nip66RttMetadata.execute() main entry point."""
 
-    @pytest.mark.asyncio
     async def test_clearnet_returns_rtt_metadata(
         self,
         relay: Relay,
@@ -433,7 +413,6 @@ class TestNip66RttMetadataRtt:
         assert result.data.rtt_open is not None
         assert result.logs.open_success is True
 
-    @pytest.mark.asyncio
     async def test_connection_failure_returns_rtt_with_failure_logs(
         self,
         relay: Relay,
@@ -457,7 +436,6 @@ class TestNip66RttMetadataRtt:
         assert "Connection refused" in result.logs.open_reason
         assert result.data.rtt_open is None
 
-    @pytest.mark.asyncio
     async def test_overlay_without_proxy_returns_failure(
         self,
         tor_relay: Relay,
@@ -475,7 +453,6 @@ class TestNip66RttMetadataRtt:
         assert result.logs.read_success is False
         assert result.logs.write_success is False
 
-    @pytest.mark.asyncio
     async def test_overlay_with_proxy_works(
         self,
         tor_relay: Relay,
@@ -499,7 +476,6 @@ class TestNip66RttMetadataRtt:
 
         assert isinstance(result, Nip66RttMetadata)
 
-    @pytest.mark.asyncio
     async def test_uses_default_timeout(
         self,
         relay: Relay,
@@ -521,7 +497,6 @@ class TestNip66RttMetadataRtt:
 
         assert isinstance(result, Nip66RttMetadata)
 
-    @pytest.mark.asyncio
     async def test_cleanup_called_after_phases(
         self,
         relay: Relay,

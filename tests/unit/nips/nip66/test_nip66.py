@@ -284,7 +284,6 @@ class TestNip66ToRelayMetadataTuple:
 class TestNip66Create:
     """Test Nip66.create() class method."""
 
-    @pytest.mark.asyncio
     async def test_returns_nip66_on_success(
         self,
         relay: Relay,
@@ -323,7 +322,6 @@ class TestNip66Create:
         assert result.rtt.data.rtt_open == 100
         assert result.dns.data.dns_ips == ["8.8.8.8"]
 
-    @pytest.mark.asyncio
     async def test_all_tests_fail_returns_nip66_with_none_metadata(
         self,
         relay: Relay,
@@ -354,7 +352,6 @@ class TestNip66Create:
         assert result.dns is None
         assert result.http is None
 
-    @pytest.mark.asyncio
     async def test_rtt_skipped_without_keys(self, relay: Relay) -> None:
         """run_rtt=True without keys/event_builder/read_filter skips RTT."""
         dns_metadata = Nip66DnsMetadata(
@@ -375,7 +372,6 @@ class TestNip66Create:
         assert isinstance(result, Nip66)
         assert result.rtt is None  # Skipped due to missing params
 
-    @pytest.mark.asyncio
     async def test_can_skip_all_except_dns(self, relay: Relay) -> None:
         """Can skip all tests except DNS."""
         dns_metadata = Nip66DnsMetadata(
@@ -397,7 +393,6 @@ class TestNip66Create:
         assert result.net is None
         assert result.http is None
 
-    @pytest.mark.asyncio
     async def test_geo_requires_city_reader(self, relay: Relay) -> None:
         """run_geo=True without city_reader skips geo."""
         dns_metadata = Nip66DnsMetadata(
@@ -417,7 +412,6 @@ class TestNip66Create:
 
         assert result.geo is None  # Skipped
 
-    @pytest.mark.asyncio
     async def test_net_requires_asn_reader(self, relay: Relay) -> None:
         """run_net=True without asn_reader skips net."""
         dns_metadata = Nip66DnsMetadata(
@@ -437,7 +431,6 @@ class TestNip66Create:
 
         assert result.net is None  # Skipped
 
-    @pytest.mark.asyncio
     async def test_uses_default_timeout(self, relay: Relay) -> None:
         """Uses default timeout when None provided."""
         dns_metadata = Nip66DnsMetadata(
@@ -457,7 +450,6 @@ class TestNip66Create:
 
         assert isinstance(result, Nip66)
 
-    @pytest.mark.asyncio
     async def test_passes_proxy_url(
         self,
         relay: Relay,
@@ -491,7 +483,6 @@ class TestNip66Create:
         # Positional args: relay, rtt_deps, timeout, proxy_url, allow_insecure
         assert call_args[0][3] == "socks5://localhost:9050"
 
-    @pytest.mark.asyncio
     async def test_all_disabled_returns_empty_nip66(self, relay: Relay) -> None:
         """All tests disabled returns Nip66 with all None metadata."""
         selection = Nip66Selection(
@@ -512,7 +503,6 @@ class TestNip66Create:
         assert result.dns is None
         assert result.http is None
 
-    @pytest.mark.asyncio
     async def test_execute_exception_isolates_to_failed_test(self, relay: Relay) -> None:
         """Exception in one execute() does not cancel other tests (defense-in-depth)."""
         dns_metadata = Nip66DnsMetadata(

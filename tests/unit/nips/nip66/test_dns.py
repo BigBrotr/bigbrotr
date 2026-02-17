@@ -13,7 +13,6 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import dns.resolver
-import pytest
 
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.dns import Nip66DnsMetadata
@@ -224,7 +223,6 @@ class TestNip66DnsMetadataDnsSync:
 class TestNip66DnsMetadataDnsAsync:
     """Test Nip66DnsMetadata.execute() async class method."""
 
-    @pytest.mark.asyncio
     async def test_clearnet_returns_dns_metadata(self, relay: Relay) -> None:
         """Returns Nip66DnsMetadata for clearnet relay."""
         dns_result = {
@@ -240,28 +238,24 @@ class TestNip66DnsMetadataDnsAsync:
         assert result.data.dns_ttl == 300
         assert result.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_tor_returns_failure(self, tor_relay: Relay) -> None:
         """Returns failure for Tor relay (DNS not applicable)."""
         result = await Nip66DnsMetadata.execute(tor_relay, 5.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_i2p_returns_failure(self, i2p_relay: Relay) -> None:
         """Returns failure for I2P relay (DNS not applicable)."""
         result = await Nip66DnsMetadata.execute(i2p_relay, 5.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_loki_returns_failure(self, loki_relay: Relay) -> None:
         """Returns failure for Lokinet relay (DNS not applicable)."""
         result = await Nip66DnsMetadata.execute(loki_relay, 5.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_no_records_returns_failure(self, relay: Relay) -> None:
         """No DNS records returns failure logs."""
         with patch.object(Nip66DnsMetadata, "_dns", return_value={}):
@@ -271,7 +265,6 @@ class TestNip66DnsMetadataDnsAsync:
         assert result.logs.success is False
         assert "no DNS records found" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_exception_returns_failure(self, relay: Relay) -> None:
         """Exception during DNS resolution returns failure logs."""
         with patch.object(Nip66DnsMetadata, "_dns", side_effect=OSError("DNS error")):
@@ -281,7 +274,6 @@ class TestNip66DnsMetadataDnsAsync:
         assert result.logs.success is False
         assert "DNS error" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_uses_default_timeout(self, relay: Relay) -> None:
         """Uses default timeout when None provided."""
         dns_result = {"dns_ips": ["8.8.8.8"]}
@@ -293,7 +285,6 @@ class TestNip66DnsMetadataDnsAsync:
         call_args = mock_dns.call_args
         assert call_args[0][1] > 0  # Second positional arg is timeout
 
-    @pytest.mark.asyncio
     async def test_uses_relay_host(self, relay: Relay) -> None:
         """Uses relay's host for DNS resolution."""
         dns_result = {"dns_ips": ["8.8.8.8"]}
@@ -305,7 +296,6 @@ class TestNip66DnsMetadataDnsAsync:
         call_args = mock_dns.call_args
         assert call_args[0][0] == relay.host  # First positional arg is host
 
-    @pytest.mark.asyncio
     async def test_successful_resolution_logs_success(self, relay: Relay) -> None:
         """Successful DNS resolution sets logs.success=True."""
         dns_result = {
