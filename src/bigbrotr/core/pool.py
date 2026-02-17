@@ -9,9 +9,8 @@ connection multiplexing in containerized deployments.
 All query methods ([fetch()][bigbrotr.core.pool.Pool.fetch],
 [fetchrow()][bigbrotr.core.pool.Pool.fetchrow],
 [fetchval()][bigbrotr.core.pool.Pool.fetchval],
-[execute()][bigbrotr.core.pool.Pool.execute],
-[executemany()][bigbrotr.core.pool.Pool.executemany]) retry
-automatically on transient connection errors (``InterfaceError``,
+[execute()][bigbrotr.core.pool.Pool.execute]) retry automatically on
+transient connection errors (``InterfaceError``,
 ``ConnectionDoesNotExistError``) but do not retry on query-level errors such as
 syntax errors or constraint violations.
 
@@ -508,8 +507,6 @@ class Pool:
             ```
 
         See Also:
-            [acquire_healthy()][bigbrotr.core.pool.Pool.acquire_healthy]:
-                Acquire with a ``SELECT 1`` health check.
             [transaction()][bigbrotr.core.pool.Pool.transaction]: Acquire
                 with an active database transaction.
         """
@@ -519,82 +516,6 @@ class Pool:
         return cast(
             "AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]",
             self._pool.acquire(),
-        )
-
-    @asynccontextmanager
-    async def acquire_healthy(
-        self,
-        max_attempts: int | None = None,
-        health_check_timeout: float | None = None,
-    ) -> AsyncIterator[asyncpg.Connection[asyncpg.Record]]:
-        """Acquire a connection that has passed a ``SELECT 1`` health check.
-
-        Validates each acquired connection before yielding it. On failure,
-        retries with exponential backoff to avoid overwhelming the database.
-
-        Args:
-            max_attempts: Maximum attempts to acquire a healthy connection.
-                Defaults to
-                [retry.max_attempts][bigbrotr.core.pool.PoolRetryConfig]
-                from pool config.
-            health_check_timeout: Timeout in seconds for the health check
-                query. Defaults to the configured
-                [timeouts.health_check][bigbrotr.core.pool.PoolTimeoutsConfig].
-
-        Yields:
-            An asyncpg connection that has passed the ``SELECT 1``
-            health check.
-
-        Raises:
-            RuntimeError: If the pool has not been connected yet.
-            ConnectionError: If no healthy connection can be acquired
-                after all retry attempts.
-
-        Note:
-            The health check executes ``SELECT 1`` with a configurable timeout
-            to detect stale or broken connections that the pool may have
-            retained. This is especially useful after database restarts or
-            network partitions where the TCP connection appears open but the
-            PostgreSQL session is no longer valid.
-
-        See Also:
-            [acquire()][bigbrotr.core.pool.Pool.acquire]: Acquire without a
-                health check (faster, suitable for non-critical paths).
-            [transaction()][bigbrotr.core.pool.Pool.transaction]: Acquire with
-                an active transaction.
-        """
-        if not self._is_connected or self._pool is None:
-            raise RuntimeError("Pool not connected. Call connect() first.")
-
-        if max_attempts is None:
-            max_attempts = self._config.retry.max_attempts
-        if health_check_timeout is None:
-            health_check_timeout = self._config.timeouts.health_check
-        last_error: Exception | None = None
-
-        for attempt in range(max_attempts):
-            try:
-                async with self._pool.acquire() as conn:
-                    # Validate the connection is responsive
-                    await conn.fetchval("SELECT 1", timeout=health_check_timeout)
-                    # PoolConnectionProxy is duck-type compatible with Connection
-                    yield cast("asyncpg.Connection[asyncpg.Record]", conn)
-                    return
-            except (asyncpg.PostgresError, OSError, TimeoutError) as e:
-                last_error = e
-                self._logger.debug(
-                    "health_check_failed",
-                    attempt=attempt + 1,
-                    max_attempts=max_attempts,
-                    error=str(e),
-                )
-                # Exponential backoff between retries to avoid thundering herd
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(self._retry_delay(attempt))
-                continue
-
-        raise ConnectionError(
-            f"Failed to acquire healthy connection after {max_attempts} attempts: {last_error}"
         )
 
     @asynccontextmanager
@@ -780,67 +701,6 @@ class Pool:
         # Dynamic dispatch returns Any; narrow to the actual execute() return type
         return cast("str", result)
 
-    async def executemany(
-        self,
-        query: str,
-        args_list: list[tuple[Any, ...]],
-        timeout: float | None = None,  # noqa: ASYNC109
-    ) -> None:
-        """Execute a query repeatedly with different parameter sets.
-
-        Implemented separately from
-        ``_execute_with_retry()``
-        because asyncpg's ``executemany`` accepts an iterable of argument
-        tuples rather than variadic positional args.
-
-        Args:
-            query: SQL query with ``$1``, ``$2``, ... placeholders.
-            args_list: List of parameter tuples, one per execution.
-            timeout: Query timeout in seconds (``None`` = no timeout).
-
-        Note:
-            Retries use the same connection-level error detection and backoff
-            strategy as the single-query methods. However, partial execution
-            is possible if the error occurs mid-batch on a non-transactional
-            connection. Wrap in
-            [transaction()][bigbrotr.core.pool.Pool.transaction] for
-            all-or-nothing semantics.
-        """
-        max_attempts = self._config.retry.max_attempts
-        last_error: Exception | None = None
-
-        for attempt in range(max_attempts):
-            try:
-                async with self.acquire() as conn:
-                    await conn.executemany(query, args_list, timeout=timeout)
-                    return
-            except (
-                asyncpg.InterfaceError,
-                asyncpg.ConnectionDoesNotExistError,
-            ) as e:
-                last_error = e
-                if attempt < max_attempts - 1:
-                    delay = self._retry_delay(attempt)
-                    self._logger.warning(
-                        "query_retry",
-                        operation="executemany",
-                        attempt=attempt + 1,
-                        delay_s=delay,
-                        error=str(e),
-                    )
-                    await asyncio.sleep(delay)
-                    continue
-                self._logger.error(
-                    "query_failed",
-                    operation="executemany",
-                    attempts=max_attempts,
-                    error=str(e),
-                )
-                raise
-
-        if last_error:
-            raise last_error
-
     # -------------------------------------------------------------------------
     # Properties
     # -------------------------------------------------------------------------
@@ -854,68 +714,6 @@ class Pool:
     def config(self) -> PoolConfig:
         """The pool configuration (read-only)."""
         return self._config
-
-    @property
-    def metrics(self) -> dict[str, Any]:
-        """Snapshot of pool statistics for monitoring dashboards.
-
-        Returns:
-            Dictionary with keys: ``size``, ``idle_size``, ``min_size``,
-            ``max_size``, ``free_size``, ``utilization`` (0.0--1.0),
-            and ``is_connected``. Returns zeroed metrics if the pool
-            is not connected.
-
-        Note:
-            This property is safe to call at any time, including during
-            pool shutdown. A local reference to the pool object prevents
-            race conditions with concurrent
-            [close()][bigbrotr.core.pool.Pool.close] calls. Unexpected
-            errors are logged and swallowed to prevent monitoring from
-            crashing the service.
-
-        See Also:
-            [MetricsServer][bigbrotr.core.metrics.MetricsServer]: Prometheus
-                HTTP endpoint that may consume these statistics.
-        """
-        disconnected = {
-            "size": 0,
-            "idle_size": 0,
-            "min_size": self._config.limits.min_size,
-            "max_size": self._config.limits.max_size,
-            "free_size": 0,
-            "utilization": 0.0,
-            "is_connected": False,
-        }
-
-        # Local reference prevents race with concurrent close() calls
-        pool = self._pool
-        if not self._is_connected or pool is None:
-            return disconnected
-
-        try:
-            size = pool.get_size()
-            idle_size = pool.get_idle_size()
-            min_size = pool.get_min_size()
-            max_size = pool.get_max_size()
-            free_size = max_size - (size - idle_size)
-            utilization = (size - idle_size) / max_size if max_size > 0 else 0.0
-
-            return {
-                "size": size,
-                "idle_size": idle_size,
-                "min_size": min_size,
-                "max_size": max_size,
-                "free_size": free_size,
-                "utilization": round(utilization, 3),
-                "is_connected": True,
-            }
-        except asyncpg.InterfaceError:
-            # Pool was closed between the check and the method calls
-            return disconnected
-        except (asyncpg.PostgresError, OSError, RuntimeError) as e:
-            # Log unexpected errors but never crash the monitoring path
-            self._logger.warning("metrics_error", error=str(e))
-            return disconnected
 
     # -------------------------------------------------------------------------
     # Context Manager

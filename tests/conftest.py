@@ -15,6 +15,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from nostr_sdk import Event as NostrEvent
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.pool import Pool
@@ -71,7 +72,6 @@ def mock_connection() -> MagicMock:
     conn.fetchrow = AsyncMock(return_value=None)
     conn.fetchval = AsyncMock(return_value=1)
     conn.execute = AsyncMock(return_value="OK")
-    conn.executemany = AsyncMock()
 
     # Mock transaction context manager
     mock_transaction = MagicMock()
@@ -213,7 +213,7 @@ def make_mock_event(
     if tags is None:
         tags = [["e", "c" * 64], ["p", "d" * 64]]
 
-    mock_event = MagicMock()
+    mock_event = MagicMock(spec=NostrEvent)
     mock_event.id.return_value.to_hex.return_value = event_id
     mock_event.author.return_value.to_hex.return_value = pubkey
     mock_event.created_at.return_value.as_secs.return_value = created_at
