@@ -231,7 +231,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
             raise
         except (OSError, TimeoutError, aiohttp.ClientError, ValueError) as e:
             logs["success"] = False
-            logs["reason"] = str(e)
+            logs["reason"] = str(e) or type(e).__name__
 
         result = cls(
             data=Nip11InfoData.model_validate(Nip11InfoData.parse(data)),

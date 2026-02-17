@@ -29,7 +29,7 @@ from typing import Any, ClassVar
 from pydantic import ConfigDict, Field, StrictBool, StrictInt
 
 from bigbrotr.nips.base import BaseData
-from bigbrotr.nips.parsing import FieldSpec
+from bigbrotr.nips.parsing import FieldSpec, parse_fields
 
 
 KindRange = tuple[StrictInt, StrictInt]
@@ -335,11 +335,7 @@ class Nip11InfoData(BaseData):
         """
         if not isinstance(data, dict):
             return {}
-        result: dict[str, Any] = {}
-
-        for key in cls._FIELD_SPEC.str_fields:
-            if key in data and isinstance(data[key], str):
-                result[key] = data[key]
+        result = parse_fields(data, cls._FIELD_SPEC)
 
         if "supported_nips" in data and isinstance(data["supported_nips"], list):
             nips = [
@@ -349,14 +345,8 @@ class Nip11InfoData(BaseData):
                 result["supported_nips"] = nips
 
         result.update(cls._parse_sub_objects(data))
-
-        for key in cls._FIELD_SPEC.str_list_fields:
-            if key in data and isinstance(data[key], list):
-                items = [s for s in data[key] if isinstance(s, str)]
-                if items:
-                    result[key] = items
         return result
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary using field aliases (``self`` instead of ``self_pubkey``)."""
-        return self.model_dump(exclude_none=True, by_alias=True)
+        return self.model_dump(exclude_none=True, by_alias=True, mode="json")

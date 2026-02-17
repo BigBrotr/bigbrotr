@@ -361,7 +361,7 @@ class Nip66SslMetadata(BaseNipMetadata):
                 logs["reason"] = "no certificate data extracted"
                 logger.debug("ssl_no_data relay=%s", relay.url)
         except OSError as e:
-            logs["reason"] = str(e)
+            logs["reason"] = str(e) or type(e).__name__
             logger.debug("ssl_error relay=%s error=%s", relay.url, str(e))
 
         return cls(

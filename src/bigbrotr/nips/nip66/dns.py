@@ -193,7 +193,7 @@ class Nip66DnsMetadata(BaseNipMetadata):
                 logs["reason"] = "no DNS records found"
                 logger.debug("dns_no_data relay=%s", relay.url)
         except (OSError, dns.exception.DNSException) as e:
-            logs["reason"] = str(e)
+            logs["reason"] = str(e) or type(e).__name__
             logger.debug("dns_error relay=%s error=%s", relay.url, str(e))
 
         return cls(
