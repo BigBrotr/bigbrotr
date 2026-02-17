@@ -42,6 +42,15 @@ ON event USING gin (tagvalues);
 CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url
 ON event_relay USING btree (relay_url);
 
+-- Recently discovered events: ORDER BY seen_at DESC
+CREATE INDEX IF NOT EXISTS idx_event_relay_seen_at
+ON event_relay USING btree (seen_at DESC);
+
+-- Synchronizer progress tracking: WHERE relay_url = ? ORDER BY seen_at DESC
+-- Enables index-only scans for SELECT MAX(seen_at) WHERE relay_url = ?
+CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url_seen_at
+ON event_relay USING btree (relay_url, seen_at DESC);
+
 
 -- ==========================================================================
 -- TABLE INDEXES: relay_metadata

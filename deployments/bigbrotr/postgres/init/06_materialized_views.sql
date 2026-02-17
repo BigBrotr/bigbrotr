@@ -43,10 +43,11 @@ COMMENT ON MATERIALIZED VIEW relay_metadata_latest IS
 -- and time windows (1h, 24h, 7d, 30d).
 --
 -- NIP-01 event categories:
---   Regular:     kind 1, 2, 4-44, 1000-9999 (stored indefinitely)
+--   Regular:     kind 1, 2, 4-9999 (stored indefinitely)
 --   Replaceable: kind 0, 3, 10000-19999 (latest per pubkey replaces older)
 --   Ephemeral:   kind 20000-29999 (not persisted by relays)
 --   Addressable: kind 30000-39999 (latest per pubkey+d-tag replaces older)
+--   Other:       kind 40000-65535 (non-standard or future use)
 --
 -- Refresh: Hourly via event_stats_refresh()
 
@@ -59,12 +60,11 @@ SELECT
     MIN(created_at) AS earliest_event_timestamp,
     MAX(created_at) AS latest_event_timestamp,
 
-    -- Regular events: kind 1, 2, 4-44, 1000-9999
+    -- Regular events: kind 0-9999 (excluding replaceable 0, 3)
     COUNT(*) FILTER (
         WHERE kind = 1
         OR kind = 2
-        OR (kind >= 4 AND kind <= 44)
-        OR (kind >= 1000 AND kind <= 9999)
+        OR (kind >= 4 AND kind <= 9999)
     ) AS regular_event_count,
 
     -- Replaceable events: kind 0, 3, 10000-19999
@@ -83,6 +83,11 @@ SELECT
     COUNT(*) FILTER (
         WHERE kind >= 30000 AND kind <= 39999
     ) AS addressable_event_count,
+
+    -- Other events: kind 40000-65535 (non-standard or future use)
+    COUNT(*) FILTER (
+        WHERE kind >= 40000 AND kind <= 65535
+    ) AS other_event_count,
 
     -- Rolling time-window counts
     COUNT(*) FILTER (
