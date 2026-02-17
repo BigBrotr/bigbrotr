@@ -151,7 +151,7 @@ class ServiceState:
             service_name=self.service_name,
             state_type=self.state_type,
             state_key=self.state_key,
-            state_value=self.state_value,
+            state_value=dict(self.state_value),
             updated_at=self.updated_at,
         )
 

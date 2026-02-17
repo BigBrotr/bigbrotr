@@ -277,17 +277,6 @@ sequenceDiagram
     S->>S: cleanup resources
 ```
 
-### Exceptions (`exceptions.py`)
-
-Structured exception hierarchy replacing bare `except Exception`:
-
---8<-- "docs/_snippets/exception-hierarchy.md"
-
-Services catch specific exceptions for appropriate handling: retry on `ConnectionPoolError`, skip relay on `RelayTimeoutError`, log and continue on `ProtocolError`.
-
-!!! tip "API Reference"
-    See [`bigbrotr.core.exceptions`](../reference/core/exceptions.md) for the complete exception hierarchy.
-
 ### Logger (`logger.py`)
 
 Structured key=value logging with optional JSON output mode.
