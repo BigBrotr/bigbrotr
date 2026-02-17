@@ -138,54 +138,53 @@ class TestIsSslErrorRealMessages:
 class TestCreateClientBasic:
     """Tests for create_client() basic functionality."""
 
-    def test_creates_client_without_keys(self) -> None:
+    async def test_creates_client_without_keys(self) -> None:
         """Test creating client without keys (read-only)."""
-        client = create_client()
+        client = await create_client()
         assert client is not None
 
-    def test_creates_client_with_keys(self) -> None:
+    async def test_creates_client_with_keys(self) -> None:
         """Test creating client with keys for signing."""
         from nostr_sdk import Keys
 
         keys = Keys.generate()
-        client = create_client(keys=keys)
+        client = await create_client(keys=keys)
         assert client is not None
 
 
 class TestCreateClientProxy:
     """Tests for create_client() with proxy configuration."""
 
-    def test_creates_client_with_proxy_url_ip(self) -> None:
+    async def test_creates_client_with_proxy_url_ip(self) -> None:
         """Test creating client with IP address proxy."""
-        client = create_client(proxy_url="socks5://127.0.0.1:9050")
+        client = await create_client(proxy_url="socks5://127.0.0.1:9050")
         assert client is not None
 
-    def test_creates_client_with_keys_and_proxy(self) -> None:
+    async def test_creates_client_with_keys_and_proxy(self) -> None:
         """Test creating client with both keys and proxy."""
         from nostr_sdk import Keys
 
         keys = Keys.generate()
-        client = create_client(keys=keys, proxy_url="socks5://127.0.0.1:9050")
+        client = await create_client(keys=keys, proxy_url="socks5://127.0.0.1:9050")
         assert client is not None
 
-    def test_proxy_hostname_resolved(self) -> None:
-        """Test proxy hostname is resolved to IP."""
-        with patch("socket.gethostbyname", return_value="127.0.0.1"):
-            client = create_client(proxy_url="socks5://tor:9050")
+    async def test_proxy_hostname_resolved(self) -> None:
+        """Test proxy hostname is resolved to IP via asyncio.to_thread."""
+        with patch("asyncio.to_thread", new_callable=AsyncMock, return_value="127.0.0.1"):
+            client = await create_client(proxy_url="socks5://tor:9050")
             assert client is not None
 
-    def test_proxy_ip_not_resolved(self) -> None:
-        """Test IP address proxy does not call gethostbyname."""
-        with patch("socket.gethostbyname") as mock_resolve:
-            client = create_client(proxy_url="socks5://127.0.0.1:9050")
+    async def test_proxy_ip_not_resolved(self) -> None:
+        """Test IP address proxy does not call asyncio.to_thread for resolution."""
+        with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+            client = await create_client(proxy_url="socks5://127.0.0.1:9050")
             assert client is not None
-            mock_resolve.assert_not_called()
+            mock_to_thread.assert_not_awaited()
 
-    def test_proxy_default_port(self) -> None:
+    async def test_proxy_default_port(self) -> None:
         """Test proxy URL without explicit port uses default."""
-        with patch("socket.gethostbyname", return_value="127.0.0.1"):
-            client = create_client(proxy_url="socks5://127.0.0.1")
-            assert client is not None
+        client = await create_client(proxy_url="socks5://127.0.0.1")
+        assert client is not None
 
 
 # =============================================================================
@@ -275,7 +274,10 @@ class TestConnectRelayClearnet:
         mock_output.failed = {mock_url: "SSL certificate verify failed"}
 
         with (
-            patch("bigbrotr.utils.transport.create_client") as mock_create,
+            patch(
+                "bigbrotr.utils.transport.create_client",
+                new_callable=AsyncMock,
+            ) as mock_create,
             patch("bigbrotr.utils.transport.RelayUrl") as mock_relay_url,
         ):
             mock_client = AsyncMock()
@@ -302,7 +304,10 @@ class TestConnectRelayClearnet:
         mock_output.failed = {}
 
         with (
-            patch("bigbrotr.utils.transport.create_client") as mock_create,
+            patch(
+                "bigbrotr.utils.transport.create_client",
+                new_callable=AsyncMock,
+            ) as mock_create,
             patch("bigbrotr.utils.transport.RelayUrl") as mock_relay_url,
         ):
             mock_client = AsyncMock()

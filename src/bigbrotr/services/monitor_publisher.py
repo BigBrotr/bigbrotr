@@ -112,7 +112,7 @@ class MonitorPublisherMixin:
         if not builders or not relays:
             return
 
-        client = create_client(self._keys)
+        client = await create_client(self._keys)
         for relay in relays:
             await client.add_relay(RelayUrl.parse(relay.url))
         try:

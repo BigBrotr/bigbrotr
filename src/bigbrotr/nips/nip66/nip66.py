@@ -33,7 +33,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from bigbrotr.models.constants import DEFAULT_TIMEOUT
 from bigbrotr.models.metadata import Metadata, MetadataType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_metadata import RelayMetadata
@@ -44,6 +43,7 @@ from bigbrotr.nips.base import (
     BaseNipOptions,
     BaseNipSelection,
 )
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .dns import Nip66DnsMetadata
 from .geo import Nip66GeoMetadata

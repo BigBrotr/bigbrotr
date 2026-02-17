@@ -461,6 +461,46 @@ services:
         max-file: "3"
 
   # --------------------------------------------------------------------------
+  # Alertmanager (Alert Routing)
+  # --------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: myimpl-alertmanager             # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+    ports:
+      # CUSTOMIZE: Use unique port to avoid conflicts
+      - "127.0.0.1:9093:9093"
+
+    networks:
+      - myimpl-monitoring-network                   # <-- CUSTOMIZE
+
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
   # Grafana (Metrics Visualization)
   # --------------------------------------------------------------------------
   grafana:

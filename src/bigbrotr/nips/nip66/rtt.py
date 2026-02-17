@@ -44,9 +44,10 @@ from typing import TYPE_CHECKING, Any, NamedTuple, Self
 
 from nostr_sdk import Filter, NostrSdkError, RelayUrl
 
-from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
+from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .data import Nip66RttData
 from .logs import Nip66RttMultiPhaseLogs

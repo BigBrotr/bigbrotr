@@ -3,7 +3,6 @@
 import pytest
 from pydantic import ValidationError
 
-from bigbrotr.models.constants import DEFAULT_TIMEOUT
 from bigbrotr.models.relay import Relay
 from bigbrotr.nips.base import (
     BaseData,
@@ -17,6 +16,7 @@ from bigbrotr.nips.base import (
 from bigbrotr.nips.nip11.nip11 import Nip11, Nip11Dependencies, Nip11Options, Nip11Selection
 from bigbrotr.nips.nip66.nip66 import Nip66, Nip66Dependencies, Nip66Options, Nip66Selection
 from bigbrotr.nips.parsing import FieldSpec
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 
 # =============================================================================

@@ -466,7 +466,11 @@ class TestSyncRelayEvents:
         mock_client.add_relay = AsyncMock()
 
         with (
-            patch("bigbrotr.services.synchronizer.create_client", return_value=mock_client),
+            patch(
+                "bigbrotr.services.synchronizer.create_client",
+                new_callable=AsyncMock,
+                return_value=mock_client,
+            ),
             patch(
                 "bigbrotr.services.synchronizer._insert_batch",
                 new_callable=AsyncMock,
@@ -496,7 +500,11 @@ class TestSyncRelayEvents:
         mock_client.shutdown = AsyncMock()
         mock_client.add_relay = AsyncMock()
 
-        with patch("bigbrotr.services.synchronizer.create_client", return_value=mock_client):
+        with patch(
+            "bigbrotr.services.synchronizer.create_client",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ):
             synced, invalid, skipped = await _sync_relay_events(
                 relay=relay, start_time=100, end_time=1000, ctx=ctx
             )
@@ -515,7 +523,11 @@ class TestSyncRelayEvents:
         mock_client.shutdown = AsyncMock()
         mock_client.add_relay = AsyncMock()
 
-        with patch("bigbrotr.services.synchronizer.create_client", return_value=mock_client):
+        with patch(
+            "bigbrotr.services.synchronizer.create_client",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ):
             synced, invalid, skipped = await _sync_relay_events(
                 relay=relay, start_time=100, end_time=1000, ctx=ctx
             )
@@ -534,7 +546,11 @@ class TestSyncRelayEvents:
         mock_client.shutdown = AsyncMock()
         mock_client.add_relay = AsyncMock()
 
-        with patch("bigbrotr.services.synchronizer.create_client", return_value=mock_client):
+        with patch(
+            "bigbrotr.services.synchronizer.create_client",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ):
             synced, invalid, skipped = await _sync_relay_events(
                 relay=relay, start_time=100, end_time=1000, ctx=ctx
             )
@@ -557,7 +573,11 @@ class TestSyncRelayEvents:
         mock_client.shutdown = AsyncMock()
         mock_client.add_relay = AsyncMock()
 
-        with patch("bigbrotr.services.synchronizer.create_client", return_value=mock_client):
+        with patch(
+            "bigbrotr.services.synchronizer.create_client",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ):
             await _sync_relay_events(relay=relay, start_time=100, end_time=1000, ctx=ctx)
 
         mock_client.disconnect.assert_called_once()
@@ -573,7 +593,11 @@ class TestSyncRelayEvents:
         mock_client.shutdown = AsyncMock()
         mock_client.add_relay = AsyncMock()
 
-        with patch("bigbrotr.services.synchronizer.create_client", return_value=mock_client):
+        with patch(
+            "bigbrotr.services.synchronizer.create_client",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ):
             await _sync_relay_events(relay=relay, start_time=100, end_time=1000, ctx=ctx)
 
         mock_client.shutdown.assert_called_once()
@@ -602,7 +626,9 @@ class TestSyncRelayEvents:
         mock_client.add_relay = AsyncMock()
 
         with patch(
-            "bigbrotr.services.synchronizer.create_client", return_value=mock_client
+            "bigbrotr.services.synchronizer.create_client",
+            new_callable=AsyncMock,
+            return_value=mock_client,
         ) as mock_create:
             await _sync_relay_events(relay=relay, start_time=100, end_time=1000, ctx=ctx)
 
@@ -636,7 +662,11 @@ class TestSyncRelayEvents:
                 super().__init__(since, until, limit=1)
 
         with (
-            patch("bigbrotr.services.synchronizer.create_client", return_value=mock_client),
+            patch(
+                "bigbrotr.services.synchronizer.create_client",
+                new_callable=AsyncMock,
+                return_value=mock_client,
+            ),
             patch("bigbrotr.services.synchronizer.EventBatch", LimitedBatch),
             patch(
                 "bigbrotr.services.synchronizer._insert_batch",
