@@ -39,7 +39,7 @@ Examples:
     ```python
     from bigbrotr.utils.transport import create_client, connect_relay
 
-    client = create_client(keys=my_keys, proxy_url="socks5://tor:9050")
+    client = await create_client(keys=my_keys, proxy_url="socks5://tor:9050")
     client = await connect_relay(relay, keys=my_keys, timeout=10.0)
     ```
 """
@@ -56,7 +56,7 @@ import sys
 from dataclasses import dataclass
 from datetime import timedelta
 from datetime import timedelta as Duration  # noqa: N812
-from typing import TYPE_CHECKING, TextIO
+from typing import TYPE_CHECKING, Final, TextIO
 from urllib.parse import urlparse
 
 import aiohttp
@@ -85,8 +85,11 @@ if TYPE_CHECKING:
 
     from nostr_sdk import Keys
 
-from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
+from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
+
+
+DEFAULT_TIMEOUT: Final[float] = 10.0
 
 
 logger = logging.getLogger("utils.transport")
@@ -356,7 +359,7 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
         return True
 
 
-def create_client(
+async def create_client(
     keys: Keys | None = None,
     proxy_url: str | None = None,
 ) -> Client:
@@ -374,8 +377,8 @@ def create_client(
 
     Note:
         When a ``proxy_url`` hostname is not already an IP address, it is
-        resolved synchronously via ``socket.gethostbyname`` because nostr-sdk
-        requires a numeric IP for the proxy connection.
+        resolved asynchronously via ``asyncio.to_thread(socket.gethostbyname)``
+        because nostr-sdk requires a numeric IP for the proxy connection.
 
     See Also:
         [create_insecure_client][bigbrotr.utils.transport.create_insecure_client]:
@@ -398,7 +401,7 @@ def create_client(
         try:
             socket.inet_aton(proxy_host)  # Check if already an IP
         except OSError:
-            proxy_host = socket.gethostbyname(proxy_host)
+            proxy_host = await asyncio.to_thread(socket.gethostbyname, proxy_host)
 
         proxy_mode = ConnectionMode.PROXY(proxy_host, proxy_port)
         conn = Connection().mode(proxy_mode).target(ConnectionTarget.ONION)
@@ -490,7 +493,7 @@ async def connect_relay(
         if proxy_url is None:
             raise ValueError(f"proxy_url required for {relay.network} relay: {relay.url}")
 
-        client = create_client(keys, proxy_url)
+        client = await create_client(keys, proxy_url)
         await client.add_relay(relay_url)
         await client.connect()
         await client.wait_for_connection(timedelta(seconds=timeout))
@@ -505,7 +508,7 @@ async def connect_relay(
     # Clearnet: try SSL first, then fall back to insecure if allowed
     logger.debug("ssl_connecting relay=%s", relay.url)
 
-    client = create_client(keys)
+    client = await create_client(keys)
     await client.add_relay(relay_url)
     output = await client.try_connect(timedelta(seconds=timeout))
 

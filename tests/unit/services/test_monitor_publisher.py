@@ -233,6 +233,7 @@ class TestBroadcastEvents:
 
         with patch(
             "bigbrotr.services.monitor_publisher.create_client",
+            new_callable=AsyncMock,
             return_value=mock_client,
         ):
             await publisher._broadcast_events([mock_builder], [relay])
@@ -255,6 +256,7 @@ class TestBroadcastEvents:
 
         with patch(
             "bigbrotr.services.monitor_publisher.create_client",
+            new_callable=AsyncMock,
             return_value=mock_client,
         ):
             await publisher._broadcast_events(builders, relays)
@@ -295,6 +297,7 @@ class TestBroadcastEvents:
         with (
             patch(
                 "bigbrotr.services.monitor_publisher.create_client",
+                new_callable=AsyncMock,
                 return_value=mock_client,
             ),
             pytest.raises(OSError, match="send failed"),
@@ -455,6 +458,7 @@ class TestPublishAnnouncement:
 
         with patch(
             "bigbrotr.services.monitor_publisher.create_client",
+            new_callable=AsyncMock,
             return_value=mock_client,
         ):
             await publisher._publish_announcement()
@@ -485,6 +489,7 @@ class TestPublishAnnouncement:
 
         with patch(
             "bigbrotr.services.monitor_publisher.create_client",
+            new_callable=AsyncMock,
             return_value=mock_client,
         ):
             await publisher._publish_announcement()
@@ -502,6 +507,7 @@ class TestPublishAnnouncement:
 
         with patch(
             "bigbrotr.services.monitor_publisher.create_client",
+            new_callable=AsyncMock,
             return_value=mock_client,
         ):
             await publisher._publish_announcement()
@@ -578,6 +584,7 @@ class TestPublishProfile:
 
         with patch(
             "bigbrotr.services.monitor_publisher.create_client",
+            new_callable=AsyncMock,
             return_value=mock_client,
         ):
             await publisher._publish_profile()
@@ -595,6 +602,7 @@ class TestPublishProfile:
 
         with patch(
             "bigbrotr.services.monitor_publisher.create_client",
+            new_callable=AsyncMock,
             return_value=mock_client,
         ):
             await publisher._publish_profile()
@@ -671,6 +679,7 @@ class TestPublishRelayDiscoveries:
 
         with patch(
             "bigbrotr.services.monitor_publisher.create_client",
+            new_callable=AsyncMock,
             return_value=mock_client,
         ):
             await combined_harness._publish_relay_discoveries([(relay, result)])
@@ -709,6 +718,7 @@ class TestPublishRelayDiscoveries:
 
         with patch(
             "bigbrotr.services.monitor_publisher.create_client",
+            new_callable=AsyncMock,
             return_value=mock_client,
         ):
             await combined_harness._publish_relay_discoveries(
@@ -732,6 +742,7 @@ class TestPublishRelayDiscoveries:
 
         with patch(
             "bigbrotr.services.monitor_publisher.create_client",
+            new_callable=AsyncMock,
             return_value=mock_client,
         ):
             await combined_harness._publish_relay_discoveries([(relay, result)])

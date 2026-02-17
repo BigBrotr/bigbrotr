@@ -51,9 +51,10 @@ if TYPE_CHECKING:
     from dns.rdtypes.IN.A import A
     from dns.rdtypes.IN.AAAA import AAAA
 
-from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
+from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .data import Nip66DnsData
 from .logs import Nip66DnsLogs

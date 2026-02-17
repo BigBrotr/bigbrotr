@@ -40,10 +40,11 @@ from typing import Any, ClassVar, Self
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
-from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
+from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.http import read_bounded_json
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .data import Nip11InfoData
 from .logs import Nip11InfoLogs

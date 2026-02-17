@@ -580,7 +580,7 @@ async def _sync_relay_events(
     skipped_events = 0
 
     proxy_url = ctx.network_config.get_proxy_url(relay.network)
-    client = create_client(ctx.keys, proxy_url)
+    client = await create_client(ctx.keys, proxy_url)
     await client.add_relay(RelayUrl.parse(relay.url))
 
     try:

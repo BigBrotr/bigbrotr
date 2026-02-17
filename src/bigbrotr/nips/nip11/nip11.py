@@ -25,7 +25,6 @@ import logging
 from dataclasses import dataclass
 from typing import NamedTuple
 
-from bigbrotr.models.constants import DEFAULT_TIMEOUT
 from bigbrotr.models.metadata import Metadata, MetadataType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_metadata import RelayMetadata
@@ -35,6 +34,7 @@ from bigbrotr.nips.base import (
     BaseNipOptions,
     BaseNipSelection,
 )
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .info import Nip11InfoMetadata
 
