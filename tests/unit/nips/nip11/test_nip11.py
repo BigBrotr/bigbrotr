@@ -262,7 +262,6 @@ class TestRelayNip11MetadataTuple:
 class TestNip11CreateSuccess:
     """Test Nip11.create() success scenarios."""
 
-    @pytest.mark.asyncio
     async def test_create_success(self, relay: Relay, mock_session_factory):
         """Successful create returns Nip11 with data."""
         response = AsyncMock()
@@ -283,7 +282,6 @@ class TestNip11CreateSuccess:
         assert result.info.data.name == "Test Relay"
         assert result.generated_at > 0
 
-    @pytest.mark.asyncio
     async def test_create_with_complete_data(
         self,
         relay: Relay,
@@ -319,7 +317,6 @@ class TestNip11CreateSuccess:
 class TestNip11CreateErrors:
     """Test Nip11.create() error handling."""
 
-    @pytest.mark.asyncio
     async def test_create_404_returns_failure(self, relay: Relay, mock_session_factory):
         """HTTP 404 returns Nip11 with success=False."""
         response = AsyncMock()
@@ -336,7 +333,6 @@ class TestNip11CreateErrors:
         assert result.info.logs.success is False
         assert "404" in result.info.logs.reason
 
-    @pytest.mark.asyncio
     async def test_create_connection_error_returns_failure(self, relay: Relay):
         """Connection error returns Nip11 with success=False."""
         session = MagicMock()
@@ -351,7 +347,6 @@ class TestNip11CreateErrors:
         assert result.info.logs.success is False
         assert "Connection refused" in result.info.logs.reason
 
-    @pytest.mark.asyncio
     async def test_create_invalid_content_type(self, relay: Relay, mock_session_factory):
         """Invalid Content-Type returns Nip11 with success=False."""
         response = AsyncMock()
@@ -369,7 +364,6 @@ class TestNip11CreateErrors:
         assert result.info.logs.success is False
         assert "Content-Type" in result.info.logs.reason
 
-    @pytest.mark.asyncio
     async def test_create_response_too_large(self, relay: Relay, mock_session_factory):
         """Response exceeding max_size returns failure."""
         response = AsyncMock()
@@ -387,7 +381,6 @@ class TestNip11CreateErrors:
         assert result.info.logs.success is False
         assert "too large" in result.info.logs.reason
 
-    @pytest.mark.asyncio
     async def test_create_invalid_json(self, relay: Relay, mock_session_factory):
         """Invalid JSON returns failure."""
         response = AsyncMock()
@@ -404,7 +397,6 @@ class TestNip11CreateErrors:
 
         assert result.info.logs.success is False
 
-    @pytest.mark.asyncio
     async def test_create_non_dict_json(self, relay: Relay, mock_session_factory):
         """JSON that's not a dict returns failure."""
         response = AsyncMock()
@@ -431,7 +423,6 @@ class TestNip11CreateErrors:
 class TestNip11CreateUrlScheme:
     """Test URL scheme handling in Nip11.create()."""
 
-    @pytest.mark.asyncio
     async def test_create_wss_uses_https(self, relay: Relay, mock_session_factory):
         """wss:// relay uses https://."""
         response = AsyncMock()
@@ -450,7 +441,6 @@ class TestNip11CreateUrlScheme:
         url = call_args[0][0]
         assert url.startswith("https://")
 
-    @pytest.mark.asyncio
     async def test_create_ws_uses_http(self, tor_relay: Relay, mock_session_factory):
         """ws:// relay (Tor) uses http://."""
         response = AsyncMock()
@@ -478,7 +468,6 @@ class TestNip11CreateUrlScheme:
 class TestNip11CreateAcceptHeader:
     """Test Accept header in Nip11.create()."""
 
-    @pytest.mark.asyncio
     async def test_create_sends_accept_header(self, relay: Relay, mock_session_factory):
         """Request includes Accept: application/nostr+json header."""
         response = AsyncMock()
@@ -506,7 +495,6 @@ class TestNip11CreateAcceptHeader:
 class TestNip11CreateContentType:
     """Test Content-Type validation in Nip11.create()."""
 
-    @pytest.mark.asyncio
     async def test_create_accepts_nostr_json(self, relay: Relay, mock_session_factory):
         """application/nostr+json is accepted."""
         response = AsyncMock()
@@ -523,7 +511,6 @@ class TestNip11CreateContentType:
 
         assert result.info.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_create_accepts_json(self, relay: Relay, mock_session_factory):
         """application/json is accepted."""
         response = AsyncMock()
@@ -540,7 +527,6 @@ class TestNip11CreateContentType:
 
         assert result.info.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_create_accepts_json_with_charset(self, relay: Relay, mock_session_factory):
         """application/json; charset=utf-8 is accepted."""
         response = AsyncMock()
@@ -566,7 +552,6 @@ class TestNip11CreateContentType:
 class TestNip11CreateNetworkTypes:
     """Test Nip11.create() with different network types."""
 
-    @pytest.mark.asyncio
     async def test_create_tor_relay(self, tor_relay: Relay, mock_session_factory):
         """Create works with Tor relay."""
         response = AsyncMock()
@@ -584,7 +569,6 @@ class TestNip11CreateNetworkTypes:
         assert result.relay == tor_relay
         assert result.info.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_create_i2p_relay(self, i2p_relay: Relay, mock_session_factory):
         """Create works with I2P relay."""
         response = AsyncMock()
@@ -602,7 +586,6 @@ class TestNip11CreateNetworkTypes:
         assert result.relay == i2p_relay
         assert result.info.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_create_loki_relay(self, loki_relay: Relay, mock_session_factory):
         """Create works with Lokinet relay."""
         response = AsyncMock()
@@ -629,7 +612,6 @@ class TestNip11CreateNetworkTypes:
 class TestNip11CreateParameters:
     """Test Nip11.create() parameter handling."""
 
-    @pytest.mark.asyncio
     async def test_create_custom_timeout(self, relay: Relay, mock_session_factory):
         """Create with custom timeout uses specified value."""
         response = AsyncMock()
@@ -648,7 +630,6 @@ class TestNip11CreateParameters:
         timeout = call_args[1]["timeout"]
         assert timeout.total == 30.0
 
-    @pytest.mark.asyncio
     async def test_create_custom_max_size_via_options(self, relay: Relay, mock_session_factory):
         """Create with Nip11Options max_size applies limit."""
         response = AsyncMock()
@@ -666,7 +647,6 @@ class TestNip11CreateParameters:
         assert result.info.logs.success is False
         assert "too large" in result.info.logs.reason
 
-    @pytest.mark.asyncio
     async def test_create_default_timeout(self, relay: Relay, mock_session_factory):
         """Create without timeout uses DEFAULT_TIMEOUT."""
         response = AsyncMock()
@@ -837,7 +817,6 @@ class TestNip11Dependencies:
 class TestNip11CreateSelection:
     """Test Nip11.create() with Nip11Selection."""
 
-    @pytest.mark.asyncio
     async def test_info_disabled_returns_none(self, relay: Relay):
         """selection=Nip11Selection(info=False) returns info=None."""
         result = await Nip11.create(relay, selection=Nip11Selection(info=False))
@@ -845,7 +824,6 @@ class TestNip11CreateSelection:
         assert result.info is None
         assert result.relay == relay
 
-    @pytest.mark.asyncio
     async def test_info_enabled_calls_execute(self, relay: Relay, mock_session_factory):
         """selection=Nip11Selection(info=True) calls execute."""
         response = AsyncMock()
@@ -863,7 +841,6 @@ class TestNip11CreateSelection:
         assert result.info is not None
         assert result.info.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_default_selection_fetches_info(self, relay: Relay, mock_session_factory):
         """Default selection (no selection param) fetches info."""
         response = AsyncMock()
@@ -889,7 +866,6 @@ class TestNip11CreateSelection:
 class TestNip11CreateOptions:
     """Test Nip11.create() with Nip11Options."""
 
-    @pytest.mark.asyncio
     async def test_options_max_size_passed_to_execute(self, relay: Relay, mock_session_factory):
         """Nip11Options.max_size is passed to execute."""
         response = AsyncMock()
@@ -907,7 +883,6 @@ class TestNip11CreateOptions:
         assert result.info.logs.success is False
         assert "too large" in result.info.logs.reason
 
-    @pytest.mark.asyncio
     async def test_options_allow_insecure_passed_to_execute(self, relay: Relay):
         """Nip11Options.allow_insecure is passed to execute."""
         with patch(
@@ -924,7 +899,6 @@ class TestNip11CreateOptions:
         call_kwargs = mock_execute.call_args
         assert call_kwargs[1]["allow_insecure"] is True
 
-    @pytest.mark.asyncio
     async def test_default_options_secure(self, relay: Relay):
         """Default options use secure mode."""
         with patch(

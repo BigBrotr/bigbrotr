@@ -102,6 +102,7 @@ class EventKind(IntEnum):
     processes or publishes.
 
     Attributes:
+        SET_METADATA: Kind 0 -- user profile metadata (NIP-01).
         RECOMMEND_RELAY: Kind 2 -- legacy relay recommendation (NIP-01, deprecated).
         CONTACTS: Kind 3 -- contact list with relay hints (NIP-02).
         RELAY_LIST: Kind 10002 -- NIP-65 relay list metadata.
@@ -119,6 +120,7 @@ class EventKind(IntEnum):
         ``EVENT_KIND_MAX``: Maximum valid event kind value (65535).
     """
 
+    SET_METADATA = 0
     RECOMMEND_RELAY = 2
     CONTACTS = 3
     RELAY_LIST = 10_002

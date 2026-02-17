@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.net import Nip66NetMetadata
 
@@ -173,7 +171,6 @@ class TestNip66NetMetadataNetSync:
 class TestNip66NetMetadataNetAsync:
     """Test Nip66NetMetadata.execute() async class method."""
 
-    @pytest.mark.asyncio
     async def test_clearnet_returns_net_metadata(
         self,
         relay: Relay,
@@ -207,7 +204,6 @@ class TestNip66NetMetadataNetAsync:
         assert result.data.net_asn == 15169
         assert result.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_tor_returns_failure(
         self,
         tor_relay: Relay,
@@ -218,7 +214,6 @@ class TestNip66NetMetadataNetAsync:
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_i2p_returns_failure(
         self,
         i2p_relay: Relay,
@@ -229,7 +224,6 @@ class TestNip66NetMetadataNetAsync:
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_loki_returns_failure(
         self,
         loki_relay: Relay,
@@ -240,7 +234,6 @@ class TestNip66NetMetadataNetAsync:
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_no_ip_resolved_returns_failure(
         self,
         relay: Relay,
@@ -263,7 +256,6 @@ class TestNip66NetMetadataNetAsync:
         assert result.logs.success is False
         assert "could not resolve hostname" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_no_asn_data_returns_failure(
         self,
         relay: Relay,
@@ -289,7 +281,6 @@ class TestNip66NetMetadataNetAsync:
         assert result.logs.success is False
         assert "no ASN data found" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_dual_stack_passed_to_net(
         self,
         relay: Relay,
@@ -319,7 +310,6 @@ class TestNip66NetMetadataNetAsync:
 
         mock_net.assert_called_once_with("8.8.8.8", "2001:4860:4860::8888", mock_asn_reader)
 
-    @pytest.mark.asyncio
     async def test_success_with_partial_data(
         self,
         relay: Relay,

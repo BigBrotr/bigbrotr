@@ -116,7 +116,6 @@ class TestResolvedHostSlots:
 class TestResolveHostIpv4:
     """Tests for resolve_host() IPv4 address resolution."""
 
-    @pytest.mark.asyncio
     async def test_resolves_ipv4(self) -> None:
         """Test successful IPv4 address resolution from hostname."""
         with patch("socket.gethostbyname", return_value="93.184.216.34"):
@@ -124,7 +123,6 @@ class TestResolveHostIpv4:
 
         assert result.ipv4 == "93.184.216.34"
 
-    @pytest.mark.asyncio
     async def test_ipv4_resolution_failure(self) -> None:
         """Test IPv4 resolution failure returns None for ipv4."""
         with (
@@ -144,7 +142,6 @@ class TestResolveHostIpv4:
 class TestResolveHostIpv6:
     """Tests for resolve_host() IPv6 address resolution."""
 
-    @pytest.mark.asyncio
     async def test_resolves_ipv6(self) -> None:
         """Test successful IPv6 address resolution from hostname."""
         mock_ipv6_result = [
@@ -165,7 +162,6 @@ class TestResolveHostIpv6:
 
         assert result.ipv6 == "2606:2800:220:1:248:1893:25c8:1946"
 
-    @pytest.mark.asyncio
     async def test_ipv6_resolution_failure(self) -> None:
         """Test IPv6 resolution failure returns None for ipv6."""
         with (
@@ -177,7 +173,6 @@ class TestResolveHostIpv6:
         assert result.ipv4 == "93.184.216.34"
         assert result.ipv6 is None
 
-    @pytest.mark.asyncio
     async def test_ipv6_empty_result(self) -> None:
         """Test empty IPv6 result returns None for ipv6."""
         with (
@@ -198,7 +193,6 @@ class TestResolveHostIpv6:
 class TestResolveHostBoth:
     """Tests for resolve_host() resolving both IPv4 and IPv6."""
 
-    @pytest.mark.asyncio
     async def test_resolves_both(self) -> None:
         """Test resolving both IPv4 and IPv6 addresses."""
         mock_ipv6_result = [
@@ -230,7 +224,6 @@ class TestResolveHostBoth:
 class TestResolveHostFailure:
     """Tests for resolve_host() when all resolution fails."""
 
-    @pytest.mark.asyncio
     async def test_total_resolution_failure(self) -> None:
         """Test both IPv4 and IPv6 resolution fail."""
         with (
@@ -243,7 +236,6 @@ class TestResolveHostFailure:
         assert result.ipv6 is None
         assert result.has_ip is False
 
-    @pytest.mark.asyncio
     async def test_unicode_error_handled(self) -> None:
         """UnicodeError from invalid hostname encoding is caught and returns None."""
         with (
@@ -255,7 +247,6 @@ class TestResolveHostFailure:
         assert result.ipv4 is None
         assert result.ipv6 is None
 
-    @pytest.mark.asyncio
     async def test_unexpected_exception_propagates(self) -> None:
         """Non-OSError/UnicodeError exceptions propagate to the caller."""
         with (
@@ -273,7 +264,6 @@ class TestResolveHostFailure:
 class TestResolveHostEdgeCases:
     """Tests for resolve_host() edge cases and special inputs."""
 
-    @pytest.mark.asyncio
     async def test_localhost(self) -> None:
         """Test resolving localhost addresses."""
         with (
@@ -288,7 +278,6 @@ class TestResolveHostEdgeCases:
         assert result.ipv4 == "127.0.0.1"
         assert result.ipv6 == "::1"
 
-    @pytest.mark.asyncio
     async def test_ip_address_as_input(self) -> None:
         """Test passing an IP address as hostname."""
         with (
@@ -299,7 +288,6 @@ class TestResolveHostEdgeCases:
 
         assert result.ipv4 == "192.168.1.1"
 
-    @pytest.mark.asyncio
     async def test_subdomain(self) -> None:
         """Test resolving a subdomain hostname."""
         with (
@@ -319,7 +307,6 @@ class TestResolveHostEdgeCases:
 class TestResolveHostIndependence:
     """Tests that IPv4 and IPv6 resolution are independent of each other."""
 
-    @pytest.mark.asyncio
     async def test_ipv4_fails_ipv6_succeeds(self) -> None:
         """Test IPv4 failure does not affect IPv6 resolution."""
         mock_ipv6_result = [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:db8::1", 0, 0, 0))]
@@ -334,7 +321,6 @@ class TestResolveHostIndependence:
         assert result.ipv6 == "2001:db8::1"
         assert result.has_ip is True
 
-    @pytest.mark.asyncio
     async def test_ipv4_succeeds_ipv6_fails(self) -> None:
         """Test IPv6 failure does not affect IPv4 resolution."""
         with (
@@ -356,7 +342,6 @@ class TestResolveHostIndependence:
 class TestResolveHostAsync:
     """Tests for resolve_host() async behavior and return type."""
 
-    @pytest.mark.asyncio
     async def test_returns_resolved_host(self) -> None:
         """Test that the return type is ResolvedHost."""
         with (
@@ -367,7 +352,6 @@ class TestResolveHostAsync:
 
         assert isinstance(result, ResolvedHost)
 
-    @pytest.mark.asyncio
     async def test_can_resolve_multiple_hosts(self) -> None:
         """Test resolving multiple hosts in sequence."""
         with (

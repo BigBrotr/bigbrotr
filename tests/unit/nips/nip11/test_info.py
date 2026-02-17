@@ -134,7 +134,6 @@ class TestNip11InfoMetadataFrozen:
 class TestNip11InfoMetadataSuccess:
     """Test Nip11InfoMetadata.execute() success scenarios."""
 
-    @pytest.mark.asyncio
     async def test_info_success(self, relay: Relay, mock_session_factory):
         """Successful retrieval returns metadata with data."""
         response = AsyncMock()
@@ -152,7 +151,6 @@ class TestNip11InfoMetadataSuccess:
         assert result.logs.success is True
         assert result.data.name == "Test Relay"
 
-    @pytest.mark.asyncio
     async def test_info_with_complete_data(
         self, relay: Relay, complete_nip11_data: dict[str, Any], mock_session_factory
     ):
@@ -176,7 +174,6 @@ class TestNip11InfoMetadataSuccess:
         assert result.data.supported_nips == [1, 11, 42, 65]
         assert result.data.limitation.max_message_length == 65535
 
-    @pytest.mark.asyncio
     async def test_info_empty_json_object(self, relay: Relay, mock_session_factory):
         """Retrieval handles empty JSON object."""
         response = AsyncMock()
@@ -203,7 +200,6 @@ class TestNip11InfoMetadataSuccess:
 class TestNip11InfoMetadataContentType:
     """Test Content-Type validation in execute()."""
 
-    @pytest.mark.asyncio
     async def test_info_accepts_nostr_json(self, relay: Relay, mock_session_factory):
         """application/nostr+json is accepted."""
         response = AsyncMock()
@@ -220,7 +216,6 @@ class TestNip11InfoMetadataContentType:
 
         assert result.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_info_accepts_json(self, relay: Relay, mock_session_factory):
         """application/json is accepted."""
         response = AsyncMock()
@@ -237,7 +232,6 @@ class TestNip11InfoMetadataContentType:
 
         assert result.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_info_accepts_json_with_charset(self, relay: Relay, mock_session_factory):
         """application/json with charset is accepted."""
         response = AsyncMock()
@@ -254,7 +248,6 @@ class TestNip11InfoMetadataContentType:
 
         assert result.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_info_rejects_text_html(self, relay: Relay, mock_session_factory):
         """text/html is rejected."""
         response = AsyncMock()
@@ -272,7 +265,6 @@ class TestNip11InfoMetadataContentType:
         assert result.logs.success is False
         assert "Content-Type" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_info_rejects_text_plain(self, relay: Relay, mock_session_factory):
         """text/plain is rejected."""
         response = AsyncMock()
@@ -299,7 +291,6 @@ class TestNip11InfoMetadataContentType:
 class TestNip11InfoMetadataHttpErrors:
     """Test HTTP error handling in execute()."""
 
-    @pytest.mark.asyncio
     async def test_info_404_returns_failure(self, relay: Relay, mock_session_factory):
         """HTTP 404 returns failure."""
         response = AsyncMock()
@@ -315,7 +306,6 @@ class TestNip11InfoMetadataHttpErrors:
         assert result.logs.success is False
         assert "404" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_info_500_returns_failure(self, relay: Relay, mock_session_factory):
         """HTTP 500 returns failure."""
         response = AsyncMock()
@@ -331,7 +321,6 @@ class TestNip11InfoMetadataHttpErrors:
         assert result.logs.success is False
         assert "500" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_info_connection_error(self, relay: Relay, mock_session_factory):
         """Connection error returns failure."""
         session = MagicMock()
@@ -345,7 +334,6 @@ class TestNip11InfoMetadataHttpErrors:
         assert result.logs.success is False
         assert "Connection refused" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_info_timeout_error(self, relay: Relay, mock_session_factory):
         """Timeout error returns failure."""
 
@@ -368,7 +356,6 @@ class TestNip11InfoMetadataHttpErrors:
 class TestNip11InfoMetadataResponseSize:
     """Test response size limit handling."""
 
-    @pytest.mark.asyncio
     async def test_info_response_too_large(self, relay: Relay, mock_session_factory):
         """Response exceeding max_size returns failure."""
         response = AsyncMock()
@@ -386,7 +373,6 @@ class TestNip11InfoMetadataResponseSize:
         assert result.logs.success is False
         assert "too large" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_info_response_at_limit(self, relay: Relay, mock_session_factory):
         """Response exactly at max_size is accepted."""
         response = AsyncMock()
@@ -412,7 +398,6 @@ class TestNip11InfoMetadataResponseSize:
 class TestNip11InfoMetadataJsonParsing:
     """Test JSON parsing error handling."""
 
-    @pytest.mark.asyncio
     async def test_info_invalid_json(self, relay: Relay, mock_session_factory):
         """Invalid JSON returns failure."""
         response = AsyncMock()
@@ -429,7 +414,6 @@ class TestNip11InfoMetadataJsonParsing:
 
         assert result.logs.success is False
 
-    @pytest.mark.asyncio
     async def test_info_json_array_returns_failure(self, relay: Relay, mock_session_factory):
         """JSON array (not dict) returns failure."""
         response = AsyncMock()
@@ -447,7 +431,6 @@ class TestNip11InfoMetadataJsonParsing:
         assert result.logs.success is False
         assert "dict" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_info_json_string_returns_failure(self, relay: Relay, mock_session_factory):
         """JSON string (not dict) returns failure."""
         response = AsyncMock()
@@ -465,7 +448,6 @@ class TestNip11InfoMetadataJsonParsing:
         assert result.logs.success is False
         assert "dict" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_info_json_null_returns_failure(self, relay: Relay, mock_session_factory):
         """JSON null returns failure."""
         response = AsyncMock()
@@ -491,7 +473,6 @@ class TestNip11InfoMetadataJsonParsing:
 class TestNip11InfoMetadataUrlConstruction:
     """Test URL construction in execute()."""
 
-    @pytest.mark.asyncio
     async def test_info_wss_uses_https(self, relay: Relay, mock_session_factory):
         """wss:// relay uses https://."""
         response = AsyncMock()
@@ -510,7 +491,6 @@ class TestNip11InfoMetadataUrlConstruction:
         url = call_args[0][0]
         assert url.startswith("https://")
 
-    @pytest.mark.asyncio
     async def test_info_ws_uses_http(self, tor_relay: Relay, mock_session_factory):
         """ws:// relay uses http://."""
         response = AsyncMock()
@@ -529,7 +509,6 @@ class TestNip11InfoMetadataUrlConstruction:
         url = call_args[0][0]
         assert url.startswith("http://")
 
-    @pytest.mark.asyncio
     async def test_info_includes_port(self, relay_with_port: Relay, mock_session_factory):
         """Non-default port is included in URL."""
         response = AsyncMock()
@@ -548,7 +527,6 @@ class TestNip11InfoMetadataUrlConstruction:
         url = call_args[0][0]
         assert ":8080" in url
 
-    @pytest.mark.asyncio
     async def test_info_includes_path(self, relay_with_path: Relay, mock_session_factory):
         """Path is included in URL."""
         response = AsyncMock()
@@ -567,7 +545,6 @@ class TestNip11InfoMetadataUrlConstruction:
         url = call_args[0][0]
         assert "/nostr" in url
 
-    @pytest.mark.asyncio
     async def test_info_ipv6_brackets(self, ipv6_relay: Relay, mock_session_factory):
         """IPv6 addresses are bracketed in URL."""
         response = AsyncMock()
@@ -595,7 +572,6 @@ class TestNip11InfoMetadataUrlConstruction:
 class TestNip11InfoMetadataAcceptHeader:
     """Test Accept header in execute()."""
 
-    @pytest.mark.asyncio
     async def test_info_sends_accept_header(self, relay: Relay, mock_session_factory):
         """Request includes Accept: application/nostr+json header."""
         response = AsyncMock()
@@ -623,7 +599,6 @@ class TestNip11InfoMetadataAcceptHeader:
 class TestNip11InfoMetadataNetworkBehavior:
     """Test network-specific behavior in execute()."""
 
-    @pytest.mark.asyncio
     async def test_info_tor_relay(self, tor_relay: Relay, mock_session_factory):
         """Tor relay retrieval uses http:// (overlay handles encryption)."""
         response = AsyncMock()
@@ -644,7 +619,6 @@ class TestNip11InfoMetadataNetworkBehavior:
         assert url.startswith("http://")
         assert ".onion" in url
 
-    @pytest.mark.asyncio
     async def test_info_i2p_relay(self, i2p_relay: Relay, mock_session_factory):
         """I2P relay retrieval uses http://."""
         response = AsyncMock()
@@ -665,7 +639,6 @@ class TestNip11InfoMetadataNetworkBehavior:
         assert url.startswith("http://")
         assert ".i2p" in url
 
-    @pytest.mark.asyncio
     async def test_info_loki_relay(self, loki_relay: Relay, mock_session_factory):
         """Lokinet relay retrieval uses http://."""
         response = AsyncMock()
@@ -695,7 +668,6 @@ class TestNip11InfoMetadataNetworkBehavior:
 class TestNip11InfoMetadataTimeout:
     """Test timeout configuration in execute()."""
 
-    @pytest.mark.asyncio
     async def test_info_uses_default_timeout(self, relay: Relay, mock_session_factory):
         """Retrieval uses default timeout when not specified."""
         response = AsyncMock()
@@ -714,7 +686,6 @@ class TestNip11InfoMetadataTimeout:
         timeout = call_args[1]["timeout"]
         assert timeout.total == 10.0
 
-    @pytest.mark.asyncio
     async def test_info_custom_timeout(self, relay: Relay, mock_session_factory):
         """Retrieval uses custom timeout when specified."""
         response = AsyncMock()
@@ -742,7 +713,6 @@ class TestNip11InfoMetadataTimeout:
 class TestNip11InfoMetadataDataParsing:
     """Test data parsing in execute() with invalid fields."""
 
-    @pytest.mark.asyncio
     async def test_info_filters_invalid_fields(self, relay: Relay, mock_session_factory):
         """Retrieval filters invalid fields from response."""
         response = AsyncMock()
@@ -763,7 +733,6 @@ class TestNip11InfoMetadataDataParsing:
         assert result.data.name == "Test"
         assert result.data.supported_nips == [1, 11]
 
-    @pytest.mark.asyncio
     async def test_info_ignores_unknown_fields(self, relay: Relay, mock_session_factory):
         """Retrieval ignores unknown fields in response."""
         response = AsyncMock()
@@ -793,7 +762,6 @@ class TestNip11InfoMetadataDataParsing:
 class TestNip11InfoMetadataDirectInfo:
     """Test the direct _info() static method."""
 
-    @pytest.mark.asyncio
     async def test_direct_info_returns_dict(self, mock_session_factory):
         """_info() returns raw dict from relay."""
         response = AsyncMock()
@@ -816,7 +784,6 @@ class TestNip11InfoMetadataDirectInfo:
 
         assert result == {"name": "Direct Test"}
 
-    @pytest.mark.asyncio
     async def test_direct_info_raises_on_non_200(self, mock_session_factory):
         """_info() raises ValueError on non-200 status."""
         response = AsyncMock()
@@ -838,7 +805,6 @@ class TestNip11InfoMetadataDirectInfo:
                 ssl_context=True,
             )
 
-    @pytest.mark.asyncio
     async def test_direct_info_raises_on_invalid_content_type(self, mock_session_factory):
         """_info() raises ValueError on invalid Content-Type."""
         response = AsyncMock()
@@ -862,7 +828,6 @@ class TestNip11InfoMetadataDirectInfo:
                 ssl_context=True,
             )
 
-    @pytest.mark.asyncio
     async def test_direct_info_raises_on_size_exceeded(self, mock_session_factory):
         """_info() raises ValueError when response exceeds max_size."""
         response = AsyncMock()

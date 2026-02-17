@@ -70,7 +70,7 @@ The codebase follows a strict Diamond DAG -- imports flow strictly downward:
 | Layer | Responsibility | I/O |
 |-------|---------------|-----|
 | **models** | Pure frozen dataclasses, enums, type definitions | None |
-| **core** | Pool, Brotr, BaseService, Logger, Exceptions | Database |
+| **core** | Pool, Brotr, BaseService, Logger, Metrics | Database |
 | **nips** | NIP-11 info fetch, NIP-66 health checks | HTTP, DNS, SSL, WebSocket, GeoIP |
 | **utils** | DNS resolution, key management, WebSocket transport | Network |
 | **services** | Business logic: Seeder, Finder, Validator, Monitor, Synchronizer | All |

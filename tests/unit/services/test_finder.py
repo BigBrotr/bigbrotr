@@ -315,7 +315,6 @@ class TestFinderInit:
 class TestFinderRun:
     """Tests for Finder.run() method."""
 
-    @pytest.mark.asyncio
     async def test_run_all_disabled(self, mock_brotr: Brotr) -> None:
         """Test run with all discovery methods disabled."""
         config = FinderConfig(
@@ -328,7 +327,6 @@ class TestFinderRun:
 
         assert finder._found_relays == 0
 
-    @pytest.mark.asyncio
     async def test_run_calls_both_methods(self, mock_brotr: Brotr) -> None:
         """Test run calls both discovery methods when enabled."""
         finder = Finder(brotr=mock_brotr)
@@ -342,7 +340,6 @@ class TestFinderRun:
             mock_events.assert_called_once()
             mock_api.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_run_resets_found_relays(self, mock_brotr: Brotr) -> None:
         """Test run resets found_relays counter at start."""
         finder = Finder(brotr=mock_brotr)
@@ -364,7 +361,6 @@ class TestFinderRun:
 class TestFinderFindFromApi:
     """Tests for Finder._find_from_api() method."""
 
-    @pytest.mark.asyncio
     async def test_find_from_api_all_sources_disabled(self, mock_brotr: Brotr) -> None:
         """Test API fetch when all sources are disabled."""
         config = FinderConfig(
@@ -381,7 +377,6 @@ class TestFinderFindFromApi:
 
         assert finder._found_relays == 0
 
-    @pytest.mark.asyncio
     async def test_find_from_api_success(self, mock_brotr: Brotr) -> None:
         """Test successful API fetch."""
         mock_brotr.upsert_service_state = AsyncMock(return_value=2)  # type: ignore[method-assign]
@@ -408,7 +403,6 @@ class TestFinderFindFromApi:
 
             assert finder._found_relays == 2
 
-    @pytest.mark.asyncio
     async def test_find_from_api_handles_errors(self, mock_brotr: Brotr) -> None:
         """Test API fetch handles errors gracefully."""
         config = FinderConfig(
@@ -440,7 +434,6 @@ class TestFinderFindFromApi:
 class TestFinderFetchSingleApi:
     """Tests for Finder._fetch_single_api() method."""
 
-    @pytest.mark.asyncio
     async def test_fetch_single_api_valid_relays(self, mock_brotr: Brotr) -> None:
         """Test fetching valid relay URLs."""
         finder = Finder(brotr=mock_brotr)
@@ -457,7 +450,6 @@ class TestFinderFetchSingleApi:
         assert "wss://relay1.com" in result_urls
         assert "wss://relay2.com" in result_urls
 
-    @pytest.mark.asyncio
     async def test_fetch_single_api_filters_invalid_urls(self, mock_brotr: Brotr) -> None:
         """Test fetching filters out invalid relay URLs."""
         finder = Finder(brotr=mock_brotr)
@@ -473,7 +465,6 @@ class TestFinderFetchSingleApi:
         result_urls = [str(r) for r in result]
         assert "wss://valid.relay.com" in result_urls
 
-    @pytest.mark.asyncio
     async def test_fetch_single_api_handles_non_list_response(self, mock_brotr: Brotr) -> None:
         """Test fetching handles non-list API response."""
         finder = Finder(brotr=mock_brotr)
@@ -487,7 +478,6 @@ class TestFinderFetchSingleApi:
 
         assert len(result) == 0  # No relays extracted from dict response
 
-    @pytest.mark.asyncio
     async def test_fetch_single_api_handles_empty_list(self, mock_brotr: Brotr) -> None:
         """Test fetching handles empty list response."""
         finder = Finder(brotr=mock_brotr)
@@ -501,7 +491,6 @@ class TestFinderFetchSingleApi:
 
         assert len(result) == 0
 
-    @pytest.mark.asyncio
     async def test_fetch_single_api_rejects_oversized_response(self, mock_brotr: Brotr) -> None:
         """Oversized API response raises ValueError (caught by _find_from_api)."""
         config = FinderConfig(api=ApiConfig(max_response_size=1024))
@@ -533,7 +522,6 @@ class TestFinderFetchSingleApi:
 class TestFinderFindFromEvents:
     """Tests for Finder._find_from_events() method."""
 
-    @pytest.mark.asyncio
     async def test_empty_database_returns_no_urls(self, mock_brotr: Brotr) -> None:
         """Empty database (no relays) returns no URLs."""
         mock_brotr._pool.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
@@ -543,7 +531,6 @@ class TestFinderFindFromEvents:
 
         assert finder._found_relays == 0
 
-    @pytest.mark.asyncio
     async def test_valid_relay_urls_extracted_from_kind_2(self, mock_brotr: Brotr) -> None:
         """Valid relay URLs extracted from kind 2 events."""
         mock_event = {
@@ -584,7 +571,6 @@ class TestFinderFindFromEvents:
                     all_urls.append(relay.url)
             assert any("relay.example.com" in url for url in all_urls)
 
-    @pytest.mark.asyncio
     async def test_valid_relay_urls_extracted_from_kind_10002(self, mock_brotr: Brotr) -> None:
         """Valid relay URLs extracted from kind 10002 events."""
         mock_event = {
@@ -626,7 +612,6 @@ class TestFinderFindFromEvents:
             assert any("relay1.example.com" in url for url in all_urls)
             assert any("relay2.example.com" in url for url in all_urls)
 
-    @pytest.mark.asyncio
     async def test_urls_extracted_from_r_tags(self, mock_brotr: Brotr) -> None:
         """URLs extracted from r tags in event content."""
         mock_event = {
@@ -667,7 +652,6 @@ class TestFinderFindFromEvents:
                     all_urls.append(relay.url)
             assert any("rtag-relay.com" in url for url in all_urls)
 
-    @pytest.mark.asyncio
     async def test_invalid_malformed_urls_filtered_out(self, mock_brotr: Brotr) -> None:
         """Invalid/malformed URLs filtered out."""
         mock_event = {
@@ -702,7 +686,6 @@ class TestFinderFindFromEvents:
 
             assert finder._found_relays == 0
 
-    @pytest.mark.asyncio
     async def test_duplicate_urls_deduplicated(self, mock_brotr: Brotr) -> None:
         """Duplicate URLs deduplicated."""
         mock_event = {
@@ -745,7 +728,6 @@ class TestFinderFindFromEvents:
             assert len(relays) == 1
             assert relays[0].url == "wss://duplicate.relay.com"
 
-    @pytest.mark.asyncio
     async def test_cursor_position_updated_after_scan(self, mock_brotr: Brotr) -> None:
         """Cursor position updated after scan."""
         mock_event = {
@@ -787,7 +769,6 @@ class TestFinderFindFromEvents:
             )
             assert cursor_saved
 
-    @pytest.mark.asyncio
     async def test_exception_handling_during_database_query(self, mock_brotr: Brotr) -> None:
         """Exception handling during database query."""
         mock_brotr._pool.fetch = AsyncMock(side_effect=OSError("Database connection error"))  # type: ignore[method-assign]
@@ -797,7 +778,6 @@ class TestFinderFindFromEvents:
 
         assert finder._found_relays == 0
 
-    @pytest.mark.asyncio
     async def test_network_type_detected_clearnet_vs_tor(self, mock_brotr: Brotr) -> None:
         """Network type correctly detected (clearnet vs tor)."""
         mock_event = {

@@ -232,7 +232,6 @@ class TestValidator:
 class TestValidatorRun:
     """Tests for validator run cycle."""
 
-    @pytest.mark.asyncio
     async def test_run_with_no_candidates(self, mock_validator_brotr: Brotr) -> None:
         """Test run completes when no candidates exist."""
         validator = Validator(brotr=mock_validator_brotr)
@@ -241,7 +240,6 @@ class TestValidatorRun:
         assert validator._progress.success == 0
         assert validator._progress.failure == 0
 
-    @pytest.mark.asyncio
     async def test_cleanup_promoted_called_at_end_of_run(self, mock_validator_brotr: Brotr) -> None:
         """Test cleanup of promoted candidates is called at end of run cycle."""
         mock_validator_brotr._pool.fetch = AsyncMock(
@@ -263,7 +261,6 @@ class TestValidatorRun:
         )
         assert cleanup_called
 
-    @pytest.mark.asyncio
     async def test_run_validates_candidates(self, mock_validator_brotr: Brotr) -> None:
         """Test basic validation flow."""
         mock_validator_brotr._pool.fetch = AsyncMock(
@@ -284,7 +281,6 @@ class TestValidatorRun:
         assert validator._progress.success == 1
         assert validator._progress.failure == 1
 
-    @pytest.mark.asyncio
     async def test_run_progress_reset(self, mock_validator_brotr: Brotr) -> None:
         """Test progress is reset at start of run."""
         validator = Validator(brotr=mock_validator_brotr)
@@ -305,7 +301,6 @@ class TestValidatorRun:
 class TestChunkProcessing:
     """Tests for chunk-based processing."""
 
-    @pytest.mark.asyncio
     async def test_loads_chunks_until_empty(self, mock_validator_brotr: Brotr) -> None:
         """Test validator loads chunks until no more candidates."""
         mock_validator_brotr._pool.fetch = AsyncMock(
@@ -326,7 +321,6 @@ class TestChunkProcessing:
 
         assert validator._progress.success == 150
 
-    @pytest.mark.asyncio
     async def test_respects_max_candidates_limit(self, mock_validator_brotr: Brotr) -> None:
         """Test validator respects max_candidates limit."""
 
@@ -368,7 +362,6 @@ class TestChunkProcessing:
 class TestNetworkAwareValidation:
     """Tests for network-specific validation behavior."""
 
-    @pytest.mark.asyncio
     async def test_clearnet_uses_clearnet_timeout(self, mock_validator_brotr: Brotr) -> None:
         """Test clearnet relays use clearnet timeout."""
         mock_validator_brotr._pool.fetch = AsyncMock(
@@ -388,7 +381,6 @@ class TestNetworkAwareValidation:
             _, _, timeout = mock.call_args[0]
             assert timeout == 5.0
 
-    @pytest.mark.asyncio
     async def test_tor_uses_tor_timeout(self, mock_validator_brotr: Brotr) -> None:
         """Test Tor relays use Tor timeout."""
         mock_validator_brotr._pool.fetch = AsyncMock(
@@ -406,7 +398,6 @@ class TestNetworkAwareValidation:
             _, _, timeout = mock.call_args[0]
             assert timeout == 45.0
 
-    @pytest.mark.asyncio
     async def test_tor_uses_proxy(self, mock_validator_brotr: Brotr) -> None:
         """Test Tor relays use proxy URL."""
         mock_validator_brotr._pool.fetch = AsyncMock(
@@ -426,7 +417,6 @@ class TestNetworkAwareValidation:
             _, proxy_url, _ = mock.call_args[0]
             assert proxy_url == "socks5://tor:9050"
 
-    @pytest.mark.asyncio
     async def test_clearnet_uses_no_proxy(self, mock_validator_brotr: Brotr) -> None:
         """Test clearnet relays don't use proxy."""
         mock_validator_brotr._pool.fetch = AsyncMock(
@@ -443,7 +433,6 @@ class TestNetworkAwareValidation:
             _, proxy_url, _ = mock.call_args[0]
             assert proxy_url is None
 
-    @pytest.mark.asyncio
     async def test_i2p_uses_i2p_settings(self, mock_validator_brotr: Brotr) -> None:
         """Test I2P relays use I2P timeout and proxy."""
         mock_validator_brotr._pool.fetch = AsyncMock(
@@ -466,7 +455,6 @@ class TestNetworkAwareValidation:
             assert proxy_url == "socks5://i2p:4447"
             assert timeout == 60.0
 
-    @pytest.mark.asyncio
     async def test_lokinet_uses_lokinet_settings(self, mock_validator_brotr: Brotr) -> None:
         """Test Lokinet relays use Lokinet timeout and proxy."""
         mock_validator_brotr._pool._mock_connection.fetch = AsyncMock(
@@ -498,7 +486,6 @@ class TestNetworkAwareValidation:
 class TestErrorHandling:
     """Tests for error handling."""
 
-    @pytest.mark.asyncio
     async def test_validation_exception_handled(self, mock_validator_brotr: Brotr) -> None:
         """Test exceptions during validation are handled."""
         mock_validator_brotr._pool.fetch = AsyncMock(
@@ -517,7 +504,6 @@ class TestErrorHandling:
         assert validator._progress.success == 0
         assert validator._progress.failure == 1
 
-    @pytest.mark.asyncio
     async def test_database_error_during_persist_logged(self, mock_validator_brotr: Brotr) -> None:
         """Test database errors during persist are logged."""
         mock_validator_brotr._pool.fetch = AsyncMock(
@@ -534,7 +520,6 @@ class TestErrorHandling:
 
         assert validator._progress.failure == 1
 
-    @pytest.mark.asyncio
     async def test_all_candidates_fail_validation(self, mock_validator_brotr: Brotr) -> None:
         """Test run completes when all validations fail."""
         mock_validator_brotr._pool.fetch = AsyncMock(
@@ -551,7 +536,6 @@ class TestErrorHandling:
         assert validator._progress.success == 0
         assert validator._progress.failure == 10
 
-    @pytest.mark.asyncio
     async def test_graceful_shutdown(self, mock_validator_brotr: Brotr) -> None:
         """Test is_running flag controls processing loop."""
         mock_validator_brotr._pool.fetch = AsyncMock(
@@ -597,7 +581,6 @@ class TestErrorHandling:
 class TestPersistence:
     """Tests for result persistence."""
 
-    @pytest.mark.asyncio
     async def test_valid_relays_inserted_and_candidates_deleted(
         self, mock_validator_brotr: Brotr
     ) -> None:
@@ -627,7 +610,6 @@ class TestPersistence:
         assert len(delete_call) == 1, f"Expected one candidate DELETE call, got {delete_call}"
         assert "wss://valid.relay.com" in delete_call[0].args[3]
 
-    @pytest.mark.asyncio
     async def test_invalid_candidates_failures_incremented(
         self, mock_validator_brotr: Brotr
     ) -> None:
@@ -647,7 +629,6 @@ class TestPersistence:
         call_args = mock_validator_brotr.upsert_service_state.call_args[0][0]
         assert call_args[0].state_value["failed_attempts"] == 3
 
-    @pytest.mark.asyncio
     async def test_invalid_candidates_preserve_data_fields(
         self, mock_validator_brotr: Brotr
     ) -> None:
@@ -681,7 +662,6 @@ class TestPersistence:
 class TestCleanup:
     """Tests for cleanup operations."""
 
-    @pytest.mark.asyncio
     async def test_cleanup_stale(self, mock_validator_brotr: Brotr) -> None:
         """Test stale candidates (already in relays) are cleaned up."""
         mock_validator_brotr._pool.execute = AsyncMock(return_value="DELETE 5")
@@ -694,7 +674,6 @@ class TestCleanup:
         assert "DELETE FROM service_state" in query
         assert "EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)" in query
 
-    @pytest.mark.asyncio
     async def test_cleanup_exhausted_when_enabled(self, mock_validator_brotr: Brotr) -> None:
         """Test exhausted candidates are cleaned up when enabled."""
         mock_validator_brotr._pool.execute = AsyncMock(return_value="DELETE 3")
@@ -707,7 +686,6 @@ class TestCleanup:
         call_args = mock_validator_brotr._pool.execute.call_args
         assert call_args[0][3] == 5  # max_failures threshold
 
-    @pytest.mark.asyncio
     async def test_cleanup_exhausted_not_called_when_disabled(
         self, mock_validator_brotr: Brotr
     ) -> None:
@@ -721,7 +699,6 @@ class TestCleanup:
 
         mock_validator_brotr._pool._mock_connection.execute.assert_not_called()
 
-    @pytest.mark.asyncio
     async def test_cleanup_propagates_db_errors(self, mock_validator_brotr: Brotr) -> None:
         """Test cleanup propagates database errors (no internal error handling)."""
         mock_validator_brotr._pool.execute = AsyncMock(side_effect=Exception("DB error"))
@@ -813,7 +790,6 @@ class TestNetworkConfiguration:
 class TestValidatorIntegration:
     """Integration tests for Validator."""
 
-    @pytest.mark.asyncio
     async def test_full_validation_cycle(self, mock_validator_brotr: Brotr) -> None:
         """Test complete validation cycle with mixed results."""
         mock_validator_brotr._pool._mock_connection.fetch = AsyncMock(
@@ -843,7 +819,6 @@ class TestValidatorIntegration:
         assert validator._progress.success == 1
         assert validator._progress.failure == 2
 
-    @pytest.mark.asyncio
     async def test_validation_with_multiple_networks(self, mock_validator_brotr: Brotr) -> None:
         """Test validation with candidates from multiple networks."""
         mock_validator_brotr._pool.fetch = AsyncMock(

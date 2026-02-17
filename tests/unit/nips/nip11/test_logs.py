@@ -88,11 +88,10 @@ class TestNip11InfoLogsSemanticValidation:
         with pytest.raises(ValidationError, match="reason is required when success is False"):
             Nip11InfoLogs(success=False, reason=None)
 
-    def test_success_false_with_empty_string_reason_is_valid(self):
-        """success=False with empty string reason is valid (str type passes)."""
-        logs = Nip11InfoLogs(success=False, reason="")
-        assert logs.success is False
-        assert logs.reason == ""
+    def test_success_false_with_empty_string_reason_raises(self):
+        """success=False with empty string reason raises (empty is not meaningful)."""
+        with pytest.raises(ValidationError, match="reason is required when success is False"):
+            Nip11InfoLogs(success=False, reason="")
 
 
 # =============================================================================
@@ -202,11 +201,10 @@ class TestNip11InfoLogsToDict:
         d = logs.to_dict()
         assert d == {"success": False, "reason": "timeout"}
 
-    def test_to_dict_empty_reason_included(self):
-        """to_dict includes empty string reason (not None)."""
-        logs = Nip11InfoLogs(success=False, reason="")
-        d = logs.to_dict()
-        assert d == {"success": False, "reason": ""}
+    def test_to_dict_empty_reason_raises(self):
+        """Empty string reason is rejected at construction."""
+        with pytest.raises(ValidationError, match="reason is required when success is False"):
+            Nip11InfoLogs(success=False, reason="")
 
 
 # =============================================================================
@@ -229,11 +227,10 @@ class TestNip11InfoLogsRoundtrip:
         reconstructed = Nip11InfoLogs.from_dict(original.to_dict())
         assert reconstructed == original
 
-    def test_empty_reason_roundtrip(self):
-        """to_dict -> from_dict roundtrip preserves empty string reason."""
-        original = Nip11InfoLogs(success=False, reason="")
-        reconstructed = Nip11InfoLogs.from_dict(original.to_dict())
-        assert reconstructed == original
+    def test_empty_reason_roundtrip_rejected(self):
+        """Empty string reason is rejected at construction."""
+        with pytest.raises(ValidationError, match="reason is required when success is False"):
+            Nip11InfoLogs(success=False, reason="")
 
 
 # =============================================================================

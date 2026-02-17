@@ -174,15 +174,15 @@ class NetworkConfig(BaseModel):
         """
         return getattr(self, network.value, self.clearnet)
 
-    def get_proxy_url(self, network: str | NetworkType) -> str | None:
+    def get_proxy_url(self, network: NetworkType) -> str | None:
         """Get the SOCKS5 proxy URL for a network type.
 
         Returns the proxy URL only if the network is enabled and has a
         configured proxy. Clearnet always returns ``None``.
 
         Args:
-            network: Network type as string or
-                [NetworkType][bigbrotr.models.constants.NetworkType] enum.
+            network: The [NetworkType][bigbrotr.models.constants.NetworkType]
+                enum value to look up.
 
         Returns:
             The SOCKS5 proxy URL if enabled and configured, ``None`` otherwise.
@@ -192,33 +192,22 @@ class NetworkConfig(BaseModel):
             and [is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay]
             to route overlay-network connections through SOCKS5 proxies.
         """
-        if isinstance(network, str):
-            try:
-                network = NetworkType(network)
-            except ValueError:
-                return None
-
         if network == NetworkType.CLEARNET:
             return None
 
         config = self.get(network)
         return config.proxy_url if config.enabled else None
 
-    def is_enabled(self, network: str | NetworkType) -> bool:
+    def is_enabled(self, network: NetworkType) -> bool:
         """Check if processing is enabled for a network type.
 
         Args:
-            network: Network type as string or NetworkType enum.
+            network: The [NetworkType][bigbrotr.models.constants.NetworkType]
+                enum value to look up.
 
         Returns:
             True if the network is enabled, False otherwise.
         """
-        if isinstance(network, str):
-            try:
-                network = NetworkType(network)
-            except ValueError:
-                return False
-
         return self.get(network).enabled
 
     def get_enabled_networks(self) -> list[str]:

@@ -32,56 +32,62 @@ from bigbrotr.utils.transport import (
 # =============================================================================
 
 
-class TestIsSslErrorKeywordDetection:
-    """Tests for _is_ssl_error() keyword detection."""
+class TestIsSslErrorPatternDetection:
+    """Tests for _is_ssl_error() multi-word pattern detection."""
 
-    def test_ssl_keyword(self) -> None:
-        """Test detection of 'ssl' keyword."""
+    def test_ssl_handshake(self) -> None:
+        """Test detection of 'ssl handshake' pattern."""
         assert _is_ssl_error("SSL handshake failed") is True
 
-    def test_tls_keyword(self) -> None:
-        """Test detection of 'tls' keyword."""
-        assert _is_ssl_error("TLS connection error") is True
+    def test_tls_handshake(self) -> None:
+        """Test detection of 'tls handshake failed' pattern."""
+        assert _is_ssl_error("TLS handshake failed on connect") is True
 
-    def test_certificate_keyword(self) -> None:
-        """Test detection of 'certificate' keyword."""
-        assert _is_ssl_error("Certificate verification failed") is True
+    def test_certificate_verify(self) -> None:
+        """Test detection of 'certificate verify' pattern."""
+        assert _is_ssl_error("certificate verify failed") is True
 
-    def test_cert_keyword(self) -> None:
-        """Test detection of 'cert' keyword."""
-        assert _is_ssl_error("Invalid cert") is True
+    def test_cert_verify_failed(self) -> None:
+        """Test detection of 'cert verify failed' pattern."""
+        assert _is_ssl_error("cert verify failed: unable to get issuer") is True
 
-    def test_x509_keyword(self) -> None:
-        """Test detection of 'x509' keyword."""
+    def test_x509(self) -> None:
+        """Test detection of 'x509' pattern."""
         assert _is_ssl_error("X509 error occurred") is True
 
-    def test_handshake_keyword(self) -> None:
-        """Test detection of 'handshake' keyword."""
-        assert _is_ssl_error("Handshake timeout") is True
+    def test_ssl_error(self) -> None:
+        """Test detection of 'ssl error' pattern."""
+        assert _is_ssl_error("SSL error in connection") is True
 
-    def test_verify_keyword(self) -> None:
-        """Test detection of 'verify' keyword."""
-        assert _is_ssl_error("Could not verify server") is True
+    def test_tls_error(self) -> None:
+        """Test detection of 'tls error' pattern."""
+        assert _is_ssl_error("TLS error: protocol mismatch") is True
+
+    def test_ssl_certificate(self) -> None:
+        """Test detection of 'ssl certificate' pattern."""
+        assert _is_ssl_error("SSL certificate problem") is True
+
+    def test_single_keyword_no_match(self) -> None:
+        """Single keywords without context do not match (reduces false positives)."""
+        assert _is_ssl_error("handshake timeout") is False
+        assert _is_ssl_error("invalid cert") is False
+        assert _is_ssl_error("could not verify server") is False
 
 
 class TestIsSslErrorCaseInsensitive:
     """Tests that _is_ssl_error() is case insensitive."""
 
-    def test_uppercase_ssl(self) -> None:
-        """Test detection of uppercase 'SSL'."""
+    def test_uppercase_ssl_error(self) -> None:
+        """Test detection of uppercase 'SSL ERROR'."""
         assert _is_ssl_error("SSL ERROR") is True
 
-    def test_mixed_case_certificate(self) -> None:
-        """Test detection of mixed case 'Certificate'."""
-        assert _is_ssl_error("Certificate") is True
+    def test_mixed_case_certificate_verify(self) -> None:
+        """Test detection of mixed case 'Certificate Verify'."""
+        assert _is_ssl_error("Certificate Verify Failed") is True
 
-    def test_uppercase_handshake(self) -> None:
-        """Test detection of uppercase 'HANDSHAKE'."""
-        assert _is_ssl_error("HANDSHAKE FAILED") is True
-
-    def test_lowercase_keywords(self) -> None:
-        """Test detection of all lowercase keywords."""
-        assert _is_ssl_error("ssl tls certificate cert x509 handshake verify") is True
+    def test_uppercase_ssl_handshake(self) -> None:
+        """Test detection of uppercase 'SSL HANDSHAKE'."""
+        assert _is_ssl_error("SSL HANDSHAKE FAILED") is True
 
 
 class TestIsSslErrorNonSslErrors:
@@ -217,7 +223,6 @@ class TestCreateInsecureClient:
 class TestConnectRelayOverlayNetworks:
     """Tests for connect_relay() with overlay networks (Tor, I2P, Loki)."""
 
-    @pytest.mark.asyncio
     async def test_tor_requires_proxy(self) -> None:
         """Test Tor relay requires proxy_url."""
         relay = Relay("wss://example.onion")
@@ -230,7 +235,6 @@ class TestConnectRelayOverlayNetworks:
         assert "proxy_url required" in str(exc_info.value)
         assert "tor" in str(exc_info.value).lower()
 
-    @pytest.mark.asyncio
     async def test_i2p_requires_proxy(self) -> None:
         """Test I2P relay requires proxy_url."""
         relay = Relay("wss://example.i2p")
@@ -242,7 +246,6 @@ class TestConnectRelayOverlayNetworks:
 
         assert "proxy_url required" in str(exc_info.value)
 
-    @pytest.mark.asyncio
     async def test_loki_requires_proxy(self) -> None:
         """Test Lokinet relay requires proxy_url."""
         relay = Relay("wss://example.loki")
@@ -263,7 +266,6 @@ class TestConnectRelayOverlayNetworks:
 class TestConnectRelayClearnet:
     """Tests for connect_relay() with clearnet relays."""
 
-    @pytest.mark.asyncio
     async def test_ssl_error_fallback_disabled_raises(self) -> None:
         """Test SSL errors raise when allow_insecure=False."""
         relay = Relay("wss://relay.example.com")
@@ -292,7 +294,6 @@ class TestConnectRelayClearnet:
             with pytest.raises(ssl.SSLCertVerificationError):
                 await connect_relay(relay, allow_insecure=False)
 
-    @pytest.mark.asyncio
     async def test_clearnet_no_proxy_required(self) -> None:
         """Test clearnet relay does not require proxy."""
         relay = Relay("wss://relay.example.com")
@@ -330,7 +331,6 @@ class TestConnectRelayClearnet:
 class TestIsNostrRelayMocked:
     """Tests for is_nostr_relay() with mocked connections."""
 
-    @pytest.mark.asyncio
     async def test_valid_relay_returns_true(self) -> None:
         """Test relay that responds with EOSE is valid."""
         relay = Relay("wss://relay.example.com")
@@ -346,7 +346,6 @@ class TestIsNostrRelayMocked:
             result = await is_nostr_relay(relay)
             assert result is True
 
-    @pytest.mark.asyncio
     async def test_auth_required_is_valid(self) -> None:
         """Test relay that requires AUTH (NIP-42) is still valid."""
         relay = Relay("wss://relay.example.com")
@@ -359,7 +358,6 @@ class TestIsNostrRelayMocked:
             result = await is_nostr_relay(relay)
             assert result is True
 
-    @pytest.mark.asyncio
     async def test_connection_error_is_invalid(self) -> None:
         """Test relay that fails to connect is invalid."""
         relay = Relay("wss://relay.example.com")
@@ -372,7 +370,6 @@ class TestIsNostrRelayMocked:
             result = await is_nostr_relay(relay)
             assert result is False
 
-    @pytest.mark.asyncio
     async def test_timeout_error_is_invalid(self) -> None:
         """Test relay that times out is invalid."""
         relay = Relay("wss://relay.example.com")
@@ -385,7 +382,6 @@ class TestIsNostrRelayMocked:
             result = await is_nostr_relay(relay)
             assert result is False
 
-    @pytest.mark.asyncio
     async def test_passes_proxy_url(self) -> None:
         """Test proxy URL is passed to connect_relay."""
         relay = Relay("wss://example.onion")
@@ -404,7 +400,6 @@ class TestIsNostrRelayMocked:
             call_kwargs = mock_connect.call_args[1]
             assert call_kwargs["proxy_url"] == "socks5://127.0.0.1:9050"
 
-    @pytest.mark.asyncio
     async def test_uses_custom_timeout(self) -> None:
         """Test custom timeout is passed to connect_relay."""
         relay = Relay("wss://relay.example.com")
@@ -427,7 +422,6 @@ class TestIsNostrRelayMocked:
 class TestIsNostrRelayDisconnect:
     """Tests that is_nostr_relay() properly disconnects after validation."""
 
-    @pytest.mark.asyncio
     async def test_disconnect_called_on_success(self) -> None:
         """Test disconnect is called after successful validation."""
         relay = Relay("wss://relay.example.com")
@@ -453,7 +447,6 @@ class TestIsNostrRelayDisconnect:
 class TestInsecureWebSocketAdapterSend:
     """Tests for InsecureWebSocketAdapter.send() method."""
 
-    @pytest.mark.asyncio
     async def test_send_text_message(self) -> None:
         """Test sending text message via WebSocket."""
         from nostr_sdk import WebSocketMessage
@@ -467,7 +460,6 @@ class TestInsecureWebSocketAdapterSend:
 
         mock_ws.send_str.assert_called_once_with("test message")
 
-    @pytest.mark.asyncio
     async def test_send_binary_message(self) -> None:
         """Test sending binary message via WebSocket."""
         from nostr_sdk import WebSocketMessage
@@ -481,7 +473,6 @@ class TestInsecureWebSocketAdapterSend:
 
         mock_ws.send_bytes.assert_called_once_with(b"binary data")
 
-    @pytest.mark.asyncio
     async def test_send_ping_message(self) -> None:
         """Test sending ping message via WebSocket."""
         from nostr_sdk import WebSocketMessage
@@ -495,7 +486,6 @@ class TestInsecureWebSocketAdapterSend:
 
         mock_ws.ping.assert_called_once_with(b"ping data")
 
-    @pytest.mark.asyncio
     async def test_send_pong_message(self) -> None:
         """Test sending pong message via WebSocket."""
         from nostr_sdk import WebSocketMessage
@@ -513,7 +503,6 @@ class TestInsecureWebSocketAdapterSend:
 class TestInsecureWebSocketAdapterReceive:
     """Tests for InsecureWebSocketAdapter.recv() method."""
 
-    @pytest.mark.asyncio
     async def test_recv_text_message(self) -> None:
         """Test receiving text message from WebSocket."""
         import aiohttp
@@ -533,7 +522,6 @@ class TestInsecureWebSocketAdapterReceive:
         assert result.is_text()
         assert result.text == "received text"
 
-    @pytest.mark.asyncio
     async def test_recv_binary_message(self) -> None:
         """Test receiving binary message from WebSocket."""
         import aiohttp
@@ -552,7 +540,6 @@ class TestInsecureWebSocketAdapterReceive:
         assert result is not None
         assert result.is_binary()
 
-    @pytest.mark.asyncio
     async def test_recv_close_returns_none(self) -> None:
         """Test close message returns None."""
         import aiohttp
@@ -569,7 +556,6 @@ class TestInsecureWebSocketAdapterReceive:
 
         assert result is None
 
-    @pytest.mark.asyncio
     async def test_recv_timeout_returns_none(self) -> None:
         """Test timeout returns None."""
 
@@ -586,7 +572,6 @@ class TestInsecureWebSocketAdapterReceive:
 class TestInsecureWebSocketAdapterClose:
     """Tests for InsecureWebSocketAdapter.close_connection() method."""
 
-    @pytest.mark.asyncio
     async def test_close_connection(self) -> None:
         """Test closing both WebSocket and session."""
         mock_ws = AsyncMock()
@@ -598,7 +583,6 @@ class TestInsecureWebSocketAdapterClose:
         mock_ws.close.assert_called_once()
         mock_session.close.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_close_handles_ws_exception(self) -> None:
         """Test handling exception during WebSocket close."""
         mock_ws = AsyncMock()
@@ -610,7 +594,6 @@ class TestInsecureWebSocketAdapterClose:
 
         mock_session.close.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_close_handles_session_exception(self) -> None:
         """Test handling exception during session close."""
         mock_ws = AsyncMock()
@@ -638,7 +621,6 @@ class TestInsecureWebSocketTransport:
 class TestInsecureWebSocketTransportConnect:
     """Tests for InsecureWebSocketTransport.connect() method."""
 
-    @pytest.mark.asyncio
     async def test_connect_creates_ssl_context(self) -> None:
         """Test connect creates an insecure SSL context."""
         from datetime import timedelta
@@ -659,7 +641,6 @@ class TestInsecureWebSocketTransportConnect:
 
             mock_session_class.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_connect_client_error_raises_os_error(self) -> None:
         """Test client error raises OSError."""
         from datetime import timedelta
@@ -685,7 +666,6 @@ class TestInsecureWebSocketTransportConnect:
 
             assert "Connection failed" in str(exc_info.value)
 
-    @pytest.mark.asyncio
     async def test_connect_timeout_raises_os_error(self) -> None:
         """Test timeout raises OSError."""
         from datetime import timedelta

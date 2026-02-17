@@ -38,6 +38,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import TYPE_CHECKING, ClassVar
@@ -46,7 +47,7 @@ import asyncpg
 from nostr_sdk import EventBuilder, Kind, RelayUrl, Tag
 from nostr_sdk import Metadata as NostrMetadata
 
-from bigbrotr.models.constants import EventKind
+from bigbrotr.models.constants import EventKind, NetworkType
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.utils.transport import create_client
 
@@ -116,9 +117,10 @@ class MonitorPublisherMixin:
         for relay in relays:
             await client.add_relay(RelayUrl.parse(relay.url))
         try:
-            await client.connect()
-            for builder in builders:
-                await client.send_event_builder(builder)
+            async with asyncio.timeout(self._config.publishing.timeout):
+                await client.connect()
+                for builder in builders:
+                    await client.send_event_builder(builder)
         finally:
             await client.shutdown()
 
@@ -322,37 +324,38 @@ class MonitorPublisherMixin:
 
         tags = [Tag.parse(["frequency", str(int(self._config.interval))])]
 
-        # Timeout tags per check type
-        if include.nip66_rtt:
-            tags.append(Tag.parse(["timeout", "open", timeout_ms]))
-            tags.append(Tag.parse(["timeout", "read", timeout_ms]))
-            tags.append(Tag.parse(["timeout", "write", timeout_ms]))
-        if include.nip11_info:
-            tags.append(Tag.parse(["timeout", "nip11", timeout_ms]))
-        if include.nip66_ssl:
-            tags.append(Tag.parse(["timeout", "ssl", timeout_ms]))
-        if include.nip66_dns:
-            tags.append(Tag.parse(["timeout", "dns", timeout_ms]))
-        if include.nip66_http:
-            tags.append(Tag.parse(["timeout", "http", timeout_ms]))
+        # Network tags per NIP-66
+        tags.extend(
+            Tag.parse(["n", network.value])
+            for network in NetworkType
+            if self._config.networks.is_enabled(network)
+        )
 
-        # Check type tags (c)
-        if include.nip66_rtt:
-            tags.append(Tag.parse(["c", "open"]))
-            tags.append(Tag.parse(["c", "read"]))
-            tags.append(Tag.parse(["c", "write"]))
-        if include.nip11_info:
-            tags.append(Tag.parse(["c", "nip11"]))
-        if include.nip66_ssl:
-            tags.append(Tag.parse(["c", "ssl"]))
-        if include.nip66_geo:
-            tags.append(Tag.parse(["c", "geo"]))
-        if include.nip66_net:
-            tags.append(Tag.parse(["c", "net"]))
-        if include.nip66_dns:
-            tags.append(Tag.parse(["c", "dns"]))
-        if include.nip66_http:
-            tags.append(Tag.parse(["c", "http"]))
+        # Timeout and check type tags, keyed by MetadataFlags attribute
+        check_map: list[tuple[str, list[str]]] = [
+            ("nip66_rtt", ["open", "read", "write"]),
+            ("nip11_info", ["nip11"]),
+            ("nip66_ssl", ["ssl"]),
+            ("nip66_dns", ["dns"]),
+            ("nip66_http", ["http"]),
+        ]
+        for flag_attr, check_names in check_map:
+            if getattr(include, flag_attr):
+                tags.extend(Tag.parse(["timeout", name, timeout_ms]) for name in check_names)
+
+        # Check type capability tags (c) -- includes geo/net which have no timeout
+        cap_map: list[tuple[str, list[str]]] = [
+            ("nip66_rtt", ["open", "read", "write"]),
+            ("nip11_info", ["nip11"]),
+            ("nip66_ssl", ["ssl"]),
+            ("nip66_geo", ["geo"]),
+            ("nip66_net", ["net"]),
+            ("nip66_dns", ["dns"]),
+            ("nip66_http", ["http"]),
+        ]
+        for flag_attr, cap_names in cap_map:
+            if getattr(include, flag_attr):
+                tags.extend(Tag.parse(["c", name]) for name in cap_names)
 
         return EventBuilder(Kind(EventKind.MONITOR_ANNOUNCEMENT), "").tags(tags)
 

@@ -589,8 +589,6 @@ concurrency:
 
 source:
   from_database: true                        # Fetch relay list from database
-  max_metadata_age: 43200                    # Only sync recently-checked relays (seconds)
-  require_readable: true                     # Only sync relays marked readable
 
 overrides: []                                # Per-relay timeout overrides
 # - url: "wss://relay.damus.io"
@@ -639,8 +637,6 @@ overrides: []                                # Per-relay timeout overrides
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `source.from_database` | bool | `true` | Fetch relay list from database |
-| `source.max_metadata_age` | int | `43200` | Only sync relays checked within N seconds |
-| `source.require_readable` | bool | `true` | Only sync relays with successful read test |
 
 ---
 
@@ -718,7 +714,7 @@ concurrency:
   max_parallel: 50
   stagger_delay: [0, 30]
 source:
-  max_metadata_age: 7200
+  from_database: true
 ```
 
 ### Monitoring-Only (No Event Archiving)

@@ -62,7 +62,7 @@ audit: ## Run uv-secure for dependency vulnerabilities
 sql-check: ## Verify generated SQL matches templates
 	python3 tools/generate_sql.py --check
 
-ci: lint format-check typecheck test-unit sql-check ## Run all quality checks
+ci: lint format-check typecheck test-unit sql-check audit ## Run all quality checks
 
 # --------------------------------------------------------------------------
 # Documentation

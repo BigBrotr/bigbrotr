@@ -118,13 +118,13 @@ async def run_service(
         )
 
     # Signal handling for graceful shutdown
-    def handle_signal(sig: int, _frame: object) -> None:
-        sig_name = signal.Signals(sig).name
-        logger.info("shutdown_signal", signal=sig_name)
+    def handle_signal(sig: signal.Signals) -> None:
+        logger.info("shutdown_signal", signal=sig.name)
         service.request_shutdown()
 
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, handle_signal, sig)
 
     try:
         async with service:

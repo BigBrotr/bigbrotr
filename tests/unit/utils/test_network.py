@@ -456,11 +456,6 @@ class TestNetworkConfigGetProxyUrl:
         config = NetworkConfig(clearnet=ClearnetConfig(proxy_url="socks5://test:1234"))
         assert config.get_proxy_url(NetworkType.CLEARNET) is None
 
-    def test_clearnet_string_always_none(self) -> None:
-        """Test clearnet proxy is None when using string network type."""
-        config = NetworkConfig()
-        assert config.get_proxy_url("clearnet") is None
-
     def test_tor_enabled_returns_proxy(self) -> None:
         """Test Tor proxy is returned when enabled."""
         config = NetworkConfig(tor=TorConfig(enabled=True, proxy_url="socks5://tor:9050"))
@@ -470,16 +465,6 @@ class TestNetworkConfigGetProxyUrl:
         """Test Tor proxy is None when disabled."""
         config = NetworkConfig(tor=TorConfig(enabled=False, proxy_url="socks5://tor:9050"))
         assert config.get_proxy_url(NetworkType.TOR) is None
-
-    def test_accepts_string_network(self) -> None:
-        """Test get_proxy_url() accepts string network type."""
-        config = NetworkConfig(tor=TorConfig(enabled=True, proxy_url="socks5://tor:9050"))
-        assert config.get_proxy_url("tor") == "socks5://tor:9050"
-
-    def test_invalid_string_network_returns_none(self) -> None:
-        """Test invalid string network type returns None."""
-        config = NetworkConfig()
-        assert config.get_proxy_url("invalid_network") is None
 
     def test_i2p_enabled_returns_proxy(self) -> None:
         """Test I2P proxy is returned when enabled."""
@@ -519,17 +504,6 @@ class TestNetworkConfigIsEnabled:
         """Test Lokinet is disabled by default."""
         config = NetworkConfig()
         assert config.is_enabled(NetworkType.LOKI) is False
-
-    def test_accepts_string_network(self) -> None:
-        """Test is_enabled() accepts string network type."""
-        config = NetworkConfig()
-        assert config.is_enabled("clearnet") is True
-        assert config.is_enabled("tor") is False
-
-    def test_invalid_string_returns_false(self) -> None:
-        """Test invalid string network type returns False."""
-        config = NetworkConfig()
-        assert config.is_enabled("invalid_network") is False
 
     def test_custom_enabled_state(self) -> None:
         """Test custom enabled state is respected."""

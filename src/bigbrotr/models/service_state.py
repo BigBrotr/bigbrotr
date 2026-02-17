@@ -33,7 +33,7 @@ from ._validation import (
     deep_freeze,
     sanitize_data,
     validate_mapping,
-    validate_str_no_null,
+    validate_str_not_empty,
     validate_timestamp,
 )
 from .constants import ServiceName
@@ -133,10 +133,16 @@ class ServiceState:
     state_key: str
     state_value: Mapping[str, Any]
     updated_at: int
-    _db_params: ServiceStateDbParams = field(init=False, repr=False)
+    _db_params: ServiceStateDbParams = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,  # type: ignore[assignment]
+    )
 
     def __post_init__(self) -> None:
-        validate_str_no_null(self.state_key, "state_key")
+        validate_str_not_empty(self.state_key, "state_key")
         validate_mapping(self.state_value, "state_value")
         validate_timestamp(self.updated_at, "updated_at")
 

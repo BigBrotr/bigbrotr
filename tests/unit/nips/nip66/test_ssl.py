@@ -19,8 +19,6 @@ import hashlib
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.ssl import CertificateExtractor, Nip66SslMetadata
 
@@ -420,7 +418,6 @@ class TestNip66SslMetadataSslSync:
 class TestNip66SslMetadataSslAsync:
     """Test Nip66SslMetadata.execute() async class method."""
 
-    @pytest.mark.asyncio
     async def test_clearnet_wss_returns_ssl_metadata(self, relay: Relay) -> None:
         """Returns Nip66SslMetadata for clearnet wss:// relay."""
         ssl_result = {
@@ -437,7 +434,6 @@ class TestNip66SslMetadataSslAsync:
         assert result.data.ssl_protocol == "TLSv1.3"
         assert result.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_ssl_failure_returns_metadata_with_failure(self, relay: Relay) -> None:
         """SSL check failure returns Nip66SslMetadata with success=False."""
         with patch.object(Nip66SslMetadata, "_ssl", return_value={}):
@@ -447,28 +443,24 @@ class TestNip66SslMetadataSslAsync:
         assert result.logs.success is False
         assert result.logs.reason is not None
 
-    @pytest.mark.asyncio
     async def test_tor_returns_failure(self, tor_relay: Relay) -> None:
         """Returns failure for Tor relay (SSL not applicable)."""
         result = await Nip66SslMetadata.execute(tor_relay, 10.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_i2p_returns_failure(self, i2p_relay: Relay) -> None:
         """Returns failure for I2P relay (SSL not applicable)."""
         result = await Nip66SslMetadata.execute(i2p_relay, 10.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_loki_returns_failure(self, loki_relay: Relay) -> None:
         """Returns failure for Lokinet relay (SSL not applicable)."""
         result = await Nip66SslMetadata.execute(loki_relay, 10.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_uses_default_port_443(self, relay: Relay) -> None:
         """Uses port 443 when relay has no explicit port."""
         ssl_result = {"ssl_valid": True}
@@ -480,7 +472,6 @@ class TestNip66SslMetadataSslAsync:
         call_args = mock_ssl.call_args
         assert call_args[0][1] == 443
 
-    @pytest.mark.asyncio
     async def test_uses_explicit_port(self, relay_with_port: Relay) -> None:
         """Uses explicit port when relay specifies one."""
         ssl_result = {"ssl_valid": True}
@@ -492,7 +483,6 @@ class TestNip66SslMetadataSslAsync:
         call_args = mock_ssl.call_args
         assert call_args[0][1] == 8443
 
-    @pytest.mark.asyncio
     async def test_exception_returns_failure(self, relay: Relay) -> None:
         """Exception during SSL check returns failure logs."""
         with patch.object(Nip66SslMetadata, "_ssl", side_effect=OSError("Network error")):
@@ -502,7 +492,6 @@ class TestNip66SslMetadataSslAsync:
         assert result.logs.success is False
         assert "Network error" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_default_timeout_used(self, relay: Relay) -> None:
         """Uses default timeout when None provided."""
         ssl_result = {"ssl_valid": True}

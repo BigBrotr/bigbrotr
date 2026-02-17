@@ -13,7 +13,7 @@ BigBrotr uses a **Diamond DAG** architecture. Five layers with strict top-to-bot
 | Tier | Layer | Purpose | Changes When |
 |------|-------|---------|--------------|
 | **Top** | Services | Business logic, orchestration | New features, protocol updates |
-| **Mid** | Core | Pool, Brotr, BaseService, Exceptions, Logger, Metrics | Rarely |
+| **Mid** | Core | Pool, Brotr, BaseService, Logger, Metrics | Rarely |
 | **Mid** | NIPs | NIP-11 info fetch/parse, NIP-66 health checks (I/O) | Protocol spec updates |
 | **Mid** | Utils | DNS, keys, transport, SOCKS5 proxy | Cross-cutting needs |
 | **Foundation** | Models | Frozen dataclasses, validation, DB mapping | Schema changes |
@@ -45,7 +45,7 @@ Deployments (`deployments/{bigbrotr,lilbrotr,_template}/`) sit outside the packa
 | `MetadataType` | `metadata.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
 | `ServiceStateType` | `service_state.py` | `candidate`, `cursor`, `checkpoint` |
 | `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer` |
-| `EventKind` | `constants.py` | `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
+| `EventKind` | `constants.py` | `SET_METADATA=0`, `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
 
 ### Model Patterns
 
@@ -126,10 +126,9 @@ class PoolConfig(BaseModel):
 | `connect()` | Create asyncpg pool with retry backoff |
 | `close()` | Idempotent pool teardown |
 | `acquire()` | Get connection from pool |
-| `acquire_healthy()` | Get connection with health check retry |
 | `transaction()` | Async context manager for ACID transactions |
 | `fetch()`, `fetchrow()`, `fetchval()` | Query methods with automatic retry on transient errors |
-| `execute()`, `executemany()` | Mutation methods |
+| `execute()` | Mutation method |
 | `metrics` (property) | Pool statistics: size, utilization, is_connected |
 
 **Connection pooling flow:**
@@ -141,22 +140,25 @@ sequenceDiagram
     participant PGB as PGBouncer
     participant PG as PostgreSQL
 
-    S->>P: acquire_healthy()
+    S->>P: acquire()
     P->>P: get connection from pool
-    P->>PG: SELECT 1 (health check)
-    alt healthy
-        PG-->>P: OK
-        P-->>S: connection
-    else unhealthy
+    P-->>S: connection
+    S->>P: fetch() / execute()
+    P->>PGB: SQL query
+    PGB->>PG: forward
+    alt success
+        PG-->>PGB: result
+        PGB-->>P: result
+        P-->>S: result
+    else transient error
         PG-->>P: error
         P->>P: retry with backoff
-        P->>PGB: new connection
+        P->>PGB: retry query
         PGB->>PG: forward
-        PG-->>PGB: OK
-        PGB-->>P: connection
-        P-->>S: connection
+        PG-->>PGB: result
+        PGB-->>P: result
+        P-->>S: result
     end
-    S->>P: release connection
 ```
 
 In Docker deployments, services connect to **PGBouncer** (port 6432/6433) which provides infrastructure-level connection pooling in transaction mode. Pool provides application-level retry, health checking, and query methods.
@@ -219,7 +221,7 @@ Abstract base class for all five services. Generic over configuration type.
 
 ```python
 class BaseService(ABC, Generic[ConfigT]):
-    SERVICE_NAME: ClassVar[str]
+    SERVICE_NAME: ClassVar[ServiceName]
     CONFIG_CLASS: ClassVar[type[BaseModel]]
 
     _brotr: Brotr
@@ -392,7 +394,7 @@ flowchart TD
     D -->|Yes| E["Return connection"]
     D -->|No| F{allow_insecure?}
     F -->|Yes| H["Try insecure SSL<br/>(skip verification)"]
-    F -->|No| I["Raise RelaySSLError"]
+    F -->|No| I["Raise SSLError"]
     H --> J{Success?}
     J -->|Yes| E
     J -->|No| I

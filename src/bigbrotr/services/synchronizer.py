@@ -344,12 +344,6 @@ class SourceConfig(BaseModel):
     """
 
     from_database: bool = Field(default=True, description="Fetch relays from database")
-    max_metadata_age: int = Field(
-        default=43_200,
-        ge=0,
-        description="Only sync relays checked within N seconds",
-    )
-    require_readable: bool = Field(default=True, description="Only sync readable relays")
 
 
 class RelayOverrideTimeouts(BaseModel):

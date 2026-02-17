@@ -233,7 +233,7 @@ class Nip66GeoMetadata(BaseNipMetadata):
                     logs["reason"] = "no geo data found for IP"
                     logger.debug("geo_no_data relay=%s", relay.url)
             except (geoip2.errors.GeoIP2Error, ValueError) as e:
-                logs["reason"] = str(e)
+                logs["reason"] = str(e) or type(e).__name__
                 logger.debug("geo_lookup_failed relay=%s error=%s", relay.url, str(e))
         else:
             logs["reason"] = "could not resolve hostname to IP"

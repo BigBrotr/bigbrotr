@@ -79,6 +79,7 @@ class TestEventKind:
 
     def test_members(self) -> None:
         """All expected event kinds are defined with correct values."""
+        assert EventKind.SET_METADATA == 0
         assert EventKind.RECOMMEND_RELAY == 2
         assert EventKind.CONTACTS == 3
         assert EventKind.RELAY_LIST == 10002
@@ -96,5 +97,5 @@ class TestEventKind:
         assert EVENT_KIND_MAX == 65535
 
     def test_member_count(self) -> None:
-        """EventKind has exactly 6 members."""
-        assert len(EventKind) == 6
+        """EventKind has exactly 7 members."""
+        assert len(EventKind) == 7

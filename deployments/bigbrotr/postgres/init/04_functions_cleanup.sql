@@ -31,14 +31,16 @@ DECLARE
     v_batch INTEGER;
 BEGIN
     LOOP
-        DELETE FROM metadata m WHERE (m.id, m.type) IN (
+        WITH to_delete AS (
             SELECT m2.id, m2.type FROM metadata m2
             WHERE NOT EXISTS (
                 SELECT 1 FROM relay_metadata rm
                 WHERE rm.metadata_id = m2.id AND rm.metadata_type = m2.type
             )
             LIMIT p_batch_size
-        );
+        )
+        DELETE FROM metadata m
+        WHERE (m.id, m.type) IN (SELECT id, type FROM to_delete);
         GET DIAGNOSTICS v_batch = ROW_COUNT;
         v_deleted := v_deleted + v_batch;
         EXIT WHEN v_batch < p_batch_size;
@@ -75,13 +77,15 @@ DECLARE
     v_batch INTEGER;
 BEGIN
     LOOP
-        DELETE FROM event e WHERE e.id IN (
+        WITH to_delete AS (
             SELECT e2.id FROM event e2
             WHERE NOT EXISTS (
                 SELECT 1 FROM event_relay er WHERE er.event_id = e2.id
             )
             LIMIT p_batch_size
-        );
+        )
+        DELETE FROM event e
+        WHERE e.id IN (SELECT id FROM to_delete);
         GET DIAGNOSTICS v_batch = ROW_COUNT;
         v_deleted := v_deleted + v_batch;
         EXIT WHEN v_batch < p_batch_size;
@@ -122,12 +126,14 @@ DECLARE
 BEGIN
     v_cutoff := EXTRACT(EPOCH FROM NOW())::BIGINT - p_max_age_seconds;
     LOOP
-        DELETE FROM relay_metadata
-        WHERE (relay_url, generated_at, metadata_type) IN (
-            SELECT relay_url, generated_at, metadata_type
+        WITH to_delete AS (
+            SELECT ctid
             FROM relay_metadata
-            WHERE generated_at < v_cutoff LIMIT p_batch_size
-        );
+            WHERE generated_at < v_cutoff
+            LIMIT p_batch_size
+        )
+        DELETE FROM relay_metadata
+        WHERE ctid IN (SELECT ctid FROM to_delete);
         GET DIAGNOSTICS v_batch = ROW_COUNT;
         v_deleted := v_deleted + v_batch;
         EXIT WHEN v_batch < p_batch_size;
