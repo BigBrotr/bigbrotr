@@ -5,6 +5,7 @@ from dataclasses import FrozenInstanceError
 from unittest.mock import MagicMock
 
 import pytest
+from nostr_sdk import Event as NostrEvent
 
 from bigbrotr.models.event import Event, EventDbParams
 
@@ -17,7 +18,7 @@ from bigbrotr.models.event import Event, EventDbParams
 @pytest.fixture
 def mock_nostr_event():
     """Create a mock nostr_sdk.Event with all method chains configured."""
-    mock = MagicMock()
+    mock = MagicMock(spec=NostrEvent)
 
     mock_id = MagicMock()
     mock_id.to_hex.return_value = "a" * 64
@@ -52,7 +53,7 @@ def mock_nostr_event():
 @pytest.fixture
 def mock_nostr_event_empty_tags():
     """Create a mock nostr_sdk.Event with no tags."""
-    mock = MagicMock()
+    mock = MagicMock(spec=NostrEvent)
 
     mock_id = MagicMock()
     mock_id.to_hex.return_value = "f" * 64
@@ -328,11 +329,14 @@ class TestDelegation:
 
     def test_any_method_delegates(self, mock_nostr_event):
         """Any method should delegate via __getattr__."""
-        mock_nostr_event.some_future_method.return_value = "result"
         event = Event(mock_nostr_event)
+        # Replace inner with an unrestricted mock to test arbitrary attribute delegation
+        unrestricted = MagicMock()
+        unrestricted.some_future_method.return_value = "result"
+        object.__setattr__(event, "_nostr_event", unrestricted)
         result = event.some_future_method()
         assert result == "result"
-        mock_nostr_event.some_future_method.assert_called_once()
+        unrestricted.some_future_method.assert_called_once()
 
     def test_missing_attribute_raises_clear_error(self, mock_nostr_event):
         """Missing attribute raises AttributeError referencing Event, not NostrEvent."""
@@ -456,7 +460,7 @@ class TestEdgeCases:
 
     def test_large_content(self):
         """Large content (100KB) is handled correctly."""
-        mock = MagicMock()
+        mock = MagicMock(spec=NostrEvent)
         mock_id = MagicMock()
         mock_id.to_hex.return_value = "a" * 64
         mock.id.return_value = mock_id
@@ -481,7 +485,7 @@ class TestEdgeCases:
 
     def test_unicode_content(self):
         """Unicode content is handled correctly."""
-        mock = MagicMock()
+        mock = MagicMock(spec=NostrEvent)
         mock_id = MagicMock()
         mock_id.to_hex.return_value = "a" * 64
         mock.id.return_value = mock_id
@@ -506,7 +510,7 @@ class TestEdgeCases:
 
     def test_many_tags(self):
         """Many tags (100) are serialized correctly."""
-        mock = MagicMock()
+        mock = MagicMock(spec=NostrEvent)
         mock_id = MagicMock()
         mock_id.to_hex.return_value = "a" * 64
         mock.id.return_value = mock_id
@@ -540,7 +544,7 @@ class TestEdgeCases:
 
     def test_complex_nested_tags(self):
         """Complex tag structures with multiple elements are handled."""
-        mock = MagicMock()
+        mock = MagicMock(spec=NostrEvent)
         mock_id = MagicMock()
         mock_id.to_hex.return_value = "a" * 64
         mock.id.return_value = mock_id
@@ -587,3 +591,27 @@ class TestEquality:
         event1 = Event(mock_nostr_event)
         event2 = Event(mock_nostr_event_empty_tags)
         assert event1 != event2
+
+
+# =============================================================================
+# Type Validation Tests
+# =============================================================================
+
+
+class TestTypeValidation:
+    """Runtime type validation in __post_init__."""
+
+    def test_non_nostr_event_rejected(self):
+        """_nostr_event must be a NostrEvent instance."""
+        with pytest.raises(TypeError, match="_nostr_event must be an Event"):
+            Event("not an event")  # type: ignore[arg-type]
+
+    def test_none_rejected(self):
+        """None is not accepted as _nostr_event."""
+        with pytest.raises(TypeError, match="_nostr_event must be an Event"):
+            Event(None)  # type: ignore[arg-type]
+
+    def test_dict_rejected(self):
+        """A dict is not accepted as _nostr_event."""
+        with pytest.raises(TypeError, match="_nostr_event must be an Event"):
+            Event({"id": "abc"})  # type: ignore[arg-type]

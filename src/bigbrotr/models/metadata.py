@@ -23,12 +23,17 @@ See Also:
 
 from __future__ import annotations
 
-import builtins  # noqa: TC003
 import hashlib
 import json
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, ClassVar, NamedTuple, TypeVar, overload
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+from ._validation import deep_freeze, sanitize_data, validate_instance, validate_mapping
 
 
 class MetadataType(StrEnum):
@@ -86,10 +91,6 @@ class MetadataDbParams(NamedTuple):
     id: bytes
     type: MetadataType
     data: str
-
-
-T = TypeVar("T")
-_UNSET: Any = object()  # Sentinel for missing default in _get()
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,10 +153,8 @@ class Metadata:
             linking a [Relay][bigbrotr.models.relay.Relay] to this metadata record.
     """
 
-    _DEFAULT_MAX_DEPTH: ClassVar[int] = 50
-
     type: MetadataType
-    data: dict[str, Any] = field(default_factory=dict)
+    data: Mapping[str, Any] = field(default_factory=dict)
 
     # Cached computed values (set in __post_init__)
     _canonical_json: str = field(default="", init=False, repr=False, compare=False)
@@ -170,8 +169,9 @@ class Metadata:
 
     def __post_init__(self) -> None:
         """Sanitize the data dict and compute the canonical JSON and hash."""
-        sanitized = self._sanitize(self.data) if self.data else {}
-        object.__setattr__(self, "data", sanitized)
+        validate_instance(self.type, MetadataType, "type")
+        validate_mapping(self.data, "data")
+        sanitized = sanitize_data(self.data, "data")
 
         canonical = json.dumps(
             sanitized,
@@ -184,109 +184,8 @@ class Metadata:
         content_hash = hashlib.sha256(canonical.encode("utf-8")).digest()
         object.__setattr__(self, "_content_hash", content_hash)
 
+        object.__setattr__(self, "data", deep_freeze(sanitized))
         object.__setattr__(self, "_db_params", self._compute_db_params())
-
-    @classmethod
-    def _sanitize(cls, obj: Any, max_depth: int | None = None, _depth: int = 0) -> Any:
-        """Recursively normalize an object for deterministic JSON serialization.
-
-        * Removes ``None`` values and empty containers (``{}``, ``[]``).
-        * Sorts dictionary keys for consistent ordering.
-        * Rejects strings containing null bytes (PostgreSQL incompatible).
-        * Non-serializable types are replaced with ``None``.
-
-        Args:
-            obj: The value to sanitize.
-            max_depth: Maximum recursion depth (defaults to 50).
-            _depth: Current recursion depth (internal use).
-
-        Returns:
-            The sanitized object, or ``None`` for unserializable values.
-
-        Raises:
-            ValueError: If any string contains null bytes.
-        """
-        if max_depth is None:
-            max_depth = cls._DEFAULT_MAX_DEPTH
-
-        if _depth > max_depth:
-            return None
-
-        if obj is None or isinstance(obj, bool | int | float):
-            return obj
-
-        if isinstance(obj, str):
-            if "\x00" in obj:
-                raise ValueError("Metadata value contains null bytes")
-            return obj
-
-        if isinstance(obj, dict):
-            result: dict[str, Any] = {}
-            for key in sorted(k for k in obj if isinstance(k, str)):
-                v = cls._sanitize(obj[key], max_depth, _depth + 1)
-                if cls._is_empty(v):
-                    continue
-                result[key] = v
-            return result
-
-        if isinstance(obj, list):
-            result_list: list[Any] = []
-            for item in obj:
-                v = cls._sanitize(item, max_depth, _depth + 1)
-                if cls._is_empty(v):
-                    continue
-                result_list.append(v)
-            return result_list
-
-        return None
-
-    @staticmethod
-    def _is_empty(v: Any) -> bool:
-        """Return True if the value is None or an empty container."""
-        if v is None:
-            return True
-        if isinstance(v, dict) and not v:
-            return True
-        return bool(isinstance(v, list) and not v)
-
-    # --- Type-safe accessor ---
-
-    @overload
-    def _get(self, *keys: str, expected_type: builtins.type[T]) -> T | None: ...
-    @overload
-    def _get(self, *keys: str, expected_type: builtins.type[T], default: T) -> T: ...
-
-    def _get(
-        self,
-        *keys: str,
-        expected_type: builtins.type[T],
-        default: T = _UNSET,
-    ) -> T | None:
-        """Retrieve a nested value with type checking.
-
-        Traverses the ``data`` dict using the given key path and returns
-        the leaf value if it matches ``expected_type``.
-
-        Args:
-            *keys: Key path into the nested dict (e.g., ``"config", "timeout"``).
-            expected_type: Required type for the returned value.
-            default: Fallback if the path is missing or the type is wrong.
-                Defaults to ``None`` when not specified.
-
-        Returns:
-            The value at the key path if it matches ``expected_type``,
-            otherwise *default*.
-        """
-        current: Any = self.data
-        for key in keys:
-            if not isinstance(current, dict):
-                return default if default is not _UNSET else None
-            current = current.get(key)
-
-        if isinstance(current, expected_type):
-            return current
-
-        return default if default is not _UNSET else None
 
     @property
     def content_hash(self) -> bytes:
@@ -382,29 +281,3 @@ class Metadata:
             )
 
         return instance
-
-    @classmethod
-    def from_json(cls, metadata_type: MetadataType, json_str: str) -> Metadata:
-        """Create a [Metadata][bigbrotr.models.metadata.Metadata] instance from a raw JSON string.
-
-        Args:
-            metadata_type: The [MetadataType][bigbrotr.models.metadata.MetadataType]
-                classification for this metadata.
-            json_str: JSON string to parse into the value dict.
-
-        Returns:
-            A new [Metadata][bigbrotr.models.metadata.Metadata] instance with the
-            parsed and sanitized value.
-
-        Raises:
-            json.JSONDecodeError: If *json_str* is not valid JSON.
-        """
-        return cls(type=metadata_type, data=json.loads(json_str))
-
-    def __bool__(self) -> bool:
-        """Return True if the data dict is non-empty."""
-        return bool(self.data)
-
-    def __len__(self) -> int:
-        """Return the number of top-level keys in the data dict."""
-        return len(self.data)

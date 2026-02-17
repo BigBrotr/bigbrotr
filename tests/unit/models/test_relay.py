@@ -661,3 +661,42 @@ class TestEdgeCases:
         r = Relay("wss://abc.onion:80")
         assert r.url == "ws://abc.onion"
         assert r.port == 80
+
+
+# =============================================================================
+# Type Validation Tests
+# =============================================================================
+
+
+class TestTypeValidation:
+    """Runtime type validation in __post_init__."""
+
+    def test_raw_url_non_string_rejected(self):
+        """raw_url must be a str."""
+        with pytest.raises(TypeError, match="raw_url must be a str"):
+            Relay(raw_url=12345, discovered_at=1234567890)  # type: ignore[arg-type]
+
+    def test_discovered_at_non_int_rejected(self):
+        """discovered_at must be an int."""
+        with pytest.raises(TypeError, match="discovered_at must be an int"):
+            Relay(raw_url="wss://relay.example.com", discovered_at="abc")  # type: ignore[arg-type]
+
+    def test_discovered_at_float_rejected(self):
+        """discovered_at must be an int, not a float."""
+        with pytest.raises(TypeError, match="discovered_at must be an int"):
+            Relay(raw_url="wss://relay.example.com", discovered_at=1.5)  # type: ignore[arg-type]
+
+    def test_discovered_at_bool_rejected(self):
+        """bool is not accepted as int for discovered_at."""
+        with pytest.raises(TypeError, match="discovered_at must be an int"):
+            Relay(raw_url="wss://relay.example.com", discovered_at=True)  # type: ignore[arg-type]
+
+    def test_discovered_at_negative_rejected(self):
+        """discovered_at must be non-negative."""
+        with pytest.raises(ValueError, match="discovered_at must be non-negative"):
+            Relay(raw_url="wss://relay.example.com", discovered_at=-1)
+
+    def test_discovered_at_zero_accepted(self):
+        """discovered_at=0 (epoch) is valid."""
+        r = Relay(raw_url="wss://relay.example.com", discovered_at=0)
+        assert r.discovered_at == 0

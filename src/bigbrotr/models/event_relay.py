@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from time import time
 from typing import NamedTuple
 
+from ._validation import validate_instance, validate_timestamp
 from .event import Event, EventDbParams
 from .relay import Relay, RelayDbParams
 
@@ -119,7 +120,10 @@ class EventRelay:
     )
 
     def __post_init__(self) -> None:
-        """Validate database parameter conversion at construction time (fail-fast)."""
+        """Validate field types and compute database parameters (fail-fast)."""
+        validate_instance(self.event, Event, "event")
+        validate_instance(self.relay, Relay, "relay")
+        validate_timestamp(self.seen_at, "seen_at")
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
     def _compute_db_params(self) -> EventRelayDbParams:

@@ -228,3 +228,124 @@ class TestServiceStateFromDbParams:
         assert state.state_type is ServiceStateType.CHECKPOINT
         assert isinstance(state.service_name, ServiceName)
         assert isinstance(state.state_type, ServiceStateType)
+
+
+# =============================================================================
+# Type Validation Tests
+# =============================================================================
+
+
+class TestTypeValidation:
+    """Runtime type validation in __post_init__."""
+
+    def test_state_key_non_string_rejected(self):
+        """state_key must be a str."""
+        with pytest.raises(TypeError, match="state_key must be a str"):
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CURSOR,
+                state_key=123,  # type: ignore[arg-type]
+                state_value={"key": "value"},
+                updated_at=1700000000,
+            )
+
+    def test_state_value_non_dict_rejected(self):
+        """state_value must be a dict."""
+        with pytest.raises(TypeError, match="state_value must be a Mapping"):
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CURSOR,
+                state_key="test",
+                state_value=[1, 2, 3],  # type: ignore[arg-type]
+                updated_at=1700000000,
+            )
+
+    def test_state_value_string_rejected(self):
+        """state_value must be a dict, not a string."""
+        with pytest.raises(TypeError, match="state_value must be a Mapping"):
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CURSOR,
+                state_key="test",
+                state_value="not a dict",  # type: ignore[arg-type]
+                updated_at=1700000000,
+            )
+
+    def test_updated_at_non_int_rejected(self):
+        """updated_at must be an int."""
+        with pytest.raises(TypeError, match="updated_at must be an int"):
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CURSOR,
+                state_key="test",
+                state_value={"key": "value"},
+                updated_at="abc",  # type: ignore[arg-type]
+            )
+
+    def test_updated_at_bool_rejected(self):
+        """bool is not accepted as int for updated_at."""
+        with pytest.raises(TypeError, match="updated_at must be an int"):
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CURSOR,
+                state_key="test",
+                state_value={"key": "value"},
+                updated_at=True,  # type: ignore[arg-type]
+            )
+
+    def test_updated_at_negative_rejected(self):
+        """updated_at must be non-negative."""
+        with pytest.raises(ValueError, match="updated_at must be non-negative"):
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CURSOR,
+                state_key="test",
+                state_value={"key": "value"},
+                updated_at=-1,
+            )
+
+
+# =============================================================================
+# Immutability Tests
+# =============================================================================
+
+
+class TestImmutability:
+    """Deep immutability of state_value."""
+
+    def test_state_value_immutable(self):
+        """state_value dict cannot be mutated after construction."""
+        state = ServiceState(
+            service_name=ServiceName.MONITOR,
+            state_type=ServiceStateType.CURSOR,
+            state_key="test",
+            state_value={"key": "value"},
+            updated_at=1700000000,
+        )
+        with pytest.raises(TypeError):
+            state.state_value["key"] = "modified"  # type: ignore[index]
+
+    def test_state_value_nested_immutable(self):
+        """Nested dicts in state_value cannot be mutated."""
+        state = ServiceState(
+            service_name=ServiceName.MONITOR,
+            state_type=ServiceStateType.CURSOR,
+            state_key="test",
+            state_value={"nested": {"inner": "value"}},
+            updated_at=1700000000,
+        )
+        with pytest.raises(TypeError):
+            state.state_value["nested"]["inner"] = "modified"  # type: ignore[index]
+
+    def test_original_dict_not_affected(self):
+        """Mutating the original dict does not affect the frozen state_value."""
+        original = {"key": "value"}
+        state = ServiceState(
+            service_name=ServiceName.MONITOR,
+            state_type=ServiceStateType.CURSOR,
+            state_key="test",
+            state_value=original,
+            updated_at=1700000000,
+        )
+        original["key"] = "modified"
+        assert state.state_value["key"] == "value"

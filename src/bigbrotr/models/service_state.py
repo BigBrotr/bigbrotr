@@ -23,8 +23,19 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+from ._validation import (
+    deep_freeze,
+    sanitize_data,
+    validate_mapping,
+    validate_str_no_null,
+    validate_timestamp,
+)
 from .constants import ServiceName
 
 
@@ -70,7 +81,7 @@ class ServiceStateDbParams(NamedTuple):
     service_name: ServiceName
     state_type: ServiceStateType
     state_key: str
-    state_value: dict[str, Any]
+    state_value: Mapping[str, Any]
     updated_at: int
 
 
@@ -120,13 +131,19 @@ class ServiceState:
     service_name: ServiceName
     state_type: ServiceStateType
     state_key: str
-    state_value: dict[str, Any]
+    state_value: Mapping[str, Any]
     updated_at: int
     _db_params: ServiceStateDbParams = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        validate_str_no_null(self.state_key, "state_key")
+        validate_mapping(self.state_value, "state_value")
+        validate_timestamp(self.updated_at, "updated_at")
+
         object.__setattr__(self, "service_name", ServiceName(self.service_name))
         object.__setattr__(self, "state_type", ServiceStateType(self.state_type))
+        sanitized = sanitize_data(self.state_value, "state_value")
+        object.__setattr__(self, "state_value", deep_freeze(sanitized))
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
     def _compute_db_params(self) -> ServiceStateDbParams:
