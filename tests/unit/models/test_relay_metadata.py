@@ -450,3 +450,41 @@ class TestEdgeCases:
         result = rm.to_db_params()
         assert result.relay_url == "wss://[2001:4860:4860::8888]"
         assert result.relay_network == "clearnet"
+
+
+# =============================================================================
+# Type Validation Tests
+# =============================================================================
+
+
+class TestTypeValidation:
+    """Runtime type validation in __post_init__."""
+
+    def test_relay_non_relay_rejected(self):
+        """relay must be a Relay instance."""
+        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"key": "value"})
+        with pytest.raises(TypeError, match="relay must be a Relay"):
+            RelayMetadata(relay="not a relay", metadata=metadata, generated_at=123)  # type: ignore[arg-type]
+
+    def test_metadata_non_metadata_rejected(self, relay):
+        """metadata must be a Metadata instance."""
+        with pytest.raises(TypeError, match="metadata must be a Metadata"):
+            RelayMetadata(relay=relay, metadata="not metadata", generated_at=123)  # type: ignore[arg-type]
+
+    def test_generated_at_non_int_rejected(self, relay):
+        """generated_at must be an int."""
+        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"key": "value"})
+        with pytest.raises(TypeError, match="generated_at must be an int"):
+            RelayMetadata(relay=relay, metadata=metadata, generated_at="abc")  # type: ignore[arg-type]
+
+    def test_generated_at_bool_rejected(self, relay):
+        """bool is not accepted as int for generated_at."""
+        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"key": "value"})
+        with pytest.raises(TypeError, match="generated_at must be an int"):
+            RelayMetadata(relay=relay, metadata=metadata, generated_at=True)  # type: ignore[arg-type]
+
+    def test_generated_at_negative_rejected(self, relay):
+        """generated_at must be non-negative."""
+        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"key": "value"})
+        with pytest.raises(ValueError, match="generated_at must be non-negative"):
+            RelayMetadata(relay=relay, metadata=metadata, generated_at=-1)

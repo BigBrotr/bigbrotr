@@ -6,9 +6,9 @@ Tests:
 - Pool initialization with defaults and custom config
 - Factory methods (from_yaml, from_dict)
 - Connection lifecycle (connect, close)
-- Query methods (fetch, fetchrow, fetchval, execute, executemany)
-- Connection acquisition (acquire, acquire_healthy, transaction)
-- Pool metrics and properties
+- Query methods (fetch, fetchrow, fetchval, execute)
+- Connection acquisition (acquire, transaction)
+- Pool properties
 - Context manager support
 - Retry logic and error handling
 - _init_connection JSON codec setup
@@ -726,220 +726,6 @@ class TestPoolAcquire:
             assert conn is not None
 
 
-class TestPoolAcquireHealthy:
-    """Tests for Pool.acquire_healthy() method."""
-
-    @pytest.mark.asyncio
-    async def test_not_connected_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that acquire_healthy() on unconnected pool raises RuntimeError."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        pool = Pool()
-
-        with pytest.raises(RuntimeError, match="not connected"):
-            async with pool.acquire_healthy():
-                pass
-
-    @pytest.mark.asyncio
-    async def test_success_on_healthy_connection(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test successful acquisition of healthy connection."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        pool = Pool()
-        mock_conn = MagicMock()
-        mock_conn.fetchval = AsyncMock(return_value=1)
-
-        @asynccontextmanager
-        async def mock_acquire() -> Any:
-            yield mock_conn
-
-        mock_asyncpg_pool = MagicMock()
-        mock_asyncpg_pool.acquire = mock_acquire
-        pool._pool = mock_asyncpg_pool
-        pool._is_connected = True
-
-        async with pool.acquire_healthy() as conn:
-            assert conn is mock_conn
-
-    @pytest.mark.asyncio
-    async def test_retries_on_unhealthy_connection(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test retry mechanism when health check fails."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        pool = Pool()
-
-        unhealthy_conn = MagicMock()
-        unhealthy_conn.fetchval = AsyncMock(
-            side_effect=asyncpg.PostgresConnectionError("Connection dead")
-        )
-        healthy_conn = MagicMock()
-        healthy_conn.fetchval = AsyncMock(return_value=1)
-
-        connections = [unhealthy_conn, healthy_conn]
-        call_count = 0
-
-        @asynccontextmanager
-        async def mock_acquire() -> Any:
-            nonlocal call_count
-            conn = connections[min(call_count, len(connections) - 1)]
-            call_count += 1
-            yield conn
-
-        mock_asyncpg_pool = MagicMock()
-        mock_asyncpg_pool.acquire = mock_acquire
-        pool._pool = mock_asyncpg_pool
-        pool._is_connected = True
-
-        with patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()):
-            async with pool.acquire_healthy(max_attempts=3) as conn:
-                assert conn is healthy_conn
-
-        assert call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_max_attempts_exhausted_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that exhausting max retries raises ConnectionError."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        pool = Pool()
-
-        unhealthy_conn = MagicMock()
-        unhealthy_conn.fetchval = AsyncMock(
-            side_effect=asyncpg.PostgresConnectionError("Connection dead")
-        )
-
-        @asynccontextmanager
-        async def mock_acquire() -> Any:
-            yield unhealthy_conn
-
-        mock_asyncpg_pool = MagicMock()
-        mock_asyncpg_pool.acquire = mock_acquire
-        pool._pool = mock_asyncpg_pool
-        pool._is_connected = True
-
-        with (
-            patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()),
-            pytest.raises(ConnectionError, match="Failed to acquire healthy connection"),
-        ):
-            async with pool.acquire_healthy(max_attempts=3):
-                pass
-
-    @pytest.mark.asyncio
-    async def test_exponential_backoff_delays(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test exponential backoff timing for health check retries."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        pool = Pool()
-
-        unhealthy_conn = MagicMock()
-        unhealthy_conn.fetchval = AsyncMock(side_effect=asyncpg.PostgresConnectionError("Dead"))
-
-        sleep_delays: list[float] = []
-
-        async def mock_sleep(delay: float) -> None:
-            sleep_delays.append(delay)
-
-        @asynccontextmanager
-        async def mock_acquire() -> Any:
-            yield unhealthy_conn
-
-        mock_asyncpg_pool = MagicMock()
-        mock_asyncpg_pool.acquire = mock_acquire
-        pool._pool = mock_asyncpg_pool
-        pool._is_connected = True
-
-        with patch("bigbrotr.core.pool.asyncio.sleep", mock_sleep), pytest.raises(ConnectionError):
-            async with pool.acquire_healthy(max_attempts=4):
-                pass
-
-        assert len(sleep_delays) == 3  # 3 sleep calls between 4 attempts
-        # Verify exponential pattern
-        for i in range(1, len(sleep_delays)):
-            ratio = sleep_delays[i] / sleep_delays[i - 1]
-            assert 1.5 <= ratio <= 2.5
-
-    @pytest.mark.asyncio
-    async def test_handles_timeout_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that TimeoutError triggers retry."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        pool = Pool()
-
-        healthy_conn = MagicMock()
-        healthy_conn.fetchval = AsyncMock(return_value=1)
-
-        attempt = 0
-
-        @asynccontextmanager
-        async def mock_acquire() -> Any:
-            nonlocal attempt
-            conn = MagicMock()
-            if attempt == 0:
-                conn.fetchval = AsyncMock(side_effect=TimeoutError("Query timed out"))
-                attempt += 1
-            else:
-                conn.fetchval = AsyncMock(return_value=1)
-            yield conn
-
-        mock_asyncpg_pool = MagicMock()
-        mock_asyncpg_pool.acquire = mock_acquire
-        pool._pool = mock_asyncpg_pool
-        pool._is_connected = True
-
-        with patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()):
-            async with pool.acquire_healthy(max_attempts=3):
-                pass
-
-    @pytest.mark.asyncio
-    async def test_handles_os_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that OSError triggers retry."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        pool = Pool()
-
-        healthy_conn = MagicMock()
-        healthy_conn.fetchval = AsyncMock(return_value=1)
-
-        attempt = 0
-
-        @asynccontextmanager
-        async def mock_acquire() -> Any:
-            nonlocal attempt
-            conn = MagicMock()
-            if attempt == 0:
-                conn.fetchval = AsyncMock(side_effect=OSError("Network error"))
-                attempt += 1
-            else:
-                conn.fetchval = AsyncMock(return_value=1)
-            yield conn
-
-        mock_asyncpg_pool = MagicMock()
-        mock_asyncpg_pool.acquire = mock_acquire
-        pool._pool = mock_asyncpg_pool
-        pool._is_connected = True
-
-        with patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()):
-            async with pool.acquire_healthy(max_attempts=3):
-                pass
-
-    @pytest.mark.asyncio
-    async def test_uses_config_health_check_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that health check uses configured timeout."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        config = PoolConfig(timeouts=PoolTimeoutsConfig(health_check=7.5))
-        pool = Pool(config=config)
-
-        mock_conn = MagicMock()
-        mock_conn.fetchval = AsyncMock(return_value=1)
-
-        @asynccontextmanager
-        async def mock_acquire() -> Any:
-            yield mock_conn
-
-        mock_asyncpg_pool = MagicMock()
-        mock_asyncpg_pool.acquire = mock_acquire
-        pool._pool = mock_asyncpg_pool
-        pool._is_connected = True
-
-        async with pool.acquire_healthy():
-            pass
-
-        mock_conn.fetchval.assert_called_once_with("SELECT 1", timeout=7.5)
-
-
 class TestPoolTransaction:
     """Tests for Pool.transaction() method."""
 
@@ -966,7 +752,7 @@ class TestPoolTransaction:
 
 
 class TestPoolQueryMethods:
-    """Tests for Pool query methods (fetch, fetchrow, fetchval, execute, executemany)."""
+    """Tests for Pool query methods (fetch, fetchrow, fetchval, execute)."""
 
     @pytest.mark.asyncio
     async def test_fetch_returns_list(self, mock_pool: Pool) -> None:
@@ -1104,20 +890,6 @@ class TestPoolQueryRetry:
             await mock_pool.fetch("INVALID SQL")
 
 
-class TestPoolExecutemany:
-    """Tests for Pool.executemany() method."""
-
-    @pytest.mark.asyncio
-    async def test_executemany_success(self, mock_pool: Pool) -> None:
-        """Test executemany() with valid parameters."""
-        await mock_pool.executemany("INSERT INTO test VALUES ($1)", [(1,), (2,), (3,)])
-
-    @pytest.mark.asyncio
-    async def test_executemany_with_timeout(self, mock_pool: Pool) -> None:
-        """Test executemany() with custom timeout."""
-        await mock_pool.executemany("INSERT INTO test VALUES ($1)", [(1,)], timeout=30.0)
-
-
 # ============================================================================
 # Properties Tests
 # ============================================================================
@@ -1142,59 +914,6 @@ class TestPoolProperties:
         pool = Pool()
         assert pool.config is not None
         assert isinstance(pool.config, PoolConfig)
-
-
-class TestPoolMetrics:
-    """Tests for Pool.metrics property."""
-
-    def test_metrics_when_disconnected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test metrics when pool is not connected."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        pool = Pool()
-        metrics = pool.metrics
-
-        assert metrics["is_connected"] is False
-        assert metrics["size"] == 0
-        assert metrics["idle_size"] == 0
-        assert metrics["utilization"] == 0.0
-
-    def test_metrics_when_connected(self, mock_pool: Pool) -> None:
-        """Test metrics when pool is connected."""
-        # Setup mock pool methods
-        mock_pool._pool.get_size = MagicMock(return_value=10)  # type: ignore[union-attr]
-        mock_pool._pool.get_idle_size = MagicMock(return_value=8)  # type: ignore[union-attr]
-        mock_pool._pool.get_min_size = MagicMock(return_value=5)  # type: ignore[union-attr]
-        mock_pool._pool.get_max_size = MagicMock(return_value=20)  # type: ignore[union-attr]
-
-        metrics = mock_pool.metrics
-
-        assert metrics["is_connected"] is True
-        assert metrics["size"] == 10
-        assert metrics["idle_size"] == 8
-        assert metrics["min_size"] == 5
-        assert metrics["max_size"] == 20
-        # utilization = (size - idle_size) / max_size = (10 - 8) / 20 = 0.1
-        assert metrics["utilization"] == 0.1
-
-    def test_metrics_handles_interface_error(self, mock_pool: Pool) -> None:
-        """Test metrics gracefully handles InterfaceError."""
-        mock_pool._pool.get_size = MagicMock(  # type: ignore[union-attr]
-            side_effect=asyncpg.InterfaceError("Pool closed")
-        )
-
-        metrics = mock_pool.metrics
-
-        assert metrics["is_connected"] is False
-
-    def test_metrics_handles_unexpected_error(self, mock_pool: Pool) -> None:
-        """Test metrics gracefully handles unexpected errors."""
-        mock_pool._pool.get_size = MagicMock(  # type: ignore[union-attr]
-            side_effect=RuntimeError("Unexpected error")
-        )
-
-        metrics = mock_pool.metrics
-
-        assert metrics["is_connected"] is False
 
 
 # ============================================================================

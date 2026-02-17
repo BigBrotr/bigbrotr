@@ -10,9 +10,10 @@ Clearnet relays only.
 Note:
     The SSL test uses a two-connection methodology:
 
-    1. **Extraction** -- connects with ``CERT_NONE`` to read the certificate
-       regardless of chain validity. This allows inspecting self-signed or
-       expired certificates.
+    1. **Extraction** -- connects with ``CERT_NONE`` to obtain the
+       DER-encoded certificate regardless of chain validity, then parses
+       it with the ``cryptography`` library.  This allows inspecting
+       self-signed or expired certificates.
     2. **Validation** -- connects with the default (validating) SSL context
        to verify the certificate chain against the system trust store.
 
@@ -32,11 +33,15 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import calendar
 import hashlib
 import logging
 import socket
 import ssl
 from typing import Any, Self
+
+from cryptography import x509
+from cryptography.x509.oid import NameOID
 
 from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
@@ -50,10 +55,11 @@ logger = logging.getLogger("bigbrotr.nips.nip66")
 
 
 class CertificateExtractor:
-    """Extracts structured fields from a Python SSL certificate dictionary.
+    """Extracts structured fields from SSL certificates.
 
-    The certificate dictionary is obtained from ``SSLSocket.getpeercert()``
-    and follows the format documented in the Python ``ssl`` module.
+    Supports both the Python ``ssl`` module dict format (from
+    ``SSLSocket.getpeercert()``) and ``cryptography`` X.509 objects
+    (from DER-encoded certificates).
 
     See Also:
         [Nip66SslMetadata][bigbrotr.nips.nip66.ssl.Nip66SslMetadata]:
@@ -155,6 +161,38 @@ class CertificateExtractor:
 
         return result
 
+    @classmethod
+    def extract_all_from_x509(cls, cert: x509.Certificate) -> dict[str, Any]:
+        """Extract all fields from a ``cryptography`` X.509 certificate object."""
+        result: dict[str, Any] = {}
+
+        cns = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+        if cns:
+            result["ssl_subject_cn"] = cns[0].value
+
+        orgs = cert.issuer.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)
+        if orgs:
+            result["ssl_issuer"] = orgs[0].value
+        issuer_cns = cert.issuer.get_attributes_for_oid(NameOID.COMMON_NAME)
+        if issuer_cns:
+            result["ssl_issuer_cn"] = issuer_cns[0].value
+
+        result["ssl_expires"] = int(calendar.timegm(cert.not_valid_after_utc.timetuple()))
+        result["ssl_not_before"] = int(calendar.timegm(cert.not_valid_before_utc.timetuple()))
+
+        try:
+            san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+            dns_names = san_ext.value.get_values_for_type(x509.DNSName)
+            if dns_names:
+                result["ssl_san"] = dns_names
+        except x509.ExtensionNotFound:
+            pass
+
+        result["ssl_serial"] = format(cert.serial_number, "X")
+        result["ssl_version"] = cert.version.value
+
+        return result
+
 
 class Nip66SslMetadata(BaseNipMetadata):
     """Container for SSL/TLS certificate data and inspection logs.
@@ -209,8 +247,11 @@ class Nip66SslMetadata(BaseNipMetadata):
     def _extract_certificate_data(host: str, port: int, timeout: float) -> dict[str, Any]:
         """Extract certificate fields using a non-validating SSL context.
 
-        Uses ``CERT_NONE`` to ensure the certificate can be read even
-        when the chain is invalid or self-signed.
+        Uses ``CERT_NONE`` so the certificate can be read even when the
+        chain is invalid or self-signed.  The DER-encoded certificate is
+        parsed via the ``cryptography`` library because
+        ``getpeercert()`` (dict form) returns an empty dict with
+        ``CERT_NONE``.
         """
         result: dict[str, Any] = {}
         context = ssl.create_default_context()
@@ -222,16 +263,14 @@ class Nip66SslMetadata(BaseNipMetadata):
                 socket.create_connection((host, port), timeout=timeout) as sock,
                 context.wrap_socket(sock, server_hostname=host) as ssock,
             ):
-                cert = ssock.getpeercert()
                 cert_binary = ssock.getpeercert(binary_form=True)
-
-                if cert:
-                    result.update(CertificateExtractor.extract_all(cert))
 
                 if cert_binary:
                     result["ssl_fingerprint"] = CertificateExtractor.extract_fingerprint(
                         cert_binary
                     )
+                    parsed = x509.load_der_x509_certificate(cert_binary)
+                    result.update(CertificateExtractor.extract_all_from_x509(parsed))
 
                 result.update(Nip66SslMetadata._extract_tls_info(ssock))
 

@@ -39,7 +39,7 @@ from pydantic import BaseModel, Field, field_validator
 from bigbrotr.models.service_state import ServiceState
 
 from .logger import Logger
-from .pool import Pool, PoolConfig
+from .pool import Pool
 from .yaml import load_yaml
 
 
@@ -164,9 +164,9 @@ class Brotr:
     [fetchrow()][bigbrotr.core.brotr.Brotr.fetchrow],
     [fetchval()][bigbrotr.core.brotr.Brotr.fetchval],
     [execute()][bigbrotr.core.brotr.Brotr.execute],
-    [transaction()][bigbrotr.core.brotr.Brotr.transaction]) as a facade
-    over the pool. Implements async context manager for automatic pool
-    lifecycle management.
+    [transaction()][bigbrotr.core.brotr.Brotr.transaction]) as a facade over
+    the pool for custom queries. Implements async context manager for
+    automatic pool lifecycle management.
 
     Examples:
         ```python
@@ -235,11 +235,6 @@ class Brotr:
     def config(self) -> BrotrConfig:
         """The Brotr configuration (read-only)."""
         return self._config
-
-    @property
-    def pool_config(self) -> PoolConfig:
-        """Read-only access to the underlying pool configuration."""
-        return self._pool.config
 
     @classmethod
     def from_yaml(cls, config_path: str) -> Brotr:
@@ -440,23 +435,6 @@ class Brotr:
             *args: Query parameters.
         """
         return await self._pool.execute(query, *args, timeout=self._config.timeouts.query)
-
-    async def executemany(
-        self,
-        query: str,
-        args_list: list[tuple[Any, ...]],
-    ) -> None:
-        """Execute a query repeatedly with different parameter sets.
-
-        Delegates to [Pool.executemany()][bigbrotr.core.pool.Pool.executemany]
-        which handles retry on transient connection errors with exponential
-        backoff.
-
-        Args:
-            query: SQL query with ``$1``, ``$2``, ... placeholders.
-            args_list: List of parameter tuples, one per execution.
-        """
-        await self._pool.executemany(query, args_list, timeout=self._config.timeouts.query)
 
     def transaction(self) -> AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]:
         """Return a transaction context manager from the pool.
@@ -953,6 +931,14 @@ class Brotr:
         """
         if not service_names:
             return 0
+
+        if not (len(service_names) == len(state_types) == len(state_keys)):
+            raise ValueError(
+                f"Parallel arrays must have equal length: "
+                f"service_names={len(service_names)}, "
+                f"state_types={len(state_types)}, "
+                f"state_keys={len(state_keys)}"
+            )
 
         self._validate_batch_size(service_names, "delete_service_state")
 

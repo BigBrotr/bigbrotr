@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from time import time
 from typing import NamedTuple
 
+from ._validation import validate_instance, validate_timestamp
 from .metadata import Metadata, MetadataDbParams, MetadataType
 from .relay import Relay, RelayDbParams
 
@@ -126,7 +127,10 @@ class RelayMetadata:
     )
 
     def __post_init__(self) -> None:
-        """Validate database parameter conversion at construction time (fail-fast)."""
+        """Validate field types and compute database parameters (fail-fast)."""
+        validate_instance(self.relay, Relay, "relay")
+        validate_instance(self.metadata, Metadata, "metadata")
+        validate_timestamp(self.generated_at, "generated_at")
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
     def to_db_params(self) -> RelayMetadataDbParams:

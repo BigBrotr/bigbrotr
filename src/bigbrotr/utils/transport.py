@@ -338,7 +338,7 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
             await session.close()
             logger.debug("insecure_ws_cancelled url=%s", url)
             raise
-        except Exception as e:
+        except (ssl.SSLError, OSError) as e:
             await session.close()
             logger.debug("insecure_ws_error url=%s error=%s", url, str(e))
             raise OSError(f"Connection failed: {e}") from e
@@ -518,8 +518,7 @@ async def connect_relay(
     logger.debug("connect_failed relay=%s error=%s", relay.url, error_message)
 
     if not _is_ssl_error(error_message):
-        # Not an SSL error - raise the original error
-        raise TimeoutError(f"Connection failed: {relay.url} ({error_message})")
+        raise OSError(f"Connection failed: {relay.url} ({error_message})")
 
     if not allow_insecure:
         raise ssl.SSLCertVerificationError(
@@ -538,7 +537,7 @@ async def connect_relay(
     if relay_url not in output.success:
         error_message = output.failed.get(relay_url, "Unknown error")
         await client.disconnect()
-        raise TimeoutError(f"Connection failed (insecure): {relay.url} ({error_message})")
+        raise OSError(f"Connection failed (insecure): {relay.url} ({error_message})")
 
     logger.debug("insecure_connected relay=%s", relay.url)
     return client

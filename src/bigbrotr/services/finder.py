@@ -425,17 +425,26 @@ class Finder(BaseService[FinderConfig]):
                 )
 
         # Update cursor for this relay
-        await self._brotr.upsert_service_state(
-            [
-                ServiceState(
-                    service_name=self.SERVICE_NAME,
-                    state_type=ServiceStateType.CURSOR,
-                    state_key=relay_url,
-                    state_value={"last_seen_at": last_seen_at},
-                    updated_at=int(time.time()),
-                )
-            ]
-        )
+        try:
+            await self._brotr.upsert_service_state(
+                [
+                    ServiceState(
+                        service_name=self.SERVICE_NAME,
+                        state_type=ServiceStateType.CURSOR,
+                        state_key=relay_url,
+                        state_value={"last_seen_at": last_seen_at},
+                        updated_at=int(time.time()),
+                    )
+                ]
+            )
+        except (asyncpg.PostgresError, OSError) as e:
+            self._logger.error(
+                "cursor_update_failed",
+                relay=relay_url,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            raise
 
         return found
 

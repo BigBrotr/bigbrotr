@@ -445,3 +445,41 @@ class TestEdgeCases:
         result = er.to_db_params()
         assert result.relay_url == "ws://relay.loki"
         assert result.relay_network == "loki"
+
+
+# =============================================================================
+# Type Validation Tests
+# =============================================================================
+
+
+class TestTypeValidation:
+    """Runtime type validation in __post_init__."""
+
+    def test_event_non_event_rejected(self):
+        """event must be an Event instance."""
+        relay = Relay("wss://relay.example.com", discovered_at=1234567890)
+        with pytest.raises(TypeError, match="event must be an Event"):
+            EventRelay(event="not an event", relay=relay, seen_at=123)  # type: ignore[arg-type]
+
+    def test_relay_non_relay_rejected(self, mock_event):
+        """relay must be a Relay instance."""
+        with pytest.raises(TypeError, match="relay must be a Relay"):
+            EventRelay(event=mock_event, relay="not a relay", seen_at=123)  # type: ignore[arg-type]
+
+    def test_seen_at_non_int_rejected(self, mock_event):
+        """seen_at must be an int."""
+        relay = Relay("wss://relay.example.com", discovered_at=1234567890)
+        with pytest.raises(TypeError, match="seen_at must be an int"):
+            EventRelay(event=mock_event, relay=relay, seen_at="abc")  # type: ignore[arg-type]
+
+    def test_seen_at_bool_rejected(self, mock_event):
+        """bool is not accepted as int for seen_at."""
+        relay = Relay("wss://relay.example.com", discovered_at=1234567890)
+        with pytest.raises(TypeError, match="seen_at must be an int"):
+            EventRelay(event=mock_event, relay=relay, seen_at=True)  # type: ignore[arg-type]
+
+    def test_seen_at_negative_rejected(self, mock_event):
+        """seen_at must be non-negative."""
+        relay = Relay("wss://relay.example.com", discovered_at=1234567890)
+        with pytest.raises(ValueError, match="seen_at must be non-negative"):
+            EventRelay(event=mock_event, relay=relay, seen_at=-1)

@@ -22,6 +22,8 @@ from typing import Any, NamedTuple
 
 from nostr_sdk import Event as NostrEvent
 
+from ._validation import validate_instance
+
 
 class EventDbParams(NamedTuple):
     """Positional parameters for the event database insert procedure.
@@ -122,6 +124,7 @@ class Event:
 
     def __post_init__(self) -> None:
         """Validate the event for database compatibility on construction."""
+        validate_instance(self._nostr_event, NostrEvent, "_nostr_event")
         event_id = self._nostr_event.id().to_hex()[:16]
 
         if "\x00" in self._nostr_event.content():

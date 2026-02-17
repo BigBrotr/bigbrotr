@@ -612,7 +612,12 @@ class Monitor(
             await asyncio.to_thread(_download_geolite_db, url, path, max_size)
 
     async def _update_geo_databases(self) -> None:
-        """Download or re-download GeoLite2 databases if missing or stale."""
+        """Download or re-download GeoLite2 databases if missing or stale.
+
+        Download failures are logged and suppressed so that a transient
+        network error does not prevent the monitor cycle from proceeding
+        with a stale (or missing) database.
+        """
         compute = self._config.processing.compute
         if not compute.nip66_geo and not compute.nip66_net:
             return
@@ -624,39 +629,45 @@ class Monitor(
 
         if compute.nip66_geo:
             city_path = Path(self._config.geo.city_database_path)
-            if not await asyncio.to_thread(city_path.exists):
-                self._logger.info("downloading_geo_db", db="city")
-                await asyncio.to_thread(
-                    _download_geolite_db,
-                    self._config.geo.city_download_url,
-                    city_path,
-                    max_size,
-                )
-            elif max_age_days is not None:
-                await self._update_geo_db_if_stale(
-                    city_path,
-                    self._config.geo.city_download_url,
-                    "city",
-                    max_age_seconds,
-                )
+            try:
+                if not await asyncio.to_thread(city_path.exists):
+                    self._logger.info("downloading_geo_db", db="city")
+                    await asyncio.to_thread(
+                        _download_geolite_db,
+                        self._config.geo.city_download_url,
+                        city_path,
+                        max_size,
+                    )
+                elif max_age_days is not None:
+                    await self._update_geo_db_if_stale(
+                        city_path,
+                        self._config.geo.city_download_url,
+                        "city",
+                        max_age_seconds,
+                    )
+            except (OSError, ValueError) as e:
+                self._logger.warning("geo_db_update_failed", db="city", error=str(e))
 
         if compute.nip66_net:
             asn_path = Path(self._config.geo.asn_database_path)
-            if not await asyncio.to_thread(asn_path.exists):
-                self._logger.info("downloading_geo_db", db="asn")
-                await asyncio.to_thread(
-                    _download_geolite_db,
-                    self._config.geo.asn_download_url,
-                    asn_path,
-                    max_size,
-                )
-            elif max_age_days is not None:
-                await self._update_geo_db_if_stale(
-                    asn_path,
-                    self._config.geo.asn_download_url,
-                    "asn",
-                    max_age_seconds,
-                )
+            try:
+                if not await asyncio.to_thread(asn_path.exists):
+                    self._logger.info("downloading_geo_db", db="asn")
+                    await asyncio.to_thread(
+                        _download_geolite_db,
+                        self._config.geo.asn_download_url,
+                        asn_path,
+                        max_size,
+                    )
+                elif max_age_days is not None:
+                    await self._update_geo_db_if_stale(
+                        asn_path,
+                        self._config.geo.asn_download_url,
+                        "asn",
+                        max_age_seconds,
+                    )
+            except (OSError, ValueError) as e:
+                self._logger.warning("geo_db_update_failed", db="asn", error=str(e))
 
     async def _open_geo_readers(self) -> None:
         """Open GeoIP database readers for the current run.
@@ -908,7 +919,7 @@ class Monitor(
                     attempt=attempt + 1,
                     error=str(e),
                 )
-                return None
+                result = None
 
             # Network failure - retry if attempts remaining
             if attempt < max_retries:

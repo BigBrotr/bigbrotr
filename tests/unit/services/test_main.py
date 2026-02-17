@@ -361,7 +361,7 @@ pool:
 """)
         brotr = load_brotr(config_file)
         assert isinstance(brotr, Brotr)
-        assert brotr.pool_config.database.host == "localhost"
+        assert brotr._pool.config.database.host == "localhost"  # type: ignore[attr-defined]
 
     def test_load_from_nonexistent_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -399,9 +399,9 @@ pool:
     max_size: 20
 """)
         brotr = load_brotr(config_file)
-        assert brotr.pool_config.database.host == "customhost"
-        assert brotr.pool_config.database.port == 5433
-        assert brotr.pool_config.database.database == "customdb"
+        assert brotr._pool.config.database.host == "customhost"  # type: ignore[attr-defined]
+        assert brotr._pool.config.database.port == 5433  # type: ignore[attr-defined]
+        assert brotr._pool.config.database.database == "customdb"  # type: ignore[attr-defined]
 
 
 # ============================================================================

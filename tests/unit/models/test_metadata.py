@@ -75,10 +75,10 @@ class TestConstruction:
         assert m.data == {"name": "test", "value": 123}
         assert m.type == MetadataType.NIP11_INFO
 
-    def test_with_none(self):
-        """Constructs with None defaults to empty dict."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data=None)  # type: ignore[arg-type]
-        assert m.data == {}
+    def test_with_none_rejected(self):
+        """None is not a valid Mapping for data."""
+        with pytest.raises(TypeError, match="data must be a Mapping"):
+            Metadata(type=MetadataType.NIP11_INFO, data=None)  # type: ignore[arg-type]
 
     def test_without_args(self):
         """Constructs without value defaults to empty dict."""
@@ -141,101 +141,6 @@ class TestImmutability:
         m = Metadata(type=MetadataType.NIP11_INFO, data={})
         with pytest.raises((AttributeError, TypeError, FrozenInstanceError)):
             m.new_attr = "value"
-
-
-# =============================================================================
-# Type-safe Accessor Tests
-# =============================================================================
-
-
-class TestGetMethods:
-    """Type-safe getter methods (_get)."""
-
-    def test_get_with_default(self):
-        """_get returns value when key exists and type matches."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"name": "test"})
-        assert m._get("name", expected_type=str, default="default") == "test"
-
-    def test_get_wrong_type_returns_default(self):
-        """_get returns default when type does not match."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"name": 123})
-        assert m._get("name", expected_type=str, default="default") == "default"
-
-    def test_get_missing_returns_default(self):
-        """_get returns default when key is missing."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={})
-        assert m._get("missing", expected_type=str, default="default") == "default"
-
-    def test_get_optional_exists(self):
-        """_get returns value when key exists (no default)."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"name": "test"})
-        assert m._get("name", expected_type=str) == "test"
-
-    def test_get_optional_wrong_type(self):
-        """_get returns None when type mismatch (no default)."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"name": 123})
-        assert m._get("name", expected_type=str) is None
-
-    def test_get_optional_missing(self):
-        """_get returns None when key is missing (no default)."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={})
-        assert m._get("missing", expected_type=str) is None
-
-    def test_get_nested_with_default(self):
-        """_get handles nested keys."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"outer": {"inner": "value"}})
-        assert m._get("outer", "inner", expected_type=str, default="default") == "value"
-
-    def test_get_nested_missing_outer(self):
-        """_get returns default when outer key missing."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={})
-        assert m._get("missing", "inner", expected_type=str, default="default") == "default"
-
-    def test_get_nested_outer_not_dict(self):
-        """_get returns default when outer is not a dict."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"outer": "not_a_dict"})
-        assert m._get("outer", "inner", expected_type=str, default="default") == "default"
-
-    def test_get_nested_optional_exists(self):
-        """_get handles nested keys without default."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"outer": {"inner": "value"}})
-        assert m._get("outer", "inner", expected_type=str) == "value"
-
-    def test_get_nested_optional_missing(self):
-        """_get returns None for missing nested key (no default)."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={})
-        assert m._get("missing", "inner", expected_type=str) is None
-
-    def test_get_deep_nested(self):
-        """_get handles deeply nested keys."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"a": {"b": {"c": "deep"}}})
-        assert m._get("a", "b", "c", expected_type=str) == "deep"
-
-    def test_get_deep_nested_with_default(self):
-        """_get returns default for missing deep key."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"a": {"b": {}}})
-        assert m._get("a", "b", "c", expected_type=str, default="fallback") == "fallback"
-
-    def test_get_bool_type(self):
-        """_get handles bool type correctly."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"enabled": True})
-        assert m._get("enabled", expected_type=bool) is True
-        assert m._get("enabled", expected_type=bool, default=False) is True
-
-    def test_get_int_type(self):
-        """_get handles int type correctly."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"count": 42})
-        assert m._get("count", expected_type=int) == 42
-
-    def test_get_list_type(self):
-        """_get handles list type correctly."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"items": [1, 2, 3]})
-        assert m._get("items", expected_type=list) == [1, 2, 3]
-
-    def test_get_dict_type(self):
-        """_get handles dict type correctly."""
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"nested": {"key": "value"}})
-        assert m._get("nested", expected_type=dict) == {"key": "value"}
 
 
 # =============================================================================
@@ -481,6 +386,16 @@ class TestEdgeCases:
         reconstructed = Metadata.from_db_params(params)
         assert reconstructed.data == data
 
+    def test_list_as_data_rejected(self):
+        """Passing a list as data raises TypeError."""
+        with pytest.raises(TypeError, match="data must be a Mapping"):
+            Metadata(type=MetadataType.NIP11_INFO, data=[1, 2, 3])
+
+    def test_string_as_data_rejected(self):
+        """Passing a string as data raises TypeError."""
+        with pytest.raises(TypeError, match="data must be a Mapping"):
+            Metadata(type=MetadataType.NIP11_INFO, data="not a dict")
+
     def test_empty_string_values(self):
         """Empty string values are preserved."""
         data = {"empty": "", "nested": {"also_empty": ""}}
@@ -571,3 +486,22 @@ class TestNormalization:
             type=MetadataType.NIP11_INFO, data={"items": [None, {}, [], None], "real": "data"}
         )
         assert m.data == {"real": "data"}
+
+
+# =============================================================================
+# Type Validation Tests
+# =============================================================================
+
+
+class TestTypeValidation:
+    """Runtime type validation in __post_init__."""
+
+    def test_type_non_enum_rejected(self):
+        """type must be a MetadataType enum member."""
+        with pytest.raises(TypeError, match="type must be a MetadataType"):
+            Metadata(type="nip11_info", data={"key": "value"})  # type: ignore[arg-type]
+
+    def test_type_int_rejected(self):
+        """type must be a MetadataType, not an int."""
+        with pytest.raises(TypeError, match="type must be a MetadataType"):
+            Metadata(type=42, data={"key": "value"})  # type: ignore[arg-type]

@@ -29,6 +29,7 @@ from rfc3986 import uri_reference
 from rfc3986.exceptions import UnpermittedComponentError, ValidationError
 from rfc3986.validators import Validator
 
+from ._validation import validate_str_no_null, validate_timestamp
 from .constants import NetworkType
 
 
@@ -188,10 +189,11 @@ class Relay:
         """Parse and validate the raw URL, populating all computed fields.
 
         Raises:
+            TypeError: If field types are incorrect.
             ValueError: If the URL is invalid, local, or contains null bytes.
         """
-        if "\x00" in self.raw_url:
-            raise ValueError("Relay URL contains null bytes")
+        validate_str_no_null(self.raw_url, "raw_url")
+        validate_timestamp(self.discovered_at, "discovered_at")
 
         parsed = self._parse(self.raw_url)
 

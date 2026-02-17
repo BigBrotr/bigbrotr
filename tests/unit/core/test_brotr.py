@@ -617,10 +617,9 @@ class TestUpsertServiceState:
         values_list = call_args[0][4]
         assert values_list[0] == {"nested": {"level": 1}}
 
-    @pytest.mark.asyncio
-    async def test_list_values_passed_directly(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
-        """Test that list values are passed directly (JSON codec handles encoding)."""
-        records = [
+    def test_list_values_rejected(self) -> None:
+        """List values are rejected as state_value (must be a dict)."""
+        with pytest.raises(TypeError, match="state_value must be a Mapping"):
             ServiceState(
                 service_name=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
@@ -628,13 +627,6 @@ class TestUpsertServiceState:
                 state_value=["item1", "item2", "item3"],  # type: ignore[arg-type]
                 updated_at=1700000000,
             )
-        ]
-        await mock_brotr.upsert_service_state(records)
-
-        mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.execute.call_args
-        values_list = call_args[0][4]
-        assert values_list[0] == ["item1", "item2", "item3"]
 
     @pytest.mark.asyncio
     async def test_complex_nested_values(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
@@ -642,7 +634,7 @@ class TestUpsertServiceState:
         complex_value = {
             "nested": {"level2": {"level3": ["a", "b", "c"]}},
             "list_of_dicts": [{"key1": "value1"}, {"key2": "value2"}],
-            "mixed": [1, "string", True, None],
+            "mixed": [1, "string", True],
         }
         records = [
             ServiceState(

@@ -48,22 +48,25 @@ class ResolvedHost:
         return self.ipv4 is not None or self.ipv6 is not None
 
 
-async def resolve_host(host: str) -> ResolvedHost:
+async def resolve_host(host: str, *, timeout: float = 5.0) -> ResolvedHost:  # noqa: ASYNC109
     """Resolve a hostname to IPv4 and IPv6 addresses asynchronously.
 
     Performs independent A and AAAA record lookups using the system resolver
     via ``asyncio.to_thread``. Failure of one address family does not affect
-    the other.
+    the other. Each lookup is bounded by *timeout* to prevent indefinite
+    blocking on unresponsive DNS servers.
 
     Args:
         host: Hostname to resolve (e.g., ``"relay.damus.io"``).
+        timeout: Maximum seconds to wait for each DNS lookup (default 5.0).
 
     Returns:
         [ResolvedHost][bigbrotr.utils.dns.ResolvedHost] with resolved
             addresses (``None`` for failed lookups).
 
     Note:
-        All exceptions from the underlying socket calls are suppressed.
+        All exceptions from the underlying socket calls are suppressed,
+        including ``asyncio.TimeoutError``.
         A completely unresolvable hostname returns a
         [ResolvedHost][bigbrotr.utils.dns.ResolvedHost] with both fields
         set to ``None`` and ``has_ip == False`` rather than raising.
@@ -79,12 +82,17 @@ async def resolve_host(host: str) -> ResolvedHost:
     ipv6: str | None = None
 
     # Resolve IPv4
-    with contextlib.suppress(OSError, UnicodeError):
-        ipv4 = await asyncio.to_thread(socket.gethostbyname, host)
+    with contextlib.suppress(OSError, UnicodeError, TimeoutError):
+        ipv4 = await asyncio.wait_for(
+            asyncio.to_thread(socket.gethostbyname, host), timeout=timeout
+        )
 
     # Resolve IPv6
-    with contextlib.suppress(OSError, UnicodeError):
-        ipv6_result = await asyncio.to_thread(socket.getaddrinfo, host, None, socket.AF_INET6)
+    with contextlib.suppress(OSError, UnicodeError, TimeoutError):
+        ipv6_result = await asyncio.wait_for(
+            asyncio.to_thread(socket.getaddrinfo, host, None, socket.AF_INET6),
+            timeout=timeout,
+        )
         if ipv6_result:
             ipv6 = str(ipv6_result[0][4][0])
 
