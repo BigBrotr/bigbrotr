@@ -709,39 +709,6 @@ class TestCleanup:
 
 
 # ============================================================================
-# _parse_delete_result Tests
-# ============================================================================
-
-
-class TestParseDeleteResult:
-    """Tests for Validator._parse_delete_result edge cases."""
-
-    def test_standard_delete_result(self) -> None:
-        assert Validator._parse_delete_result("DELETE 5") == 5
-
-    def test_zero_deleted(self) -> None:
-        assert Validator._parse_delete_result("DELETE 0") == 0
-
-    def test_large_count(self) -> None:
-        assert Validator._parse_delete_result("DELETE 99999") == 99999
-
-    def test_none_returns_zero(self) -> None:
-        assert Validator._parse_delete_result(None) == 0
-
-    def test_empty_string_returns_zero(self) -> None:
-        assert Validator._parse_delete_result("") == 0
-
-    def test_non_numeric_suffix_returns_zero(self) -> None:
-        assert Validator._parse_delete_result("DELETE abc") == 0
-
-    def test_single_word_returns_zero(self) -> None:
-        assert Validator._parse_delete_result("DELETE") == 0
-
-    def test_unexpected_format_returns_zero(self) -> None:
-        assert Validator._parse_delete_result("SOMETHING ELSE") == 0
-
-
-# ============================================================================
 # Network Configuration Tests
 # ============================================================================
 

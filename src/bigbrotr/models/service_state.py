@@ -20,6 +20,7 @@ See Also:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -73,6 +74,11 @@ class ServiceStateDbParams(NamedTuple):
     signature: ``(service_names TEXT[], state_types TEXT[], state_keys TEXT[],
     state_values JSONB[], updated_ats BIGINT[])``.
 
+    The ``state_value`` field is pre-serialized to a JSON string, consistent
+    with how ``EventDbParams.tags`` and ``MetadataDbParams.data`` handle
+    JSONB columns. This allows asyncpg's registered JSONB codec to pass
+    the value through without needing explicit ``::jsonb[]`` casts.
+
     See Also:
         [ServiceState.to_db_params][bigbrotr.models.service_state.ServiceState.to_db_params]:
             Returns a cached instance of this tuple.
@@ -81,7 +87,7 @@ class ServiceStateDbParams(NamedTuple):
     service_name: ServiceName
     state_type: ServiceStateType
     state_key: str
-    state_value: Mapping[str, Any]
+    state_value: str
     updated_at: int
 
 
@@ -133,6 +139,7 @@ class ServiceState:
     state_key: str
     state_value: Mapping[str, Any]
     updated_at: int
+    _json_value: str = field(default="", init=False, repr=False, compare=False)
     _db_params: ServiceStateDbParams = field(
         default=None,
         init=False,
@@ -149,6 +156,7 @@ class ServiceState:
         object.__setattr__(self, "service_name", ServiceName(self.service_name))
         object.__setattr__(self, "state_type", ServiceStateType(self.state_type))
         sanitized = sanitize_data(self.state_value, "state_value")
+        object.__setattr__(self, "_json_value", json.dumps(sanitized))
         object.__setattr__(self, "state_value", deep_freeze(sanitized))
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
@@ -157,7 +165,7 @@ class ServiceState:
             service_name=self.service_name,
             state_type=self.state_type,
             state_key=self.state_key,
-            state_value=dict(self.state_value),
+            state_value=self._json_value,
             updated_at=self.updated_at,
         )
 
@@ -185,6 +193,6 @@ class ServiceState:
             service_name=params.service_name,
             state_type=params.state_type,
             state_key=params.state_key,
-            state_value=params.state_value,
+            state_value=json.loads(params.state_value),
             updated_at=params.updated_at,
         )

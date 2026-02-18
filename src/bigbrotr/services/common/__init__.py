@@ -45,8 +45,8 @@ from .queries import (
     get_all_relays,
     get_all_service_cursors,
     get_events_with_relay_urls,
+    insert_candidates,
     promote_candidates,
-    upsert_candidates,
 )
 
 
@@ -71,6 +71,6 @@ __all__ = [
     "get_all_relays",
     "get_all_service_cursors",
     "get_events_with_relay_urls",
+    "insert_candidates",
     "promote_candidates",
-    "upsert_candidates",
 ]

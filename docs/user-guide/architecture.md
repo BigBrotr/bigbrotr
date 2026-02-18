@@ -458,7 +458,7 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | `count_relays_due_for_check(brotr, ...)` | Count relays needing health check |
 | `fetch_relays_due_for_check(brotr, ...)` | Fetch relays needing health check |
 | `get_events_with_relay_urls(brotr, ...)` | Events containing relay URLs |
-| `upsert_candidates(brotr, relays)` | Insert/update validation candidates |
+| `insert_candidates(brotr, relays)` | Insert new validation candidates (filters duplicates) |
 | `count_candidates(brotr, networks)` | Count pending candidates |
 | `fetch_candidate_chunk(brotr, ...)` | Fetch candidate batch for validation |
 | `delete_stale_candidates(brotr)` | Remove candidates already in relay table |

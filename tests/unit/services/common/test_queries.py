@@ -25,9 +25,11 @@ import pytest
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.queries import (
+    _parse_delete_result,
     count_candidates,
     count_relays_due_for_check,
     delete_exhausted_candidates,
+    delete_expired_relay_metadata,
     delete_stale_candidates,
     fetch_candidate_chunk,
     fetch_relays_due_for_check,
@@ -36,8 +38,8 @@ from bigbrotr.services.common.queries import (
     get_all_relays,
     get_all_service_cursors,
     get_events_with_relay_urls,
+    insert_candidates,
     promote_candidates,
-    upsert_candidates,
 )
 
 
@@ -55,6 +57,7 @@ def mock_brotr() -> MagicMock:
     brotr.fetchval = AsyncMock(return_value=0)
     brotr.execute = AsyncMock(return_value="DELETE 0")
     brotr.upsert_service_state = AsyncMock()
+    brotr.config.batch.max_size = 1000
 
     # Transaction context manager
     mock_conn = MagicMock()
@@ -381,19 +384,28 @@ class TestGetEventsWithRelayUrls:
 
 
 # ============================================================================
-# TestUpsertCandidates
+# TestInsertCandidates
 # ============================================================================
 
 
-class TestUpsertCandidates:
-    """Tests for upsert_candidates()."""
+class TestInsertCandidates:
+    """Tests for insert_candidates()."""
 
-    async def test_calls_upsert_service_state(self, mock_brotr: MagicMock) -> None:
-        """Builds records with ServiceName.VALIDATOR/ServiceStateType.CANDIDATE and upserts."""
+    async def test_filters_then_upserts(self, mock_brotr: MagicMock) -> None:
+        """Calls filter_new_relay_urls internally, then upserts only new relays."""
         relay = _make_mock_relay()
+        mock_brotr.fetch = AsyncMock(
+            return_value=[_make_dict_row({"url": "wss://relay.example.com"})]
+        )
 
-        result = await upsert_candidates(mock_brotr, [relay])
+        result = await insert_candidates(mock_brotr, [relay])
 
+        # filter_new_relay_urls called via brotr.fetch
+        mock_brotr.fetch.assert_awaited_once()
+        sql = mock_brotr.fetch.call_args[0][0]
+        assert "unnest($1::text[])" in sql
+
+        # upsert_service_state called with the filtered relay
         mock_brotr.upsert_service_state.assert_awaited_once()
         records = mock_brotr.upsert_service_state.call_args[0][0]
         assert len(records) == 1
@@ -406,26 +418,67 @@ class TestUpsertCandidates:
         assert "inserted_at" in record.state_value
         assert result == 1
 
-    async def test_multiple_relays(self, mock_brotr: MagicMock) -> None:
-        """Handles multiple relays in a single call."""
+    async def test_multiple_relays_partially_new(self, mock_brotr: MagicMock) -> None:
+        """Only inserts relays that pass the filter."""
         relays = [
             _make_mock_relay("wss://r1.example.com"),
             _make_mock_relay("wss://r2.example.com"),
             _make_mock_relay("ws://r3.onion", network_value="tor"),
         ]
+        # Only r1 and r3 are new
+        mock_brotr.fetch = AsyncMock(
+            return_value=[
+                _make_dict_row({"url": "wss://r1.example.com"}),
+                _make_dict_row({"url": "ws://r3.onion"}),
+            ]
+        )
 
-        result = await upsert_candidates(mock_brotr, relays)
+        result = await insert_candidates(mock_brotr, relays)
 
         records = mock_brotr.upsert_service_state.call_args[0][0]
-        assert len(records) == 3
-        assert result == 3
+        assert len(records) == 2
+        assert result == 2
+        keys = {r.state_key for r in records}
+        assert keys == {"wss://r1.example.com", "ws://r3.onion"}
 
-    async def test_empty_iterable(self, mock_brotr: MagicMock) -> None:
-        """Does not call upsert_service_state when given an empty iterable."""
-        result = await upsert_candidates(mock_brotr, [])
+    async def test_all_filtered_out(self, mock_brotr: MagicMock) -> None:
+        """Returns 0 when all relays already exist (filter returns empty)."""
+        relay = _make_mock_relay()
+        mock_brotr.fetch = AsyncMock(return_value=[])
+
+        result = await insert_candidates(mock_brotr, [relay])
 
         mock_brotr.upsert_service_state.assert_not_awaited()
         assert result == 0
+
+    async def test_empty_iterable(self, mock_brotr: MagicMock) -> None:
+        """Does not call fetch or upsert_service_state when given an empty iterable."""
+        result = await insert_candidates(mock_brotr, [])
+
+        mock_brotr.fetch.assert_not_awaited()
+        mock_brotr.upsert_service_state.assert_not_awaited()
+        assert result == 0
+
+    async def test_batching_large_input(self, mock_brotr: MagicMock) -> None:
+        """Splits into batches when relays exceed batch.max_size."""
+        mock_brotr.config.batch.max_size = 2
+        relays = [
+            _make_mock_relay("wss://r1.example.com"),
+            _make_mock_relay("wss://r2.example.com"),
+            _make_mock_relay("wss://r3.example.com"),
+        ]
+        mock_brotr.fetch = AsyncMock(
+            return_value=[
+                _make_dict_row({"url": "wss://r1.example.com"}),
+                _make_dict_row({"url": "wss://r2.example.com"}),
+                _make_dict_row({"url": "wss://r3.example.com"}),
+            ]
+        )
+
+        result = await insert_candidates(mock_brotr, relays)
+
+        assert mock_brotr.upsert_service_state.await_count == 2  # 2 + 1
+        assert result == 3
 
 
 # ============================================================================
@@ -541,15 +594,15 @@ class TestDeleteStaleCandidates:
         assert "EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CANDIDATE
-        assert result == "DELETE 5"
+        assert result == 5
 
-    async def test_returns_command_string(self, mock_brotr: MagicMock) -> None:
-        """Returns the PostgreSQL command status string."""
+    async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
+        """Returns 0 when no rows are deleted."""
         mock_brotr.execute = AsyncMock(return_value="DELETE 0")
 
         result = await delete_stale_candidates(mock_brotr)
 
-        assert result == "DELETE 0"
+        assert result == 0
 
 
 # ============================================================================
@@ -577,15 +630,15 @@ class TestDeleteExhaustedCandidates:
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CANDIDATE
         assert args[0][3] == 5
-        assert result == "DELETE 3"
+        assert result == 3
 
-    async def test_returns_command_string(self, mock_brotr: MagicMock) -> None:
-        """Returns the PostgreSQL command status string."""
+    async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
+        """Returns 0 when no rows are deleted."""
         mock_brotr.execute = AsyncMock(return_value="DELETE 0")
 
         result = await delete_exhausted_candidates(mock_brotr, max_failures=3)
 
-        assert result == "DELETE 0"
+        assert result == 0
 
 
 # ============================================================================
@@ -734,3 +787,67 @@ class TestGetAllServiceCursors:
         result = await get_all_service_cursors(mock_brotr, "finder")
 
         assert result == {}
+
+
+# ============================================================================
+# TestParseDeleteResult
+# ============================================================================
+
+
+class TestParseDeleteResult:
+    """Tests for _parse_delete_result() helper."""
+
+    def test_standard_delete(self) -> None:
+        assert _parse_delete_result("DELETE 5") == 5
+
+    def test_zero_deleted(self) -> None:
+        assert _parse_delete_result("DELETE 0") == 0
+
+    def test_large_count(self) -> None:
+        assert _parse_delete_result("DELETE 99999") == 99999
+
+    def test_none_returns_zero(self) -> None:
+        assert _parse_delete_result(None) == 0
+
+    def test_empty_string_returns_zero(self) -> None:
+        assert _parse_delete_result("") == 0
+
+    def test_non_numeric_suffix_returns_zero(self) -> None:
+        assert _parse_delete_result("DELETE abc") == 0
+
+    def test_single_word_returns_zero(self) -> None:
+        assert _parse_delete_result("DELETE") == 0
+
+    def test_unexpected_format_returns_zero(self) -> None:
+        assert _parse_delete_result("SOMETHING ELSE") == 0
+
+
+# ============================================================================
+# TestDeleteExpiredRelayMetadata
+# ============================================================================
+
+
+class TestDeleteExpiredRelayMetadata:
+    """Tests for delete_expired_relay_metadata()."""
+
+    async def test_calls_execute_with_correct_params(self, mock_brotr: MagicMock) -> None:
+        """Passes max_age_seconds and returns parsed count."""
+        mock_brotr.execute = AsyncMock(return_value="DELETE 10")
+
+        result = await delete_expired_relay_metadata(mock_brotr, max_age_seconds=2_592_000)
+
+        mock_brotr.execute.assert_awaited_once()
+        args = mock_brotr.execute.call_args
+        sql = args[0][0]
+        assert "DELETE FROM relay_metadata" in sql
+        assert "generated_at" in sql
+        assert args[0][1] == 2_592_000
+        assert result == 10
+
+    async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
+        """Returns 0 when no rows are deleted."""
+        mock_brotr.execute = AsyncMock(return_value="DELETE 0")
+
+        result = await delete_expired_relay_metadata(mock_brotr, max_age_seconds=86400)
+
+        assert result == 0

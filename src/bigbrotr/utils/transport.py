@@ -53,7 +53,6 @@ import os
 import socket
 import ssl
 import sys
-import threading
 from dataclasses import dataclass
 from datetime import timedelta
 from datetime import timedelta as Duration  # noqa: N812
@@ -153,25 +152,41 @@ if not isinstance(sys.stderr, _NostrSdkStderrFilter):
     sys.stderr = _NostrSdkStderrFilter(sys.stderr)
 
 
-_stderr_lock = threading.Lock()
+class _StderrSuppressor:
+    """Reference-counted stderr suppressor for async-safe batch suppression.
 
-
-@contextlib.contextmanager
-def _suppress_stderr() -> Generator[None, None, None]:
-    """Completely suppress stderr by redirecting to /dev/null.
-
-    More aggressive than ``_NostrSdkStderrFilter``; used during relay
-    validation where UniFFI noise is excessive. Thread-safe via a
-    global lock to prevent interleaved restore of ``sys.stderr``.
+    Multiple concurrent async tasks can enter suppression without blocking
+    the event loop. A ``threading.Lock`` would deadlock here because the
+    context manager ``yield`` crosses ``await`` boundaries.
     """
-    with _stderr_lock:
-        old_stderr = sys.stderr
-        with open(os.devnull, "w") as devnull:  # noqa: PTH123 (os.devnull is cross-platform)
-            sys.stderr = devnull
-            try:
-                yield
-            finally:
-                sys.stderr = old_stderr
+
+    __slots__ = ("_devnull", "_refcount", "_saved_stderr")
+
+    def __init__(self) -> None:
+        self._refcount = 0
+        self._saved_stderr: TextIO | None = None
+        self._devnull: TextIO | None = None
+
+    @contextlib.contextmanager
+    def __call__(self) -> Generator[None, None, None]:
+        if self._refcount == 0:
+            self._saved_stderr = sys.stderr
+            self._devnull = open(os.devnull, "w")  # noqa: PTH123, SIM115
+        self._refcount += 1
+        sys.stderr = self._devnull
+        try:
+            yield
+        finally:
+            self._refcount -= 1
+            if self._refcount == 0:
+                sys.stderr = self._saved_stderr
+                if self._devnull is not None:
+                    self._devnull.close()
+                self._saved_stderr = None
+                self._devnull = None
+
+
+_suppress_stderr = _StderrSuppressor()
 
 
 # Multi-word patterns for SSL/TLS certificate errors in nostr-sdk messages.

@@ -291,8 +291,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             [delete_stale_candidates][bigbrotr.services.common.queries.delete_stale_candidates]:
                 The SQL query executed by this method.
         """
-        result = await delete_stale_candidates(self._brotr)
-        count = self._parse_delete_result(result)
+        count = await delete_stale_candidates(self._brotr)
         if count > 0:
             self.inc_counter("total_stale_removed", count)
             self._logger.info("stale_removed", count=count)
@@ -310,11 +309,10 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         if not self._config.cleanup.enabled:
             return
 
-        result = await delete_exhausted_candidates(
+        count = await delete_exhausted_candidates(
             self._brotr,
             self._config.cleanup.max_failures,
         )
-        count = self._parse_delete_result(result)
         if count > 0:
             self.inc_counter("total_exhausted_removed", count)
             self._logger.info(
@@ -322,30 +320,6 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
                 count=count,
                 threshold=self._config.cleanup.max_failures,
             )
-
-    @staticmethod
-    def _parse_delete_result(result: str | None) -> int:
-        """Extract the row count from a PostgreSQL DELETE result string.
-
-        Note:
-            asyncpg returns command status as a plain string (e.g.,
-            ``'DELETE 5'``). There is no structured alternative in the
-            asyncpg protocol; this parser splits on whitespace and
-            converts the trailing integer.
-
-        Args:
-            result: Raw result from ``asyncpg.execute()`` in
-                ``'DELETE N'`` format, or ``None`` if the query failed.
-
-        Returns:
-            Number of deleted rows, or 0 if unparsable.
-        """
-        if not result:
-            return 0
-        try:
-            return int(result.split()[-1])
-        except (ValueError, IndexError):
-            return 0
 
     async def _count_candidates(self, networks: list[str]) -> int:
         """Count pending candidates for the specified networks.
