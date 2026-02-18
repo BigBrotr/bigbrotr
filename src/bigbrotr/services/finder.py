@@ -11,7 +11,7 @@ Discovers Nostr relay URLs from two sources:
 
 Discovered URLs are inserted as validation candidates for the
 [Validator][bigbrotr.services.validator.Validator] service via
-[upsert_candidates][bigbrotr.services.common.queries.upsert_candidates].
+[insert_candidates][bigbrotr.services.common.queries.insert_candidates].
 
 Note:
     Event scanning uses per-relay cursor-based pagination so that
@@ -64,7 +64,7 @@ from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.utils.http import read_bounded_json
 
-from .common.queries import get_all_relay_urls, get_events_with_relay_urls, upsert_candidates
+from .common.queries import get_all_relay_urls, get_events_with_relay_urls, insert_candidates
 
 
 if TYPE_CHECKING:
@@ -187,7 +187,7 @@ class Finder(BaseService[FinderConfig]):
     Discovers Nostr relay URLs from external APIs and stored database events,
     then inserts them as validation candidates for the
     [Validator][bigbrotr.services.validator.Validator] service via
-    [upsert_candidates][bigbrotr.services.common.queries.upsert_candidates].
+    [insert_candidates][bigbrotr.services.common.queries.insert_candidates].
 
     See Also:
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Configuration
@@ -415,7 +415,7 @@ class Finder(BaseService[FinderConfig]):
         # Insert discovered relays as candidates
         if relays:
             try:
-                found = await upsert_candidates(self._brotr, relays.values())
+                found = await insert_candidates(self._brotr, relays.values())
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
                     "insert_candidates_failed",
@@ -480,7 +480,7 @@ class Finder(BaseService[FinderConfig]):
         sequentially (with a configurable delay between requests),
         deduplicates the results, and inserts discovered URLs as
         validation candidates via
-        [upsert_candidates][bigbrotr.services.common.queries.upsert_candidates].
+        [insert_candidates][bigbrotr.services.common.queries.insert_candidates].
         """
         relays: dict[str, Relay] = {}  # url -> Relay for deduplication
         sources_checked = 0
@@ -530,7 +530,7 @@ class Finder(BaseService[FinderConfig]):
         # Insert as validation candidates (service_name='validator')
         if relays:
             try:
-                self._found_relays += await upsert_candidates(self._brotr, relays.values())
+                self._found_relays += await insert_candidates(self._brotr, relays.values())
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
                     "insert_candidates_failed",

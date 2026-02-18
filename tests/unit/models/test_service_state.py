@@ -177,7 +177,7 @@ class TestServiceStateToDbParams:
         assert params.service_name is ServiceName.FINDER
         assert params.state_type is ServiceStateType.CANDIDATE
         assert params.state_key == "wss://nos.lol"
-        assert params.state_value == {"source": "nip65"}
+        assert params.state_value == '{"source": "nip65"}'
         assert params.updated_at == 1700000999
 
     def test_caching(self):
@@ -220,7 +220,7 @@ class TestServiceStateFromDbParams:
             service_name="monitor",  # type: ignore[arg-type]
             state_type="checkpoint",  # type: ignore[arg-type]
             state_key="health_batch",
-            state_value={"completed": 100},
+            state_value='{"completed": 100}',
             updated_at=1700000500,
         )
         state = ServiceState.from_db_params(params)

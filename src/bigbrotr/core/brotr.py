@@ -495,15 +495,12 @@ class Brotr:
         params = [relay.to_db_params() for relay in records]
         columns = self._transpose_to_columns(params)
 
-        async with self._pool.transaction() as conn:
-            inserted: int = (
-                await conn.fetchval(
-                    "SELECT relay_insert($1, $2, $3)",
-                    *columns,
-                    timeout=self._config.timeouts.batch,
-                )
-                or 0
-            )
+        inserted: int = await self._call_procedure(
+            "relay_insert",
+            *columns,
+            fetch_result=True,
+            timeout=self._config.timeouts.batch,
+        )
 
         self._logger.debug("relay_inserted", count=inserted, attempted=len(params))
         return inserted
@@ -530,7 +527,7 @@ class Brotr:
         See Also:
             [insert_event_relay()][bigbrotr.core.brotr.Brotr.insert_event_relay]:
                 Cascade insert that creates events, relays, and junction records
-                in a single transaction.
+                in a single stored procedure call.
         """
         if not records:
             return 0
@@ -540,15 +537,12 @@ class Brotr:
         params = [event.to_db_params() for event in records]
         columns = self._transpose_to_columns(params)
 
-        async with self._pool.transaction() as conn:
-            inserted: int = (
-                await conn.fetchval(
-                    "SELECT event_insert($1, $2, $3, $4, $5, $6, $7)",
-                    *columns,
-                    timeout=self._config.timeouts.batch,
-                )
-                or 0
-            )
+        inserted: int = await self._call_procedure(
+            "event_insert",
+            *columns,
+            fetch_result=True,
+            timeout=self._config.timeouts.batch,
+        )
 
         self._logger.debug("event_inserted", count=inserted, attempted=len(params))
         return inserted
@@ -562,8 +556,8 @@ class Brotr:
                 instances.
             cascade: If ``True`` (default), also inserts the parent
                 [Relay][bigbrotr.models.relay.Relay] and
-                [Event][bigbrotr.models.event.Event] records in a single
-                transaction (relays -> events -> junctions) via the
+                [Event][bigbrotr.models.event.Event] records atomically
+                (relays -> events -> junctions) via the
                 ``event_relay_insert_cascade`` stored procedure. If
                 ``False``, only inserts junction rows via
                 ``event_relay_insert`` and expects foreign keys to already
@@ -594,21 +588,21 @@ class Brotr:
         if cascade:
             # Cascade: relay -> event -> event_relay in one procedure call
             columns = self._transpose_to_columns(params)
-            query = (
-                "SELECT event_relay_insert_cascade($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
-            )
+            procedure = "event_relay_insert_cascade"
         else:
             # Junction-only: caller guarantees foreign keys exist
             event_ids = [p.event_id for p in params]
             relay_urls = [p.relay_url for p in params]
             seen_ats = [p.seen_at for p in params]
-            query = "SELECT event_relay_insert($1, $2, $3)"
+            procedure = "event_relay_insert"
             columns = (event_ids, relay_urls, seen_ats)
 
-        async with self._pool.transaction() as conn:
-            inserted: int = (
-                await conn.fetchval(query, *columns, timeout=self._config.timeouts.batch) or 0
-            )
+        inserted: int = await self._call_procedure(
+            procedure,
+            *columns,
+            fetch_result=True,
+            timeout=self._config.timeouts.batch,
+        )
 
         self._logger.debug(
             "event_relay_inserted", count=inserted, attempted=len(params), cascade=cascade
@@ -626,7 +620,7 @@ class Brotr:
         Use
         [insert_relay_metadata()][bigbrotr.core.brotr.Brotr.insert_relay_metadata]
         with ``cascade=True`` to also create the relay association in a
-        single transaction.
+        single stored procedure call.
 
         Args:
             records: Validated [Metadata][bigbrotr.models.metadata.Metadata]
@@ -661,17 +655,14 @@ class Brotr:
         types = [p.type for p in params]
         values = [p.data for p in params]
 
-        async with self._pool.transaction() as conn:
-            inserted: int = (
-                await conn.fetchval(
-                    "SELECT metadata_insert($1, $2, $3)",
-                    ids,
-                    types,
-                    values,
-                    timeout=self._config.timeouts.batch,
-                )
-                or 0
-            )
+        inserted: int = await self._call_procedure(
+            "metadata_insert",
+            ids,
+            types,
+            values,
+            fetch_result=True,
+            timeout=self._config.timeouts.batch,
+        )
 
         self._logger.debug("metadata_inserted", count=inserted, attempted=len(params))
         return inserted
@@ -721,35 +712,22 @@ class Brotr:
         if cascade:
             # Cascade: relays -> metadata -> relay_metadata in one procedure call
             columns = self._transpose_to_columns(params)
-
-            async with self._pool.transaction() as conn:
-                inserted: int = (
-                    await conn.fetchval(
-                        "SELECT relay_metadata_insert_cascade($1, $2, $3, $4, $5, $6, $7)",
-                        *columns,
-                        timeout=self._config.timeouts.batch,
-                    )
-                    or 0
-                )
+            procedure = "relay_metadata_insert_cascade"
         else:
             # Junction-only: caller guarantees foreign keys exist
             relay_urls = [p.relay_url for p in params]
             metadata_ids = [p.metadata_id for p in params]
             metadata_types = [p.metadata_type for p in params]
             generated_ats = [p.generated_at for p in params]
+            procedure = "relay_metadata_insert"
+            columns = (relay_urls, metadata_ids, metadata_types, generated_ats)
 
-            async with self._pool.transaction() as conn:
-                inserted = (
-                    await conn.fetchval(
-                        "SELECT relay_metadata_insert($1, $2, $3, $4)",
-                        relay_urls,
-                        metadata_ids,
-                        metadata_types,
-                        generated_ats,
-                        timeout=self._config.timeouts.batch,
-                    )
-                    or 0
-                )
+        inserted: int = await self._call_procedure(
+            procedure,
+            *columns,
+            fetch_result=True,
+            timeout=self._config.timeouts.batch,
+        )
 
         self._logger.debug(
             "relay_metadata_inserted",
@@ -847,12 +825,12 @@ class Brotr:
         params = [r.to_db_params() for r in records]
         columns = self._transpose_to_columns(params)
 
-        async with self._pool.transaction() as conn:
-            await conn.execute(
-                "SELECT service_state_upsert($1, $2, $3, $4::jsonb[], $5)",
-                *columns,
-                timeout=self._config.timeouts.batch,
-            )
+        await self._call_procedure(
+            "service_state_upsert",
+            *columns,
+            fetch_result=False,
+            timeout=self._config.timeouts.batch,
+        )
 
         self._logger.debug("service_state_upserted", count=len(records))
         return len(records)
@@ -943,17 +921,14 @@ class Brotr:
 
         self._validate_batch_size(service_names, "delete_service_state")
 
-        async with self._pool.transaction() as conn:
-            deleted: int = (
-                await conn.fetchval(
-                    "SELECT service_state_delete($1, $2, $3)",
-                    service_names,
-                    state_types,
-                    state_keys,
-                    timeout=self._config.timeouts.batch,
-                )
-                or 0
-            )
+        deleted: int = await self._call_procedure(
+            "service_state_delete",
+            service_names,
+            state_types,
+            state_keys,
+            fetch_result=True,
+            timeout=self._config.timeouts.batch,
+        )
 
         self._logger.debug(
             "service_state_deleted",

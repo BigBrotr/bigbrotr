@@ -445,26 +445,24 @@ class TestInsertEventRelay:
         inserted = await mock_brotr.insert_event_relay(sample_events_batch)
         assert inserted == len(sample_events_batch)
 
-    async def test_cascade_true_default(
+    async def test_cascade_true_calls_cascade_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_event: Any
     ) -> None:
-        """Test that cascade=True is the default."""
+        """Test that cascade=True calls event_relay_insert_cascade."""
         await mock_brotr.insert_event_relay([sample_event], cascade=True)
-        # Verify cascade query was used (11 parameters)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.fetchval.call_args
-        assert "cascade" in call_args[0][0].lower()
+        query = mock_conn.fetchval.call_args[0][0]
+        assert "event_relay_insert_cascade" in query
 
-    async def test_cascade_false(
+    async def test_cascade_false_calls_junction_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_event: Any
     ) -> None:
-        """Test inserting with cascade=False."""
+        """Test that cascade=False calls event_relay_insert (junction-only)."""
         await mock_brotr.insert_event_relay([sample_event], cascade=False)
-        # Verify non-cascade query was used (3 parameters)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.fetchval.call_args
-        assert "event_relay_insert" in call_args[0][0]
-        assert "cascade" not in call_args[0][0].lower()
+        query = mock_conn.fetchval.call_args[0][0]
+        assert "event_relay_insert(" in query
+        assert "cascade" not in query
 
 
 class TestInsertMetadata:
@@ -475,14 +473,10 @@ class TestInsertMetadata:
         inserted = await mock_brotr.insert_metadata([])
         assert inserted == 0
 
-    async def test_single_metadata(
-        self, mock_brotr: Brotr, mock_pool: Pool, sample_metadata: Any
-    ) -> None:
-        """Test that metadata_insert is called with 3 params (ids, data, types)."""
-        await mock_brotr.insert_metadata([sample_metadata.metadata])
-        mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.fetchval.call_args
-        assert "metadata_insert($1, $2, $3)" in call_args[0][0]
+    async def test_single_metadata(self, mock_brotr: Brotr, sample_metadata: Any) -> None:
+        """Test inserting single metadata record."""
+        inserted = await mock_brotr.insert_metadata([sample_metadata.metadata])
+        assert inserted == 1
 
 
 class TestInsertRelayMetadata:
@@ -498,24 +492,24 @@ class TestInsertRelayMetadata:
         inserted = await mock_brotr.insert_relay_metadata([sample_metadata])
         assert inserted == 1
 
-    async def test_cascade_true_default(
+    async def test_cascade_true_calls_cascade_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_metadata: Any
     ) -> None:
-        """Test that cascade=True is the default."""
+        """Test that cascade=True calls relay_metadata_insert_cascade."""
         await mock_brotr.insert_relay_metadata([sample_metadata], cascade=True)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.fetchval.call_args
-        assert "cascade" in call_args[0][0].lower()
+        query = mock_conn.fetchval.call_args[0][0]
+        assert "relay_metadata_insert_cascade" in query
 
-    async def test_cascade_false(
+    async def test_cascade_false_calls_junction_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_metadata: Any
     ) -> None:
-        """Test inserting with cascade=False."""
+        """Test that cascade=False calls relay_metadata_insert (junction-only)."""
         await mock_brotr.insert_relay_metadata([sample_metadata], cascade=False)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.fetchval.call_args
-        assert "relay_metadata_insert" in call_args[0][0]
-        assert "cascade" not in call_args[0][0].lower()
+        query = mock_conn.fetchval.call_args[0][0]
+        assert "relay_metadata_insert(" in query
+        assert "cascade" not in query
 
 
 # ============================================================================
@@ -573,58 +567,20 @@ class TestUpsertServiceState:
         result = await mock_brotr.upsert_service_state(records)
         assert result == 3
 
-    async def test_dict_values_passed_directly(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
-        """Test that dict values are passed directly (JSON codec handles encoding)."""
+    async def test_batch_size_exceeded(self, mock_brotr: Brotr) -> None:
+        """Test that batch exceeding max_size raises ValueError."""
         records = [
             ServiceState(
                 service_name=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
-                state_key="key1",
-                state_value={"nested": {"level": 1}},
+                state_key=f"key{i}",
+                state_value={"i": i},
                 updated_at=1700000000,
             )
+            for i in range(1001)
         ]
-        await mock_brotr.upsert_service_state(records)
-
-        mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.execute.call_args
-        values_list = call_args[0][4]
-        assert values_list[0] == {"nested": {"level": 1}}
-
-    def test_list_values_rejected(self) -> None:
-        """List values are rejected as state_value (must be a dict)."""
-        with pytest.raises(TypeError, match="state_value must be a Mapping"):
-            ServiceState(
-                service_name=ServiceName.FINDER,
-                state_type=ServiceStateType.CURSOR,
-                state_key="key1",
-                state_value=["item1", "item2", "item3"],  # type: ignore[arg-type]
-                updated_at=1700000000,
-            )
-
-    async def test_complex_nested_values(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
-        """Test complex nested objects are passed correctly."""
-        complex_value = {
-            "nested": {"level2": {"level3": ["a", "b", "c"]}},
-            "list_of_dicts": [{"key1": "value1"}, {"key2": "value2"}],
-            "mixed": [1, "string", True],
-        }
-        records = [
-            ServiceState(
-                service_name=ServiceName.MONITOR,
-                state_type=ServiceStateType.CHECKPOINT,
-                state_key="complex_key",
-                state_value=complex_value,
-                updated_at=1700000000,
-            )
-        ]
-
-        await mock_brotr.upsert_service_state(records)
-
-        mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.execute.call_args
-        values_list = call_args[0][4]
-        assert values_list[0] == complex_value
+        with pytest.raises(ValueError, match="batch size"):
+            await mock_brotr.upsert_service_state(records)
 
 
 class TestGetServiceState:

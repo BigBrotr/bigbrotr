@@ -24,9 +24,7 @@ See Also:
         class providing ``run()`` and ``from_yaml()`` lifecycle.
     [Brotr][bigbrotr.core.brotr.Brotr]: Database facade used for relay
         insertion.
-    [filter_new_relay_urls][bigbrotr.services.common.queries.filter_new_relay_urls]:
-        Query used to deduplicate seed URLs.
-    [upsert_candidates][bigbrotr.services.common.queries.upsert_candidates]:
+    [insert_candidates][bigbrotr.services.common.queries.insert_candidates]:
         Query used to insert seed URLs as validation candidates.
 
 Examples:
@@ -55,7 +53,7 @@ from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
 
-from .common.queries import filter_new_relay_urls, upsert_candidates
+from .common.queries import insert_candidates
 
 
 if TYPE_CHECKING:
@@ -199,29 +197,15 @@ class Seeder(BaseService[SeederConfig]):
     async def _seed_as_candidates(self, relays: list[Relay]) -> None:
         """Add relays as validation candidates in the ``service_state`` table.
 
-        Filters out URLs that already exist in the relays table or are
-        already registered as candidates, preventing duplicate work.
-        Uses [filter_new_relay_urls][bigbrotr.services.common.queries.filter_new_relay_urls]
-        for deduplication and
-        [upsert_candidates][bigbrotr.services.common.queries.upsert_candidates]
-        for insertion.
+        Uses [insert_candidates][bigbrotr.services.common.queries.insert_candidates]
+        which internally filters out URLs already in the ``relay`` table
+        or registered as candidates.
         """
-        all_urls = [relay.url for relay in relays]
-
-        new_url_list = await filter_new_relay_urls(self._brotr, all_urls)
-        new_urls = set(new_url_list)
-
-        skipped_count = len(relays) - len(new_urls)
-        if skipped_count > 0:
-            self._logger.debug("existing_skipped", skipped=skipped_count)
-
-        if not new_urls:
+        count = await insert_candidates(self._brotr, relays)
+        if count == 0:
             self._logger.info("all_relays_exist", count=len(relays))
-            return
-
-        new_relays = [r for r in relays if r.url in new_urls]
-        count = await upsert_candidates(self._brotr, new_relays)
-        self._logger.info("candidates_inserted", count=count)
+        else:
+            self._logger.info("candidates_inserted", count=count)
 
     async def _seed_as_relays(self, relays: list[Relay]) -> None:
         """Insert relays directly into the relays table.
