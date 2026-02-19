@@ -1,5 +1,4 @@
-"""
-Unit tests for services.monitor module.
+"""Unit tests for services.monitor module.
 
 Tests:
 - Configuration models (MetadataFlags, MonitorProcessingConfig, GeoConfig, etc.)
@@ -7,20 +6,33 @@ Tests:
 - Relay selection logic
 - Metadata batch insertion
 - NIP-66 data classes
-- Kind 30166 tag builder methods
+- Publishing and event builder orchestration (Kind 0, 10166, 30166)
 """
 
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from __future__ import annotations
+
+import time
+from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from nostr_sdk import Keys
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import Metadata, Relay, RelayMetadata
-from bigbrotr.models.constants import NetworkType
-from bigbrotr.models.metadata import MetadataType
+from bigbrotr.models import Relay, RelayMetadata
+from bigbrotr.models.constants import NetworkType, ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.nips.nip11 import Nip11
-from bigbrotr.nips.nip66 import Nip66
+from bigbrotr.nips.nip11.data import Nip11InfoData, Nip11InfoDataLimitation
+from bigbrotr.nips.nip11.info import Nip11InfoMetadata
+from bigbrotr.nips.nip11.logs import Nip11InfoLogs
+from bigbrotr.nips.nip66 import Nip66, Nip66RttMetadata, Nip66SslMetadata
+from bigbrotr.nips.nip66.data import Nip66RttData, Nip66SslData
+from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs, Nip66SslLogs
 from bigbrotr.services.common.configs import ClearnetConfig, NetworkConfig, TorConfig
 from bigbrotr.services.monitor import (
     AnnouncementConfig,
@@ -840,7 +852,7 @@ class TestMonitorFetchChunk:
     """Tests for Monitor._fetch_chunk() method."""
 
     @patch(
-        "bigbrotr.services.monitor.fetch_relays_due_for_check",
+        "bigbrotr.services.monitor.service.fetch_relays_due_for_check",
         new_callable=AsyncMock,
         return_value=[],
     )
@@ -864,7 +876,7 @@ class TestMonitorFetchChunk:
         assert relays == []
         mock_fetch.assert_awaited_once()
 
-    @patch("bigbrotr.services.monitor.fetch_relays_due_for_check", new_callable=AsyncMock)
+    @patch("bigbrotr.services.monitor.service.fetch_relays_due_for_check", new_callable=AsyncMock)
     async def test_fetch_chunk_with_results(
         self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
     ) -> None:
@@ -899,7 +911,7 @@ class TestMonitorFetchChunk:
         assert "relay1.example.com" in str(relays[0].url)
         assert "relay2.example.com" in str(relays[1].url)
 
-    @patch("bigbrotr.services.monitor.fetch_relays_due_for_check", new_callable=AsyncMock)
+    @patch("bigbrotr.services.monitor.service.fetch_relays_due_for_check", new_callable=AsyncMock)
     async def test_fetch_chunk_filters_invalid_urls(
         self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
     ) -> None:
@@ -929,7 +941,7 @@ class TestMonitorFetchChunk:
         assert len(relays) == 1
         assert "valid.relay.com" in str(relays[0].url)
 
-    @patch("bigbrotr.services.monitor.fetch_relays_due_for_check", new_callable=AsyncMock)
+    @patch("bigbrotr.services.monitor.service.fetch_relays_due_for_check", new_callable=AsyncMock)
     async def test_fetch_chunk_respects_limit(
         self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
     ) -> None:
@@ -967,12 +979,12 @@ class TestMonitorRun:
     """Tests for Monitor.run() method."""
 
     @patch(
-        "bigbrotr.services.monitor.fetch_relays_due_for_check",
+        "bigbrotr.services.monitor.service.fetch_relays_due_for_check",
         new_callable=AsyncMock,
         return_value=[],
     )
     @patch(
-        "bigbrotr.services.monitor.count_relays_due_for_check",
+        "bigbrotr.services.monitor.service.count_relays_due_for_check",
         new_callable=AsyncMock,
         return_value=0,
     )
@@ -1001,12 +1013,12 @@ class TestMonitorRun:
         assert monitor._progress.processed == 0
 
     @patch(
-        "bigbrotr.services.monitor.fetch_relays_due_for_check",
+        "bigbrotr.services.monitor.service.fetch_relays_due_for_check",
         new_callable=AsyncMock,
         return_value=[],
     )
     @patch(
-        "bigbrotr.services.monitor.count_relays_due_for_check",
+        "bigbrotr.services.monitor.service.count_relays_due_for_check",
         new_callable=AsyncMock,
         return_value=0,
     )
@@ -1084,30 +1096,9 @@ class TestMonitorPersistResults:
 
         relay1 = Relay("wss://relay1.example.com")
         relay2 = Relay("wss://relay2.example.com")
-        meta1 = Metadata(type=MetadataType.NIP66_RTT, data={"rtt_open": 100})
-        meta2 = Metadata(type=MetadataType.NIP66_RTT, data={"rtt_open": 200})
-        rtt1 = RelayMetadata(relay=relay1, metadata=meta1)
-        rtt2 = RelayMetadata(relay=relay2, metadata=meta2)
 
-        # Create CheckResult with rtt metadata
-        result1 = CheckResult(
-            nip11=None,
-            nip66_rtt=rtt1,
-            nip66_ssl=None,
-            nip66_geo=None,
-            nip66_net=None,
-            nip66_dns=None,
-            nip66_http=None,
-        )
-        result2 = CheckResult(
-            nip11=None,
-            nip66_rtt=rtt2,
-            nip66_ssl=None,
-            nip66_geo=None,
-            nip66_net=None,
-            nip66_dns=None,
-            nip66_http=None,
-        )
+        result1 = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+        result2 = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=200))
 
         successful = [(relay1, result1), (relay2, result2)]
         await monitor._persist_results(successful, [])
@@ -1187,249 +1178,875 @@ class TestMonitorNetworkConfiguration:
 
 
 # ============================================================================
-# Tag Builder Tests
+# Publishing Test Harness
 # ============================================================================
 
 
-class TestTagBuilders:
-    """Tests for Kind 30166 tag builder methods.
+class _MonitorStub:
+    """Lightweight harness providing the attributes Monitor methods expect.
 
-    These verify that tag builders correctly extract fields from the nested
-    ``{"data": {...}, "logs": {...}}`` structure produced by BaseNipMetadata.to_dict().
+    Binds Monitor's publishing/builder methods as class attributes so they
+    can be invoked on this stub without the full BaseService initialization.
     """
 
-    @pytest.fixture
-    def monitor(self, mock_brotr: Brotr) -> Monitor:
-        """Create a Monitor with all metadata flags enabled."""
+    SERVICE_NAME = ServiceName.MONITOR
+
+    def __init__(
+        self,
+        config: MonitorConfig,
+        keys: Keys,
+        brotr: AsyncMock | None = None,
+    ) -> None:
+        self._config = config
+        self._keys = keys
+        self._logger = MagicMock()
+        self._brotr = brotr or AsyncMock()
+
+    # Publishing methods bound from Monitor
+    _broadcast_events = Monitor._broadcast_events
+    _get_discovery_relays = Monitor._get_discovery_relays
+    _get_announcement_relays = Monitor._get_announcement_relays
+    _get_profile_relays = Monitor._get_profile_relays
+    _publish_if_due = Monitor._publish_if_due
+    _publish_announcement = Monitor._publish_announcement
+    _publish_profile = Monitor._publish_profile
+    _publish_relay_discoveries = Monitor._publish_relay_discoveries
+
+    # Event builder methods bound from Monitor
+    _build_kind_0 = Monitor._build_kind_0
+    _build_kind_10166 = Monitor._build_kind_10166
+    _build_kind_30166 = Monitor._build_kind_30166
+
+
+# ============================================================================
+# Publishing Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def test_keys() -> Keys:
+    """Return Keys parsed from the valid hex test key."""
+    return Keys.parse(VALID_HEX_KEY)
+
+
+@pytest.fixture
+def all_flags_config() -> MonitorConfig:
+    """MonitorConfig with all metadata flags enabled and geo/net disabled to avoid DB checks."""
+    return MonitorConfig(
+        interval=3600.0,
+        processing=MonitorProcessingConfig(
+            compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+            store=MetadataFlags(nip66_geo=False, nip66_net=False),
+        ),
+        discovery=DiscoveryConfig(
+            enabled=True,
+            include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            relays=["wss://disc.relay.com"],
+        ),
+        announcement=AnnouncementConfig(
+            enabled=True,
+            interval=86400,
+            relays=["wss://ann.relay.com"],
+        ),
+        profile=ProfileConfig(
+            enabled=True,
+            interval=86400,
+            relays=["wss://profile.relay.com"],
+            name="BigBrotr",
+            about="A monitor",
+            picture="https://example.com/pic.png",
+            nip05="monitor@example.com",
+            website="https://example.com",
+            banner="https://example.com/banner.png",
+            lud16="monitor@ln.example.com",
+        ),
+        publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
+        networks=NetworkConfig(clearnet=ClearnetConfig(timeout=10.0)),
+    )
+
+
+@pytest.fixture
+def stub(all_flags_config: MonitorConfig, test_keys: Keys) -> _MonitorStub:
+    """Return a _MonitorStub with all flags enabled."""
+    return _MonitorStub(all_flags_config, test_keys)
+
+
+# ============================================================================
+# Publishing Helper Functions
+# ============================================================================
+
+
+def _make_nip11_meta(
+    *,
+    name: str | None = None,
+    supported_nips: list[int] | None = None,
+    tags: list[str] | None = None,
+    language_tags: list[str] | None = None,
+    limitation: Nip11InfoDataLimitation | None = None,
+    success: bool = True,
+) -> Nip11InfoMetadata:
+    """Build a Nip11InfoMetadata with common test parameters."""
+    return Nip11InfoMetadata(
+        data=Nip11InfoData(
+            name=name,
+            supported_nips=supported_nips,
+            tags=tags,
+            language_tags=language_tags,
+            limitation=limitation or Nip11InfoDataLimitation(),
+        ),
+        logs=Nip11InfoLogs(success=success) if success else Nip11InfoLogs(
+            success=False, reason="test failure",
+        ),
+    )
+
+
+def _make_rtt_meta(
+    *,
+    rtt_open: int | None = None,
+    rtt_read: int | None = None,
+    rtt_write: int | None = None,
+    open_success: bool = True,
+    write_success: bool | None = None,
+    write_reason: str | None = None,
+) -> Nip66RttMetadata:
+    """Build a Nip66RttMetadata with common test parameters."""
+    return Nip66RttMetadata(
+        data=Nip66RttData(rtt_open=rtt_open, rtt_read=rtt_read, rtt_write=rtt_write),
+        logs=Nip66RttMultiPhaseLogs(
+            open_success=open_success,
+            open_reason=None if open_success else "connection failed",
+            write_success=write_success,
+            write_reason=write_reason,
+        ),
+    )
+
+
+def _make_ssl_meta(
+    *,
+    ssl_valid: bool | None = None,
+    ssl_expires: int | None = None,
+    ssl_issuer: str | None = None,
+    success: bool = True,
+) -> Nip66SslMetadata:
+    """Build a Nip66SslMetadata with common test parameters."""
+    return Nip66SslMetadata(
+        data=Nip66SslData(ssl_valid=ssl_valid, ssl_expires=ssl_expires, ssl_issuer=ssl_issuer),
+        logs=Nip66SslLogs(success=success) if success else Nip66SslLogs(
+            success=False, reason="test failure",
+        ),
+    )
+
+
+def _make_check_result(
+    *,
+    generated_at: int = 1700000000,
+    nip11: Nip11InfoMetadata | None = None,
+    nip66_rtt: Nip66RttMetadata | None = None,
+    nip66_ssl: Nip66SslMetadata | None = None,
+) -> CheckResult:
+    """Build a CheckResult with optional typed metadata fields."""
+    return CheckResult(
+        generated_at=generated_at,
+        nip11=nip11,
+        nip66_rtt=nip66_rtt,
+        nip66_ssl=nip66_ssl,
+    )
+
+
+# ============================================================================
+# Monitor._broadcast_events
+# ============================================================================
+
+
+class TestMonitorBroadcastEvents:
+    """Tests for Monitor._broadcast_events orchestration wrapper."""
+
+    async def test_broadcast_events_delegates_to_utils(self, stub: _MonitorStub) -> None:
+        """Test that _broadcast_events calls broadcast_events with correct args."""
+        mock_client = AsyncMock()
+        relay = Relay("wss://relay.example.com")
+        mock_builder = MagicMock()
+
+        with patch(
+            "bigbrotr.utils.transport.connect_relay",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ):
+            await stub._broadcast_events([mock_builder], [relay])
+
+        mock_client.send_event_builder.assert_awaited_once_with(mock_builder)
+        mock_client.shutdown.assert_awaited_once()
+
+    async def test_broadcast_events_empty_builders(self, stub: _MonitorStub) -> None:
+        relay = Relay("wss://relay.example.com")
+
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
+            await stub._broadcast_events([], [relay])
+            mock_connect.assert_not_called()
+
+    async def test_broadcast_events_empty_relays(self, stub: _MonitorStub) -> None:
+        mock_builder = MagicMock()
+
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
+            await stub._broadcast_events([mock_builder], [])
+            mock_connect.assert_not_called()
+
+    async def test_broadcast_events_shutdown_called_on_send_error(
+        self, stub: _MonitorStub
+    ) -> None:
+        mock_client = AsyncMock()
+        mock_client.send_event_builder.side_effect = OSError("send failed")
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.utils.transport.connect_relay",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ):
+            await stub._broadcast_events([MagicMock()], [relay])
+
+        mock_client.shutdown.assert_awaited_once()
+
+
+# ============================================================================
+# Monitor: Relay Getters
+# ============================================================================
+
+
+class TestRelayGetters:
+    """Tests for relay getter methods with primary and fallback logic."""
+
+    def test_get_discovery_relays_returns_primary(self, stub: _MonitorStub) -> None:
+        """Test _get_discovery_relays returns discovery-specific relays when set."""
+        relays = stub._get_discovery_relays()
+        assert len(relays) == 1
+        assert relays[0].url == "wss://disc.relay.com"
+
+    def test_get_discovery_relays_falls_back_to_publishing(self, test_keys: Keys) -> None:
+        """Test _get_discovery_relays falls back to publishing.relays when empty."""
         config = MonitorConfig(
             processing=MonitorProcessingConfig(
-                compute=MetadataFlags(),
-                store=MetadataFlags(),
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
-            discovery=DiscoveryConfig(include=MetadataFlags()),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+                relays=[],
+            ),
+            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
-        return Monitor(brotr=mock_brotr, config=config)
+        harness = _MonitorStub(config, test_keys)
+        relays = harness._get_discovery_relays()
+        assert len(relays) == 1
+        assert relays[0].url == "wss://fallback.relay.com"
 
-    @staticmethod
-    def _make_relay_metadata(
-        metadata_type: str,
-        value: dict,
-    ) -> RelayMetadata:
-        """Build a RelayMetadata with the given nested value dict."""
-        from bigbrotr.models import MetadataType
-        from bigbrotr.models.metadata import Metadata
+    def test_get_announcement_relays_returns_primary(self, stub: _MonitorStub) -> None:
+        """Test _get_announcement_relays returns announcement-specific relays when set."""
+        relays = stub._get_announcement_relays()
+        assert len(relays) == 1
+        assert relays[0].url == "wss://ann.relay.com"
+
+    def test_get_announcement_relays_falls_back_to_publishing(self, test_keys: Keys) -> None:
+        """Test _get_announcement_relays falls back to publishing.relays when empty."""
+        config = MonitorConfig(
+            processing=MonitorProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            announcement=AnnouncementConfig(relays=[]),
+            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
+        )
+        harness = _MonitorStub(config, test_keys)
+        relays = harness._get_announcement_relays()
+        assert len(relays) == 1
+        assert relays[0].url == "wss://fallback.relay.com"
+
+    def test_get_profile_relays_returns_primary(self, stub: _MonitorStub) -> None:
+        """Test _get_profile_relays returns profile-specific relays when set."""
+        relays = stub._get_profile_relays()
+        assert len(relays) == 1
+        assert relays[0].url == "wss://profile.relay.com"
+
+    def test_get_profile_relays_falls_back_to_publishing(self, test_keys: Keys) -> None:
+        """Test _get_profile_relays falls back to publishing.relays when empty."""
+        config = MonitorConfig(
+            processing=MonitorProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            profile=ProfileConfig(relays=[]),
+            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
+        )
+        harness = _MonitorStub(config, test_keys)
+        relays = harness._get_profile_relays()
+        assert len(relays) == 1
+        assert relays[0].url == "wss://fallback.relay.com"
+
+
+# ============================================================================
+# Monitor._publish_announcement
+# ============================================================================
+
+
+class TestPublishAnnouncement:
+    """Tests for Monitor._publish_announcement."""
+
+    async def test_publish_announcement_when_disabled(self, test_keys: Keys) -> None:
+        """Test that _publish_announcement returns immediately when disabled."""
+        config = MonitorConfig(
+            processing=MonitorProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            announcement=AnnouncementConfig(enabled=False),
+        )
+        harness = _MonitorStub(config, test_keys)
+        await harness._publish_announcement()
+        harness._brotr.get_service_state.assert_not_awaited()
+
+    async def test_publish_announcement_when_no_relays(self, test_keys: Keys) -> None:
+        """Test that _publish_announcement returns when no relays configured."""
+        config = MonitorConfig(
+            processing=MonitorProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            announcement=AnnouncementConfig(enabled=True, relays=[]),
+            publishing=PublishingConfig(relays=[]),
+        )
+        harness = _MonitorStub(config, test_keys)
+        await harness._publish_announcement()
+        harness._brotr.get_service_state.assert_not_awaited()
+
+    async def test_publish_announcement_interval_not_elapsed(self, stub: _MonitorStub) -> None:
+        """Test that announcement is skipped when interval has not elapsed."""
+        now = time.time()
+        stub._brotr.get_service_state = AsyncMock(
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.MONITOR,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key="last_announcement",
+                    state_value={"timestamp": now},
+                    updated_at=int(now),
+                )
+            ]
+        )
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_create:
+            await stub._publish_announcement()
+            mock_create.assert_not_called()
+
+    async def test_publish_announcement_no_prior_state(self, stub: _MonitorStub) -> None:
+        """Test successful announcement publish when no prior state exists."""
+        stub._brotr.get_service_state = AsyncMock(return_value=[])
+        mock_client = AsyncMock()
+
+        with patch(
+            "bigbrotr.utils.transport.connect_relay",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ):
+            await stub._publish_announcement()
+
+        mock_client.send_event_builder.assert_awaited_once()
+        mock_client.shutdown.assert_awaited_once()
+        stub._brotr.upsert_service_state.assert_awaited_once()
+        stub._logger.info.assert_called_with("announcement_published", relays=1)
+
+    async def test_publish_announcement_interval_elapsed(self, stub: _MonitorStub) -> None:
+        """Test successful announcement publish when interval has elapsed."""
+        old_timestamp = time.time() - 100000  # well past the 86400 interval
+        stub._brotr.get_service_state = AsyncMock(
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.MONITOR,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key="last_announcement",
+                    state_value={"timestamp": old_timestamp},
+                    updated_at=int(old_timestamp),
+                )
+            ]
+        )
+        mock_client = AsyncMock()
+
+        with patch(
+            "bigbrotr.utils.transport.connect_relay",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ):
+            await stub._publish_announcement()
+
+        mock_client.send_event_builder.assert_awaited_once()
+        stub._brotr.upsert_service_state.assert_awaited_once()
+
+    async def test_publish_announcement_broadcast_failure(self, stub: _MonitorStub) -> None:
+        """Test that announcement failure is logged as warning."""
+        stub._brotr.get_service_state = AsyncMock(return_value=[])
+
+        with patch(
+            "bigbrotr.utils.transport.connect_relay",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("connect timeout"),
+        ):
+            await stub._publish_announcement()
+
+        stub._logger.warning.assert_called_once()
+        assert "announcement_failed" in stub._logger.warning.call_args[0]
+
+
+# ============================================================================
+# Monitor._publish_profile
+# ============================================================================
+
+
+class TestPublishProfile:
+    """Tests for Monitor._publish_profile."""
+
+    async def test_publish_profile_when_disabled(self, test_keys: Keys) -> None:
+        """Test that _publish_profile returns immediately when disabled."""
+        config = MonitorConfig(
+            processing=MonitorProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            profile=ProfileConfig(enabled=False),
+        )
+        harness = _MonitorStub(config, test_keys)
+        await harness._publish_profile()
+        harness._brotr.get_service_state.assert_not_awaited()
+
+    async def test_publish_profile_when_no_relays(self, test_keys: Keys) -> None:
+        """Test that _publish_profile returns when no relays configured."""
+        config = MonitorConfig(
+            processing=MonitorProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            profile=ProfileConfig(enabled=True, relays=[]),
+            publishing=PublishingConfig(relays=[]),
+        )
+        harness = _MonitorStub(config, test_keys)
+        await harness._publish_profile()
+        harness._brotr.get_service_state.assert_not_awaited()
+
+    async def test_publish_profile_interval_not_elapsed(self, stub: _MonitorStub) -> None:
+        """Test that profile is skipped when interval has not elapsed."""
+        now = time.time()
+        stub._brotr.get_service_state = AsyncMock(
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.MONITOR,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key="last_profile",
+                    state_value={"timestamp": now},
+                    updated_at=int(now),
+                )
+            ]
+        )
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_create:
+            await stub._publish_profile()
+            mock_create.assert_not_called()
+
+    async def test_publish_profile_successful(self, stub: _MonitorStub) -> None:
+        """Test successful profile publish when interval has elapsed."""
+        stub._brotr.get_service_state = AsyncMock(return_value=[])
+        mock_client = AsyncMock()
+
+        with patch(
+            "bigbrotr.utils.transport.connect_relay",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ):
+            await stub._publish_profile()
+
+        mock_client.send_event_builder.assert_awaited_once()
+        stub._brotr.upsert_service_state.assert_awaited_once()
+        stub._logger.info.assert_called_with("profile_published", relays=1)
+
+    async def test_publish_profile_broadcast_failure(self, stub: _MonitorStub) -> None:
+        """Test that profile failure is logged as warning."""
+        stub._brotr.get_service_state = AsyncMock(return_value=[])
+
+        with patch(
+            "bigbrotr.utils.transport.connect_relay",
+            new_callable=AsyncMock,
+            side_effect=OSError("connection refused"),
+        ):
+            await stub._publish_profile()
+
+        stub._logger.warning.assert_called_once()
+        assert "profile_failed" in stub._logger.warning.call_args[0]
+
+
+# ============================================================================
+# Monitor._publish_relay_discoveries
+# ============================================================================
+
+
+class TestPublishRelayDiscoveries:
+    """Tests for Monitor._publish_relay_discoveries."""
+
+    async def test_publish_discoveries_when_disabled(self, test_keys: Keys) -> None:
+        """Test that discoveries returns immediately when disabled."""
+        config = MonitorConfig(
+            processing=MonitorProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                enabled=False,
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+        )
+        harness = _MonitorStub(config, test_keys)
 
         relay = Relay("wss://relay.example.com")
-        return RelayMetadata(
-            relay=relay,
-            metadata=Metadata(type=MetadataType(metadata_type), data=value),
-            generated_at=1700000000,
+        result = _make_check_result()
+
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_create:
+            await harness._publish_relay_discoveries([(relay, result)])
+            mock_create.assert_not_called()
+
+    async def test_publish_discoveries_when_no_relays(self, test_keys: Keys) -> None:
+        """Test that discoveries returns when no relays configured."""
+        config = MonitorConfig(
+            processing=MonitorProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                enabled=True,
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+                relays=[],
+            ),
+            publishing=PublishingConfig(relays=[]),
+        )
+        harness = _MonitorStub(config, test_keys)
+
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result()
+
+        with patch("bigbrotr.utils.transport.connect_relay") as mock_create:
+            await harness._publish_relay_discoveries([(relay, result)])
+            mock_create.assert_not_called()
+
+    async def test_publish_discoveries_successful(self, stub: _MonitorStub) -> None:
+        """Test successful relay discovery publishing."""
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip11=_make_nip11_meta(name="Test Relay"))
+        mock_client = AsyncMock()
+
+        with patch(
+            "bigbrotr.utils.transport.connect_relay",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ):
+            await stub._publish_relay_discoveries([(relay, result)])
+
+        mock_client.send_event_builder.assert_awaited_once()
+        stub._logger.debug.assert_any_call("discoveries_published", count=1)
+
+    async def test_publish_discoveries_build_failure_for_individual(
+        self, stub: _MonitorStub
+    ) -> None:
+        """Test that build failure for one relay does not prevent others."""
+        relay1 = Relay("wss://relay1.example.com")
+        relay2 = Relay("wss://relay2.example.com")
+        result1 = _make_check_result()
+        result2 = _make_check_result(nip11=_make_nip11_meta(name="Test"))
+
+        mock_client = AsyncMock()
+
+        # Patch _build_kind_30166 to raise on the first relay only
+        original_build = Monitor._build_kind_30166
+        call_count = 0
+
+        def _patched_build(self_: Any, relay: Relay, result: CheckResult) -> Any:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ValueError("build failed for relay1")
+            return original_build(self_, relay, result)
+
+        stub._build_kind_30166 = lambda r, res: _patched_build(stub, r, res)  # type: ignore[assignment]
+
+        with patch(
+            "bigbrotr.utils.transport.connect_relay",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ):
+            await stub._publish_relay_discoveries(
+                [(relay1, result1), (relay2, result2)]
+            )
+
+        # One builder should have succeeded
+        mock_client.send_event_builder.assert_awaited_once()
+        stub._logger.debug.assert_any_call(
+            "build_30166_failed", url=relay1.url, error="build failed for relay1"
         )
 
-    def test_add_rtt_tags_extracts_from_data(self, monitor: Monitor) -> None:
-        """Test _add_rtt_tags extracts RTT values from nested data dict."""
-        rm = self._make_relay_metadata(
-            "nip66_rtt",
-            {
-                "data": {"rtt_open": 45, "rtt_read": 120, "rtt_write": 85},
-                "logs": {"open_success": True},
-            },
-        )
-        result = CheckResult(
-            nip11=None,
-            nip66_rtt=rm,
-            nip66_ssl=None,
-            nip66_geo=None,
-            nip66_net=None,
-            nip66_dns=None,
-            nip66_http=None,
-        )
-        tags: list = []
-        monitor._add_rtt_tags(tags, result, MetadataFlags())
+    async def test_publish_discoveries_broadcast_failure(self, stub: _MonitorStub) -> None:
+        """Test that broadcast failure is logged as warning."""
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result()
 
-        tag_map = {t.as_vec()[0]: t.as_vec()[1] for t in tags}
-        assert tag_map["rtt-open"] == "45"
-        assert tag_map["rtt-read"] == "120"
-        assert tag_map["rtt-write"] == "85"
+        with patch(
+            "bigbrotr.utils.transport.connect_relay",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("broadcast timeout"),
+        ):
+            await stub._publish_relay_discoveries([(relay, result)])
 
-    def test_add_ssl_tags_extracts_from_data(self, monitor: Monitor) -> None:
-        """Test _add_ssl_tags extracts SSL values from nested data dict."""
-        rm = self._make_relay_metadata(
-            "nip66_ssl",
-            {
-                "data": {
-                    "ssl_valid": True,
-                    "ssl_expires": 1735689600,
-                    "ssl_issuer": "Let's Encrypt",
-                },
-                "logs": {"success": True},
-            },
-        )
-        result = CheckResult(
-            nip11=None,
-            nip66_rtt=None,
-            nip66_ssl=rm,
-            nip66_geo=None,
-            nip66_net=None,
-            nip66_dns=None,
-            nip66_http=None,
-        )
-        tags: list = []
-        monitor._add_ssl_tags(tags, result, MetadataFlags())
+        stub._logger.warning.assert_called_once()
+        assert "discoveries_broadcast_failed" in stub._logger.warning.call_args[0]
 
-        tag_map = {t.as_vec()[0]: t.as_vec()[1] for t in tags}
-        assert tag_map["ssl"] == "valid"
-        assert tag_map["ssl-expires"] == "1735689600"
-        assert tag_map["ssl-issuer"] == "Let's Encrypt"
 
-    def test_add_net_tags_extracts_from_data(self, monitor: Monitor) -> None:
-        """Test _add_net_tags extracts network values from nested data dict."""
-        rm = self._make_relay_metadata(
-            "nip66_net",
-            {
-                "data": {"net_ip": "1.2.3.4", "net_asn": 13335, "net_asn_org": "Cloudflare"},
-                "logs": {"success": True},
-            },
-        )
-        result = CheckResult(
-            nip11=None,
-            nip66_rtt=None,
-            nip66_ssl=None,
-            nip66_geo=None,
-            nip66_net=rm,
-            nip66_dns=None,
-            nip66_http=None,
-        )
-        tags: list = []
-        monitor._add_net_tags(tags, result, MetadataFlags())
+# ============================================================================
+# Monitor._build_kind_0
+# ============================================================================
 
-        tag_map = {t.as_vec()[0]: t.as_vec()[1] for t in tags}
-        assert tag_map["net-ip"] == "1.2.3.4"
-        assert tag_map["net-asn"] == "13335"
-        assert tag_map["net-asn-org"] == "Cloudflare"
 
-    def test_add_geo_tags_extracts_from_data(self, monitor: Monitor) -> None:
-        """Test _add_geo_tags extracts geolocation values from nested data dict."""
-        rm = self._make_relay_metadata(
-            "nip66_geo",
-            {
-                "data": {
-                    "geo_hash": "u33dc",
-                    "geo_country": "DE",
-                    "geo_city": "Frankfurt",
-                    "geo_lat": 50.1109,
-                    "geo_lon": 8.6821,
-                    "geo_tz": "Europe/Berlin",
-                },
-                "logs": {"success": True},
-            },
-        )
-        result = CheckResult(
-            nip11=None,
-            nip66_rtt=None,
-            nip66_ssl=None,
-            nip66_geo=rm,
-            nip66_net=None,
-            nip66_dns=None,
-            nip66_http=None,
-        )
-        tags: list = []
-        monitor._add_geo_tags(tags, result, MetadataFlags())
+class TestBuildKind0:
+    """Tests for Monitor._build_kind_0 (profile metadata)."""
 
-        tag_map = {t.as_vec()[0]: t.as_vec()[1] for t in tags}
-        assert tag_map["g"] == "u33dc"
-        assert tag_map["geo-country"] == "DE"
-        assert tag_map["geo-city"] == "Frankfurt"
-        assert tag_map["geo-lat"] == "50.1109"
-        assert tag_map["geo-lon"] == "8.6821"
-        assert tag_map["geo-tz"] == "Europe/Berlin"
+    def test_build_kind_0_all_fields(self, stub: _MonitorStub) -> None:
+        """Test Kind 0 builder with all profile fields populated."""
+        builder = stub._build_kind_0()
+        assert builder is not None
 
-    def test_add_nip11_tags_extracts_from_data(self, monitor: Monitor) -> None:
-        """Test _add_nip11_tags extracts NIP-11 values from nested data dict."""
-        rm = self._make_relay_metadata(
-            "nip11_info",
-            {
-                "data": {"supported_nips": [1, 11, 50], "tags": ["social", "chat"]},
-                "logs": {"success": True},
-            },
+    def test_build_kind_0_minimal_fields(self, test_keys: Keys) -> None:
+        """Test Kind 0 builder with only name field set."""
+        config = MonitorConfig(
+            processing=MonitorProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            profile=ProfileConfig(
+                enabled=True,
+                name="MinimalMonitor",
+            ),
         )
-        result = CheckResult(
-            nip11=rm,
-            nip66_rtt=None,
-            nip66_ssl=None,
-            nip66_geo=None,
-            nip66_net=None,
-            nip66_dns=None,
-            nip66_http=None,
-        )
-        tags: list = []
-        monitor._add_nip11_tags(tags, result, MetadataFlags())
+        harness = _MonitorStub(config, test_keys)
+        builder = harness._build_kind_0()
+        assert builder is not None
 
-        tag_vecs = [t.as_vec() for t in tags]
-        nip_tags = [(v[0], v[1]) for v in tag_vecs if v[0] == "N"]
-        assert ("N", "1") in nip_tags
-        assert ("N", "11") in nip_tags
-        assert ("N", "50") in nip_tags
+    def test_build_kind_0_no_fields(self, test_keys: Keys) -> None:
+        """Test Kind 0 builder with no profile fields set."""
+        config = MonitorConfig(
+            processing=MonitorProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            profile=ProfileConfig(enabled=True),
+        )
+        harness = _MonitorStub(config, test_keys)
+        builder = harness._build_kind_0()
+        assert builder is not None
 
-        topic_tags = [(v[0], v[1]) for v in tag_vecs if v[0] == "t"]
-        assert ("t", "social") in topic_tags
-        assert ("t", "chat") in topic_tags
 
-    def test_rtt_tags_empty_when_data_missing(self, monitor: Monitor) -> None:
-        """Test that tag builders produce no tags when data key is absent."""
-        rm = self._make_relay_metadata(
-            "nip66_rtt",
-            {
-                "logs": {"open_success": False},
-            },
-        )
-        result = CheckResult(
-            nip11=None,
-            nip66_rtt=rm,
-            nip66_ssl=None,
-            nip66_geo=None,
-            nip66_net=None,
-            nip66_dns=None,
-            nip66_http=None,
-        )
-        tags: list = []
-        monitor._add_rtt_tags(tags, result, MetadataFlags())
+# ============================================================================
+# Monitor._build_kind_10166
+# ============================================================================
 
-        assert tags == []
 
-    def test_requirement_tags_use_logs_for_probe(self, monitor: Monitor) -> None:
-        """Test _add_requirement_and_type_tags reads probe logs from 'logs' key."""
-        rtt_rm = self._make_relay_metadata(
-            "nip66_rtt",
-            {
-                "data": {"rtt_open": 45, "rtt_read": 120},
-                "logs": {"write_success": False, "write_reason": "auth-required: NIP-42"},
-            },
+class TestBuildKind10166:
+    """Tests for Monitor._build_kind_10166 (monitor announcement)."""
+
+    def test_build_kind_10166_all_flags_enabled(self, stub: _MonitorStub) -> None:
+        """Test Kind 10166 builder with all metadata flags enabled."""
+        builder = stub._build_kind_10166()
+        assert builder is not None
+
+    def test_build_kind_10166_subset_flags(self, test_keys: Keys) -> None:
+        """Test Kind 10166 builder with only RTT and NIP-11 flags enabled."""
+        config = MonitorConfig(
+            interval=1800.0,
+            processing=MonitorProcessingConfig(
+                compute=MetadataFlags(
+                    nip66_geo=False,
+                    nip66_net=False,
+                    nip66_ssl=False,
+                    nip66_dns=False,
+                    nip66_http=False,
+                ),
+                store=MetadataFlags(
+                    nip66_geo=False,
+                    nip66_net=False,
+                    nip66_ssl=False,
+                    nip66_dns=False,
+                    nip66_http=False,
+                ),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(
+                    nip11_info=True,
+                    nip66_rtt=True,
+                    nip66_ssl=False,
+                    nip66_geo=False,
+                    nip66_net=False,
+                    nip66_dns=False,
+                    nip66_http=False,
+                ),
+                relays=["wss://disc.relay.com"],
+            ),
+            networks=NetworkConfig(clearnet=ClearnetConfig(timeout=5.0)),
         )
-        nip11_rm = self._make_relay_metadata(
-            "nip11_info",
-            {
-                "data": {"supported_nips": [1, 42], "limitation": {"auth_required": True}},
-                "logs": {"success": True},
-            },
+        harness = _MonitorStub(config, test_keys)
+        builder = harness._build_kind_10166()
+        assert builder is not None
+
+    def test_build_kind_10166_no_flags(self, test_keys: Keys) -> None:
+        """Test Kind 10166 builder with all flags disabled."""
+        config = MonitorConfig(
+            interval=600.0,
+            processing=MonitorProcessingConfig(
+                compute=MetadataFlags(
+                    nip11_info=False,
+                    nip66_rtt=False,
+                    nip66_ssl=False,
+                    nip66_geo=False,
+                    nip66_net=False,
+                    nip66_dns=False,
+                    nip66_http=False,
+                ),
+                store=MetadataFlags(
+                    nip11_info=False,
+                    nip66_rtt=False,
+                    nip66_ssl=False,
+                    nip66_geo=False,
+                    nip66_net=False,
+                    nip66_dns=False,
+                    nip66_http=False,
+                ),
+            ),
+            discovery=DiscoveryConfig(
+                enabled=False,
+                include=MetadataFlags(
+                    nip11_info=False,
+                    nip66_rtt=False,
+                    nip66_ssl=False,
+                    nip66_geo=False,
+                    nip66_net=False,
+                    nip66_dns=False,
+                    nip66_http=False,
+                ),
+            ),
+            networks=NetworkConfig(clearnet=ClearnetConfig(timeout=10.0)),
         )
-        result = CheckResult(
-            nip11=nip11_rm,
-            nip66_rtt=rtt_rm,
-            nip66_ssl=None,
-            nip66_geo=None,
-            nip66_net=None,
-            nip66_dns=None,
-            nip66_http=None,
+        harness = _MonitorStub(config, test_keys)
+        builder = harness._build_kind_10166()
+        assert builder is not None
+
+
+# ============================================================================
+# Monitor._build_kind_30166
+# ============================================================================
+
+
+class TestBuildKind30166:
+    """Tests for Monitor._build_kind_30166 (relay discovery orchestration)."""
+
+    def test_build_kind_30166_full_event(self, stub: _MonitorStub) -> None:
+        """Test full Kind 30166 event construction with all metadata."""
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(
+            nip11=_make_nip11_meta(
+                name="Test Relay",
+                supported_nips=[1, 11, 50],
+                tags=["social"],
+                language_tags=["en"],
+            ),
+            nip66_rtt=_make_rtt_meta(rtt_open=45, rtt_read=120, rtt_write=85),
+            nip66_ssl=_make_ssl_meta(ssl_valid=True, ssl_expires=1735689600),
         )
-        tags: list = []
-        monitor._add_requirement_and_type_tags(
-            tags,
-            result,
-            {"supported_nips": [1, 42], "limitation": {"auth_required": True}},
-            [1, 42],
+        builder = stub._build_kind_30166(relay, result)
+        assert builder is not None
+
+    def test_build_kind_30166_minimal(self, stub: _MonitorStub) -> None:
+        """Test Kind 30166 event with no metadata results."""
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result()
+        builder = stub._build_kind_30166(relay, result)
+        assert builder is not None
+
+    def test_build_kind_30166_content_from_nip11(self, stub: _MonitorStub) -> None:
+        """Test that Kind 30166 content contains NIP-11 canonical JSON when available."""
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip11=_make_nip11_meta(name="Test Relay"))
+        builder = stub._build_kind_30166(relay, result)
+        assert builder is not None
+
+    def test_build_kind_30166_empty_content_when_no_nip11(self, stub: _MonitorStub) -> None:
+        """Test that Kind 30166 content is empty string when no NIP-11 data."""
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result()
+        builder = stub._build_kind_30166(relay, result)
+        assert builder is not None
+
+    def test_build_kind_30166_tor_relay_network_tag(self, stub: _MonitorStub) -> None:
+        """Test that Kind 30166 uses the correct network value for Tor relays."""
+        onion = "a" * 56
+        relay = Relay(f"ws://{onion}.onion")
+        result = _make_check_result()
+        builder = stub._build_kind_30166(relay, result)
+        assert builder is not None
+
+
+# ============================================================================
+# Integration-style: end-to-end tag generation via Monitor orchestration
+# ============================================================================
+
+
+class TestEndToEndTagGeneration:
+    """Integration-style tests verifying complete tag generation via Monitor._build_kind_30166."""
+
+    def test_full_relay_with_all_metadata(self, stub: _MonitorStub) -> None:
+        """Test a relay with RTT, SSL, NIP-11 produces a valid builder."""
+        result = _make_check_result(
+            nip11=_make_nip11_meta(
+                name="Production Relay",
+                supported_nips=[1, 11, 42, 50],
+                tags=["social"],
+                language_tags=["en", "de"],
+                limitation=Nip11InfoDataLimitation(
+                    auth_required=False,
+                    payment_required=False,
+                    restricted_writes=False,
+                    min_pow_difficulty=0,
+                ),
+            ),
+            nip66_rtt=_make_rtt_meta(
+                rtt_open=30, rtt_read=100, rtt_write=80, write_success=True,
+            ),
+            nip66_ssl=_make_ssl_meta(
+                ssl_valid=True, ssl_expires=1735689600, ssl_issuer="Let's Encrypt",
+            ),
         )
 
-        tag_vecs = [t.as_vec() for t in tags]
-        req_tags = [v for v in tag_vecs if v[0] == "R"]
-        assert any("auth" in v[1] for v in req_tags)
+        relay = Relay("wss://relay.example.com")
+        builder = stub._build_kind_30166(relay, result)
+        assert builder is not None

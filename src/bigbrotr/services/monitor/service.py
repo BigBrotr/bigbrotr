@@ -23,14 +23,11 @@ Health checks include:
   codes and headers.
 
 Note:
-    The monitor orchestration is split across three modules for clarity:
-
-    - **monitor.py** (this module): Health check orchestration, config,
-      GeoIP management, retry logic, and persistence.
-    - [monitor_publisher][bigbrotr.services.monitor_publisher]: Nostr event
-      signing, broadcasting, and Kind 0/10166/30166 builders.
-    - [monitor_tags][bigbrotr.services.monitor_tags]: NIP-66 tag
-      construction for Kind 30166 events.
+    Event building is delegated to [bigbrotr.nips.event_builders][bigbrotr.nips.event_builders]
+    and broadcasting to [bigbrotr.utils.transport][bigbrotr.utils.transport]. The Monitor handles
+    orchestration: when to publish, which data to extract from
+    [CheckResult][bigbrotr.services.monitor.CheckResult], and lifecycle
+    management of publishing intervals via service state checkpoints.
 
 See Also:
     [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]: Configuration
@@ -41,10 +38,6 @@ See Also:
         persistence and checkpoint management.
     [Validator][bigbrotr.services.validator.Validator]: Upstream service
         that promotes candidates to the ``relay`` table.
-    [MonitorPublisherMixin][bigbrotr.services.monitor_publisher.MonitorPublisherMixin]:
-        Publishing logic mixed into the Monitor class.
-    [MonitorTagsMixin][bigbrotr.services.monitor_tags.MonitorTagsMixin]:
-        Tag-building logic mixed into the Monitor class.
 
 Examples:
     ```python
@@ -63,24 +56,25 @@ Examples:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import random
 import time
-import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, TypeVar
 
 import asyncpg
 import geoip2.database
 from nostr_sdk import EventBuilder, Filter, Keys, Kind, Tag
-from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer, model_validator
 
-from bigbrotr.core.base_service import BaseService, BaseServiceConfig
-from bigbrotr.models import Metadata, MetadataType, Relay, RelayMetadata
+from bigbrotr.core.base_service import BaseService
+from bigbrotr.models import Metadata, MetadataType, Relay
 from bigbrotr.models.constants import EventKind, NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.nips.base import BaseLogs, BaseNipMetadata
-from bigbrotr.nips.nip11 import Nip11, Nip11Options
+from bigbrotr.nips.event_builders import (
+    build_monitor_announcement,
+    build_profile_event,
+    build_relay_discovery,
+)
+from bigbrotr.nips.nip11 import Nip11, Nip11Options, Nip11Selection
 from bigbrotr.nips.nip66 import (
     Nip66DnsMetadata,
     Nip66GeoMetadata,
@@ -88,22 +82,23 @@ from bigbrotr.nips.nip66 import (
     Nip66NetMetadata,
     Nip66RttDependencies,
     Nip66RttMetadata,
+    Nip66Selection,
     Nip66SslMetadata,
 )
-from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
-from bigbrotr.utils.keys import KeysConfig
+from bigbrotr.services.common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
+from bigbrotr.services.common.queries import count_relays_due_for_check, fetch_relays_due_for_check
+from bigbrotr.utils.http import download_bounded_file
+from bigbrotr.utils.transport import broadcast_events
 
-from .common.configs import NetworkConfig
-from .common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
-from .common.queries import count_relays_due_for_check, fetch_relays_due_for_check
-from .monitor_publisher import MonitorPublisherMixin
-from .monitor_tags import MonitorTagsMixin
+from .configs import MetadataFlags, MonitorConfig, MonitorRetryConfig
+from .utils import collect_metadata, get_reason, get_success, safe_result
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
     from bigbrotr.core.brotr import Brotr
+    from bigbrotr.nips.nip11.info import Nip11InfoMetadata
 
 
 # =============================================================================
@@ -120,47 +115,6 @@ _SECONDS_PER_DAY = 86_400
 _T = TypeVar("_T")
 
 
-def _parse_relays(v: list[str | Relay]) -> list[Relay]:
-    """Parse relay URL strings into Relay objects, skipping invalid URLs."""
-    relays: list[Relay] = []
-    for x in v:
-        if isinstance(x, Relay):
-            relays.append(x)
-        else:
-            with contextlib.suppress(ValueError):
-                relays.append(Relay(x))
-    return relays
-
-
-RelayList = Annotated[
-    list[Relay],
-    BeforeValidator(_parse_relays),
-    PlainSerializer(lambda v: [r.url for r in v]),
-]
-
-
-def _download_geolite_db(url: str, dest: Path, max_size: int, timeout: float = 60.0) -> None:
-    """Download a GeoLite2 database file from GitHub mirror.
-
-    Args:
-        url: Download URL for the .mmdb file.
-        dest: Local path to save the database.
-        max_size: Maximum allowed file size in bytes.
-        timeout: Socket timeout in seconds for the HTTP request.
-
-    Raises:
-        urllib.error.URLError: If download fails or times out.
-        ValueError: If the downloaded file exceeds *max_size*.
-    """
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(url)  # noqa: S310
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
-        data = response.read(max_size + 1)
-        if len(data) > max_size:
-            raise ValueError(f"GeoLite2 download too large: >{max_size} bytes")
-        dest.write_bytes(data)
-
-
 # =============================================================================
 # Result Types
 # =============================================================================
@@ -169,15 +123,13 @@ def _download_geolite_db(url: str, dest: Path, max_size: int, timeout: float = 6
 class CheckResult(NamedTuple):
     """Result of a single relay health check.
 
-    Each field contains [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
-    if that check was run and produced data, or ``None`` if the check was
-    skipped (disabled in config) or failed completely. A relay is considered
-    successful if ``any(result)`` is ``True``.
-
-    NIP-66 fields use the ``nip66_`` prefix for disambiguation since this
-    container mixes NIP-11 and NIP-66 results.
+    Each field contains the typed NIP metadata container if that check was run
+    and produced data, or ``None`` if the check was skipped (disabled in config)
+    or failed completely. Use ``has_data`` to test whether any check produced
+    results.
 
     Attributes:
+        generated_at: Unix timestamp when the health check was performed.
         nip11: NIP-11 relay information document (name, description, pubkey, etc.).
         nip66_rtt: Round-trip times for open/read/write operations in milliseconds.
         nip66_ssl: SSL certificate validation (valid, expiry timestamp, issuer).
@@ -189,297 +141,24 @@ class CheckResult(NamedTuple):
     See Also:
         [MetadataFlags][bigbrotr.services.monitor.MetadataFlags]: Boolean
             flags controlling which check types are computed and stored.
-        [MonitorTagsMixin][bigbrotr.services.monitor_tags.MonitorTagsMixin]:
-            Reads these fields to build Kind 30166 tags.
-        [MonitorPublisherMixin][bigbrotr.services.monitor_publisher.MonitorPublisherMixin]:
-            Publishes discovery events from these results.
     """
 
-    nip11: RelayMetadata | None
-    nip66_rtt: RelayMetadata | None
-    nip66_ssl: RelayMetadata | None
-    nip66_geo: RelayMetadata | None
-    nip66_net: RelayMetadata | None
-    nip66_dns: RelayMetadata | None
-    nip66_http: RelayMetadata | None
+    generated_at: int = 0
+    nip11: Nip11InfoMetadata | None = None
+    nip66_rtt: Nip66RttMetadata | None = None
+    nip66_ssl: Nip66SslMetadata | None = None
+    nip66_geo: Nip66GeoMetadata | None = None
+    nip66_net: Nip66NetMetadata | None = None
+    nip66_dns: Nip66DnsMetadata | None = None
+    nip66_http: Nip66HttpMetadata | None = None
 
-
-# =============================================================================
-# Configuration Classes
-# =============================================================================
-
-
-class MetadataFlags(BaseModel):
-    """Boolean flags controlling which metadata types to compute, store, or publish.
-
-    Used in three contexts within
-    [MonitorProcessingConfig][bigbrotr.services.monitor.MonitorProcessingConfig]:
-    ``compute`` (which checks to run), ``store`` (which results to persist),
-    and ``discovery.include`` (which results to publish as NIP-66 tags).
-
-    See Also:
-        ``MonitorConfig.validate_store_requires_compute``: Validator
-            ensuring stored flags are a subset of computed flags.
-    """
-
-    nip11_info: bool = Field(default=True)
-    nip66_rtt: bool = Field(default=True)
-    nip66_ssl: bool = Field(default=True)
-    nip66_geo: bool = Field(default=True)
-    nip66_net: bool = Field(default=True)
-    nip66_dns: bool = Field(default=True)
-    nip66_http: bool = Field(default=True)
-
-    def get_missing_from(self, superset: MetadataFlags) -> list[str]:
-        """Return field names that are enabled in self but disabled in superset."""
-        return [
-            field
-            for field in MetadataFlags.model_fields
-            if getattr(self, field) and not getattr(superset, field)
-        ]
-
-
-class MonitorRetryConfig(BaseModel):
-    """Retry settings with exponential backoff and jitter for metadata operations.
-
-    Warning:
-        The ``jitter`` parameter uses ``random.uniform()`` (PRNG, not
-        crypto-safe) which is intentional -- jitter only needs to
-        decorrelate concurrent retries, not provide cryptographic
-        randomness.
-
-    See Also:
-        ``Monitor._with_retry``:
-            The method that consumes these settings.
-    """
-
-    max_attempts: int = Field(default=0, ge=0, le=10)
-    initial_delay: float = Field(default=1.0, ge=0.1, le=10.0)
-    max_delay: float = Field(default=10.0, ge=1.0, le=60.0)
-    jitter: float = Field(default=0.5, ge=0.0, le=2.0)
-
-
-class MetadataRetryConfig(BaseModel):
-    """Per-metadata-type retry settings.
-
-    Each field corresponds to one of the seven health check types and
-    holds a [MonitorRetryConfig][bigbrotr.services.monitor.MonitorRetryConfig]
-    with independent ``max_attempts``, ``initial_delay``, ``max_delay``,
-    and ``jitter`` values.
-
-    See Also:
-        [MonitorProcessingConfig][bigbrotr.services.monitor.MonitorProcessingConfig]:
-            Parent config that embeds this model.
-    """
-
-    nip11_info: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-    nip66_rtt: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-    nip66_ssl: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-    nip66_geo: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-    nip66_net: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-    nip66_dns: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-    nip66_http: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-
-
-class MonitorProcessingConfig(BaseModel):
-    """Processing settings: chunk size, retry policies, and compute/store flags.
-
-    See Also:
-        [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]: Parent
-            config that embeds this model.
-        [MetadataFlags][bigbrotr.services.monitor.MetadataFlags]: The
-            ``compute`` and ``store`` flag sets.
-    """
-
-    chunk_size: int = Field(default=100, ge=10, le=1000)
-    max_relays: int | None = Field(default=None, ge=1)
-    allow_insecure: bool = Field(default=False)
-    nip11_info_max_size: int = Field(default=1_048_576, ge=1024, le=10_485_760)
-    retry: MetadataRetryConfig = Field(default_factory=MetadataRetryConfig)
-    compute: MetadataFlags = Field(default_factory=MetadataFlags)
-    store: MetadataFlags = Field(default_factory=MetadataFlags)
-
-
-class GeoConfig(BaseModel):
-    """GeoLite2 database paths, download URLs, and staleness settings.
-
-    Note:
-        GeoLite2 databases are downloaded at the start of each cycle if
-        missing or stale (older than ``max_age_days``). Downloads are
-        offloaded to a thread via ``asyncio.to_thread()`` to avoid
-        blocking the event loop during large file transfers (10-50 MB).
-
-    See Also:
-        [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]: Parent
-            config that embeds this model.
-        [Nip66GeoMetadata][bigbrotr.nips.nip66.Nip66GeoMetadata]: The
-            NIP-66 check that reads the City database.
-        [Nip66NetMetadata][bigbrotr.nips.nip66.Nip66NetMetadata]: The
-            NIP-66 check that reads the ASN database.
-    """
-
-    city_database_path: str = Field(default="static/GeoLite2-City.mmdb")
-    asn_database_path: str = Field(default="static/GeoLite2-ASN.mmdb")
-    city_download_url: str = Field(
-        default="https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb"
-    )
-    asn_download_url: str = Field(
-        default="https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb"
-    )
-    max_age_days: int | None = Field(default=30, ge=1)
-    max_download_size: int = Field(
-        default=100_000_000,
-        ge=1_000_000,
-        le=500_000_000,
-        description="Maximum download size per database file in bytes (default: 100 MB)",
-    )
-    geohash_precision: int = Field(
-        default=9, ge=1, le=12, description="Geohash precision (9=~4.77m)"
-    )
-
-
-class PublishingConfig(BaseModel):
-    """Default relay list used as fallback for event publishing.
-
-    See Also:
-        [DiscoveryConfig][bigbrotr.services.monitor.DiscoveryConfig],
-        [AnnouncementConfig][bigbrotr.services.monitor.AnnouncementConfig],
-        [ProfileConfig][bigbrotr.services.monitor.ProfileConfig]: Each
-            can override this list with their own ``relays`` field.
-    """
-
-    relays: RelayList = Field(default_factory=list)
-    timeout: float = Field(default=30.0, gt=0, description="Broadcast timeout in seconds")
-
-
-class DiscoveryConfig(BaseModel):
-    """Kind 30166 relay discovery event settings (NIP-66).
-
-    See Also:
-        ``MonitorTagsMixin._build_kind_30166()``: Builds the event
-            from check results using ``include`` flags.
-        ``MonitorPublisherMixin._publish_relay_discoveries()``:
-            Broadcasts the built events to the configured relays.
-    """
-
-    enabled: bool = Field(default=True)
-    interval: int = Field(default=3600, ge=60)
-    include: MetadataFlags = Field(default_factory=MetadataFlags)
-    relays: RelayList = Field(default_factory=list)  # Overrides publishing.relays
-
-
-class AnnouncementConfig(BaseModel):
-    """Kind 10166 monitor announcement settings (NIP-66).
-
-    See Also:
-        ``MonitorPublisherMixin._build_kind_10166()``: Builds the
-            announcement event with frequency and timeout tags.
-    """
-
-    enabled: bool = Field(default=True)
-    interval: int = Field(default=86_400, ge=60)
-    relays: RelayList = Field(default_factory=list)
-
-
-class ProfileConfig(BaseModel):
-    """Kind 0 profile metadata settings (NIP-01).
-
-    See Also:
-        ``MonitorPublisherMixin._build_kind_0()``: Builds the profile
-            event from these fields.
-    """
-
-    enabled: bool = Field(default=False)
-    interval: int = Field(default=86_400, ge=60)
-    relays: RelayList = Field(default_factory=list)
-    name: str | None = Field(default=None)
-    about: str | None = Field(default=None)
-    picture: str | None = Field(default=None)
-    nip05: str | None = Field(default=None)
-    website: str | None = Field(default=None)
-    banner: str | None = Field(default=None)
-    lud16: str | None = Field(default=None)
-
-
-class MonitorConfig(BaseServiceConfig):
-    """Monitor service configuration with validation for dependency constraints.
-
-    Note:
-        Three ``model_validator`` methods enforce dependency constraints
-        at config load time (fail-fast):
-
-        - ``validate_geo_databases``: GeoLite2 files must be downloadable.
-        - ``validate_store_requires_compute``: Cannot store uncalculated
-          metadata.
-        - ``validate_publish_requires_compute``: Cannot publish uncalculated
-          metadata.
-
-    See Also:
-        [Monitor][bigbrotr.services.monitor.Monitor]: The service class
-            that consumes this configuration.
-        [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``log_level`` fields.
-        [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key
-            management for event signing.
-    """
-
-    networks: NetworkConfig = Field(default_factory=NetworkConfig)
-    keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
-    processing: MonitorProcessingConfig = Field(default_factory=MonitorProcessingConfig)
-    geo: GeoConfig = Field(default_factory=GeoConfig)
-    publishing: PublishingConfig = Field(default_factory=PublishingConfig)
-    discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
-    announcement: AnnouncementConfig = Field(default_factory=AnnouncementConfig)
-    profile: ProfileConfig = Field(default_factory=ProfileConfig)
-
-    @model_validator(mode="after")
-    def validate_geo_databases(self) -> MonitorConfig:
-        """Validate GeoLite2 database paths have download URLs if files are missing.
-
-        Actual downloads are deferred to ``_update_geo_databases()`` which runs
-        asynchronously via ``asyncio.to_thread()`` to avoid blocking the event loop.
-        """
-        if self.processing.compute.nip66_geo:
-            city_path = Path(self.geo.city_database_path)
-            if not city_path.exists() and not self.geo.city_download_url:
-                raise ValueError(
-                    f"GeoLite2 City database not found at {city_path} "
-                    "and no download URL configured in geo.city_download_url"
-                )
-
-        if self.processing.compute.nip66_net:
-            asn_path = Path(self.geo.asn_database_path)
-            if not asn_path.exists() and not self.geo.asn_download_url:
-                raise ValueError(
-                    f"GeoLite2 ASN database not found at {asn_path} "
-                    "and no download URL configured in geo.asn_download_url"
-                )
-
-        return self
-
-    @model_validator(mode="after")
-    def validate_store_requires_compute(self) -> MonitorConfig:
-        """Ensure every stored metadata type is also computed."""
-        errors = self.processing.store.get_missing_from(self.processing.compute)
-        if errors:
-            raise ValueError(
-                f"Cannot store metadata that is not computed: {', '.join(errors)}. "
-                "Enable in processing.compute.* or disable in processing.store.*"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def validate_publish_requires_compute(self) -> MonitorConfig:
-        """Ensure every published metadata type is also computed."""
-        if not self.discovery.enabled:
-            return self
-        errors = self.discovery.include.get_missing_from(self.processing.compute)
-        if errors:
-            raise ValueError(
-                f"Cannot publish metadata that is not computed: {', '.join(errors)}. "
-                "Enable in processing.compute.* or disable in discovery.include.*"
-            )
-        return self
+    @property
+    def has_data(self) -> bool:
+        """True if at least one NIP check produced data."""
+        return any((
+            self.nip11, self.nip66_rtt, self.nip66_ssl,
+            self.nip66_geo, self.nip66_net, self.nip66_dns, self.nip66_http,
+        ))
 
 
 # =============================================================================
@@ -488,8 +167,6 @@ class MonitorConfig(BaseServiceConfig):
 
 
 class Monitor(
-    MonitorTagsMixin,
-    MonitorPublisherMixin,
     BatchProgressMixin,
     NetworkSemaphoreMixin,
     BaseService[MonitorConfig],
@@ -509,17 +186,8 @@ class Monitor(
     Kind 30166 discovery events. Supports clearnet (direct), Tor, I2P,
     and Lokinet (via SOCKS5 proxy).
 
-    Note:
-        The MRO composes four mixins:
-
-        - [MonitorTagsMixin][bigbrotr.services.monitor_tags.MonitorTagsMixin]:
-          Kind 30166 tag building.
-        - [MonitorPublisherMixin][bigbrotr.services.monitor_publisher.MonitorPublisherMixin]:
-          Event signing and broadcasting.
-        - [BatchProgressMixin][bigbrotr.services.common.mixins.BatchProgressMixin]:
-          Cycle progress tracking.
-        - [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin]:
-          Per-network concurrency control.
+    Event building is delegated to [bigbrotr.nips.event_builders][bigbrotr.nips.event_builders]
+    and broadcasting to [bigbrotr.utils.transport][bigbrotr.utils.transport].
 
     See Also:
         [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]:
@@ -593,24 +261,28 @@ class Monitor(
         finally:
             self._close_geo_readers()
 
-    async def _update_geo_db_if_stale(
-        self, path: Path, url: str, db_name: str, max_age_seconds: float
-    ) -> None:
-        """Update a single GeoLite2 database if stale or missing.
+    async def _update_geo_db(self, path: Path, url: str, db_name: str) -> None:
+        """Download a single GeoLite2 database if missing or stale.
 
         Downloads are offloaded to a thread via ``asyncio.to_thread()`` to
         avoid blocking the event loop during large file transfers (10-50MB).
         """
         max_size = self._config.geo.max_download_size
+        max_age_days = self._config.geo.max_age_days
+
         if await asyncio.to_thread(path.exists):
+            if max_age_days is None:
+                return
             age = time.time() - (await asyncio.to_thread(path.stat)).st_mtime
-            if age > max_age_seconds:
-                age_days = round(age / _SECONDS_PER_DAY, 1)
-                self._logger.info("updating_geo_db", db=db_name, age_days=age_days)
-                await asyncio.to_thread(_download_geolite_db, url, path, max_size)
+            if age <= max_age_days * _SECONDS_PER_DAY:
+                return
+            self._logger.info(
+                "updating_geo_db", db=db_name, age_days=round(age / _SECONDS_PER_DAY, 1),
+            )
         else:
             self._logger.info("downloading_geo_db", db=db_name)
-            await asyncio.to_thread(_download_geolite_db, url, path, max_size)
+
+        await asyncio.to_thread(download_bounded_file, url, path, max_size)
 
     async def _update_geo_databases(self) -> None:
         """Download or re-download GeoLite2 databases if missing or stale.
@@ -620,55 +292,19 @@ class Monitor(
         with a stale (or missing) database.
         """
         compute = self._config.processing.compute
-        if not compute.nip66_geo and not compute.nip66_net:
-            return
+        geo = self._config.geo
 
-        max_age_days = self._config.geo.max_age_days
-        max_age_seconds = max_age_days * _SECONDS_PER_DAY if max_age_days is not None else 0
-
-        max_size = self._config.geo.max_download_size
-
+        updates: list[tuple[Path, str, str]] = []
         if compute.nip66_geo:
-            city_path = Path(self._config.geo.city_database_path)
-            try:
-                if not await asyncio.to_thread(city_path.exists):
-                    self._logger.info("downloading_geo_db", db="city")
-                    await asyncio.to_thread(
-                        _download_geolite_db,
-                        self._config.geo.city_download_url,
-                        city_path,
-                        max_size,
-                    )
-                elif max_age_days is not None:
-                    await self._update_geo_db_if_stale(
-                        city_path,
-                        self._config.geo.city_download_url,
-                        "city",
-                        max_age_seconds,
-                    )
-            except (OSError, ValueError) as e:
-                self._logger.warning("geo_db_update_failed", db="city", error=str(e))
-
+            updates.append((Path(geo.city_database_path), geo.city_download_url, "city"))
         if compute.nip66_net:
-            asn_path = Path(self._config.geo.asn_database_path)
+            updates.append((Path(geo.asn_database_path), geo.asn_download_url, "asn"))
+
+        for path, url, name in updates:
             try:
-                if not await asyncio.to_thread(asn_path.exists):
-                    self._logger.info("downloading_geo_db", db="asn")
-                    await asyncio.to_thread(
-                        _download_geolite_db,
-                        self._config.geo.asn_download_url,
-                        asn_path,
-                        max_size,
-                    )
-                elif max_age_days is not None:
-                    await self._update_geo_db_if_stale(
-                        asn_path,
-                        self._config.geo.asn_download_url,
-                        "asn",
-                        max_age_seconds,
-                    )
+                await self._update_geo_db(path, url, name)
             except (OSError, ValueError) as e:
-                self._logger.warning("geo_db_update_failed", db="asn", error=str(e))
+                self._logger.warning("geo_db_update_failed", db=name, error=str(e))
 
     async def _open_geo_readers(self) -> None:
         """Open GeoIP database readers for the current run.
@@ -841,7 +477,7 @@ class Monitor(
 
         for relay, result in zip(relays, results, strict=True):
             self._progress.processed += 1
-            if isinstance(result, CheckResult) and any(result):
+            if isinstance(result, CheckResult) and result.has_data:
                 self._progress.success += 1
                 successful.append((relay, result))
             else:
@@ -849,26 +485,6 @@ class Monitor(
                 failed.append(relay)
 
         return successful, failed
-
-    @staticmethod
-    def _get_success(result: Any) -> bool:
-        """Extract success status from a metadata result's logs object."""
-        logs = result.logs
-        if isinstance(logs, BaseLogs):
-            return bool(logs.success)
-        if isinstance(logs, Nip66RttMultiPhaseLogs):
-            return bool(logs.open_success)
-        return False
-
-    @staticmethod
-    def _get_reason(result: Any) -> str | None:
-        """Extract failure reason from a metadata result's logs object."""
-        logs = result.logs
-        if isinstance(logs, BaseLogs):
-            return str(logs.reason) if logs.reason else None
-        if isinstance(logs, Nip66RttMultiPhaseLogs):
-            return str(logs.open_reason) if logs.open_reason else None
-        return None
 
     async def _with_retry(
         self,
@@ -911,7 +527,7 @@ class Monitor(
         for attempt in range(max_retries + 1):
             try:
                 result = await coro_factory()
-                if self._get_success(result):
+                if get_success(result):
                     return result
             except (TimeoutError, OSError) as e:
                 self._logger.debug(
@@ -932,7 +548,7 @@ class Monitor(
                     f"{operation}_retry",
                     relay=relay_url,
                     attempt=attempt + 1,
-                    reason=self._get_reason(result) if result else None,
+                    reason=get_reason(result) if result else None,
                     delay_s=round(delay + jitter, 2),
                 )
 
@@ -941,20 +557,9 @@ class Monitor(
             f"{operation}_failed",
             relay=relay_url,
             attempts=max_retries + 1,
-            reason=self._get_reason(result) if result else None,
+            reason=get_reason(result) if result else None,
         )
         return result
-
-    @staticmethod
-    def _safe_result(results: dict[str, Any], key: str) -> Any:
-        """Extract a successful result from asyncio.gather output.
-
-        Returns None if the key is absent or the result is an exception.
-        """
-        value = results.get(key)
-        if value is None or isinstance(value, BaseException):
-            return None
-        return value
 
     def _build_parallel_checks(
         self,
@@ -1044,7 +649,7 @@ class Monitor(
             [CheckResult][bigbrotr.services.monitor.CheckResult] with
             metadata for each completed check (``None`` if skipped/failed).
         """
-        empty = CheckResult(None, None, None, None, None, None, None)
+        empty = CheckResult()
 
         semaphore = self._semaphores.get(relay.network)
         if semaphore is None:
@@ -1059,17 +664,6 @@ class Monitor(
 
             nip11: Nip11 | None = None
             generated_at = int(time.time())
-
-            def to_relay_meta(
-                meta: BaseNipMetadata | None, meta_type: MetadataType
-            ) -> RelayMetadata | None:
-                if meta is None:
-                    return None
-                return RelayMetadata(
-                    relay=relay,
-                    metadata=Metadata(type=meta_type, data=meta.to_dict()),
-                    generated_at=generated_at,
-                )
 
             try:
                 if compute.nip11_info:
@@ -1134,26 +728,17 @@ class Monitor(
                     gathered = dict(zip(parallel_tasks.keys(), parallel_results, strict=True))
 
                 result = CheckResult(
-                    nip11=nip11.to_relay_metadata_tuple().nip11_info if nip11 else None,
-                    nip66_rtt=to_relay_meta(rtt_meta, MetadataType.NIP66_RTT),
-                    nip66_ssl=to_relay_meta(
-                        self._safe_result(gathered, "ssl"), MetadataType.NIP66_SSL
-                    ),
-                    nip66_geo=to_relay_meta(
-                        self._safe_result(gathered, "geo"), MetadataType.NIP66_GEO
-                    ),
-                    nip66_net=to_relay_meta(
-                        self._safe_result(gathered, "net"), MetadataType.NIP66_NET
-                    ),
-                    nip66_dns=to_relay_meta(
-                        self._safe_result(gathered, "dns"), MetadataType.NIP66_DNS
-                    ),
-                    nip66_http=to_relay_meta(
-                        self._safe_result(gathered, "http"), MetadataType.NIP66_HTTP
-                    ),
+                    generated_at=generated_at,
+                    nip11=nip11.info if nip11 else None,
+                    nip66_rtt=rtt_meta,
+                    nip66_ssl=safe_result(gathered, "ssl"),
+                    nip66_geo=safe_result(gathered, "geo"),
+                    nip66_net=safe_result(gathered, "net"),
+                    nip66_dns=safe_result(gathered, "dns"),
+                    nip66_http=safe_result(gathered, "http"),
                 )
 
-                if any(result):
+                if result.has_data:
                     self._logger.debug("check_succeeded", url=relay.url)
                 else:
                     self._logger.debug("check_failed", url=relay.url)
@@ -1167,45 +752,6 @@ class Monitor(
     # -------------------------------------------------------------------------
     # Persistence
     # -------------------------------------------------------------------------
-
-    @staticmethod
-    def _collect_metadata(
-        successful: list[tuple[Relay, CheckResult]],
-        store: MetadataFlags,
-    ) -> list[RelayMetadata]:
-        """Collect storable metadata from successful health check results.
-
-        Iterates over successful check results and collects each metadata type
-        that is both present in the result and enabled in the
-        [MetadataFlags][bigbrotr.services.monitor.MetadataFlags] store flags.
-
-        Args:
-            successful: List of ([Relay][bigbrotr.models.relay.Relay],
-                [CheckResult][bigbrotr.services.monitor.CheckResult])
-                pairs from health checks.
-            store: Flags controlling which metadata types to persist.
-
-        Returns:
-            List of [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
-            records ready for database insertion.
-        """
-        metadata: list[RelayMetadata] = []
-        for _, result in successful:
-            if result.nip11 and store.nip11_info:
-                metadata.append(result.nip11)
-            if result.nip66_rtt and store.nip66_rtt:
-                metadata.append(result.nip66_rtt)
-            if result.nip66_ssl and store.nip66_ssl:
-                metadata.append(result.nip66_ssl)
-            if result.nip66_geo and store.nip66_geo:
-                metadata.append(result.nip66_geo)
-            if result.nip66_net and store.nip66_net:
-                metadata.append(result.nip66_net)
-            if result.nip66_dns and store.nip66_dns:
-                metadata.append(result.nip66_dns)
-            if result.nip66_http and store.nip66_http:
-                metadata.append(result.nip66_http)
-        return metadata
 
     async def _persist_results(
         self,
@@ -1232,7 +778,7 @@ class Monitor(
 
         # Insert metadata for successful checks
         if successful:
-            metadata = self._collect_metadata(successful, self._config.processing.store)
+            metadata = collect_metadata(successful, self._config.processing.store)
             if metadata:
                 try:
                     count = await self._brotr.insert_relay_metadata(metadata)
@@ -1258,25 +804,167 @@ class Monitor(
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("checkpoint_save_failed", error=str(e))
 
+    # -------------------------------------------------------------------------
+    # Publishing
+    # -------------------------------------------------------------------------
 
-# =============================================================================
-# Exports
-# =============================================================================
+    async def _broadcast_events(
+        self, builders: list[EventBuilder], relays: list[Relay]
+    ) -> int:
+        """Sign and broadcast events, returning the number of successful relays."""
+        return await broadcast_events(
+            builders, relays, self._keys, timeout=self._config.publishing.timeout,
+        )
 
-__all__ = [
-    "AnnouncementConfig",
-    "CheckResult",
-    "DiscoveryConfig",
-    "GeoConfig",
-    "MetadataFlags",
-    "MetadataRetryConfig",
-    "Monitor",
-    "MonitorConfig",
-    "MonitorProcessingConfig",
-    "MonitorPublisherMixin",
-    "MonitorRetryConfig",
-    "MonitorTagsMixin",
-    "ProfileConfig",
-    "PublishingConfig",
-    "RelayList",
-]
+    def _get_publish_relays(self, section_relays: list[Relay] | None) -> list[Relay]:
+        """Get relays for event publishing, falling back to the global publishing relays."""
+        return section_relays or self._config.publishing.relays
+
+    async def _publish_if_due(  # noqa: PLR0913
+        self,
+        *,
+        enabled: bool,
+        relays: list[Relay],
+        interval: int,
+        state_key: str,
+        builder: EventBuilder,
+        event_name: str,
+    ) -> None:
+        """Publish an event if enabled, relays are configured, and the interval has elapsed."""
+        if not enabled or not relays:
+            return
+
+        results = await self._brotr.get_service_state(
+            self.SERVICE_NAME, ServiceStateType.CHECKPOINT, state_key,
+        )
+        last_ts = results[0].state_value.get("timestamp", 0.0) if results else 0.0
+        if time.time() - last_ts < interval:
+            return
+
+        sent = await self._broadcast_events([builder], relays)
+        if not sent:
+            self._logger.warning(f"{event_name}_failed", error="no relays reachable")
+            return
+        self._logger.info(f"{event_name}_published", relays=sent)
+        now = time.time()
+        await self._brotr.upsert_service_state([
+            ServiceState(
+                service_name=self.SERVICE_NAME,
+                state_type=ServiceStateType.CHECKPOINT,
+                state_key=state_key,
+                state_value={"timestamp": now},
+                updated_at=int(now),
+            ),
+        ])
+
+    async def _publish_announcement(self) -> None:
+        """Publish Kind 10166 monitor announcement if the configured interval has elapsed."""
+        ann = self._config.announcement
+        await self._publish_if_due(
+            enabled=ann.enabled,
+            relays=self._get_publish_relays(ann.relays),
+            interval=ann.interval,
+            state_key="last_announcement",
+            builder=self._build_kind_10166(),
+            event_name="announcement",
+        )
+
+    async def _publish_profile(self) -> None:
+        """Publish Kind 0 profile metadata if the configured interval has elapsed."""
+        profile = self._config.profile
+        await self._publish_if_due(
+            enabled=profile.enabled,
+            relays=self._get_publish_relays(profile.relays),
+            interval=profile.interval,
+            state_key="last_profile",
+            builder=self._build_kind_0(),
+            event_name="profile",
+        )
+
+    async def _publish_relay_discoveries(
+        self, successful: list[tuple[Relay, CheckResult]]
+    ) -> None:
+        """Publish Kind 30166 relay discovery events for successful health checks."""
+        disc = self._config.discovery
+        relays = self._get_publish_relays(disc.relays)
+        if not disc.enabled or not relays:
+            return
+
+        builders: list[EventBuilder] = []
+        for relay, result in successful:
+            try:
+                builders.append(self._build_kind_30166(relay, result))
+            except (ValueError, KeyError, TypeError) as e:
+                self._logger.debug("build_30166_failed", url=relay.url, error=str(e))
+
+        if builders:
+            sent = await self._broadcast_events(builders, relays)
+            if sent:
+                self._logger.debug("discoveries_published", count=len(builders))
+            else:
+                self._logger.warning(
+                    "discoveries_broadcast_failed", count=len(builders),
+                    error="no relays reachable",
+                )
+
+    # -------------------------------------------------------------------------
+    # Event Builders
+    # -------------------------------------------------------------------------
+
+    def _build_kind_0(self) -> EventBuilder:
+        """Build Kind 0 profile metadata event per NIP-01."""
+        p = self._config.profile
+        return build_profile_event(
+            name=p.name,
+            about=p.about,
+            picture=p.picture,
+            nip05=p.nip05,
+            website=p.website,
+            banner=p.banner,
+            lud16=p.lud16,
+        )
+
+    def _build_kind_10166(self) -> EventBuilder:
+        """Build Kind 10166 monitor announcement event per NIP-66."""
+        timeout_ms = int(self._config.networks.clearnet.timeout * 1000)
+        include = self._config.discovery.include
+        enabled_networks = [
+            network
+            for network in NetworkType
+            if self._config.networks.is_enabled(network)
+        ]
+        return build_monitor_announcement(
+            interval=int(self._config.interval),
+            timeout_ms=timeout_ms,
+            enabled_networks=enabled_networks,
+            nip11_selection=Nip11Selection(info=include.nip11_info),
+            nip66_selection=Nip66Selection(
+                rtt=include.nip66_rtt,
+                ssl=include.nip66_ssl,
+                geo=include.nip66_geo,
+                net=include.nip66_net,
+                dns=include.nip66_dns,
+                http=include.nip66_http,
+            ),
+        )
+
+    def _build_kind_30166(self, relay: Relay, result: CheckResult) -> EventBuilder:
+        """Build a Kind 30166 relay discovery event per NIP-66."""
+        include = self._config.discovery.include
+
+        nip11_canonical_json = ""
+        if result.nip11 and include.nip11_info:
+            meta = Metadata(type=MetadataType.NIP11_INFO, data=result.nip11.to_dict())
+            nip11_canonical_json = meta.canonical_json
+
+        return build_relay_discovery(
+            relay.url,
+            relay.network.value,
+            nip11_canonical_json,
+            rtt_data=result.nip66_rtt.data if result.nip66_rtt and include.nip66_rtt else None,
+            ssl_data=result.nip66_ssl.data if result.nip66_ssl and include.nip66_ssl else None,
+            net_data=result.nip66_net.data if result.nip66_net and include.nip66_net else None,
+            geo_data=result.nip66_geo.data if result.nip66_geo and include.nip66_geo else None,
+            nip11_data=result.nip11.data if result.nip11 and include.nip11_info else None,
+            rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
+        )
