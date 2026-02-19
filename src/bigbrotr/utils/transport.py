@@ -84,7 +84,7 @@ from nostr_sdk import (
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from nostr_sdk import Keys
+    from nostr_sdk import EventBuilder, Keys
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
@@ -579,6 +579,49 @@ async def connect_relay(
 
     logger.debug("insecure_connected relay=%s", relay.url)
     return client
+
+
+async def broadcast_events(
+    builders: list[EventBuilder],
+    relays: list[Relay],
+    keys: Keys,
+    *,
+    timeout: float = 30.0,  # noqa: ASYNC109
+    allow_insecure: bool = True,
+) -> int:
+    """Sign and broadcast Nostr events to relays.
+
+    Creates a separate client per relay so that SSL fallback can be
+    applied independently.  Relays that fail to connect or send are
+    logged at WARNING level and skipped.
+
+    Returns:
+        Number of relays that successfully received all events.
+    """
+    if not builders or not relays:
+        return 0
+
+    success = 0
+    for relay in relays:
+        try:
+            client = await connect_relay(
+                relay, keys=keys, timeout=timeout, allow_insecure=allow_insecure,
+            )
+        except (OSError, TimeoutError) as e:
+            logger.warning("broadcast_connect_failed relay=%s error=%s", relay.url, e)
+            continue
+
+        try:
+            for builder in builders:
+                await client.send_event_builder(builder)
+            success += 1
+        except (OSError, TimeoutError) as e:
+            logger.warning("broadcast_send_failed relay=%s error=%s", relay.url, e)
+        finally:
+            with contextlib.suppress(Exception):
+                await client.shutdown()
+
+    return success
 
 
 @dataclass(frozen=True, slots=True)
