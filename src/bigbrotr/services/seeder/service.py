@@ -47,55 +47,17 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from pydantic import BaseModel, Field
-
-from bigbrotr.core.base_service import BaseService, BaseServiceConfig
-from bigbrotr.models import Relay
+from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
+from bigbrotr.services.common.queries import insert_candidates
 
-from .common.queries import insert_candidates
+from .configs import SeederConfig
+from .utils import parse_seed_file
 
 
 if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
-
-
-# =============================================================================
-# Configuration
-# =============================================================================
-
-
-class SeedConfig(BaseModel):
-    """Configuration for seed data source and insertion mode.
-
-    See Also:
-        [SeederConfig][bigbrotr.services.seeder.SeederConfig]: Parent
-            config that embeds this model.
-    """
-
-    file_path: str = Field(default="static/seed_relays.txt", description="Seed file path")
-    to_validate: bool = Field(
-        default=True,
-        description="If True, add as candidates. If False, insert directly into relays.",
-    )
-
-
-class SeederConfig(BaseServiceConfig):
-    """Seeder service configuration.
-
-    See Also:
-        [Seeder][bigbrotr.services.seeder.Seeder]: The service class
-            that consumes this configuration.
-        [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``log_level`` fields.
-    """
-
-    seed: SeedConfig = Field(default_factory=SeedConfig)
-
-
-# =============================================================================
-# Service
-# =============================================================================
+    from bigbrotr.models import Relay
 
 
 class Seeder(BaseService[SeederConfig]):
@@ -147,33 +109,6 @@ class Seeder(BaseService[SeederConfig]):
     # Seed Data
     # -------------------------------------------------------------------------
 
-    def _parse_seed_file(self, path: Path) -> list[Relay]:
-        """Parse seed file and validate relay URLs.
-
-        Each line is passed to the [Relay][bigbrotr.models.relay.Relay]
-        constructor for URL validation and network detection. Lines
-        starting with ``#`` are treated as comments and skipped.
-
-        Args:
-            path: Path to the seed file (one URL per line).
-
-        Returns:
-            List of validated [Relay][bigbrotr.models.relay.Relay] objects.
-        """
-        relays: list[Relay] = []
-
-        with path.open(encoding="utf-8") as f:
-            for line in f:
-                url = line.strip()
-                if not url or url.startswith("#"):
-                    continue
-                try:
-                    relays.append(Relay(url))
-                except (ValueError, TypeError) as e:
-                    self._logger.warning("relay_parse_failed", url=url, error=str(e))
-
-        return relays
-
     async def _seed(self) -> None:
         """Load seed file and dispatch to the appropriate insertion method."""
         path = Path(self._config.seed.file_path)
@@ -182,7 +117,7 @@ class Seeder(BaseService[SeederConfig]):
             self._logger.warning("file_not_found", path=str(path))
             return
 
-        relays = self._parse_seed_file(path)
+        relays = parse_seed_file(path)
         self._logger.debug("file_parsed", path=str(path), count=len(relays))
 
         if not relays:
