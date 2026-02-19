@@ -48,8 +48,8 @@ See Also:
         Enum with ``NIP66_*`` variants for each test type.
     [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
         Service that orchestrates NIP-66 checks per relay.
-    [bigbrotr.services.monitor_tags][bigbrotr.services.monitor_tags]: Tag
-        builder that converts NIP-66 results into kind 30166 event tags.
+    [bigbrotr.nips.event_builders][bigbrotr.nips.event_builders]: Event builders
+        that construct kind 0, 10166, and 30166 events from typed NIP data.
 """
 
 from .data import (
