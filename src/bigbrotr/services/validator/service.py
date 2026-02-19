@@ -56,26 +56,25 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import asyncpg
-from pydantic import BaseModel, Field
 
-from bigbrotr.core.base_service import BaseService, BaseServiceConfig
+from bigbrotr.core.base_service import BaseService
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import (
     NetworkType,
     ServiceName,
 )
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.utils.transport import is_nostr_relay
-
-from .common.configs import NetworkConfig
-from .common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
-from .common.queries import (
+from bigbrotr.services.common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
+from bigbrotr.services.common.queries import (
     count_candidates,
     delete_exhausted_candidates,
     delete_stale_candidates,
     fetch_candidate_chunk,
     promote_candidates,
 )
+from bigbrotr.utils.transport import is_nostr_relay
+
+from .configs import ValidatorConfig
 
 
 if TYPE_CHECKING:
@@ -114,67 +113,6 @@ class Candidate:
         """Return the number of failed validation attempts for this candidate."""
         attempts: int = self.data.get("failed_attempts", 0)
         return attempts
-
-
-# =============================================================================
-# Configuration
-# =============================================================================
-
-
-class ValidatorProcessingConfig(BaseModel):
-    """Candidate processing settings.
-
-    Attributes:
-        chunk_size: Candidates to fetch and validate per iteration. Larger
-            chunks reduce DB round-trips but increase memory usage.
-        max_candidates: Optional cap on total candidates per cycle
-            (``None`` = all).
-
-    See Also:
-        [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig]:
-            Parent config that embeds this model.
-    """
-
-    chunk_size: int = Field(default=100, ge=10, le=1000)
-    max_candidates: int | None = Field(default=None, ge=1)
-
-
-class CleanupConfig(BaseModel):
-    """Exhausted candidate cleanup settings.
-
-    Removes candidates that have exceeded the maximum failure threshold,
-    preventing permanently broken relays from consuming resources.
-
-    Attributes:
-        enabled: Whether to enable exhausted candidate cleanup.
-        max_failures: Failure threshold after which candidates are removed.
-
-    See Also:
-        [delete_exhausted_candidates][bigbrotr.services.common.queries.delete_exhausted_candidates]:
-            The SQL query driven by ``max_failures``.
-        [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig]:
-            Parent config that embeds this model.
-    """
-
-    enabled: bool = Field(default=False)
-    max_failures: int = Field(default=100, ge=1, le=1000)
-
-
-class ValidatorConfig(BaseServiceConfig):
-    """Validator service configuration.
-
-    See Also:
-        [Validator][bigbrotr.services.validator.Validator]: The service
-            class that consumes this configuration.
-        [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``log_level`` fields.
-        [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
-            Per-network timeout and proxy settings.
-    """
-
-    networks: NetworkConfig = Field(default_factory=NetworkConfig)
-    processing: ValidatorProcessingConfig = Field(default_factory=ValidatorProcessingConfig)
-    cleanup: CleanupConfig = Field(default_factory=CleanupConfig)
 
 
 # =============================================================================
@@ -243,7 +181,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         # Cleanup and count
         await self._cleanup_stale()
         await self._cleanup_exhausted()
-        self._progress.total = await self._count_candidates(networks)
+        self._progress.total = await count_candidates(self._brotr, networks)
 
         self._logger.info("candidates_available", total=self._progress.total)
         self._emit_metrics()
@@ -320,17 +258,6 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
                 count=count,
                 threshold=self._config.cleanup.max_failures,
             )
-
-    async def _count_candidates(self, networks: list[str]) -> int:
-        """Count pending candidates for the specified networks.
-
-        Args:
-            networks: Enabled network type strings (e.g., ``['clearnet', 'tor']``).
-
-        Returns:
-            Total count of matching candidates, or 0 if none exist.
-        """
-        return await count_candidates(self._brotr, networks)
 
     # -------------------------------------------------------------------------
     # Processing

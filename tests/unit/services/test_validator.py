@@ -250,7 +250,7 @@ class TestValidatorRun:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=False
         ):
             await validator.run()
 
@@ -275,7 +275,7 @@ class TestValidatorRun:
         async def mock_is_nostr_relay(relay, proxy_url, timeout):
             return "relay1" in relay.url
 
-        with patch("bigbrotr.services.validator.is_nostr_relay", side_effect=mock_is_nostr_relay):
+        with patch("bigbrotr.services.validator.service.is_nostr_relay", side_effect=mock_is_nostr_relay):
             await validator.run()
 
         assert validator._progress.success == 1
@@ -315,7 +315,7 @@ class TestChunkProcessing:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
         ):
             await validator.run()
 
@@ -347,7 +347,7 @@ class TestChunkProcessing:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
         ):
             await validator.run()
 
@@ -374,7 +374,7 @@ class TestNetworkAwareValidation:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
         ) as mock:
             await validator.run()
             mock.assert_called_once()
@@ -391,7 +391,7 @@ class TestNetworkAwareValidation:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
         ) as mock:
             await validator.run()
             mock.assert_called_once()
@@ -410,7 +410,7 @@ class TestNetworkAwareValidation:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
         ) as mock:
             await validator.run()
             mock.assert_called_once()
@@ -426,7 +426,7 @@ class TestNetworkAwareValidation:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
         ) as mock:
             await validator.run()
             mock.assert_called_once()
@@ -447,7 +447,7 @@ class TestNetworkAwareValidation:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
         ) as mock:
             await validator.run()
             mock.assert_called_once()
@@ -469,7 +469,7 @@ class TestNetworkAwareValidation:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
         ) as mock:
             await validator.run()
             mock.assert_called_once()
@@ -495,7 +495,7 @@ class TestErrorHandling:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay",
+            "bigbrotr.services.validator.service.is_nostr_relay",
             new_callable=AsyncMock,
             side_effect=Exception("Connection error"),
         ):
@@ -514,7 +514,7 @@ class TestErrorHandling:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=False
         ):
             await validator.run()
 
@@ -529,7 +529,7 @@ class TestErrorHandling:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=False
         ):
             await validator.run()
 
@@ -548,7 +548,7 @@ class TestErrorHandling:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
         ):
             await validator.run()
 
@@ -592,7 +592,7 @@ class TestPersistence:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
         ):
             await validator.run()
 
@@ -621,7 +621,7 @@ class TestPersistence:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=False
         ):
             await validator.run()
 
@@ -643,7 +643,7 @@ class TestPersistence:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.is_nostr_relay", new_callable=AsyncMock, return_value=False
+            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=False
         ):
             await validator.run()
 
@@ -779,7 +779,7 @@ class TestValidatorIntegration:
                 raise Exception("Connection error")
             return False
 
-        with patch("bigbrotr.services.validator.is_nostr_relay", side_effect=mock_validation):
+        with patch("bigbrotr.services.validator.service.is_nostr_relay", side_effect=mock_validation):
             await validator.run()
 
         # 1 valid (good), 2 failures (bad + error)
@@ -812,7 +812,7 @@ class TestValidatorIntegration:
             call_args_list.append((relay.url, proxy, timeout))
             return True
 
-        with patch("bigbrotr.services.validator.is_nostr_relay", side_effect=capture_args):
+        with patch("bigbrotr.services.validator.service.is_nostr_relay", side_effect=capture_args):
             await validator.run()
 
         # Verify correct timeouts/proxies were used
