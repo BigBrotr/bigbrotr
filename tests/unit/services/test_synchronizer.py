@@ -449,7 +449,7 @@ class TestSynchronizerSyncAllRelays:
         # The worker catches most exceptions, so we need to make the worker
         # itself raise by patching something fundamental
         with patch(
-            "bigbrotr.services.synchronizer._sync_relay_events",
+            "bigbrotr.services.synchronizer.service._sync_relay_events",
             side_effect=RuntimeError("unexpected"),
         ):
             # Should not raise -- errors are caught and logged

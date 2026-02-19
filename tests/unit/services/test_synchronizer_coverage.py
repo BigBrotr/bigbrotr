@@ -37,6 +37,8 @@ from bigbrotr.services.synchronizer import (
     SynchronizerConfig,
     SyncTimeoutsConfig,
     TimeRangeConfig,
+)
+from bigbrotr.services.synchronizer.service import (
     _create_filter,
     _insert_batch,
     _log,
@@ -108,7 +110,7 @@ class TestLogUtility:
 
     def test_log_info_level(self) -> None:
         """Test _log at INFO level with kwargs."""
-        with patch("bigbrotr.services.synchronizer._logger") as mock_logger:
+        with patch("bigbrotr.services.synchronizer.service._logger") as mock_logger:
             mock_logger.isEnabledFor.return_value = True
             _log("INFO", "test_message", relay="wss://test.com", count=5)
             mock_logger.log.assert_called_once()
@@ -118,7 +120,7 @@ class TestLogUtility:
 
     def test_log_when_disabled(self) -> None:
         """Test _log is a no-op when level is disabled."""
-        with patch("bigbrotr.services.synchronizer._logger") as mock_logger:
+        with patch("bigbrotr.services.synchronizer.service._logger") as mock_logger:
             mock_logger.isEnabledFor.return_value = False
             _log("DEBUG", "should_not_log")
             mock_logger.log.assert_not_called()
@@ -156,7 +158,7 @@ class TestCreateFilter:
         mock_filter.limit.return_value = mock_filter
         mock_filter.authors.return_value = mock_filter
 
-        with patch("bigbrotr.services.synchronizer.Filter", return_value=mock_filter):
+        with patch("bigbrotr.services.synchronizer.service.Filter", return_value=mock_filter):
             f = _create_filter(since=1000, until=2000, config=config)
 
         mock_filter.authors.assert_called_once_with([valid_author])
@@ -173,7 +175,7 @@ class TestCreateFilter:
         mock_filter.limit.return_value = mock_filter
         mock_filter.ids.return_value = mock_filter
 
-        with patch("bigbrotr.services.synchronizer.Filter", return_value=mock_filter):
+        with patch("bigbrotr.services.synchronizer.service.Filter", return_value=mock_filter):
             f = _create_filter(since=1000, until=2000, config=config)
 
         mock_filter.ids.assert_called_once_with([valid_id])
@@ -216,7 +218,7 @@ class TestCreateFilter:
         mock_filter.ids.return_value = mock_filter
         mock_filter.custom_tag.return_value = mock_filter
 
-        with patch("bigbrotr.services.synchronizer.Filter", return_value=mock_filter):
+        with patch("bigbrotr.services.synchronizer.service.Filter", return_value=mock_filter):
             f = _create_filter(since=500, until=9999, config=config)
 
         mock_filter.kinds.assert_called_once()
@@ -274,11 +276,11 @@ class TestInsertBatch:
             batch.append(evt)
 
         # Patch Event construction to avoid real nostr-sdk validation
-        with patch("bigbrotr.services.synchronizer.Event") as MockEvent:
+        with patch("bigbrotr.services.synchronizer.service.Event") as MockEvent:
             mock_event_instance = MagicMock()
             MockEvent.return_value = mock_event_instance
 
-            with patch("bigbrotr.services.synchronizer.EventRelay") as MockEventRelay:
+            with patch("bigbrotr.services.synchronizer.service.EventRelay") as MockEventRelay:
                 mock_er = MagicMock()
                 MockEventRelay.return_value = mock_er
 
@@ -386,9 +388,9 @@ class TestInsertBatch:
             evt = _make_mock_event(ts)
             batch.append(evt)
 
-        with patch("bigbrotr.services.synchronizer.Event") as MockEvent:
+        with patch("bigbrotr.services.synchronizer.service.Event") as MockEvent:
             MockEvent.return_value = MagicMock()
-            with patch("bigbrotr.services.synchronizer.EventRelay") as MockEventRelay:
+            with patch("bigbrotr.services.synchronizer.service.EventRelay") as MockEventRelay:
                 MockEventRelay.return_value = MagicMock()
 
                 inserted, _invalid, _skipped = await _insert_batch(
@@ -416,9 +418,9 @@ class TestInsertBatch:
         bad_evt.verify.return_value = False
         batch.append(bad_evt)
 
-        with patch("bigbrotr.services.synchronizer.Event") as MockEvent:
+        with patch("bigbrotr.services.synchronizer.service.Event") as MockEvent:
             MockEvent.return_value = MagicMock()
-            with patch("bigbrotr.services.synchronizer.EventRelay") as MockEventRelay:
+            with patch("bigbrotr.services.synchronizer.service.EventRelay") as MockEventRelay:
                 MockEventRelay.return_value = MagicMock()
 
                 inserted, invalid, _skipped = await _insert_batch(
@@ -467,12 +469,12 @@ class TestSyncRelayEvents:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.create_client",
+                "bigbrotr.services.synchronizer.service.create_client",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),
             patch(
-                "bigbrotr.services.synchronizer._insert_batch",
+                "bigbrotr.services.synchronizer.service._insert_batch",
                 new_callable=AsyncMock,
                 return_value=(5, 1, 0),
             ) as mock_insert,
@@ -501,7 +503,7 @@ class TestSyncRelayEvents:
         mock_client.add_relay = AsyncMock()
 
         with patch(
-            "bigbrotr.services.synchronizer.create_client",
+            "bigbrotr.services.synchronizer.service.create_client",
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
@@ -524,7 +526,7 @@ class TestSyncRelayEvents:
         mock_client.add_relay = AsyncMock()
 
         with patch(
-            "bigbrotr.services.synchronizer.create_client",
+            "bigbrotr.services.synchronizer.service.create_client",
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
@@ -547,7 +549,7 @@ class TestSyncRelayEvents:
         mock_client.add_relay = AsyncMock()
 
         with patch(
-            "bigbrotr.services.synchronizer.create_client",
+            "bigbrotr.services.synchronizer.service.create_client",
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
@@ -574,7 +576,7 @@ class TestSyncRelayEvents:
         mock_client.add_relay = AsyncMock()
 
         with patch(
-            "bigbrotr.services.synchronizer.create_client",
+            "bigbrotr.services.synchronizer.service.create_client",
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
@@ -594,7 +596,7 @@ class TestSyncRelayEvents:
         mock_client.add_relay = AsyncMock()
 
         with patch(
-            "bigbrotr.services.synchronizer.create_client",
+            "bigbrotr.services.synchronizer.service.create_client",
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
@@ -626,7 +628,7 @@ class TestSyncRelayEvents:
         mock_client.add_relay = AsyncMock()
 
         with patch(
-            "bigbrotr.services.synchronizer.create_client",
+            "bigbrotr.services.synchronizer.service.create_client",
             new_callable=AsyncMock,
             return_value=mock_client,
         ) as mock_create:
@@ -663,13 +665,13 @@ class TestSyncRelayEvents:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.create_client",
+                "bigbrotr.services.synchronizer.service.create_client",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),
-            patch("bigbrotr.services.synchronizer.EventBatch", LimitedBatch),
+            patch("bigbrotr.services.synchronizer.service.EventBatch", LimitedBatch),
             patch(
-                "bigbrotr.services.synchronizer._insert_batch",
+                "bigbrotr.services.synchronizer.service._insert_batch",
                 new_callable=AsyncMock,
                 return_value=(1, 0, 0),
             ),
@@ -710,7 +712,7 @@ class TestFetchAllCursors:
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.synchronizer.get_all_service_cursors",
+            "bigbrotr.services.synchronizer.service.get_all_service_cursors",
             new_callable=AsyncMock,
             return_value={"wss://r1.com": 1000, "wss://r2.com": 2000},
         ) as mock_query:
@@ -796,7 +798,7 @@ class TestSyncAllRelaysCoverage:
         relay = Relay("wss://success.relay.com")
 
         with patch(
-            "bigbrotr.services.synchronizer._sync_relay_events",
+            "bigbrotr.services.synchronizer.service._sync_relay_events",
             new_callable=AsyncMock,
             return_value=(10, 2, 1),
         ):
@@ -818,7 +820,7 @@ class TestSyncAllRelaysCoverage:
         relay = Relay("wss://slow.relay.com")
 
         with patch(
-            "bigbrotr.services.synchronizer._sync_relay_events",
+            "bigbrotr.services.synchronizer.service._sync_relay_events",
             new_callable=AsyncMock,
             side_effect=TimeoutError("overall timeout"),
         ):
@@ -838,7 +840,7 @@ class TestSyncAllRelaysCoverage:
         relay = Relay("wss://db-error.relay.com")
 
         with patch(
-            "bigbrotr.services.synchronizer._sync_relay_events",
+            "bigbrotr.services.synchronizer.service._sync_relay_events",
             new_callable=AsyncMock,
             side_effect=asyncpg.PostgresError("db error"),
         ):
@@ -857,7 +859,7 @@ class TestSyncAllRelaysCoverage:
         relay = Relay("wss://net-error.relay.com")
 
         with patch(
-            "bigbrotr.services.synchronizer._sync_relay_events",
+            "bigbrotr.services.synchronizer.service._sync_relay_events",
             new_callable=AsyncMock,
             side_effect=OSError("connection refused"),
         ):
@@ -879,7 +881,7 @@ class TestSyncAllRelaysCoverage:
         relay = Relay("wss://relay.example.com")
 
         with patch(
-            "bigbrotr.services.synchronizer._sync_relay_events",
+            "bigbrotr.services.synchronizer.service._sync_relay_events",
             new_callable=AsyncMock,
             return_value=(1, 0, 0),
         ):
@@ -907,7 +909,7 @@ class TestSyncAllRelaysCoverage:
         ]
 
         with patch(
-            "bigbrotr.services.synchronizer._sync_relay_events",
+            "bigbrotr.services.synchronizer.service._sync_relay_events",
             new_callable=AsyncMock,
             return_value=(1, 0, 0),
         ):
@@ -934,7 +936,7 @@ class TestSyncAllRelaysCoverage:
         )
 
         with patch(
-            "bigbrotr.services.synchronizer._sync_relay_events",
+            "bigbrotr.services.synchronizer.service._sync_relay_events",
             new_callable=AsyncMock,
             return_value=(1, 0, 0),
         ):
@@ -960,7 +962,7 @@ class TestSyncAllRelaysCoverage:
         relay = Relay("wss://relay.example.com")
 
         with patch(
-            "bigbrotr.services.synchronizer._sync_relay_events",
+            "bigbrotr.services.synchronizer.service._sync_relay_events",
             new_callable=AsyncMock,
         ) as mock_sync:
             await sync._sync_all_relays([relay])
@@ -988,7 +990,7 @@ class TestSyncAllRelaysCoverage:
         relay = Relay("wss://relay.example.com")
 
         with patch(
-            "bigbrotr.services.synchronizer._sync_relay_events",
+            "bigbrotr.services.synchronizer.service._sync_relay_events",
             new_callable=AsyncMock,
             return_value=(0, 0, 0),
         ):
@@ -1007,7 +1009,7 @@ class TestSyncAllRelaysCoverage:
         relay = Relay("wss://relay.example.com")
 
         with patch(
-            "bigbrotr.services.synchronizer._sync_relay_events",
+            "bigbrotr.services.synchronizer.service._sync_relay_events",
             new_callable=AsyncMock,
             return_value=(1, 0, 0),
         ):
@@ -1024,7 +1026,7 @@ class TestSyncAllRelaysCoverage:
         relay = Relay("wss://exploding.relay.com")
 
         with patch(
-            "bigbrotr.services.synchronizer._sync_relay_events",
+            "bigbrotr.services.synchronizer.service._sync_relay_events",
             new_callable=AsyncMock,
             side_effect=RuntimeError("unhandled"),
         ):
