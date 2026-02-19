@@ -4,7 +4,7 @@ All SQL queries used by services are centralized here.  Each function
 accepts a [Brotr][bigbrotr.core.brotr.Brotr] instance and returns typed
 results.  Services import from this module instead of writing inline SQL.
 
-The 14 query functions are grouped into five categories:
+The 13 query functions are grouped into four categories:
 
 - **Relay queries**: ``get_all_relay_urls``, ``get_all_relays``,
   ``filter_new_relay_urls``
@@ -14,7 +14,6 @@ The 14 query functions are grouped into five categories:
 - **Candidate lifecycle**: ``insert_candidates``, ``count_candidates``,
   ``fetch_candidate_chunk``, ``delete_stale_candidates``,
   ``delete_exhausted_candidates``, ``promote_candidates``
-- **Retention**: ``delete_expired_relay_metadata``
 - **Cursor queries**: ``get_all_service_cursors``
 
 Warning:
@@ -39,6 +38,7 @@ from typing import TYPE_CHECKING, Any
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.services.common.utils import parse_delete_result
 
 
 if TYPE_CHECKING:
@@ -441,16 +441,6 @@ async def fetch_candidate_chunk(
     return [dict(row) for row in rows]
 
 
-def _parse_delete_result(result: str | None) -> int:
-    """Extract the row count from a PostgreSQL DELETE command status string."""
-    if not result:
-        return 0
-    try:
-        return int(result.split()[-1])
-    except (ValueError, IndexError):
-        return 0
-
-
 async def delete_stale_candidates(brotr: Brotr) -> int:
     """Remove candidates whose URLs already exist in the relays table.
 
@@ -476,7 +466,7 @@ async def delete_stale_candidates(brotr: Brotr) -> int:
         ServiceName.VALIDATOR,
         ServiceStateType.CANDIDATE,
     )
-    return _parse_delete_result(result)
+    return parse_delete_result(result)
 
 
 async def delete_exhausted_candidates(
@@ -513,7 +503,7 @@ async def delete_exhausted_candidates(
         ServiceStateType.CANDIDATE,
         max_failures,
     )
-    return _parse_delete_result(result)
+    return parse_delete_result(result)
 
 
 async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
@@ -582,43 +572,6 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
         )
 
     return inserted
-
-
-# ---------------------------------------------------------------------------
-# Retention Queries
-# ---------------------------------------------------------------------------
-
-
-async def delete_expired_relay_metadata(
-    brotr: Brotr,
-    max_age_seconds: int,
-) -> int:
-    """Delete relay_metadata snapshots older than *max_age_seconds*.
-
-    This is a service-level retention policy, not a DB integrity operation.
-    Services decide when and how aggressively to prune historical data.
-    Run [Brotr.delete_orphan_metadata()][bigbrotr.core.brotr.Brotr.delete_orphan_metadata]
-    afterward to clean up dereferenced metadata blobs.
-
-    Args:
-        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        max_age_seconds: Maximum age in seconds (default 30 days).
-
-    Returns:
-        Number of deleted rows.
-
-    See Also:
-        [Brotr.delete_orphan_metadata()][bigbrotr.core.brotr.Brotr.delete_orphan_metadata]:
-            Clean up unreferenced metadata after expired snapshots are removed.
-    """
-    result = await brotr.execute(
-        """
-        DELETE FROM relay_metadata
-        WHERE generated_at < EXTRACT(EPOCH FROM now())::bigint - $1
-        """,
-        max_age_seconds,
-    )
-    return _parse_delete_result(result)
 
 
 # ---------------------------------------------------------------------------

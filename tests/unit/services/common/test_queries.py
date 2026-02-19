@@ -1,6 +1,6 @@
 """Unit tests for services.common.queries module.
 
-Tests all 13 domain SQL query functions that centralize database access for
+Tests the domain SQL query functions that centralize database access for
 BigBrotr services.  Each function accepts a ``Brotr`` instance and delegates
 to one of its query facade methods (fetch, fetchrow, fetchval, execute,
 upsert_service_state, transaction).
@@ -29,7 +29,6 @@ from bigbrotr.services.common.queries import (
     count_candidates,
     count_relays_due_for_check,
     delete_exhausted_candidates,
-    delete_expired_relay_metadata,
     delete_stale_candidates,
     fetch_candidate_chunk,
     fetch_relays_due_for_check,
@@ -820,34 +819,3 @@ class TestParseDeleteResult:
 
     def test_unexpected_format_returns_zero(self) -> None:
         assert _parse_delete_result("SOMETHING ELSE") == 0
-
-
-# ============================================================================
-# TestDeleteExpiredRelayMetadata
-# ============================================================================
-
-
-class TestDeleteExpiredRelayMetadata:
-    """Tests for delete_expired_relay_metadata()."""
-
-    async def test_calls_execute_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes max_age_seconds and returns parsed count."""
-        mock_brotr.execute = AsyncMock(return_value="DELETE 10")
-
-        result = await delete_expired_relay_metadata(mock_brotr, max_age_seconds=2_592_000)
-
-        mock_brotr.execute.assert_awaited_once()
-        args = mock_brotr.execute.call_args
-        sql = args[0][0]
-        assert "DELETE FROM relay_metadata" in sql
-        assert "generated_at" in sql
-        assert args[0][1] == 2_592_000
-        assert result == 10
-
-    async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
-        """Returns 0 when no rows are deleted."""
-        mock_brotr.execute = AsyncMock(return_value="DELETE 0")
-
-        result = await delete_expired_relay_metadata(mock_brotr, max_age_seconds=86400)
-
-        assert result == 0

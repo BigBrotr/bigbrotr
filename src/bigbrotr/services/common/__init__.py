@@ -48,6 +48,7 @@ from .queries import (
     insert_candidates,
     promote_candidates,
 )
+from .utils import parse_delete_result, validate_relay_url
 
 
 __all__ = [
@@ -72,5 +73,7 @@ __all__ = [
     "get_all_service_cursors",
     "get_events_with_relay_urls",
     "insert_candidates",
+    "parse_delete_result",
     "promote_candidates",
+    "validate_relay_url",
 ]
