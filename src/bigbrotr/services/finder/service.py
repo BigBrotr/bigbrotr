@@ -49,136 +49,33 @@ Examples:
 
 from __future__ import annotations
 
-import json
 import time
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import aiohttp
 import asyncpg
 from nostr_sdk import NostrSdkError, RelayUrl
-from pydantic import BaseModel, Field
 
-from bigbrotr.core.base_service import BaseService, BaseServiceConfig
-from bigbrotr.models import Relay
-from bigbrotr.models.constants import EventKind, ServiceName
+from bigbrotr.core.base_service import BaseService
+from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.services.common.queries import (
+    get_all_relay_urls,
+    get_events_with_relay_urls,
+    insert_candidates,
+)
+from bigbrotr.services.common.utils import validate_relay_url
 from bigbrotr.utils.http import read_bounded_json
 
-from .common.queries import get_all_relay_urls, get_events_with_relay_urls, insert_candidates
+from .configs import ApiSourceConfig, FinderConfig
+from .utils import extract_relays_from_rows
 
 
 if TYPE_CHECKING:
     import ssl
 
     from bigbrotr.core.brotr import Brotr
-
-
-# =============================================================================
-# Configuration
-# =============================================================================
-
-
-class FinderConcurrencyConfig(BaseModel):
-    """Concurrency limits for parallel API requests.
-
-    See Also:
-        [FinderConfig][bigbrotr.services.finder.FinderConfig]: Parent
-            config that embeds this model.
-    """
-
-    max_parallel: int = Field(default=5, ge=1, le=20, description="Maximum concurrent API requests")
-
-
-class EventsConfig(BaseModel):
-    """Event scanning configuration for discovering relay URLs from stored events.
-
-    Requires a full database schema with ``tags``, ``tagvalues``, and ``content``
-    columns. Set ``enabled=false`` for minimal-schema implementations (e.g., LilBrotr).
-
-    See Also:
-        [get_events_with_relay_urls][bigbrotr.services.common.queries.get_events_with_relay_urls]:
-            The SQL query driven by ``batch_size`` and ``kinds``.
-        [FinderConfig][bigbrotr.services.finder.FinderConfig]: Parent
-            config that embeds this model.
-    """
-
-    enabled: bool = Field(
-        default=True,
-        description="Enable event scanning (requires full schema with tags/content columns)",
-    )
-    batch_size: int = Field(
-        default=1000, ge=100, le=10_000, description="Events to process per batch"
-    )
-    kinds: list[int] = Field(
-        default_factory=lambda: [int(EventKind.CONTACTS), int(EventKind.RELAY_LIST)],
-        description="Event kinds to scan (3=contacts, 10002=relay list)",
-    )
-
-
-class ApiSourceConfig(BaseModel):
-    """Single API source configuration."""
-
-    url: str = Field(description="API endpoint URL")
-    enabled: bool = Field(default=True, description="Enable this source")
-    timeout: float = Field(default=30.0, ge=0.1, le=120.0, description="Request timeout")
-    connect_timeout: float = Field(
-        default=10.0,
-        ge=0.1,
-        le=60.0,
-        description="HTTP connection timeout (capped to total timeout)",
-    )
-
-
-class ApiConfig(BaseModel):
-    """API fetching configuration -- discovers relay URLs from public APIs.
-
-    See Also:
-        [ApiSourceConfig][bigbrotr.services.finder.ApiSourceConfig]:
-            Per-source URL, timeout, and enablement settings.
-        [FinderConfig][bigbrotr.services.finder.FinderConfig]: Parent
-            config that embeds this model.
-    """
-
-    enabled: bool = Field(default=True, description="Enable API fetching")
-    sources: list[ApiSourceConfig] = Field(
-        default_factory=lambda: [
-            ApiSourceConfig(url="https://api.nostr.watch/v1/online"),
-            ApiSourceConfig(url="https://api.nostr.watch/v1/offline"),
-        ]
-    )
-    delay_between_requests: float = Field(
-        default=1.0, ge=0.0, le=10.0, description="Delay between API requests"
-    )
-    verify_ssl: bool = Field(
-        default=True,
-        description="Verify TLS certificates (disable only for testing/internal APIs)",
-    )
-    max_response_size: int = Field(
-        default=5_242_880,
-        ge=1024,
-        le=52_428_800,
-        description="Maximum API response body size in bytes (default: 5 MB)",
-    )
-
-
-class FinderConfig(BaseServiceConfig):
-    """Finder service configuration.
-
-    See Also:
-        [Finder][bigbrotr.services.finder.Finder]: The service class
-            that consumes this configuration.
-        [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``log_level`` fields.
-    """
-
-    concurrency: FinderConcurrencyConfig = Field(default_factory=FinderConcurrencyConfig)
-    events: EventsConfig = Field(default_factory=EventsConfig)
-    api: ApiConfig = Field(default_factory=ApiConfig)
-
-
-# =============================================================================
-# Service
-# =============================================================================
+    from bigbrotr.models import Relay
 
 
 class Finder(BaseService[FinderConfig]):
@@ -326,7 +223,7 @@ class Finder(BaseService[FinderConfig]):
             if not rows:
                 break
 
-            relays = self._extract_relays_from_rows(rows)
+            relays = extract_relays_from_rows(rows)
             chunk_events = len(rows)
             last_seen_at_update = rows[-1]["seen_at"]
 
@@ -339,59 +236,6 @@ class Finder(BaseService[FinderConfig]):
                 break
 
         return events_scanned, relays_found
-
-    def _extract_relays_from_rows(self, rows: list[dict[str, Any]]) -> dict[str, Relay]:
-        """Extract and deduplicate relay URLs from event rows.
-
-        Parses relay URLs from three sources within each event row:
-
-        - ``r`` tags: any event with ``["r", "<url>"]`` tag entries.
-        - Kind 2 content: the deprecated NIP-01 recommend-relay event.
-        - Kind 3 content: NIP-02 contact list with JSON relay map as keys.
-
-        Args:
-            rows: Event rows with ``kind``, ``tags``, ``content``,
-                and ``seen_at`` keys (from
-                ``get_events_with_relay_urls``).
-
-        Returns:
-            Mapping of normalized relay URL to
-            [Relay][bigbrotr.models.relay.Relay] for deduplication.
-        """
-        relays: dict[str, Relay] = {}
-
-        for row in rows:
-            kind = row["kind"]
-            tags = row["tags"]
-            content = row["content"]
-
-            # Extract relay URLs from tags (r-tags)
-            if tags:
-                for tag in tags:
-                    if isinstance(tag, list) and len(tag) >= 2 and tag[0] == "r":  # noqa: PLR2004
-                        validated = self._validate_relay_url(tag[1])
-                        if validated:
-                            relays[validated.url] = validated
-
-            # Kind 2: content is the relay URL (deprecated NIP)
-            if kind == EventKind.RECOMMEND_RELAY and content:
-                validated = self._validate_relay_url(content.strip())
-                if validated:
-                    relays[validated.url] = validated
-
-            # Kind 3: content may be JSON with relay URLs as keys
-            if kind == EventKind.CONTACTS and content:
-                try:
-                    relay_data = json.loads(content)
-                    if isinstance(relay_data, dict):
-                        for url in relay_data:
-                            validated = self._validate_relay_url(url)
-                            if validated:
-                                relays[validated.url] = validated
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-        return relays
 
     async def _persist_scan_chunk(
         self, relay_url: str, relays: dict[str, Relay], last_seen_at: int
@@ -448,31 +292,6 @@ class Finder(BaseService[FinderConfig]):
 
         return found
 
-    def _validate_relay_url(self, url: str) -> Relay | None:
-        """Validate and normalize a relay URL.
-
-        Delegates to the [Relay][bigbrotr.models.relay.Relay] constructor
-        which performs RFC 3986 validation and network detection.
-
-        Args:
-            url: Potential relay URL string.
-
-        Returns:
-            [Relay][bigbrotr.models.relay.Relay] object if valid,
-            ``None`` otherwise.
-        """
-        if not url or not isinstance(url, str):
-            return None
-
-        url = url.strip()
-        if not url:
-            return None
-
-        try:
-            return Relay(url)
-        except (ValueError, TypeError):
-            return None
-
     async def _find_from_api(self) -> None:
         """Discover relay URLs from configured external API endpoints.
 
@@ -504,7 +323,7 @@ class Finder(BaseService[FinderConfig]):
                 try:
                     source_relays = await self._fetch_single_api(session, source)
                     for relay_url in source_relays:
-                        validated = self._validate_relay_url(str(relay_url))
+                        validated = validate_relay_url(str(relay_url))
                         if validated:
                             relays[validated.url] = validated
                     sources_checked += 1

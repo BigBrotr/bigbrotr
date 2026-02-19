@@ -393,7 +393,7 @@ class TestFinderFindFromApi:
         with (
             patch("aiohttp.ClientSession") as mock_session_cls,
             patch(
-                "bigbrotr.services.finder.insert_candidates",
+                "bigbrotr.services.finder.service.insert_candidates",
                 new_callable=AsyncMock,
                 return_value=2,
             ),
@@ -549,13 +549,13 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
@@ -589,13 +589,13 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
@@ -630,13 +630,13 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
@@ -670,13 +670,13 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
@@ -708,13 +708,13 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
@@ -746,13 +746,13 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
@@ -799,13 +799,13 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.get_all_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
             ) as mock_get_relay_urls,
             patch(
-                "bigbrotr.services.finder.get_events_with_relay_urls", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.get_events_with_relay_urls", new_callable=AsyncMock
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
             mock_get_relay_urls.return_value = ["wss://source.relay.com"]
