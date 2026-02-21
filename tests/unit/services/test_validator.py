@@ -699,7 +699,7 @@ class TestCleanup:
         mock_validator_brotr._pool.execute = AsyncMock(return_value="DELETE 5")
 
         validator = Validator(brotr=mock_validator_brotr)
-        await validator._cleanup_stale()
+        await validator.cleanup_stale()
 
         mock_validator_brotr._pool.execute.assert_called_once()
         query = mock_validator_brotr._pool.execute.call_args[0][0]
@@ -712,7 +712,7 @@ class TestCleanup:
 
         config = ValidatorConfig(cleanup={"enabled": True, "max_failures": 5})
         validator = Validator(brotr=mock_validator_brotr, config=config)
-        await validator._cleanup_exhausted()
+        await validator.cleanup_exhausted()
 
         mock_validator_brotr._pool.execute.assert_called_once()
         call_args = mock_validator_brotr._pool.execute.call_args
@@ -727,7 +727,7 @@ class TestCleanup:
 
         config = ValidatorConfig(cleanup={"enabled": False})
         validator = Validator(brotr=mock_validator_brotr, config=config)
-        await validator._cleanup_exhausted()
+        await validator.cleanup_exhausted()
 
         mock_validator_brotr._pool._mock_connection.execute.assert_not_called()
 
@@ -737,7 +737,7 @@ class TestCleanup:
 
         validator = Validator(brotr=mock_validator_brotr)
         with pytest.raises(Exception, match="DB error"):
-            await validator._cleanup_stale()
+            await validator.cleanup_stale()
 
 
 # ============================================================================

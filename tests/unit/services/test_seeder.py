@@ -21,6 +21,7 @@ from bigbrotr.services.seeder import (
     Seeder,
     SeederConfig,
 )
+from bigbrotr.services.seeder.utils import parse_seed_file
 
 
 # ============================================================================
@@ -203,7 +204,7 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path="nonexistent/file.txt"))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder._seed()
+        await seeder.seed()
 
     async def test_seed_success_as_candidates(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
@@ -223,7 +224,7 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=True))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder._seed()
+        await seeder.seed()
 
         mock_seeder_brotr.upsert_service_state.assert_called()
 
@@ -237,7 +238,7 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=False))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder._seed()
+        await seeder.seed()
 
         mock_seeder_brotr.insert_relay.assert_called()
 
@@ -256,7 +257,7 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder._seed()
+        await seeder.seed()
 
     async def test_seed_skips_invalid_urls(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test seeding skips invalid relay URLs."""
@@ -271,7 +272,7 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder._seed()
+        await seeder.seed()
 
     async def test_seed_empty_file(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test seeding with empty file."""
@@ -281,7 +282,7 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder._seed()
+        await seeder.seed()
 
     async def test_seed_all_exist(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test seeding when all relays already exist."""
@@ -295,7 +296,7 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder._seed()
+        await seeder.seed()
 
 
 # ============================================================================
@@ -304,82 +305,75 @@ class TestSeedRelays:
 
 
 class TestParseSeedFile:
-    """Tests for Seeder._parse_seed_file() method."""
+    """Tests for parse_seed_file() utility function."""
 
-    def test_parse_valid_relays(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
+    def test_parse_valid_relays(self, tmp_path: Path) -> None:
         """Test parsing valid relay URLs."""
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("wss://relay1.example.com\nwss://relay2.example.com\n")
 
-        seeder = Seeder(brotr=mock_seeder_brotr)
-        relays = seeder._parse_seed_file(seed_file)
+        relays = parse_seed_file(seed_file)
 
         assert len(relays) == 2
         urls = [r.url for r in relays]
         assert "wss://relay1.example.com" in urls
         assert "wss://relay2.example.com" in urls
 
-    def test_parse_skips_comments(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
+    def test_parse_skips_comments(self, tmp_path: Path) -> None:
         """Test parsing skips comment lines."""
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("# This is a comment\nwss://relay.example.com\n# Another comment\n")
 
-        seeder = Seeder(brotr=mock_seeder_brotr)
-        relays = seeder._parse_seed_file(seed_file)
+        relays = parse_seed_file(seed_file)
 
         assert len(relays) == 1
         assert relays[0].url == "wss://relay.example.com"
 
-    def test_parse_skips_empty_lines(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
+    def test_parse_skips_empty_lines(self, tmp_path: Path) -> None:
         """Test parsing skips empty lines."""
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("\n\nwss://relay.example.com\n\n")
 
-        seeder = Seeder(brotr=mock_seeder_brotr)
-        relays = seeder._parse_seed_file(seed_file)
+        relays = parse_seed_file(seed_file)
 
         assert len(relays) == 1
 
-    def test_parse_skips_invalid_urls(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
+    def test_parse_skips_invalid_urls(self, tmp_path: Path) -> None:
         """Test parsing skips invalid URLs."""
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("invalid-url\nwss://valid.relay.com\nnot-a-relay\n")
 
-        seeder = Seeder(brotr=mock_seeder_brotr)
-        relays = seeder._parse_seed_file(seed_file)
+        relays = parse_seed_file(seed_file)
 
         assert len(relays) == 1
         assert relays[0].url == "wss://valid.relay.com"
 
-    def test_parse_strips_whitespace(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
+    def test_parse_strips_whitespace(self, tmp_path: Path) -> None:
         """Test parsing strips leading/trailing whitespace."""
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("  wss://relay.example.com  \n")
 
-        seeder = Seeder(brotr=mock_seeder_brotr)
-        relays = seeder._parse_seed_file(seed_file)
+        relays = parse_seed_file(seed_file)
 
         assert len(relays) == 1
         assert relays[0].url == "wss://relay.example.com"
 
-    def test_parse_handles_tor_urls(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
+    def test_parse_handles_tor_urls(self, tmp_path: Path) -> None:
         """Test parsing handles Tor .onion URLs."""
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("ws://example.onion\n")
 
-        seeder = Seeder(brotr=mock_seeder_brotr)
-        relays = seeder._parse_seed_file(seed_file)
+        relays = parse_seed_file(seed_file)
 
         assert len(relays) == 1
         assert "onion" in relays[0].url
 
-    def test_parse_handles_i2p_urls(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
+    def test_parse_handles_i2p_urls(self, tmp_path: Path) -> None:
         """Test parsing handles I2P .i2p URLs."""
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("ws://example.i2p\n")
 
-        seeder = Seeder(brotr=mock_seeder_brotr)
-        relays = seeder._parse_seed_file(seed_file)
+        relays = parse_seed_file(seed_file)
 
         assert len(relays) == 1
         assert "i2p" in relays[0].url
@@ -391,7 +385,7 @@ class TestParseSeedFile:
 
 
 class TestSeedAsCandidates:
-    """Tests for Seeder._seed_as_candidates() method."""
+    """Tests for Seeder.seed_as_candidates() method."""
 
     async def test_seed_as_candidates_filters_existing(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
@@ -408,9 +402,9 @@ class TestSeedAsCandidates:
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=True))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
-        relays = seeder._parse_seed_file(seed_file)
+        relays = parse_seed_file(seed_file)
 
-        await seeder._seed_as_candidates(relays)
+        await seeder.seed_as_candidates(relays)
 
         mock_seeder_brotr.upsert_service_state.assert_called()
 
@@ -431,9 +425,9 @@ class TestSeedAsCandidates:
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=True))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
-        relays = seeder._parse_seed_file(seed_file)
+        relays = parse_seed_file(seed_file)
 
-        await seeder._seed_as_candidates(relays)
+        await seeder.seed_as_candidates(relays)
 
         call_args = mock_seeder_brotr.upsert_service_state.call_args[0][0]
         networks = [record.state_value["network"] for record in call_args]
@@ -447,7 +441,7 @@ class TestSeedAsCandidates:
 
 
 class TestSeedAsRelays:
-    """Tests for Seeder._seed_as_relays() method."""
+    """Tests for Seeder.seed_as_relays() method."""
 
     async def test_seed_as_relays_inserts_directly(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
@@ -460,9 +454,9 @@ class TestSeedAsRelays:
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=False))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
-        relays = seeder._parse_seed_file(seed_file)
+        relays = parse_seed_file(seed_file)
 
-        await seeder._seed_as_relays(relays)
+        await seeder.seed_as_relays(relays)
 
         mock_seeder_brotr.insert_relay.assert_called()
 
@@ -479,9 +473,9 @@ class TestSeedAsRelays:
 
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=False))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
-        relays = seeder._parse_seed_file(seed_file)
+        relays = parse_seed_file(seed_file)
 
-        await seeder._seed_as_relays(relays)
+        await seeder.seed_as_relays(relays)
 
         assert mock_seeder_brotr.insert_relay.call_count >= 2
 
@@ -559,22 +553,12 @@ class TestSeederErrorHandling:
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
         with pytest.raises(Exception, match="Database error"):
-            await seeder._seed()
+            await seeder.seed()
 
-    async def test_invalid_url_logged_not_raised(
-        self, mock_seeder_brotr: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_invalid_url_logged_not_raised(self, tmp_path: Path) -> None:
         """Test invalid URLs are logged but don't raise exceptions."""
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("invalid://not-a-valid-relay-url\nwss://valid.relay.com\n")
 
-        mock_seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            return_value=[{"url": "wss://valid.relay.com"}]
-        )
-        mock_seeder_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
-
-        config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
-        seeder = Seeder(brotr=mock_seeder_brotr, config=config)
-
-        relays = seeder._parse_seed_file(seed_file)
+        relays = parse_seed_file(seed_file)
         assert len(relays) == 1

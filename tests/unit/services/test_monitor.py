@@ -1202,15 +1202,13 @@ class _MonitorStub:
         self._logger = MagicMock()
         self._brotr = brotr or AsyncMock()
 
-    # Publishing methods bound from Monitor
-    _broadcast_events = Monitor._broadcast_events
-    _get_discovery_relays = Monitor._get_discovery_relays
-    _get_announcement_relays = Monitor._get_announcement_relays
-    _get_profile_relays = Monitor._get_profile_relays
-    _publish_if_due = Monitor._publish_if_due
-    _publish_announcement = Monitor._publish_announcement
-    _publish_profile = Monitor._publish_profile
-    _publish_relay_discoveries = Monitor._publish_relay_discoveries
+    # Publishing methods bound from Monitor / NostrPublisherMixin
+    broadcast_events = Monitor.broadcast_events
+    publish_if_due = Monitor.publish_if_due
+    publish_announcement = Monitor.publish_announcement
+    publish_profile = Monitor.publish_profile
+    publish_relay_discoveries = Monitor.publish_relay_discoveries
+    _get_publish_relays = Monitor._get_publish_relays
 
     # Event builder methods bound from Monitor
     _build_kind_0 = Monitor._build_kind_0
@@ -1360,25 +1358,25 @@ def _make_check_result(
 
 
 # ============================================================================
-# Monitor._broadcast_events
+# Monitor.broadcast_events
 # ============================================================================
 
 
 class TestMonitorBroadcastEvents:
-    """Tests for Monitor._broadcast_events orchestration wrapper."""
+    """Tests for Monitor.broadcast_events orchestration wrapper."""
 
     async def test_broadcast_events_delegates_to_utils(self, stub: _MonitorStub) -> None:
-        """Test that _broadcast_events calls broadcast_events with correct args."""
+        """Test that broadcast_events calls connect_relay with correct args."""
         mock_client = AsyncMock()
         relay = Relay("wss://relay.example.com")
         mock_builder = MagicMock()
 
         with patch(
-            "bigbrotr.utils.transport.connect_relay",
+            "bigbrotr.utils.protocol.connect_relay",
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
-            await stub._broadcast_events([mock_builder], [relay])
+            await stub.broadcast_events([mock_builder], [relay])
 
         mock_client.send_event_builder.assert_awaited_once_with(mock_builder)
         mock_client.shutdown.assert_awaited_once()
@@ -1386,15 +1384,15 @@ class TestMonitorBroadcastEvents:
     async def test_broadcast_events_empty_builders(self, stub: _MonitorStub) -> None:
         relay = Relay("wss://relay.example.com")
 
-        with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
-            await stub._broadcast_events([], [relay])
+        with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
+            await stub.broadcast_events([], [relay])
             mock_connect.assert_not_called()
 
     async def test_broadcast_events_empty_relays(self, stub: _MonitorStub) -> None:
         mock_builder = MagicMock()
 
-        with patch("bigbrotr.utils.transport.connect_relay") as mock_connect:
-            await stub._broadcast_events([mock_builder], [])
+        with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
+            await stub.broadcast_events([mock_builder], [])
             mock_connect.assert_not_called()
 
     async def test_broadcast_events_shutdown_called_on_send_error(self, stub: _MonitorStub) -> None:
@@ -1403,11 +1401,11 @@ class TestMonitorBroadcastEvents:
         relay = Relay("wss://relay.example.com")
 
         with patch(
-            "bigbrotr.utils.transport.connect_relay",
+            "bigbrotr.utils.protocol.connect_relay",
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
-            await stub._broadcast_events([MagicMock()], [relay])
+            await stub.broadcast_events([MagicMock()], [relay])
 
         mock_client.shutdown.assert_awaited_once()
 
@@ -1417,17 +1415,17 @@ class TestMonitorBroadcastEvents:
 # ============================================================================
 
 
-class TestRelayGetters:
-    """Tests for relay getter methods with primary and fallback logic."""
+class TestGetPublishRelays:
+    """Tests for _get_publish_relays with primary and fallback logic."""
 
-    def test_get_discovery_relays_returns_primary(self, stub: _MonitorStub) -> None:
-        """Test _get_discovery_relays returns discovery-specific relays when set."""
-        relays = stub._get_discovery_relays()
+    def test_get_publish_relays_returns_discovery_primary(self, stub: _MonitorStub) -> None:
+        """Test _get_publish_relays returns discovery-specific relays when set."""
+        relays = stub._get_publish_relays(stub._config.discovery.relays)
         assert len(relays) == 1
         assert relays[0].url == "wss://disc.relay.com"
 
-    def test_get_discovery_relays_falls_back_to_publishing(self, test_keys: Keys) -> None:
-        """Test _get_discovery_relays falls back to publishing.relays when empty."""
+    def test_get_publish_relays_discovery_falls_back_to_publishing(self, test_keys: Keys) -> None:
+        """Test _get_publish_relays falls back to publishing.relays when discovery empty."""
         config = MonitorConfig(
             processing=MonitorProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1440,18 +1438,20 @@ class TestRelayGetters:
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
         harness = _MonitorStub(config, test_keys)
-        relays = harness._get_discovery_relays()
+        relays = harness._get_publish_relays(harness._config.discovery.relays)
         assert len(relays) == 1
         assert relays[0].url == "wss://fallback.relay.com"
 
-    def test_get_announcement_relays_returns_primary(self, stub: _MonitorStub) -> None:
-        """Test _get_announcement_relays returns announcement-specific relays when set."""
-        relays = stub._get_announcement_relays()
+    def test_get_publish_relays_returns_announcement_primary(self, stub: _MonitorStub) -> None:
+        """Test _get_publish_relays returns announcement-specific relays when set."""
+        relays = stub._get_publish_relays(stub._config.announcement.relays)
         assert len(relays) == 1
         assert relays[0].url == "wss://ann.relay.com"
 
-    def test_get_announcement_relays_falls_back_to_publishing(self, test_keys: Keys) -> None:
-        """Test _get_announcement_relays falls back to publishing.relays when empty."""
+    def test_get_publish_relays_announcement_falls_back_to_publishing(
+        self, test_keys: Keys
+    ) -> None:
+        """Test _get_publish_relays falls back to publishing.relays when announcement empty."""
         config = MonitorConfig(
             processing=MonitorProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1464,18 +1464,18 @@ class TestRelayGetters:
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
         harness = _MonitorStub(config, test_keys)
-        relays = harness._get_announcement_relays()
+        relays = harness._get_publish_relays(harness._config.announcement.relays)
         assert len(relays) == 1
         assert relays[0].url == "wss://fallback.relay.com"
 
-    def test_get_profile_relays_returns_primary(self, stub: _MonitorStub) -> None:
-        """Test _get_profile_relays returns profile-specific relays when set."""
-        relays = stub._get_profile_relays()
+    def test_get_publish_relays_returns_profile_primary(self, stub: _MonitorStub) -> None:
+        """Test _get_publish_relays returns profile-specific relays when set."""
+        relays = stub._get_publish_relays(stub._config.profile.relays)
         assert len(relays) == 1
         assert relays[0].url == "wss://profile.relay.com"
 
-    def test_get_profile_relays_falls_back_to_publishing(self, test_keys: Keys) -> None:
-        """Test _get_profile_relays falls back to publishing.relays when empty."""
+    def test_get_publish_relays_profile_falls_back_to_publishing(self, test_keys: Keys) -> None:
+        """Test _get_publish_relays falls back to publishing.relays when profile empty."""
         config = MonitorConfig(
             processing=MonitorProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1488,21 +1488,21 @@ class TestRelayGetters:
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
         harness = _MonitorStub(config, test_keys)
-        relays = harness._get_profile_relays()
+        relays = harness._get_publish_relays(harness._config.profile.relays)
         assert len(relays) == 1
         assert relays[0].url == "wss://fallback.relay.com"
 
 
 # ============================================================================
-# Monitor._publish_announcement
+# Monitor.publish_announcement
 # ============================================================================
 
 
 class TestPublishAnnouncement:
-    """Tests for Monitor._publish_announcement."""
+    """Tests for Monitor.publish_announcement."""
 
     async def test_publish_announcement_when_disabled(self, test_keys: Keys) -> None:
-        """Test that _publish_announcement returns immediately when disabled."""
+        """Test that publish_announcement returns immediately when disabled."""
         config = MonitorConfig(
             processing=MonitorProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1514,11 +1514,11 @@ class TestPublishAnnouncement:
             announcement=AnnouncementConfig(enabled=False),
         )
         harness = _MonitorStub(config, test_keys)
-        await harness._publish_announcement()
+        await harness.publish_announcement()
         harness._brotr.get_service_state.assert_not_awaited()
 
     async def test_publish_announcement_when_no_relays(self, test_keys: Keys) -> None:
-        """Test that _publish_announcement returns when no relays configured."""
+        """Test that publish_announcement returns when no relays configured."""
         config = MonitorConfig(
             processing=MonitorProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1531,7 +1531,7 @@ class TestPublishAnnouncement:
             publishing=PublishingConfig(relays=[]),
         )
         harness = _MonitorStub(config, test_keys)
-        await harness._publish_announcement()
+        await harness.publish_announcement()
         harness._brotr.get_service_state.assert_not_awaited()
 
     async def test_publish_announcement_interval_not_elapsed(self, stub: _MonitorStub) -> None:
@@ -1548,8 +1548,8 @@ class TestPublishAnnouncement:
                 )
             ]
         )
-        with patch("bigbrotr.utils.transport.connect_relay") as mock_create:
-            await stub._publish_announcement()
+        with patch("bigbrotr.utils.protocol.connect_relay") as mock_create:
+            await stub.publish_announcement()
             mock_create.assert_not_called()
 
     async def test_publish_announcement_no_prior_state(self, stub: _MonitorStub) -> None:
@@ -1558,11 +1558,11 @@ class TestPublishAnnouncement:
         mock_client = AsyncMock()
 
         with patch(
-            "bigbrotr.utils.transport.connect_relay",
+            "bigbrotr.utils.protocol.connect_relay",
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
-            await stub._publish_announcement()
+            await stub.publish_announcement()
 
         mock_client.send_event_builder.assert_awaited_once()
         mock_client.shutdown.assert_awaited_once()
@@ -1586,11 +1586,11 @@ class TestPublishAnnouncement:
         mock_client = AsyncMock()
 
         with patch(
-            "bigbrotr.utils.transport.connect_relay",
+            "bigbrotr.utils.protocol.connect_relay",
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
-            await stub._publish_announcement()
+            await stub.publish_announcement()
 
         mock_client.send_event_builder.assert_awaited_once()
         stub._brotr.upsert_service_state.assert_awaited_once()
@@ -1600,26 +1600,26 @@ class TestPublishAnnouncement:
         stub._brotr.get_service_state = AsyncMock(return_value=[])
 
         with patch(
-            "bigbrotr.utils.transport.connect_relay",
+            "bigbrotr.utils.protocol.connect_relay",
             new_callable=AsyncMock,
             side_effect=TimeoutError("connect timeout"),
         ):
-            await stub._publish_announcement()
+            await stub.publish_announcement()
 
         stub._logger.warning.assert_called_once()
         assert "announcement_failed" in stub._logger.warning.call_args[0]
 
 
 # ============================================================================
-# Monitor._publish_profile
+# Monitor.publish_profile
 # ============================================================================
 
 
 class TestPublishProfile:
-    """Tests for Monitor._publish_profile."""
+    """Tests for Monitor.publish_profile."""
 
     async def test_publish_profile_when_disabled(self, test_keys: Keys) -> None:
-        """Test that _publish_profile returns immediately when disabled."""
+        """Test that publish_profile returns immediately when disabled."""
         config = MonitorConfig(
             processing=MonitorProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1631,11 +1631,11 @@ class TestPublishProfile:
             profile=ProfileConfig(enabled=False),
         )
         harness = _MonitorStub(config, test_keys)
-        await harness._publish_profile()
+        await harness.publish_profile()
         harness._brotr.get_service_state.assert_not_awaited()
 
     async def test_publish_profile_when_no_relays(self, test_keys: Keys) -> None:
-        """Test that _publish_profile returns when no relays configured."""
+        """Test that publish_profile returns when no relays configured."""
         config = MonitorConfig(
             processing=MonitorProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1648,7 +1648,7 @@ class TestPublishProfile:
             publishing=PublishingConfig(relays=[]),
         )
         harness = _MonitorStub(config, test_keys)
-        await harness._publish_profile()
+        await harness.publish_profile()
         harness._brotr.get_service_state.assert_not_awaited()
 
     async def test_publish_profile_interval_not_elapsed(self, stub: _MonitorStub) -> None:
@@ -1665,8 +1665,8 @@ class TestPublishProfile:
                 )
             ]
         )
-        with patch("bigbrotr.utils.transport.connect_relay") as mock_create:
-            await stub._publish_profile()
+        with patch("bigbrotr.utils.protocol.connect_relay") as mock_create:
+            await stub.publish_profile()
             mock_create.assert_not_called()
 
     async def test_publish_profile_successful(self, stub: _MonitorStub) -> None:
@@ -1675,11 +1675,11 @@ class TestPublishProfile:
         mock_client = AsyncMock()
 
         with patch(
-            "bigbrotr.utils.transport.connect_relay",
+            "bigbrotr.utils.protocol.connect_relay",
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
-            await stub._publish_profile()
+            await stub.publish_profile()
 
         mock_client.send_event_builder.assert_awaited_once()
         stub._brotr.upsert_service_state.assert_awaited_once()
@@ -1690,23 +1690,23 @@ class TestPublishProfile:
         stub._brotr.get_service_state = AsyncMock(return_value=[])
 
         with patch(
-            "bigbrotr.utils.transport.connect_relay",
+            "bigbrotr.utils.protocol.connect_relay",
             new_callable=AsyncMock,
             side_effect=OSError("connection refused"),
         ):
-            await stub._publish_profile()
+            await stub.publish_profile()
 
         stub._logger.warning.assert_called_once()
         assert "profile_failed" in stub._logger.warning.call_args[0]
 
 
 # ============================================================================
-# Monitor._publish_relay_discoveries
+# Monitor.publish_relay_discoveries
 # ============================================================================
 
 
 class TestPublishRelayDiscoveries:
-    """Tests for Monitor._publish_relay_discoveries."""
+    """Tests for Monitor.publish_relay_discoveries."""
 
     async def test_publish_discoveries_when_disabled(self, test_keys: Keys) -> None:
         """Test that discoveries returns immediately when disabled."""
@@ -1725,8 +1725,8 @@ class TestPublishRelayDiscoveries:
         relay = Relay("wss://relay.example.com")
         result = _make_check_result()
 
-        with patch("bigbrotr.utils.transport.connect_relay") as mock_create:
-            await harness._publish_relay_discoveries([(relay, result)])
+        with patch("bigbrotr.utils.protocol.connect_relay") as mock_create:
+            await harness.publish_relay_discoveries([(relay, result)])
             mock_create.assert_not_called()
 
     async def test_publish_discoveries_when_no_relays(self, test_keys: Keys) -> None:
@@ -1748,8 +1748,8 @@ class TestPublishRelayDiscoveries:
         relay = Relay("wss://relay.example.com")
         result = _make_check_result()
 
-        with patch("bigbrotr.utils.transport.connect_relay") as mock_create:
-            await harness._publish_relay_discoveries([(relay, result)])
+        with patch("bigbrotr.utils.protocol.connect_relay") as mock_create:
+            await harness.publish_relay_discoveries([(relay, result)])
             mock_create.assert_not_called()
 
     async def test_publish_discoveries_successful(self, stub: _MonitorStub) -> None:
@@ -1759,11 +1759,11 @@ class TestPublishRelayDiscoveries:
         mock_client = AsyncMock()
 
         with patch(
-            "bigbrotr.utils.transport.connect_relay",
+            "bigbrotr.utils.protocol.connect_relay",
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
-            await stub._publish_relay_discoveries([(relay, result)])
+            await stub.publish_relay_discoveries([(relay, result)])
 
         mock_client.send_event_builder.assert_awaited_once()
         stub._logger.debug.assert_any_call("discoveries_published", count=1)
@@ -1793,11 +1793,11 @@ class TestPublishRelayDiscoveries:
         stub._build_kind_30166 = lambda r, res: _patched_build(stub, r, res)  # type: ignore[assignment]
 
         with patch(
-            "bigbrotr.utils.transport.connect_relay",
+            "bigbrotr.utils.protocol.connect_relay",
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
-            await stub._publish_relay_discoveries([(relay1, result1), (relay2, result2)])
+            await stub.publish_relay_discoveries([(relay1, result1), (relay2, result2)])
 
         # One builder should have succeeded
         mock_client.send_event_builder.assert_awaited_once()
@@ -1811,11 +1811,11 @@ class TestPublishRelayDiscoveries:
         result = _make_check_result()
 
         with patch(
-            "bigbrotr.utils.transport.connect_relay",
+            "bigbrotr.utils.protocol.connect_relay",
             new_callable=AsyncMock,
             side_effect=TimeoutError("broadcast timeout"),
         ):
-            await stub._publish_relay_discoveries([(relay, result)])
+            await stub.publish_relay_discoveries([(relay, result)])
 
         stub._logger.warning.assert_called_once()
         assert "discoveries_broadcast_failed" in stub._logger.warning.call_args[0]

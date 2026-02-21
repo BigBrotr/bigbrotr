@@ -338,14 +338,14 @@ class TestSynchronizerInit:
 
 
 class TestSynchronizerFetchRelays:
-    """Tests for Synchronizer._fetch_relays() method."""
+    """Tests for Synchronizer.fetch_relays() method."""
 
     async def test_fetch_relays_empty(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test fetching relays when none available."""
         mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
 
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
-        relays = await sync._fetch_relays()
+        relays = await sync.fetch_relays()
 
         assert relays == []
 
@@ -353,7 +353,7 @@ class TestSynchronizerFetchRelays:
         """Test fetching relays when source is disabled."""
         config = SynchronizerConfig(source=SourceConfig(from_database=False))
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
-        relays = await sync._fetch_relays()
+        relays = await sync.fetch_relays()
 
         assert relays == []
 
@@ -375,7 +375,7 @@ class TestSynchronizerFetchRelays:
         )
 
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
-        relays = await sync._fetch_relays()
+        relays = await sync.fetch_relays()
 
         assert len(relays) == 2
         assert "relay1.example.com" in str(relays[0].url)
@@ -395,7 +395,7 @@ class TestSynchronizerFetchRelays:
         )
 
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
-        relays = await sync._fetch_relays()
+        relays = await sync.fetch_relays()
 
         assert len(relays) == 1
         assert "valid.relay.com" in str(relays[0].url)
@@ -440,7 +440,7 @@ class TestSynchronizerSyncAllRelays:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
         # Mock _fetch_all_cursors to return empty dict
-        sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         # Create a relay and patch _sync_relay_events to raise an unhandled error
         relay = Relay("wss://failing.relay.com")
@@ -448,7 +448,7 @@ class TestSynchronizerSyncAllRelays:
         # The worker catches most exceptions, so we need to make the worker
         # itself raise by patching something fundamental
         with patch(
-            "bigbrotr.services.synchronizer.service._sync_relay_events",
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
             side_effect=RuntimeError("unexpected"),
         ):
             # Should not raise -- errors are caught and logged
@@ -461,7 +461,7 @@ class TestSynchronizerSyncAllRelays:
         """Test _sync_all_relays with no relays completes without error."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
-        sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         await sync._sync_all_relays([])
 

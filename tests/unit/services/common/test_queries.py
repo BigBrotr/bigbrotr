@@ -25,7 +25,6 @@ import pytest
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.queries import (
-    _parse_delete_result,
     count_candidates,
     count_relays_due_for_check,
     delete_exhausted_candidates,
@@ -40,6 +39,7 @@ from bigbrotr.services.common.queries import (
     insert_candidates,
     promote_candidates,
 )
+from bigbrotr.services.common.utils import parse_delete_result
 
 
 # ============================================================================
@@ -794,28 +794,28 @@ class TestGetAllServiceCursors:
 
 
 class TestParseDeleteResult:
-    """Tests for _parse_delete_result() helper."""
+    """Tests for parse_delete_result() helper."""
 
     def test_standard_delete(self) -> None:
-        assert _parse_delete_result("DELETE 5") == 5
+        assert parse_delete_result("DELETE 5") == 5
 
     def test_zero_deleted(self) -> None:
-        assert _parse_delete_result("DELETE 0") == 0
+        assert parse_delete_result("DELETE 0") == 0
 
     def test_large_count(self) -> None:
-        assert _parse_delete_result("DELETE 99999") == 99999
+        assert parse_delete_result("DELETE 99999") == 99999
 
     def test_none_returns_zero(self) -> None:
-        assert _parse_delete_result(None) == 0
+        assert parse_delete_result(None) == 0
 
     def test_empty_string_returns_zero(self) -> None:
-        assert _parse_delete_result("") == 0
+        assert parse_delete_result("") == 0
 
     def test_non_numeric_suffix_returns_zero(self) -> None:
-        assert _parse_delete_result("DELETE abc") == 0
+        assert parse_delete_result("DELETE abc") == 0
 
     def test_single_word_returns_zero(self) -> None:
-        assert _parse_delete_result("DELETE") == 0
+        assert parse_delete_result("DELETE") == 0
 
     def test_unexpected_format_returns_zero(self) -> None:
-        assert _parse_delete_result("SOMETHING ELSE") == 0
+        assert parse_delete_result("SOMETHING ELSE") == 0
