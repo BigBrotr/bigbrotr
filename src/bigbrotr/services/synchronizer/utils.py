@@ -22,7 +22,7 @@ from nostr_sdk import (
 
 from bigbrotr.core.logger import format_kv_pairs
 from bigbrotr.models import Event, EventRelay
-from bigbrotr.utils.transport import create_client
+from bigbrotr.utils.protocol import create_client
 
 
 if TYPE_CHECKING:

@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.utils.transport import broadcast_events as transport_broadcast_events
+from bigbrotr.utils.protocol import broadcast_events as transport_broadcast_events
 
 
 if TYPE_CHECKING:
@@ -345,12 +345,14 @@ class NostrPublisherMixin:
 
         self._logger.info(f"{event_name}_published", relays=sent)
         now = time.time()
-        await self._brotr.upsert_service_state([
-            ServiceState(
-                service_name=self.SERVICE_NAME,
-                state_type=ServiceStateType.CHECKPOINT,
-                state_key=state_key,
-                state_value={"timestamp": now},
-                updated_at=int(now),
-            ),
-        ])
+        await self._brotr.upsert_service_state(
+            [
+                ServiceState(
+                    service_name=self.SERVICE_NAME,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key=state_key,
+                    state_value={"timestamp": now},
+                    updated_at=int(now),
+                ),
+            ]
+        )

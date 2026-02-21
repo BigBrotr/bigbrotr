@@ -72,7 +72,7 @@ from bigbrotr.services.common.queries import (
     fetch_candidate_chunk,
     promote_candidates,
 )
-from bigbrotr.utils.transport import is_nostr_relay
+from bigbrotr.utils.protocol import is_nostr_relay
 
 from .configs import ValidatorConfig
 
@@ -277,9 +277,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             RuntimeError: If semaphores have not been initialized.
         """
         if not self._semaphores:
-            raise RuntimeError(
-                "Semaphores not initialized. Call init_semaphores() or run() first."
-            )
+            raise RuntimeError("Semaphores not initialized. Call init_semaphores() or run() first.")
 
         relay = candidate.relay
         semaphore = self._semaphores.get(relay.network)
@@ -327,9 +325,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
 
         _chunk_size = chunk_size or self._config.processing.chunk_size
         _max = (
-            max_candidates
-            if max_candidates is not None
-            else self._config.processing.max_candidates
+            max_candidates if max_candidates is not None else self._config.processing.max_candidates
         )
         processed = 0
 

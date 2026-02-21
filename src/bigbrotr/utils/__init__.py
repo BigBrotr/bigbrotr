@@ -38,7 +38,7 @@ from bigbrotr.utils.dns import ResolvedHost, resolve_host
 from bigbrotr.utils.http import download_bounded_file, read_bounded_json
 from bigbrotr.utils.keys import KeysConfig, load_keys_from_env
 from bigbrotr.utils.parsing import models_from_db_params, models_from_dict
-from bigbrotr.utils.transport import broadcast_events, create_client
+from bigbrotr.utils.protocol import broadcast_events, create_client
 
 
 __all__ = [
