@@ -65,7 +65,7 @@ import asyncpg
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models import Relay
-from bigbrotr.models.constants import NetworkType, ServiceName
+from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import NetworkSemaphoreMixin
 from bigbrotr.services.common.queries import get_all_relays, get_all_service_cursors
@@ -119,7 +119,6 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
     ) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: SynchronizerConfig
-        self._semaphores: dict[NetworkType, asyncio.Semaphore] = {}
         self._synced_events: int = 0
         self._synced_relays: int = 0
         self._failed_relays: int = 0
@@ -130,7 +129,7 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
 
     async def run(self) -> None:
         """Execute one complete synchronization cycle across all relays."""
-        self.init_semaphores()
+        self.init_semaphores(self._config.networks)
         cycle_start = time.monotonic()
         self._synced_events = 0
         self._synced_relays = 0
@@ -235,7 +234,7 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
             cursors: Pre-fetched map of relay URL to last_synced_at timestamp.
             batch: Shared mutable state for cursor updates and locks.
         """
-        semaphore = self._semaphores.get(relay.network)
+        semaphore = self.get_semaphore(relay.network)
         if semaphore is None:
             self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
             return
@@ -305,10 +304,6 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
     # -------------------------------------------------------------------------
     # Public API
     # -------------------------------------------------------------------------
-
-    def init_semaphores(self) -> None:
-        """Initialize per-network concurrency semaphores from config."""
-        self._init_semaphores(self._config.networks)
 
     async def fetch_relays(self) -> list[Relay]:
         """Fetch validated relays from the database for synchronization.

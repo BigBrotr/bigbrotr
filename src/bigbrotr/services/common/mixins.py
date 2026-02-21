@@ -1,8 +1,9 @@
 """Reusable service mixins for BigBrotr.
 
-All service extensions live here as mixin classes.  Future extensions
-follow the same pattern: a mixin class with an ``_init_*()`` method
-for lazy initialization.
+All service extensions live here as mixin classes. Each mixin uses
+cooperative multiple inheritance (``super().__init__(**kwargs)``) so
+that initialization is handled automatically via the MRO — no
+explicit ``_init_*()`` calls are needed in service constructors.
 
 See Also:
     [BaseService][bigbrotr.core.base_service.BaseService]: The base class
@@ -17,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
@@ -100,11 +101,8 @@ class BatchProgressMixin:
     """Mixin providing batch processing progress tracking.
 
     Services that process items in batches compose this mixin to get
-    a ``_progress`` attribute with counters and timing.
-
-    Note:
-        Call ``_init_progress()`` in ``__init__`` and ``_progress.reset()``
-        at the start of each ``run()`` cycle to reset all counters.
+    a ``_progress`` attribute with counters and timing. Initialization
+    is automatic via ``__init__``.
 
     See Also:
         [BatchProgress][bigbrotr.services.common.mixins.BatchProgress]:
@@ -116,10 +114,6 @@ class BatchProgressMixin:
     Examples:
         ```python
         class MyService(BatchProgressMixin, BaseService[MyConfig]):
-            def __init__(self, brotr, config):
-                super().__init__(brotr=brotr, config=config)
-                self._init_progress()
-
             async def run(self):
                 self._progress.reset()
                 ...
@@ -131,8 +125,8 @@ class BatchProgressMixin:
     # Declared for mypy -- provided by BaseService at runtime
     def set_gauge(self, name: str, value: float) -> None: ...
 
-    def _init_progress(self) -> None:
-        """Initialize a fresh BatchProgress tracker."""
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
         self._progress = BatchProgress()
 
     def emit_progress_metrics(self) -> None:
@@ -157,7 +151,7 @@ class NetworkSemaphoreMixin:
     especially important for overlay networks like Tor, where excessive
     concurrency degrades circuit performance.
 
-    Call ``_init_semaphores()`` at the start of each ``run()`` cycle to pick up
+    Call ``init_semaphores()`` at the start of each ``run()`` cycle to pick up
     any configuration changes to ``max_tasks`` values.
 
     See Also:
@@ -170,7 +164,11 @@ class NetworkSemaphoreMixin:
 
     _semaphores: dict[NetworkType, asyncio.Semaphore]
 
-    def _init_semaphores(self, networks: NetworkConfig) -> None:
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._semaphores = {}
+
+    def init_semaphores(self, networks: NetworkConfig) -> None:
         """Create a semaphore for each network type from the configuration.
 
         Args:
@@ -187,7 +185,7 @@ class NetworkSemaphoreMixin:
             )
         }
 
-    def _get_semaphore(self, network: NetworkType) -> asyncio.Semaphore | None:
+    def get_semaphore(self, network: NetworkType) -> asyncio.Semaphore | None:
         """Look up the concurrency semaphore for a network type.
 
         Args:
@@ -213,8 +211,7 @@ class GeoReaderMixin:
     initialization is offloaded to a thread to avoid blocking the event loop.
 
     Note:
-        Call ``_init_geo_readers()`` in ``__init__`` and
-        ``close_geo_readers()`` in a ``finally`` block or ``__aexit__``.
+        Call ``close_geo_readers()`` in a ``finally`` block or ``__aexit__``.
 
     See Also:
         [Monitor][bigbrotr.services.monitor.Monitor]: The service that
@@ -224,8 +221,8 @@ class GeoReaderMixin:
     _geo_reader: geoip2.database.Reader | None
     _asn_reader: geoip2.database.Reader | None
 
-    def _init_geo_readers(self) -> None:
-        """Set both readers to None. Call in ``__init__``."""
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
         self._geo_reader = None
         self._asn_reader = None
 
@@ -268,7 +265,7 @@ class NostrPublisherMixin:
 
     Provides ``broadcast_events()`` for direct broadcasting and
     ``publish_if_due()`` for interval-gated publishing with checkpoint
-    persistence. Uses ``broadcast_events`` from ``transport.py`` internally.
+    persistence. Uses ``broadcast_events`` from ``protocol.py`` internally.
 
     Note:
         The consumer must set ``self._keys`` in ``__init__`` to a valid
@@ -277,8 +274,8 @@ class NostrPublisherMixin:
     See Also:
         [Monitor][bigbrotr.services.monitor.Monitor]: The service that
             composes this mixin for Kind 0, 10166, and 30166 publishing.
-        [broadcast_events][bigbrotr.utils.transport.broadcast_events]:
-            The transport function wrapped by this mixin.
+        [broadcast_events][bigbrotr.utils.protocol.broadcast_events]:
+            The protocol function wrapped by this mixin.
     """
 
     # Declared for mypy -- provided by BaseService at runtime
@@ -299,7 +296,7 @@ class NostrPublisherMixin:
     ) -> int:
         """Sign and broadcast events, returning count of successful relays.
 
-        Wraps [broadcast_events][bigbrotr.utils.transport.broadcast_events]
+        Wraps [broadcast_events][bigbrotr.utils.protocol.broadcast_events]
         with ``self._keys``.
         """
         return await transport_broadcast_events(

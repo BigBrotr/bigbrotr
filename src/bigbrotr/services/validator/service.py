@@ -59,10 +59,7 @@ import asyncpg
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models import Relay
-from bigbrotr.models.constants import (
-    NetworkType,
-    ServiceName,
-)
+from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
 from bigbrotr.services.common.queries import (
@@ -155,8 +152,6 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
     def __init__(self, brotr: Brotr, config: ValidatorConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: ValidatorConfig
-        self._semaphores: dict[NetworkType, asyncio.Semaphore] = {}
-        self._init_progress()
 
     # -------------------------------------------------------------------------
     # Main Cycle
@@ -170,7 +165,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         ``max_candidates`` for per-cycle limits.
         """
         self._progress.reset()
-        self.init_semaphores()
+        self.init_semaphores(self._config.networks)
 
         networks = self._config.networks.get_enabled_networks()
         self._logger.info(
@@ -203,10 +198,6 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
     # -------------------------------------------------------------------------
     # Public API
     # -------------------------------------------------------------------------
-
-    def init_semaphores(self) -> None:
-        """Initialize per-network concurrency semaphores from config."""
-        self._init_semaphores(self._config.networks)
 
     async def cleanup_stale(self) -> int:
         """Remove candidates whose URLs already exist in the relays table.
@@ -277,10 +268,11 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             RuntimeError: If semaphores have not been initialized.
         """
         if not self._semaphores:
-            raise RuntimeError("Semaphores not initialized. Call init_semaphores() or run() first.")
+            msg = "Semaphores not initialized. Call init_semaphores(networks) or run() first."
+            raise RuntimeError(msg)
 
         relay = candidate.relay
-        semaphore = self._semaphores.get(relay.network)
+        semaphore = self.get_semaphore(relay.network)
 
         if semaphore is None:
             self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)

@@ -158,10 +158,17 @@ class CheckResult(NamedTuple):
     @property
     def has_data(self) -> bool:
         """True if at least one NIP check produced data."""
-        return any((
-            self.nip11, self.nip66_rtt, self.nip66_ssl,
-            self.nip66_geo, self.nip66_net, self.nip66_dns, self.nip66_http,
-        ))
+        return any(
+            (
+                self.nip11,
+                self.nip66_rtt,
+                self.nip66_ssl,
+                self.nip66_geo,
+                self.nip66_net,
+                self.nip66_dns,
+                self.nip66_http,
+            )
+        )
 
 
 # =============================================================================
@@ -210,9 +217,6 @@ class Monitor(
         super().__init__(brotr=brotr, config=config)
         self._config: MonitorConfig
         self._keys: Keys = self._config.keys.keys
-        self._semaphores: dict[NetworkType, asyncio.Semaphore] = {}
-        self._init_geo_readers()
-        self._init_progress()
 
     # -------------------------------------------------------------------------
     # Main Cycle
@@ -226,7 +230,7 @@ class Monitor(
         and Kind 30166 event publishing.
         """
         self._progress.reset()
-        self.init_semaphores()
+        self.init_semaphores(self._config.networks)
 
         await self.update_geo_databases()
 
@@ -283,7 +287,9 @@ class Monitor(
             if age <= max_age_days * _SECONDS_PER_DAY:
                 return
             self._logger.info(
-                "updating_geo_db", db=db_name, age_days=round(age / _SECONDS_PER_DAY, 1),
+                "updating_geo_db",
+                db=db_name,
+                age_days=round(age / _SECONDS_PER_DAY, 1),
             )
         else:
             self._logger.info("downloading_geo_db", db=db_name)
@@ -316,10 +322,6 @@ class Monitor(
     # Public API
     # -------------------------------------------------------------------------
 
-    def init_semaphores(self) -> None:
-        """Initialize per-network concurrency semaphores from config."""
-        self._init_semaphores(self._config.networks)
-
     async def check_chunks(
         self,
         networks: list[str] | None = None,
@@ -345,17 +347,13 @@ class Monitor(
             RuntimeError: If semaphores not initialized.
         """
         if not self._semaphores:
-            msg = "Semaphores not initialized. Call init_semaphores() or run() first."
+            msg = "Semaphores not initialized. Call init_semaphores(networks) or run() first."
             raise RuntimeError(msg)
         if networks is None:
             networks = self._config.networks.get_enabled_networks()
 
         _chunk_size = chunk_size or self._config.processing.chunk_size
-        _max = (
-            max_relays
-            if max_relays is not None
-            else self._config.processing.max_relays
-        )
+        _max = max_relays if max_relays is not None else self._config.processing.max_relays
         processed = 0
 
         while self.is_running:
@@ -660,12 +658,12 @@ class Monitor(
             RuntimeError: If semaphores not initialized.
         """
         if not self._semaphores:
-            msg = "Semaphores not initialized. Call init_semaphores() or run() first."
+            msg = "Semaphores not initialized. Call init_semaphores(networks) or run() first."
             raise RuntimeError(msg)
 
         empty = CheckResult()
 
-        semaphore = self._semaphores.get(relay.network)
+        semaphore = self.get_semaphore(relay.network)
         if semaphore is None:
             self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
             return empty
@@ -852,9 +850,7 @@ class Monitor(
             timeout=self._config.publishing.timeout,
         )
 
-    async def publish_relay_discoveries(
-        self, successful: list[tuple[Relay, CheckResult]]
-    ) -> None:
+    async def publish_relay_discoveries(self, successful: list[tuple[Relay, CheckResult]]) -> None:
         """Publish Kind 30166 relay discovery events for successful health checks."""
         disc = self._config.discovery
         relays = self._get_publish_relays(disc.relays)
@@ -870,13 +866,16 @@ class Monitor(
 
         if builders:
             sent = await self.broadcast_events(
-                builders, relays, timeout=self._config.publishing.timeout,
+                builders,
+                relays,
+                timeout=self._config.publishing.timeout,
             )
             if sent:
                 self._logger.debug("discoveries_published", count=len(builders))
             else:
                 self._logger.warning(
-                    "discoveries_broadcast_failed", count=len(builders),
+                    "discoveries_broadcast_failed",
+                    count=len(builders),
                     error="no relays reachable",
                 )
 
@@ -902,9 +901,7 @@ class Monitor(
         timeout_ms = int(self._config.networks.clearnet.timeout * 1000)
         include = self._config.discovery.include
         enabled_networks = [
-            network
-            for network in NetworkType
-            if self._config.networks.is_enabled(network)
+            network for network in NetworkType if self._config.networks.is_enabled(network)
         ]
         return build_monitor_announcement(
             interval=int(self._config.interval),
