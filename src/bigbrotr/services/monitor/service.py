@@ -230,7 +230,6 @@ class Monitor(
         and Kind 30166 event publishing.
         """
         self._progress.reset()
-        self.init_semaphores(self._config.networks)
 
         await self.update_geo_databases()
 
@@ -331,9 +330,9 @@ class Monitor(
     ) -> AsyncIterator[tuple[list[tuple[Relay, CheckResult]], list[Relay]]]:
         """Yield (successful, failed) for each processed chunk of relays.
 
-        Requires ``init_semaphores()`` and ``open_geo_readers()`` for full
-        checks. Handles chunk fetching, budget calculation, and concurrent
-        health checks. Persistence and publishing are left to the caller.
+        Requires ``open_geo_readers()`` for full checks. Handles chunk
+        fetching, budget calculation, and concurrent health checks.
+        Persistence and publishing are left to the caller.
 
         Args:
             networks: Network types to process. ``None`` uses config defaults.
@@ -343,12 +342,7 @@ class Monitor(
         Yields:
             Tuple of (successful relay-result pairs, failed relays) per chunk.
 
-        Raises:
-            RuntimeError: If semaphores not initialized.
         """
-        if not self._semaphores:
-            msg = "Semaphores not initialized. Call init_semaphores(networks) or run() first."
-            raise RuntimeError(msg)
         if networks is None:
             networks = self._config.networks.get_enabled_networks()
 
@@ -654,13 +648,7 @@ class Monitor(
             [CheckResult][bigbrotr.services.monitor.CheckResult] with
             metadata for each completed check (``None`` if skipped/failed).
 
-        Raises:
-            RuntimeError: If semaphores not initialized.
         """
-        if not self._semaphores:
-            msg = "Semaphores not initialized. Call init_semaphores(networks) or run() first."
-            raise RuntimeError(msg)
-
         empty = CheckResult()
 
         semaphore = self.get_semaphore(relay.network)

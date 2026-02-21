@@ -33,8 +33,6 @@ if TYPE_CHECKING:
     from bigbrotr.core.logger import Logger
     from bigbrotr.models import Relay
 
-    from .configs import NetworkConfig
-
 
 # ---------------------------------------------------------------------------
 # Batch Progress
@@ -151,8 +149,8 @@ class NetworkSemaphoreMixin:
     especially important for overlay networks like Tor, where excessive
     concurrency degrades circuit performance.
 
-    Call ``init_semaphores()`` at the start of each ``run()`` cycle to pick up
-    any configuration changes to ``max_tasks`` values.
+    Semaphores are initialized automatically in ``__init__`` from
+    ``self._config.networks`` (set by ``BaseService``).
 
     See Also:
         [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
@@ -164,19 +162,13 @@ class NetworkSemaphoreMixin:
 
     _semaphores: dict[NetworkType, asyncio.Semaphore]
 
+    # Declared for mypy -- provided by BaseService at runtime
+    _config: Any
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._semaphores = {}
-
-    def init_semaphores(self, networks: NetworkConfig) -> None:
-        """Create a semaphore for each network type from the configuration.
-
-        Args:
-            networks: [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]
-                providing ``max_tasks`` per network type.
-        """
         self._semaphores = {
-            network: asyncio.Semaphore(networks.get(network).max_tasks)
+            network: asyncio.Semaphore(self._config.networks.get(network).max_tasks)
             for network in (
                 NetworkType.CLEARNET,
                 NetworkType.TOR,
@@ -193,7 +185,8 @@ class NetworkSemaphoreMixin:
                 to retrieve the semaphore for.
 
         Returns:
-            The semaphore, or ``None`` if the network has not been initialized.
+            The semaphore, or ``None`` for non-operational networks
+            (LOCAL, UNKNOWN).
         """
         return self._semaphores.get(network)
 

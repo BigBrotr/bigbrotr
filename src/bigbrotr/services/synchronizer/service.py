@@ -129,7 +129,6 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
 
     async def run(self) -> None:
         """Execute one complete synchronization cycle across all relays."""
-        self.init_semaphores(self._config.networks)
         cycle_start = time.monotonic()
         self._synced_events = 0
         self._synced_relays = 0

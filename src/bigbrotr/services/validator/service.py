@@ -165,7 +165,6 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         ``max_candidates`` for per-cycle limits.
         """
         self._progress.reset()
-        self.init_semaphores(self._config.networks)
 
         networks = self._config.networks.get_enabled_networks()
         self._logger.info(
@@ -263,14 +262,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
 
         Returns:
             ``True`` if the relay speaks Nostr protocol, ``False`` otherwise.
-
-        Raises:
-            RuntimeError: If semaphores have not been initialized.
         """
-        if not self._semaphores:
-            msg = "Semaphores not initialized. Call init_semaphores(networks) or run() first."
-            raise RuntimeError(msg)
-
         relay = candidate.relay
         semaphore = self.get_semaphore(relay.network)
 
@@ -295,9 +287,8 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
     ) -> AsyncIterator[tuple[list[Relay], list[Candidate]]]:
         """Yield ``(valid_relays, invalid_candidates)`` for each processed chunk.
 
-        Requires ``init_semaphores()`` to have been called. The generator handles
-        chunk fetching, budget calculation, and concurrent validation. Persistence
-        is left to the caller.
+        Handles chunk fetching, budget calculation, and concurrent validation.
+        Persistence is left to the caller.
 
         Args:
             networks: Network types to process. ``None`` uses config defaults.
@@ -306,12 +297,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
 
         Yields:
             Tuple of (valid Relay list, invalid Candidate list) per chunk.
-
-        Raises:
-            RuntimeError: If semaphores not initialized.
         """
-        if not self._semaphores:
-            raise RuntimeError("Semaphores not initialized.")
         if networks is None:
             networks = self._config.networks.get_enabled_networks()
 

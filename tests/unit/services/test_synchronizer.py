@@ -438,7 +438,6 @@ class TestSynchronizerSyncAllRelays:
     ) -> None:
         """Test that ExceptionGroup from TaskGroup is handled gracefully."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
-        sync._init_semaphores(sync._config.networks)
 
         # Mock _fetch_all_cursors to return empty dict
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
@@ -461,7 +460,7 @@ class TestSynchronizerSyncAllRelays:
     async def test_sync_all_relays_empty_list(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test _sync_all_relays with no relays completes without error."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
-        sync._init_semaphores(sync._config.networks)
+
         sync._fetch_all_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
         await sync._sync_all_relays([])
