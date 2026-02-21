@@ -82,11 +82,12 @@ from nostr_sdk import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import AsyncIterator, Generator
 
     from nostr_sdk import EventBuilder, Keys
 
 from bigbrotr.models.constants import NetworkType
+from bigbrotr.models.event import Event
 from bigbrotr.models.relay import Relay  # noqa: TC001
 
 
@@ -721,3 +722,55 @@ async def is_nostr_relay(
                 # nostr-sdk Rust FFI can raise arbitrary exception types during disconnect.
                 with contextlib.suppress(Exception):
                     await asyncio.wait_for(client.disconnect(), timeout=cfg.disconnect_timeout)
+
+
+async def fetch_relay_events(
+    relay: Relay,
+    event_filter: Filter,
+    *,
+    timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
+    proxy_url: str | None = None,
+    keys: Keys | None = None,
+) -> AsyncIterator[Event]:
+    """Connect to a relay and yield signature-verified Event objects.
+
+    The connection is managed automatically: opened on iteration start,
+    closed when the generator exits (including on break/exception).
+
+    Args:
+        relay: Relay to connect to.
+        event_filter: nostr-sdk Filter specifying which events to fetch.
+        timeout: Request timeout in seconds.
+        proxy_url: SOCKS5 proxy URL for overlay networks.
+        keys: Optional signing keys for NIP-42 authentication.
+
+    Yields:
+        Validated [Event][bigbrotr.models.event.Event] objects
+        (signature-verified, model-constructed).
+
+    Examples:
+        ```python
+        from nostr_sdk import Filter, Kind, Timestamp
+        from bigbrotr.models import Relay
+
+        relay = Relay("wss://relay.damus.io")
+        f = Filter().kinds([Kind(1)]).since(Timestamp.from_secs(ts)).limit(100)
+
+        async for event in fetch_relay_events(relay, f, timeout=30):
+            print(f"Event {event.id[:8]}... kind={event.kind}")
+        ```
+    """
+    client = await create_client(keys, proxy_url)
+    await client.add_relay(RelayUrl.parse(relay.url))
+    try:
+        await client.connect()
+        events = await client.fetch_events(event_filter, timedelta(seconds=timeout))
+        for evt in events.to_vec():
+            try:
+                if evt.verify():
+                    yield Event(evt)
+            except (ValueError, TypeError, OverflowError):
+                continue
+    finally:
+        with contextlib.suppress(Exception):
+            await client.shutdown()
