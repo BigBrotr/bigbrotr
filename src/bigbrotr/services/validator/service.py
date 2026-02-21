@@ -180,12 +180,12 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         self.progress.total = await count_candidates(self._brotr, networks)
 
         self._logger.info("candidates_available", total=self.progress.total)
-        self.emit_progress_metrics()
+        self._emit_progress_gauges()
 
         # Process all candidates
         await self._process_all(networks)
 
-        self.emit_progress_metrics()
+        self._emit_progress_gauges()
         self._logger.info(
             "cycle_completed",
             validated=self.progress.success,
@@ -264,7 +264,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             ``True`` if the relay speaks Nostr protocol, ``False`` otherwise.
         """
         relay = candidate.relay
-        semaphore = self.get_semaphore(relay.network)
+        semaphore = self.semaphores.get(relay.network)
 
         if semaphore is None:
             self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
@@ -343,7 +343,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             self.progress.chunks += 1
 
             await self._persist_results(valid, invalid)
-            self.emit_progress_metrics()
+            self._emit_progress_gauges()
             self._logger.info(
                 "chunk_completed",
                 chunk=self.progress.chunks,
@@ -462,3 +462,14 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
                     self._logger.info("promoted", url=relay.url, network=relay.network.value)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("promote_failed", count=len(valid), error=str(e))
+
+    # -------------------------------------------------------------------------
+    # Metrics
+    # -------------------------------------------------------------------------
+
+    def _emit_progress_gauges(self) -> None:
+        """Emit Prometheus gauges for batch progress."""
+        self.set_gauge("total", self.progress.total)
+        self.set_gauge("processed", self.progress.processed)
+        self.set_gauge("success", self.progress.success)
+        self.set_gauge("failure", self.progress.failure)

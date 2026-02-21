@@ -233,7 +233,7 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
             cursors: Pre-fetched map of relay URL to last_synced_at timestamp.
             batch: Shared mutable state for cursor updates and locks.
         """
-        semaphore = self.get_semaphore(relay.network)
+        semaphore = self.semaphores.get(relay.network)
         if semaphore is None:
             self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
             return

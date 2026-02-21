@@ -37,6 +37,7 @@ from .mixins import (
     BatchProgressMixin,
     GeoReaderMixin,
     NetworkSemaphoreMixin,
+    NetworkSemaphores,
     NostrPublisherMixin,
 )
 from .queries import (
@@ -66,6 +67,7 @@ __all__ = [
     "LokiConfig",
     "NetworkConfig",
     "NetworkSemaphoreMixin",
+    "NetworkSemaphores",
     "NetworkTypeConfig",
     "NostrPublisherMixin",
     "TorConfig",

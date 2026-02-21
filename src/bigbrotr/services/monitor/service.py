@@ -254,11 +254,11 @@ class Monitor(
             self.progress.total = await self._count_relays(networks)
 
             self._logger.info("relays_available", total=self.progress.total)
-            self.emit_progress_metrics()
+            self._emit_progress_gauges()
 
             await self._process_all(networks)
 
-            self.emit_progress_metrics()
+            self._emit_progress_gauges()
             self._logger.info(
                 "cycle_completed",
                 checked=self.progress.processed,
@@ -419,7 +419,7 @@ class Monitor(
             await self.publish_relay_discoveries(successful)
             await self._persist_results(successful, failed)
 
-            self.emit_progress_metrics()
+            self._emit_progress_gauges()
             self._logger.info(
                 "chunk_completed",
                 chunk=self.progress.chunks,
@@ -651,7 +651,7 @@ class Monitor(
         """
         empty = CheckResult()
 
-        semaphore = self.get_semaphore(relay.network)
+        semaphore = self.semaphores.get(relay.network)
         if semaphore is None:
             self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
             return empty
@@ -803,6 +803,17 @@ class Monitor(
                 await self._brotr.upsert_service_state(checkpoints)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("checkpoint_save_failed", error=str(e))
+
+    # -------------------------------------------------------------------------
+    # Metrics
+    # -------------------------------------------------------------------------
+
+    def _emit_progress_gauges(self) -> None:
+        """Emit Prometheus gauges for batch progress."""
+        self.set_gauge("total", self.progress.total)
+        self.set_gauge("processed", self.progress.processed)
+        self.set_gauge("success", self.progress.success)
+        self.set_gauge("failure", self.progress.failure)
 
     # -------------------------------------------------------------------------
     # Publishing

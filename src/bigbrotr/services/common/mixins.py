@@ -120,75 +120,76 @@ class BatchProgressMixin:
 
     progress: BatchProgress
 
-    # Declared for mypy -- provided by BaseService at runtime
-    def set_gauge(self, name: str, value: float) -> None: ...
-
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.progress = BatchProgress()
-
-    def emit_progress_metrics(self) -> None:
-        """Emit standard Prometheus gauges for batch progress."""
-        self.set_gauge("total", self.progress.total)
-        self.set_gauge("processed", self.progress.processed)
-        self.set_gauge("success", self.progress.success)
-        self.set_gauge("failure", self.progress.failure)
 
 
 # ---------------------------------------------------------------------------
 # Network Semaphore
 # ---------------------------------------------------------------------------
 
+#: Network types that support concurrent relay connections.
+OPERATIONAL_NETWORKS: tuple[NetworkType, ...] = (
+    NetworkType.CLEARNET,
+    NetworkType.TOR,
+    NetworkType.I2P,
+    NetworkType.LOKI,
+)
 
-class NetworkSemaphoreMixin:
-    """Mixin providing per-network concurrency semaphores.
 
-    Creates an ``asyncio.Semaphore`` for each
+class NetworkSemaphores:
+    """Per-network concurrency semaphores.
+
+    Creates an ``asyncio.Semaphore`` for each operational
     [NetworkType][bigbrotr.models.constants.NetworkType] (clearnet, Tor,
-    I2P, Lokinet) to cap the number of simultaneous connections.  This is
-    especially important for overlay networks like Tor, where excessive
-    concurrency degrades circuit performance.
-
-    Semaphores are initialized automatically in ``__init__`` from
-    ``self._config.networks`` (set by ``BaseService``).
+    I2P, Lokinet) to cap the number of simultaneous connections.
 
     See Also:
         [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
             Provides ``max_tasks`` per network type.
-        [Validator][bigbrotr.services.validator.Validator],
-        [Monitor][bigbrotr.services.monitor.Monitor]: Services that
-            compose this mixin for bounded concurrency.
     """
 
-    _semaphores: dict[NetworkType, asyncio.Semaphore]
+    __slots__ = ("_map",)
+
+    def __init__(self, networks: Any) -> None:
+        self._map: dict[NetworkType, asyncio.Semaphore] = {
+            nt: asyncio.Semaphore(networks.get(nt).max_tasks) for nt in OPERATIONAL_NETWORKS
+        }
+
+    def get(self, network: NetworkType) -> asyncio.Semaphore | None:
+        """Look up the concurrency semaphore for a network type.
+
+        Returns:
+            The semaphore, or ``None`` for non-operational networks
+            (LOCAL, UNKNOWN).
+        """
+        return self._map.get(network)
+
+
+class NetworkSemaphoreMixin:
+    """Mixin providing per-network concurrency semaphores.
+
+    Exposes a ``semaphores`` attribute of type
+    [NetworkSemaphores][bigbrotr.services.common.mixins.NetworkSemaphores],
+    initialized automatically in ``__init__`` from
+    ``self._config.networks`` (set by ``BaseService``).
+
+    See Also:
+        [Validator][bigbrotr.services.validator.Validator],
+        [Monitor][bigbrotr.services.monitor.Monitor],
+        [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]:
+            Services that compose this mixin for bounded concurrency.
+    """
+
+    semaphores: NetworkSemaphores
 
     # Declared for mypy -- provided by BaseService at runtime
     _config: Any
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._semaphores = {
-            network: asyncio.Semaphore(self._config.networks.get(network).max_tasks)
-            for network in (
-                NetworkType.CLEARNET,
-                NetworkType.TOR,
-                NetworkType.I2P,
-                NetworkType.LOKI,
-            )
-        }
-
-    def get_semaphore(self, network: NetworkType) -> asyncio.Semaphore | None:
-        """Look up the concurrency semaphore for a network type.
-
-        Args:
-            network: The [NetworkType][bigbrotr.models.constants.NetworkType]
-                to retrieve the semaphore for.
-
-        Returns:
-            The semaphore, or ``None`` for non-operational networks
-            (LOCAL, UNKNOWN).
-        """
-        return self._semaphores.get(network)
+        self.semaphores = NetworkSemaphores(self._config.networks)
 
 
 # ---------------------------------------------------------------------------

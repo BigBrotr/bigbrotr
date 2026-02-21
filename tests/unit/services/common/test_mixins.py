@@ -1,8 +1,9 @@
 """Unit tests for services.common.mixins mixin classes.
 
 Tests:
-- BatchProgressMixin - Mixin that provides a _progress attribute via __init__
-- NetworkSemaphoreMixin - Mixin that initializes per-network semaphores via __init__
+- BatchProgressMixin - Mixin that provides a progress attribute via __init__
+- NetworkSemaphores - Per-network concurrency semaphore container
+- NetworkSemaphoreMixin - Mixin that provides a semaphores attribute via __init__
 
 NOTE: The BatchProgress dataclass itself is thoroughly tested in
 tests/unit/services/test_progress.py.  These tests focus exclusively
@@ -13,7 +14,12 @@ import asyncio
 from unittest.mock import MagicMock
 
 from bigbrotr.models.constants import NetworkType
-from bigbrotr.services.common.mixins import BatchProgress, BatchProgressMixin, NetworkSemaphoreMixin
+from bigbrotr.services.common.mixins import (
+    BatchProgress,
+    BatchProgressMixin,
+    NetworkSemaphoreMixin,
+    NetworkSemaphores,
+)
 
 
 # =============================================================================
@@ -113,38 +119,19 @@ class TestBatchProgressMixinComposition:
 
 
 # =============================================================================
-# NetworkSemaphoreMixin Tests
+# NetworkSemaphores Tests
 # =============================================================================
 
 
-class TestNetworkSemaphoreMixinInit:
-    """Tests for NetworkSemaphoreMixin automatic __init__ initialization."""
+class TestNetworkSemaphoresInit:
+    """Tests for NetworkSemaphores construction."""
 
-    def test_init_creates_semaphores_for_operational_networks(self) -> None:
-        """__init__ creates a semaphore for each operational network."""
-        mixin = _TestSemaphoreMixin()
+    def test_creates_semaphore_for_each_operational_network(self) -> None:
+        """Constructor creates a semaphore for each operational network."""
+        net_sems = NetworkSemaphores(_make_network_config())
 
         for nt in (NetworkType.CLEARNET, NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI):
-            assert nt in mixin._semaphores, f"Missing semaphore for {nt}"
-
-    def test_excludes_non_operational_networks(self) -> None:
-        """LOCAL and UNKNOWN do not get semaphores (no relays use them)."""
-        mixin = _TestSemaphoreMixin()
-
-        assert NetworkType.LOCAL not in mixin._semaphores
-        assert NetworkType.UNKNOWN not in mixin._semaphores
-
-    def test_semaphore_count_matches_operational_networks(self) -> None:
-        """The number of semaphores equals the 4 operational network types."""
-        mixin = _TestSemaphoreMixin()
-        assert len(mixin._semaphores) == 4
-
-    def test_semaphores_are_asyncio_semaphore_instances(self) -> None:
-        """Every value in the semaphore dict is an asyncio.Semaphore."""
-        mixin = _TestSemaphoreMixin()
-
-        for nt, sem in mixin._semaphores.items():
-            assert isinstance(sem, asyncio.Semaphore), f"{nt}: not a Semaphore"
+            assert net_sems.get(nt) is not None, f"Missing semaphore for {nt}"
 
     def test_semaphore_values_match_max_tasks(self) -> None:
         """Each semaphore's internal counter equals the network's max_tasks."""
@@ -154,7 +141,7 @@ class TestNetworkSemaphoreMixinInit:
             i2p_tasks=5,
             loki_tasks=5,
         )
-        mixin = _TestSemaphoreMixin(networks=config)
+        net_sems = NetworkSemaphores(config)
 
         expected = {
             NetworkType.CLEARNET: 50,
@@ -163,44 +150,56 @@ class TestNetworkSemaphoreMixinInit:
             NetworkType.LOKI: 5,
         }
         for nt, expected_value in expected.items():
-            # asyncio.Semaphore stores the counter in _value
-            assert mixin._semaphores[nt]._value == expected_value
+            assert net_sems.get(nt)._value == expected_value
 
-    def test_different_networks_can_have_different_max_tasks(self) -> None:
+    def test_different_networks_have_different_max_tasks(self) -> None:
         """Verify each network gets its own distinct max_tasks value."""
         config = _make_network_config(clearnet_tasks=100, tor_tasks=3)
-        mixin = _TestSemaphoreMixin(networks=config)
+        net_sems = NetworkSemaphores(config)
 
-        assert mixin._semaphores[NetworkType.CLEARNET]._value == 100
-        assert mixin._semaphores[NetworkType.TOR]._value == 3
+        assert net_sems.get(NetworkType.CLEARNET)._value == 100
+        assert net_sems.get(NetworkType.TOR)._value == 3
 
 
-class TestNetworkSemaphoreMixinGetSemaphore:
-    """Tests for NetworkSemaphoreMixin.get_semaphore()."""
+class TestNetworkSemaphoresGet:
+    """Tests for NetworkSemaphores.get()."""
 
-    def test_returns_correct_semaphore_for_known_network(self) -> None:
-        """get_semaphore() returns the semaphore stored for that network."""
-        mixin = _TestSemaphoreMixin(networks=_make_network_config(tor_tasks=7))
+    def test_returns_semaphore_for_operational_network(self) -> None:
+        """get() returns an asyncio.Semaphore for operational networks."""
+        net_sems = NetworkSemaphores(_make_network_config(tor_tasks=7))
 
-        sem = mixin.get_semaphore(NetworkType.TOR)
-        assert sem is mixin._semaphores[NetworkType.TOR]
+        sem = net_sems.get(NetworkType.TOR)
+        assert isinstance(sem, asyncio.Semaphore)
         assert sem._value == 7
 
-    def test_returns_semaphore_for_each_operational_network(self) -> None:
-        """get_semaphore() returns a non-None value for every operational network."""
+    def test_returns_none_for_non_operational_network(self) -> None:
+        """get() returns None for LOCAL and UNKNOWN networks."""
+        net_sems = NetworkSemaphores(_make_network_config())
+
+        assert net_sems.get(NetworkType.LOCAL) is None
+        assert net_sems.get(NetworkType.UNKNOWN) is None
+
+
+# =============================================================================
+# NetworkSemaphoreMixin Tests
+# =============================================================================
+
+
+class TestNetworkSemaphoreMixinInit:
+    """Tests for NetworkSemaphoreMixin automatic __init__ initialization."""
+
+    def test_init_creates_network_semaphores(self) -> None:
+        """__init__ assigns a NetworkSemaphores to self.semaphores."""
+        mixin = _TestSemaphoreMixin()
+        assert isinstance(mixin.semaphores, NetworkSemaphores)
+
+    def test_semaphores_are_functional(self) -> None:
+        """Semaphores created by __init__ are usable asyncio.Semaphore instances."""
         mixin = _TestSemaphoreMixin()
 
         for nt in (NetworkType.CLEARNET, NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI):
-            sem = mixin.get_semaphore(nt)
-            assert sem is not None, f"get_semaphore({nt}) returned None"
-            assert isinstance(sem, asyncio.Semaphore)
-
-    def test_returns_none_for_non_operational_network(self) -> None:
-        """get_semaphore() returns None for LOCAL and UNKNOWN networks."""
-        mixin = _TestSemaphoreMixin()
-
-        assert mixin.get_semaphore(NetworkType.LOCAL) is None
-        assert mixin.get_semaphore(NetworkType.UNKNOWN) is None
+            sem = mixin.semaphores.get(nt)
+            assert isinstance(sem, asyncio.Semaphore), f"{nt}: not a Semaphore"
 
 
 class TestNetworkSemaphoreMixinComposition:
@@ -213,6 +212,6 @@ class TestNetworkSemaphoreMixinComposition:
             pass
 
         svc = DummyService(networks=_make_network_config(clearnet_tasks=20))
-        sem = svc.get_semaphore(NetworkType.CLEARNET)
+        sem = svc.semaphores.get(NetworkType.CLEARNET)
         assert isinstance(sem, asyncio.Semaphore)
         assert sem._value == 20
