@@ -53,7 +53,6 @@ import os
 import socket
 import ssl
 import sys
-from dataclasses import dataclass
 from datetime import timedelta
 from datetime import timedelta as Duration  # noqa: N812
 from ipaddress import AddressValueError, IPv4Address, IPv6Address
@@ -625,27 +624,15 @@ async def broadcast_events(
     return success
 
 
-@dataclass(frozen=True, slots=True)
-class RelayValidationConfig:
-    """Tuning parameters for relay validation timeouts.
-
-    See Also:
-        [is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay]: The
-            validation function that consumes this config.
-    """
-
-    suppress_stderr: bool = True
-    overall_timeout_multiplier: float = 3.0
-    overall_timeout_buffer: float = 15.0
-    disconnect_timeout: float = 10.0
+_DISCONNECT_TIMEOUT = 10.0
 
 
 async def is_nostr_relay(
     relay: Relay,
     proxy_url: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
-    config: RelayValidationConfig | None = None,
     *,
+    overall_timeout: float | None = None,
     allow_insecure: bool = False,
 ) -> bool:
     """Check if a URL hosts a Nostr relay by attempting a protocol handshake.
@@ -657,21 +644,16 @@ async def is_nostr_relay(
         relay: [Relay][bigbrotr.models.relay.Relay] to validate.
         proxy_url: SOCKS5 proxy URL (required for overlay networks).
         timeout: Timeout in seconds for connect and fetch operations.
-        config: Optional validation tuning parameters (timeouts, stderr
-            suppression). Uses
-            [RelayValidationConfig][bigbrotr.utils.transport.RelayValidationConfig]
-            defaults when ``None``.
+        overall_timeout: Total time budget for the entire validation
+            (connect + possible SSL fallback + fetch). Defaults to
+            ``timeout * 4`` to cover: SSL attempt, disconnect, insecure
+            retry, and fetch.
+        allow_insecure: If ``True``, fall back to insecure transport on
+            SSL failure (passed through to
+            [connect_relay][bigbrotr.utils.transport.connect_relay]).
 
     Returns:
         ``True`` if the relay speaks the Nostr protocol, ``False`` otherwise.
-
-    Note:
-        The overall timeout is computed as
-        ``timeout * overall_timeout_multiplier + overall_timeout_buffer``
-        to account for the potential SSL fallback retry in
-        [connect_relay][bigbrotr.utils.transport.connect_relay]. Stderr
-        suppression is enabled by default to silence verbose UniFFI
-        tracebacks during batch validation.
 
     See Also:
         [connect_relay][bigbrotr.utils.transport.connect_relay]: Used
@@ -679,19 +661,14 @@ async def is_nostr_relay(
         [bigbrotr.services.validator.Validator][bigbrotr.services.validator.Validator]:
             Service that calls this function to promote candidates to relays.
     """
-    cfg = config or RelayValidationConfig()
+    effective_overall = overall_timeout if overall_timeout is not None else timeout * 4
 
     logger.debug("validation_started relay=%s timeout_s=%s", relay.url, timeout)
 
-    # Safety net: multiplier * timeout + buffer for potential SSL fallback retry
-    overall_timeout = timeout * cfg.overall_timeout_multiplier + cfg.overall_timeout_buffer
-
-    ctx = _suppress_stderr() if cfg.suppress_stderr else contextlib.nullcontext()
-
-    with ctx:
+    with _suppress_stderr():
         client = None
         try:
-            async with asyncio.timeout(overall_timeout):
+            async with asyncio.timeout(effective_overall):
                 client = await connect_relay(
                     relay=relay,
                     proxy_url=proxy_url,
@@ -721,7 +698,7 @@ async def is_nostr_relay(
             if client is not None:
                 # nostr-sdk Rust FFI can raise arbitrary exception types during disconnect.
                 with contextlib.suppress(Exception):
-                    await asyncio.wait_for(client.disconnect(), timeout=cfg.disconnect_timeout)
+                    await asyncio.wait_for(client.disconnect(), timeout=_DISCONNECT_TIMEOUT)
 
 
 async def fetch_relay_events(
