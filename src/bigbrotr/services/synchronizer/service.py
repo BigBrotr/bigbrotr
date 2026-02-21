@@ -130,7 +130,7 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
 
     async def run(self) -> None:
         """Execute one complete synchronization cycle across all relays."""
-        self._init_semaphores(self._config.networks)
+        self.init_semaphores()
         cycle_start = time.monotonic()
         self._synced_events = 0
         self._synced_relays = 0
@@ -138,7 +138,7 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
         self._invalid_events = 0
         self._skipped_events = 0
 
-        relays = await self._fetch_relays()
+        relays = await self.fetch_relays()
 
         # Merge configured relay overrides that are not already in the list
         known_urls = {str(r.url) for r in relays}
@@ -189,7 +189,7 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
             A ``counter_lock`` protects shared counters for
             future-proofing against free-threaded Python.
         """
-        cursors = await self._fetch_all_cursors()
+        cursors = await self.fetch_cursors()
         batch = SyncBatchState(
             cursor_updates=[],
             cursor_lock=asyncio.Lock(),
@@ -302,8 +302,19 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
                 async with batch.counter_lock:
                     self._failed_relays += 1
 
-    async def _fetch_relays(self) -> list[Relay]:
+    # -------------------------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------------------------
+
+    def init_semaphores(self) -> None:
+        """Initialize per-network concurrency semaphores from config."""
+        self._init_semaphores(self._config.networks)
+
+    async def fetch_relays(self) -> list[Relay]:
         """Fetch validated relays from the database for synchronization.
+
+        Returns:
+            List of relays to sync.
 
         See Also:
             [get_all_relays][bigbrotr.services.common.queries.get_all_relays]:
@@ -327,7 +338,7 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
         self._logger.debug("relays_fetched", count=len(relays))
         return relays
 
-    async def _fetch_all_cursors(self) -> dict[str, int]:
+    async def fetch_cursors(self) -> dict[str, int]:
         """Batch-fetch all relay sync cursors in a single query.
 
         Returns:
