@@ -61,6 +61,7 @@ from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.queries import (
     get_all_relay_urls,
+    get_all_service_cursors,
     get_events_with_relay_urls,
     insert_candidates,
 )
@@ -73,6 +74,7 @@ from .utils import extract_relays_from_rows
 
 if TYPE_CHECKING:
     import ssl
+    from collections.abc import AsyncIterator
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
@@ -105,7 +107,6 @@ class Finder(BaseService[FinderConfig]):
     ) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: FinderConfig
-        self._found_relays: int = 0
 
     # -------------------------------------------------------------------------
     # BaseService Implementation
@@ -118,50 +119,52 @@ class Finder(BaseService[FinderConfig]):
         discover relay URLs. Use ``run_forever()`` for continuous operation.
         """
         cycle_start = time.monotonic()
-        self._found_relays = 0
+        found = 0
 
-        # Discover relay URLs from event scanning
         if self._config.events.enabled:
-            await self._find_from_events()
+            found += await self.find_from_events()
 
-        # Discover relay URLs from APIs
         if self._config.api.enabled:
-            await self._find_from_api()
+            found += await self.find_from_api()
 
-        elapsed = time.monotonic() - cycle_start
-        self._logger.info("cycle_completed", found=self._found_relays, duration_s=round(elapsed, 2))
+        self._logger.info(
+            "cycle_completed",
+            found=found,
+            duration_s=round(time.monotonic() - cycle_start, 2),
+        )
 
-    async def _find_from_events(self) -> None:
+    async def find_from_events(self) -> int:
         """Discover relay URLs from stored events using per-relay cursor pagination.
 
         Iterates over all relays in the database and scans their associated events
         for relay URLs embedded in tags and content fields. Each relay maintains
         its own cursor (based on ``seen_at`` timestamp) so that historical events
         inserted by the Synchronizer are still processed.
+
+        Returns:
+            Number of relay URLs discovered and inserted as candidates.
         """
         total_events_scanned = 0
         total_relays_found = 0
         relays_processed = 0
 
-        # Fetch all relays from database
         try:
             relay_urls = await get_all_relay_urls(self._brotr)
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.warning("fetch_relays_failed", error=str(e), error_type=type(e).__name__)
-            return
+            return 0
 
         if not relay_urls:
             self._logger.debug("no_relays_to_scan")
-            return
+            return 0
 
         self._logger.debug("events_scan_started", relay_count=len(relay_urls))
 
-        # Fetch all cursors in a single query to avoid N+1 per-relay lookups
         try:
             cursors = await self._fetch_all_cursors()
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.warning("fetch_cursors_failed", error=str(e), error_type=type(e).__name__)
-            return
+            return 0
 
         for relay_url in relay_urls:
             if not self.is_running:
@@ -172,18 +175,17 @@ class Finder(BaseService[FinderConfig]):
             total_relays_found += relay_relays
             relays_processed += 1
 
-        self._found_relays += total_relays_found
         self._logger.info(
             "events_completed",
             scanned=total_events_scanned,
             relays_found=total_relays_found,
             relays_processed=relays_processed,
         )
+        return total_relays_found
 
     async def _fetch_all_cursors(self) -> dict[str, int]:
         """Fetch all event-scanning cursors in a single query."""
-        results = await self._brotr.get_service_state(self.SERVICE_NAME, ServiceStateType.CURSOR)
-        return {r.state_key: r.state_value.get("last_seen_at", 0) for r in results}
+        return await get_all_service_cursors(self._brotr, self.SERVICE_NAME, "last_seen_at")
 
     async def _scan_relay_events(self, relay_url: str, cursors: dict[str, int]) -> tuple[int, int]:
         """
@@ -292,52 +294,42 @@ class Finder(BaseService[FinderConfig]):
 
         return found
 
-    async def _find_from_api(self) -> None:
-        """Discover relay URLs from configured external API endpoints.
+    async def discover_from_apis(self) -> AsyncIterator[tuple[str, dict[str, Relay]]]:
+        """Yield ``(source_url, discovered_relays)`` from each enabled API source.
 
-        Fetches each enabled [ApiSourceConfig][bigbrotr.services.finder.ApiSourceConfig]
-        sequentially (with a configurable delay between requests),
-        deduplicates the results, and inserts discovered URLs as
-        validation candidates via
-        [insert_candidates][bigbrotr.services.common.queries.insert_candidates].
+        Each yield produces the validated relay dict from one API endpoint.
+        Connection pooling is managed internally via a shared aiohttp session.
+        The generator handles rate limiting between sources.
+
+        Yields:
+            Tuple of (source URL, dict mapping relay URL to Relay object).
         """
-        relays: dict[str, Relay] = {}  # url -> Relay for deduplication
-        sources_checked = 0
-
-        # SSL context: True uses system CA bundle, False disables verification
         ssl_context: ssl.SSLContext | bool = True
         if not self._config.api.verify_ssl:
             ssl_context = False
-            self._logger.warning("ssl_verification_disabled")
 
         connector = aiohttp.TCPConnector(ssl=ssl_context)
-
-        # Reuse a single session for connection pooling across all API requests
         async with aiohttp.ClientSession(connector=connector) as session:
-            enabled_sources = [s for s in self._config.api.sources if s.enabled]
-            for i, source in enumerate(enabled_sources):
+            enabled = [s for s in self._config.api.sources if s.enabled]
+            for i, source in enumerate(enabled):
                 if not self.is_running:
-                    self._logger.info("api_discovery_interrupted", reason="shutdown")
                     break
-
                 try:
                     source_relays = await self._fetch_single_api(session, source)
+                    validated: dict[str, Relay] = {}
                     for relay_url in source_relays:
-                        validated = validate_relay_url(str(relay_url))
-                        if validated:
-                            relays[validated.url] = validated
-                    sources_checked += 1
+                        r = validate_relay_url(str(relay_url))
+                        if r:
+                            validated[r.url] = r
+                    yield source.url, validated
 
-                    self._logger.debug("api_fetched", url=source.url, count=len(source_relays))
-
-                    # Rate-limit between API requests (skip delay after the last source)
+                    # Rate-limit (skip after last)
                     if (
                         self._config.api.delay_between_requests > 0
-                        and i < len(enabled_sources) - 1
+                        and i < len(enabled) - 1
                         and await self.wait(self._config.api.delay_between_requests)
                     ):
                         break
-
                 except (TimeoutError, OSError, aiohttp.ClientError, ValueError) as e:
                     self._logger.warning(
                         "api_fetch_failed",
@@ -346,20 +338,37 @@ class Finder(BaseService[FinderConfig]):
                         url=source.url,
                     )
 
-        # Insert as validation candidates (service_name='validator')
-        if relays:
+    async def find_from_api(self) -> int:
+        """Discover relay URLs from configured external API endpoints.
+
+        Fetches each enabled API source via
+        [discover_from_apis][bigbrotr.services.finder.Finder.discover_from_apis],
+        deduplicates the results, and inserts discovered URLs as validation
+        candidates.
+
+        Returns:
+            Number of relay URLs inserted as candidates.
+        """
+        found = 0
+        all_relays: dict[str, Relay] = {}
+        async for source_url, relays in self.discover_from_apis():
+            all_relays.update(relays)
+            self._logger.debug("api_fetched", url=source_url, count=len(relays))
+
+        if all_relays:
             try:
-                self._found_relays += await insert_candidates(self._brotr, relays.values())
+                found = await insert_candidates(self._brotr, all_relays.values())
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
                     "insert_candidates_failed",
                     error=str(e),
                     error_type=type(e).__name__,
-                    count=len(relays),
+                    count=len(all_relays),
                 )
 
-        if sources_checked > 0:
-            self._logger.info("apis_completed", sources=sources_checked, relays=len(relays))
+        if found:
+            self._logger.info("apis_completed", relays=len(all_relays))
+        return found
 
     async def _fetch_single_api(
         self, session: aiohttp.ClientSession, source: ApiSourceConfig
