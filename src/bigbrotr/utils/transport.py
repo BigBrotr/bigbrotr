@@ -5,8 +5,7 @@ clients with proper WebSocket configuration. Supports clearnet and overlay
 network connections (Tor, I2P, Lokinet) via SOCKS5 proxies.
 
 Attributes:
-    create_client: Standard client factory with optional SOCKS5 proxy.
-    create_insecure_client: Client factory with SSL verification disabled.
+    create_client: Client factory with optional SOCKS5 proxy and SSL override.
     connect_relay: High-level helper with automatic SSL fallback.
     is_nostr_relay: Check whether a URL hosts a Nostr relay.
 
@@ -315,8 +314,8 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
     See Also:
         [InsecureWebSocketAdapter][bigbrotr.utils.transport.InsecureWebSocketAdapter]:
             The per-connection adapter created by this transport.
-        [create_insecure_client][bigbrotr.utils.transport.create_insecure_client]:
-            Factory function that wires this transport into a client.
+        [create_client][bigbrotr.utils.transport.create_client]: Factory function
+            that wires this transport into a client via ``allow_insecure=True``.
         [connect_relay][bigbrotr.utils.transport.connect_relay]: High-level
             function that uses this transport as an SSL fallback.
     """
@@ -392,15 +391,20 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
 async def create_client(
     keys: Keys | None = None,
     proxy_url: str | None = None,
+    *,
+    allow_insecure: bool = False,
 ) -> Client:
-    """Create a Nostr client with optional SOCKS5 proxy support.
+    """Create a Nostr client with optional SOCKS5 proxy and SSL override.
 
     For overlay networks, uses nostr-sdk's built-in proxy via
-    ``ConnectionMode.PROXY``. For clearnet, uses standard SSL connections.
+    ``ConnectionMode.PROXY``. For clearnet, uses standard SSL connections
+    unless ``allow_insecure`` is ``True``.
 
     Args:
         keys: Optional signing keys (``None`` = read-only client).
         proxy_url: SOCKS5 proxy URL for overlay networks (e.g., ``socks5://tor:9050``).
+        allow_insecure: If ``True``, bypass SSL certificate verification
+            using [InsecureWebSocketTransport][bigbrotr.utils.transport.InsecureWebSocketTransport].
 
     Returns:
         Configured ``Client`` instance (call ``add_relay()`` before use).
@@ -410,17 +414,24 @@ async def create_client(
         resolved asynchronously via ``asyncio.to_thread(socket.gethostbyname)``
         because nostr-sdk requires a numeric IP for the proxy connection.
 
+    Warning:
+        Setting ``allow_insecure=True`` bypasses all SSL/TLS certificate
+        verification. Only use when standard SSL has already been attempted
+        and failed.
+
     See Also:
-        [create_insecure_client][bigbrotr.utils.transport.create_insecure_client]:
-            Alternative factory with SSL verification disabled.
         [connect_relay][bigbrotr.utils.transport.connect_relay]: Higher-level
-            function that handles connection and SSL fallback.
+            function that handles connection and automatic SSL fallback.
     """
     builder = ClientBuilder()
 
     if keys is not None:
         signer = NostrSigner.keys(keys)
         builder = builder.signer(signer)
+
+    if allow_insecure:
+        transport = InsecureWebSocketTransport()
+        builder = builder.websocket_transport(transport)
 
     if proxy_url is not None:
         parsed = urlparse(proxy_url)
@@ -442,38 +453,6 @@ async def create_client(
         conn = Connection().mode(proxy_mode).target(ConnectionTarget.ONION)
         opts = ClientOptions().connection(conn)
         builder = builder.opts(opts)
-
-    return builder.build()
-
-
-def create_insecure_client(keys: Keys | None = None) -> Client:
-    """Create a Nostr client with SSL verification disabled.
-
-    Fallback for clearnet relays with invalid/expired SSL certificates.
-
-    Args:
-        keys: Optional signing keys (``None`` = read-only client).
-
-    Returns:
-        ``Client`` with
-        [InsecureWebSocketTransport][bigbrotr.utils.transport.InsecureWebSocketTransport].
-
-    Warning:
-        The returned client bypasses all SSL/TLS certificate verification.
-        Only use when standard SSL has already been attempted and failed.
-
-    See Also:
-        [create_client][bigbrotr.utils.transport.create_client]: Standard
-            factory with full SSL verification.
-    """
-    builder = ClientBuilder()
-
-    if keys is not None:
-        signer = NostrSigner.keys(keys)
-        builder = builder.signer(signer)
-
-    transport = InsecureWebSocketTransport()
-    builder = builder.websocket_transport(transport)
 
     return builder.build()
 
@@ -514,10 +493,8 @@ async def connect_relay(
         to the running asyncio event loop.
 
     See Also:
-        [create_client][bigbrotr.utils.transport.create_client]: Used for the
-            initial SSL-verified connection attempt.
-        [create_insecure_client][bigbrotr.utils.transport.create_insecure_client]:
-            Used for the fallback insecure connection.
+        [create_client][bigbrotr.utils.transport.create_client]: Used for both
+            the initial SSL-verified attempt and the insecure fallback.
         [is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay]: Higher-level
             validation that uses this function internally.
     """
@@ -568,7 +545,7 @@ async def connect_relay(
     # Required for custom WebSocket transport UniFFI callbacks
     uniffi_set_event_loop(asyncio.get_running_loop())
 
-    client = create_insecure_client(keys)
+    client = await create_client(keys, allow_insecure=True)
     await client.add_relay(relay_url)
     output = await client.try_connect(timedelta(seconds=timeout))
 
@@ -605,7 +582,10 @@ async def broadcast_events(
     for relay in relays:
         try:
             client = await connect_relay(
-                relay, keys=keys, timeout=timeout, allow_insecure=allow_insecure,
+                relay,
+                keys=keys,
+                timeout=timeout,
+                allow_insecure=allow_insecure,
             )
         except (OSError, TimeoutError) as e:
             logger.warning("broadcast_connect_failed relay=%s error=%s", relay.url, e)

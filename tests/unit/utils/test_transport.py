@@ -3,8 +3,7 @@ Unit tests for utils.transport module.
 
 Tests:
 - _is_ssl_error() - SSL error detection from error messages
-- create_client() - Client factory with optional proxy
-- create_insecure_client() - Client factory with SSL verification disabled
+- create_client() - Client factory with optional proxy and SSL override
 - connect_relay() - Relay connection with SSL fallback
 - is_nostr_relay() - Relay validation
 - InsecureWebSocketAdapter - WebSocket adapter for insecure connections
@@ -24,7 +23,6 @@ from bigbrotr.utils.transport import (
     InsecureWebSocketTransport,
     _is_ssl_error,
     create_client,
-    create_insecure_client,
 )
 
 
@@ -195,24 +193,24 @@ class TestCreateClientProxy:
 
 
 # =============================================================================
-# create_insecure_client() Tests
+# create_client(allow_insecure=True) Tests
 # =============================================================================
 
 
-class TestCreateInsecureClient:
-    """Tests for create_insecure_client() factory function."""
+class TestCreateClientInsecure:
+    """Tests for create_client() with allow_insecure=True."""
 
-    def test_creates_client_without_keys(self) -> None:
+    async def test_creates_insecure_client_without_keys(self) -> None:
         """Test creating insecure client without keys."""
-        client = create_insecure_client()
+        client = await create_client(allow_insecure=True)
         assert client is not None
 
-    def test_creates_client_with_keys(self) -> None:
+    async def test_creates_insecure_client_with_keys(self) -> None:
         """Test creating insecure client with keys."""
         from nostr_sdk import Keys
 
         keys = Keys.generate()
-        client = create_insecure_client(keys=keys)
+        client = await create_client(keys=keys, allow_insecure=True)
         assert client is not None
 
 
@@ -808,11 +806,18 @@ class TestBroadcastEvents:
             return_value=mock_client,
         ) as mock_connect:
             await self._get_broadcast()(
-                [MagicMock()], [relay], keys, timeout=5.0, allow_insecure=False,
+                [MagicMock()],
+                [relay],
+                keys,
+                timeout=5.0,
+                allow_insecure=False,
             )
 
         mock_connect.assert_awaited_once_with(
-            relay, keys=keys, timeout=5.0, allow_insecure=False,
+            relay,
+            keys=keys,
+            timeout=5.0,
+            allow_insecure=False,
         )
 
     async def test_returns_success_count(self) -> None:
