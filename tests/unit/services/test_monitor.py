@@ -870,7 +870,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._progress.reset()
+        monitor.progress.reset()
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert relays == []
@@ -904,7 +904,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._progress.reset()
+        monitor.progress.reset()
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert len(relays) == 2
@@ -935,7 +935,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._progress.reset()
+        monitor.progress.reset()
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert len(relays) == 1
@@ -964,7 +964,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._progress.reset()
+        monitor.progress.reset()
         await monitor._fetch_chunk(["clearnet"], 50)
 
         assert mock_fetch.call_args[0][4] == 50  # limit is 5th positional arg
@@ -1010,7 +1010,7 @@ class TestMonitorRun:
         monitor = Monitor(brotr=mock_brotr, config=config)
         await monitor.run()
 
-        assert monitor._progress.processed == 0
+        assert monitor.progress.processed == 0
 
     @patch(
         "bigbrotr.services.monitor.service.fetch_relays_due_for_check",
@@ -1042,13 +1042,13 @@ class TestMonitorRun:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor._progress.success = 10
-        monitor._progress.failure = 5
+        monitor.progress.success = 10
+        monitor.progress.failure = 5
 
         await monitor.run()
 
-        assert monitor._progress.success == 0
-        assert monitor._progress.failure == 0
+        assert monitor.progress.success == 0
+        assert monitor.progress.failure == 0
 
 
 # ============================================================================
@@ -1294,8 +1294,11 @@ def _make_nip11_meta(
             language_tags=language_tags,
             limitation=limitation or Nip11InfoDataLimitation(),
         ),
-        logs=Nip11InfoLogs(success=success) if success else Nip11InfoLogs(
-            success=False, reason="test failure",
+        logs=Nip11InfoLogs(success=success)
+        if success
+        else Nip11InfoLogs(
+            success=False,
+            reason="test failure",
         ),
     )
 
@@ -1331,8 +1334,11 @@ def _make_ssl_meta(
     """Build a Nip66SslMetadata with common test parameters."""
     return Nip66SslMetadata(
         data=Nip66SslData(ssl_valid=ssl_valid, ssl_expires=ssl_expires, ssl_issuer=ssl_issuer),
-        logs=Nip66SslLogs(success=success) if success else Nip66SslLogs(
-            success=False, reason="test failure",
+        logs=Nip66SslLogs(success=success)
+        if success
+        else Nip66SslLogs(
+            success=False,
+            reason="test failure",
         ),
     )
 
@@ -1391,9 +1397,7 @@ class TestMonitorBroadcastEvents:
             await stub._broadcast_events([mock_builder], [])
             mock_connect.assert_not_called()
 
-    async def test_broadcast_events_shutdown_called_on_send_error(
-        self, stub: _MonitorStub
-    ) -> None:
+    async def test_broadcast_events_shutdown_called_on_send_error(self, stub: _MonitorStub) -> None:
         mock_client = AsyncMock()
         mock_client.send_event_builder.side_effect = OSError("send failed")
         relay = Relay("wss://relay.example.com")
@@ -1793,9 +1797,7 @@ class TestPublishRelayDiscoveries:
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
-            await stub._publish_relay_discoveries(
-                [(relay1, result1), (relay2, result2)]
-            )
+            await stub._publish_relay_discoveries([(relay1, result1), (relay2, result2)])
 
         # One builder should have succeeded
         mock_client.send_event_builder.assert_awaited_once()
@@ -2040,10 +2042,15 @@ class TestEndToEndTagGeneration:
                 ),
             ),
             nip66_rtt=_make_rtt_meta(
-                rtt_open=30, rtt_read=100, rtt_write=80, write_success=True,
+                rtt_open=30,
+                rtt_read=100,
+                rtt_write=80,
+                write_success=True,
             ),
             nip66_ssl=_make_ssl_meta(
-                ssl_valid=True, ssl_expires=1735689600, ssl_issuer="Let's Encrypt",
+                ssl_valid=True,
+                ssl_expires=1735689600,
+                ssl_issuer="Let's Encrypt",
             ),
         )
 

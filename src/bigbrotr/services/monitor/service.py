@@ -229,7 +229,7 @@ class Monitor(
         relay counting, chunk-based health checks, metadata persistence,
         and Kind 30166 event publishing.
         """
-        self._progress.reset()
+        self.progress.reset()
 
         await self.update_geo_databases()
 
@@ -251,9 +251,9 @@ class Monitor(
             await self.publish_profile()
             await self.publish_announcement()
 
-            self._progress.total = await self._count_relays(networks)
+            self.progress.total = await self._count_relays(networks)
 
-            self._logger.info("relays_available", total=self._progress.total)
+            self._logger.info("relays_available", total=self.progress.total)
             self.emit_progress_metrics()
 
             await self._process_all(networks)
@@ -261,11 +261,11 @@ class Monitor(
             self.emit_progress_metrics()
             self._logger.info(
                 "cycle_completed",
-                checked=self._progress.processed,
-                successful=self._progress.success,
-                failed=self._progress.failure,
-                chunks=self._progress.chunks,
-                duration_s=self._progress.elapsed,
+                checked=self.progress.processed,
+                successful=self.progress.success,
+                failed=self.progress.failure,
+                chunks=self.progress.chunks,
+                duration_s=self.progress.elapsed,
             )
         finally:
             self.close_geo_readers()
@@ -381,7 +381,7 @@ class Monitor(
             self._logger.warning("no_networks_enabled")
             return 0
 
-        threshold = int(self._progress.started_at) - self._config.discovery.interval
+        threshold = int(self.progress.started_at) - self._config.discovery.interval
 
         return await count_relays_due_for_check(
             self._brotr,
@@ -411,10 +411,10 @@ class Monitor(
             return
 
         async for successful, failed in self.check_chunks(networks):
-            self._progress.processed += len(successful) + len(failed)
-            self._progress.success += len(successful)
-            self._progress.failure += len(failed)
-            self._progress.chunks += 1
+            self.progress.processed += len(successful) + len(failed)
+            self.progress.success += len(successful)
+            self.progress.failure += len(failed)
+            self.progress.chunks += 1
 
             await self.publish_relay_discoveries(successful)
             await self._persist_results(successful, failed)
@@ -422,10 +422,10 @@ class Monitor(
             self.emit_progress_metrics()
             self._logger.info(
                 "chunk_completed",
-                chunk=self._progress.chunks,
+                chunk=self.progress.chunks,
                 successful=len(successful),
                 failed=len(failed),
-                remaining=self._progress.remaining,
+                remaining=self.progress.remaining,
             )
 
     async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Relay]:
@@ -434,7 +434,7 @@ class Monitor(
         See Also:
             ``fetch_relays_due_for_check``: The SQL query executed.
         """
-        threshold = int(self._progress.started_at) - self._config.discovery.interval
+        threshold = int(self.progress.started_at) - self._config.discovery.interval
 
         rows = await fetch_relays_due_for_check(
             self._brotr,

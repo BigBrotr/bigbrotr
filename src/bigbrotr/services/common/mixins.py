@@ -46,7 +46,7 @@ class BatchProgress:
     All counters are reset at the start of each cycle via ``reset()``.
     Used internally by
     [BatchProgressMixin][bigbrotr.services.common.mixins.BatchProgressMixin]
-    to provide ``_progress`` to services.
+    to provide ``progress`` to services.
 
     Attributes:
         started_at: Timestamp when the cycle started (``time.time()``).
@@ -63,7 +63,7 @@ class BatchProgress:
 
     See Also:
         [BatchProgressMixin][bigbrotr.services.common.mixins.BatchProgressMixin]:
-            Mixin that exposes a ``_progress`` attribute of this type.
+            Mixin that exposes a ``progress`` attribute of this type.
     """
 
     started_at: float = field(default=0.0)
@@ -99,7 +99,7 @@ class BatchProgressMixin:
     """Mixin providing batch processing progress tracking.
 
     Services that process items in batches compose this mixin to get
-    a ``_progress`` attribute with counters and timing. Initialization
+    a ``progress`` attribute with counters and timing. Initialization
     is automatic via ``__init__``.
 
     See Also:
@@ -113,26 +113,26 @@ class BatchProgressMixin:
         ```python
         class MyService(BatchProgressMixin, BaseService[MyConfig]):
             async def run(self):
-                self._progress.reset()
+                self.progress.reset()
                 ...
         ```
     """
 
-    _progress: BatchProgress
+    progress: BatchProgress
 
     # Declared for mypy -- provided by BaseService at runtime
     def set_gauge(self, name: str, value: float) -> None: ...
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._progress = BatchProgress()
+        self.progress = BatchProgress()
 
     def emit_progress_metrics(self) -> None:
         """Emit standard Prometheus gauges for batch progress."""
-        self.set_gauge("total", self._progress.total)
-        self.set_gauge("processed", self._progress.processed)
-        self.set_gauge("success", self._progress.success)
-        self.set_gauge("failure", self._progress.failure)
+        self.set_gauge("total", self.progress.total)
+        self.set_gauge("processed", self.progress.processed)
+        self.set_gauge("success", self.progress.success)
+        self.set_gauge("failure", self.progress.failure)
 
 
 # ---------------------------------------------------------------------------

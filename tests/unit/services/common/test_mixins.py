@@ -73,28 +73,28 @@ class TestBatchProgressMixinInit:
     """Tests for BatchProgressMixin automatic __init__."""
 
     def test_init_creates_batch_progress_instance(self) -> None:
-        """__init__ assigns a BatchProgress to self._progress."""
+        """__init__ assigns a BatchProgress to self.progress."""
         mixin = BatchProgressMixin()
-        assert isinstance(mixin._progress, BatchProgress)
+        assert isinstance(mixin.progress, BatchProgress)
 
     def test_fresh_progress_has_zero_counters(self) -> None:
         """A freshly initialized progress has all counters at zero."""
         mixin = BatchProgressMixin()
-        assert mixin._progress.total == 0
-        assert mixin._progress.processed == 0
-        assert mixin._progress.success == 0
-        assert mixin._progress.failure == 0
-        assert mixin._progress.chunks == 0
+        assert mixin.progress.total == 0
+        assert mixin.progress.processed == 0
+        assert mixin.progress.success == 0
+        assert mixin.progress.failure == 0
+        assert mixin.progress.chunks == 0
 
     def test_reset_clears_modified_counters(self) -> None:
         """Calling reset() clears accumulated counter values."""
         mixin = BatchProgressMixin()
-        mixin._progress.total = 100
-        mixin._progress.processed = 42
+        mixin.progress.total = 100
+        mixin.progress.processed = 42
 
-        mixin._progress.reset()
-        assert mixin._progress.total == 0
-        assert mixin._progress.processed == 0
+        mixin.progress.reset()
+        assert mixin.progress.total == 0
+        assert mixin.progress.processed == 0
 
 
 class TestBatchProgressMixinComposition:
@@ -107,9 +107,9 @@ class TestBatchProgressMixinComposition:
             pass
 
         svc = DummyService()
-        assert isinstance(svc._progress, BatchProgress)
-        svc._progress.total = 50
-        assert svc._progress.remaining == 50
+        assert isinstance(svc.progress, BatchProgress)
+        svc.progress.total = 50
+        assert svc.progress.remaining == 50
 
 
 # =============================================================================

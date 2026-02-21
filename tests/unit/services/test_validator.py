@@ -237,8 +237,8 @@ class TestValidatorRun:
         validator = Validator(brotr=mock_validator_brotr)
         await validator.run()
 
-        assert validator._progress.success == 0
-        assert validator._progress.failure == 0
+        assert validator.progress.success == 0
+        assert validator.progress.failure == 0
 
     async def test_cleanup_promoted_called_at_end_of_run(self, mock_validator_brotr: Brotr) -> None:
         """Test cleanup of promoted candidates is called at end of run cycle."""
@@ -250,7 +250,9 @@ class TestValidatorRun:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=False
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=False,
         ):
             await validator.run()
 
@@ -275,22 +277,24 @@ class TestValidatorRun:
         async def mock_is_nostr_relay(relay, proxy_url, timeout):
             return "relay1" in relay.url
 
-        with patch("bigbrotr.services.validator.service.is_nostr_relay", side_effect=mock_is_nostr_relay):
+        with patch(
+            "bigbrotr.services.validator.service.is_nostr_relay", side_effect=mock_is_nostr_relay
+        ):
             await validator.run()
 
-        assert validator._progress.success == 1
-        assert validator._progress.failure == 1
+        assert validator.progress.success == 1
+        assert validator.progress.failure == 1
 
     async def test_run_progress_reset(self, mock_validator_brotr: Brotr) -> None:
         """Test progress is reset at start of run."""
         validator = Validator(brotr=mock_validator_brotr)
-        validator._progress.success = 10
-        validator._progress.failure = 5
+        validator.progress.success = 10
+        validator.progress.failure = 5
 
         await validator.run()
 
-        assert validator._progress.success == 0
-        assert validator._progress.failure == 0
+        assert validator.progress.success == 0
+        assert validator.progress.failure == 0
 
 
 # ============================================================================
@@ -315,11 +319,13 @@ class TestChunkProcessing:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=True,
         ):
             await validator.run()
 
-        assert validator._progress.success == 150
+        assert validator.progress.success == 150
 
     async def test_respects_max_candidates_limit(self, mock_validator_brotr: Brotr) -> None:
         """Test validator respects max_candidates limit."""
@@ -347,11 +353,13 @@ class TestChunkProcessing:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=True,
         ):
             await validator.run()
 
-        assert validator._progress.success == 150
+        assert validator.progress.success == 150
 
 
 # ============================================================================
@@ -374,7 +382,9 @@ class TestNetworkAwareValidation:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=True,
         ) as mock:
             await validator.run()
             mock.assert_called_once()
@@ -391,7 +401,9 @@ class TestNetworkAwareValidation:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=True,
         ) as mock:
             await validator.run()
             mock.assert_called_once()
@@ -410,7 +422,9 @@ class TestNetworkAwareValidation:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=True,
         ) as mock:
             await validator.run()
             mock.assert_called_once()
@@ -426,7 +440,9 @@ class TestNetworkAwareValidation:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=True,
         ) as mock:
             await validator.run()
             mock.assert_called_once()
@@ -447,7 +463,9 @@ class TestNetworkAwareValidation:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=True,
         ) as mock:
             await validator.run()
             mock.assert_called_once()
@@ -469,7 +487,9 @@ class TestNetworkAwareValidation:
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=True,
         ) as mock:
             await validator.run()
             mock.assert_called_once()
@@ -501,8 +521,8 @@ class TestErrorHandling:
         ):
             await validator.run()
 
-        assert validator._progress.success == 0
-        assert validator._progress.failure == 1
+        assert validator.progress.success == 0
+        assert validator.progress.failure == 1
 
     async def test_database_error_during_persist_logged(self, mock_validator_brotr: Brotr) -> None:
         """Test database errors during persist are logged."""
@@ -514,11 +534,13 @@ class TestErrorHandling:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=False
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=False,
         ):
             await validator.run()
 
-        assert validator._progress.failure == 1
+        assert validator.progress.failure == 1
 
     async def test_all_candidates_fail_validation(self, mock_validator_brotr: Brotr) -> None:
         """Test run completes when all validations fail."""
@@ -529,12 +551,14 @@ class TestErrorHandling:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=False
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=False,
         ):
             await validator.run()
 
-        assert validator._progress.success == 0
-        assert validator._progress.failure == 10
+        assert validator.progress.success == 0
+        assert validator.progress.failure == 10
 
     async def test_graceful_shutdown(self, mock_validator_brotr: Brotr) -> None:
         """Test is_running flag controls processing loop."""
@@ -548,11 +572,13 @@ class TestErrorHandling:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=True,
         ):
             await validator.run()
 
-        total = validator._progress.success + validator._progress.failure
+        total = validator.progress.success + validator.progress.failure
         assert total == 10
 
         # Test stopping via is_running
@@ -592,7 +618,9 @@ class TestPersistence:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=True
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=True,
         ):
             await validator.run()
 
@@ -621,7 +649,9 @@ class TestPersistence:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=False
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=False,
         ):
             await validator.run()
 
@@ -643,7 +673,9 @@ class TestPersistence:
         validator = Validator(brotr=mock_validator_brotr)
 
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", new_callable=AsyncMock, return_value=False
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=False,
         ):
             await validator.run()
 
@@ -779,12 +811,14 @@ class TestValidatorIntegration:
                 raise Exception("Connection error")
             return False
 
-        with patch("bigbrotr.services.validator.service.is_nostr_relay", side_effect=mock_validation):
+        with patch(
+            "bigbrotr.services.validator.service.is_nostr_relay", side_effect=mock_validation
+        ):
             await validator.run()
 
         # 1 valid (good), 2 failures (bad + error)
-        assert validator._progress.success == 1
-        assert validator._progress.failure == 2
+        assert validator.progress.success == 1
+        assert validator.progress.failure == 2
 
     async def test_validation_with_multiple_networks(self, mock_validator_brotr: Brotr) -> None:
         """Test validation with candidates from multiple networks."""

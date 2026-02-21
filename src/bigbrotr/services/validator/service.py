@@ -164,7 +164,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         metrics emission. Respects ``is_running`` for graceful shutdown and
         ``max_candidates`` for per-cycle limits.
         """
-        self._progress.reset()
+        self.progress.reset()
 
         networks = self._config.networks.get_enabled_networks()
         self._logger.info(
@@ -177,9 +177,9 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         # Cleanup and count
         await self.cleanup_stale()
         await self.cleanup_exhausted()
-        self._progress.total = await count_candidates(self._brotr, networks)
+        self.progress.total = await count_candidates(self._brotr, networks)
 
-        self._logger.info("candidates_available", total=self._progress.total)
+        self._logger.info("candidates_available", total=self.progress.total)
         self.emit_progress_metrics()
 
         # Process all candidates
@@ -188,10 +188,10 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         self.emit_progress_metrics()
         self._logger.info(
             "cycle_completed",
-            validated=self._progress.success,
-            invalidated=self._progress.failure,
-            chunks=self._progress.chunks,
-            duration_s=self._progress.elapsed,
+            validated=self.progress.success,
+            invalidated=self.progress.failure,
+            chunks=self.progress.chunks,
+            duration_s=self.progress.elapsed,
         )
 
     # -------------------------------------------------------------------------
@@ -337,19 +337,19 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
             return
 
         async for valid, invalid in self.validate_chunks(networks):
-            self._progress.processed += len(valid) + len(invalid)
-            self._progress.success += len(valid)
-            self._progress.failure += len(invalid)
-            self._progress.chunks += 1
+            self.progress.processed += len(valid) + len(invalid)
+            self.progress.success += len(valid)
+            self.progress.failure += len(invalid)
+            self.progress.chunks += 1
 
             await self._persist_results(valid, invalid)
             self.emit_progress_metrics()
             self._logger.info(
                 "chunk_completed",
-                chunk=self._progress.chunks,
+                chunk=self.progress.chunks,
                 valid=len(valid),
                 invalid=len(invalid),
-                remaining=self._progress.remaining,
+                remaining=self.progress.remaining,
             )
 
     async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Candidate]:
@@ -369,7 +369,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
         rows = await fetch_candidate_chunk(
             self._brotr,
             networks,
-            int(self._progress.started_at),
+            int(self.progress.started_at),
             limit,
         )
 
