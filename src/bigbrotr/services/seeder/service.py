@@ -100,10 +100,8 @@ class Seeder(BaseService[SeederConfig]):
         """Parse the seed file and insert relays.
 
         Reads relay URLs from the configured seed file, validates them,
-        then dispatches to either
-        [seed_as_candidates][bigbrotr.services.seeder.Seeder.seed_as_candidates]
-        or [seed_as_relays][bigbrotr.services.seeder.Seeder.seed_as_relays]
-        based on the ``to_validate`` configuration flag.
+        then inserts them as validation candidates or directly into the
+        relays table based on the ``to_validate`` configuration flag.
 
         Returns:
             Number of relays inserted.
@@ -117,38 +115,21 @@ class Seeder(BaseService[SeederConfig]):
             return 0
 
         if self._config.seed.to_validate:
-            return await self.seed_as_candidates(relays)
-        return await self.seed_as_relays(relays)
+            return await self._seed_as_candidates(relays)
+        return await self._seed_as_relays(relays)
 
-    async def seed_as_candidates(self, relays: list[Relay]) -> int:
-        """Add relays as validation candidates in the ``service_state`` table.
+    # -------------------------------------------------------------------------
+    # Internals
+    # -------------------------------------------------------------------------
 
-        Uses [insert_candidates][bigbrotr.services.common.queries.insert_candidates]
-        which internally filters out URLs already in the ``relay`` table
-        or registered as candidates.
-
-        Returns:
-            Number of candidates inserted.
-        """
+    async def _seed_as_candidates(self, relays: list[Relay]) -> int:
+        """Insert relays as validation candidates in ``service_state``."""
         count = await insert_candidates(self._brotr, relays)
         self._logger.info("candidates_inserted", total=len(relays), inserted=count)
         return count
 
-    async def seed_as_relays(self, relays: list[Relay]) -> int:
-        """Insert relays directly into the relays table.
-
-        Uses [insert_relays][bigbrotr.services.common.queries.insert_relays]
-        which handles batching and ``ON CONFLICT DO NOTHING``. Bypasses the
-        [Validator][bigbrotr.services.validator.Validator] pipeline entirely.
-
-        Warning:
-            Relays inserted via this path skip WebSocket validation.
-            Use ``to_validate=True`` (the default) unless you are certain
-            the seed URLs are valid Nostr relays.
-
-        Returns:
-            Number of relays inserted.
-        """
+    async def _seed_as_relays(self, relays: list[Relay]) -> int:
+        """Insert relays directly into the relays table."""
         count = await insert_relays(self._brotr, relays)
         self._logger.info("relays_inserted", total=len(relays), inserted=count)
         return count

@@ -385,7 +385,7 @@ class TestParseSeedFile:
 
 
 class TestSeedAsCandidates:
-    """Tests for Seeder.seed_as_candidates() method."""
+    """Tests for Seeder._seed_as_candidates() method."""
 
     async def test_seed_as_candidates_filters_existing(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
@@ -404,7 +404,7 @@ class TestSeedAsCandidates:
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
         relays = parse_seed_file(seed_file)
 
-        await seeder.seed_as_candidates(relays)
+        await seeder._seed_as_candidates(relays)
 
         mock_seeder_brotr.upsert_service_state.assert_called()
 
@@ -427,7 +427,7 @@ class TestSeedAsCandidates:
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
         relays = parse_seed_file(seed_file)
 
-        await seeder.seed_as_candidates(relays)
+        await seeder._seed_as_candidates(relays)
 
         call_args = mock_seeder_brotr.upsert_service_state.call_args[0][0]
         networks = [record.state_value["network"] for record in call_args]
@@ -441,7 +441,7 @@ class TestSeedAsCandidates:
 
 
 class TestSeedAsRelays:
-    """Tests for Seeder.seed_as_relays() method."""
+    """Tests for Seeder._seed_as_relays() method."""
 
     async def test_seed_as_relays_inserts_directly(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
@@ -456,7 +456,7 @@ class TestSeedAsRelays:
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
         relays = parse_seed_file(seed_file)
 
-        await seeder.seed_as_relays(relays)
+        await seeder._seed_as_relays(relays)
 
         mock_seeder_brotr.insert_relay.assert_called()
 
@@ -475,7 +475,7 @@ class TestSeedAsRelays:
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
         relays = parse_seed_file(seed_file)
 
-        await seeder.seed_as_relays(relays)
+        await seeder._seed_as_relays(relays)
 
         assert mock_seeder_brotr.insert_relay.call_count >= 2
 
