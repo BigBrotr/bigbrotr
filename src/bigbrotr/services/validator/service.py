@@ -189,7 +189,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
     # Public API
     # -------------------------------------------------------------------------
 
-    async def validate(self, networks: list[str] | None = None) -> int:
+    async def validate(self) -> int:
         """Count, validate, and persist all pending candidates.
 
         High-level entry point that counts available candidates, processes
@@ -199,14 +199,10 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         This is the method ``run()`` delegates to after cleanup. It can also
         be called standalone when cleanup is not desired.
 
-        Args:
-            networks: Network types to process. ``None`` uses config defaults.
-
         Returns:
             Total number of candidates processed (valid + invalid).
         """
-        if networks is None:
-            networks = self._config.networks.get_enabled_networks()
+        networks = self._config.networks.get_enabled_networks()
 
         self.chunk_progress.total = await count_candidates(self._brotr, networks)
         self._logger.info("candidates_available", total=self.chunk_progress.total)
@@ -215,7 +211,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         if not networks:
             self._logger.warning("no_networks_enabled")
         else:
-            async for valid, invalid in self.validate_chunks(networks):
+            async for valid, invalid in self.validate_chunks():
                 self.chunk_progress.record(succeeded=len(valid), failed=len(invalid))
                 await self._persist_results(valid, invalid)
                 self._emit_progress_gauges()
@@ -311,43 +307,30 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             except (TimeoutError, OSError):
                 return False
 
-    async def validate_chunks(
-        self,
-        networks: list[str] | None = None,
-        *,
-        chunk_size: int | None = None,
-        max_candidates: int | None = None,
-    ) -> AsyncIterator[tuple[list[Relay], list[Candidate]]]:
+    async def validate_chunks(self) -> AsyncIterator[tuple[list[Relay], list[Candidate]]]:
         """Yield ``(valid_relays, invalid_candidates)`` for each processed chunk.
 
         Handles chunk fetching, budget calculation, and concurrent validation.
-        Persistence is left to the caller.
-
-        Args:
-            networks: Network types to process. ``None`` uses config defaults.
-            chunk_size: Override for per-chunk limit. ``None`` uses config.
-            max_candidates: Override for total limit. ``None`` uses config.
+        Persistence is left to the caller. Networks, chunk size, and candidate
+        limit are read from
+        [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig].
 
         Yields:
             Tuple of (valid Relay list, invalid Candidate list) per chunk.
         """
-        if networks is None:
-            networks = self._config.networks.get_enabled_networks()
-
-        _chunk_size = chunk_size if chunk_size is not None else self._config.processing.chunk_size
-        _max = (
-            max_candidates if max_candidates is not None else self._config.processing.max_candidates
-        )
+        networks = self._config.networks.get_enabled_networks()
+        chunk_size = self._config.processing.chunk_size
+        max_candidates = self._config.processing.max_candidates
         processed = 0
 
         while self.is_running:
-            if _max is not None:
-                budget = _max - processed
+            if max_candidates is not None:
+                budget = max_candidates - processed
                 if budget <= 0:
                     break
-                limit = min(_chunk_size, budget)
+                limit = min(chunk_size, budget)
             else:
-                limit = _chunk_size
+                limit = chunk_size
 
             candidates = await self._fetch_chunk(networks, limit)
             if not candidates:
