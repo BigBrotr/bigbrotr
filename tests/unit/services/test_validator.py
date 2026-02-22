@@ -589,14 +589,10 @@ class TestErrorHandling:
             ]
         )
         validator2 = Validator(brotr=mock_validator_brotr)
-
-        async def mock_process_all(networks):
-            validator2._is_running = False
-
-        validator2._process_all = mock_process_all
+        validator2.request_shutdown()
         await validator2.run()
 
-        assert validator2._is_running is False
+        assert validator2.is_running is False
 
 
 # ============================================================================

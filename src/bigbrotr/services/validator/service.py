@@ -132,7 +132,8 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
     [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin],
     cleans up stale/exhausted candidates, then processes remaining
     candidates in configurable chunks. Supports clearnet (direct),
-    Tor (.onion via SOCKS5), and I2P (.i2p via SOCKS5).
+    Tor (.onion via SOCKS5), I2P (.i2p via SOCKS5), and Lokinet
+    (.loki via SOCKS5).
 
     See Also:
         [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig]:
@@ -182,8 +183,20 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         self._logger.info("candidates_available", total=self.chunk_progress.total)
         self._emit_progress_gauges()
 
-        # Process all candidates
-        await self._process_all(networks)
+        if not networks:
+            self._logger.warning("no_networks_enabled")
+        else:
+            async for valid, invalid in self.validate_chunks(networks):
+                self.chunk_progress.record(succeeded=len(valid), failed=len(invalid))
+                await self._persist_results(valid, invalid)
+                self._emit_progress_gauges()
+                self._logger.info(
+                    "chunk_completed",
+                    chunk=self.chunk_progress.chunks,
+                    valid=len(valid),
+                    invalid=len(invalid),
+                    remaining=self.chunk_progress.remaining,
+                )
 
         self._emit_progress_gauges()
         self._logger.info(
@@ -230,7 +243,8 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             Number of exhausted candidates removed.
 
         See Also:
-            ``delete_exhausted_candidates``: The SQL query executed.
+            [delete_exhausted_candidates][bigbrotr.services.common.queries.delete_exhausted_candidates]:
+                The SQL query executed by this method.
         """
         if not self._config.cleanup.enabled:
             return 0
@@ -301,7 +315,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         if networks is None:
             networks = self._config.networks.get_enabled_networks()
 
-        _chunk_size = chunk_size or self._config.processing.chunk_size
+        _chunk_size = chunk_size if chunk_size is not None else self._config.processing.chunk_size
         _max = (
             max_candidates if max_candidates is not None else self._config.processing.max_candidates
         )
@@ -324,30 +338,9 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             processed += len(valid) + len(invalid)
             yield valid, invalid
 
-    async def _process_all(self, networks: list[str]) -> None:
-        """Process all pending candidates using the ``validate_chunks`` generator.
-
-        Consumes chunks, updates progress, persists results, and emits metrics.
-
-        Args:
-            networks: Enabled network type strings to process.
-        """
-        if not networks:
-            self._logger.warning("no_networks_enabled")
-            return
-
-        async for valid, invalid in self.validate_chunks(networks):
-            self.chunk_progress.record(succeeded=len(valid), failed=len(invalid))
-
-            await self._persist_results(valid, invalid)
-            self._emit_progress_gauges()
-            self._logger.info(
-                "chunk_completed",
-                chunk=self.chunk_progress.chunks,
-                valid=len(valid),
-                invalid=len(invalid),
-                remaining=self.chunk_progress.remaining,
-            )
+    # -------------------------------------------------------------------------
+    # Internals
+    # -------------------------------------------------------------------------
 
     async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Candidate]:
         """Fetch the next chunk of candidates ordered by priority.
@@ -397,25 +390,19 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         tasks = [self.validate_candidate(c) for c in candidates]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Re-raise CancelledError — gather(return_exceptions=True) captures it as a result
-        for r in results:
-            if isinstance(r, asyncio.CancelledError):
-                raise r
-
         valid: list[Relay] = []
         invalid: list[Candidate] = []
 
         for candidate, result in zip(candidates, results, strict=True):
+            # gather(return_exceptions=True) captures CancelledError as a result
+            if isinstance(result, asyncio.CancelledError):
+                raise result
             if result is True:
                 valid.append(candidate.relay)
             else:
                 invalid.append(candidate)
 
         return valid, invalid
-
-    # -------------------------------------------------------------------------
-    # Persistence
-    # -------------------------------------------------------------------------
 
     async def _persist_results(self, valid: list[Relay], invalid: list[Candidate]) -> None:
         """Persist validation results to the database.
@@ -459,10 +446,6 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
                     self._logger.info("promoted", url=relay.url, network=relay.network.value)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("promote_failed", count=len(valid), error=str(e))
-
-    # -------------------------------------------------------------------------
-    # Metrics
-    # -------------------------------------------------------------------------
 
     def _emit_progress_gauges(self) -> None:
         """Emit Prometheus gauges for batch progress."""
