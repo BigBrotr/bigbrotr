@@ -38,7 +38,6 @@ from .mixins import (
     GeoReaderMixin,
     NetworkSemaphores,
     NetworkSemaphoresMixin,
-    NostrPublisherMixin,
 )
 from .queries import (
     count_candidates,
@@ -69,7 +68,6 @@ __all__ = [
     "NetworkSemaphores",
     "NetworkSemaphoresMixin",
     "NetworkTypeConfig",
-    "NostrPublisherMixin",
     "TorConfig",
     "count_candidates",
     "count_relays_due_for_check",

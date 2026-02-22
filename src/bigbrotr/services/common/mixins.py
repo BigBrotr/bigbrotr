@@ -18,20 +18,13 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
-from bigbrotr.models.constants import NetworkType, ServiceName
-from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.utils.protocol import broadcast_events as transport_broadcast_events
+from bigbrotr.models.constants import NetworkType
 
 
 if TYPE_CHECKING:
     import geoip2.database
-    from nostr_sdk import EventBuilder, Keys
-
-    from bigbrotr.core.brotr import Brotr
-    from bigbrotr.core.logger import Logger
-    from bigbrotr.models import Relay
 
     from .configs import NetworkConfig
 
@@ -249,103 +242,3 @@ class GeoReaderMixin:
         if self.asn_reader:
             self.asn_reader.close()
             self.asn_reader = None
-
-
-# ---------------------------------------------------------------------------
-# Nostr Publisher
-# ---------------------------------------------------------------------------
-
-
-class NostrPublisherMixin:
-    """Mixin encapsulating Nostr event signing, broadcasting, and interval-gated publishing.
-
-    Provides ``broadcast_events()`` for direct broadcasting and
-    ``publish_if_due()`` for interval-gated publishing with checkpoint
-    persistence. Uses ``broadcast_events`` from ``protocol.py`` internally.
-
-    Note:
-        The consumer must set ``self._keys`` in ``__init__`` to a valid
-        ``nostr_sdk.Keys`` instance.
-
-    See Also:
-        [Monitor][bigbrotr.services.monitor.Monitor]: The service that
-            composes this mixin for Kind 0, 10166, and 30166 publishing.
-        [broadcast_events][bigbrotr.utils.protocol.broadcast_events]:
-            The protocol function wrapped by this mixin.
-    """
-
-    # Declared for mypy -- provided by BaseService at runtime
-    _brotr: Brotr
-    _logger: Logger
-    SERVICE_NAME: ClassVar[ServiceName]
-
-    # Own attribute -- set by consumer in __init__
-    _keys: Keys
-
-    async def broadcast_events(
-        self,
-        builders: list[EventBuilder],
-        relays: list[Relay],
-        *,
-        timeout: float = 30.0,  # noqa: ASYNC109
-        allow_insecure: bool = True,
-    ) -> int:
-        """Sign and broadcast events, returning count of successful relays.
-
-        Wraps [broadcast_events][bigbrotr.utils.protocol.broadcast_events]
-        with ``self._keys``.
-        """
-        return await transport_broadcast_events(
-            builders,
-            relays,
-            self._keys,
-            timeout=timeout,
-            allow_insecure=allow_insecure,
-        )
-
-    async def publish_if_due(  # noqa: PLR0913
-        self,
-        *,
-        enabled: bool,
-        relays: list[Relay],
-        interval: int,
-        state_key: str,
-        builder: EventBuilder,
-        event_name: str,
-        timeout: float = 30.0,  # noqa: ASYNC109
-    ) -> None:
-        """Publish an event if enabled, relays configured, and interval elapsed.
-
-        Checks the last publish timestamp from service_state checkpoints.
-        After a successful broadcast, saves the new timestamp.
-        """
-        if not enabled or not relays:
-            return
-
-        results = await self._brotr.get_service_state(
-            self.SERVICE_NAME,
-            ServiceStateType.CHECKPOINT,
-            state_key,
-        )
-        last_ts = results[0].state_value.get("timestamp", 0.0) if results else 0.0
-        if time.time() - last_ts < interval:
-            return
-
-        sent = await self.broadcast_events([builder], relays, timeout=timeout)
-        if not sent:
-            self._logger.warning(f"{event_name}_failed", error="no relays reachable")
-            return
-
-        self._logger.info(f"{event_name}_published", relays=sent)
-        now = time.time()
-        await self._brotr.upsert_service_state(
-            [
-                ServiceState(
-                    service_name=self.SERVICE_NAME,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key=state_key,
-                    state_value={"timestamp": now},
-                    updated_at=int(now),
-                ),
-            ]
-        )

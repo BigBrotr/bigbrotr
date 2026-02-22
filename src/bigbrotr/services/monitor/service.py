@@ -88,10 +88,10 @@ from bigbrotr.services.common.mixins import (
     BatchProgressMixin,
     GeoReaderMixin,
     NetworkSemaphoresMixin,
-    NostrPublisherMixin,
 )
 from bigbrotr.services.common.queries import count_relays_due_for_check, fetch_relays_due_for_check
 from bigbrotr.utils.http import download_bounded_file
+from bigbrotr.utils.protocol import broadcast_events
 
 from .configs import MetadataFlags, MonitorConfig, MonitorRetryConfig
 from .utils import collect_metadata, get_reason, get_success, safe_result
@@ -180,7 +180,6 @@ class Monitor(
     BatchProgressMixin,
     NetworkSemaphoresMixin,
     GeoReaderMixin,
-    NostrPublisherMixin,
     BaseService[MonitorConfig],
 ):
     """Relay health monitoring service with NIP-66 compliance.
@@ -824,10 +823,58 @@ class Monitor(
         """Get relays for event publishing, falling back to the global publishing relays."""
         return section_relays or self._config.publishing.relays
 
+    async def _publish_if_due(  # noqa: PLR0913
+        self,
+        *,
+        enabled: bool,
+        relays: list[Relay],
+        interval: int,
+        state_key: str,
+        builder: EventBuilder,
+        event_name: str,
+        timeout: float = 30.0,  # noqa: ASYNC109
+    ) -> None:
+        """Publish an event if enabled, relays configured, and interval elapsed."""
+        if not enabled or not relays:
+            return
+
+        results = await self._brotr.get_service_state(
+            self.SERVICE_NAME,
+            ServiceStateType.CHECKPOINT,
+            state_key,
+        )
+        last_ts = results[0].state_value.get("timestamp", 0.0) if results else 0.0
+        if time.time() - last_ts < interval:
+            return
+
+        sent = await broadcast_events(
+            [builder],
+            relays,
+            self._keys,
+            timeout=timeout,
+        )
+        if not sent:
+            self._logger.warning(f"{event_name}_failed", error="no relays reachable")
+            return
+
+        self._logger.info(f"{event_name}_published", relays=sent)
+        now = time.time()
+        await self._brotr.upsert_service_state(
+            [
+                ServiceState(
+                    service_name=self.SERVICE_NAME,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key=state_key,
+                    state_value={"timestamp": now},
+                    updated_at=int(now),
+                ),
+            ]
+        )
+
     async def publish_announcement(self) -> None:
         """Publish Kind 10166 monitor announcement if the configured interval has elapsed."""
         ann = self._config.announcement
-        await self.publish_if_due(
+        await self._publish_if_due(
             enabled=ann.enabled,
             relays=self._get_publish_relays(ann.relays),
             interval=ann.interval,
@@ -840,7 +887,7 @@ class Monitor(
     async def publish_profile(self) -> None:
         """Publish Kind 0 profile metadata if the configured interval has elapsed."""
         profile = self._config.profile
-        await self.publish_if_due(
+        await self._publish_if_due(
             enabled=profile.enabled,
             relays=self._get_publish_relays(profile.relays),
             interval=profile.interval,
@@ -865,9 +912,10 @@ class Monitor(
                 self._logger.debug("build_30166_failed", url=relay.url, error=str(e))
 
         if builders:
-            sent = await self.broadcast_events(
+            sent = await broadcast_events(
                 builders,
                 relays,
+                self._keys,
                 timeout=self._config.publishing.timeout,
             )
             if sent:

@@ -1202,9 +1202,8 @@ class _MonitorStub:
         self._logger = MagicMock()
         self._brotr = brotr or AsyncMock()
 
-    # Publishing methods bound from Monitor / NostrPublisherMixin
-    broadcast_events = Monitor.broadcast_events
-    publish_if_due = Monitor.publish_if_due
+    # Publishing methods bound from Monitor
+    _publish_if_due = Monitor._publish_if_due
     publish_announcement = Monitor.publish_announcement
     publish_profile = Monitor.publish_profile
     publish_relay_discoveries = Monitor.publish_relay_discoveries
@@ -1355,59 +1354,6 @@ def _make_check_result(
         nip66_rtt=nip66_rtt,
         nip66_ssl=nip66_ssl,
     )
-
-
-# ============================================================================
-# Monitor.broadcast_events
-# ============================================================================
-
-
-class TestMonitorBroadcastEvents:
-    """Tests for Monitor.broadcast_events orchestration wrapper."""
-
-    async def test_broadcast_events_delegates_to_utils(self, stub: _MonitorStub) -> None:
-        """Test that broadcast_events calls connect_relay with correct args."""
-        mock_client = AsyncMock()
-        relay = Relay("wss://relay.example.com")
-        mock_builder = MagicMock()
-
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
-            await stub.broadcast_events([mock_builder], [relay])
-
-        mock_client.send_event_builder.assert_awaited_once_with(mock_builder)
-        mock_client.shutdown.assert_awaited_once()
-
-    async def test_broadcast_events_empty_builders(self, stub: _MonitorStub) -> None:
-        relay = Relay("wss://relay.example.com")
-
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
-            await stub.broadcast_events([], [relay])
-            mock_connect.assert_not_called()
-
-    async def test_broadcast_events_empty_relays(self, stub: _MonitorStub) -> None:
-        mock_builder = MagicMock()
-
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
-            await stub.broadcast_events([mock_builder], [])
-            mock_connect.assert_not_called()
-
-    async def test_broadcast_events_shutdown_called_on_send_error(self, stub: _MonitorStub) -> None:
-        mock_client = AsyncMock()
-        mock_client.send_event_builder.side_effect = OSError("send failed")
-        relay = Relay("wss://relay.example.com")
-
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
-            await stub.broadcast_events([MagicMock()], [relay])
-
-        mock_client.shutdown.assert_awaited_once()
 
 
 # ============================================================================
