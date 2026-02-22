@@ -13,7 +13,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from bigbrotr.core.base_service import BaseServiceConfig
-from bigbrotr.services.common.configs import NetworkConfig
+from bigbrotr.services.common.configs import NetworksConfig
 
 
 class ProcessingConfig(BaseModel):
@@ -64,10 +64,10 @@ class ValidatorConfig(BaseServiceConfig):
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
             Base class providing ``interval``, ``max_consecutive_failures``,
             and ``metrics`` fields.
-        [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
+        [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
             Per-network timeout and proxy settings.
     """
 
-    networks: NetworkConfig = Field(default_factory=NetworkConfig)
+    networks: NetworksConfig = Field(default_factory=NetworksConfig)
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
     cleanup: CleanupConfig = Field(default_factory=CleanupConfig)

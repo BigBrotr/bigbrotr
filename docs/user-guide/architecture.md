@@ -475,7 +475,7 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | `I2pConfig` | No | `socks5://i2p:4447` | 5 | 45s |
 | `LokiConfig` | No | `socks5://lokinet:1080` | 5 | 30s |
 
-`NetworkConfig` wraps all four and provides `get(network)`, `is_enabled(network)`, `get_proxy_url(network)`, `get_enabled_networks()`.
+`NetworksConfig` wraps all four and provides `get(network)`, `is_enabled(network)`, `get_proxy_url(network)`, `get_enabled_networks()`.
 
 **BatchProgress** (`mixins.py`):
 

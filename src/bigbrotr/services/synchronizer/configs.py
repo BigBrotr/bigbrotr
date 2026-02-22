@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models.constants import EVENT_KIND_MAX, NetworkType
-from bigbrotr.services.common.configs import NetworkConfig
+from bigbrotr.services.common.configs import NetworksConfig
 from bigbrotr.utils.keys import KeysConfig
 
 
@@ -100,7 +100,7 @@ class TimeoutsConfig(BaseModel):
 
     These are the maximum total times allowed for syncing a single relay.
     The per-request WebSocket timeout comes from
-    [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig].
+    [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig].
 
     See Also:
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
@@ -182,17 +182,17 @@ class SynchronizerConfig(BaseServiceConfig):
             service class that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
             Base class providing ``interval`` and ``log_level`` fields.
-        [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
+        [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
             Per-network timeout and proxy settings.
         [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key management
             for NIP-42 authentication during event fetching.
     """
 
-    networks: NetworkConfig = Field(default_factory=NetworkConfig)
+    networks: NetworksConfig = Field(default_factory=NetworksConfig)
     keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
     filter: FilterConfig = Field(default_factory=FilterConfig)
     time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
-    sync_timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
+    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     source: SourceConfig = Field(default_factory=SourceConfig)
     overrides: list[RelayOverride] = Field(default_factory=list)

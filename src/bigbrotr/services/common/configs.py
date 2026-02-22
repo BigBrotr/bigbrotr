@@ -24,7 +24,7 @@ See Also:
     [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig],
     [MonitorConfig][bigbrotr.services.monitor.MonitorConfig],
     [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
-        Service configs that embed ``NetworkConfig``.
+        Service configs that embed ``NetworksConfig``.
 
 Examples:
     ```yaml
@@ -129,7 +129,7 @@ NetworkTypeConfig = ClearnetConfig | TorConfig | I2pConfig | LokiConfig
 # =============================================================================
 
 
-class NetworkConfig(BaseModel):
+class NetworksConfig(BaseModel):
     """Unified network configuration container for all BigBrotr services.
 
     Aggregates per-network settings with convenience methods for querying
@@ -149,7 +149,7 @@ class NetworkConfig(BaseModel):
 
     Examples:
         ```python
-        config = NetworkConfig(tor=TorConfig(enabled=True))
+        config = NetworksConfig(tor=TorConfig(enabled=True))
         config.is_enabled(NetworkType.TOR)  # True
         config.get_proxy_url(NetworkType.TOR)  # 'socks5://tor:9050'
         config.get_enabled_networks()  # ['clearnet', 'tor']

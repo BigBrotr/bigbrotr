@@ -242,7 +242,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         async with semaphore:
             network_type_config = self._config.networks.get(relay.network)
             request_timeout = network_type_config.timeout
-            relay_timeout = self._config.sync_timeouts.get_relay_timeout(relay.network)
+            relay_timeout = self._config.timeouts.get_relay_timeout(relay.network)
 
             for override in self._config.overrides:
                 if override.url == str(relay.url):

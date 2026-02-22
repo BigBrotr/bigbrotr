@@ -33,7 +33,7 @@ from bigbrotr.nips.nip11.logs import Nip11InfoLogs
 from bigbrotr.nips.nip66 import Nip66, Nip66RttMetadata, Nip66SslMetadata
 from bigbrotr.nips.nip66.data import Nip66RttData, Nip66SslData
 from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs, Nip66SslLogs
-from bigbrotr.services.common.configs import ClearnetConfig, NetworkConfig, TorConfig
+from bigbrotr.services.common.configs import ClearnetConfig, NetworksConfig, TorConfig
 from bigbrotr.services.monitor import (
     AnnouncementConfig,
     CheckResult,
@@ -371,7 +371,7 @@ class TestMonitorConfig:
             discovery=DiscoveryConfig(
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
-            networks=NetworkConfig(
+            networks=NetworksConfig(
                 clearnet=ClearnetConfig(timeout=5.0),
                 tor=TorConfig(enabled=True, timeout=30.0),
             ),
@@ -821,7 +821,7 @@ class TestMonitorInit:
     def test_init_with_custom_config(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test initialization with custom config."""
         config = MonitorConfig(
-            networks=NetworkConfig(tor=TorConfig(enabled=False)),
+            networks=NetworksConfig(tor=TorConfig(enabled=False)),
             processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1166,7 +1166,7 @@ class TestMonitorNetworkConfiguration:
             discovery=DiscoveryConfig(
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
-            networks=NetworkConfig(
+            networks=NetworksConfig(
                 clearnet=ClearnetConfig(enabled=True),
                 tor=TorConfig(enabled=True),
             ),
@@ -1258,7 +1258,7 @@ def all_flags_config() -> MonitorConfig:
             lud16="monitor@ln.example.com",
         ),
         publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
-        networks=NetworkConfig(clearnet=ClearnetConfig(timeout=10.0)),
+        networks=NetworksConfig(clearnet=ClearnetConfig(timeout=10.0)),
     )
 
 
@@ -1861,7 +1861,7 @@ class TestBuildKind10166:
                 ),
                 relays=["wss://disc.relay.com"],
             ),
-            networks=NetworkConfig(clearnet=ClearnetConfig(timeout=5.0)),
+            networks=NetworksConfig(clearnet=ClearnetConfig(timeout=5.0)),
         )
         harness = _MonitorStub(config, test_keys)
         builder = harness._build_kind_10166()
@@ -1903,7 +1903,7 @@ class TestBuildKind10166:
                     nip66_http=False,
                 ),
             ),
-            networks=NetworkConfig(clearnet=ClearnetConfig(timeout=10.0)),
+            networks=NetworksConfig(clearnet=ClearnetConfig(timeout=10.0)),
         )
         harness = _MonitorStub(config, test_keys)
         builder = harness._build_kind_10166()

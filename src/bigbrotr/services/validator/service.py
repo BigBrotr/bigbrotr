@@ -13,7 +13,7 @@ or AUTH, as determined by
 
 Note:
     Each cycle initializes per-network semaphores from
-    [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig],
+    [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig],
     cleans up stale/exhausted candidates, then processes remaining
     candidates in configurable chunks. Candidate priority is ordered by
     fewest failures first (most likely to succeed).
@@ -252,7 +252,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         """Validate a single relay candidate by connecting and testing the Nostr protocol.
 
         Uses the network-specific semaphore and proxy settings from
-        [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig].
+        [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig].
         Delegates the actual WebSocket probe to
         [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay].
 

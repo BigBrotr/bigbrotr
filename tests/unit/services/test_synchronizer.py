@@ -2,7 +2,7 @@
 Unit tests for services.synchronizer module.
 
 Tests:
-- Configuration models (NetworkConfig, FilterConfig, TimeoutsConfig)
+- Configuration models (NetworksConfig, FilterConfig, TimeoutsConfig)
 - Synchronizer service initialization and defaults
 - Relay fetching and metadata-based filtering
 - Start time determination from cursors
@@ -18,7 +18,7 @@ import pytest
 from bigbrotr.core.brotr import Brotr, BrotrConfig, BrotrTimeoutsConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
-from bigbrotr.services.common.configs import NetworkConfig, TorConfig
+from bigbrotr.services.common.configs import NetworksConfig, TorConfig
 from bigbrotr.services.synchronizer import (
     ConcurrencyConfig,
     EventBatch,
@@ -270,7 +270,7 @@ class TestSynchronizerConfig:
         assert config.filter.limit == 500
         assert config.time_range.default_start == 0
         assert config.networks.clearnet.timeout == 10.0
-        assert config.sync_timeouts.relay_clearnet == 1800.0
+        assert config.timeouts.relay_clearnet == 1800.0
         assert config.concurrency.cursor_flush_interval == 50
         assert config.source.from_database is True
         assert config.interval == 300.0
@@ -278,7 +278,7 @@ class TestSynchronizerConfig:
     def test_custom_nested_config(self) -> None:
         """Test custom nested configuration with Tor enabled."""
         config = SynchronizerConfig(
-            networks=NetworkConfig(tor=TorConfig(enabled=True)),
+            networks=NetworksConfig(tor=TorConfig(enabled=True)),
             concurrency=ConcurrencyConfig(cursor_flush_interval=25),
             interval=1800.0,
         )
@@ -312,7 +312,7 @@ class TestSynchronizerInit:
     def test_init_with_custom_config(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test initialization with custom config (Tor enabled)."""
         config = SynchronizerConfig(
-            networks=NetworkConfig(tor=TorConfig(enabled=True)),
+            networks=NetworksConfig(tor=TorConfig(enabled=True)),
             concurrency=ConcurrencyConfig(cursor_flush_interval=25),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)

@@ -485,13 +485,13 @@ class Monitor(
     async def _with_retry(
         self,
         coro_factory: Callable[[], Coroutine[Any, Any, _T]],
-        retry_config: RetryConfig,
+        retry: RetryConfig,
         operation: str,
         relay_url: str,
     ) -> _T | None:
         """Execute a metadata fetch with exponential backoff retry.
 
-        Retries on network failures up to ``retry_config.max_attempts`` times.
+        Retries on network failures up to ``retry.max_attempts`` times.
         Returns the result (possibly with ``success=False``) or ``None`` on
         exception.
 
@@ -509,7 +509,7 @@ class Monitor(
         Args:
             coro_factory: Callable that creates the coroutine to execute.
                 Must return a fresh coroutine on each call.
-            retry_config: [RetryConfig][bigbrotr.services.monitor.RetryConfig]
+            retry: [RetryConfig][bigbrotr.services.monitor.RetryConfig]
                 with max retries, delays, and jitter.
             operation: Operation name for structured log messages.
             relay_url: Relay URL for logging context.
@@ -517,7 +517,7 @@ class Monitor(
         Returns:
             The metadata result, or ``None`` if an exception occurred.
         """
-        max_retries = retry_config.max_attempts
+        max_retries = retry.max_attempts
         result = None
 
         for attempt in range(max_retries + 1):
@@ -536,8 +536,8 @@ class Monitor(
 
             # Network failure - retry if attempts remaining
             if attempt < max_retries:
-                delay = min(retry_config.initial_delay * (2**attempt), retry_config.max_delay)
-                jitter = random.uniform(0, retry_config.jitter)  # noqa: S311
+                delay = min(retry.initial_delay * (2**attempt), retry.max_delay)
+                jitter = random.uniform(0, retry.jitter)  # noqa: S311
                 if await self.wait(delay + jitter):
                     return None
                 self._logger.debug(
@@ -584,14 +584,14 @@ class Monitor(
         if compute.nip66_ssl and relay.network == NetworkType.CLEARNET:
             tasks["ssl"] = self._with_retry(
                 lambda: Nip66SslMetadata.execute(relay, timeout),
-                self._config.processing.retry.nip66_ssl,
+                self._config.processing.retries.nip66_ssl,
                 "nip66_ssl",
                 relay.url,
             )
         if compute.nip66_dns and relay.network == NetworkType.CLEARNET:
             tasks["dns"] = self._with_retry(
                 lambda: Nip66DnsMetadata.execute(relay, timeout),
-                self._config.processing.retry.nip66_dns,
+                self._config.processing.retries.nip66_dns,
                 "nip66_dns",
                 relay.url,
             )
@@ -600,7 +600,7 @@ class Monitor(
             precision = self._config.geo.geohash_precision
             tasks["geo"] = self._with_retry(
                 lambda: Nip66GeoMetadata.execute(relay, city_reader, precision),
-                self._config.processing.retry.nip66_geo,
+                self._config.processing.retries.nip66_geo,
                 "nip66_geo",
                 relay.url,
             )
@@ -608,7 +608,7 @@ class Monitor(
             asn_reader = self.geo_readers.asn
             tasks["net"] = self._with_retry(
                 lambda: Nip66NetMetadata.execute(relay, asn_reader),
-                self._config.processing.retry.nip66_net,
+                self._config.processing.retries.nip66_net,
                 "nip66_net",
                 relay.url,
             )
@@ -620,7 +620,7 @@ class Monitor(
                     proxy_url,
                     allow_insecure=self._config.processing.allow_insecure,
                 ),
-                self._config.processing.retry.nip66_http,
+                self._config.processing.retries.nip66_http,
                 "nip66_http",
                 relay.url,
             )
@@ -674,7 +674,7 @@ class Monitor(
                                 max_size=self._config.processing.nip11_info_max_size,
                             ),
                         ),
-                        self._config.processing.retry.nip11_info,
+                        self._config.processing.retries.nip11_info,
                         "nip11_info",
                         relay.url,
                     )
@@ -705,7 +705,7 @@ class Monitor(
                             proxy_url,
                             allow_insecure=self._config.processing.allow_insecure,
                         ),
-                        self._config.processing.retry.nip66_rtt,
+                        self._config.processing.retries.nip66_rtt,
                         "nip66_rtt",
                         relay.url,
                     )

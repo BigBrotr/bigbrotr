@@ -16,7 +16,7 @@ from pydantic import BaseModel, BeforeValidator, Field, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
-from bigbrotr.services.common.configs import NetworkConfig
+from bigbrotr.services.common.configs import NetworksConfig
 from bigbrotr.utils.keys import KeysConfig
 from bigbrotr.utils.parsing import models_from_db_params
 
@@ -71,7 +71,7 @@ class RetryConfig(BaseModel):
     jitter: float = Field(default=0.5, ge=0.0, le=2.0)
 
 
-class MetadataRetryConfig(BaseModel):
+class RetriesConfig(BaseModel):
     """Per-metadata-type retry settings.
 
     Each field corresponds to one of the seven health check types and
@@ -107,7 +107,7 @@ class ProcessingConfig(BaseModel):
     max_relays: int | None = Field(default=None, ge=1)
     allow_insecure: bool = Field(default=False)
     nip11_info_max_size: int = Field(default=1_048_576, ge=1024, le=10_485_760)
-    retry: MetadataRetryConfig = Field(default_factory=MetadataRetryConfig)
+    retries: RetriesConfig = Field(default_factory=RetriesConfig)
     compute: MetadataFlags = Field(default_factory=MetadataFlags)
     store: MetadataFlags = Field(default_factory=MetadataFlags)
 
@@ -245,7 +245,7 @@ class MonitorConfig(BaseServiceConfig):
             management for event signing.
     """
 
-    networks: NetworkConfig = Field(default_factory=NetworkConfig)
+    networks: NetworksConfig = Field(default_factory=NetworksConfig)
     keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
     geo: GeoConfig = Field(default_factory=GeoConfig)

@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
     from bigbrotr.models.service_state import ServiceState
-    from bigbrotr.services.common.configs import NetworkConfig
+    from bigbrotr.services.common.configs import NetworksConfig
 
     from .configs import FilterConfig
 
@@ -312,7 +312,7 @@ class SyncContext:
     """
 
     filter_config: FilterConfig
-    network_config: NetworkConfig
+    network_config: NetworksConfig
     request_timeout: float
     brotr: Brotr
     keys: Keys

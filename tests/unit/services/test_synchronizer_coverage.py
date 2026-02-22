@@ -25,7 +25,7 @@ import pytest
 from bigbrotr.core.brotr import Brotr, BrotrConfig, BrotrTimeoutsConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
-from bigbrotr.services.common.configs import NetworkConfig, TorConfig
+from bigbrotr.services.common.configs import NetworksConfig, TorConfig
 from bigbrotr.services.synchronizer import (
     ConcurrencyConfig,
     EventBatch,
@@ -446,7 +446,7 @@ class TestSyncRelayEvents:
         keys = Keys.parse(VALID_HEX_KEY)
         return SyncContext(
             filter_config=FilterConfig(),
-            network_config=NetworkConfig(),
+            network_config=NetworksConfig(),
             request_timeout=10.0,
             brotr=brotr,
             keys=keys,
@@ -612,7 +612,7 @@ class TestSyncRelayEvents:
         keys = Keys.parse(VALID_HEX_KEY)
         ctx = SyncContext(
             filter_config=FilterConfig(),
-            network_config=NetworkConfig(tor=TorConfig(enabled=True)),
+            network_config=NetworksConfig(tor=TorConfig(enabled=True)),
             request_timeout=10.0,
             brotr=mock_synchronizer_brotr,
             keys=keys,
@@ -634,7 +634,7 @@ class TestSyncRelayEvents:
         ) as mock_create:
             await sync_relay_events(relay=relay, start_time=100, end_time=1000, ctx=ctx)
 
-        # Verify create_client was called (proxy URL comes from NetworkConfig)
+        # Verify create_client was called (proxy URL comes from NetworksConfig)
         mock_create.assert_called_once()
 
     async def test_sync_overflow_in_batch_append(self, mock_synchronizer_brotr: Brotr) -> None:
@@ -1301,7 +1301,7 @@ class TestSyncContext:
         keys = Keys.parse(VALID_HEX_KEY)
         ctx = SyncContext(
             filter_config=FilterConfig(),
-            network_config=NetworkConfig(),
+            network_config=NetworksConfig(),
             request_timeout=10.0,
             brotr=mock_synchronizer_brotr,
             keys=keys,

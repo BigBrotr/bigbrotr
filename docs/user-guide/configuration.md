@@ -245,7 +245,7 @@ All services inherit from `BaseServiceConfig` and share these fields:
 Services that connect to relays (Validator, Monitor, Synchronizer) share a unified network configuration:
 
 !!! tip "API Reference"
-    See [`bigbrotr.services.common.configs.NetworkConfig`](../reference/services/common/configs.md) for the config class API.
+    See [`bigbrotr.services.common.configs.NetworksConfig`](../reference/services/common/configs.md) for the config class API.
 
 ```yaml
 networks:
@@ -576,7 +576,7 @@ time_range:
   use_relay_state: true                      # Use per-relay incremental cursors
   lookback_seconds: 86400                    # Lookback window from cursor
 
-sync_timeouts:
+timeouts:
   relay_clearnet: 1800.0                     # Max time per clearnet relay (30 min)
   relay_tor: 3600.0                          # Max time per Tor relay (1 hour)
   relay_i2p: 3600.0
@@ -619,10 +619,10 @@ overrides: []                                # Per-relay timeout overrides
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `sync_timeouts.relay_clearnet` | float | `1800.0` | 60.0-14400.0 | Max time per clearnet relay |
-| `sync_timeouts.relay_tor` | float | `3600.0` | 60.0-14400.0 | Max time per Tor relay |
-| `sync_timeouts.relay_i2p` | float | `3600.0` | 60.0-14400.0 | Max time per I2P relay |
-| `sync_timeouts.relay_loki` | float | `3600.0` | 60.0-14400.0 | Max time per Lokinet relay |
+| `timeouts.relay_clearnet` | float | `1800.0` | 60.0-14400.0 | Max time per clearnet relay |
+| `timeouts.relay_tor` | float | `3600.0` | 60.0-14400.0 | Max time per Tor relay |
+| `timeouts.relay_i2p` | float | `3600.0` | 60.0-14400.0 | Max time per I2P relay |
+| `timeouts.relay_loki` | float | `3600.0` | 60.0-14400.0 | Max time per Lokinet relay |
 
 ### Concurrency Reference
 

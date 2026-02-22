@@ -21,7 +21,7 @@ from bigbrotr.services.common.configs import (
     ClearnetConfig,
     I2pConfig,
     LokiConfig,
-    NetworkConfig,
+    NetworksConfig,
     TorConfig,
 )
 from bigbrotr.services.validator import (
@@ -181,7 +181,7 @@ class TestValidatorConfig:
     def test_networks_config(self) -> None:
         """Test networks configuration."""
         config = ValidatorConfig(
-            networks=NetworkConfig(
+            networks=NetworksConfig(
                 clearnet=ClearnetConfig(max_tasks=100),
                 tor=TorConfig(enabled=True, max_tasks=10),
             )
@@ -377,7 +377,7 @@ class TestNetworkAwareValidation:
         )
 
         config = ValidatorConfig(
-            networks=NetworkConfig(clearnet=ClearnetConfig(timeout=5.0, max_tasks=10))
+            networks=NetworksConfig(clearnet=ClearnetConfig(timeout=5.0, max_tasks=10))
         )
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
@@ -397,7 +397,7 @@ class TestNetworkAwareValidation:
             side_effect=[[make_candidate_row("ws://onion.onion", network="tor")], []]
         )
 
-        config = ValidatorConfig(networks=NetworkConfig(tor=TorConfig(timeout=45.0, max_tasks=5)))
+        config = ValidatorConfig(networks=NetworksConfig(tor=TorConfig(timeout=45.0, max_tasks=5)))
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
         with patch(
@@ -417,7 +417,7 @@ class TestNetworkAwareValidation:
         )
 
         config = ValidatorConfig(
-            networks=NetworkConfig(tor=TorConfig(enabled=True, proxy_url="socks5://tor:9050"))
+            networks=NetworksConfig(tor=TorConfig(enabled=True, proxy_url="socks5://tor:9050"))
         )
         validator = Validator(brotr=mock_validator_brotr, config=config)
 
@@ -456,7 +456,7 @@ class TestNetworkAwareValidation:
         )
 
         config = ValidatorConfig(
-            networks=NetworkConfig(
+            networks=NetworksConfig(
                 i2p=I2pConfig(enabled=True, timeout=60.0, proxy_url="socks5://i2p:4447")
             )
         )
@@ -480,7 +480,7 @@ class TestNetworkAwareValidation:
         )
 
         config = ValidatorConfig(
-            networks=NetworkConfig(
+            networks=NetworksConfig(
                 loki=LokiConfig(enabled=True, timeout=30.0, proxy_url="socks5://loki:1080")
             )
         )
@@ -750,13 +750,13 @@ class TestNetworkConfiguration:
 
     def test_enabled_networks_default(self) -> None:
         """Test default enabled networks via config."""
-        config = NetworkConfig()
+        config = NetworksConfig()
         enabled = config.get_enabled_networks()
         assert "clearnet" in enabled
 
     def test_enabled_networks_with_tor(self) -> None:
         """Test enabled networks with Tor enabled."""
-        config = NetworkConfig(
+        config = NetworksConfig(
             clearnet=ClearnetConfig(enabled=True),
             tor=TorConfig(enabled=True),
         )
@@ -766,14 +766,14 @@ class TestNetworkConfiguration:
 
     def test_network_config_for_clearnet(self) -> None:
         """Test getting network config for clearnet."""
-        config = NetworkConfig(clearnet=ClearnetConfig(timeout=10.0, max_tasks=25))
+        config = NetworksConfig(clearnet=ClearnetConfig(timeout=10.0, max_tasks=25))
 
         assert config.clearnet.timeout == 10.0
         assert config.clearnet.max_tasks == 25
 
     def test_network_config_for_tor(self) -> None:
         """Test getting network config for Tor."""
-        config = NetworkConfig(
+        config = NetworksConfig(
             tor=TorConfig(enabled=True, timeout=60.0, proxy_url="socks5://tor:9050")
         )
 
@@ -833,7 +833,7 @@ class TestValidatorIntegration:
         )
 
         config = ValidatorConfig(
-            networks=NetworkConfig(
+            networks=NetworksConfig(
                 clearnet=ClearnetConfig(timeout=5.0),
                 tor=TorConfig(enabled=True, timeout=30.0, proxy_url="socks5://tor:9050"),
             )

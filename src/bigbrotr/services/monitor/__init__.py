@@ -9,11 +9,11 @@ from .configs import (
     DiscoveryConfig,
     GeoConfig,
     MetadataFlags,
-    MetadataRetryConfig,
     MonitorConfig,
     ProcessingConfig,
     ProfileConfig,
     PublishingConfig,
+    RetriesConfig,
     RetryConfig,
 )
 from .service import CheckResult, Monitor
@@ -25,11 +25,11 @@ __all__ = [
     "DiscoveryConfig",
     "GeoConfig",
     "MetadataFlags",
-    "MetadataRetryConfig",
     "Monitor",
     "MonitorConfig",
     "ProcessingConfig",
     "ProfileConfig",
     "PublishingConfig",
+    "RetriesConfig",
     "RetryConfig",
 ]

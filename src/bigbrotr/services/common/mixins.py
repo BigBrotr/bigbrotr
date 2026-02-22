@@ -8,7 +8,7 @@ explicit ``_init_*()`` calls are needed in service constructors.
 See Also:
     [BaseService][bigbrotr.core.base_service.BaseService]: The base class
         that mixin classes are composed with via multiple inheritance.
-    [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
+    [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
         Provides ``max_tasks`` values consumed by
         [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin].
 """
@@ -26,7 +26,7 @@ from bigbrotr.models.constants import NetworkType
 if TYPE_CHECKING:
     import geoip2.database
 
-    from .configs import NetworkConfig
+    from .configs import NetworksConfig
 
 
 # ---------------------------------------------------------------------------
@@ -152,13 +152,13 @@ class NetworkSemaphores:
     I2P, Lokinet) to cap the number of simultaneous connections.
 
     See Also:
-        [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
+        [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
             Provides ``max_tasks`` per network type.
     """
 
     __slots__ = ("_map",)
 
-    def __init__(self, networks: NetworkConfig) -> None:
+    def __init__(self, networks: NetworksConfig) -> None:
         self._map: dict[NetworkType, asyncio.Semaphore] = {
             nt: asyncio.Semaphore(networks.get(nt).max_tasks) for nt in OPERATIONAL_NETWORKS
         }
@@ -193,7 +193,7 @@ class NetworkSemaphoresMixin:
     network_semaphores: NetworkSemaphores
 
     def __init__(self, **kwargs: Any) -> None:
-        networks: NetworkConfig = kwargs.pop("networks")
+        networks: NetworksConfig = kwargs.pop("networks")
         super().__init__(**kwargs)
         self.network_semaphores = NetworkSemaphores(networks)
 

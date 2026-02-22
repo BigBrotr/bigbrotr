@@ -34,7 +34,7 @@ def _make_network_config(
     i2p_tasks: int = 5,
     loki_tasks: int = 5,
 ) -> MagicMock:
-    """Build a mock NetworkConfig with configurable max_tasks per network."""
+    """Build a mock NetworksConfig with configurable max_tasks per network."""
 
     def _net_cfg(max_tasks: int) -> MagicMock:
         cfg = MagicMock()
