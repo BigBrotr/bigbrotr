@@ -1,7 +1,7 @@
 """Unit tests for services.monitor module.
 
 Tests:
-- Configuration models (MetadataFlags, MonitorProcessingConfig, GeoConfig, etc.)
+- Configuration models (MetadataFlags, ProcessingConfig, GeoConfig, etc.)
 - Monitor service initialization
 - Relay selection logic
 - Metadata batch insertion
@@ -42,7 +42,7 @@ from bigbrotr.services.monitor import (
     MetadataFlags,
     Monitor,
     MonitorConfig,
-    MonitorProcessingConfig,
+    ProcessingConfig,
     ProfileConfig,
     PublishingConfig,
 )
@@ -115,16 +115,16 @@ class TestMetadataFlags:
 
 
 # ============================================================================
-# MonitorProcessingConfig Tests
+# ProcessingConfig Tests
 # ============================================================================
 
 
-class TestMonitorProcessingConfig:
-    """Tests for MonitorProcessingConfig Pydantic model."""
+class TestProcessingConfig:
+    """Tests for ProcessingConfig Pydantic model."""
 
     def test_default_values(self) -> None:
         """Test default processing config."""
-        config = MonitorProcessingConfig()
+        config = ProcessingConfig()
 
         assert config.chunk_size == 100
         assert config.nip11_info_max_size == 1048576
@@ -133,7 +133,7 @@ class TestMonitorProcessingConfig:
 
     def test_custom_values(self) -> None:
         """Test custom processing config."""
-        config = MonitorProcessingConfig(
+        config = ProcessingConfig(
             chunk_size=50,
             compute=MetadataFlags(nip66_geo=False),
             store=MetadataFlags(nip66_geo=False),
@@ -146,15 +146,15 @@ class TestMonitorProcessingConfig:
     def test_chunk_size_bounds(self) -> None:
         """Test chunk_size validation bounds."""
         # Valid values
-        config_min = MonitorProcessingConfig(chunk_size=10)
+        config_min = ProcessingConfig(chunk_size=10)
         assert config_min.chunk_size == 10
 
-        config_max = MonitorProcessingConfig(chunk_size=1000)
+        config_max = ProcessingConfig(chunk_size=1000)
         assert config_max.chunk_size == 1000
 
     def test_nip11_info_max_size_custom(self) -> None:
         """Test custom NIP-11 info max size."""
-        config = MonitorProcessingConfig(nip11_info_max_size=2097152)  # 2MB
+        config = ProcessingConfig(nip11_info_max_size=2097152)  # 2MB
         assert config.nip11_info_max_size == 2097152
 
 
@@ -332,7 +332,7 @@ class TestMonitorConfig:
     def test_default_values_with_geo_disabled(self, tmp_path: Path) -> None:
         """Test default configuration with geo/net disabled (no database needed)."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -350,7 +350,7 @@ class TestMonitorConfig:
         """Test that storing requires computing."""
         with pytest.raises(ValueError, match="Cannot store metadata that is not computed"):
             MonitorConfig(
-                processing=MonitorProcessingConfig(
+                processing=ProcessingConfig(
                     compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                     store=MetadataFlags(
                         nip66_geo=True, nip66_net=False
@@ -364,7 +364,7 @@ class TestMonitorConfig:
     def test_networks_config(self) -> None:
         """Test networks configuration."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -385,7 +385,7 @@ class TestMonitorConfig:
         """Test interval configuration from base service config."""
         config = MonitorConfig(
             interval=600.0,
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -805,7 +805,7 @@ class TestMonitorInit:
     def test_init_with_defaults(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test initialization with defaults (geo/net disabled)."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -822,7 +822,7 @@ class TestMonitorInit:
         """Test initialization with custom config."""
         config = MonitorConfig(
             networks=NetworkConfig(tor=TorConfig(enabled=False)),
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -861,7 +861,7 @@ class TestMonitorFetchChunk:
     ) -> None:
         """Test fetching relays when none need checking."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -895,7 +895,7 @@ class TestMonitorFetchChunk:
         ]
 
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -926,7 +926,7 @@ class TestMonitorFetchChunk:
         ]
 
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -955,7 +955,7 @@ class TestMonitorFetchChunk:
         ]
 
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -999,7 +999,7 @@ class TestMonitorRun:
         mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1033,7 +1033,7 @@ class TestMonitorRun:
         mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1065,7 +1065,7 @@ class TestMonitorPersistResults:
         mock_brotr.upsert_service_state = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1084,7 +1084,7 @@ class TestMonitorPersistResults:
         mock_brotr.upsert_service_state = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1112,7 +1112,7 @@ class TestMonitorPersistResults:
         mock_brotr.upsert_service_state = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1144,7 +1144,7 @@ class TestMonitorNetworkConfiguration:
     def test_enabled_networks_default(self, mock_brotr: Brotr) -> None:
         """Test default enabled networks via config.networks."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1159,7 +1159,7 @@ class TestMonitorNetworkConfiguration:
     def test_enabled_networks_with_tor(self, mock_brotr: Brotr) -> None:
         """Test enabled networks with Tor enabled via config.networks."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1231,7 +1231,7 @@ def all_flags_config() -> MonitorConfig:
     """MonitorConfig with all metadata flags enabled and geo/net disabled to avoid DB checks."""
     return MonitorConfig(
         interval=3600.0,
-        processing=MonitorProcessingConfig(
+        processing=ProcessingConfig(
             compute=MetadataFlags(nip66_geo=False, nip66_net=False),
             store=MetadataFlags(nip66_geo=False, nip66_net=False),
         ),
@@ -1373,7 +1373,7 @@ class TestGetPublishRelays:
     def test_get_publish_relays_discovery_falls_back_to_publishing(self, test_keys: Keys) -> None:
         """Test _get_publish_relays falls back to publishing.relays when discovery empty."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1399,7 +1399,7 @@ class TestGetPublishRelays:
     ) -> None:
         """Test _get_publish_relays falls back to publishing.relays when announcement empty."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1423,7 +1423,7 @@ class TestGetPublishRelays:
     def test_get_publish_relays_profile_falls_back_to_publishing(self, test_keys: Keys) -> None:
         """Test _get_publish_relays falls back to publishing.relays when profile empty."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1450,7 +1450,7 @@ class TestPublishAnnouncement:
     async def test_publish_announcement_when_disabled(self, test_keys: Keys) -> None:
         """Test that publish_announcement returns immediately when disabled."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1466,7 +1466,7 @@ class TestPublishAnnouncement:
     async def test_publish_announcement_when_no_relays(self, test_keys: Keys) -> None:
         """Test that publish_announcement returns when no relays configured."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1567,7 +1567,7 @@ class TestPublishProfile:
     async def test_publish_profile_when_disabled(self, test_keys: Keys) -> None:
         """Test that publish_profile returns immediately when disabled."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1583,7 +1583,7 @@ class TestPublishProfile:
     async def test_publish_profile_when_no_relays(self, test_keys: Keys) -> None:
         """Test that publish_profile returns when no relays configured."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1657,7 +1657,7 @@ class TestPublishRelayDiscoveries:
     async def test_publish_discoveries_when_disabled(self, test_keys: Keys) -> None:
         """Test that discoveries returns immediately when disabled."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1678,7 +1678,7 @@ class TestPublishRelayDiscoveries:
     async def test_publish_discoveries_when_no_relays(self, test_keys: Keys) -> None:
         """Test that discoveries returns when no relays configured."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1783,7 +1783,7 @@ class TestBuildKind0:
     def test_build_kind_0_minimal_fields(self, test_keys: Keys) -> None:
         """Test Kind 0 builder with only name field set."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1802,7 +1802,7 @@ class TestBuildKind0:
     def test_build_kind_0_no_fields(self, test_keys: Keys) -> None:
         """Test Kind 0 builder with no profile fields set."""
         config = MonitorConfig(
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
@@ -1833,7 +1833,7 @@ class TestBuildKind10166:
         """Test Kind 10166 builder with only RTT and NIP-11 flags enabled."""
         config = MonitorConfig(
             interval=1800.0,
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(
                     nip66_geo=False,
                     nip66_net=False,
@@ -1871,7 +1871,7 @@ class TestBuildKind10166:
         """Test Kind 10166 builder with all flags disabled."""
         config = MonitorConfig(
             interval=600.0,
-            processing=MonitorProcessingConfig(
+            processing=ProcessingConfig(
                 compute=MetadataFlags(
                     nip11_info=False,
                     nip66_rtt=False,

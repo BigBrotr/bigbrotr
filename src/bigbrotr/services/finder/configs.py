@@ -15,7 +15,7 @@ from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models.constants import EventKind
 
 
-class FinderConcurrencyConfig(BaseModel):
+class ConcurrencyConfig(BaseModel):
     """Concurrency limits for parallel API requests.
 
     See Also:
@@ -108,6 +108,6 @@ class FinderConfig(BaseServiceConfig):
             Base class providing ``interval`` and ``log_level`` fields.
     """
 
-    concurrency: FinderConcurrencyConfig = Field(default_factory=FinderConcurrencyConfig)
+    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     events: EventsConfig = Field(default_factory=EventsConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)

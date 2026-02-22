@@ -2,7 +2,7 @@
 Unit tests for services.synchronizer module.
 
 Tests:
-- Configuration models (NetworkConfig, FilterConfig, SyncTimeoutsConfig)
+- Configuration models (NetworkConfig, FilterConfig, TimeoutsConfig)
 - Synchronizer service initialization and defaults
 - Relay fetching and metadata-based filtering
 - Start time determination from cursors
@@ -20,13 +20,13 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import NetworkConfig, TorConfig
 from bigbrotr.services.synchronizer import (
+    ConcurrencyConfig,
     EventBatch,
     FilterConfig,
     SourceConfig,
-    SyncConcurrencyConfig,
     Synchronizer,
     SynchronizerConfig,
-    SyncTimeoutsConfig,
+    TimeoutsConfig,
     TimeRangeConfig,
 )
 
@@ -178,16 +178,16 @@ class TestTimeRangeConfig:
 
 
 # ============================================================================
-# SyncTimeoutsConfig Tests
+# TimeoutsConfig Tests
 # ============================================================================
 
 
-class TestSyncTimeoutsConfig:
-    """Tests for SyncTimeoutsConfig Pydantic model."""
+class TestTimeoutsConfig:
+    """Tests for TimeoutsConfig Pydantic model."""
 
     def test_default_values(self) -> None:
         """Test default sync timeouts."""
-        config = SyncTimeoutsConfig()
+        config = TimeoutsConfig()
 
         assert config.relay_clearnet == 1800.0
         assert config.relay_tor == 3600.0
@@ -196,7 +196,7 @@ class TestSyncTimeoutsConfig:
 
     def test_get_relay_timeout(self) -> None:
         """Test get_relay_timeout method."""
-        config = SyncTimeoutsConfig()
+        config = TimeoutsConfig()
 
         assert config.get_relay_timeout(NetworkType.CLEARNET) == 1800.0
         assert config.get_relay_timeout(NetworkType.TOR) == 3600.0
@@ -205,7 +205,7 @@ class TestSyncTimeoutsConfig:
 
     def test_custom_values(self) -> None:
         """Test custom sync timeouts."""
-        config = SyncTimeoutsConfig(
+        config = TimeoutsConfig(
             relay_clearnet=900.0,
             relay_tor=1800.0,
         )
@@ -215,16 +215,16 @@ class TestSyncTimeoutsConfig:
 
 
 # ============================================================================
-# SyncConcurrencyConfig Tests
+# ConcurrencyConfig Tests
 # ============================================================================
 
 
-class TestSyncConcurrencyConfig:
-    """Tests for SyncConcurrencyConfig Pydantic model."""
+class TestConcurrencyConfig:
+    """Tests for ConcurrencyConfig Pydantic model."""
 
     def test_default_values(self) -> None:
         """Test default concurrency config."""
-        config = SyncConcurrencyConfig()
+        config = ConcurrencyConfig()
 
         assert config.stagger_delay == (0, 60)
         assert config.cursor_flush_interval == 50
@@ -279,7 +279,7 @@ class TestSynchronizerConfig:
         """Test custom nested configuration with Tor enabled."""
         config = SynchronizerConfig(
             networks=NetworkConfig(tor=TorConfig(enabled=True)),
-            concurrency=SyncConcurrencyConfig(cursor_flush_interval=25),
+            concurrency=ConcurrencyConfig(cursor_flush_interval=25),
             interval=1800.0,
         )
 
@@ -313,7 +313,7 @@ class TestSynchronizerInit:
         """Test initialization with custom config (Tor enabled)."""
         config = SynchronizerConfig(
             networks=NetworkConfig(tor=TorConfig(enabled=True)),
-            concurrency=SyncConcurrencyConfig(cursor_flush_interval=25),
+            concurrency=ConcurrencyConfig(cursor_flush_interval=25),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 

@@ -25,7 +25,7 @@ class MetadataFlags(BaseModel):
     """Boolean flags controlling which metadata types to compute, store, or publish.
 
     Used in three contexts within
-    [MonitorProcessingConfig][bigbrotr.services.monitor.MonitorProcessingConfig]:
+    [ProcessingConfig][bigbrotr.services.monitor.ProcessingConfig]:
     ``compute`` (which checks to run), ``store`` (which results to persist),
     and ``discovery.include`` (which results to publish as NIP-66 tags).
 
@@ -51,7 +51,7 @@ class MetadataFlags(BaseModel):
         ]
 
 
-class MonitorRetryConfig(BaseModel):
+class RetryConfig(BaseModel):
     """Retry settings with exponential backoff and jitter for metadata operations.
 
     Warning:
@@ -75,25 +75,25 @@ class MetadataRetryConfig(BaseModel):
     """Per-metadata-type retry settings.
 
     Each field corresponds to one of the seven health check types and
-    holds a [MonitorRetryConfig][bigbrotr.services.monitor.MonitorRetryConfig]
+    holds a [RetryConfig][bigbrotr.services.monitor.RetryConfig]
     with independent ``max_attempts``, ``initial_delay``, ``max_delay``,
     and ``jitter`` values.
 
     See Also:
-        [MonitorProcessingConfig][bigbrotr.services.monitor.MonitorProcessingConfig]:
+        [ProcessingConfig][bigbrotr.services.monitor.ProcessingConfig]:
             Parent config that embeds this model.
     """
 
-    nip11_info: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-    nip66_rtt: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-    nip66_ssl: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-    nip66_geo: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-    nip66_net: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-    nip66_dns: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
-    nip66_http: MonitorRetryConfig = Field(default_factory=MonitorRetryConfig)
+    nip11_info: RetryConfig = Field(default_factory=RetryConfig)
+    nip66_rtt: RetryConfig = Field(default_factory=RetryConfig)
+    nip66_ssl: RetryConfig = Field(default_factory=RetryConfig)
+    nip66_geo: RetryConfig = Field(default_factory=RetryConfig)
+    nip66_net: RetryConfig = Field(default_factory=RetryConfig)
+    nip66_dns: RetryConfig = Field(default_factory=RetryConfig)
+    nip66_http: RetryConfig = Field(default_factory=RetryConfig)
 
 
-class MonitorProcessingConfig(BaseModel):
+class ProcessingConfig(BaseModel):
     """Processing settings: chunk size, retry policies, and compute/store flags.
 
     See Also:
@@ -161,7 +161,8 @@ class PublishingConfig(BaseModel):
     """
 
     relays: Annotated[
-        list[Relay], BeforeValidator(lambda v: models_from_db_params(v, Relay)),
+        list[Relay],
+        BeforeValidator(lambda v: models_from_db_params(v, Relay)),
     ] = Field(default_factory=list)
     timeout: float = Field(default=30.0, gt=0, description="Broadcast timeout in seconds")
 
@@ -178,7 +179,8 @@ class DiscoveryConfig(BaseModel):
     interval: int = Field(default=3600, ge=60)
     include: MetadataFlags = Field(default_factory=MetadataFlags)
     relays: Annotated[
-        list[Relay], BeforeValidator(lambda v: models_from_db_params(v, Relay)),
+        list[Relay],
+        BeforeValidator(lambda v: models_from_db_params(v, Relay)),
     ] = Field(default_factory=list)  # Overrides publishing.relays
 
 
@@ -193,7 +195,8 @@ class AnnouncementConfig(BaseModel):
     enabled: bool = Field(default=True)
     interval: int = Field(default=86_400, ge=60)
     relays: Annotated[
-        list[Relay], BeforeValidator(lambda v: models_from_db_params(v, Relay)),
+        list[Relay],
+        BeforeValidator(lambda v: models_from_db_params(v, Relay)),
     ] = Field(default_factory=list)
 
 
@@ -208,7 +211,8 @@ class ProfileConfig(BaseModel):
     enabled: bool = Field(default=False)
     interval: int = Field(default=86_400, ge=60)
     relays: Annotated[
-        list[Relay], BeforeValidator(lambda v: models_from_db_params(v, Relay)),
+        list[Relay],
+        BeforeValidator(lambda v: models_from_db_params(v, Relay)),
     ] = Field(default_factory=list)
     name: str | None = Field(default=None)
     about: str | None = Field(default=None)
@@ -243,7 +247,7 @@ class MonitorConfig(BaseServiceConfig):
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
     keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
-    processing: MonitorProcessingConfig = Field(default_factory=MonitorProcessingConfig)
+    processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
     geo: GeoConfig = Field(default_factory=GeoConfig)
     publishing: PublishingConfig = Field(default_factory=PublishingConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)

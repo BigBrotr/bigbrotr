@@ -27,15 +27,15 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import NetworkConfig, TorConfig
 from bigbrotr.services.synchronizer import (
+    ConcurrencyConfig,
     EventBatch,
     FilterConfig,
     RelayOverride,
     RelayOverrideTimeouts,
-    SyncConcurrencyConfig,
     SyncContext,
     Synchronizer,
     SynchronizerConfig,
-    SyncTimeoutsConfig,
+    TimeoutsConfig,
     TimeRangeConfig,
 )
 from bigbrotr.services.synchronizer.utils import (
@@ -872,7 +872,7 @@ class TestSyncAllRelaysCoverage:
     ) -> None:
         """Test cursor updates are flushed at end of sync."""
         config = SynchronizerConfig(
-            concurrency=SyncConcurrencyConfig(cursor_flush_interval=50),
+            concurrency=ConcurrencyConfig(cursor_flush_interval=50),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
@@ -895,7 +895,7 @@ class TestSyncAllRelaysCoverage:
     ) -> None:
         """Test cursor updates are periodically flushed when batch size reached."""
         config = SynchronizerConfig(
-            concurrency=SyncConcurrencyConfig(
+            concurrency=ConcurrencyConfig(
                 cursor_flush_interval=1,  # Flush after every relay
             ),
         )
@@ -923,7 +923,7 @@ class TestSyncAllRelaysCoverage:
     ) -> None:
         """Test final cursor flush handles DB errors gracefully."""
         config = SynchronizerConfig(
-            concurrency=SyncConcurrencyConfig(cursor_flush_interval=999),
+            concurrency=ConcurrencyConfig(cursor_flush_interval=999),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
@@ -1239,26 +1239,26 @@ class TestEventBatchAdditional:
 
 
 # ============================================================================
-# SyncTimeoutsConfig Additional Tests
+# TimeoutsConfig Additional Tests
 # ============================================================================
 
 
-class TestSyncTimeoutsConfigCoverage:
-    """Additional coverage for SyncTimeoutsConfig.get_relay_timeout."""
+class TestTimeoutsConfigCoverage:
+    """Additional coverage for TimeoutsConfig.get_relay_timeout."""
 
     def test_get_relay_timeout_clearnet_explicit(self) -> None:
         """Test CLEARNET returns relay_clearnet (default fallthrough)."""
-        config = SyncTimeoutsConfig(relay_clearnet=500.0)
+        config = TimeoutsConfig(relay_clearnet=500.0)
         assert config.get_relay_timeout(NetworkType.CLEARNET) == 500.0
 
     def test_get_relay_timeout_i2p(self) -> None:
         """Test I2P returns relay_i2p."""
-        config = SyncTimeoutsConfig(relay_i2p=2000.0)
+        config = TimeoutsConfig(relay_i2p=2000.0)
         assert config.get_relay_timeout(NetworkType.I2P) == 2000.0
 
     def test_get_relay_timeout_loki(self) -> None:
         """Test LOKI returns relay_loki."""
-        config = SyncTimeoutsConfig(relay_loki=2500.0)
+        config = TimeoutsConfig(relay_loki=2500.0)
         assert config.get_relay_timeout(NetworkType.LOKI) == 2500.0
 
 

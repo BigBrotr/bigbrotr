@@ -11,10 +11,10 @@ from .configs import (
     MetadataFlags,
     MetadataRetryConfig,
     MonitorConfig,
-    MonitorProcessingConfig,
-    MonitorRetryConfig,
+    ProcessingConfig,
     ProfileConfig,
     PublishingConfig,
+    RetryConfig,
 )
 from .service import CheckResult, Monitor
 
@@ -28,8 +28,8 @@ __all__ = [
     "MetadataRetryConfig",
     "Monitor",
     "MonitorConfig",
-    "MonitorProcessingConfig",
-    "MonitorRetryConfig",
+    "ProcessingConfig",
     "ProfileConfig",
     "PublishingConfig",
+    "RetryConfig",
 ]

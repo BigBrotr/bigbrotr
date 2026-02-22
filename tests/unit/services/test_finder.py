@@ -22,9 +22,9 @@ from bigbrotr.services.common.utils import parse_relay_url
 from bigbrotr.services.finder import (
     ApiConfig,
     ApiSourceConfig,
+    ConcurrencyConfig,
     EventsConfig,
     Finder,
-    FinderConcurrencyConfig,
     FinderConfig,
 )
 
@@ -44,40 +44,40 @@ def _mock_api_response(data: Any) -> MagicMock:
 
 
 # ============================================================================
-# FinderConcurrencyConfig Tests
+# ConcurrencyConfig Tests
 # ============================================================================
 
 
-class TestFinderConcurrencyConfig:
-    """Tests for FinderConcurrencyConfig Pydantic model."""
+class TestConcurrencyConfig:
+    """Tests for ConcurrencyConfig Pydantic model."""
 
     def test_default_values(self) -> None:
         """Test default concurrency configuration."""
-        config = FinderConcurrencyConfig()
+        config = ConcurrencyConfig()
         assert config.max_parallel == 5
 
     def test_custom_values(self) -> None:
         """Test custom concurrency configuration."""
-        config = FinderConcurrencyConfig(max_parallel=10)
+        config = ConcurrencyConfig(max_parallel=10)
         assert config.max_parallel == 10
 
     def test_max_parallel_bounds(self) -> None:
         """Test max_parallel validation bounds."""
         # Min bound
-        config_min = FinderConcurrencyConfig(max_parallel=1)
+        config_min = ConcurrencyConfig(max_parallel=1)
         assert config_min.max_parallel == 1
 
         # Max bound
-        config_max = FinderConcurrencyConfig(max_parallel=20)
+        config_max = ConcurrencyConfig(max_parallel=20)
         assert config_max.max_parallel == 20
 
         # Below min
         with pytest.raises(ValueError):
-            FinderConcurrencyConfig(max_parallel=0)
+            ConcurrencyConfig(max_parallel=0)
 
         # Above max
         with pytest.raises(ValueError):
-            FinderConcurrencyConfig(max_parallel=21)
+            ConcurrencyConfig(max_parallel=21)
 
 
 # ============================================================================
@@ -255,7 +255,7 @@ class TestFinderConfig:
 
     def test_concurrency_config(self) -> None:
         """Test concurrency configuration."""
-        config = FinderConfig(concurrency=FinderConcurrencyConfig(max_parallel=15))
+        config = FinderConfig(concurrency=ConcurrencyConfig(max_parallel=15))
         assert config.concurrency.max_parallel == 15
 
 

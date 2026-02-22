@@ -93,7 +93,7 @@ from bigbrotr.services.common.queries import count_relays_due_for_check, fetch_r
 from bigbrotr.utils.http import download_bounded_file
 from bigbrotr.utils.protocol import broadcast_events
 
-from .configs import MetadataFlags, MonitorConfig, MonitorRetryConfig
+from .configs import MetadataFlags, MonitorConfig, RetryConfig
 from .utils import collect_metadata, get_reason, get_success, safe_result
 
 
@@ -485,7 +485,7 @@ class Monitor(
     async def _with_retry(
         self,
         coro_factory: Callable[[], Coroutine[Any, Any, _T]],
-        retry_config: MonitorRetryConfig,
+        retry_config: RetryConfig,
         operation: str,
         relay_url: str,
     ) -> _T | None:
@@ -509,7 +509,7 @@ class Monitor(
         Args:
             coro_factory: Callable that creates the coroutine to execute.
                 Must return a fresh coroutine on each call.
-            retry_config: [MonitorRetryConfig][bigbrotr.services.monitor.MonitorRetryConfig]
+            retry_config: [RetryConfig][bigbrotr.services.monitor.RetryConfig]
                 with max retries, delays, and jitter.
             operation: Operation name for structured log messages.
             relay_url: Relay URL for logging context.

@@ -6,13 +6,13 @@ Re-exports all public symbols for backwards-compatible imports::
 """
 
 from .configs import (
+    ConcurrencyConfig,
     FilterConfig,
     RelayOverride,
     RelayOverrideTimeouts,
     SourceConfig,
-    SyncConcurrencyConfig,
     SynchronizerConfig,
-    SyncTimeoutsConfig,
+    TimeoutsConfig,
     TimeRangeConfig,
 )
 from .service import Synchronizer
@@ -20,15 +20,15 @@ from .utils import EventBatch, SyncContext
 
 
 __all__ = [
+    "ConcurrencyConfig",
     "EventBatch",
     "FilterConfig",
     "RelayOverride",
     "RelayOverrideTimeouts",
     "SourceConfig",
-    "SyncConcurrencyConfig",
     "SyncContext",
-    "SyncTimeoutsConfig",
     "Synchronizer",
     "SynchronizerConfig",
     "TimeRangeConfig",
+    "TimeoutsConfig",
 ]

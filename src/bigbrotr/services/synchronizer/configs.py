@@ -95,7 +95,7 @@ class TimeRangeConfig(BaseModel):
     )
 
 
-class SyncTimeoutsConfig(BaseModel):
+class TimeoutsConfig(BaseModel):
     """Per-relay sync timeout limits by network type.
 
     These are the maximum total times allowed for syncing a single relay.
@@ -131,7 +131,7 @@ class SyncTimeoutsConfig(BaseModel):
         return self.relay_clearnet
 
 
-class SyncConcurrencyConfig(BaseModel):
+class ConcurrencyConfig(BaseModel):
     """Concurrency settings for parallel relay connections.
 
     See Also:
@@ -192,7 +192,7 @@ class SynchronizerConfig(BaseServiceConfig):
     keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
     filter: FilterConfig = Field(default_factory=FilterConfig)
     time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
-    sync_timeouts: SyncTimeoutsConfig = Field(default_factory=SyncTimeoutsConfig)
-    concurrency: SyncConcurrencyConfig = Field(default_factory=SyncConcurrencyConfig)
+    sync_timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
+    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     source: SourceConfig = Field(default_factory=SourceConfig)
     overrides: list[RelayOverride] = Field(default_factory=list)
