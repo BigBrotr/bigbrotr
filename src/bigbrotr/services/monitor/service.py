@@ -214,7 +214,8 @@ class Monitor(
     CONFIG_CLASS: ClassVar[type[MonitorConfig]] = MonitorConfig
 
     def __init__(self, brotr: Brotr, config: MonitorConfig | None = None) -> None:
-        super().__init__(brotr=brotr, config=config)
+        config = config or MonitorConfig()
+        super().__init__(brotr=brotr, config=config, networks=config.networks)
         self._config: MonitorConfig
         self._keys: Keys = self._config.keys.keys
 

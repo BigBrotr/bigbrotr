@@ -150,7 +150,8 @@ class Validator(BatchProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
     CONFIG_CLASS: ClassVar[type[ValidatorConfig]] = ValidatorConfig
 
     def __init__(self, brotr: Brotr, config: ValidatorConfig | None = None) -> None:
-        super().__init__(brotr=brotr, config=config)
+        config = config or ValidatorConfig()
+        super().__init__(brotr=brotr, config=config, networks=config.networks)
         self._config: ValidatorConfig
 
     # -------------------------------------------------------------------------

@@ -117,7 +117,8 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         brotr: Brotr,
         config: SynchronizerConfig | None = None,
     ) -> None:
-        super().__init__(brotr=brotr, config=config)
+        config = config or SynchronizerConfig()
+        super().__init__(brotr=brotr, config=config, networks=config.networks)
         self._config: SynchronizerConfig
         self._synced_events: int = 0
         self._synced_relays: int = 0

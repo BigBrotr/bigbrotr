@@ -59,11 +59,10 @@ def _make_network_config(
 
 
 class _FakeBase:
-    """Minimal stand-in for BaseService that provides _config.networks."""
+    """Minimal stand-in for BaseService (accepts and ignores extra kwargs)."""
 
-    def __init__(self, *, networks: MagicMock | None = None, **kwargs: object) -> None:
-        self._config = MagicMock()
-        self._config.networks = networks or _make_network_config()
+    def __init__(self, **kwargs: object) -> None:
+        pass
 
 
 class _TestSemaphoreMixin(NetworkSemaphoresMixin, _FakeBase):
@@ -190,12 +189,12 @@ class TestNetworkSemaphoresMixinInit:
 
     def test_init_creates_network_semaphores(self) -> None:
         """__init__ assigns a NetworkSemaphores to self.semaphores."""
-        mixin = _TestSemaphoreMixin()
+        mixin = _TestSemaphoreMixin(networks=_make_network_config())
         assert isinstance(mixin.semaphores, NetworkSemaphores)
 
     def test_semaphores_are_functional(self) -> None:
         """Semaphores created by __init__ are usable asyncio.Semaphore instances."""
-        mixin = _TestSemaphoreMixin()
+        mixin = _TestSemaphoreMixin(networks=_make_network_config())
 
         for nt in (NetworkType.CLEARNET, NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI):
             sem = mixin.semaphores.get(nt)

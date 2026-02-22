@@ -33,6 +33,8 @@ if TYPE_CHECKING:
     from bigbrotr.core.logger import Logger
     from bigbrotr.models import Relay
 
+    from .configs import NetworkConfig
+
 
 # ---------------------------------------------------------------------------
 # Batch Progress
@@ -172,8 +174,10 @@ class NetworkSemaphoresMixin:
 
     Exposes a ``semaphores`` attribute of type
     [NetworkSemaphores][bigbrotr.services.common.mixins.NetworkSemaphores],
-    initialized automatically in ``__init__`` from
-    ``self._config.networks`` (set by ``BaseService``).
+    initialized from the ``networks`` keyword argument.
+
+    Services must pass ``networks=config.networks`` in their
+    ``super().__init__()`` call.
 
     See Also:
         [Validator][bigbrotr.services.validator.Validator],
@@ -184,12 +188,10 @@ class NetworkSemaphoresMixin:
 
     semaphores: NetworkSemaphores
 
-    # Declared for mypy -- provided by BaseService at runtime
-    _config: Any
-
     def __init__(self, **kwargs: Any) -> None:
+        networks: NetworkConfig = kwargs.pop("networks")
         super().__init__(**kwargs)
-        self.semaphores = NetworkSemaphores(self._config.networks)
+        self.semaphores = NetworkSemaphores(networks)
 
 
 # ---------------------------------------------------------------------------
