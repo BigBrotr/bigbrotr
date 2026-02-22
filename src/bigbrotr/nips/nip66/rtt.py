@@ -240,7 +240,7 @@ class Nip66RttMetadata(BaseNipMetadata):
         On failure, sets cascading failure logs for all three phases and
         returns (None, None).
         """
-        from bigbrotr.utils.transport import connect_relay  # noqa: PLC0415 - Avoid circular import
+        from bigbrotr.utils.protocol import connect_relay  # noqa: PLC0415 - Avoid circular import
 
         logger.debug("rtt_connecting relay=%s", relay.url)
         try:

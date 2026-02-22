@@ -221,19 +221,17 @@ class TestPoolTimeoutsConfig:
         config = PoolTimeoutsConfig()
 
         assert config.acquisition == 10.0
-        assert config.health_check == 5.0
 
     def test_custom_values(self) -> None:
         """Test configuration with custom values."""
-        config = PoolTimeoutsConfig(acquisition=30.0, health_check=15.0)
+        config = PoolTimeoutsConfig(acquisition=30.0)
 
         assert config.acquisition == 30.0
-        assert config.health_check == 15.0
 
     def test_minimum_validation(self) -> None:
         """Test minimum value validation (>= 0.1)."""
         # Valid at minimum
-        config = PoolTimeoutsConfig(acquisition=0.1, health_check=0.1)
+        config = PoolTimeoutsConfig(acquisition=0.1)
         assert config.acquisition == 0.1
 
         # Invalid: below minimum

@@ -36,7 +36,7 @@ class TestNip66RttMetadataTestOpen:
         async def mock_connect(*args: Any, **kwargs: Any) -> MagicMock:
             return mock_nostr_client
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             client, rtt_open = await Nip66RttMetadata._test_open(
                 relay, mock_keys, None, 10.0, allow_insecure=True, logs=logs
             )
@@ -59,7 +59,7 @@ class TestNip66RttMetadataTestOpen:
         async def mock_connect(*args: Any, **kwargs: Any) -> None:
             raise TimeoutError("Connection refused")
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             client, rtt_open = await Nip66RttMetadata._test_open(
                 relay, mock_keys, None, 10.0, allow_insecure=True, logs=logs
             )
@@ -91,7 +91,7 @@ class TestNip66RttMetadataTestOpen:
             assert proxy_url == "socks5://localhost:9050"
             return mock_nostr_client
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             client, _ = await Nip66RttMetadata._test_open(
                 relay, mock_keys, proxy_url, 10.0, allow_insecure=True, logs=logs
             )
@@ -406,7 +406,7 @@ class TestNip66RttMetadataRtt:
         async def mock_connect(*args: Any, **kwargs: Any) -> MagicMock:
             return mock_nostr_client
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             result = await Nip66RttMetadata.execute(relay, deps, timeout=10.0)
 
         assert isinstance(result, Nip66RttMetadata)
@@ -428,7 +428,7 @@ class TestNip66RttMetadataRtt:
         async def mock_connect(*args: Any, **kwargs: Any) -> None:
             raise TimeoutError("Connection refused")
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             result = await Nip66RttMetadata.execute(relay, deps, timeout=10.0)
 
         assert isinstance(result, Nip66RttMetadata)
@@ -469,7 +469,7 @@ class TestNip66RttMetadataRtt:
         async def mock_connect(*args: Any, **kwargs: Any) -> MagicMock:
             return mock_nostr_client
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             result = await Nip66RttMetadata.execute(
                 tor_relay, deps, timeout=10.0, proxy_url="socks5://localhost:9050"
             )
@@ -492,7 +492,7 @@ class TestNip66RttMetadataRtt:
         async def mock_connect(*args: Any, **kwargs: Any) -> MagicMock:
             return mock_nostr_client
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             result = await Nip66RttMetadata.execute(relay, deps, timeout=None)
 
         assert isinstance(result, Nip66RttMetadata)
@@ -514,7 +514,7 @@ class TestNip66RttMetadataRtt:
             return mock_nostr_client
 
         with (
-            patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect),
+            patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect),
             patch.object(Nip66RttMetadata, "_cleanup", new_callable=AsyncMock) as mock_cleanup,
         ):
             await Nip66RttMetadata.execute(relay, deps, timeout=10.0)

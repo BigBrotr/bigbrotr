@@ -182,9 +182,9 @@ time_range:
 # -----------------------------------------------------------------------------
 # Maximum time allowed for syncing each relay (per relay session).
 # This is separate from the WebSocket request timeout in networks.*.timeout.
-# Class: src/services/synchronizer.py::SyncTimeoutsConfig
+# Class: src/services/synchronizer.py::TimeoutsConfig
 
-sync_timeouts:
+timeouts:
   # Maximum time (seconds) for syncing a clearnet relay
   # Range: 60.0-14400.0
   # Default: 1800.0 (30 minutes)
@@ -209,7 +209,7 @@ sync_timeouts:
 # Concurrency Configuration
 # -----------------------------------------------------------------------------
 # Controls parallel execution of relay synchronization.
-# Class: src/services/synchronizer.py::SyncConcurrencyConfig
+# Class: src/services/synchronizer.py::ConcurrencyConfig
 
 concurrency:
   # Random delay range [min, max] seconds before starting each relay
@@ -242,7 +242,7 @@ overrides: []
   # - url: "wss://relay.damus.io"
   #   timeouts:
   #     request: 60.0     # WebSocket request timeout (overrides networks.*.timeout)
-  #     relay: 7200.0     # Per-relay sync timeout (overrides sync_timeouts.relay_*)
+  #     relay: 7200.0     # Per-relay sync timeout (overrides timeouts.relay_*)
 
 # =============================================================================
 # CUSTOMIZATION GUIDE

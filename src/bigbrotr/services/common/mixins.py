@@ -1,15 +1,16 @@
 """Reusable service mixins for BigBrotr.
 
-All service extensions live here as mixin classes.  Future extensions
-follow the same pattern: a mixin class with an ``_init_*()`` method
-for lazy initialization.
+All service extensions live here as mixin classes. Each mixin uses
+cooperative multiple inheritance (``super().__init__(**kwargs)``) so
+that initialization is handled automatically via the MRO — no
+explicit ``_init_*()`` calls are needed in service constructors.
 
 See Also:
     [BaseService][bigbrotr.core.base_service.BaseService]: The base class
         that mixin classes are composed with via multiple inheritance.
-    [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
+    [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
         Provides ``max_tasks`` values consumed by
-        [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin].
+        [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin].
 """
 
 from __future__ import annotations
@@ -17,35 +18,35 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from bigbrotr.models.constants import NetworkType
 
 
 if TYPE_CHECKING:
-    from .configs import NetworkConfig
+    import geoip2.database
+
+    from .configs import NetworksConfig
 
 
 # ---------------------------------------------------------------------------
-# Batch Progress
+# Chunk Progress
 # ---------------------------------------------------------------------------
 
 
 @dataclass(slots=True)
-class BatchProgress:
-    """Tracks progress of a batch processing cycle.
+class ChunkProgress:
+    """Tracks progress of a chunk-based processing cycle.
 
     All counters are reset at the start of each cycle via ``reset()``.
-    Used internally by
-    [BatchProgressMixin][bigbrotr.services.common.mixins.BatchProgressMixin]
-    to provide ``_progress`` to services.
+    Use ``record()`` after processing each chunk to update counters.
 
     Attributes:
         started_at: Timestamp when the cycle started (``time.time()``).
-        total: Total items to process.
+        total: Total items to process in this cycle.
         processed: Items processed so far.
-        success: Items that succeeded.
-        failure: Items that failed.
+        succeeded: Items that succeeded.
+        failed: Items that failed.
         chunks: Number of chunks completed.
 
     Note:
@@ -54,16 +55,16 @@ class BatchProgress:
         accurate duration measurement unaffected by clock adjustments.
 
     See Also:
-        [BatchProgressMixin][bigbrotr.services.common.mixins.BatchProgressMixin]:
-            Mixin that exposes a ``_progress`` attribute of this type.
+        [ChunkProgressMixin][bigbrotr.services.common.mixins.ChunkProgressMixin]:
+            Mixin that exposes a ``chunk_progress`` attribute of this type.
     """
 
     started_at: float = field(default=0.0)
     _monotonic_start: float = field(default=0.0, repr=False)
     total: int = field(default=0)
     processed: int = field(default=0)
-    success: int = field(default=0)
-    failure: int = field(default=0)
+    succeeded: int = field(default=0)
+    failed: int = field(default=0)
     chunks: int = field(default=0)
 
     def reset(self) -> None:
@@ -72,9 +73,21 @@ class BatchProgress:
         self._monotonic_start = time.monotonic()
         self.total = 0
         self.processed = 0
-        self.success = 0
-        self.failure = 0
+        self.succeeded = 0
+        self.failed = 0
         self.chunks = 0
+
+    def record(self, succeeded: int, failed: int) -> None:
+        """Record the results of one processed chunk.
+
+        Args:
+            succeeded: Number of items that succeeded in this chunk.
+            failed: Number of items that failed in this chunk.
+        """
+        self.processed += succeeded + failed
+        self.succeeded += succeeded
+        self.failed += failed
+        self.chunks += 1
 
     @property
     def remaining(self) -> int:
@@ -87,18 +100,15 @@ class BatchProgress:
         return round(time.monotonic() - self._monotonic_start, 1)
 
 
-class BatchProgressMixin:
-    """Mixin providing batch processing progress tracking.
+class ChunkProgressMixin:
+    """Mixin providing chunk-based processing progress tracking.
 
-    Services that process items in batches compose this mixin to get
-    a ``_progress`` attribute with counters and timing.
-
-    Note:
-        Call ``_init_progress()`` in ``__init__`` and ``_progress.reset()``
-        at the start of each ``run()`` cycle to reset all counters.
+    Services that process items in chunks compose this mixin to get
+    a ``chunk_progress`` attribute with counters and timing. Initialization
+    is automatic via ``__init__``.
 
     See Also:
-        [BatchProgress][bigbrotr.services.common.mixins.BatchProgress]:
+        [ChunkProgress][bigbrotr.services.common.mixins.ChunkProgress]:
             The dataclass this mixin manages.
         [Validator][bigbrotr.services.validator.Validator],
         [Monitor][bigbrotr.services.monitor.Monitor]: Services that
@@ -106,76 +116,160 @@ class BatchProgressMixin:
 
     Examples:
         ```python
-        class MyService(BatchProgressMixin, BaseService[MyConfig]):
-            def __init__(self, brotr, config):
-                super().__init__(brotr=brotr, config=config)
-                self._init_progress()
-
+        class MyService(ChunkProgressMixin, BaseService[MyConfig]):
             async def run(self):
-                self._progress.reset()
+                self.chunk_progress.reset()
                 ...
+                self.chunk_progress.record(succeeded=len(ok), failed=len(err))
         ```
     """
 
-    _progress: BatchProgress
+    chunk_progress: ChunkProgress
 
-    def _init_progress(self) -> None:
-        """Initialize a fresh BatchProgress tracker."""
-        self._progress = BatchProgress()
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.chunk_progress = ChunkProgress()
 
 
 # ---------------------------------------------------------------------------
 # Network Semaphore
 # ---------------------------------------------------------------------------
 
+#: Network types that support concurrent relay connections.
+OPERATIONAL_NETWORKS: tuple[NetworkType, ...] = (
+    NetworkType.CLEARNET,
+    NetworkType.TOR,
+    NetworkType.I2P,
+    NetworkType.LOKI,
+)
 
-class NetworkSemaphoreMixin:
-    """Mixin providing per-network concurrency semaphores.
 
-    Creates an ``asyncio.Semaphore`` for each
+class NetworkSemaphores:
+    """Per-network concurrency semaphores.
+
+    Creates an ``asyncio.Semaphore`` for each operational
     [NetworkType][bigbrotr.models.constants.NetworkType] (clearnet, Tor,
-    I2P, Lokinet) to cap the number of simultaneous connections.  This is
-    especially important for overlay networks like Tor, where excessive
-    concurrency degrades circuit performance.
-
-    Call ``_init_semaphores()`` at the start of each ``run()`` cycle to pick up
-    any configuration changes to ``max_tasks`` values.
+    I2P, Lokinet) to cap the number of simultaneous connections.
 
     See Also:
-        [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
+        [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
             Provides ``max_tasks`` per network type.
-        [Validator][bigbrotr.services.validator.Validator],
-        [Monitor][bigbrotr.services.monitor.Monitor]: Services that
-            compose this mixin for bounded concurrency.
     """
 
-    _semaphores: dict[NetworkType, asyncio.Semaphore]
+    __slots__ = ("_map",)
 
-    def _init_semaphores(self, networks: NetworkConfig) -> None:
-        """Create a semaphore for each network type from the configuration.
-
-        Args:
-            networks: [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]
-                providing ``max_tasks`` per network type.
-        """
-        self._semaphores = {
-            network: asyncio.Semaphore(networks.get(network).max_tasks)
-            for network in (
-                NetworkType.CLEARNET,
-                NetworkType.TOR,
-                NetworkType.I2P,
-                NetworkType.LOKI,
-            )
+    def __init__(self, networks: NetworksConfig) -> None:
+        self._map: dict[NetworkType, asyncio.Semaphore] = {
+            nt: asyncio.Semaphore(networks.get(nt).max_tasks) for nt in OPERATIONAL_NETWORKS
         }
 
-    def _get_semaphore(self, network: NetworkType) -> asyncio.Semaphore | None:
+    def get(self, network: NetworkType) -> asyncio.Semaphore | None:
         """Look up the concurrency semaphore for a network type.
 
-        Args:
-            network: The [NetworkType][bigbrotr.models.constants.NetworkType]
-                to retrieve the semaphore for.
-
         Returns:
-            The semaphore, or ``None`` if the network has not been initialized.
+            The semaphore, or ``None`` for non-operational networks
+            (LOCAL, UNKNOWN).
         """
-        return self._semaphores.get(network)
+        return self._map.get(network)
+
+
+class NetworkSemaphoresMixin:
+    """Mixin providing per-network concurrency semaphores.
+
+    Exposes a ``network_semaphores`` attribute of type
+    [NetworkSemaphores][bigbrotr.services.common.mixins.NetworkSemaphores],
+    initialized from the ``networks`` keyword argument.
+
+    Services must pass ``networks=config.networks`` in their
+    ``super().__init__()`` call.
+
+    See Also:
+        [Validator][bigbrotr.services.validator.Validator],
+        [Monitor][bigbrotr.services.monitor.Monitor],
+        [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]:
+            Services that compose this mixin for bounded concurrency.
+    """
+
+    network_semaphores: NetworkSemaphores
+
+    def __init__(self, **kwargs: Any) -> None:
+        networks: NetworksConfig = kwargs.pop("networks")
+        super().__init__(**kwargs)
+        self.network_semaphores = NetworkSemaphores(networks)
+
+
+# ---------------------------------------------------------------------------
+# GeoIP Reader
+# ---------------------------------------------------------------------------
+
+
+class GeoReaders:
+    """GeoIP database reader container for city and ASN lookups.
+
+    Manages the lifecycle of ``geoip2.database.Reader`` instances.
+    Reader initialization is offloaded to a thread via ``open()`` to
+    avoid blocking the event loop.
+
+    Attributes:
+        city: GeoLite2-City reader for geolocation lookups, or ``None``.
+        asn: GeoLite2-ASN reader for network info lookups, or ``None``.
+
+    See Also:
+        [GeoReaderMixin][bigbrotr.services.common.mixins.GeoReaderMixin]:
+            Mixin that exposes a ``geo_readers`` attribute of this type.
+    """
+
+    __slots__ = ("asn", "city")
+
+    def __init__(self) -> None:
+        self.city: geoip2.database.Reader | None = None
+        self.asn: geoip2.database.Reader | None = None
+
+    async def open(
+        self,
+        *,
+        city_path: str | None = None,
+        asn_path: str | None = None,
+    ) -> None:
+        """Open GeoIP readers from file paths via ``asyncio.to_thread``.
+
+        Args:
+            city_path: Path to GeoLite2-City database. ``None`` to skip.
+            asn_path: Path to GeoLite2-ASN database. ``None`` to skip.
+        """
+        import geoip2.database as geoip2_db  # noqa: PLC0415  # runtime import
+
+        if city_path:
+            self.city = await asyncio.to_thread(geoip2_db.Reader, city_path)
+        if asn_path:
+            self.asn = await asyncio.to_thread(geoip2_db.Reader, asn_path)
+
+    def close(self) -> None:
+        """Close readers and set to ``None``. Idempotent."""
+        if self.city:
+            self.city.close()
+            self.city = None
+        if self.asn:
+            self.asn.close()
+            self.asn = None
+
+
+class GeoReaderMixin:
+    """Mixin providing GeoIP database reader lifecycle management.
+
+    Exposes a ``geo_readers`` attribute of type
+    [GeoReaders][bigbrotr.services.common.mixins.GeoReaders].
+
+    Note:
+        Call ``geo_readers.close()`` in a ``finally`` block or ``__aexit__``.
+
+    See Also:
+        [Monitor][bigbrotr.services.monitor.Monitor]: The service that
+            composes this mixin for NIP-66 geo/net checks.
+    """
+
+    geo_readers: GeoReaders
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.geo_readers = GeoReaders()

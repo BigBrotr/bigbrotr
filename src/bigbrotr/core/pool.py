@@ -185,7 +185,6 @@ class PoolTimeoutsConfig(BaseModel):
     """
 
     acquisition: float = Field(default=10.0, ge=0.1, description="Connection acquisition timeout")
-    health_check: float = Field(default=5.0, ge=0.1, description="Health check timeout")
 
 
 class PoolRetryConfig(BaseModel):

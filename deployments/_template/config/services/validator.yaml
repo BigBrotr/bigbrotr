@@ -58,7 +58,7 @@ metrics:
 # Processing Configuration
 # -----------------------------------------------------------------------------
 # Controls how candidates are fetched and processed.
-# Class: src/services/validator.py::ValidatorProcessingConfig
+# Class: src/services/validator.py::ProcessingConfig
 
 processing:
   # Number of candidates to fetch and process per chunk

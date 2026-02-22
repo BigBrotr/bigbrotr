@@ -82,9 +82,11 @@ bigbrotr/
 |   |   +-- nip11/                    # Relay info document fetch/parse
 |   |   +-- nip66/                    # Monitoring: dns, geo, http, net, rtt, ssl
 |   +-- services/                     # Business logic (5 services)
-|   |   +-- monitor.py                # Health check orchestration
-|   |   +-- monitor_publisher.py      # Nostr event broadcasting
-|   |   +-- monitor_tags.py           # NIP-66 tag building
+|   |   +-- seeder/                   # Relay seed loading
+|   |   +-- finder/                   # Relay URL discovery
+|   |   +-- validator/                # Candidate validation
+|   |   +-- monitor/                  # Health check orchestration, publishing, tags
+|   |   +-- synchronizer/             # Event collection
 |   |   +-- common/                   # Shared constants, configs, queries, mixins
 |   +-- utils/                        # DNS, keys, transport helpers
 +-- tests/
@@ -98,7 +100,10 @@ bigbrotr/
 |   +-- bigbrotr/                     # Full-featured deployment
 |   +-- lilbrotr/                     # Lightweight deployment
 |   +-- _template/                    # Template for new deployments
-+-- docs/                             # Documentation
++-- tools/
+|   +-- generate_sql.py              # SQL template generator
+|   +-- templates/sql/               # Jinja2 SQL templates (base + overrides)
++-- docs/                             # Documentation (MkDocs Material)
 +-- .github/                          # CI/CD workflows
 +-- Makefile                          # Development commands
 +-- pyproject.toml                    # Project configuration
@@ -117,6 +122,7 @@ All common development tasks are available as Makefile targets:
 |--------|---------|-------------|
 | `make lint` | `ruff check src/ tests/` | Run ruff linter |
 | `make format` | `ruff format src/ tests/` | Run ruff formatter |
+| `make format-check` | `ruff format --check src/ tests/` | Check formatting without modifying |
 | `make typecheck` | `mypy src/bigbrotr` | Run mypy strict type checking |
 | `make pre-commit` | `pre-commit run --all-files` | Run all pre-commit hooks |
 
@@ -149,8 +155,10 @@ All common development tasks are available as Makefile targets:
 
 | Target | Command | Description |
 |--------|---------|-------------|
-| `make ci` | lint + format + typecheck + test-unit + sql-check | Run all quality checks |
+| `make ci` | lint + format-check + typecheck + test-unit + sql-check + audit | Run all quality checks |
+| `make sql-generate` | `python3 tools/generate_sql.py` | Regenerate SQL files from templates |
 | `make sql-check` | `python3 tools/generate_sql.py --check` | Verify generated SQL matches templates |
+| `make audit` | `uv-secure uv.lock` | Check dependencies for known vulnerabilities |
 | `make clean` | rm -rf build artifacts | Remove build artifacts and caches |
 | `make install` | `uv sync --group dev --group docs && pre-commit install` | Install dev dependencies and hooks |
 
@@ -163,4 +171,6 @@ All common development tasks are available as Makefile targets:
 ## Related Documentation
 
 - [Testing](testing.md) -- Test configuration, fixtures, and mock patterns
-- [Contributing](contributing.md) -- Code standards, PR process, and architecture rules
+- [Coding Standards](coding-standards.md) -- Linting, formatting, import rules, and patterns
+- [SQL Templates](sql-templates.md) -- Schema generation from Jinja2 templates
+- [Contributing](contributing.md) -- Branch workflow and PR process

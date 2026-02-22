@@ -10,11 +10,13 @@ Attributes:
         [I2pConfig][bigbrotr.services.common.configs.I2pConfig],
         [LokiConfig][bigbrotr.services.common.configs.LokiConfig]) with
         sensible defaults for timeouts, proxy URLs, and max concurrent tasks.
-    mixins: [BatchProgress][bigbrotr.services.common.mixins.BatchProgress]
-        dataclass for tracking batch processing cycles and
-        [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin]
-        for per-network concurrency control.
-    queries: 13 domain-specific SQL query functions centralized in one module
+    mixins: [ChunkProgress][bigbrotr.services.common.mixins.ChunkProgress]
+        dataclass for tracking chunk processing cycles,
+        [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin]
+        for per-network concurrency control, and
+        [GeoReaders][bigbrotr.services.common.mixins.GeoReaders] for GeoIP
+        database reader lifecycle management.
+    queries: 14 domain-specific SQL query functions centralized in one module
         to avoid scattering inline SQL across services.
 
 See Also:
@@ -28,11 +30,18 @@ from .configs import (
     ClearnetConfig,
     I2pConfig,
     LokiConfig,
-    NetworkConfig,
+    NetworksConfig,
     NetworkTypeConfig,
     TorConfig,
 )
-from .mixins import BatchProgress, BatchProgressMixin, NetworkSemaphoreMixin
+from .mixins import (
+    ChunkProgress,
+    ChunkProgressMixin,
+    GeoReaderMixin,
+    GeoReaders,
+    NetworkSemaphores,
+    NetworkSemaphoresMixin,
+)
 from .queries import (
     count_candidates,
     count_relays_due_for_check,
@@ -46,19 +55,24 @@ from .queries import (
     get_all_service_cursors,
     get_events_with_relay_urls,
     insert_candidates,
+    insert_relays,
     promote_candidates,
 )
+from .utils import parse_delete_result, parse_relay_url
 
 
 __all__ = [
-    "BatchProgress",
-    "BatchProgressMixin",
+    "ChunkProgress",
+    "ChunkProgressMixin",
     "ClearnetConfig",
+    "GeoReaderMixin",
+    "GeoReaders",
     "I2pConfig",
     "LokiConfig",
-    "NetworkConfig",
-    "NetworkSemaphoreMixin",
+    "NetworkSemaphores",
+    "NetworkSemaphoresMixin",
     "NetworkTypeConfig",
+    "NetworksConfig",
     "TorConfig",
     "count_candidates",
     "count_relays_due_for_check",
@@ -72,5 +86,8 @@ __all__ = [
     "get_all_service_cursors",
     "get_events_with_relay_urls",
     "insert_candidates",
+    "insert_relays",
+    "parse_delete_result",
+    "parse_relay_url",
     "promote_candidates",
 ]

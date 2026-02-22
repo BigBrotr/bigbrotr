@@ -1,6 +1,6 @@
 """Unit tests for services.common.queries module.
 
-Tests all 13 domain SQL query functions that centralize database access for
+Tests the domain SQL query functions that centralize database access for
 BigBrotr services.  Each function accepts a ``Brotr`` instance and delegates
 to one of its query facade methods (fetch, fetchrow, fetchval, execute,
 upsert_service_state, transaction).
@@ -25,11 +25,9 @@ import pytest
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.queries import (
-    _parse_delete_result,
     count_candidates,
     count_relays_due_for_check,
     delete_exhausted_candidates,
-    delete_expired_relay_metadata,
     delete_stale_candidates,
     fetch_candidate_chunk,
     fetch_relays_due_for_check,
@@ -41,6 +39,7 @@ from bigbrotr.services.common.queries import (
     insert_candidates,
     promote_candidates,
 )
+from bigbrotr.services.common.utils import parse_delete_result
 
 
 # ============================================================================
@@ -414,7 +413,7 @@ class TestInsertCandidates:
         assert record.state_type == ServiceStateType.CANDIDATE
         assert record.state_key == "wss://relay.example.com"
         assert record.state_value["network"] == "clearnet"
-        assert record.state_value["failed_attempts"] == 0
+        assert record.state_value["failures"] == 0
         assert "inserted_at" in record.state_value
         assert result == 1
 
@@ -554,7 +553,7 @@ class TestFetchCandidateChunk:
         row = _make_dict_row(
             {
                 "state_key": "wss://relay.example.com",
-                "value": {"failed_attempts": 0, "network": "clearnet"},
+                "value": {"failures": 0, "network": "clearnet"},
             }
         )
         mock_brotr.fetch = AsyncMock(return_value=[row])
@@ -625,7 +624,7 @@ class TestDeleteExhaustedCandidates:
         assert "DELETE FROM service_state" in sql
         assert "service_name = $1" in sql
         assert "state_type = $2" in sql
-        assert "failed_attempts" in sql
+        assert "failures" in sql
         assert ">= $3" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CANDIDATE
@@ -795,59 +794,28 @@ class TestGetAllServiceCursors:
 
 
 class TestParseDeleteResult:
-    """Tests for _parse_delete_result() helper."""
+    """Tests for parse_delete_result() helper."""
 
     def test_standard_delete(self) -> None:
-        assert _parse_delete_result("DELETE 5") == 5
+        assert parse_delete_result("DELETE 5") == 5
 
     def test_zero_deleted(self) -> None:
-        assert _parse_delete_result("DELETE 0") == 0
+        assert parse_delete_result("DELETE 0") == 0
 
     def test_large_count(self) -> None:
-        assert _parse_delete_result("DELETE 99999") == 99999
+        assert parse_delete_result("DELETE 99999") == 99999
 
     def test_none_returns_zero(self) -> None:
-        assert _parse_delete_result(None) == 0
+        assert parse_delete_result(None) == 0
 
     def test_empty_string_returns_zero(self) -> None:
-        assert _parse_delete_result("") == 0
+        assert parse_delete_result("") == 0
 
     def test_non_numeric_suffix_returns_zero(self) -> None:
-        assert _parse_delete_result("DELETE abc") == 0
+        assert parse_delete_result("DELETE abc") == 0
 
     def test_single_word_returns_zero(self) -> None:
-        assert _parse_delete_result("DELETE") == 0
+        assert parse_delete_result("DELETE") == 0
 
     def test_unexpected_format_returns_zero(self) -> None:
-        assert _parse_delete_result("SOMETHING ELSE") == 0
-
-
-# ============================================================================
-# TestDeleteExpiredRelayMetadata
-# ============================================================================
-
-
-class TestDeleteExpiredRelayMetadata:
-    """Tests for delete_expired_relay_metadata()."""
-
-    async def test_calls_execute_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes max_age_seconds and returns parsed count."""
-        mock_brotr.execute = AsyncMock(return_value="DELETE 10")
-
-        result = await delete_expired_relay_metadata(mock_brotr, max_age_seconds=2_592_000)
-
-        mock_brotr.execute.assert_awaited_once()
-        args = mock_brotr.execute.call_args
-        sql = args[0][0]
-        assert "DELETE FROM relay_metadata" in sql
-        assert "generated_at" in sql
-        assert args[0][1] == 2_592_000
-        assert result == 10
-
-    async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
-        """Returns 0 when no rows are deleted."""
-        mock_brotr.execute = AsyncMock(return_value="DELETE 0")
-
-        result = await delete_expired_relay_metadata(mock_brotr, max_age_seconds=86400)
-
-        assert result == 0
+        assert parse_delete_result("SOMETHING ELSE") == 0

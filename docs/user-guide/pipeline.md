@@ -230,21 +230,17 @@ flowchart TD
 
 ### How It Works
 
-The Monitor is the most complex service, split across three modules:
-
-| Module | Lines | Responsibility |
-|--------|-------|---------------|
-| `monitor.py` | ~600 | Config models, health check orchestration, GeoIP, DB persistence |
-| `monitor_publisher.py` | ~230 | Nostr event broadcasting: kind 0, 10166, 30166 |
-| `monitor_tags.py` | ~280 | NIP-66 tag building for kind 30166 events |
+The Monitor is the most complex service (`services/monitor/service.py`), handling
+health checks, event publishing, and NIP-66 tag building in a single module.
 
 **Orchestration flow:**
 
-1. `run()` -- fetch relays due for check, chunk them
-2. `_check_chunk(relays)` -- parallel checks with semaphore
-3. `_check_one(relay)` -- run NIP-11 + all NIP-66 checks, return `CheckResult`
-4. `_persist_results(successful, failed)` -- insert metadata to DB
-5. `_publish_relay_discoveries(successful)` -- build and broadcast kind 30166 events
+1. `run()` -- setup (geo, publish profile/announcement), delegate to `monitor()`
+2. `monitor()` -- count relays, process chunks, emit metrics
+3. `check_chunks()` -- async generator yielding (successful, failed) per chunk
+4. `check_relay(relay)` -- run NIP-11 + all NIP-66 checks, return `CheckResult`
+5. `_persist_results(successful, failed)` -- insert metadata to DB
+6. `publish_relay_discoveries(successful)` -- build and broadcast kind 30166 events
 6. `_publish_announcement()` -- kind 10166 (monitor capabilities)
 7. `_publish_profile()` -- kind 0 (monitor profile metadata)
 
@@ -269,7 +265,7 @@ class CheckResult(NamedTuple):
 | 10166 | Announcement | Monitor capabilities, check frequency, supported checks (NIP-66) |
 | 30166 | Discovery | Per-relay health data: RTT, SSL, DNS, Geo, Net, NIP-11 (addressable, `d` tag = relay URL) |
 
-**NIP-66 tags produced by `monitor_tags.py`:**
+**NIP-66 tags produced by `monitor/service.py`:**
 
 | Method | Tags Produced |
 |--------|--------------|

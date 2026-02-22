@@ -153,7 +153,6 @@ def pool_config_dict() -> dict[str, Any]:
         },
         "timeouts": {
             "acquisition": 5.0,
-            "health_check": 3.0,
         },
         "retry": {
             "max_attempts": 2,

@@ -28,7 +28,7 @@ SELECT DISTINCT ON (rm.relay_url, rm.metadata_type)
     rm.metadata_id,
     m.data
 FROM relay_metadata AS rm
-INNER JOIN metadata AS m ON rm.metadata_id = m.id AND rm.metadata_type = m.type
+INNER JOIN metadata AS m ON rm.metadata_id = m.id AND rm.metadata_type = m.metadata_type
 ORDER BY rm.relay_url ASC, rm.metadata_type ASC, rm.generated_at DESC;
 
 COMMENT ON MATERIALIZED VIEW relay_metadata_latest IS
@@ -43,11 +43,10 @@ COMMENT ON MATERIALIZED VIEW relay_metadata_latest IS
 -- and time windows (1h, 24h, 7d, 30d).
 --
 -- NIP-01 event categories:
---   Regular:     kind 1, 2, 4-9999 (stored indefinitely)
+--   Regular:     kind 1, 2, 4-44, 1000-9999 (stored indefinitely)
 --   Replaceable: kind 0, 3, 10000-19999 (latest per pubkey replaces older)
 --   Ephemeral:   kind 20000-29999 (not persisted by relays)
 --   Addressable: kind 30000-39999 (latest per pubkey+d-tag replaces older)
---   Other:       kind 40000-65535 (non-standard or future use)
 --
 -- Refresh: Hourly via event_stats_refresh()
 
@@ -60,11 +59,12 @@ SELECT
     MIN(created_at) AS earliest_event_timestamp,
     MAX(created_at) AS latest_event_timestamp,
 
-    -- Regular events: kind 0-9999 (excluding replaceable 0, 3)
+    -- Regular events: kind 1, 2, 4-44, 1000-9999
     COUNT(*) FILTER (
         WHERE kind = 1
         OR kind = 2
-        OR (kind >= 4 AND kind <= 9999)
+        OR (kind >= 4 AND kind <= 44)
+        OR (kind >= 1000 AND kind <= 9999)
     ) AS regular_event_count,
 
     -- Replaceable events: kind 0, 3, 10000-19999
@@ -83,11 +83,6 @@ SELECT
     COUNT(*) FILTER (
         WHERE kind >= 30000 AND kind <= 39999
     ) AS addressable_event_count,
-
-    -- Other events: kind 40000-65535 (non-standard or future use)
-    COUNT(*) FILTER (
-        WHERE kind >= 40000 AND kind <= 65535
-    ) AS other_event_count,
 
     -- Rolling time-window counts
     COUNT(*) FILTER (
@@ -151,9 +146,9 @@ LEFT JOIN res ON r.url = res.relay_url
 -- LATERAL join: compute average RTT from the 10 most recent measurements
 LEFT JOIN LATERAL (
     SELECT
-        ROUND(AVG((m.data -> 'data' ->> 'rtt_open')::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
-        ROUND(AVG((m.data -> 'data' ->> 'rtt_read')::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
-        ROUND(AVG((m.data -> 'data' ->> 'rtt_write')::INTEGER)::NUMERIC, 2) AS avg_rtt_write
+        ROUND(AVG((m.data ->> 'rtt_open')::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
+        ROUND(AVG((m.data ->> 'rtt_read')::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
+        ROUND(AVG((m.data ->> 'rtt_write')::INTEGER)::NUMERIC, 2) AS avg_rtt_write
     FROM (
         SELECT
             rm.metadata_id,
@@ -163,7 +158,7 @@ LEFT JOIN LATERAL (
         ORDER BY rm.generated_at DESC
         LIMIT 10
     ) AS recent
-    INNER JOIN metadata AS m ON recent.metadata_id = m.id AND recent.metadata_type = m.type
+    INNER JOIN metadata AS m ON recent.metadata_id = m.id AND recent.metadata_type = m.metadata_type
 ) AS rp ON TRUE
 
 ORDER BY r.url;

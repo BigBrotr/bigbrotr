@@ -111,7 +111,7 @@ Async PostgreSQL connection pool via asyncpg with retry/backoff, health-checked 
 class PoolConfig(BaseModel):
     database: DatabaseConfig       # host, port, database, user (password from DB_PASSWORD env)
     limits: LimitsConfig           # min_size, max_size, max_queries, max_inactive_connection_lifetime
-    timeouts: PoolTimeoutsConfig   # acquisition, health_check
+    timeouts: PoolTimeoutsConfig   # acquisition
     retry: PoolRetryConfig         # max_attempts, initial_delay, max_delay, exponential_backoff
     server_settings: ServerSettingsConfig  # application_name, timezone, statement_timeout
 ```
@@ -444,17 +444,18 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 
 | Module | Purpose |
 |--------|---------|
-| `queries.py` | 13 domain SQL query functions |
-| `mixins.py` | `BatchProgress` dataclass, `BatchProgressMixin`, `NetworkSemaphoreMixin` |
+| `queries.py` | 14 domain SQL query functions |
+| `mixins.py` | `ChunkProgress`, `NetworkSemaphores`, `GeoReaders` + cooperative-inheritance mixins |
 | `configs.py` | Per-network Pydantic config models |
 
-**Domain Query Functions** (13 total in `queries.py`):
+**Domain Query Functions** (14 total in `queries.py`):
 
 | Function | Purpose |
 |----------|---------|
 | `get_all_relay_urls(brotr)` | All relay URLs |
 | `get_all_relays(brotr)` | All relays with network + discovered_at |
 | `filter_new_relay_urls(brotr, urls)` | URLs not yet in relay table |
+| `insert_relays(brotr, relays)` | Insert relays directly into relay table |
 | `count_relays_due_for_check(brotr, ...)` | Count relays needing health check |
 | `fetch_relays_due_for_check(brotr, ...)` | Fetch relays needing health check |
 | `get_events_with_relay_urls(brotr, ...)` | Events containing relay URLs |
@@ -475,24 +476,26 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | `I2pConfig` | No | `socks5://i2p:4447` | 5 | 45s |
 | `LokiConfig` | No | `socks5://lokinet:1080` | 5 | 30s |
 
-`NetworkConfig` wraps all four and provides `get(network)`, `is_enabled(network)`, `get_proxy_url(network)`, `get_enabled_networks()`.
+`NetworksConfig` wraps all four and provides `get(network)`, `is_enabled(network)`, `get_proxy_url(network)`, `get_enabled_networks()`.
 
-**BatchProgress** (`mixins.py`):
+**ChunkProgress** (`mixins.py`):
 
-Mutable tracker for batch operations (not frozen -- has `reset()` method):
+Mutable tracker for chunk-based processing (not frozen -- has `reset()` method):
 
 ```python
 @dataclass(slots=True)
-class BatchProgress:
+class ChunkProgress:
     started_at: float      # wall-clock
     total: int
     processed: int
     success: int
-    failure: int
+    failed: int
     chunks: int
 ```
 
-**NetworkSemaphoreMixin**: creates one `asyncio.Semaphore` per enabled network, limiting concurrency to `max_tasks`.
+**NetworkSemaphores** (`mixins.py`): creates one `asyncio.Semaphore` per enabled network, limiting concurrency to `max_tasks`.
+
+**GeoReaders** (`mixins.py`): lifecycle manager for GeoIP2 database readers (city + ASN), with `open()` and `close()` methods.
 
 ---
 
@@ -602,10 +605,9 @@ service = Monitor(brotr=mock_brotr)
 
 Monitor uses multiple mixins to compose behavior:
 
-- `MonitorTagsMixin` -- tag building (from `monitor_tags.py`)
-- `MonitorPublisherMixin` -- Nostr broadcasting (from `monitor_publisher.py`)
-- `BatchProgressMixin` -- batch tracking (from `services/common/mixins.py`)
-- `NetworkSemaphoreMixin` -- per-network concurrency (from `services/common/mixins.py`)
+- `ChunkProgressMixin` -- chunk processing tracking (from `services/common/mixins.py`)
+- `NetworkSemaphoresMixin` -- per-network concurrency (from `services/common/mixins.py`)
+- `GeoReaderMixin` -- GeoIP database lifecycle (from `services/common/mixins.py`)
 
 ### Content-Addressed Deduplication
 

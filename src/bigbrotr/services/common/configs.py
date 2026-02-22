@@ -19,12 +19,12 @@ Attributes:
 See Also:
     [NetworkType][bigbrotr.models.constants.NetworkType]: Enum that
         identifies each overlay network.
-    [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin]:
+    [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin]:
         Uses ``max_tasks`` to create per-network concurrency semaphores.
     [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig],
     [MonitorConfig][bigbrotr.services.monitor.MonitorConfig],
     [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
-        Service configs that embed ``NetworkConfig``.
+        Service configs that embed ``NetworksConfig``.
 
 Examples:
     ```yaml
@@ -129,7 +129,7 @@ NetworkTypeConfig = ClearnetConfig | TorConfig | I2pConfig | LokiConfig
 # =============================================================================
 
 
-class NetworkConfig(BaseModel):
+class NetworksConfig(BaseModel):
     """Unified network configuration container for all BigBrotr services.
 
     Aggregates per-network settings with convenience methods for querying
@@ -140,7 +140,7 @@ class NetworkConfig(BaseModel):
     [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig].
 
     See Also:
-        [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin]:
+        [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin]:
             Creates per-network ``asyncio.Semaphore`` instances from
             ``max_tasks`` values in this config.
         [NetworkType][bigbrotr.models.constants.NetworkType]: Enum used
@@ -149,7 +149,7 @@ class NetworkConfig(BaseModel):
 
     Examples:
         ```python
-        config = NetworkConfig(tor=TorConfig(enabled=True))
+        config = NetworksConfig(tor=TorConfig(enabled=True))
         config.is_enabled(NetworkType.TOR)  # True
         config.get_proxy_url(NetworkType.TOR)  # 'socks5://tor:9050'
         config.get_enabled_networks()  # ['clearnet', 'tor']

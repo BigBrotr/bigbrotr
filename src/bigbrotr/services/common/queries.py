@@ -4,17 +4,16 @@ All SQL queries used by services are centralized here.  Each function
 accepts a [Brotr][bigbrotr.core.brotr.Brotr] instance and returns typed
 results.  Services import from this module instead of writing inline SQL.
 
-The 14 query functions are grouped into five categories:
+The 14 query functions are grouped into four categories:
 
 - **Relay queries**: ``get_all_relay_urls``, ``get_all_relays``,
-  ``filter_new_relay_urls``
+  ``filter_new_relay_urls``, ``insert_relays``
 - **Check / monitoring queries**: ``count_relays_due_for_check``,
   ``fetch_relays_due_for_check``
 - **Event queries**: ``get_events_with_relay_urls``
 - **Candidate lifecycle**: ``insert_candidates``, ``count_candidates``,
   ``fetch_candidate_chunk``, ``delete_stale_candidates``,
   ``delete_exhausted_candidates``, ``promote_candidates``
-- **Retention**: ``delete_expired_relay_metadata``
 - **Cursor queries**: ``get_all_service_cursors``
 
 Warning:
@@ -39,6 +38,7 @@ from typing import TYPE_CHECKING, Any
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.services.common.utils import parse_delete_result
 
 
 if TYPE_CHECKING:
@@ -127,6 +127,38 @@ async def filter_new_relay_urls(
     return [row["url"] for row in rows]
 
 
+async def insert_relays(brotr: Brotr, relays: list[Relay]) -> int:
+    """Bulk-insert relays directly into the ``relay`` table.
+
+    Respects the configured batch size from
+    [BatchConfig][bigbrotr.core.brotr.BatchConfig], splitting large inputs
+    into multiple ``insert_relay`` calls. Duplicates are silently skipped
+    (``ON CONFLICT DO NOTHING``).
+
+    Called by [Seeder][bigbrotr.services.seeder.Seeder] when
+    ``to_validate=False`` to bypass the validation pipeline.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        relays: [Relay][bigbrotr.models.relay.Relay] objects to insert.
+
+    Returns:
+        Number of relays actually inserted.
+
+    See Also:
+        [insert_candidates][bigbrotr.services.common.queries.insert_candidates]:
+            Alternative that inserts as validation candidates instead.
+    """
+    if not relays:
+        return 0
+
+    inserted = 0
+    batch_size = brotr.config.batch.max_size
+    for i in range(0, len(relays), batch_size):
+        inserted += await brotr.insert_relay(relays[i : i + batch_size])
+    return inserted
+
+
 # ---------------------------------------------------------------------------
 # Check / Monitoring Queries
 # ---------------------------------------------------------------------------
@@ -155,7 +187,7 @@ async def count_relays_due_for_check(
 
     Called by [Monitor][bigbrotr.services.monitor.Monitor] at the start of
     each cycle to populate
-    ``BatchProgress.total``.
+    ``ChunkProgress.total``.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
@@ -305,7 +337,7 @@ async def insert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
     Filters out URLs that already exist in the ``relay`` table or as
     pending candidates in ``service_state``, then persists only genuinely
     new records. Existing candidates retain their current state (e.g.
-    ``failed_attempts`` counter is never reset).
+    ``failures`` counter is never reset).
 
     Called by [Seeder][bigbrotr.services.seeder.Seeder] and
     [Finder][bigbrotr.services.finder.Finder] to register newly
@@ -341,7 +373,7 @@ async def insert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
             service_name=ServiceName.VALIDATOR,
             state_type=ServiceStateType.CANDIDATE,
             state_key=relay.url,
-            state_value={"failed_attempts": 0, "network": relay.network.value, "inserted_at": now},
+            state_value={"failures": 0, "network": relay.network.value, "inserted_at": now},
             updated_at=now,
         )
         for relay in relay_list
@@ -361,7 +393,7 @@ async def count_candidates(
 
     Called by [Validator][bigbrotr.services.validator.Validator] at the
     start of each cycle to populate
-    ``BatchProgress.total``.
+    ``ChunkProgress.total``.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
@@ -428,7 +460,7 @@ async def fetch_candidate_chunk(
           AND state_type = $2
           AND state_value->>'network' = ANY($3)
           AND updated_at < $4
-        ORDER BY COALESCE((state_value->>'failed_attempts')::int, 0) ASC,
+        ORDER BY COALESCE((state_value->>'failures')::int, 0) ASC,
                  updated_at ASC
         LIMIT $5
         """,
@@ -439,16 +471,6 @@ async def fetch_candidate_chunk(
         limit,
     )
     return [dict(row) for row in rows]
-
-
-def _parse_delete_result(result: str | None) -> int:
-    """Extract the row count from a PostgreSQL DELETE command status string."""
-    if not result:
-        return 0
-    try:
-        return int(result.split()[-1])
-    except (ValueError, IndexError):
-        return 0
 
 
 async def delete_stale_candidates(brotr: Brotr) -> int:
@@ -476,7 +498,7 @@ async def delete_stale_candidates(brotr: Brotr) -> int:
         ServiceName.VALIDATOR,
         ServiceStateType.CANDIDATE,
     )
-    return _parse_delete_result(result)
+    return parse_delete_result(result)
 
 
 async def delete_exhausted_candidates(
@@ -507,13 +529,13 @@ async def delete_exhausted_candidates(
         DELETE FROM service_state
         WHERE service_name = $1
           AND state_type = $2
-          AND COALESCE((state_value->>'failed_attempts')::int, 0) >= $3
+          AND COALESCE((state_value->>'failures')::int, 0) >= $3
         """,
         ServiceName.VALIDATOR,
         ServiceStateType.CANDIDATE,
         max_failures,
     )
-    return _parse_delete_result(result)
+    return parse_delete_result(result)
 
 
 async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
@@ -582,43 +604,6 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
         )
 
     return inserted
-
-
-# ---------------------------------------------------------------------------
-# Retention Queries
-# ---------------------------------------------------------------------------
-
-
-async def delete_expired_relay_metadata(
-    brotr: Brotr,
-    max_age_seconds: int,
-) -> int:
-    """Delete relay_metadata snapshots older than *max_age_seconds*.
-
-    This is a service-level retention policy, not a DB integrity operation.
-    Services decide when and how aggressively to prune historical data.
-    Run [Brotr.delete_orphan_metadata()][bigbrotr.core.brotr.Brotr.delete_orphan_metadata]
-    afterward to clean up dereferenced metadata blobs.
-
-    Args:
-        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        max_age_seconds: Maximum age in seconds (default 30 days).
-
-    Returns:
-        Number of deleted rows.
-
-    See Also:
-        [Brotr.delete_orphan_metadata()][bigbrotr.core.brotr.Brotr.delete_orphan_metadata]:
-            Clean up unreferenced metadata after expired snapshots are removed.
-    """
-    result = await brotr.execute(
-        """
-        DELETE FROM relay_metadata
-        WHERE generated_at < EXTRACT(EPOCH FROM now())::bigint - $1
-        """,
-        max_age_seconds,
-    )
-    return _parse_delete_result(result)
 
 
 # ---------------------------------------------------------------------------

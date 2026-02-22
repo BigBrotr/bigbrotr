@@ -1,6 +1,12 @@
 """Unit tests for utils.http module.
 
 Tests:
+- download_bounded_file() async function
+  - Successful download within size limit
+  - Oversized download rejection (no file written)
+  - Parent directory creation
+  - HTTP error propagation
+  - Size boundary behavior
 - read_bounded_json() async function
   - Valid JSON parsing within size limit
   - Oversized response rejection
@@ -10,11 +16,13 @@ Tests:
 """
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 
-from bigbrotr.utils.http import read_bounded_json
+from bigbrotr.utils.http import download_bounded_file, read_bounded_json
 
 
 def _mock_response(body: bytes) -> MagicMock:
@@ -24,6 +32,143 @@ def _mock_response(body: bytes) -> MagicMock:
     content.read = AsyncMock(return_value=body)
     resp.content = content
     return resp
+
+
+def _mock_session(body: bytes, *, status: int = 200) -> MagicMock:
+    """Build a mock aiohttp.ClientSession for download_bounded_file tests."""
+    response = _mock_response(body)
+    response.raise_for_status = MagicMock()
+    if status >= 400:
+        response.raise_for_status.side_effect = aiohttp.ClientResponseError(
+            request_info=MagicMock(), history=(), status=status
+        )
+
+    context_response = AsyncMock()
+    context_response.__aenter__ = AsyncMock(return_value=response)
+    context_response.__aexit__ = AsyncMock(return_value=False)
+
+    session = MagicMock()
+    session.get = MagicMock(return_value=context_response)
+
+    context_session = AsyncMock()
+    context_session.__aenter__ = AsyncMock(return_value=session)
+    context_session.__aexit__ = AsyncMock(return_value=False)
+
+    return context_session
+
+
+# =============================================================================
+# download_bounded_file() Tests - Successful Download
+# =============================================================================
+
+
+class TestDownloadBoundedFileSuccess:
+    """Tests for download_bounded_file() with valid downloads."""
+
+    async def test_writes_file_within_limit(self, tmp_path: Path) -> None:
+        """A download within max_size is written to disk."""
+        data = b"file content here"
+        dest = tmp_path / "output.dat"
+
+        with patch("bigbrotr.utils.http.aiohttp.ClientSession", return_value=_mock_session(data)):
+            await download_bounded_file("https://example.com/file", dest, max_size=1024)
+
+        assert dest.read_bytes() == data
+
+    async def test_writes_file_at_exact_limit(self, tmp_path: Path) -> None:
+        """A download exactly at max_size is accepted and written."""
+        data = b"x" * 100
+        dest = tmp_path / "exact.dat"
+
+        with patch("bigbrotr.utils.http.aiohttp.ClientSession", return_value=_mock_session(data)):
+            await download_bounded_file("https://example.com/file", dest, max_size=100)
+
+        assert dest.read_bytes() == data
+
+    async def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        """Parent directories are created if they do not exist."""
+        data = b"nested"
+        dest = tmp_path / "a" / "b" / "c" / "file.dat"
+
+        with patch("bigbrotr.utils.http.aiohttp.ClientSession", return_value=_mock_session(data)):
+            await download_bounded_file("https://example.com/file", dest, max_size=1024)
+
+        assert dest.read_bytes() == data
+        assert dest.parent.is_dir()
+
+    async def test_reads_max_size_plus_one_bytes(self, tmp_path: Path) -> None:
+        """read() is called with max_size + 1 to detect oversized bodies."""
+        data = b"small"
+        mock = _mock_session(data)
+        dest = tmp_path / "probe.dat"
+
+        with patch("bigbrotr.utils.http.aiohttp.ClientSession", return_value=mock):
+            await download_bounded_file("https://example.com/file", dest, max_size=500)
+
+        # Verify the response content.read was called with max_size + 1
+        session = await mock.__aenter__()
+        resp_ctx = session.get("https://example.com/file")
+        response = await resp_ctx.__aenter__()
+        response.content.read.assert_awaited_once_with(501)
+
+
+# =============================================================================
+# download_bounded_file() Tests - Size Enforcement
+# =============================================================================
+
+
+class TestDownloadBoundedFileSizeLimit:
+    """Tests for download_bounded_file() size enforcement behavior."""
+
+    async def test_rejects_oversized_download(self, tmp_path: Path) -> None:
+        """A download exceeding max_size raises ValueError without writing."""
+        data = b"x" * 101
+        dest = tmp_path / "too_large.dat"
+
+        with (
+            patch("bigbrotr.utils.http.aiohttp.ClientSession", return_value=_mock_session(data)),
+            pytest.raises(ValueError, match="Download too large"),
+        ):
+            await download_bounded_file("https://example.com/file", dest, max_size=100)
+
+        assert not dest.exists()
+
+    async def test_rejects_one_byte_over_limit(self, tmp_path: Path) -> None:
+        """A download one byte over max_size is rejected."""
+        data = b"x" * 11
+        dest = tmp_path / "over.dat"
+
+        with (
+            patch("bigbrotr.utils.http.aiohttp.ClientSession", return_value=_mock_session(data)),
+            pytest.raises(ValueError, match="Download too large"),
+        ):
+            await download_bounded_file("https://example.com/file", dest, max_size=10)
+
+        assert not dest.exists()
+
+
+# =============================================================================
+# download_bounded_file() Tests - HTTP Errors
+# =============================================================================
+
+
+class TestDownloadBoundedFileErrors:
+    """Tests for download_bounded_file() error handling."""
+
+    async def test_propagates_http_error(self, tmp_path: Path) -> None:
+        """HTTP errors from raise_for_status() propagate to the caller."""
+        dest = tmp_path / "error.dat"
+
+        with (
+            patch(
+                "bigbrotr.utils.http.aiohttp.ClientSession",
+                return_value=_mock_session(b"", status=404),
+            ),
+            pytest.raises(aiohttp.ClientResponseError),
+        ):
+            await download_bounded_file("https://example.com/missing", dest, max_size=1024)
+
+        assert not dest.exists()
 
 
 # =============================================================================

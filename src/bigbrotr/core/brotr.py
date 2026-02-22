@@ -177,7 +177,7 @@ class Brotr:
             relay = Relay("wss://relay.example.com")
             await brotr.insert_relay(records=[relay])
 
-            event_relay = EventRelay(Event(nostr_event), relay)
+            event_relay = EventRelay(event=Event(nostr_event), relay=relay)
             await brotr.insert_event_relay(records=[event_relay])
         ```
 
@@ -450,7 +450,7 @@ class Brotr:
 
         Examples:
             ```python
-            async with self._brotr.transaction() as conn:
+            async with brotr.transaction() as conn:
                 await conn.execute("INSERT INTO ...")
                 await conn.execute("DELETE FROM ...")
             ```

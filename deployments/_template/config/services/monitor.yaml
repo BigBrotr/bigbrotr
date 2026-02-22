@@ -254,7 +254,7 @@ geo:
 # -----------------------------------------------------------------------------
 # Controls what metadata is computed, stored, and published.
 # Dependency chain: compute -> store -> discovery.include
-# Class: src/services/monitor.py::MonitorProcessingConfig
+# Class: src/services/monitor.py::ProcessingConfig
 
 processing:
   # Relays to process per database batch

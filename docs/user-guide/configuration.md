@@ -137,7 +137,6 @@ pool:
 
   timeouts:
     acquisition: 10.0                        # Connection acquisition timeout
-    health_check: 5.0                        # Health check timeout
 
   retry:
     max_attempts: 3                          # Connection retry attempts
@@ -186,7 +185,6 @@ timeouts:
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
 | `acquisition` | float | `10.0` | >= 0.1 | Connection acquisition timeout |
-| `health_check` | float | `5.0` | >= 0.1 | Health check timeout |
 
 #### PoolRetryConfig
 
@@ -245,7 +243,7 @@ All services inherit from `BaseServiceConfig` and share these fields:
 Services that connect to relays (Validator, Monitor, Synchronizer) share a unified network configuration:
 
 !!! tip "API Reference"
-    See [`bigbrotr.services.common.configs.NetworkConfig`](../reference/services/common/configs.md) for the config class API.
+    See [`bigbrotr.services.common.configs.NetworksConfig`](../reference/services/common/configs.md) for the config class API.
 
 ```yaml
 networks:
@@ -576,7 +574,7 @@ time_range:
   use_relay_state: true                      # Use per-relay incremental cursors
   lookback_seconds: 86400                    # Lookback window from cursor
 
-sync_timeouts:
+timeouts:
   relay_clearnet: 1800.0                     # Max time per clearnet relay (30 min)
   relay_tor: 3600.0                          # Max time per Tor relay (1 hour)
   relay_i2p: 3600.0
@@ -619,10 +617,10 @@ overrides: []                                # Per-relay timeout overrides
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `sync_timeouts.relay_clearnet` | float | `1800.0` | 60.0-14400.0 | Max time per clearnet relay |
-| `sync_timeouts.relay_tor` | float | `3600.0` | 60.0-14400.0 | Max time per Tor relay |
-| `sync_timeouts.relay_i2p` | float | `3600.0` | 60.0-14400.0 | Max time per I2P relay |
-| `sync_timeouts.relay_loki` | float | `3600.0` | 60.0-14400.0 | Max time per Lokinet relay |
+| `timeouts.relay_clearnet` | float | `1800.0` | 60.0-14400.0 | Max time per clearnet relay |
+| `timeouts.relay_tor` | float | `3600.0` | 60.0-14400.0 | Max time per Tor relay |
+| `timeouts.relay_i2p` | float | `3600.0` | 60.0-14400.0 | Max time per I2P relay |
+| `timeouts.relay_loki` | float | `3600.0` | 60.0-14400.0 | Max time per Lokinet relay |
 
 ### Concurrency Reference
 
@@ -666,7 +664,7 @@ Some models enforce relationships between fields:
 
 - `LimitsConfig`: `max_size` must be >= `min_size`
 - `PoolRetryConfig`: `max_delay` must be >= `initial_delay`
-- `MonitorProcessingConfig`: `store` flags must be a subset of `compute` flags
+- `ProcessingConfig`: `store` flags must be a subset of `compute` flags
 - `KeysConfig`: validates hex string length (64 chars) or nsec1 bech32 format
 
 !!! warning
