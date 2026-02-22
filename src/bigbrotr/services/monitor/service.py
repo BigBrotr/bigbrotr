@@ -234,7 +234,7 @@ class Monitor(
         await self.update_geo_databases()
 
         compute = self._config.processing.compute
-        await self.open_geo_readers(
+        await self.geo_readers.open(
             city_path=self._config.geo.city_database_path if compute.nip66_geo else None,
             asn_path=self._config.geo.asn_database_path if compute.nip66_net else None,
         )
@@ -268,7 +268,7 @@ class Monitor(
                 duration_s=self.progress.elapsed,
             )
         finally:
-            self.close_geo_readers()
+            self.geo_readers.close()
 
     async def _update_geo_db(self, path: Path, url: str, db_name: str) -> None:
         """Download a single GeoLite2 database if missing or stale.
@@ -330,7 +330,7 @@ class Monitor(
     ) -> AsyncIterator[tuple[list[tuple[Relay, CheckResult]], list[Relay]]]:
         """Yield (successful, failed) for each processed chunk of relays.
 
-        Requires ``open_geo_readers()`` for full checks. Handles chunk
+        Requires ``geo_readers.open()`` for full checks. Handles chunk
         fetching, budget calculation, and concurrent health checks.
         Persistence and publishing are left to the caller.
 
@@ -595,8 +595,8 @@ class Monitor(
                 "nip66_dns",
                 relay.url,
             )
-        if compute.nip66_geo and self.city_reader and relay.network == NetworkType.CLEARNET:
-            city_reader = self.city_reader
+        if compute.nip66_geo and self.geo_readers.city and relay.network == NetworkType.CLEARNET:
+            city_reader = self.geo_readers.city
             precision = self._config.geo.geohash_precision
             tasks["geo"] = self._with_retry(
                 lambda: Nip66GeoMetadata.execute(relay, city_reader, precision),
@@ -604,8 +604,8 @@ class Monitor(
                 "nip66_geo",
                 relay.url,
             )
-        if compute.nip66_net and self.asn_reader and relay.network == NetworkType.CLEARNET:
-            asn_reader = self.asn_reader
+        if compute.nip66_net and self.geo_readers.asn and relay.network == NetworkType.CLEARNET:
+            asn_reader = self.geo_readers.asn
             tasks["net"] = self._with_retry(
                 lambda: Nip66NetMetadata.execute(relay, asn_reader),
                 self._config.processing.retry.nip66_net,

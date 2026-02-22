@@ -203,30 +203,29 @@ class NetworkSemaphoresMixin:
 # ---------------------------------------------------------------------------
 
 
-class GeoReaderMixin:
-    """Mixin providing GeoIP database reader lifecycle management.
+class GeoReaders:
+    """GeoIP database reader container for city and ASN lookups.
 
-    Manages opening and closing of ``geoip2.database.Reader`` instances
-    for city (geolocation) and ASN (network info) lookups. Reader
-    initialization is offloaded to a thread to avoid blocking the event loop.
+    Manages the lifecycle of ``geoip2.database.Reader`` instances.
+    Reader initialization is offloaded to a thread via ``open()`` to
+    avoid blocking the event loop.
 
-    Note:
-        Call ``close_geo_readers()`` in a ``finally`` block or ``__aexit__``.
+    Attributes:
+        city: GeoLite2-City reader for geolocation lookups, or ``None``.
+        asn: GeoLite2-ASN reader for network info lookups, or ``None``.
 
     See Also:
-        [Monitor][bigbrotr.services.monitor.Monitor]: The service that
-            composes this mixin for NIP-66 geo/net checks.
+        [GeoReaderMixin][bigbrotr.services.common.mixins.GeoReaderMixin]:
+            Mixin that exposes a ``geo_readers`` attribute of this type.
     """
 
-    city_reader: geoip2.database.Reader | None
-    asn_reader: geoip2.database.Reader | None
+    __slots__ = ("asn", "city")
 
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.city_reader = None
-        self.asn_reader = None
+    def __init__(self) -> None:
+        self.city: geoip2.database.Reader | None = None
+        self.asn: geoip2.database.Reader | None = None
 
-    async def open_geo_readers(
+    async def open(
         self,
         *,
         city_path: str | None = None,
@@ -241,15 +240,36 @@ class GeoReaderMixin:
         import geoip2.database as geoip2_db  # noqa: PLC0415  # runtime import
 
         if city_path:
-            self.city_reader = await asyncio.to_thread(geoip2_db.Reader, city_path)
+            self.city = await asyncio.to_thread(geoip2_db.Reader, city_path)
         if asn_path:
-            self.asn_reader = await asyncio.to_thread(geoip2_db.Reader, asn_path)
+            self.asn = await asyncio.to_thread(geoip2_db.Reader, asn_path)
 
-    def close_geo_readers(self) -> None:
+    def close(self) -> None:
         """Close readers and set to ``None``. Idempotent."""
-        if self.city_reader:
-            self.city_reader.close()
-            self.city_reader = None
-        if self.asn_reader:
-            self.asn_reader.close()
-            self.asn_reader = None
+        if self.city:
+            self.city.close()
+            self.city = None
+        if self.asn:
+            self.asn.close()
+            self.asn = None
+
+
+class GeoReaderMixin:
+    """Mixin providing GeoIP database reader lifecycle management.
+
+    Exposes a ``geo_readers`` attribute of type
+    [GeoReaders][bigbrotr.services.common.mixins.GeoReaders].
+
+    Note:
+        Call ``geo_readers.close()`` in a ``finally`` block or ``__aexit__``.
+
+    See Also:
+        [Monitor][bigbrotr.services.monitor.Monitor]: The service that
+            composes this mixin for NIP-66 geo/net checks.
+    """
+
+    geo_readers: GeoReaders
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.geo_readers = GeoReaders()

@@ -10,10 +10,12 @@ Attributes:
         [I2pConfig][bigbrotr.services.common.configs.I2pConfig],
         [LokiConfig][bigbrotr.services.common.configs.LokiConfig]) with
         sensible defaults for timeouts, proxy URLs, and max concurrent tasks.
-    mixins: [BatchProgress][bigbrotr.services.common.mixins.BatchProgress]
-        dataclass for tracking batch processing cycles and
+    mixins: [ChunkProgress][bigbrotr.services.common.mixins.ChunkProgress]
+        dataclass for tracking chunk processing cycles,
         [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin]
-        for per-network concurrency control.
+        for per-network concurrency control, and
+        [GeoReaders][bigbrotr.services.common.mixins.GeoReaders] for GeoIP
+        database reader lifecycle management.
     queries: 13 domain-specific SQL query functions centralized in one module
         to avoid scattering inline SQL across services.
 
@@ -36,6 +38,7 @@ from .mixins import (
     ChunkProgress,
     ChunkProgressMixin,
     GeoReaderMixin,
+    GeoReaders,
     NetworkSemaphores,
     NetworkSemaphoresMixin,
 )
@@ -62,6 +65,7 @@ __all__ = [
     "ChunkProgressMixin",
     "ClearnetConfig",
     "GeoReaderMixin",
+    "GeoReaders",
     "I2pConfig",
     "LokiConfig",
     "NetworkConfig",
