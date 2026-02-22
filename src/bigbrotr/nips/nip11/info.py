@@ -15,7 +15,7 @@ Note:
     rejected to guard against resource exhaustion.
 
     The SSL fallback strategy mirrors
-    [connect_relay][bigbrotr.utils.transport.connect_relay]: clearnet relays
+    [connect_relay][bigbrotr.utils.protocol.connect_relay]: clearnet relays
     try verified SSL first, then fall back to ``CERT_NONE`` if
     ``allow_insecure=True``. Overlay networks always use an insecure SSL
     context because the overlay provides its own encryption layer.

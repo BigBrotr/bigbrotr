@@ -184,7 +184,7 @@ class Nip66(BaseNip):
             Companion NIP-11 model with the same factory/serialization pattern.
         [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
             Service that calls ``create()`` during health check cycles.
-        [bigbrotr.services.monitor_tags][bigbrotr.services.monitor_tags]:
+        [bigbrotr.nips.event_builders][bigbrotr.nips.event_builders]:
             Tag builder that converts results into kind 30166 event tags.
 
     Examples:

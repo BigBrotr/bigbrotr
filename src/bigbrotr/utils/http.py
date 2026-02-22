@@ -9,7 +9,7 @@ Note:
     and ``services`` without violating the diamond DAG.
 
 See Also:
-    [Nip11InfoMetadata._info][bigbrotr.nips.nip11.info.Nip11InfoMetadata._info]:
+    [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
         NIP-11 info fetch that uses [read_bounded_json][bigbrotr.utils.http.read_bounded_json].
     [Finder][bigbrotr.services.finder.Finder]:
         Finder API fetch that uses [read_bounded_json][bigbrotr.utils.http.read_bounded_json].

@@ -19,7 +19,7 @@ Note:
 See Also:
     [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
         Primary consumer that signs NIP-66 kind 10166/30166 events.
-    [bigbrotr.utils.transport.broadcast_events][bigbrotr.utils.transport.broadcast_events]:
+    [bigbrotr.utils.protocol.broadcast_events][bigbrotr.utils.protocol.broadcast_events]:
         Uses keys for Nostr event broadcasting.
     [bigbrotr.nips.nip66.rtt.Nip66RttDependencies][bigbrotr.nips.nip66.rtt.Nip66RttDependencies]:
         RTT probes require keys for publishing test events.

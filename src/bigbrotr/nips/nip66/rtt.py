@@ -11,7 +11,7 @@ Note:
     The RTT test executes three sequential phases:
 
     1. **Open** -- measures WebSocket connection establishment time via
-       [connect_relay][bigbrotr.utils.transport.connect_relay].
+       [connect_relay][bigbrotr.utils.protocol.connect_relay].
     2. **Read** -- measures time to receive the first event matching a
        filter via ``stream_events``.
     3. **Write** -- measures time to publish an event and verify it can
@@ -27,7 +27,7 @@ See Also:
         Data model for RTT measurements.
     [bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]:
         Multi-phase log model with per-phase success/reason.
-    [bigbrotr.utils.transport.connect_relay][bigbrotr.utils.transport.connect_relay]:
+    [bigbrotr.utils.protocol.connect_relay][bigbrotr.utils.protocol.connect_relay]:
         Transport function used for the open phase.
     [bigbrotr.utils.keys.KeysConfig][bigbrotr.utils.keys.KeysConfig]:
         Key management -- RTT probes require signing keys for the write phase.
