@@ -161,25 +161,54 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
     async def run(self) -> None:
         """Execute one complete validation cycle.
 
-        Orchestrates cleanup, candidate counting, chunk-based processing, and
-        metrics emission. Respects ``is_running`` for graceful shutdown and
-        ``max_candidates`` for per-cycle limits.
+        Orchestrates cleanup, validation, and cycle-level logging.
+        Delegates the core work to ``cleanup_stale``, ``cleanup_exhausted``,
+        and ``validate``.
         """
-        self.chunk_progress.reset()
-
-        networks = self._config.networks.get_enabled_networks()
         self._logger.info(
             "cycle_started",
             chunk_size=self._config.processing.chunk_size,
             max_candidates=self._config.processing.max_candidates,
-            networks=networks,
+            networks=self._config.networks.get_enabled_networks(),
         )
 
-        # Cleanup and count
+        self.chunk_progress.reset()
         await self.cleanup_stale()
         await self.cleanup_exhausted()
-        self.chunk_progress.total = await count_candidates(self._brotr, networks)
+        await self.validate()
 
+        self._logger.info(
+            "cycle_completed",
+            validated=self.chunk_progress.succeeded,
+            invalidated=self.chunk_progress.failed,
+            chunks=self.chunk_progress.chunks,
+            duration_s=self.chunk_progress.elapsed,
+        )
+
+    # -------------------------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------------------------
+
+    async def validate(self, networks: list[str] | None = None) -> int:
+        """Count, validate, and persist all pending candidates.
+
+        High-level entry point that counts available candidates, processes
+        them in chunks via ``validate_chunks``, persists results, and emits
+        progress metrics. Returns the total number of candidates processed.
+
+        This is the method ``run()`` delegates to after cleanup. It can also
+        be called standalone when cleanup is not desired.
+
+        Args:
+            networks: Network types to process. ``None`` uses config defaults.
+
+        Returns:
+            Total number of candidates processed (valid + invalid).
+        """
+        if networks is None:
+            networks = self._config.networks.get_enabled_networks()
+
+        self.chunk_progress.total = await count_candidates(self._brotr, networks)
         self._logger.info("candidates_available", total=self.chunk_progress.total)
         self._emit_progress_gauges()
 
@@ -199,17 +228,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
                 )
 
         self._emit_progress_gauges()
-        self._logger.info(
-            "cycle_completed",
-            validated=self.chunk_progress.succeeded,
-            invalidated=self.chunk_progress.failed,
-            chunks=self.chunk_progress.chunks,
-            duration_s=self.chunk_progress.elapsed,
-        )
-
-    # -------------------------------------------------------------------------
-    # Public API
-    # -------------------------------------------------------------------------
+        return self.chunk_progress.processed
 
     async def cleanup_stale(self) -> int:
         """Remove candidates whose URLs already exist in the relays table.
