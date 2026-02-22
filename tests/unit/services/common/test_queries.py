@@ -413,7 +413,7 @@ class TestInsertCandidates:
         assert record.state_type == ServiceStateType.CANDIDATE
         assert record.state_key == "wss://relay.example.com"
         assert record.state_value["network"] == "clearnet"
-        assert record.state_value["failed_attempts"] == 0
+        assert record.state_value["failures"] == 0
         assert "inserted_at" in record.state_value
         assert result == 1
 
@@ -553,7 +553,7 @@ class TestFetchCandidateChunk:
         row = _make_dict_row(
             {
                 "state_key": "wss://relay.example.com",
-                "value": {"failed_attempts": 0, "network": "clearnet"},
+                "value": {"failures": 0, "network": "clearnet"},
             }
         )
         mock_brotr.fetch = AsyncMock(return_value=[row])
@@ -624,7 +624,7 @@ class TestDeleteExhaustedCandidates:
         assert "DELETE FROM service_state" in sql
         assert "service_name = $1" in sql
         assert "state_type = $2" in sql
-        assert "failed_attempts" in sql
+        assert "failures" in sql
         assert ">= $3" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CANDIDATE

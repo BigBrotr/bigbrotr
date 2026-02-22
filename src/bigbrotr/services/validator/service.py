@@ -97,7 +97,7 @@ class Candidate:
         relay: [Relay][bigbrotr.models.relay.Relay] object with URL and
             network information.
         data: Metadata from the ``service_state`` table (``network``,
-            ``failed_attempts``, etc.).
+            ``failures``, etc.).
 
     See Also:
         [fetch_candidate_chunk][bigbrotr.services.common.queries.fetch_candidate_chunk]:
@@ -108,9 +108,9 @@ class Candidate:
     data: dict[str, Any]
 
     @property
-    def failed_attempts(self) -> int:
+    def failures(self) -> int:
         """Return the number of failed validation attempts for this candidate."""
-        return int(self.data.get("failed_attempts", 0))
+        return int(self.data.get("failures", 0))
 
 
 # =============================================================================
@@ -441,7 +441,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
                     service_name=self.SERVICE_NAME,
                     state_type=ServiceStateType.CANDIDATE,
                     state_key=c.relay.url,
-                    state_value={**c.data, "failed_attempts": c.failed_attempts + 1},
+                    state_value={**c.data, "failures": c.failures + 1},
                     updated_at=now,
                 )
                 for c in invalid

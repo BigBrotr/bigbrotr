@@ -37,11 +37,11 @@ from bigbrotr.services.validator import (
 # ============================================================================
 
 
-def make_candidate_row(url: str, network: str = "clearnet", failed_attempts: int = 0) -> dict:
+def make_candidate_row(url: str, network: str = "clearnet", failures: int = 0) -> dict:
     """Create a mock candidate row from database."""
     return {
         "state_key": url,
-        "state_value": {"network": network, "failed_attempts": failed_attempts},
+        "state_value": {"network": network, "failures": failures},
     }
 
 
@@ -643,7 +643,7 @@ class TestPersistence:
     ) -> None:
         """Test invalid candidates have failures incremented."""
         mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[[make_candidate_row("wss://invalid.relay.com", failed_attempts=2)], []]
+            side_effect=[[make_candidate_row("wss://invalid.relay.com", failures=2)], []]
         )
 
         validator = Validator(brotr=mock_validator_brotr)
@@ -657,7 +657,7 @@ class TestPersistence:
 
         mock_validator_brotr.upsert_service_state.assert_called_once()
         call_args = mock_validator_brotr.upsert_service_state.call_args[0][0]
-        assert call_args[0].state_value["failed_attempts"] == 3
+        assert call_args[0].state_value["failures"] == 3
 
     async def test_invalid_candidates_preserve_data_fields(
         self, mock_validator_brotr: Brotr
@@ -665,7 +665,7 @@ class TestPersistence:
         """Test invalid candidates preserve all data fields (network, etc)."""
         mock_validator_brotr._pool.fetch = AsyncMock(
             side_effect=[
-                [make_candidate_row("wss://invalid.relay.com", network="tor", failed_attempts=1)],
+                [make_candidate_row("wss://invalid.relay.com", network="tor", failures=1)],
                 [],
             ]
         )
@@ -682,7 +682,7 @@ class TestPersistence:
         mock_validator_brotr.upsert_service_state.assert_called_once()
         call_args = mock_validator_brotr.upsert_service_state.call_args[0][0]
         data = call_args[0].state_value
-        assert data["failed_attempts"] == 2
+        assert data["failures"] == 2
         assert data["network"] == "tor"  # Preserved from original data
 
 

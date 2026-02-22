@@ -337,7 +337,7 @@ async def insert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
     Filters out URLs that already exist in the ``relay`` table or as
     pending candidates in ``service_state``, then persists only genuinely
     new records. Existing candidates retain their current state (e.g.
-    ``failed_attempts`` counter is never reset).
+    ``failures`` counter is never reset).
 
     Called by [Seeder][bigbrotr.services.seeder.Seeder] and
     [Finder][bigbrotr.services.finder.Finder] to register newly
@@ -373,7 +373,7 @@ async def insert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
             service_name=ServiceName.VALIDATOR,
             state_type=ServiceStateType.CANDIDATE,
             state_key=relay.url,
-            state_value={"failed_attempts": 0, "network": relay.network.value, "inserted_at": now},
+            state_value={"failures": 0, "network": relay.network.value, "inserted_at": now},
             updated_at=now,
         )
         for relay in relay_list
@@ -460,7 +460,7 @@ async def fetch_candidate_chunk(
           AND state_type = $2
           AND state_value->>'network' = ANY($3)
           AND updated_at < $4
-        ORDER BY COALESCE((state_value->>'failed_attempts')::int, 0) ASC,
+        ORDER BY COALESCE((state_value->>'failures')::int, 0) ASC,
                  updated_at ASC
         LIMIT $5
         """,
@@ -529,7 +529,7 @@ async def delete_exhausted_candidates(
         DELETE FROM service_state
         WHERE service_name = $1
           AND state_type = $2
-          AND COALESCE((state_value->>'failed_attempts')::int, 0) >= $3
+          AND COALESCE((state_value->>'failures')::int, 0) >= $3
         """,
         ServiceName.VALIDATOR,
         ServiceStateType.CANDIDATE,
