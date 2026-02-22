@@ -85,7 +85,7 @@ from bigbrotr.nips.nip66 import (
     Nip66SslMetadata,
 )
 from bigbrotr.services.common.mixins import (
-    BatchProgressMixin,
+    ChunkProgressMixin,
     GeoReaderMixin,
     NetworkSemaphoresMixin,
 )
@@ -177,7 +177,7 @@ class CheckResult(NamedTuple):
 
 
 class Monitor(
-    BatchProgressMixin,
+    ChunkProgressMixin,
     NetworkSemaphoresMixin,
     GeoReaderMixin,
     BaseService[MonitorConfig],
@@ -262,8 +262,8 @@ class Monitor(
             self._logger.info(
                 "cycle_completed",
                 checked=self.progress.processed,
-                successful=self.progress.success,
-                failed=self.progress.failure,
+                successful=self.progress.succeeded,
+                failed=self.progress.failed,
                 chunks=self.progress.chunks,
                 duration_s=self.progress.elapsed,
             )
@@ -411,10 +411,7 @@ class Monitor(
             return
 
         async for successful, failed in self.check_chunks(networks):
-            self.progress.processed += len(successful) + len(failed)
-            self.progress.success += len(successful)
-            self.progress.failure += len(failed)
-            self.progress.chunks += 1
+            self.progress.record_chunk(succeeded=len(successful), failed=len(failed))
 
             await self.publish_relay_discoveries(successful)
             await self._persist_results(successful, failed)
@@ -812,8 +809,8 @@ class Monitor(
         """Emit Prometheus gauges for batch progress."""
         self.set_gauge("total", self.progress.total)
         self.set_gauge("processed", self.progress.processed)
-        self.set_gauge("success", self.progress.success)
-        self.set_gauge("failure", self.progress.failure)
+        self.set_gauge("success", self.progress.succeeded)
+        self.set_gauge("failure", self.progress.failed)
 
     # -------------------------------------------------------------------------
     # Publishing

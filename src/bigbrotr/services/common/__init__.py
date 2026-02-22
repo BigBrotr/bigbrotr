@@ -33,8 +33,8 @@ from .configs import (
     TorConfig,
 )
 from .mixins import (
-    BatchProgress,
-    BatchProgressMixin,
+    ChunkProgress,
+    ChunkProgressMixin,
     GeoReaderMixin,
     NetworkSemaphores,
     NetworkSemaphoresMixin,
@@ -58,8 +58,8 @@ from .utils import parse_delete_result, validate_relay_url
 
 
 __all__ = [
-    "BatchProgress",
-    "BatchProgressMixin",
+    "ChunkProgress",
+    "ChunkProgressMixin",
     "ClearnetConfig",
     "GeoReaderMixin",
     "I2pConfig",

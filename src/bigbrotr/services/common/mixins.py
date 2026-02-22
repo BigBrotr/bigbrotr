@@ -30,25 +30,23 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Batch Progress
+# Chunk Progress
 # ---------------------------------------------------------------------------
 
 
 @dataclass(slots=True)
-class BatchProgress:
-    """Tracks progress of a batch processing cycle.
+class ChunkProgress:
+    """Tracks progress of a chunk-based processing cycle.
 
     All counters are reset at the start of each cycle via ``reset()``.
-    Used internally by
-    [BatchProgressMixin][bigbrotr.services.common.mixins.BatchProgressMixin]
-    to provide ``progress`` to services.
+    Use ``record_chunk()`` after processing each chunk to update counters.
 
     Attributes:
         started_at: Timestamp when the cycle started (``time.time()``).
-        total: Total items to process.
+        total: Total items to process in this cycle.
         processed: Items processed so far.
-        success: Items that succeeded.
-        failure: Items that failed.
+        succeeded: Items that succeeded.
+        failed: Items that failed.
         chunks: Number of chunks completed.
 
     Note:
@@ -57,7 +55,7 @@ class BatchProgress:
         accurate duration measurement unaffected by clock adjustments.
 
     See Also:
-        [BatchProgressMixin][bigbrotr.services.common.mixins.BatchProgressMixin]:
+        [ChunkProgressMixin][bigbrotr.services.common.mixins.ChunkProgressMixin]:
             Mixin that exposes a ``progress`` attribute of this type.
     """
 
@@ -65,8 +63,8 @@ class BatchProgress:
     _monotonic_start: float = field(default=0.0, repr=False)
     total: int = field(default=0)
     processed: int = field(default=0)
-    success: int = field(default=0)
-    failure: int = field(default=0)
+    succeeded: int = field(default=0)
+    failed: int = field(default=0)
     chunks: int = field(default=0)
 
     def reset(self) -> None:
@@ -75,9 +73,21 @@ class BatchProgress:
         self._monotonic_start = time.monotonic()
         self.total = 0
         self.processed = 0
-        self.success = 0
-        self.failure = 0
+        self.succeeded = 0
+        self.failed = 0
         self.chunks = 0
+
+    def record_chunk(self, succeeded: int, failed: int) -> None:
+        """Record the results of one processed chunk.
+
+        Args:
+            succeeded: Number of items that succeeded in this chunk.
+            failed: Number of items that failed in this chunk.
+        """
+        self.processed += succeeded + failed
+        self.succeeded += succeeded
+        self.failed += failed
+        self.chunks += 1
 
     @property
     def remaining(self) -> int:
@@ -90,15 +100,15 @@ class BatchProgress:
         return round(time.monotonic() - self._monotonic_start, 1)
 
 
-class BatchProgressMixin:
-    """Mixin providing batch processing progress tracking.
+class ChunkProgressMixin:
+    """Mixin providing chunk-based processing progress tracking.
 
-    Services that process items in batches compose this mixin to get
+    Services that process items in chunks compose this mixin to get
     a ``progress`` attribute with counters and timing. Initialization
     is automatic via ``__init__``.
 
     See Also:
-        [BatchProgress][bigbrotr.services.common.mixins.BatchProgress]:
+        [ChunkProgress][bigbrotr.services.common.mixins.ChunkProgress]:
             The dataclass this mixin manages.
         [Validator][bigbrotr.services.validator.Validator],
         [Monitor][bigbrotr.services.monitor.Monitor]: Services that
@@ -106,18 +116,19 @@ class BatchProgressMixin:
 
     Examples:
         ```python
-        class MyService(BatchProgressMixin, BaseService[MyConfig]):
+        class MyService(ChunkProgressMixin, BaseService[MyConfig]):
             async def run(self):
                 self.progress.reset()
                 ...
+                self.progress.record_chunk(succeeded=len(ok), failed=len(err))
         ```
     """
 
-    progress: BatchProgress
+    progress: ChunkProgress
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.progress = BatchProgress()
+        self.progress = ChunkProgress()
 
 
 # ---------------------------------------------------------------------------

@@ -61,7 +61,7 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.mixins import BatchProgressMixin, NetworkSemaphoresMixin
+from bigbrotr.services.common.mixins import ChunkProgressMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import (
     count_candidates,
     delete_exhausted_candidates,
@@ -119,7 +119,7 @@ class Candidate:
 # =============================================================================
 
 
-class Validator(BatchProgressMixin, NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
+class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
     """Validates relay candidates by checking if they speak the Nostr protocol.
 
     Processes candidate URLs discovered by the
@@ -189,8 +189,8 @@ class Validator(BatchProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         self._emit_progress_gauges()
         self._logger.info(
             "cycle_completed",
-            validated=self.progress.success,
-            invalidated=self.progress.failure,
+            validated=self.progress.succeeded,
+            invalidated=self.progress.failed,
             chunks=self.progress.chunks,
             duration_s=self.progress.elapsed,
         )
@@ -338,10 +338,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             return
 
         async for valid, invalid in self.validate_chunks(networks):
-            self.progress.processed += len(valid) + len(invalid)
-            self.progress.success += len(valid)
-            self.progress.failure += len(invalid)
-            self.progress.chunks += 1
+            self.progress.record_chunk(succeeded=len(valid), failed=len(invalid))
 
             await self._persist_results(valid, invalid)
             self._emit_progress_gauges()
@@ -472,5 +469,5 @@ class Validator(BatchProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         """Emit Prometheus gauges for batch progress."""
         self.set_gauge("total", self.progress.total)
         self.set_gauge("processed", self.progress.processed)
-        self.set_gauge("success", self.progress.success)
-        self.set_gauge("failure", self.progress.failure)
+        self.set_gauge("success", self.progress.succeeded)
+        self.set_gauge("failure", self.progress.failed)

@@ -1042,13 +1042,13 @@ class TestMonitorRun:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor.progress.success = 10
-        monitor.progress.failure = 5
+        monitor.progress.succeeded = 10
+        monitor.progress.failed = 5
 
         await monitor.run()
 
-        assert monitor.progress.success == 0
-        assert monitor.progress.failure == 0
+        assert monitor.progress.succeeded == 0
+        assert monitor.progress.failed == 0
 
 
 # ============================================================================

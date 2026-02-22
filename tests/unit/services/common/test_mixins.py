@@ -1,11 +1,11 @@
 """Unit tests for services.common.mixins mixin classes.
 
 Tests:
-- BatchProgressMixin - Mixin that provides a progress attribute via __init__
+- ChunkProgressMixin - Mixin that provides a progress attribute via __init__
 - NetworkSemaphores - Per-network concurrency semaphore container
 - NetworkSemaphoresMixin - Mixin that provides a semaphores attribute via __init__
 
-NOTE: The BatchProgress dataclass itself is thoroughly tested in
+NOTE: The ChunkProgress dataclass itself is thoroughly tested in
 tests/unit/services/test_progress.py.  These tests focus exclusively
 on the mixin classes that compose it.
 """
@@ -15,8 +15,8 @@ from unittest.mock import MagicMock
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.mixins import (
-    BatchProgress,
-    BatchProgressMixin,
+    ChunkProgress,
+    ChunkProgressMixin,
     NetworkSemaphores,
     NetworkSemaphoresMixin,
 )
@@ -74,26 +74,26 @@ class _TestSemaphoreMixin(NetworkSemaphoresMixin, _FakeBase):
 # =============================================================================
 
 
-class TestBatchProgressMixinInit:
-    """Tests for BatchProgressMixin automatic __init__."""
+class TestChunkProgressMixinInit:
+    """Tests for ChunkProgressMixin automatic __init__."""
 
-    def test_init_creates_batch_progress_instance(self) -> None:
-        """__init__ assigns a BatchProgress to self.progress."""
-        mixin = BatchProgressMixin()
-        assert isinstance(mixin.progress, BatchProgress)
+    def test_init_creates_chunk_progress_instance(self) -> None:
+        """__init__ assigns a ChunkProgress to self.progress."""
+        mixin = ChunkProgressMixin()
+        assert isinstance(mixin.progress, ChunkProgress)
 
     def test_fresh_progress_has_zero_counters(self) -> None:
         """A freshly initialized progress has all counters at zero."""
-        mixin = BatchProgressMixin()
+        mixin = ChunkProgressMixin()
         assert mixin.progress.total == 0
         assert mixin.progress.processed == 0
-        assert mixin.progress.success == 0
-        assert mixin.progress.failure == 0
+        assert mixin.progress.succeeded == 0
+        assert mixin.progress.failed == 0
         assert mixin.progress.chunks == 0
 
     def test_reset_clears_modified_counters(self) -> None:
         """Calling reset() clears accumulated counter values."""
-        mixin = BatchProgressMixin()
+        mixin = ChunkProgressMixin()
         mixin.progress.total = 100
         mixin.progress.processed = 42
 
@@ -102,17 +102,17 @@ class TestBatchProgressMixinInit:
         assert mixin.progress.processed == 0
 
 
-class TestBatchProgressMixinComposition:
-    """Tests for composing BatchProgressMixin with other classes."""
+class TestChunkProgressMixinComposition:
+    """Tests for composing ChunkProgressMixin with other classes."""
 
     def test_composes_with_plain_class(self) -> None:
         """Mixin works correctly when composed with a user-defined class."""
 
-        class DummyService(BatchProgressMixin):
+        class DummyService(ChunkProgressMixin):
             pass
 
         svc = DummyService()
-        assert isinstance(svc.progress, BatchProgress)
+        assert isinstance(svc.progress, ChunkProgress)
         svc.progress.total = 50
         assert svc.progress.remaining == 50
 

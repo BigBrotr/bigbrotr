@@ -237,8 +237,8 @@ class TestValidatorRun:
         validator = Validator(brotr=mock_validator_brotr)
         await validator.run()
 
-        assert validator.progress.success == 0
-        assert validator.progress.failure == 0
+        assert validator.progress.succeeded == 0
+        assert validator.progress.failed == 0
 
     async def test_cleanup_promoted_called_at_end_of_run(self, mock_validator_brotr: Brotr) -> None:
         """Test cleanup of promoted candidates is called at end of run cycle."""
@@ -282,19 +282,19 @@ class TestValidatorRun:
         ):
             await validator.run()
 
-        assert validator.progress.success == 1
-        assert validator.progress.failure == 1
+        assert validator.progress.succeeded == 1
+        assert validator.progress.failed == 1
 
     async def test_run_progress_reset(self, mock_validator_brotr: Brotr) -> None:
         """Test progress is reset at start of run."""
         validator = Validator(brotr=mock_validator_brotr)
-        validator.progress.success = 10
-        validator.progress.failure = 5
+        validator.progress.succeeded = 10
+        validator.progress.failed = 5
 
         await validator.run()
 
-        assert validator.progress.success == 0
-        assert validator.progress.failure == 0
+        assert validator.progress.succeeded == 0
+        assert validator.progress.failed == 0
 
 
 # ============================================================================
@@ -325,7 +325,7 @@ class TestChunkProcessing:
         ):
             await validator.run()
 
-        assert validator.progress.success == 150
+        assert validator.progress.succeeded == 150
 
     async def test_respects_max_candidates_limit(self, mock_validator_brotr: Brotr) -> None:
         """Test validator respects max_candidates limit."""
@@ -359,7 +359,7 @@ class TestChunkProcessing:
         ):
             await validator.run()
 
-        assert validator.progress.success == 150
+        assert validator.progress.succeeded == 150
 
 
 # ============================================================================
@@ -521,8 +521,8 @@ class TestErrorHandling:
         ):
             await validator.run()
 
-        assert validator.progress.success == 0
-        assert validator.progress.failure == 1
+        assert validator.progress.succeeded == 0
+        assert validator.progress.failed == 1
 
     async def test_database_error_during_persist_logged(self, mock_validator_brotr: Brotr) -> None:
         """Test database errors during persist are logged."""
@@ -540,7 +540,7 @@ class TestErrorHandling:
         ):
             await validator.run()
 
-        assert validator.progress.failure == 1
+        assert validator.progress.failed == 1
 
     async def test_all_candidates_fail_validation(self, mock_validator_brotr: Brotr) -> None:
         """Test run completes when all validations fail."""
@@ -557,8 +557,8 @@ class TestErrorHandling:
         ):
             await validator.run()
 
-        assert validator.progress.success == 0
-        assert validator.progress.failure == 10
+        assert validator.progress.succeeded == 0
+        assert validator.progress.failed == 10
 
     async def test_graceful_shutdown(self, mock_validator_brotr: Brotr) -> None:
         """Test is_running flag controls processing loop."""
@@ -578,7 +578,7 @@ class TestErrorHandling:
         ):
             await validator.run()
 
-        total = validator.progress.success + validator.progress.failure
+        total = validator.progress.succeeded + validator.progress.failed
         assert total == 10
 
         # Test stopping via is_running
@@ -817,8 +817,8 @@ class TestValidatorIntegration:
             await validator.run()
 
         # 1 valid (good), 2 failures (bad + error)
-        assert validator.progress.success == 1
-        assert validator.progress.failure == 2
+        assert validator.progress.succeeded == 1
+        assert validator.progress.failed == 2
 
     async def test_validation_with_multiple_networks(self, mock_validator_brotr: Brotr) -> None:
         """Test validation with candidates from multiple networks."""

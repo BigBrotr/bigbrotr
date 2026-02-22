@@ -155,7 +155,7 @@ async def count_relays_due_for_check(
 
     Called by [Monitor][bigbrotr.services.monitor.Monitor] at the start of
     each cycle to populate
-    ``BatchProgress.total``.
+    ``ChunkProgress.total``.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
@@ -361,7 +361,7 @@ async def count_candidates(
 
     Called by [Validator][bigbrotr.services.validator.Validator] at the
     start of each cycle to populate
-    ``BatchProgress.total``.
+    ``ChunkProgress.total``.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
