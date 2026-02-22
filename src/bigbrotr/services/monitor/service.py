@@ -225,12 +225,18 @@ class Monitor(
     async def run(self) -> None:
         """Execute one complete monitoring cycle.
 
-        Orchestrates: GeoIP update, profile/announcement publishing,
-        relay counting, chunk-based health checks, metadata persistence,
-        and Kind 30166 event publishing.
+        Orchestrates setup, publishing, monitoring, and cycle-level logging.
+        Delegates the core work to ``update_geo_databases``,
+        ``publish_profile``, ``publish_announcement``, and ``monitor``.
         """
-        self.chunk_progress.reset()
+        self._logger.info(
+            "cycle_started",
+            chunk_size=self._config.processing.chunk_size,
+            max_relays=self._config.processing.max_relays,
+            networks=self._config.networks.get_enabled_networks(),
+        )
 
+        self.chunk_progress.reset()
         await self.update_geo_databases()
 
         compute = self._config.processing.compute
@@ -240,25 +246,10 @@ class Monitor(
         )
 
         try:
-            networks = self._config.networks.get_enabled_networks()
-            self._logger.info(
-                "cycle_started",
-                chunk_size=self._config.processing.chunk_size,
-                max_relays=self._config.processing.max_relays,
-                networks=networks,
-            )
-
             await self.publish_profile()
             await self.publish_announcement()
+            await self.monitor()
 
-            self.chunk_progress.total = await self._count_relays(networks)
-
-            self._logger.info("relays_available", total=self.chunk_progress.total)
-            self._emit_progress_gauges()
-
-            await self._process_all(networks)
-
-            self._emit_progress_gauges()
             self._logger.info(
                 "cycle_completed",
                 checked=self.chunk_progress.processed,
@@ -321,43 +312,73 @@ class Monitor(
     # Public API
     # -------------------------------------------------------------------------
 
+    async def monitor(self) -> int:
+        """Count, check, persist, and publish all pending relays.
+
+        High-level entry point that counts relays due for checking, processes
+        them in chunks via ``check_chunks``, publishes Kind 30166 discovery
+        events, persists metadata results, and emits progress metrics.
+        Returns the total number of relays processed.
+
+        This is the method ``run()`` delegates to after setup. It can also
+        be called standalone when GeoIP update and profile/announcement
+        publishing are not desired.
+
+        Returns:
+            Total number of relays processed (successful + failed).
+        """
+        networks = self._config.networks.get_enabled_networks()
+
+        self.chunk_progress.total = await self._count_relays(networks)
+        self._logger.info("relays_available", total=self.chunk_progress.total)
+        self._emit_progress_gauges()
+
+        if not networks:
+            self._logger.warning("no_networks_enabled")
+        else:
+            async for successful, failed in self.check_chunks():
+                self.chunk_progress.record(succeeded=len(successful), failed=len(failed))
+                await self.publish_relay_discoveries(successful)
+                await self._persist_results(successful, failed)
+                self._emit_progress_gauges()
+                self._logger.info(
+                    "chunk_completed",
+                    chunk=self.chunk_progress.chunks,
+                    successful=len(successful),
+                    failed=len(failed),
+                    remaining=self.chunk_progress.remaining,
+                )
+
+        self._emit_progress_gauges()
+        return self.chunk_progress.processed
+
     async def check_chunks(
         self,
-        networks: list[str] | None = None,
-        *,
-        chunk_size: int | None = None,
-        max_relays: int | None = None,
     ) -> AsyncIterator[tuple[list[tuple[Relay, CheckResult]], list[Relay]]]:
         """Yield (successful, failed) for each processed chunk of relays.
 
         Requires ``geo_readers.open()`` for full checks. Handles chunk
         fetching, budget calculation, and concurrent health checks.
-        Persistence and publishing are left to the caller.
-
-        Args:
-            networks: Network types to process. ``None`` uses config defaults.
-            chunk_size: Override for per-chunk limit. ``None`` uses config.
-            max_relays: Override for total limit. ``None`` uses config.
+        Persistence and publishing are left to the caller. Networks, chunk
+        size, and relay limit are read from
+        [MonitorConfig][bigbrotr.services.monitor.MonitorConfig].
 
         Yields:
             Tuple of (successful relay-result pairs, failed relays) per chunk.
-
         """
-        if networks is None:
-            networks = self._config.networks.get_enabled_networks()
-
-        _chunk_size = chunk_size or self._config.processing.chunk_size
-        _max = max_relays if max_relays is not None else self._config.processing.max_relays
+        networks = self._config.networks.get_enabled_networks()
+        chunk_size = self._config.processing.chunk_size
+        max_relays = self._config.processing.max_relays
         processed = 0
 
         while self.is_running:
-            if _max is not None:
-                budget = _max - processed
+            if max_relays is not None:
+                budget = max_relays - processed
                 if budget <= 0:
                     break
-                limit = min(_chunk_size, budget)
+                limit = min(chunk_size, budget)
             else:
-                limit = _chunk_size
+                limit = chunk_size
 
             relays = await self._fetch_chunk(networks, limit)
             if not relays:
@@ -368,62 +389,18 @@ class Monitor(
             yield successful, failed
 
     # -------------------------------------------------------------------------
-    # Counting
+    # Internals
     # -------------------------------------------------------------------------
 
     async def _count_relays(self, networks: list[str]) -> int:
-        """Count relays needing health checks for the given networks.
-
-        See Also:
-            ``count_relays_due_for_check``: The SQL query executed.
-        """
-        if not networks:
-            self._logger.warning("no_networks_enabled")
-            return 0
-
+        """Count relays needing health checks for the given networks."""
         threshold = int(self.chunk_progress.started_at) - self._config.discovery.interval
-
         return await count_relays_due_for_check(
             self._brotr,
             self.SERVICE_NAME,
             threshold,
             networks,
         )
-
-    # -------------------------------------------------------------------------
-    # Processing
-    # -------------------------------------------------------------------------
-
-    async def _process_all(self, networks: list[str]) -> None:
-        """Process all pending relays in configurable chunks.
-
-        Consumes ``check_chunks()`` and handles persistence, publishing,
-        progress tracking, and metrics for each chunk.
-
-        Note:
-            Chunk processing order: ``check_chunks`` -> ``publish_relay_discoveries``
-            -> ``_persist_results``. Publishing happens before persistence
-            so that Kind 30166 events reflect the most recent check data
-            even if the DB write fails.
-        """
-        if not networks:
-            self._logger.warning("no_networks_enabled")
-            return
-
-        async for successful, failed in self.check_chunks(networks):
-            self.chunk_progress.record(succeeded=len(successful), failed=len(failed))
-
-            await self.publish_relay_discoveries(successful)
-            await self._persist_results(successful, failed)
-
-            self._emit_progress_gauges()
-            self._logger.info(
-                "chunk_completed",
-                chunk=self.chunk_progress.chunks,
-                successful=len(successful),
-                failed=len(failed),
-                remaining=self.chunk_progress.remaining,
-            )
 
     async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Relay]:
         """Fetch the next chunk of relays ordered by least-recently-checked first.
@@ -466,15 +443,13 @@ class Monitor(
         tasks = [self.check_relay(r) for r in relays]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Re-raise CancelledError — gather(return_exceptions=True) captures it as a result
-        for r in results:
-            if isinstance(r, asyncio.CancelledError):
-                raise r
-
         successful: list[tuple[Relay, CheckResult]] = []
         failed: list[Relay] = []
 
         for relay, result in zip(relays, results, strict=True):
+            # gather(return_exceptions=True) captures CancelledError as a result
+            if isinstance(result, asyncio.CancelledError):
+                raise result
             if isinstance(result, CheckResult) and result.has_data:
                 successful.append((relay, result))
             else:
@@ -746,10 +721,6 @@ class Monitor(
                 self._logger.debug("check_error", url=relay.url, error=str(e))
                 return empty
 
-    # -------------------------------------------------------------------------
-    # Persistence
-    # -------------------------------------------------------------------------
-
     async def _persist_results(
         self,
         successful: list[tuple[Relay, CheckResult]],
@@ -801,20 +772,12 @@ class Monitor(
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("checkpoint_save_failed", error=str(e))
 
-    # -------------------------------------------------------------------------
-    # Metrics
-    # -------------------------------------------------------------------------
-
     def _emit_progress_gauges(self) -> None:
         """Emit Prometheus gauges for batch progress."""
         self.set_gauge("total", self.chunk_progress.total)
         self.set_gauge("processed", self.chunk_progress.processed)
         self.set_gauge("success", self.chunk_progress.succeeded)
         self.set_gauge("failure", self.chunk_progress.failed)
-
-    # -------------------------------------------------------------------------
-    # Publishing
-    # -------------------------------------------------------------------------
 
     def _get_publish_relays(self, section_relays: list[Relay] | None) -> list[Relay]:
         """Get relays for event publishing, falling back to the global publishing relays."""
@@ -923,10 +886,6 @@ class Monitor(
                     count=len(builders),
                     error="no relays reachable",
                 )
-
-    # -------------------------------------------------------------------------
-    # Event Builders
-    # -------------------------------------------------------------------------
 
     def _build_kind_0(self) -> EventBuilder:
         """Build Kind 0 profile metadata event per NIP-01."""
