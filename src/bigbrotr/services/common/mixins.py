@@ -212,12 +212,12 @@ class GeoReaderMixin:
             composes this mixin for NIP-66 geo/net checks.
     """
 
-    geo_reader: geoip2.database.Reader | None
+    city_reader: geoip2.database.Reader | None
     asn_reader: geoip2.database.Reader | None
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.geo_reader = None
+        self.city_reader = None
         self.asn_reader = None
 
     async def open_geo_readers(
@@ -235,15 +235,15 @@ class GeoReaderMixin:
         import geoip2.database as geoip2_db  # noqa: PLC0415  # runtime import
 
         if city_path:
-            self.geo_reader = await asyncio.to_thread(geoip2_db.Reader, city_path)
+            self.city_reader = await asyncio.to_thread(geoip2_db.Reader, city_path)
         if asn_path:
             self.asn_reader = await asyncio.to_thread(geoip2_db.Reader, asn_path)
 
     def close_geo_readers(self) -> None:
         """Close readers and set to ``None``. Idempotent."""
-        if self.geo_reader:
-            self.geo_reader.close()
-            self.geo_reader = None
+        if self.city_reader:
+            self.city_reader.close()
+            self.city_reader = None
         if self.asn_reader:
             self.asn_reader.close()
             self.asn_reader = None

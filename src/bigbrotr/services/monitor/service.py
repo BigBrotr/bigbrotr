@@ -598,11 +598,11 @@ class Monitor(
                 "nip66_dns",
                 relay.url,
             )
-        if compute.nip66_geo and self.geo_reader and relay.network == NetworkType.CLEARNET:
-            geo_reader = self.geo_reader
+        if compute.nip66_geo and self.city_reader and relay.network == NetworkType.CLEARNET:
+            city_reader = self.city_reader
             precision = self._config.geo.geohash_precision
             tasks["geo"] = self._with_retry(
-                lambda: Nip66GeoMetadata.execute(relay, geo_reader, precision),
+                lambda: Nip66GeoMetadata.execute(relay, city_reader, precision),
                 self._config.processing.retry.nip66_geo,
                 "nip66_geo",
                 relay.url,
