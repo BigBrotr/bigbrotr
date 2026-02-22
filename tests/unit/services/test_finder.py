@@ -18,7 +18,7 @@ import aiohttp
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.services.common.utils import validate_relay_url
+from bigbrotr.services.common.utils import parse_relay_url
 from bigbrotr.services.finder import (
     ApiConfig,
     ApiSourceConfig,
@@ -847,51 +847,51 @@ class TestFinderFindFromEvents:
 
 
 # ============================================================================
-# Validate Relay URL Tests
+# Parse Relay URL Tests
 # ============================================================================
 
 
-class TestValidateRelayUrl:
-    """Tests for validate_relay_url() utility function."""
+class TestParseRelayUrl:
+    """Tests for parse_relay_url() utility function."""
 
-    def test_validate_valid_wss_url(self) -> None:
-        """Test validating valid wss:// URL."""
-        result = validate_relay_url("wss://relay.example.com")
+    def test_parse_valid_wss_url(self) -> None:
+        """Test parsing valid wss:// URL."""
+        result = parse_relay_url("wss://relay.example.com")
 
         assert result is not None
         assert result.url == "wss://relay.example.com"
 
-    def test_validate_valid_ws_url(self) -> None:
+    def test_parse_valid_ws_url(self) -> None:
         """Clearnet ws:// URL is automatically upgraded to wss://."""
-        result = validate_relay_url("ws://relay.example.com")
+        result = parse_relay_url("ws://relay.example.com")
 
         assert result is not None
         assert result.url == "wss://relay.example.com"
 
-    def test_validate_invalid_url(self) -> None:
-        """Test validating invalid URL returns None."""
-        assert validate_relay_url("not-a-url") is None
-        assert validate_relay_url("http://wrong-scheme.com") is None
-        assert validate_relay_url("") is None
-        assert validate_relay_url(None) is None  # type: ignore[arg-type]
+    def test_parse_invalid_url(self) -> None:
+        """Test parsing invalid URL returns None."""
+        assert parse_relay_url("not-a-url") is None
+        assert parse_relay_url("http://wrong-scheme.com") is None
+        assert parse_relay_url("") is None
+        assert parse_relay_url(None) is None  # type: ignore[arg-type]
 
-    def test_validate_tor_url(self) -> None:
-        """Test validating Tor .onion URL."""
-        result = validate_relay_url("ws://example.onion")
+    def test_parse_tor_url(self) -> None:
+        """Test parsing Tor .onion URL."""
+        result = parse_relay_url("ws://example.onion")
 
         assert result is not None
         assert "onion" in result.url
 
-    def test_validate_i2p_url(self) -> None:
-        """Test validating I2P .i2p URL."""
-        result = validate_relay_url("ws://example.i2p")
+    def test_parse_i2p_url(self) -> None:
+        """Test parsing I2P .i2p URL."""
+        result = parse_relay_url("ws://example.i2p")
 
         assert result is not None
         assert "i2p" in result.url
 
-    def test_validate_strips_whitespace(self) -> None:
-        """Test validating strips whitespace."""
-        result = validate_relay_url("  wss://relay.example.com  ")
+    def test_parse_strips_whitespace(self) -> None:
+        """Test parsing strips whitespace."""
+        result = parse_relay_url("  wss://relay.example.com  ")
 
         assert result is not None
         assert result.url == "wss://relay.example.com"

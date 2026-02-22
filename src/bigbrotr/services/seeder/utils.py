@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from bigbrotr.services.common.utils import validate_relay_url
+from bigbrotr.services.common.utils import parse_relay_url
 
 
 if TYPE_CHECKING:
@@ -23,7 +23,7 @@ def parse_seed_file(path: Path) -> list[Relay]:
     """Parse a seed file and validate relay URLs.
 
     Each line is passed to
-    [validate_relay_url][bigbrotr.services.common.utils.validate_relay_url]
+    [parse_relay_url][bigbrotr.services.common.utils.parse_relay_url]
     for URL validation and network detection. Lines starting with ``#`` are
     treated as comments and skipped.
 
@@ -35,15 +35,18 @@ def parse_seed_file(path: Path) -> list[Relay]:
     """
     relays: list[Relay] = []
 
-    with path.open(encoding="utf-8") as f:
-        for line in f:
-            url = line.strip()
-            if not url or url.startswith("#"):
-                continue
-            relay = validate_relay_url(url)
-            if relay:
-                relays.append(relay)
-            else:
-                _logger.warning("relay_parse_failed url=%s", url)
+    try:
+        with path.open(encoding="utf-8") as f:
+            for line in f:
+                url = line.strip()
+                if not url or url.startswith("#"):
+                    continue
+                relay = parse_relay_url(url)
+                if relay:
+                    relays.append(relay)
+                else:
+                    _logger.warning("relay_parse_failed: %s", url)
+    except FileNotFoundError:
+        _logger.warning("file_not_found: %s", path)
 
     return relays

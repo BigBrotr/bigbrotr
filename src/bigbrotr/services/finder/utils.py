@@ -9,7 +9,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from bigbrotr.models.constants import EventKind
-from bigbrotr.services.common.utils import validate_relay_url
+from bigbrotr.services.common.utils import parse_relay_url
 
 
 if TYPE_CHECKING:
@@ -45,13 +45,13 @@ def extract_relays_from_rows(rows: list[dict[str, Any]]) -> dict[str, Relay]:
         if tags:
             for tag in tags:
                 if isinstance(tag, list) and len(tag) >= 2 and tag[0] == "r":  # noqa: PLR2004
-                    validated = validate_relay_url(tag[1])
+                    validated = parse_relay_url(tag[1])
                     if validated:
                         relays[validated.url] = validated
 
         # Kind 2: content is the relay URL (deprecated NIP)
         if kind == EventKind.RECOMMEND_RELAY and content:
-            validated = validate_relay_url(content.strip())
+            validated = parse_relay_url(content.strip())
             if validated:
                 relays[validated.url] = validated
 
@@ -61,7 +61,7 @@ def extract_relays_from_rows(rows: list[dict[str, Any]]) -> dict[str, Relay]:
                 relay_data = json.loads(content)
                 if isinstance(relay_data, dict):
                     for url in relay_data:
-                        validated = validate_relay_url(url)
+                        validated = parse_relay_url(url)
                         if validated:
                             relays[validated.url] = validated
             except (json.JSONDecodeError, TypeError):

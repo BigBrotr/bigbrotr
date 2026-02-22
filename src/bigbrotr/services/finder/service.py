@@ -65,7 +65,7 @@ from bigbrotr.services.common.queries import (
     get_events_with_relay_urls,
     insert_candidates,
 )
-from bigbrotr.services.common.utils import validate_relay_url
+from bigbrotr.services.common.utils import parse_relay_url
 from bigbrotr.utils.http import read_bounded_json
 
 from .configs import ApiSourceConfig, FinderConfig
@@ -318,7 +318,7 @@ class Finder(BaseService[FinderConfig]):
                     source_relays = await self._fetch_single_api(session, source)
                     validated: dict[str, Relay] = {}
                     for relay_url in source_relays:
-                        r = validate_relay_url(str(relay_url))
+                        r = parse_relay_url(str(relay_url))
                         if r:
                             validated[r.url] = r
                     yield source.url, validated

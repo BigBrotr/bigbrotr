@@ -4,10 +4,10 @@ All SQL queries used by services are centralized here.  Each function
 accepts a [Brotr][bigbrotr.core.brotr.Brotr] instance and returns typed
 results.  Services import from this module instead of writing inline SQL.
 
-The 13 query functions are grouped into four categories:
+The 14 query functions are grouped into four categories:
 
 - **Relay queries**: ``get_all_relay_urls``, ``get_all_relays``,
-  ``filter_new_relay_urls``
+  ``filter_new_relay_urls``, ``insert_relays``
 - **Check / monitoring queries**: ``count_relays_due_for_check``,
   ``fetch_relays_due_for_check``
 - **Event queries**: ``get_events_with_relay_urls``
@@ -125,6 +125,38 @@ async def filter_new_relay_urls(
         ServiceStateType.CANDIDATE,
     )
     return [row["url"] for row in rows]
+
+
+async def insert_relays(brotr: Brotr, relays: list[Relay]) -> int:
+    """Bulk-insert relays directly into the ``relay`` table.
+
+    Respects the configured batch size from
+    [BatchConfig][bigbrotr.core.brotr.BatchConfig], splitting large inputs
+    into multiple ``insert_relay`` calls. Duplicates are silently skipped
+    (``ON CONFLICT DO NOTHING``).
+
+    Called by [Seeder][bigbrotr.services.seeder.Seeder] when
+    ``to_validate=False`` to bypass the validation pipeline.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        relays: [Relay][bigbrotr.models.relay.Relay] objects to insert.
+
+    Returns:
+        Number of relays actually inserted.
+
+    See Also:
+        [insert_candidates][bigbrotr.services.common.queries.insert_candidates]:
+            Alternative that inserts as validation candidates instead.
+    """
+    if not relays:
+        return 0
+
+    inserted = 0
+    batch_size = brotr.config.batch.max_size
+    for i in range(0, len(relays), batch_size):
+        inserted += await brotr.insert_relay(relays[i : i + batch_size])
+    return inserted
 
 
 # ---------------------------------------------------------------------------

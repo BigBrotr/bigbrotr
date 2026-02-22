@@ -18,8 +18,8 @@ from __future__ import annotations
 from bigbrotr.models import Relay
 
 
-def validate_relay_url(url: str) -> Relay | None:
-    """Validate and normalize a relay URL string.
+def parse_relay_url(url: str) -> Relay | None:
+    """Parse a relay URL string into a Relay object.
 
     Strips whitespace, rejects empty/non-string input, and delegates to the
     [Relay][bigbrotr.models.relay.Relay] constructor for RFC 3986 validation

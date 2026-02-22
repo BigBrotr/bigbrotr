@@ -4,7 +4,8 @@ See Also:
     [Seeder][bigbrotr.services.seeder.Seeder]: The service class
         that consumes these configurations.
     [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-        Base class providing ``interval`` and ``log_level`` fields.
+        Base class providing ``interval``, ``max_consecutive_failures``,
+        and ``metrics`` fields.
 """
 
 from __future__ import annotations
