@@ -82,7 +82,7 @@ if TYPE_CHECKING:
     from nostr_sdk import EventBuilder, Keys
 
 
-logger = logging.getLogger("utils.protocol")
+logger = logging.getLogger(__name__)
 
 
 # Multi-word patterns for SSL/TLS certificate errors in nostr-sdk messages.

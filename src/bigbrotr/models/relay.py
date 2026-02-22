@@ -337,19 +337,6 @@ class Relay:
             "network": network,
         }
 
-    def to_db_params(self) -> RelayDbParams:
-        """Return cached positional parameters for the database insert procedure.
-
-        The result is computed once during construction and cached for the
-        lifetime of the (frozen) instance, avoiding repeated network name
-        conversions.
-
-        Returns:
-            [RelayDbParams][bigbrotr.models.relay.RelayDbParams] with the
-            normalized URL, network name, and discovery timestamp.
-        """
-        return self._db_params
-
     def _compute_db_params(self) -> RelayDbParams:
         """Compute positional parameters for the database insert procedure.
 
@@ -366,6 +353,19 @@ class Relay:
             network=self.network,
             discovered_at=self.discovered_at,
         )
+
+    def to_db_params(self) -> RelayDbParams:
+        """Return cached positional parameters for the database insert procedure.
+
+        The result is computed once during construction and cached for the
+        lifetime of the (frozen) instance, avoiding repeated network name
+        conversions.
+
+        Returns:
+            [RelayDbParams][bigbrotr.models.relay.RelayDbParams] with the
+            normalized URL, network name, and discovery timestamp.
+        """
+        return self._db_params
 
     @classmethod
     def from_db_params(cls, params: RelayDbParams) -> Relay:

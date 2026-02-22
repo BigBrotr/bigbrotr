@@ -1513,7 +1513,7 @@ class TestPublishAnnouncement:
         mock_client.send_event_builder.assert_awaited_once()
         mock_client.shutdown.assert_awaited_once()
         stub._brotr.upsert_service_state.assert_awaited_once()
-        stub._logger.info.assert_called_with("announcement_published", relays=1)
+        stub._logger.info.assert_called_with("publish_completed", event="announcement", relays=1)
 
     async def test_publish_announcement_interval_elapsed(self, stub: _MonitorStub) -> None:
         """Test successful announcement publish when interval has elapsed."""
@@ -1553,7 +1553,9 @@ class TestPublishAnnouncement:
             await stub.publish_announcement()
 
         stub._logger.warning.assert_called_once()
-        assert "announcement_failed" in stub._logger.warning.call_args[0]
+        stub._logger.warning.assert_called_once_with(
+            "publish_failed", event="announcement", error="no relays reachable"
+        )
 
 
 # ============================================================================
@@ -1629,7 +1631,7 @@ class TestPublishProfile:
 
         mock_client.send_event_builder.assert_awaited_once()
         stub._brotr.upsert_service_state.assert_awaited_once()
-        stub._logger.info.assert_called_with("profile_published", relays=1)
+        stub._logger.info.assert_called_with("publish_completed", event="profile", relays=1)
 
     async def test_publish_profile_broadcast_failure(self, stub: _MonitorStub) -> None:
         """Test that profile failure is logged as warning."""
@@ -1643,7 +1645,9 @@ class TestPublishProfile:
             await stub.publish_profile()
 
         stub._logger.warning.assert_called_once()
-        assert "profile_failed" in stub._logger.warning.call_args[0]
+        stub._logger.warning.assert_called_once_with(
+            "publish_failed", event="profile", error="no relays reachable"
+        )
 
 
 # ============================================================================

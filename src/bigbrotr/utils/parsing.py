@@ -5,7 +5,7 @@ data (DB param tuples or row dictionaries), call a user-supplied
 factory for each element, and collect only the successfully parsed results.
 Invalid entries are logged at WARNING level and skipped.
 
-The module depends only on :mod:`bigbrotr.models` and the standard library,
+The module depends only on [bigbrotr.models][bigbrotr.models] and the standard library,
 keeping it safe to import from any layer above ``models``.
 
 Examples:

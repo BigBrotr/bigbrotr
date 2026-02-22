@@ -71,7 +71,7 @@ from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import get_all_relays, get_all_service_cursors
 
 from .configs import SynchronizerConfig
-from .utils import SyncBatchState, SyncContext, sync_relay_events
+from .utils import SyncBatchState, SyncContext, SyncCycleCounters, sync_relay_events
 
 
 if TYPE_CHECKING:
@@ -120,12 +120,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         config = config or SynchronizerConfig()
         super().__init__(brotr=brotr, config=config, networks=config.networks)
         self._config: SynchronizerConfig
-        self._synced_events: int = 0
-        self._synced_relays: int = 0
-        self._failed_relays: int = 0
-        self._invalid_events: int = 0
-        self._skipped_events: int = 0
-
+        self._counters = SyncCycleCounters()
         self._keys: Keys = self._config.keys.keys  # For NIP-42 authentication
 
     # -------------------------------------------------------------------------
@@ -145,21 +140,17 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         )
 
         cycle_start = time.monotonic()
-        self._synced_events = 0
-        self._synced_relays = 0
-        self._failed_relays = 0
-        self._invalid_events = 0
-        self._skipped_events = 0
+        self._counters = SyncCycleCounters()
 
         await self.synchronize()
 
         self._logger.info(
             "cycle_completed",
-            synced_relays=self._synced_relays,
-            failed_relays=self._failed_relays,
-            synced_events=self._synced_events,
-            invalid_events=self._invalid_events,
-            skipped_events=self._skipped_events,
+            synced_relays=self._counters.synced_relays,
+            failed_relays=self._counters.failed_relays,
+            synced_events=self._counters.synced_events,
+            invalid_events=self._counters.invalid_events,
+            skipped_events=self._counters.skipped_events,
             duration_s=round(time.monotonic() - cycle_start, 2),
         )
 
@@ -272,7 +263,6 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         batch = SyncBatchState(
             cursor_updates=[],
             cursor_lock=asyncio.Lock(),
-            counter_lock=asyncio.Lock(),
             cursor_flush_interval=self._config.concurrency.cursor_flush_interval,
         )
 
@@ -287,7 +277,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                     error=str(exc),
                     error_type=type(exc).__name__,
                 )
-                self._failed_relays += 1
+                self._counters.failed_relays += 1
 
         if batch.cursor_updates:
             try:
@@ -340,11 +330,11 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                     timeout=relay_timeout,
                 )
 
-                async with batch.counter_lock:
-                    self._synced_events += events_synced
-                    self._invalid_events += invalid_events
-                    self._skipped_events += skipped_events
-                    self._synced_relays += 1
+                async with self._counters.lock:
+                    self._counters.synced_events += events_synced
+                    self._counters.invalid_events += invalid_events
+                    self._counters.skipped_events += skipped_events
+                    self._counters.synced_relays += 1
 
                 async with batch.cursor_lock:
                     batch.cursor_updates.append(
@@ -367,8 +357,8 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                     error_type=type(e).__name__,
                     url=relay.url,
                 )
-                async with batch.counter_lock:
-                    self._failed_relays += 1
+                async with self._counters.lock:
+                    self._counters.failed_relays += 1
 
     def _get_start_time_from_cache(self, relay: Relay, cursors: dict[str, int]) -> int:
         """Look up the sync start timestamp from a pre-fetched cursor cache."""

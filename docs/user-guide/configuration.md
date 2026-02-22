@@ -137,7 +137,6 @@ pool:
 
   timeouts:
     acquisition: 10.0                        # Connection acquisition timeout
-    health_check: 5.0                        # Health check timeout
 
   retry:
     max_attempts: 3                          # Connection retry attempts
@@ -186,7 +185,6 @@ timeouts:
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
 | `acquisition` | float | `10.0` | >= 0.1 | Connection acquisition timeout |
-| `health_check` | float | `5.0` | >= 0.1 | Health check timeout |
 
 #### PoolRetryConfig
 

@@ -16,7 +16,7 @@ Attributes:
         for per-network concurrency control, and
         [GeoReaders][bigbrotr.services.common.mixins.GeoReaders] for GeoIP
         database reader lifecycle management.
-    queries: 13 domain-specific SQL query functions centralized in one module
+    queries: 14 domain-specific SQL query functions centralized in one module
         to avoid scattering inline SQL across services.
 
 See Also:

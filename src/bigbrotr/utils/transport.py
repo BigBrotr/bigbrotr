@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 DEFAULT_TIMEOUT: Final[float] = 10.0
 
 
-logger = logging.getLogger("utils.transport")
+logger = logging.getLogger(__name__)
 
 # Silence nostr-sdk UniFFI callback stack traces (handled by our code)
 logging.getLogger("nostr_sdk").setLevel(logging.CRITICAL)

@@ -148,20 +148,6 @@ class Event:
                 f"'{type(self).__name__}' object has no attribute '{name}'"
             ) from None
 
-    def to_db_params(self) -> EventDbParams:
-        """Return cached positional parameters for the database insert procedure.
-
-        The result is computed once during construction and cached for the
-        lifetime of the (frozen) instance, avoiding repeated hex conversions
-        and tag serialization.
-
-        Returns:
-            [EventDbParams][bigbrotr.models.event.EventDbParams] with binary
-            id/pubkey/sig, integer timestamps, JSON-encoded tags, and raw
-            content string.
-        """
-        return self._db_params
-
     def _compute_db_params(self) -> EventDbParams:
         """Compute positional parameters for the database insert procedure.
 
@@ -185,6 +171,20 @@ class Event:
             content=inner.content(),
             sig=bytes.fromhex(inner.signature()),
         )
+
+    def to_db_params(self) -> EventDbParams:
+        """Return cached positional parameters for the database insert procedure.
+
+        The result is computed once during construction and cached for the
+        lifetime of the (frozen) instance, avoiding repeated hex conversions
+        and tag serialization.
+
+        Returns:
+            [EventDbParams][bigbrotr.models.event.EventDbParams] with binary
+            id/pubkey/sig, integer timestamps, JSON-encoded tags, and raw
+            content string.
+        """
+        return self._db_params
 
     @classmethod
     def from_db_params(cls, params: EventDbParams) -> Event:

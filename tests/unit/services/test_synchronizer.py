@@ -1,18 +1,20 @@
 """
-Unit tests for services.synchronizer module.
+Unit tests for services.synchronizer.service module.
 
 Tests:
-- Configuration models (NetworksConfig, FilterConfig, TimeoutsConfig)
-- Synchronizer service initialization and defaults
-- Relay fetching and metadata-based filtering
-- Start time determination from cursors
-- EventBatch class (append, is_full, is_empty, time bounds)
-- Per-relay timeout overrides
-- TaskGroup structured concurrency
+- Configuration models (FilterConfig, TimeRangeConfig, TimeoutsConfig,
+  ConcurrencyConfig, SourceConfig, SynchronizerConfig)
+- Synchronizer initialization and factory methods
+- Relay fetching from database
+- Cursor fetching and start time resolution from cache
+- Run cycle orchestration (counter reset, overrides merge, relay dispatch)
+- _sync_all_relays structured concurrency (TaskGroup, semaphores,
+  cursor flush, overrides, error handling, ExceptionGroup)
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncpg
 import pytest
 
 from bigbrotr.core.brotr import Brotr, BrotrConfig, BrotrTimeoutsConfig
@@ -21,8 +23,9 @@ from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import NetworksConfig, TorConfig
 from bigbrotr.services.synchronizer import (
     ConcurrencyConfig,
-    EventBatch,
     FilterConfig,
+    RelayOverride,
+    RelayOverrideTimeouts,
     SourceConfig,
     Synchronizer,
     SynchronizerConfig,
@@ -58,6 +61,7 @@ def mock_synchronizer_brotr(mock_brotr: Brotr) -> Brotr:
     mock_config.timeouts = BrotrTimeoutsConfig()
     mock_brotr._config = mock_config
     mock_brotr.insert_event_relay = AsyncMock(return_value=0)  # type: ignore[attr-defined]
+    mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[attr-defined]
     return mock_brotr
 
 
@@ -402,8 +406,98 @@ class TestSynchronizerFetchRelays:
 
 
 # ============================================================================
-# Synchronizer Get Start Time Tests
+# Synchronizer Fetch Cursors Tests
 # ============================================================================
+
+
+class TestSynchronizerFetchCursors:
+    """Tests for Synchronizer.fetch_cursors() method."""
+
+    async def test_returns_empty_when_relay_state_disabled(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test returns empty dict when use_relay_state is False."""
+        config = SynchronizerConfig(
+            time_range=TimeRangeConfig(use_relay_state=False),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+
+        result = await sync.fetch_cursors()
+        assert result == {}
+
+    async def test_delegates_to_query_function(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test delegates to get_all_service_cursors when relay_state enabled."""
+        config = SynchronizerConfig(
+            time_range=TimeRangeConfig(use_relay_state=True),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.get_all_service_cursors",
+            new_callable=AsyncMock,
+            return_value={"wss://r1.com": 1000, "wss://r2.com": 2000},
+        ) as mock_query:
+            result = await sync.fetch_cursors()
+
+        mock_query.assert_called_once_with(
+            mock_synchronizer_brotr, "synchronizer", "last_synced_at"
+        )
+        assert result == {"wss://r1.com": 1000, "wss://r2.com": 2000}
+
+
+# ============================================================================
+# Synchronizer Get Start Time From Cache Tests
+# ============================================================================
+
+
+class TestSynchronizerGetStartTimeFromCache:
+    """Tests for Synchronizer._get_start_time_from_cache() method."""
+
+    def test_returns_default_when_relay_state_disabled(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test returns default_start when use_relay_state is False."""
+        config = SynchronizerConfig(
+            time_range=TimeRangeConfig(use_relay_state=False, default_start=42),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        result = sync._get_start_time_from_cache(relay, {"wss://relay.example.com": 1000})
+        assert result == 42
+
+    def test_returns_cursor_plus_one_when_found(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test returns cursor + 1 when relay has a cached cursor."""
+        config = SynchronizerConfig(
+            time_range=TimeRangeConfig(use_relay_state=True, default_start=0),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        result = sync._get_start_time_from_cache(relay, {"wss://relay.example.com": 1000})
+        assert result == 1001
+
+    def test_returns_default_when_cursor_not_found(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test returns default_start when relay has no cached cursor."""
+        config = SynchronizerConfig(
+            time_range=TimeRangeConfig(use_relay_state=True, default_start=500),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        relay = Relay("wss://other.relay.com")
+
+        result = sync._get_start_time_from_cache(relay, {"wss://relay.example.com": 1000})
+        assert result == 500
+
+    def test_returns_default_with_empty_cursors(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test returns default_start with empty cursor cache."""
+        config = SynchronizerConfig(
+            time_range=TimeRangeConfig(use_relay_state=True, default_start=0),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        result = sync._get_start_time_from_cache(relay, {})
+        assert result == 0
 
 
 # ============================================================================
@@ -421,8 +515,122 @@ class TestSynchronizerRun:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         await sync.run()
 
-        assert sync._synced_relays == 0
-        assert sync._synced_events == 0
+        assert sync._counters.synced_relays == 0
+        assert sync._counters.synced_events == 0
+
+    async def test_run_with_relays_calls_sync_all(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test run() with relays fetches them and calls _sync_all_relays."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[
+                {
+                    "url": "wss://relay1.example.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
+            ]
+        )
+
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._sync_all_relays = AsyncMock()  # type: ignore[method-assign]
+
+        await sync.run()
+
+        sync._sync_all_relays.assert_called_once()
+        relays_arg = sync._sync_all_relays.call_args[0][0]
+        assert len(relays_arg) == 1
+
+    async def test_run_merges_overrides(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test run() merges relay overrides not already in the list."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[
+                {
+                    "url": "wss://relay1.example.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
+            ]
+        )
+
+        config = SynchronizerConfig(
+            overrides=[
+                RelayOverride(url="wss://override.relay.com"),
+            ],
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        sync._sync_all_relays = AsyncMock()  # type: ignore[method-assign]
+
+        await sync.run()
+
+        sync._sync_all_relays.assert_called_once()
+        relays_arg = sync._sync_all_relays.call_args[0][0]
+        assert len(relays_arg) == 2
+        urls = {str(r.url) for r in relays_arg}
+        assert "wss://override.relay.com" in urls or "wss://override.relay.com/" in urls
+
+    async def test_run_skips_duplicate_override(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test run() does not duplicate overrides already in DB relays."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[
+                {
+                    "url": "wss://relay1.example.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
+            ]
+        )
+
+        config = SynchronizerConfig(
+            overrides=[
+                RelayOverride(url="wss://relay1.example.com"),
+            ],
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        sync._sync_all_relays = AsyncMock()  # type: ignore[method-assign]
+
+        await sync.run()
+
+        relays_arg = sync._sync_all_relays.call_args[0][0]
+        assert len(relays_arg) == 1
+
+    async def test_run_handles_invalid_override_url(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test run() handles invalid override URLs gracefully."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[]
+        )
+
+        config = SynchronizerConfig(
+            overrides=[
+                RelayOverride(url="not-a-valid-url"),
+            ],
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        sync._sync_all_relays = AsyncMock()  # type: ignore[method-assign]
+
+        await sync.run()
+
+        # No relays to sync (DB empty + override invalid) -> _sync_all_relays not called
+        sync._sync_all_relays.assert_not_called()
+
+    async def test_run_resets_counters(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test run() resets all counters at the start of each cycle."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[]
+        )
+
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._counters.synced_events = 99
+        sync._counters.synced_relays = 99
+        sync._counters.failed_relays = 99
+        sync._counters.invalid_events = 99
+        sync._counters.skipped_events = 99
+
+        await sync.run()
+
+        assert sync._counters.synced_events == 0
+        assert sync._counters.synced_relays == 0
+        assert sync._counters.failed_relays == 0
+        assert sync._counters.invalid_events == 0
+        assert sync._counters.skipped_events == 0
 
 
 # ============================================================================
@@ -433,30 +641,6 @@ class TestSynchronizerRun:
 class TestSynchronizerSyncAllRelays:
     """Tests for Synchronizer._sync_all_relays() with TaskGroup."""
 
-    async def test_sync_all_relays_handles_task_group_errors(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
-        """Test that ExceptionGroup from TaskGroup is handled gracefully."""
-        sync = Synchronizer(brotr=mock_synchronizer_brotr)
-
-        # Mock _fetch_all_cursors to return empty dict
-        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
-
-        # Create a relay and patch _sync_relay_events to raise an unhandled error
-        relay = Relay("wss://failing.relay.com")
-
-        # The worker catches most exceptions, so we need to make the worker
-        # itself raise by patching something fundamental
-        with patch(
-            "bigbrotr.services.synchronizer.service.sync_relay_events",
-            side_effect=RuntimeError("unexpected"),
-        ):
-            # Should not raise -- errors are caught and logged
-            await sync._sync_all_relays([relay])
-
-        # The relay should be counted as failed
-        assert sync._failed_relays >= 1
-
     async def test_sync_all_relays_empty_list(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test _sync_all_relays with no relays completes without error."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
@@ -465,168 +649,251 @@ class TestSynchronizerSyncAllRelays:
 
         await sync._sync_all_relays([])
 
-        assert sync._synced_relays == 0
-        assert sync._failed_relays == 0
+        assert sync._counters.synced_relays == 0
+        assert sync._counters.failed_relays == 0
 
+    async def test_sync_all_relays_success_updates_counters(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test successful sync increments synced_relays and synced_events."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
-# ============================================================================
-# EventBatch Tests
-# ============================================================================
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
+        relay = Relay("wss://success.relay.com")
 
-def _make_mock_event(created_at_secs: int) -> MagicMock:
-    """Create a mock event with a properly mocked created_at timestamp."""
-    event = MagicMock()
-    # Create a mock Timestamp that returns the integer when as_secs() is called
-    mock_timestamp = MagicMock()
-    mock_timestamp.as_secs.return_value = created_at_secs
-    event.created_at.return_value = mock_timestamp
-    return event
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            return_value=(10, 2, 1),
+        ):
+            await sync._sync_all_relays([relay])
 
+        assert sync._counters.synced_relays == 1
+        assert sync._counters.synced_events == 10
+        assert sync._counters.invalid_events == 2
+        assert sync._counters.skipped_events == 1
 
-class TestEventBatch:
-    """Tests for EventBatch class."""
+    async def test_sync_all_relays_handles_task_group_errors(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test that ExceptionGroup from TaskGroup is handled gracefully."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
-    def test_init(self) -> None:
-        """Test batch initialization."""
-        batch = EventBatch(since=100, until=200, limit=10)
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
-        assert batch.since == 100
-        assert batch.until == 200
-        assert batch.limit == 10
-        assert batch.size == 0
-        assert batch.events == []
-        assert batch.min_created_at is None
-        assert batch.max_created_at is None
+        relay = Relay("wss://failing.relay.com")
 
-    def test_append_valid_event(self) -> None:
-        """Test appending a valid event."""
-        batch = EventBatch(since=100, until=200, limit=10)
-        event = _make_mock_event(150)
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            side_effect=RuntimeError("unexpected"),
+        ):
+            await sync._sync_all_relays([relay])
 
-        batch.append(event)
+        assert sync._counters.failed_relays >= 1
 
-        assert batch.size == 1
-        assert len(batch.events) == 1
-        assert batch.min_created_at == 150
-        assert batch.max_created_at == 150
+    async def test_sync_all_relays_timeout_increments_failed(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test TimeoutError from wait_for increments failed_relays."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
-    def test_append_multiple_events(self) -> None:
-        """Test appending multiple events updates min/max."""
-        batch = EventBatch(since=100, until=200, limit=10)
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
-        for ts in [150, 120, 180]:
-            event = _make_mock_event(ts)
-            batch.append(event)
+        relay = Relay("wss://slow.relay.com")
 
-        assert batch.size == 3
-        assert batch.min_created_at == 120
-        assert batch.max_created_at == 180
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("overall timeout"),
+        ):
+            await sync._sync_all_relays([relay])
 
-    def test_append_rejects_out_of_bounds(self) -> None:
-        """Test that events outside time bounds are rejected."""
-        batch = EventBatch(since=100, until=200, limit=10)
+        assert sync._counters.failed_relays == 1
+        assert sync._counters.synced_relays == 0
 
-        # Event before since
-        event1 = _make_mock_event(50)
-        batch.append(event1)
+    async def test_sync_all_relays_postgres_error_increments_failed(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test asyncpg.PostgresError increments failed_relays."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
-        # Event after until
-        event2 = _make_mock_event(250)
-        batch.append(event2)
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
-        assert batch.size == 0
+        relay = Relay("wss://db-error.relay.com")
 
-    def test_append_accepts_boundary_values(self) -> None:
-        """Test that events at exact boundaries are accepted."""
-        batch = EventBatch(since=100, until=200, limit=10)
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            side_effect=asyncpg.PostgresError("db error"),
+        ):
+            await sync._sync_all_relays([relay])
 
-        # Event at since
-        event1 = _make_mock_event(100)
-        batch.append(event1)
+        assert sync._counters.failed_relays == 1
 
-        # Event at until
-        event2 = _make_mock_event(200)
-        batch.append(event2)
+    async def test_sync_all_relays_os_error_increments_failed(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test OSError increments failed_relays."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
-        assert batch.size == 2
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
-    def test_append_raises_on_overflow(self) -> None:
-        """Test that overflow error is raised when limit reached."""
-        batch = EventBatch(since=100, until=200, limit=2)
+        relay = Relay("wss://net-error.relay.com")
 
-        event1 = _make_mock_event(150)
-        batch.append(event1)
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            side_effect=OSError("connection refused"),
+        ):
+            await sync._sync_all_relays([relay])
 
-        event2 = _make_mock_event(160)
-        batch.append(event2)
+        assert sync._counters.failed_relays == 1
 
-        event3 = _make_mock_event(170)
+    async def test_sync_all_relays_cursor_update_flushed(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test cursor updates are flushed at end of sync."""
+        config = SynchronizerConfig(
+            concurrency=ConcurrencyConfig(cursor_flush_interval=50),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
-        with pytest.raises(OverflowError, match="Batch limit reached"):
-            batch.append(event3)
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
-    def test_is_full(self) -> None:
-        """Test is_full method."""
-        batch = EventBatch(since=100, until=200, limit=2)
+        relay = Relay("wss://relay.example.com")
 
-        assert batch.is_full() is False
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            return_value=(1, 0, 0),
+        ):
+            await sync._sync_all_relays([relay])
 
-        event1 = _make_mock_event(150)
-        batch.append(event1)
-        assert batch.is_full() is False
+        mock_synchronizer_brotr.upsert_service_state.assert_called()
 
-        event2 = _make_mock_event(160)
-        batch.append(event2)
-        assert batch.is_full() is True
+    async def test_sync_all_relays_cursor_periodic_flush(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test cursor updates are periodically flushed when batch size reached."""
+        config = SynchronizerConfig(
+            concurrency=ConcurrencyConfig(
+                cursor_flush_interval=1,  # Flush after every relay
+            ),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
-    def test_is_empty(self) -> None:
-        """Test is_empty method."""
-        batch = EventBatch(since=100, until=200, limit=10)
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
-        assert batch.is_empty() is True
+        relays = [
+            Relay("wss://relay1.example.com"),
+            Relay("wss://relay2.example.com"),
+        ]
 
-        event = _make_mock_event(150)
-        batch.append(event)
-        assert batch.is_empty() is False
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            return_value=(1, 0, 0),
+        ):
+            await sync._sync_all_relays(relays)
 
-    def test_len(self) -> None:
-        """Test __len__ method."""
-        batch = EventBatch(since=100, until=200, limit=10)
+        # Multiple calls: periodic flushes + final flush
+        assert mock_synchronizer_brotr.upsert_service_state.call_count >= 2
 
-        assert len(batch) == 0
+    async def test_sync_all_relays_final_cursor_flush_error(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test final cursor flush handles DB errors gracefully."""
+        config = SynchronizerConfig(
+            concurrency=ConcurrencyConfig(cursor_flush_interval=999),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
-        event1 = _make_mock_event(150)
-        batch.append(event1)
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
-        event2 = _make_mock_event(160)
-        batch.append(event2)
+        relay = Relay("wss://relay.example.com")
 
-        assert len(batch) == 2
+        mock_synchronizer_brotr.upsert_service_state = AsyncMock(
+            side_effect=asyncpg.PostgresError("flush failed")
+        )
 
-    def test_iter(self) -> None:
-        """Test iteration over batch."""
-        batch = EventBatch(since=100, until=200, limit=10)
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            return_value=(1, 0, 0),
+        ):
+            # Should not raise
+            await sync._sync_all_relays([relay])
 
-        event1 = _make_mock_event(150)
-        event2 = _make_mock_event(160)
+        assert sync._counters.synced_relays == 1
 
-        batch.append(event1)
-        batch.append(event2)
+    async def test_sync_all_relays_skip_when_start_ge_end(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test relay is skipped when start_time >= end_time."""
+        config = SynchronizerConfig(
+            time_range=TimeRangeConfig(
+                default_start=999_999_999_999,  # Far future
+                use_relay_state=False,
+            ),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
-        events = list(batch)
-        assert len(events) == 2
-        assert events[0] is event1
-        assert events[1] is event2
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
 
-    def test_zero_limit(self) -> None:
-        """Test batch with zero limit."""
-        batch = EventBatch(since=100, until=200, limit=0)
+        relay = Relay("wss://relay.example.com")
 
-        assert batch.is_full() is True
-        assert batch.is_empty() is True
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+        ) as mock_sync:
+            await sync._sync_all_relays([relay])
 
-        event = _make_mock_event(150)
+        mock_sync.assert_not_called()
+        assert sync._counters.synced_relays == 0
 
-        with pytest.raises(OverflowError):
-            batch.append(event)
+    async def test_sync_all_relays_with_override_timeouts(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test relay override timeouts are applied."""
+        config = SynchronizerConfig(
+            overrides=[
+                RelayOverride(
+                    url="wss://relay.example.com",
+                    timeouts=RelayOverrideTimeouts(relay=999.0, request=88.0),
+                ),
+            ],
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
+
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            return_value=(0, 0, 0),
+        ):
+            await sync._sync_all_relays([relay])
+
+        assert sync._counters.synced_relays == 1
+
+    async def test_sync_all_relays_with_cached_cursor(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test relay uses cached cursor for start time."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+
+        sync.fetch_cursors = AsyncMock(  # type: ignore[method-assign]
+            return_value={"wss://relay.example.com": 100}
+        )
+
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            return_value=(1, 0, 0),
+        ):
+            await sync._sync_all_relays([relay])
+
+        assert sync._counters.synced_relays == 1

@@ -262,11 +262,7 @@ class Monitor(
             self.geo_readers.close()
 
     async def _update_geo_db(self, path: Path, url: str, db_name: str) -> None:
-        """Download a single GeoLite2 database if missing or stale.
-
-        Downloads are offloaded to a thread via ``asyncio.to_thread()`` to
-        avoid blocking the event loop during large file transfers (10-50MB).
-        """
+        """Download a single GeoLite2 database if missing or stale."""
         max_size = self._config.geo.max_download_size
         max_age_days = self._config.geo.max_age_days
 
@@ -284,7 +280,7 @@ class Monitor(
         else:
             self._logger.info("downloading_geo_db", db=db_name)
 
-        await asyncio.to_thread(download_bounded_file, url, path, max_size)
+        await download_bounded_file(url, path, max_size)
 
     async def update_geo_databases(self) -> None:
         """Download or re-download GeoLite2 databases if missing or stale.
@@ -502,7 +498,8 @@ class Monitor(
                     return result
             except (TimeoutError, OSError) as e:
                 self._logger.debug(
-                    f"{operation}_error",
+                    "check_error",
+                    operation=operation,
                     relay=relay_url,
                     attempt=attempt + 1,
                     error=str(e),
@@ -516,7 +513,8 @@ class Monitor(
                 if await self.wait(delay + jitter):
                     return None
                 self._logger.debug(
-                    f"{operation}_retry",
+                    "check_retry",
+                    operation=operation,
                     relay=relay_url,
                     attempt=attempt + 1,
                     reason=get_reason(result) if result else None,
@@ -525,7 +523,8 @@ class Monitor(
 
         # All retries exhausted
         self._logger.debug(
-            f"{operation}_failed",
+            "check_exhausted",
+            operation=operation,
             relay=relay_url,
             attempts=max_retries + 1,
             reason=get_reason(result) if result else None,
@@ -814,10 +813,10 @@ class Monitor(
             timeout=timeout,
         )
         if not sent:
-            self._logger.warning(f"{event_name}_failed", error="no relays reachable")
+            self._logger.warning("publish_failed", event=event_name, error="no relays reachable")
             return
 
-        self._logger.info(f"{event_name}_published", relays=sent)
+        self._logger.info("publish_completed", event=event_name, relays=sent)
         now = time.time()
         await self._brotr.upsert_service_state(
             [

@@ -16,7 +16,7 @@ from .configs import (
     TimeRangeConfig,
 )
 from .service import Synchronizer
-from .utils import EventBatch, SyncContext
+from .utils import EventBatch, SyncContext, SyncCycleCounters
 
 
 __all__ = [
@@ -27,6 +27,7 @@ __all__ = [
     "RelayOverrideTimeouts",
     "SourceConfig",
     "SyncContext",
+    "SyncCycleCounters",
     "Synchronizer",
     "SynchronizerConfig",
     "TimeRangeConfig",

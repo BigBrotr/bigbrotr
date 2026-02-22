@@ -9,30 +9,34 @@ Note:
     and ``services`` without violating the diamond DAG.
 
 See Also:
-    :func:`bigbrotr.nips.nip11.info.Nip11InfoMetadata._info`:
-        NIP-11 info fetch that uses :func:`read_bounded_json`.
-    :class:`bigbrotr.services.finder.Finder`:
-        Finder API fetch that uses :func:`read_bounded_json`.
+    [Nip11InfoMetadata._info][bigbrotr.nips.nip11.info.Nip11InfoMetadata._info]:
+        NIP-11 info fetch that uses [read_bounded_json][bigbrotr.utils.http.read_bounded_json].
+    [Finder][bigbrotr.services.finder.Finder]:
+        Finder API fetch that uses [read_bounded_json][bigbrotr.utils.http.read_bounded_json].
 """
 
 from __future__ import annotations
 
 import json
-import urllib.request
 from typing import TYPE_CHECKING, Any
+
+import aiohttp
 
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import aiohttp
 
-
-def download_bounded_file(url: str, dest: Path, max_size: int, timeout: float = 60.0) -> None:
+async def download_bounded_file(
+    url: str,
+    dest: Path,
+    max_size: int,
+    timeout: float = 60.0,  # noqa: ASYNC109
+) -> None:
     """Download a file with size enforcement.
 
     Reads up to ``max_size + 1`` bytes from the URL. If the body exceeds
-    ``max_size``, raises :class:`ValueError` *before* writing, preventing
+    ``max_size``, raises ``ValueError`` *before* writing, preventing
     disk exhaustion from oversized payloads. Creates parent directories
     if they do not exist.
 
@@ -40,26 +44,31 @@ def download_bounded_file(url: str, dest: Path, max_size: int, timeout: float = 
         url: Download URL.
         dest: Local path to save the file.
         max_size: Maximum allowed file size in bytes.
-        timeout: Socket timeout in seconds for the HTTP request.
+        timeout: Total request timeout in seconds.
 
     Raises:
-        urllib.error.URLError: If download fails or times out.
+        aiohttp.ClientError: If download fails.
+        TimeoutError: If the request exceeds *timeout*.
         ValueError: If the downloaded file exceeds *max_size*.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(url)  # noqa: S310
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
-        data = response.read(max_size + 1)
+    client_timeout = aiohttp.ClientTimeout(total=timeout)
+    async with (
+        aiohttp.ClientSession(timeout=client_timeout) as session,
+        session.get(url) as response,
+    ):
+        response.raise_for_status()
+        data = await response.content.read(max_size + 1)
         if len(data) > max_size:
             raise ValueError(f"Download too large: >{max_size} bytes")
-        dest.write_bytes(data)
+        dest.write_bytes(data)  # noqa: ASYNC240
 
 
 async def read_bounded_json(response: aiohttp.ClientResponse, max_size: int) -> Any:
     """Read and parse a JSON response body with size enforcement.
 
     Reads up to ``max_size + 1`` bytes from the response stream. If the body
-    exceeds ``max_size``, raises :class:`ValueError` *before* attempting JSON
+    exceeds ``max_size``, raises ``ValueError`` *before* attempting JSON
     parsing, preventing memory exhaustion from oversized payloads.
 
     Args:

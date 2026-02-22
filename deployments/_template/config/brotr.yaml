@@ -104,12 +104,6 @@ pool:
     # Default: 10.0
     acquisition: 10.0
 
-    # Timeout (seconds) for connection health check queries
-    # Used to validate connections before returning them to callers
-    # Range: >= 0.1
-    # Default: 5.0
-    health_check: 5.0
-
   # ---------------------------------------------------------------------------
   # Retry Configuration
   # ---------------------------------------------------------------------------
@@ -239,7 +233,6 @@ timeouts:
 #
 # HIGH LATENCY DATABASE (remote PostgreSQL, cloud database):
 #   pool.timeouts.acquisition: 30.0
-#   pool.timeouts.health_check: 10.0
 #   pool.retry.max_attempts: 5
 #   timeouts.query: 120.0
 #

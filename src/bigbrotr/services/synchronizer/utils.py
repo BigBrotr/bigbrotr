@@ -5,9 +5,10 @@ Module-level sync logic, event batch management, and context types.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -26,7 +27,6 @@ from bigbrotr.utils.protocol import create_client
 
 
 if TYPE_CHECKING:
-    import asyncio
     from collections.abc import Iterator
 
     from nostr_sdk import Event as NostrEvent
@@ -284,10 +284,30 @@ async def insert_batch(
 
 
 @dataclass(slots=True)
-class SyncBatchState:
-    """Shared mutable state across sync workers within a single cycle.
+class SyncCycleCounters:
+    """Per-cycle synchronization counters.
 
-    Groups the locks and cursor update buffer used by
+    Groups relay/event outcome counts and the lock that guards
+    concurrent updates from ``TaskGroup`` workers.
+
+    See Also:
+        [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]:
+            Service that owns an instance of this dataclass.
+    """
+
+    synced_events: int = 0
+    synced_relays: int = 0
+    failed_relays: int = 0
+    invalid_events: int = 0
+    skipped_events: int = 0
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+@dataclass(slots=True)
+class SyncBatchState:
+    """Shared mutable cursor state across sync workers within a single cycle.
+
+    Groups the lock and cursor update buffer used by
     [Synchronizer._sync_single_relay][bigbrotr.services.synchronizer.Synchronizer._sync_single_relay]
     workers running concurrently under a ``TaskGroup``.
 
@@ -298,7 +318,6 @@ class SyncBatchState:
 
     cursor_updates: list[ServiceState]
     cursor_lock: asyncio.Lock
-    counter_lock: asyncio.Lock
     cursor_flush_interval: int
 
 

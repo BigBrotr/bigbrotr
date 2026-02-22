@@ -133,15 +133,6 @@ class RelayMetadata:
         validate_timestamp(self.generated_at, "generated_at")
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
-    def to_db_params(self) -> RelayMetadataDbParams:
-        """Return cached positional parameters for the cascade insert procedure.
-
-        Returns:
-            [RelayMetadataDbParams][bigbrotr.models.relay_metadata.RelayMetadataDbParams]
-            combining relay, metadata, and junction fields.
-        """
-        return self._db_params
-
     def _compute_db_params(self) -> RelayMetadataDbParams:
         """Compute positional parameters for the cascade insert procedure.
 
@@ -165,6 +156,15 @@ class RelayMetadata:
             metadata_data=m.data,
             generated_at=self.generated_at,
         )
+
+    def to_db_params(self) -> RelayMetadataDbParams:
+        """Return cached positional parameters for the cascade insert procedure.
+
+        Returns:
+            [RelayMetadataDbParams][bigbrotr.models.relay_metadata.RelayMetadataDbParams]
+            combining relay, metadata, and junction fields.
+        """
+        return self._db_params
 
     @classmethod
     def from_db_params(cls, params: RelayMetadataDbParams) -> RelayMetadata:

@@ -117,9 +117,9 @@ class GeoConfig(BaseModel):
 
     Note:
         GeoLite2 databases are downloaded at the start of each cycle if
-        missing or stale (older than ``max_age_days``). Downloads are
-        offloaded to a thread via ``asyncio.to_thread()`` to avoid
-        blocking the event loop during large file transfers (10-50 MB).
+        missing or stale (older than ``max_age_days``). Downloads use
+        async HTTP via ``aiohttp`` with bounded reads to prevent memory
+        exhaustion from oversized payloads.
 
     See Also:
         [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]: Parent
@@ -258,8 +258,8 @@ class MonitorConfig(BaseServiceConfig):
     def validate_geo_databases(self) -> MonitorConfig:
         """Validate GeoLite2 database paths have download URLs if files are missing.
 
-        Actual downloads are deferred to ``_update_geo_databases()`` which runs
-        asynchronously via ``asyncio.to_thread()`` to avoid blocking the event loop.
+        Actual downloads are deferred to ``_update_geo_databases()`` which
+        downloads asynchronously via ``aiohttp``.
         """
         if self.processing.compute.nip66_geo:
             city_path = Path(self.geo.city_database_path)
