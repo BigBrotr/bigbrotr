@@ -3,7 +3,7 @@
 Tests:
 - ChunkProgressMixin - Mixin that provides a progress attribute via __init__
 - NetworkSemaphores - Per-network concurrency semaphore container
-- NetworkSemaphoresMixin - Mixin that provides a semaphores attribute via __init__
+- NetworkSemaphoresMixin - Mixin that provides a network_semaphores attribute via __init__
 
 NOTE: The ChunkProgress dataclass itself is thoroughly tested in
 tests/unit/services/test_progress.py.  These tests focus exclusively
@@ -78,28 +78,28 @@ class TestChunkProgressMixinInit:
     """Tests for ChunkProgressMixin automatic __init__."""
 
     def test_init_creates_chunk_progress_instance(self) -> None:
-        """__init__ assigns a ChunkProgress to self.progress."""
+        """__init__ assigns a ChunkProgress to self.chunk_progress."""
         mixin = ChunkProgressMixin()
-        assert isinstance(mixin.progress, ChunkProgress)
+        assert isinstance(mixin.chunk_progress, ChunkProgress)
 
     def test_fresh_progress_has_zero_counters(self) -> None:
         """A freshly initialized progress has all counters at zero."""
         mixin = ChunkProgressMixin()
-        assert mixin.progress.total == 0
-        assert mixin.progress.processed == 0
-        assert mixin.progress.succeeded == 0
-        assert mixin.progress.failed == 0
-        assert mixin.progress.chunks == 0
+        assert mixin.chunk_progress.total == 0
+        assert mixin.chunk_progress.processed == 0
+        assert mixin.chunk_progress.succeeded == 0
+        assert mixin.chunk_progress.failed == 0
+        assert mixin.chunk_progress.chunks == 0
 
     def test_reset_clears_modified_counters(self) -> None:
         """Calling reset() clears accumulated counter values."""
         mixin = ChunkProgressMixin()
-        mixin.progress.total = 100
-        mixin.progress.processed = 42
+        mixin.chunk_progress.total = 100
+        mixin.chunk_progress.processed = 42
 
-        mixin.progress.reset()
-        assert mixin.progress.total == 0
-        assert mixin.progress.processed == 0
+        mixin.chunk_progress.reset()
+        assert mixin.chunk_progress.total == 0
+        assert mixin.chunk_progress.processed == 0
 
 
 class TestChunkProgressMixinComposition:
@@ -112,9 +112,9 @@ class TestChunkProgressMixinComposition:
             pass
 
         svc = DummyService()
-        assert isinstance(svc.progress, ChunkProgress)
-        svc.progress.total = 50
-        assert svc.progress.remaining == 50
+        assert isinstance(svc.chunk_progress, ChunkProgress)
+        svc.chunk_progress.total = 50
+        assert svc.chunk_progress.remaining == 50
 
 
 # =============================================================================
@@ -188,16 +188,16 @@ class TestNetworkSemaphoresMixinInit:
     """Tests for NetworkSemaphoresMixin automatic __init__ initialization."""
 
     def test_init_creates_network_semaphores(self) -> None:
-        """__init__ assigns a NetworkSemaphores to self.semaphores."""
+        """__init__ assigns a NetworkSemaphores to self.network_semaphores."""
         mixin = _TestSemaphoreMixin(networks=_make_network_config())
-        assert isinstance(mixin.semaphores, NetworkSemaphores)
+        assert isinstance(mixin.network_semaphores, NetworkSemaphores)
 
     def test_semaphores_are_functional(self) -> None:
         """Semaphores created by __init__ are usable asyncio.Semaphore instances."""
         mixin = _TestSemaphoreMixin(networks=_make_network_config())
 
         for nt in (NetworkType.CLEARNET, NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI):
-            sem = mixin.semaphores.get(nt)
+            sem = mixin.network_semaphores.get(nt)
             assert isinstance(sem, asyncio.Semaphore), f"{nt}: not a Semaphore"
 
 
@@ -211,6 +211,6 @@ class TestNetworkSemaphoresMixinComposition:
             pass
 
         svc = DummyService(networks=_make_network_config(clearnet_tasks=20))
-        sem = svc.semaphores.get(NetworkType.CLEARNET)
+        sem = svc.network_semaphores.get(NetworkType.CLEARNET)
         assert isinstance(sem, asyncio.Semaphore)
         assert sem._value == 20

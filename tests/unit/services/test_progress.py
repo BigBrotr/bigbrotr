@@ -6,7 +6,7 @@ Tests:
   - Default values
   - Field assignments
   - reset() method
-  - record_chunk() method
+  - record() method
   - remaining property
   - elapsed property
 """
@@ -238,67 +238,67 @@ class TestChunkProgressReset:
 
 
 # =============================================================================
-# ChunkProgress record_chunk() Method Tests
+# ChunkProgress record() Method Tests
 # =============================================================================
 
 
-class TestChunkProgressRecordChunk:
-    """Tests for ChunkProgress.record_chunk() method."""
+class TestChunkProgressRecord:
+    """Tests for ChunkProgress.record() method."""
 
-    def test_record_chunk_updates_all_counters(self) -> None:
-        """Test record_chunk updates processed, succeeded, failed, and chunks."""
+    def test_record_updates_all_counters(self) -> None:
+        """Test record updates processed, succeeded, failed, and chunks."""
         progress = ChunkProgress()
-        progress.record_chunk(succeeded=8, failed=2)
+        progress.record(succeeded=8, failed=2)
 
         assert progress.processed == 10
         assert progress.succeeded == 8
         assert progress.failed == 2
         assert progress.chunks == 1
 
-    def test_record_chunk_accumulates(self) -> None:
-        """Test record_chunk accumulates across multiple calls."""
+    def test_record_accumulates(self) -> None:
+        """Test record accumulates across multiple calls."""
         progress = ChunkProgress()
-        progress.record_chunk(succeeded=5, failed=1)
-        progress.record_chunk(succeeded=3, failed=2)
+        progress.record(succeeded=5, failed=1)
+        progress.record(succeeded=3, failed=2)
 
         assert progress.processed == 11
         assert progress.succeeded == 8
         assert progress.failed == 3
         assert progress.chunks == 2
 
-    def test_record_chunk_all_succeeded(self) -> None:
-        """Test record_chunk with no failures."""
+    def test_record_all_succeeded(self) -> None:
+        """Test record with no failures."""
         progress = ChunkProgress()
-        progress.record_chunk(succeeded=10, failed=0)
+        progress.record(succeeded=10, failed=0)
 
         assert progress.processed == 10
         assert progress.succeeded == 10
         assert progress.failed == 0
         assert progress.chunks == 1
 
-    def test_record_chunk_all_failed(self) -> None:
-        """Test record_chunk with no successes."""
+    def test_record_all_failed(self) -> None:
+        """Test record with no successes."""
         progress = ChunkProgress()
-        progress.record_chunk(succeeded=0, failed=10)
+        progress.record(succeeded=0, failed=10)
 
         assert progress.processed == 10
         assert progress.succeeded == 0
         assert progress.failed == 10
         assert progress.chunks == 1
 
-    def test_record_chunk_empty(self) -> None:
-        """Test record_chunk with zero items still increments chunks."""
+    def test_record_empty(self) -> None:
+        """Test record with zero items still increments chunks."""
         progress = ChunkProgress()
-        progress.record_chunk(succeeded=0, failed=0)
+        progress.record(succeeded=0, failed=0)
 
         assert progress.processed == 0
         assert progress.chunks == 1
 
-    def test_record_chunk_updates_remaining(self) -> None:
-        """Test record_chunk correctly affects remaining calculation."""
+    def test_record_updates_remaining(self) -> None:
+        """Test record correctly affects remaining calculation."""
         progress = ChunkProgress()
         progress.total = 100
-        progress.record_chunk(succeeded=30, failed=10)
+        progress.record(succeeded=30, failed=10)
 
         assert progress.remaining == 60
 

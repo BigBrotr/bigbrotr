@@ -39,7 +39,7 @@ class ChunkProgress:
     """Tracks progress of a chunk-based processing cycle.
 
     All counters are reset at the start of each cycle via ``reset()``.
-    Use ``record_chunk()`` after processing each chunk to update counters.
+    Use ``record()`` after processing each chunk to update counters.
 
     Attributes:
         started_at: Timestamp when the cycle started (``time.time()``).
@@ -56,7 +56,7 @@ class ChunkProgress:
 
     See Also:
         [ChunkProgressMixin][bigbrotr.services.common.mixins.ChunkProgressMixin]:
-            Mixin that exposes a ``progress`` attribute of this type.
+            Mixin that exposes a ``chunk_progress`` attribute of this type.
     """
 
     started_at: float = field(default=0.0)
@@ -77,7 +77,7 @@ class ChunkProgress:
         self.failed = 0
         self.chunks = 0
 
-    def record_chunk(self, succeeded: int, failed: int) -> None:
+    def record(self, succeeded: int, failed: int) -> None:
         """Record the results of one processed chunk.
 
         Args:
@@ -104,7 +104,7 @@ class ChunkProgressMixin:
     """Mixin providing chunk-based processing progress tracking.
 
     Services that process items in chunks compose this mixin to get
-    a ``progress`` attribute with counters and timing. Initialization
+    a ``chunk_progress`` attribute with counters and timing. Initialization
     is automatic via ``__init__``.
 
     See Also:
@@ -118,17 +118,17 @@ class ChunkProgressMixin:
         ```python
         class MyService(ChunkProgressMixin, BaseService[MyConfig]):
             async def run(self):
-                self.progress.reset()
+                self.chunk_progress.reset()
                 ...
-                self.progress.record_chunk(succeeded=len(ok), failed=len(err))
+                self.chunk_progress.record(succeeded=len(ok), failed=len(err))
         ```
     """
 
-    progress: ChunkProgress
+    chunk_progress: ChunkProgress
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.progress = ChunkProgress()
+        self.chunk_progress = ChunkProgress()
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +176,7 @@ class NetworkSemaphores:
 class NetworkSemaphoresMixin:
     """Mixin providing per-network concurrency semaphores.
 
-    Exposes a ``semaphores`` attribute of type
+    Exposes a ``network_semaphores`` attribute of type
     [NetworkSemaphores][bigbrotr.services.common.mixins.NetworkSemaphores],
     initialized from the ``networks`` keyword argument.
 
@@ -190,12 +190,12 @@ class NetworkSemaphoresMixin:
             Services that compose this mixin for bounded concurrency.
     """
 
-    semaphores: NetworkSemaphores
+    network_semaphores: NetworkSemaphores
 
     def __init__(self, **kwargs: Any) -> None:
         networks: NetworkConfig = kwargs.pop("networks")
         super().__init__(**kwargs)
-        self.semaphores = NetworkSemaphores(networks)
+        self.network_semaphores = NetworkSemaphores(networks)
 
 
 # ---------------------------------------------------------------------------

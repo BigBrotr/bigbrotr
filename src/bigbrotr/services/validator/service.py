@@ -165,7 +165,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         metrics emission. Respects ``is_running`` for graceful shutdown and
         ``max_candidates`` for per-cycle limits.
         """
-        self.progress.reset()
+        self.chunk_progress.reset()
 
         networks = self._config.networks.get_enabled_networks()
         self._logger.info(
@@ -178,9 +178,9 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         # Cleanup and count
         await self.cleanup_stale()
         await self.cleanup_exhausted()
-        self.progress.total = await count_candidates(self._brotr, networks)
+        self.chunk_progress.total = await count_candidates(self._brotr, networks)
 
-        self._logger.info("candidates_available", total=self.progress.total)
+        self._logger.info("candidates_available", total=self.chunk_progress.total)
         self._emit_progress_gauges()
 
         # Process all candidates
@@ -189,10 +189,10 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         self._emit_progress_gauges()
         self._logger.info(
             "cycle_completed",
-            validated=self.progress.succeeded,
-            invalidated=self.progress.failed,
-            chunks=self.progress.chunks,
-            duration_s=self.progress.elapsed,
+            validated=self.chunk_progress.succeeded,
+            invalidated=self.chunk_progress.failed,
+            chunks=self.chunk_progress.chunks,
+            duration_s=self.chunk_progress.elapsed,
         )
 
     # -------------------------------------------------------------------------
@@ -265,7 +265,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             ``True`` if the relay speaks Nostr protocol, ``False`` otherwise.
         """
         relay = candidate.relay
-        semaphore = self.semaphores.get(relay.network)
+        semaphore = self.network_semaphores.get(relay.network)
 
         if semaphore is None:
             self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
@@ -338,16 +338,16 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             return
 
         async for valid, invalid in self.validate_chunks(networks):
-            self.progress.record_chunk(succeeded=len(valid), failed=len(invalid))
+            self.chunk_progress.record(succeeded=len(valid), failed=len(invalid))
 
             await self._persist_results(valid, invalid)
             self._emit_progress_gauges()
             self._logger.info(
                 "chunk_completed",
-                chunk=self.progress.chunks,
+                chunk=self.chunk_progress.chunks,
                 valid=len(valid),
                 invalid=len(invalid),
-                remaining=self.progress.remaining,
+                remaining=self.chunk_progress.remaining,
             )
 
     async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Candidate]:
@@ -367,7 +367,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         rows = await fetch_candidate_chunk(
             self._brotr,
             networks,
-            int(self.progress.started_at),
+            int(self.chunk_progress.started_at),
             limit,
         )
 
@@ -467,7 +467,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
 
     def _emit_progress_gauges(self) -> None:
         """Emit Prometheus gauges for batch progress."""
-        self.set_gauge("total", self.progress.total)
-        self.set_gauge("processed", self.progress.processed)
-        self.set_gauge("success", self.progress.succeeded)
-        self.set_gauge("failure", self.progress.failed)
+        self.set_gauge("total", self.chunk_progress.total)
+        self.set_gauge("processed", self.chunk_progress.processed)
+        self.set_gauge("success", self.chunk_progress.succeeded)
+        self.set_gauge("failure", self.chunk_progress.failed)

@@ -870,7 +870,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor.progress.reset()
+        monitor.chunk_progress.reset()
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert relays == []
@@ -904,7 +904,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor.progress.reset()
+        monitor.chunk_progress.reset()
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert len(relays) == 2
@@ -935,7 +935,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor.progress.reset()
+        monitor.chunk_progress.reset()
         relays = await monitor._fetch_chunk(["clearnet"], 100)
 
         assert len(relays) == 1
@@ -964,7 +964,7 @@ class TestMonitorFetchChunk:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor.progress.reset()
+        monitor.chunk_progress.reset()
         await monitor._fetch_chunk(["clearnet"], 50)
 
         assert mock_fetch.call_args[0][4] == 50  # limit is 5th positional arg
@@ -1010,7 +1010,7 @@ class TestMonitorRun:
         monitor = Monitor(brotr=mock_brotr, config=config)
         await monitor.run()
 
-        assert monitor.progress.processed == 0
+        assert monitor.chunk_progress.processed == 0
 
     @patch(
         "bigbrotr.services.monitor.service.fetch_relays_due_for_check",
@@ -1042,13 +1042,13 @@ class TestMonitorRun:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor.progress.succeeded = 10
-        monitor.progress.failed = 5
+        monitor.chunk_progress.succeeded = 10
+        monitor.chunk_progress.failed = 5
 
         await monitor.run()
 
-        assert monitor.progress.succeeded == 0
-        assert monitor.progress.failed == 0
+        assert monitor.chunk_progress.succeeded == 0
+        assert monitor.chunk_progress.failed == 0
 
 
 # ============================================================================

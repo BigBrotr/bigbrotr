@@ -229,7 +229,7 @@ class Monitor(
         relay counting, chunk-based health checks, metadata persistence,
         and Kind 30166 event publishing.
         """
-        self.progress.reset()
+        self.chunk_progress.reset()
 
         await self.update_geo_databases()
 
@@ -251,9 +251,9 @@ class Monitor(
             await self.publish_profile()
             await self.publish_announcement()
 
-            self.progress.total = await self._count_relays(networks)
+            self.chunk_progress.total = await self._count_relays(networks)
 
-            self._logger.info("relays_available", total=self.progress.total)
+            self._logger.info("relays_available", total=self.chunk_progress.total)
             self._emit_progress_gauges()
 
             await self._process_all(networks)
@@ -261,11 +261,11 @@ class Monitor(
             self._emit_progress_gauges()
             self._logger.info(
                 "cycle_completed",
-                checked=self.progress.processed,
-                successful=self.progress.succeeded,
-                failed=self.progress.failed,
-                chunks=self.progress.chunks,
-                duration_s=self.progress.elapsed,
+                checked=self.chunk_progress.processed,
+                successful=self.chunk_progress.succeeded,
+                failed=self.chunk_progress.failed,
+                chunks=self.chunk_progress.chunks,
+                duration_s=self.chunk_progress.elapsed,
             )
         finally:
             self.geo_readers.close()
@@ -381,7 +381,7 @@ class Monitor(
             self._logger.warning("no_networks_enabled")
             return 0
 
-        threshold = int(self.progress.started_at) - self._config.discovery.interval
+        threshold = int(self.chunk_progress.started_at) - self._config.discovery.interval
 
         return await count_relays_due_for_check(
             self._brotr,
@@ -411,7 +411,7 @@ class Monitor(
             return
 
         async for successful, failed in self.check_chunks(networks):
-            self.progress.record_chunk(succeeded=len(successful), failed=len(failed))
+            self.chunk_progress.record(succeeded=len(successful), failed=len(failed))
 
             await self.publish_relay_discoveries(successful)
             await self._persist_results(successful, failed)
@@ -419,10 +419,10 @@ class Monitor(
             self._emit_progress_gauges()
             self._logger.info(
                 "chunk_completed",
-                chunk=self.progress.chunks,
+                chunk=self.chunk_progress.chunks,
                 successful=len(successful),
                 failed=len(failed),
-                remaining=self.progress.remaining,
+                remaining=self.chunk_progress.remaining,
             )
 
     async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Relay]:
@@ -431,7 +431,7 @@ class Monitor(
         See Also:
             ``fetch_relays_due_for_check``: The SQL query executed.
         """
-        threshold = int(self.progress.started_at) - self._config.discovery.interval
+        threshold = int(self.chunk_progress.started_at) - self._config.discovery.interval
 
         rows = await fetch_relays_due_for_check(
             self._brotr,
@@ -648,7 +648,7 @@ class Monitor(
         """
         empty = CheckResult()
 
-        semaphore = self.semaphores.get(relay.network)
+        semaphore = self.network_semaphores.get(relay.network)
         if semaphore is None:
             self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
             return empty
@@ -807,10 +807,10 @@ class Monitor(
 
     def _emit_progress_gauges(self) -> None:
         """Emit Prometheus gauges for batch progress."""
-        self.set_gauge("total", self.progress.total)
-        self.set_gauge("processed", self.progress.processed)
-        self.set_gauge("success", self.progress.succeeded)
-        self.set_gauge("failure", self.progress.failed)
+        self.set_gauge("total", self.chunk_progress.total)
+        self.set_gauge("processed", self.chunk_progress.processed)
+        self.set_gauge("success", self.chunk_progress.succeeded)
+        self.set_gauge("failure", self.chunk_progress.failed)
 
     # -------------------------------------------------------------------------
     # Publishing
