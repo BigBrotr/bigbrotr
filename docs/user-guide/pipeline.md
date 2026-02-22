@@ -94,7 +94,7 @@ flowchart TD
 | `seed.to_validate` | bool | `true` | Insert as candidates (true) or directly as relays (false) |
 
 !!! tip "API Reference"
-    See [`bigbrotr.services.seeder`](../reference/services/seeder.md) for the complete Seeder API.
+    See [`bigbrotr.services.seeder`](../reference/services/seeder/index.md) for the complete Seeder API.
 
 ---
 
@@ -158,7 +158,7 @@ flowchart TD
 | `api.delay_between_requests` | float | `1.0` | Delay between API calls |
 
 !!! tip "API Reference"
-    See [`bigbrotr.services.finder`](../reference/services/finder.md) for the complete Finder API.
+    See [`bigbrotr.services.finder`](../reference/services/finder/index.md) for the complete Finder API.
 
 ---
 
@@ -215,7 +215,7 @@ flowchart TD
 | `networks` | NetworkConfig | -- | Per-network timeouts and concurrency |
 
 !!! tip "API Reference"
-    See [`bigbrotr.services.validator`](../reference/services/validator.md) for the complete Validator API.
+    See [`bigbrotr.services.validator`](../reference/services/validator/index.md) for the complete Validator API.
 
 ---
 
@@ -292,7 +292,7 @@ class CheckResult(NamedTuple):
     The Monitor requires the `PRIVATE_KEY` environment variable for signing published Nostr events and performing NIP-66 write tests.
 
 !!! tip "API Reference"
-    See [`bigbrotr.services.monitor`](../reference/services/monitor.md) for the complete Monitor API.
+    See [`bigbrotr.services.monitor`](../reference/services/monitor/index.md) for the complete Monitor API.
 
 ---
 
@@ -366,7 +366,7 @@ class EventBatch:
 | `networks` | NetworkConfig | -- | Per-network timeouts and concurrency |
 
 !!! tip "API Reference"
-    See [`bigbrotr.services.synchronizer`](../reference/services/synchronizer.md) for the complete Synchronizer API.
+    See [`bigbrotr.services.synchronizer`](../reference/services/synchronizer/index.md) for the complete Synchronizer API.
 
 ---
 

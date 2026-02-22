@@ -308,7 +308,7 @@ class SyncBatchState:
     """Shared mutable cursor state across sync workers within a single cycle.
 
     Groups the lock and cursor update buffer used by
-    [Synchronizer._sync_single_relay][bigbrotr.services.synchronizer.Synchronizer._sync_single_relay]
+    [Synchronizer][bigbrotr.services.synchronizer.service.Synchronizer]
     workers running concurrently under a ``TaskGroup``.
 
     Note:
@@ -350,7 +350,7 @@ async def sync_relay_events(
 ) -> tuple[int, int, int]:
     """Core sync algorithm: connect to a relay, fetch events, and insert into the database.
 
-    Uses [create_client][bigbrotr.utils.transport.create_client] to
+    Uses [create_client][bigbrotr.utils.protocol.create_client] to
     establish a WebSocket connection (with optional SOCKS5 proxy for
     overlay networks), fetches events matching the configured filter,
     and batch-inserts valid events.

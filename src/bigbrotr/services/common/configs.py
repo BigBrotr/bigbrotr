@@ -188,8 +188,8 @@ class NetworksConfig(BaseModel):
             The SOCKS5 proxy URL if enabled and configured, ``None`` otherwise.
 
         Note:
-            Used by [connect_relay][bigbrotr.utils.transport.connect_relay]
-            and [is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay]
+            Used by [connect_relay][bigbrotr.utils.protocol.connect_relay]
+            and [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay]
             to route overlay-network connections through SOCKS5 proxies.
         """
         if network == NetworkType.CLEARNET:

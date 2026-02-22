@@ -37,7 +37,7 @@ See Also:
         health-checks the relays synced here.
     [Finder][bigbrotr.services.finder.Finder]: Downstream consumer that
         discovers relay URLs from the events collected here.
-    [create_client][bigbrotr.utils.transport.create_client]: Factory for
+    [create_client][bigbrotr.utils.protocol.create_client]: Factory for
         the nostr-sdk client used for WebSocket connections.
 
 Examples:
