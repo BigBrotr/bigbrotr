@@ -31,11 +31,11 @@ DECLARE
     v_batch INTEGER;
 BEGIN
     LOOP
-        DELETE FROM metadata m WHERE (m.id, m.type) IN (
-            SELECT m2.id, m2.type FROM metadata m2
+        DELETE FROM metadata m WHERE (m.id, m.metadata_type) IN (
+            SELECT m2.id, m2.metadata_type FROM metadata m2
             WHERE NOT EXISTS (
                 SELECT 1 FROM relay_metadata rm
-                WHERE rm.metadata_id = m2.id AND rm.metadata_type = m2.type
+                WHERE rm.metadata_id = m2.id AND rm.metadata_type = m2.metadata_type
             )
             LIMIT p_batch_size
         );
@@ -52,46 +52,34 @@ COMMENT ON FUNCTION orphan_metadata_delete(INTEGER) IS
 
 
 /*
- * orphan_event_delete(p_batch_size) -> INTEGER
+ * orphan_event_delete() -> INTEGER
  *
- * Removes events that have no associated relay in event_relay,
- * processing in configurable batches to limit lock duration and WAL volume.
- * This enforces the invariant that every event must be associated with at least
+ * Removes events that have no associated relay in event_relay. This
+ * enforces the invariant that every event must be associated with at least
  * one relay. Orphans can appear when a relay is deleted via CASCADE on
  * event_relay but the event itself remains.
  *
- * Parameters:
- *   p_batch_size  Maximum rows to delete per iteration (default 10,000)
- *
- * Returns: Total number of deleted rows across all batches
+ * Returns: Number of deleted rows
  * Schedule: Daily, or after relay deletions
  */
-CREATE OR REPLACE FUNCTION orphan_event_delete(p_batch_size INTEGER DEFAULT 10000)
+CREATE OR REPLACE FUNCTION orphan_event_delete()
 RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    v_deleted INTEGER := 0;
-    v_batch INTEGER;
+    v_deleted INTEGER;
 BEGIN
-    LOOP
-        DELETE FROM event e WHERE e.id IN (
-            SELECT e2.id FROM event e2
-            WHERE NOT EXISTS (
-                SELECT 1 FROM event_relay er WHERE er.event_id = e2.id
-            )
-            LIMIT p_batch_size
-        );
-        GET DIAGNOSTICS v_batch = ROW_COUNT;
-        v_deleted := v_deleted + v_batch;
-        EXIT WHEN v_batch < p_batch_size;
-    END LOOP;
+    DELETE FROM event e
+    WHERE NOT EXISTS (
+        SELECT 1 FROM event_relay er WHERE er.event_id = e.id
+    );
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
     RETURN v_deleted;
 END;
 $$;
 
-COMMENT ON FUNCTION orphan_event_delete(INTEGER) IS
-'Delete orphan events in batches to limit lock duration (maintains 1:N invariant)';
+COMMENT ON FUNCTION orphan_event_delete() IS
+'Delete events without any relay association (maintains 1:N invariant)';
 
 
 /*

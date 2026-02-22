@@ -3,7 +3,7 @@
 # ============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help install pre-commit lint format format-check typecheck test test-unit test-integration test-fast coverage audit sql-check ci docs docs-serve build docker-build docker-up docker-down clean
+.PHONY: help install pre-commit lint format format-check typecheck test test-unit test-integration test-fast coverage audit sql-generate sql-check ci docs docs-serve build docker-build docker-up docker-down clean
 
 DEPLOYMENT ?= bigbrotr
 
@@ -58,6 +58,9 @@ coverage: ## Run unit tests with coverage report
 
 audit: ## Run uv-secure for dependency vulnerabilities
 	uv-secure uv.lock
+
+sql-generate: ## Regenerate SQL from templates
+	python3 tools/generate_sql.py
 
 sql-check: ## Verify generated SQL matches templates
 	python3 tools/generate_sql.py --check

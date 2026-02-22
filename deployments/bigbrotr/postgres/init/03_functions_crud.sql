@@ -143,10 +143,10 @@ AS $$
 DECLARE
     v_row_count INTEGER;
 BEGIN
-    INSERT INTO metadata (id, type, data)
+    INSERT INTO metadata (id, metadata_type, data)
     SELECT * FROM unnest(p_ids, p_metadata_types, p_data)
-        AS t(id, type, data)
-    ON CONFLICT (id, type) DO NOTHING;
+        AS t(id, metadata_type, data)
+    ON CONFLICT (id, metadata_type) DO NOTHING;
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
     RETURN v_row_count;
@@ -284,7 +284,6 @@ BEGIN
     INSERT INTO event_relay (event_id, relay_url, seen_at)
     SELECT DISTINCT ON (event_id, relay_url) event_id, relay_url, seen_at
     FROM unnest(p_event_ids, p_relay_urls, p_seen_ats) AS t(event_id, relay_url, seen_at)
-    ORDER BY event_id, relay_url, seen_at ASC
     ON CONFLICT (event_id, relay_url) DO NOTHING;
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
@@ -389,7 +388,6 @@ BEGIN
         p_state_values,
         p_updated_ats
     ) AS t(service_name, state_type, state_key, state_value, updated_at)
-    ORDER BY service_name, state_type, state_key, updated_at DESC
     ON CONFLICT (service_name, state_type, state_key)
     DO UPDATE SET
         state_value = EXCLUDED.state_value,

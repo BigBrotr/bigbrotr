@@ -144,7 +144,7 @@ repos:
     hooks:
       - id: sqlfluff-fix
         args: [--dialect, postgres, --force]
-        exclude: ^tools/deployments/
+        exclude: ^deployments/.*/postgres/init/
 
   # --------------------------------------------------------------------------
   # Spell checking
