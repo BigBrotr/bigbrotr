@@ -84,9 +84,11 @@ def collect_metadata(
         for result_field, store_field, meta_type in check_specs:
             nip_meta: BaseNipMetadata | None = getattr(result, result_field)
             if nip_meta and getattr(store, store_field):
-                metadata.append(RelayMetadata(
-                    relay=relay,
-                    metadata=Metadata(type=meta_type, data=nip_meta.to_dict()),
-                    generated_at=result.generated_at,
-                ))
+                metadata.append(
+                    RelayMetadata(
+                        relay=relay,
+                        metadata=Metadata(type=meta_type, data=nip_meta.to_dict()),
+                        generated_at=result.generated_at,
+                    )
+                )
     return metadata

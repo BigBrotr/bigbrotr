@@ -113,7 +113,12 @@ class TestBuildMonitorAnnouncement:
             enabled_networks=[NetworkType.CLEARNET, NetworkType.TOR],
             nip11_selection=Nip11Selection(info=True),
             nip66_selection=Nip66Selection(
-                rtt=True, ssl=False, geo=False, net=False, dns=False, http=False,
+                rtt=True,
+                ssl=False,
+                geo=False,
+                net=False,
+                dns=False,
+                http=False,
             ),
         )
         assert builder is not None
@@ -126,7 +131,12 @@ class TestBuildMonitorAnnouncement:
             enabled_networks=[NetworkType.CLEARNET],
             nip11_selection=Nip11Selection(info=False),
             nip66_selection=Nip66Selection(
-                rtt=False, ssl=False, geo=False, net=False, dns=False, http=False,
+                rtt=False,
+                ssl=False,
+                geo=False,
+                net=False,
+                dns=False,
+                http=False,
             ),
         )
         assert builder is not None
@@ -184,9 +194,14 @@ class TestAddSslTags:
     def test_valid_cert(self) -> None:
         """Test SSL tags with valid certificate data."""
         tags: list[Tag] = []
-        add_ssl_tags(tags, Nip66SslData(
-            ssl_valid=True, ssl_expires=1735689600, ssl_issuer="Let's Encrypt",
-        ))
+        add_ssl_tags(
+            tags,
+            Nip66SslData(
+                ssl_valid=True,
+                ssl_expires=1735689600,
+                ssl_issuer="Let's Encrypt",
+            ),
+        )
 
         tag_map = _extract_tag_map(tags)
         assert tag_map["ssl"] == "valid"
@@ -231,9 +246,15 @@ class TestAddNetTags:
     def test_all_fields(self) -> None:
         """Test net tags with all fields present."""
         tags: list[Tag] = []
-        add_net_tags(tags, Nip66NetData(
-            net_ip="1.2.3.4", net_ipv6="2001:db8::1", net_asn=13335, net_asn_org="Cloudflare",
-        ))
+        add_net_tags(
+            tags,
+            Nip66NetData(
+                net_ip="1.2.3.4",
+                net_ipv6="2001:db8::1",
+                net_asn=13335,
+                net_asn_org="Cloudflare",
+            ),
+        )
 
         tag_map = _extract_tag_map(tags)
         assert tag_map["net-ip"] == "1.2.3.4"
@@ -270,14 +291,17 @@ class TestAddGeoTags:
     def test_all_fields(self) -> None:
         """Test geo tags with all fields present."""
         tags: list[Tag] = []
-        add_geo_tags(tags, Nip66GeoData(
-            geo_hash="u33dc",
-            geo_country="DE",
-            geo_city="Frankfurt",
-            geo_lat=50.1109,
-            geo_lon=8.6821,
-            geo_tz="Europe/Berlin",
-        ))
+        add_geo_tags(
+            tags,
+            Nip66GeoData(
+                geo_hash="u33dc",
+                geo_country="DE",
+                geo_city="Frankfurt",
+                geo_lat=50.1109,
+                geo_lon=8.6821,
+                geo_tz="Europe/Berlin",
+            ),
+        )
 
         tag_map = _extract_tag_map(tags)
         assert tag_map["g"] == "u33dc"
@@ -318,9 +342,12 @@ class TestAddLanguageTags:
     def test_filtering(self) -> None:
         """Test language tags filter to ISO 639-1 (2-char) codes."""
         tags: list[Tag] = []
-        add_language_tags(tags, Nip11InfoData(
-            language_tags=["en", "de", "en-US", "fr-FR", "zz"],
-        ))
+        add_language_tags(
+            tags,
+            Nip11InfoData(
+                language_tags=["en", "de", "en-US", "fr-FR", "zz"],
+            ),
+        )
 
         tag_vecs = _extract_tag_vecs(tags)
         lang_primaries = [v[1] for v in tag_vecs if v[0] == "l"]
@@ -516,7 +543,9 @@ class TestAddRequirementAndTypeTags:
         rtt_logs = Nip66RttMultiPhaseLogs(open_success=True, write_success=True)
         nip11 = Nip11InfoData(
             limitation=Nip11InfoDataLimitation(
-                auth_required=True, payment_required=True, restricted_writes=True,
+                auth_required=True,
+                payment_required=True,
+                restricted_writes=True,
             ),
         )
         add_requirement_and_type_tags(tags, nip11, rtt_logs)
@@ -586,7 +615,9 @@ class TestAddTypeTags:
         """Test Paid type tag when payment is required."""
         tags: list[Tag] = []
         add_type_tags(
-            tags, None, AccessFlags(payment=True, auth=False, writes=False, read_auth=False),
+            tags,
+            None,
+            AccessFlags(payment=True, auth=False, writes=False, read_auth=False),
         )
 
         pairs = _extract_tag_pairs(tags)
@@ -604,7 +635,9 @@ class TestAddTypeTags:
         """Test PublicOutbox type tag when auth is required (no read_auth)."""
         tags: list[Tag] = []
         add_type_tags(
-            tags, None, AccessFlags(payment=False, auth=True, writes=False, read_auth=False),
+            tags,
+            None,
+            AccessFlags(payment=False, auth=True, writes=False, read_auth=False),
         )
         pairs = _extract_tag_pairs(tags)
         assert ("T", "PublicOutbox") in pairs
@@ -613,7 +646,9 @@ class TestAddTypeTags:
         """Test PublicOutbox type tag when writes are restricted (no read_auth)."""
         tags: list[Tag] = []
         add_type_tags(
-            tags, None, AccessFlags(payment=False, auth=False, writes=True, read_auth=False),
+            tags,
+            None,
+            AccessFlags(payment=False, auth=False, writes=True, read_auth=False),
         )
         pairs = _extract_tag_pairs(tags)
         assert ("T", "PublicOutbox") in pairs
@@ -622,7 +657,9 @@ class TestAddTypeTags:
         """Test PrivateStorage type tag when read_auth and auth are both true."""
         tags: list[Tag] = []
         add_type_tags(
-            tags, None, AccessFlags(payment=False, auth=True, writes=False, read_auth=True),
+            tags,
+            None,
+            AccessFlags(payment=False, auth=True, writes=False, read_auth=True),
         )
         pairs = _extract_tag_pairs(tags)
         assert ("T", "PrivateStorage") in pairs
@@ -631,7 +668,9 @@ class TestAddTypeTags:
         """Test PrivateInbox type tag when read_auth is true but auth is false."""
         tags: list[Tag] = []
         add_type_tags(
-            tags, None, AccessFlags(payment=False, auth=False, writes=False, read_auth=True),
+            tags,
+            None,
+            AccessFlags(payment=False, auth=False, writes=False, read_auth=True),
         )
         pairs = _extract_tag_pairs(tags)
         assert ("T", "PrivateInbox") in pairs
@@ -651,7 +690,9 @@ class TestAddTypeTags:
         """Test combined Paid and Search type tags."""
         tags: list[Tag] = []
         add_type_tags(
-            tags, [50], AccessFlags(payment=True, auth=False, writes=False, read_auth=False),
+            tags,
+            [50],
+            AccessFlags(payment=True, auth=False, writes=False, read_auth=False),
         )
 
         pairs = _extract_tag_pairs(tags)
@@ -705,9 +746,12 @@ class TestAddNip11Tags:
     def test_with_requirements(self) -> None:
         """Test NIP-11 tags add requirement (R) tags."""
         tags: list[Tag] = []
-        add_nip11_tags(tags, Nip11InfoData(
-            limitation=Nip11InfoDataLimitation(auth_required=True, payment_required=False),
-        ))
+        add_nip11_tags(
+            tags,
+            Nip11InfoData(
+                limitation=Nip11InfoDataLimitation(auth_required=True, payment_required=False),
+            ),
+        )
 
         pairs = _extract_tag_pairs(tags)
         req_tags = [(k, v) for k, v in pairs if k == "R"]
@@ -815,7 +859,9 @@ class TestEndToEndTagGeneration:
             '{"name":"Production Relay"}',
             rtt_data=Nip66RttData(rtt_open=30, rtt_read=100, rtt_write=80),
             ssl_data=Nip66SslData(
-                ssl_valid=True, ssl_expires=1735689600, ssl_issuer="Let's Encrypt",
+                ssl_valid=True,
+                ssl_expires=1735689600,
+                ssl_issuer="Let's Encrypt",
             ),
             nip11_data=Nip11InfoData(
                 name="Production Relay",
