@@ -109,29 +109,44 @@ class Finder(BaseService[FinderConfig]):
         self._config: FinderConfig
 
     # -------------------------------------------------------------------------
-    # BaseService Implementation
+    # Main Cycle
     # -------------------------------------------------------------------------
 
     async def run(self) -> None:
         """Execute a single discovery cycle across all configured sources.
 
-        Scans stored events and fetches external APIs (in that order) to
-        discover relay URLs. Use ``run_forever()`` for continuous operation.
+        Orchestrates discovery and cycle-level logging. Delegates the core
+        work to ``find``.
         """
-        cycle_start = time.monotonic()
-        found = 0
-
-        if self._config.events.enabled:
-            found += await self.find_from_events()
-
-        if self._config.api.enabled:
-            found += await self.find_from_api()
-
         self._logger.info(
-            "cycle_completed",
-            found=found,
-            duration_s=round(time.monotonic() - cycle_start, 2),
+            "cycle_started",
+            events_enabled=self._config.events.enabled,
+            api_enabled=self._config.api.enabled,
         )
+        found = await self.find()
+        self._logger.info("cycle_completed", found=found)
+
+    # -------------------------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------------------------
+
+    async def find(self) -> int:
+        """Discover relay URLs from all configured sources.
+
+        Runs event scanning and API fetching (in that order), respecting
+        the ``events.enabled`` and ``api.enabled`` configuration flags.
+        Returns the total number of relay URLs inserted as candidates.
+
+        This is the method ``run()`` delegates to. It can also be called
+        standalone without cycle-level logging.
+
+        Returns:
+            Total number of relay URLs discovered and inserted.
+        """
+        found = 0
+        found += await self.find_from_events()
+        found += await self.find_from_api()
+        return found
 
     async def find_from_events(self) -> int:
         """Discover relay URLs from stored events using per-relay cursor pagination.
@@ -141,9 +156,15 @@ class Finder(BaseService[FinderConfig]):
         its own cursor (based on ``seen_at`` timestamp) so that historical events
         inserted by the Synchronizer are still processed.
 
+        Controlled by ``events.enabled`` in
+        [FinderConfig][bigbrotr.services.finder.FinderConfig].
+
         Returns:
             Number of relay URLs discovered and inserted as candidates.
         """
+        if not self._config.events.enabled:
+            return 0
+
         total_events_scanned = 0
         total_relays_found = 0
         relays_processed = 0
@@ -182,117 +203,6 @@ class Finder(BaseService[FinderConfig]):
             relays_processed=relays_processed,
         )
         return total_relays_found
-
-    async def _fetch_all_cursors(self) -> dict[str, int]:
-        """Fetch all event-scanning cursors in a single query."""
-        return await get_all_service_cursors(self._brotr, self.SERVICE_NAME, "last_seen_at")
-
-    async def _scan_relay_events(self, relay_url: str, cursors: dict[str, int]) -> tuple[int, int]:
-        """
-        Scan events from a single relay using cursor-based pagination.
-
-        Args:
-            relay_url: The relay URL to scan events from
-            cursors: Pre-fetched mapping of relay URL to last_seen_at timestamp
-
-        Returns:
-            Tuple of (events_scanned, relays_found)
-        """
-        events_scanned = 0
-        relays_found = 0
-
-        # Look up cursor from pre-fetched cache (avoids per-relay query)
-        last_seen_at = cursors.get(relay_url, 0)
-
-        while self.is_running:
-            try:
-                rows = await get_events_with_relay_urls(
-                    self._brotr,
-                    relay_url,
-                    last_seen_at,
-                    self._config.events.kinds,
-                    self._config.events.batch_size,
-                )
-            except (asyncpg.PostgresError, OSError) as e:
-                self._logger.warning(
-                    "relay_event_query_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    relay=relay_url,
-                )
-                break
-
-            if not rows:
-                break
-
-            relays = extract_relays_from_rows(rows)
-            chunk_events = len(rows)
-            last_seen_at_update = rows[-1]["seen_at"]
-
-            relays_found += await self._persist_scan_chunk(relay_url, relays, last_seen_at_update)
-            events_scanned += chunk_events
-            last_seen_at = last_seen_at_update
-
-            # Stop if chunk wasn't full
-            if chunk_events < self._config.events.batch_size:
-                break
-
-        return events_scanned, relays_found
-
-    async def _persist_scan_chunk(
-        self, relay_url: str, relays: dict[str, Relay], last_seen_at: int
-    ) -> int:
-        """Upsert discovered relay candidates and save the scan cursor.
-
-        Args:
-            relay_url: Source relay whose events were scanned.
-            relays: Deduplicated mapping of relay URL to
-                [Relay][bigbrotr.models.relay.Relay].
-            last_seen_at: Timestamp of the last event in the chunk (cursor
-                value persisted as a
-                [ServiceState][bigbrotr.models.service_state.ServiceState]
-                record).
-
-        Returns:
-            Number of relays successfully upserted.
-        """
-        found = 0
-
-        # Insert discovered relays as candidates
-        if relays:
-            try:
-                found = await insert_candidates(self._brotr, relays.values())
-            except (asyncpg.PostgresError, OSError) as e:
-                self._logger.error(
-                    "insert_candidates_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    count=len(relays),
-                )
-
-        # Update cursor for this relay
-        try:
-            await self._brotr.upsert_service_state(
-                [
-                    ServiceState(
-                        service_name=self.SERVICE_NAME,
-                        state_type=ServiceStateType.CURSOR,
-                        state_key=relay_url,
-                        state_value={"last_seen_at": last_seen_at},
-                        updated_at=int(time.time()),
-                    )
-                ]
-            )
-        except (asyncpg.PostgresError, OSError) as e:
-            self._logger.error(
-                "cursor_update_failed",
-                relay=relay_url,
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            raise
-
-        return found
 
     async def discover_from_apis(self) -> AsyncIterator[tuple[str, dict[str, Relay]]]:
         """Yield ``(source_url, discovered_relays)`` from each enabled API source.
@@ -341,14 +251,19 @@ class Finder(BaseService[FinderConfig]):
     async def find_from_api(self) -> int:
         """Discover relay URLs from configured external API endpoints.
 
-        Fetches each enabled API source via
-        [discover_from_apis][bigbrotr.services.finder.Finder.discover_from_apis],
+        Fetches each enabled API source via ``discover_from_apis``,
         deduplicates the results, and inserts discovered URLs as validation
         candidates.
+
+        Controlled by ``api.enabled`` in
+        [FinderConfig][bigbrotr.services.finder.FinderConfig].
 
         Returns:
             Number of relay URLs inserted as candidates.
         """
+        if not self._config.api.enabled:
+            return 0
+
         found = 0
         all_relays: dict[str, Relay] = {}
         async for source_url, relays in self.discover_from_apis():
@@ -368,6 +283,103 @@ class Finder(BaseService[FinderConfig]):
 
         if found:
             self._logger.info("apis_completed", relays=len(all_relays))
+        return found
+
+    # -------------------------------------------------------------------------
+    # Internals
+    # -------------------------------------------------------------------------
+
+    async def _fetch_all_cursors(self) -> dict[str, int]:
+        """Fetch all event-scanning cursors in a single query."""
+        return await get_all_service_cursors(self._brotr, self.SERVICE_NAME, "last_seen_at")
+
+    async def _scan_relay_events(self, relay_url: str, cursors: dict[str, int]) -> tuple[int, int]:
+        """Scan events from a single relay using cursor-based pagination.
+
+        Args:
+            relay_url: The relay URL to scan events from.
+            cursors: Pre-fetched mapping of relay URL to last_seen_at timestamp.
+
+        Returns:
+            Tuple of (events_scanned, relays_found).
+        """
+        events_scanned = 0
+        relays_found = 0
+
+        last_seen_at = cursors.get(relay_url, 0)
+
+        while self.is_running:
+            try:
+                rows = await get_events_with_relay_urls(
+                    self._brotr,
+                    relay_url,
+                    last_seen_at,
+                    self._config.events.kinds,
+                    self._config.events.batch_size,
+                )
+            except (asyncpg.PostgresError, OSError) as e:
+                self._logger.warning(
+                    "relay_event_query_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    relay=relay_url,
+                )
+                break
+
+            if not rows:
+                break
+
+            relays = extract_relays_from_rows(rows)
+            chunk_events = len(rows)
+            last_seen_at_update = rows[-1]["seen_at"]
+
+            relays_found += await self._persist_scan_chunk(relay_url, relays, last_seen_at_update)
+            events_scanned += chunk_events
+            last_seen_at = last_seen_at_update
+
+            if chunk_events < self._config.events.batch_size:
+                break
+
+        return events_scanned, relays_found
+
+    async def _persist_scan_chunk(
+        self, relay_url: str, relays: dict[str, Relay], last_seen_at: int
+    ) -> int:
+        """Upsert discovered relay candidates and save the scan cursor."""
+        found = 0
+
+        if relays:
+            try:
+                found = await insert_candidates(self._brotr, relays.values())
+            except (asyncpg.PostgresError, OSError) as e:
+                self._logger.error(
+                    "insert_candidates_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    count=len(relays),
+                )
+
+        try:
+            await self._brotr.upsert_service_state(
+                [
+                    ServiceState(
+                        service_name=self.SERVICE_NAME,
+                        state_type=ServiceStateType.CURSOR,
+                        state_key=relay_url,
+                        state_value={"last_seen_at": last_seen_at},
+                        updated_at=int(time.time()),
+                    )
+                ]
+            )
+        except (asyncpg.PostgresError, OSError) as e:
+            self._logger.error(
+                "cursor_update_failed",
+                relay=relay_url,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            raise
+
         return found
 
     async def _fetch_single_api(
