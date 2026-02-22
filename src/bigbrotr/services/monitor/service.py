@@ -87,7 +87,7 @@ from bigbrotr.nips.nip66 import (
 from bigbrotr.services.common.mixins import (
     BatchProgressMixin,
     GeoReaderMixin,
-    NetworkSemaphoreMixin,
+    NetworkSemaphoresMixin,
     NostrPublisherMixin,
 )
 from bigbrotr.services.common.queries import count_relays_due_for_check, fetch_relays_due_for_check
@@ -178,7 +178,7 @@ class CheckResult(NamedTuple):
 
 class Monitor(
     BatchProgressMixin,
-    NetworkSemaphoreMixin,
+    NetworkSemaphoresMixin,
     GeoReaderMixin,
     NostrPublisherMixin,
     BaseService[MonitorConfig],
@@ -635,7 +635,7 @@ class Monitor(
 
         Runs [Nip11][bigbrotr.nips.nip11.Nip11], RTT, SSL, DNS, geo, net,
         and HTTP checks as configured. Uses the network-specific semaphore
-        (from [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin])
+        (from [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin])
         to limit concurrency.
 
         Note:

@@ -61,7 +61,7 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.mixins import BatchProgressMixin, NetworkSemaphoreMixin
+from bigbrotr.services.common.mixins import BatchProgressMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import (
     count_candidates,
     delete_exhausted_candidates,
@@ -119,7 +119,7 @@ class Candidate:
 # =============================================================================
 
 
-class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[ValidatorConfig]):
+class Validator(BatchProgressMixin, NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
     """Validates relay candidates by checking if they speak the Nostr protocol.
 
     Processes candidate URLs discovered by the
@@ -130,7 +130,7 @@ class Validator(BatchProgressMixin, NetworkSemaphoreMixin, BaseService[Validator
     future cycles.
 
     Each cycle initializes per-network semaphores via
-    [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin],
+    [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin],
     cleans up stale/exhausted candidates, then processes remaining
     candidates in configurable chunks. Supports clearnet (direct),
     Tor (.onion via SOCKS5), and I2P (.i2p via SOCKS5).

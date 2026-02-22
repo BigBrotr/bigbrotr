@@ -19,7 +19,7 @@ Attributes:
 See Also:
     [NetworkType][bigbrotr.models.constants.NetworkType]: Enum that
         identifies each overlay network.
-    [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin]:
+    [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin]:
         Uses ``max_tasks`` to create per-network concurrency semaphores.
     [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig],
     [MonitorConfig][bigbrotr.services.monitor.MonitorConfig],
@@ -140,7 +140,7 @@ class NetworkConfig(BaseModel):
     [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig].
 
     See Also:
-        [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin]:
+        [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin]:
             Creates per-network ``asyncio.Semaphore`` instances from
             ``max_tasks`` values in this config.
         [NetworkType][bigbrotr.models.constants.NetworkType]: Enum used

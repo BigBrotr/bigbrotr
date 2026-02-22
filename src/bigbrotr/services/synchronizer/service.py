@@ -67,7 +67,7 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.mixins import NetworkSemaphoreMixin
+from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import get_all_relays, get_all_service_cursors
 
 from .configs import SynchronizerConfig
@@ -80,7 +80,7 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
 
 
-class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
+class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
     """Event synchronization service.
 
     Collects Nostr events from validated relays and stores them in the
@@ -180,7 +180,7 @@ class Synchronizer(NetworkSemaphoreMixin, BaseService[SynchronizerConfig]):
         Note:
             Uses ``asyncio.TaskGroup`` for structured concurrency with
             per-network semaphores (from
-            [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin])
+            [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin])
             to bound simultaneous WebSocket connections per network type.
             Cursor updates are batched in memory and flushed every
             ``cursor_flush_interval`` relays for crash resilience.

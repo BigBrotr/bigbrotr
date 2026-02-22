@@ -10,7 +10,7 @@ See Also:
         that mixin classes are composed with via multiple inheritance.
     [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
         Provides ``max_tasks`` values consumed by
-        [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin].
+        [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin].
 """
 
 from __future__ import annotations
@@ -167,7 +167,7 @@ class NetworkSemaphores:
         return self._map.get(network)
 
 
-class NetworkSemaphoreMixin:
+class NetworkSemaphoresMixin:
     """Mixin providing per-network concurrency semaphores.
 
     Exposes a ``semaphores`` attribute of type

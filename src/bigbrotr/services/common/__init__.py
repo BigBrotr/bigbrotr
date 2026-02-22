@@ -12,7 +12,7 @@ Attributes:
         sensible defaults for timeouts, proxy URLs, and max concurrent tasks.
     mixins: [BatchProgress][bigbrotr.services.common.mixins.BatchProgress]
         dataclass for tracking batch processing cycles and
-        [NetworkSemaphoreMixin][bigbrotr.services.common.mixins.NetworkSemaphoreMixin]
+        [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin]
         for per-network concurrency control.
     queries: 13 domain-specific SQL query functions centralized in one module
         to avoid scattering inline SQL across services.
@@ -36,8 +36,8 @@ from .mixins import (
     BatchProgress,
     BatchProgressMixin,
     GeoReaderMixin,
-    NetworkSemaphoreMixin,
     NetworkSemaphores,
+    NetworkSemaphoresMixin,
     NostrPublisherMixin,
 )
 from .queries import (
@@ -66,8 +66,8 @@ __all__ = [
     "I2pConfig",
     "LokiConfig",
     "NetworkConfig",
-    "NetworkSemaphoreMixin",
     "NetworkSemaphores",
+    "NetworkSemaphoresMixin",
     "NetworkTypeConfig",
     "NostrPublisherMixin",
     "TorConfig",

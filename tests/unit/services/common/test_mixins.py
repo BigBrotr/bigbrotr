@@ -3,7 +3,7 @@
 Tests:
 - BatchProgressMixin - Mixin that provides a progress attribute via __init__
 - NetworkSemaphores - Per-network concurrency semaphore container
-- NetworkSemaphoreMixin - Mixin that provides a semaphores attribute via __init__
+- NetworkSemaphoresMixin - Mixin that provides a semaphores attribute via __init__
 
 NOTE: The BatchProgress dataclass itself is thoroughly tested in
 tests/unit/services/test_progress.py.  These tests focus exclusively
@@ -17,8 +17,8 @@ from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.mixins import (
     BatchProgress,
     BatchProgressMixin,
-    NetworkSemaphoreMixin,
     NetworkSemaphores,
+    NetworkSemaphoresMixin,
 )
 
 
@@ -66,7 +66,7 @@ class _FakeBase:
         self._config.networks = networks or _make_network_config()
 
 
-class _TestSemaphoreMixin(NetworkSemaphoreMixin, _FakeBase):
+class _TestSemaphoreMixin(NetworkSemaphoresMixin, _FakeBase):
     """Concrete class combining the mixin with the fake base."""
 
 
@@ -181,12 +181,12 @@ class TestNetworkSemaphoresGet:
 
 
 # =============================================================================
-# NetworkSemaphoreMixin Tests
+# NetworkSemaphoresMixin Tests
 # =============================================================================
 
 
-class TestNetworkSemaphoreMixinInit:
-    """Tests for NetworkSemaphoreMixin automatic __init__ initialization."""
+class TestNetworkSemaphoresMixinInit:
+    """Tests for NetworkSemaphoresMixin automatic __init__ initialization."""
 
     def test_init_creates_network_semaphores(self) -> None:
         """__init__ assigns a NetworkSemaphores to self.semaphores."""
@@ -202,13 +202,13 @@ class TestNetworkSemaphoreMixinInit:
             assert isinstance(sem, asyncio.Semaphore), f"{nt}: not a Semaphore"
 
 
-class TestNetworkSemaphoreMixinComposition:
-    """Tests for composing NetworkSemaphoreMixin with other classes."""
+class TestNetworkSemaphoresMixinComposition:
+    """Tests for composing NetworkSemaphoresMixin with other classes."""
 
     def test_composes_with_plain_class(self) -> None:
         """Mixin works correctly when composed with a user-defined class."""
 
-        class DummyService(NetworkSemaphoreMixin, _FakeBase):
+        class DummyService(NetworkSemaphoresMixin, _FakeBase):
             pass
 
         svc = DummyService(networks=_make_network_config(clearnet_tasks=20))
