@@ -154,7 +154,7 @@ class NetworkSemaphores:
 
     __slots__ = ("_map",)
 
-    def __init__(self, networks: Any) -> None:
+    def __init__(self, networks: NetworkConfig) -> None:
         self._map: dict[NetworkType, asyncio.Semaphore] = {
             nt: asyncio.Semaphore(networks.get(nt).max_tasks) for nt in OPERATIONAL_NETWORKS
         }
