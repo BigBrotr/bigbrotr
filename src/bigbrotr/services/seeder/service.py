@@ -43,7 +43,6 @@ Examples:
 from __future__ import annotations
 
 import asyncio
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -90,13 +89,8 @@ class Seeder(BaseService[SeederConfig]):
             file=self._config.seed.file_path,
             to_validate=self._config.seed.to_validate,
         )
-        start = time.monotonic()
-        count = await self.seed()
-        self._logger.info(
-            "cycle_completed",
-            inserted=count,
-            duration_s=round(time.monotonic() - start, 2),
-        )
+        inserted = await self.seed()
+        self._logger.info("cycle_completed", inserted=inserted)
 
     # -------------------------------------------------------------------------
     # Public API
