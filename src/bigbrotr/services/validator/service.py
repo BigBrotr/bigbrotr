@@ -9,7 +9,7 @@ and are retried in future cycles.
 Validation criteria: a candidate is valid if it accepts a WebSocket
 connection and responds to a Nostr REQ message with EOSE, EVENT, NOTICE,
 or AUTH, as determined by
-[is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay].
+[is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay].
 
 Note:
     Each cycle initializes per-network semaphores from
@@ -29,7 +29,7 @@ See Also:
         discovers and inserts candidates.
     [Monitor][bigbrotr.services.monitor.Monitor]: Downstream service
         that health-checks promoted relays.
-    [is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay]: WebSocket
+    [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay]: WebSocket
         probe function used for validation.
     [promote_candidates][bigbrotr.services.common.queries.promote_candidates]:
         Atomic insert+delete query for promotion.
@@ -110,8 +110,7 @@ class Candidate:
     @property
     def failed_attempts(self) -> int:
         """Return the number of failed validation attempts for this candidate."""
-        attempts: int = self.data.get("failed_attempts", 0)
-        return attempts
+        return int(self.data.get("failed_attempts", 0))
 
 
 # =============================================================================
@@ -142,7 +141,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             creates the candidates validated here.
         [Monitor][bigbrotr.services.monitor.Monitor]: Downstream service
             that health-checks promoted relays.
-        [is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay]:
+        [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay]:
             WebSocket probe used by ``validate_candidate()``.
     """
 
@@ -255,7 +254,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         Uses the network-specific semaphore and proxy settings from
         [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig].
         Delegates the actual WebSocket probe to
-        [is_nostr_relay][bigbrotr.utils.transport.is_nostr_relay].
+        [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay].
 
         Args:
             candidate: [Candidate][bigbrotr.services.validator.Candidate]

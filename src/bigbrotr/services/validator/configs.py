@@ -4,7 +4,8 @@ See Also:
     [Validator][bigbrotr.services.validator.Validator]: The service class
         that consumes these configurations.
     [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-        Base class providing ``interval`` and ``log_level`` fields.
+        Base class providing ``interval``, ``max_consecutive_failures``,
+        and ``metrics`` fields.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.services.common.configs import NetworkConfig
 
 
-class ValidatorProcessingConfig(BaseModel):
+class ProcessingConfig(BaseModel):
     """Candidate processing settings.
 
     Attributes:
@@ -51,7 +52,7 @@ class CleanupConfig(BaseModel):
     """
 
     enabled: bool = Field(default=False)
-    max_failures: int = Field(default=100, ge=1, le=1000)
+    max_failures: int = Field(default=100, ge=1)
 
 
 class ValidatorConfig(BaseServiceConfig):
@@ -61,11 +62,12 @@ class ValidatorConfig(BaseServiceConfig):
         [Validator][bigbrotr.services.validator.Validator]: The service
             class that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``log_level`` fields.
+            Base class providing ``interval``, ``max_consecutive_failures``,
+            and ``metrics`` fields.
         [NetworkConfig][bigbrotr.services.common.configs.NetworkConfig]:
             Per-network timeout and proxy settings.
     """
 
     networks: NetworkConfig = Field(default_factory=NetworkConfig)
-    processing: ValidatorProcessingConfig = Field(default_factory=ValidatorProcessingConfig)
+    processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
     cleanup: CleanupConfig = Field(default_factory=CleanupConfig)

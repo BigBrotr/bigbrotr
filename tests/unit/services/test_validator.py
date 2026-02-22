@@ -26,9 +26,9 @@ from bigbrotr.services.common.configs import (
 )
 from bigbrotr.services.validator import (
     CleanupConfig,
+    ProcessingConfig,
     Validator,
     ValidatorConfig,
-    ValidatorProcessingConfig,
 )
 
 
@@ -56,45 +56,45 @@ def mock_validator_brotr(mock_brotr: Brotr) -> Brotr:
 
 
 # ============================================================================
-# ValidatorProcessingConfig Tests
+# ProcessingConfig Tests
 # ============================================================================
 
 
-class TestValidatorProcessingConfig:
-    """Tests for ValidatorProcessingConfig Pydantic model."""
+class TestProcessingConfig:
+    """Tests for ProcessingConfig Pydantic model."""
 
     def test_default_values(self) -> None:
         """Test default processing configuration."""
-        config = ValidatorProcessingConfig()
+        config = ProcessingConfig()
         assert config.chunk_size == 100
         assert config.max_candidates is None
 
     def test_custom_values(self) -> None:
         """Test custom processing configuration."""
-        config = ValidatorProcessingConfig(chunk_size=200, max_candidates=1000)
+        config = ProcessingConfig(chunk_size=200, max_candidates=1000)
         assert config.chunk_size == 200
         assert config.max_candidates == 1000
 
     def test_chunk_size_bounds(self) -> None:
         """Test chunk_size validation bounds."""
         # Valid values
-        config_min = ValidatorProcessingConfig(chunk_size=10)
+        config_min = ProcessingConfig(chunk_size=10)
         assert config_min.chunk_size == 10
 
-        config_max = ValidatorProcessingConfig(chunk_size=1000)
+        config_max = ProcessingConfig(chunk_size=1000)
         assert config_max.chunk_size == 1000
 
         # Below minimum
         with pytest.raises(ValueError):
-            ValidatorProcessingConfig(chunk_size=5)
+            ProcessingConfig(chunk_size=5)
 
         # Above maximum
         with pytest.raises(ValueError):
-            ValidatorProcessingConfig(chunk_size=2000)
+            ProcessingConfig(chunk_size=2000)
 
     def test_max_candidates_none(self) -> None:
         """Test max_candidates can be None (unlimited)."""
-        config = ValidatorProcessingConfig(max_candidates=None)
+        config = ProcessingConfig(max_candidates=None)
         assert config.max_candidates is None
 
 
