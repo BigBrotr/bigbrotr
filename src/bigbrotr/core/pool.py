@@ -102,7 +102,7 @@ class DatabaseConfig(BaseModel):
     """PostgreSQL connection parameters.
 
     The password is loaded from the environment variable named by
-    ``password_env`` (default: ``DB_PASSWORD``). It is never read from
+    ``password_env`` (default: ``DB_ADMIN_PASSWORD``). It is never read from
     configuration files directly.
 
     Warning:
@@ -121,7 +121,7 @@ class DatabaseConfig(BaseModel):
     database: str = Field(default="bigbrotr", min_length=1, description="Database name")
     user: str = Field(default="admin", min_length=1, description="Database user")
     password_env: str = Field(
-        default="DB_PASSWORD",  # pragma: allowlist secret
+        default="DB_ADMIN_PASSWORD",  # pragma: allowlist secret
         min_length=1,
         description="Environment variable name for database password",
     )
@@ -132,7 +132,7 @@ class DatabaseConfig(BaseModel):
     def resolve_password(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Resolve the database password from the environment variable."""
         if isinstance(data, dict) and "password" not in data:
-            env_var = data.get("password_env", "DB_PASSWORD")  # pragma: allowlist secret
+            env_var = data.get("password_env", "DB_ADMIN_PASSWORD")  # pragma: allowlist secret
             value = os.getenv(env_var)
             if not value:
                 raise ValueError(f"{env_var} environment variable not set")
@@ -157,7 +157,7 @@ class PoolLimitsConfig(BaseModel):
             embeds this model.
     """
 
-    min_size: int = Field(default=5, ge=1, le=100, description="Minimum connections")
+    min_size: int = Field(default=2, ge=1, le=100, description="Minimum connections")
     max_size: int = Field(default=20, ge=1, le=200, description="Maximum connections")
     max_queries: int = Field(default=50_000, ge=100, description="Queries before recycling")
     max_inactive_connection_lifetime: float = Field(
@@ -168,7 +168,7 @@ class PoolLimitsConfig(BaseModel):
     @classmethod
     def validate_max_size(cls, v: int, info: ValidationInfo) -> int:
         """Ensure max_size >= min_size."""
-        min_size = info.data.get("min_size", 5)
+        min_size = info.data.get("min_size", 2)
         if v < min_size:
             raise ValueError(f"max_size ({v}) must be >= min_size ({min_size})")
         return v
@@ -326,7 +326,7 @@ class Pool:
 
         Args:
             config: Pool configuration. If not provided, uses defaults
-                which read ``DB_PASSWORD`` from the environment.
+                which read ``DB_ADMIN_PASSWORD`` from the environment.
 
         See Also:
             [from_yaml()][bigbrotr.core.pool.Pool.from_yaml]: Construct from

@@ -43,8 +43,8 @@ class TestDatabaseConfig:
     """Tests for DatabaseConfig Pydantic model."""
 
     def test_defaults_with_env_password(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test default values when DB_PASSWORD env var is set."""
-        monkeypatch.setenv("DB_PASSWORD", "test_password")
+        """Test default values when DB_ADMIN_PASSWORD env var is set."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_password")
         config = DatabaseConfig()
 
         assert config.host == "localhost"
@@ -70,23 +70,23 @@ class TestDatabaseConfig:
         assert config.password.get_secret_value() == "mypassword"
 
     def test_password_from_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test password resolution from DB_PASSWORD environment variable."""
-        monkeypatch.setenv("DB_PASSWORD", "env_secret_password")
+        """Test password resolution from DB_ADMIN_PASSWORD environment variable."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "env_secret_password")
         config = DatabaseConfig()
 
         assert isinstance(config.password, SecretStr)
         assert config.password.get_secret_value() == "env_secret_password"
 
     def test_password_missing_raises_value_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that missing DB_PASSWORD raises ValueError."""
-        monkeypatch.delenv("DB_PASSWORD", raising=False)
+        """Test that missing DB_ADMIN_PASSWORD raises ValueError."""
+        monkeypatch.delenv("DB_ADMIN_PASSWORD", raising=False)
 
-        with pytest.raises(ValueError, match="DB_PASSWORD"):
+        with pytest.raises(ValueError, match="DB_ADMIN_PASSWORD"):
             DatabaseConfig()
 
     def test_explicit_password_overrides_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that explicitly provided password is used over environment."""
-        monkeypatch.setenv("DB_PASSWORD", "env_password")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "env_password")
         config = DatabaseConfig(password="explicit_password")
 
         assert config.password.get_secret_value() == "explicit_password"
@@ -104,14 +104,14 @@ class TestDatabaseConfig:
         self, port: int, expected_error: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that invalid port values raise ValidationError."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
 
         with pytest.raises(ValidationError):
             DatabaseConfig(port=port)
 
     def test_valid_port_boundaries(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test valid port boundary values."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
 
         config_min = DatabaseConfig(port=1)
         assert config_min.port == 1
@@ -121,21 +121,21 @@ class TestDatabaseConfig:
 
     def test_empty_host_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that empty host raises ValidationError."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
 
         with pytest.raises(ValidationError):
             DatabaseConfig(host="")
 
     def test_empty_database_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that empty database name raises ValidationError."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
 
         with pytest.raises(ValidationError):
             DatabaseConfig(database="")
 
     def test_empty_user_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that empty user raises ValidationError."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
 
         with pytest.raises(ValidationError):
             DatabaseConfig(user="")
@@ -148,7 +148,7 @@ class TestPoolLimitsConfig:
         """Test default configuration values."""
         config = PoolLimitsConfig()
 
-        assert config.min_size == 5
+        assert config.min_size == 2
         assert config.max_size == 20
         assert config.max_queries == 50000
         assert config.max_inactive_connection_lifetime == 300.0
@@ -334,11 +334,11 @@ class TestPoolConfig:
 
     def test_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test default nested configuration."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         config = PoolConfig()
 
         assert config.database.host == "localhost"
-        assert config.limits.min_size == 5
+        assert config.limits.min_size == 2
         assert config.timeouts.acquisition == 10.0
         assert config.retry.max_attempts == 3
         assert config.server_settings.application_name == "bigbrotr"
@@ -368,7 +368,7 @@ class TestPoolConfig:
     def test_model_dump_excludes_password(self) -> None:
         """Test that model_dump with exclude omits the password field.
 
-        Workers inherit the DB_PASSWORD environment variable, so the password
+        Workers inherit the DB_ADMIN_PASSWORD environment variable, so the password
         should never be serialized through IPC (SA-002).
         """
         config = PoolConfig(
@@ -382,7 +382,7 @@ class TestPoolConfig:
 
         assert "password" not in dump["database"]
         assert dump["database"]["host"] == "db.host"
-        assert dump["database"]["password_env"] == "DB_PASSWORD"  # pragma: allowlist secret
+        assert dump["database"]["password_env"] == "DB_ADMIN_PASSWORD"  # pragma: allowlist secret
 
 
 # ============================================================================
@@ -395,7 +395,7 @@ class TestPoolInit:
 
     def test_default_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test Pool with default configuration."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
 
         assert pool.config.database.host == "localhost"
@@ -421,7 +421,7 @@ class TestPoolInit:
 
     def test_none_config_uses_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that None config results in default configuration."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool(config=None)
 
         assert pool.config.database.host == "localhost"
@@ -434,7 +434,7 @@ class TestPoolFactoryMethods:
         self, pool_config_dict: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test Pool.from_dict() factory method."""
-        monkeypatch.setenv("DB_PASSWORD", "dict_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "dict_pass")
         pool = Pool.from_dict(pool_config_dict)
 
         assert pool.config.limits.min_size == 2
@@ -447,7 +447,7 @@ class TestPoolFactoryMethods:
         """Test Pool.from_yaml() factory method."""
         import yaml
 
-        monkeypatch.setenv("DB_PASSWORD", "yaml_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "yaml_pass")
         config_file = tmp_path / "pool_config.yaml"
         config_file.write_text(yaml.dump(pool_config_dict))
 
@@ -458,7 +458,7 @@ class TestPoolFactoryMethods:
 
     def test_from_yaml_file_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test from_yaml raises FileNotFoundError for missing file."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
 
         with pytest.raises(FileNotFoundError):
             Pool.from_yaml("/nonexistent/path/config.yaml")
@@ -477,7 +477,7 @@ class TestPoolRepr:
 
     def test_repr_disconnected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repr shows disconnected status."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
         repr_str = repr(pool)
 
@@ -495,7 +495,7 @@ class TestPoolConnect:
 
     async def test_connect_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test successful connection establishment."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
         mock_asyncpg_pool = MagicMock()
 
@@ -515,7 +515,7 @@ class TestPoolConnect:
 
     async def test_connect_retry_on_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test connection retry on transient failures."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         config = PoolConfig(retry=PoolRetryConfig(max_attempts=3, initial_delay=0.1, max_delay=0.5))
         pool = Pool(config=config)
         call_count = 0
@@ -540,7 +540,7 @@ class TestPoolConnect:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that exceeding max retries raises ConnectionError."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         config = PoolConfig(retry=PoolRetryConfig(max_attempts=2, initial_delay=0.1, max_delay=0.2))
         pool = Pool(config=config)
 
@@ -557,7 +557,7 @@ class TestPoolConnect:
 
     async def test_connect_handles_postgres_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that PostgresError triggers retry."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         config = PoolConfig(retry=PoolRetryConfig(max_attempts=2, initial_delay=0.1))
         pool = Pool(config=config)
 
@@ -574,7 +574,7 @@ class TestPoolConnect:
 
     async def test_connect_handles_os_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that OSError triggers retry."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         config = PoolConfig(retry=PoolRetryConfig(max_attempts=2, initial_delay=0.1))
         pool = Pool(config=config)
 
@@ -591,7 +591,7 @@ class TestPoolConnect:
 
     async def test_connect_exponential_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test exponential backoff delay calculation."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         config = PoolConfig(
             retry=PoolRetryConfig(
                 max_attempts=4,
@@ -626,7 +626,7 @@ class TestPoolConnect:
 
     async def test_connect_linear_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test linear backoff when exponential is disabled."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         config = PoolConfig(
             retry=PoolRetryConfig(
                 max_attempts=4,
@@ -668,7 +668,7 @@ class TestPoolClose:
 
     async def test_close_not_connected_is_safe(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that close() on unconnected pool is safe."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
 
         await pool.close()  # Should not raise
@@ -693,7 +693,7 @@ class TestPoolAcquire:
 
     def test_acquire_not_connected_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that acquire() on unconnected pool raises RuntimeError."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
 
         with pytest.raises(RuntimeError, match="not connected"):
@@ -722,7 +722,7 @@ class TestPoolTransaction:
 
     async def test_transaction_not_connected_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that transaction() on unconnected pool raises RuntimeError."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
 
         with pytest.raises(RuntimeError, match="not connected"):
@@ -789,7 +789,7 @@ class TestPoolQueryRetry:
 
     async def test_retries_on_interface_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that InterfaceError triggers retry."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
 
         attempt = 0
@@ -824,7 +824,7 @@ class TestPoolQueryRetry:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that ConnectionDoesNotExistError triggers retry."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
 
         attempt = 0
@@ -874,7 +874,7 @@ class TestPoolProperties:
 
     def test_is_connected_false_initially(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test is_connected is False initially."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
         assert pool.is_connected is False
 
@@ -884,7 +884,7 @@ class TestPoolProperties:
 
     def test_config_property(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test config property returns configuration."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
         assert pool.config is not None
         assert isinstance(pool.config, PoolConfig)
@@ -900,7 +900,7 @@ class TestPoolContextManager:
 
     async def test_context_manager_connects_on_enter(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test context manager connects on entry."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
         mock_asyncpg_pool = MagicMock()
         mock_asyncpg_pool.close = AsyncMock()
@@ -911,7 +911,7 @@ class TestPoolContextManager:
 
     async def test_context_manager_closes_on_exit(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test context manager closes on exit."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
         mock_asyncpg_pool = MagicMock()
         mock_asyncpg_pool.close = AsyncMock()
@@ -925,7 +925,7 @@ class TestPoolContextManager:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test context manager closes even when exception occurs."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         pool = Pool()
         mock_asyncpg_pool = MagicMock()
         mock_asyncpg_pool.close = AsyncMock()
