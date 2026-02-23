@@ -1,7 +1,7 @@
 # ============================================================================
-# BigBrotr Prometheus Alerting Rules
+# Prometheus Alerting Rules Template
 # ============================================================================
-# Alerts for service health, failure rates, and cycle latency.
+# CUSTOMIZE: Replace "myimpl" with your database name in DB-related alerts.
 #
 # Metric reference (from core/metrics.py):
 #   service_counter_total{service, name}  -- cumulative counters
@@ -10,7 +10,7 @@
 # ============================================================================
 
 groups:
-  - name: bigbrotr
+  - name: myimpl                                         # <-- CUSTOMIZE
     rules:
       # --------------------------------------------------------------------
       # ServiceDown: Target unreachable for more than 5 minutes
@@ -80,7 +80,7 @@ groups:
       # --------------------------------------------------------------------
       - alert: DatabaseConnectionsHigh
         expr: >-
-          sum(pg_stat_activity_count{datname="bigbrotr"}) > 80
+          sum(pg_stat_activity_count{datname="myimpl"}) > 80
         for: 5m
         labels:
           severity: warning
@@ -96,9 +96,9 @@ groups:
       # --------------------------------------------------------------------
       - alert: CacheHitRatioLow
         expr: >-
-          pg_stat_database_blks_hit{datname="bigbrotr"}
-          / (pg_stat_database_blks_hit{datname="bigbrotr"}
-             + pg_stat_database_blks_read{datname="bigbrotr"}) < 0.95
+          pg_stat_database_blks_hit{datname="myimpl"}
+          / (pg_stat_database_blks_hit{datname="myimpl"}
+             + pg_stat_database_blks_read{datname="myimpl"}) < 0.95
         for: 10m
         labels:
           severity: warning

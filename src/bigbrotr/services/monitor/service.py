@@ -453,6 +453,32 @@ class Monitor(
 
         return successful, failed
 
+    async def _fetch_nip11_info(
+        self,
+        relay: Relay,
+        timeout: float,  # noqa: ASYNC109
+        proxy_url: str | None,
+    ) -> Nip11InfoMetadata | None:
+        """Fetch NIP-11 info and return the metadata container.
+
+        Unwraps the [Nip11][bigbrotr.nips.nip11.Nip11] wrapper so that
+        the returned [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]
+        is directly compatible with
+        [_with_retry][bigbrotr.services.monitor.Monitor._with_retry]
+        (which calls [get_success][bigbrotr.services.monitor.utils.get_success]
+        on the result's ``.logs`` attribute).
+        """
+        nip11 = await Nip11.create(
+            relay,
+            timeout=timeout,
+            proxy_url=proxy_url,
+            options=Nip11Options(
+                allow_insecure=self._config.processing.allow_insecure,
+                max_size=self._config.processing.nip11_info_max_size,
+            ),
+        )
+        return nip11.info
+
     async def _with_retry(
         self,
         coro_factory: Callable[[], Coroutine[Any, Any, _T]],
@@ -633,21 +659,13 @@ class Monitor(
             timeout = network_config.timeout
             compute = self._config.processing.compute
 
-            nip11: Nip11 | None = None
+            nip11_info: Nip11InfoMetadata | None = None
             generated_at = int(time.time())
 
             try:
                 if compute.nip11_info:
-                    nip11 = await self._with_retry(
-                        lambda: Nip11.create(
-                            relay,
-                            timeout=timeout,
-                            proxy_url=proxy_url,
-                            options=Nip11Options(
-                                allow_insecure=self._config.processing.allow_insecure,
-                                max_size=self._config.processing.nip11_info_max_size,
-                            ),
-                        ),
+                    nip11_info = await self._with_retry(
+                        lambda: self._fetch_nip11_info(relay, timeout, proxy_url),
                         self._config.processing.retries.nip11_info,
                         "nip11_info",
                         relay.url,
@@ -661,8 +679,8 @@ class Monitor(
                         [Tag.identifier(relay.url)]
                     )
                     # Apply proof-of-work if NIP-11 specifies minimum difficulty
-                    if nip11 and nip11.info and nip11.info.logs.success:
-                        pow_difficulty = nip11.info.data.limitation.min_pow_difficulty
+                    if nip11_info and nip11_info.logs.success:
+                        pow_difficulty = nip11_info.data.limitation.min_pow_difficulty
                         if pow_difficulty and pow_difficulty > 0:
                             event_builder = event_builder.pow(pow_difficulty)
                     read_filter = Filter().limit(1)
@@ -700,7 +718,7 @@ class Monitor(
 
                 result = CheckResult(
                     generated_at=generated_at,
-                    nip11=nip11.info if nip11 else None,
+                    nip11=nip11_info,
                     nip66_rtt=rtt_meta,
                     nip66_ssl=safe_result(gathered, "ssl"),
                     nip66_geo=safe_result(gathered, "geo"),

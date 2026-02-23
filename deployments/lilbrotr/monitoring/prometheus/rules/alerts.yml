@@ -74,3 +74,36 @@ groups:
           description: >-
             The p99 cycle duration for {{ $labels.service }} exceeds 5 minutes
             (current: {{ $value | printf "%.0f" }}s).
+
+      # --------------------------------------------------------------------
+      # DatabaseConnectionsHigh: Too many active connections
+      # --------------------------------------------------------------------
+      - alert: DatabaseConnectionsHigh
+        expr: >-
+          sum(pg_stat_activity_count{datname="lilbrotr"}) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High database connection count: {{ $value }}"
+          description: >-
+            PostgreSQL has {{ $value }} active connections, exceeding the
+            warning threshold of 80. Check for connection leaks or increase
+            pool limits.
+
+      # --------------------------------------------------------------------
+      # CacheHitRatioLow: Buffer cache not effective
+      # --------------------------------------------------------------------
+      - alert: CacheHitRatioLow
+        expr: >-
+          pg_stat_database_blks_hit{datname="lilbrotr"}
+          / (pg_stat_database_blks_hit{datname="lilbrotr"}
+             + pg_stat_database_blks_read{datname="lilbrotr"}) < 0.95
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cache hit ratio below 95%: {{ $value | printf \"%.3f\" }}"
+          description: >-
+            PostgreSQL buffer cache hit ratio is {{ $value | printf "%.1f" }}%,
+            below the 95% threshold. Consider increasing shared_buffers.
