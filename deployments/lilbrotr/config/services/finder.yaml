@@ -8,6 +8,12 @@
 # tags/tagvalues/content columns which are required for event scanning.
 # =============================================================================
 
+pool:
+  user: lilbrotr_writer
+  password_env: DB_WRITER_PASSWORD
+  min_size: 1
+  max_size: 3
+
 interval: 3600.0                   # 1 hour (default: 300.0)
 
 metrics:

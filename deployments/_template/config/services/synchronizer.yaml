@@ -25,6 +25,22 @@
 # -----------------------------------------------------------------------------
 # Class: src/core/base_service.py::BaseServiceConfig
 
+# -----------------------------------------------------------------------------
+# Connection Pool Overrides
+# -----------------------------------------------------------------------------
+# Per-service pool settings merged into brotr.yaml at startup.
+# Keys: user, password_env, min_size, max_size, application_name
+# application_name is auto-set to the service name if omitted.
+
+pool:
+  # Database user for this service                  # <-- CUSTOMIZE role name
+  user: myimpl_writer
+  # Environment variable containing the password    # <-- CUSTOMIZE env var
+  password_env: DB_WRITER_PASSWORD
+  # Connection pool sizing for this service
+  min_size: 2
+  max_size: 5
+
 # Seconds between synchronization cycles
 # Lower values = more frequent sync, higher resource usage
 # Recommendation: 900-1800 for production

@@ -21,7 +21,7 @@ cd deployments/lilbrotr
 
 # 1. Configure environment
 cp .env.example .env
-nano .env  # Set DB_PASSWORD and PRIVATE_KEY
+nano .env  # Set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD and PRIVATE_KEY
 
 # 2. Start services
 docker-compose up -d
@@ -97,7 +97,9 @@ SYNCHRONIZER_METRICS_PORT=9004
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DB_PASSWORD` | Yes | PostgreSQL password |
+| `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin password |
+| `DB_WRITER_PASSWORD` | Yes | Writer role password (pipeline services) |
+| `DB_READER_PASSWORD` | Yes | Reader role password (read-only services) |
 | `PRIVATE_KEY` | Yes | Nostr private key (hex, 64 chars) |
 | `GRAFANA_PASSWORD` | No | Grafana admin password (default: admin) |
 | `FINDER_METRICS_PORT` | No | Finder Prometheus port (default: 9001) |
@@ -217,7 +219,7 @@ docker-compose down && rm -rf data/postgres && docker-compose up -d
 ## Common Issues
 
 ### Services fail to connect to database
-- Ensure `DB_PASSWORD` is set in `.env`
+- Ensure `DB_ADMIN_PASSWORD`, `DB_WRITER_PASSWORD`, `DB_READER_PASSWORD` are set in `.env`
 - Wait for postgres/pgbouncer health checks to pass
 
 ### No relays being discovered

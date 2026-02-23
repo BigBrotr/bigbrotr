@@ -12,5 +12,3 @@ pool:
   database:
     host: pgbouncer              # Docker service name (default: localhost)
     database: lilbrotr           # Implementation database name
-  server_settings:
-    application_name: lilbrotr   # For pg_stat_activity identification

@@ -9,7 +9,11 @@
 #   Brotr: src/core/brotr.py (BatchConfig, TimeoutsConfig)
 #
 # Environment variables:
-#   DB_PASSWORD: Required. Database password (never stored in YAML).
+#   DB_WRITER_PASSWORD / DB_READER_PASSWORD: Set via service config pool overrides.
+#
+# Note: user, password_env, min_size, max_size, and application_name are now
+# set per-service in config/services/*.yaml (pool: section). This file only
+# contains shared connection settings (host, database, timeouts, retry, batch).
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -49,10 +53,11 @@ pool:
     # Default: "admin"
     user: admin
 
-    # Password is loaded from DB_PASSWORD environment variable
+    # Password is loaded from the environment variable specified by password_env
     # NEVER store passwords in configuration files
-    # Set via: export DB_PASSWORD="your-secure-password"
-    # password: (loaded from DB_PASSWORD environment variable)
+    # In production, user and password_env are set per-service via pool overrides
+    # in config/services/*.yaml (pool: section)
+    # password: (loaded from DB_ADMIN_PASSWORD environment variable by default)
 
   # ---------------------------------------------------------------------------
   # Connection Pool Limits
@@ -66,8 +71,8 @@ pool:
     # These connections are pre-established and ready for use
     # Higher values = faster initial queries, more idle resources
     # Range: 1-100
-    # Default: 5
-    min_size: 5
+    # Default: 2
+    min_size: 2
 
     # Maximum number of connections allowed in the pool
     # Additional connection requests will wait or fail based on timeout

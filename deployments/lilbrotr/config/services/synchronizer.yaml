@@ -7,6 +7,12 @@
 # Note: Lighter configuration for reduced resource usage (clearnet only).
 # =============================================================================
 
+pool:
+  user: lilbrotr_writer
+  password_env: DB_WRITER_PASSWORD
+  min_size: 2
+  max_size: 5
+
 interval: 900.0                    # 15 minutes (default: 300.0)
 
 metrics:
