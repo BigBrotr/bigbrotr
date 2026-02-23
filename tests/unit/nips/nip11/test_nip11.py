@@ -267,7 +267,7 @@ class TestNip11CreateSuccess:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/nostr+json"}
-        response.content.read = AsyncMock(return_value=b'{"name": "Test Relay"}')
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Test Relay"}', b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -294,7 +294,9 @@ class TestNip11CreateSuccess:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/nostr+json"}
-        response.content.read = AsyncMock(return_value=json.dumps(complete_nip11_data).encode())
+        response.content.read = AsyncMock(
+            side_effect=[json.dumps(complete_nip11_data).encode(), b""]
+        )
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -352,7 +354,7 @@ class TestNip11CreateErrors:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "text/html"}
-        response.content.read = AsyncMock(return_value=b"<html></html>")
+        response.content.read = AsyncMock(side_effect=[b"<html></html>", b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -369,7 +371,7 @@ class TestNip11CreateErrors:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b"x" * 100000)
+        response.content.read = AsyncMock(side_effect=[b"x" * 100000, b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -386,7 +388,7 @@ class TestNip11CreateErrors:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b"not valid json")
+        response.content.read = AsyncMock(side_effect=[b"not valid json", b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -402,7 +404,7 @@ class TestNip11CreateErrors:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b'["array"]')
+        response.content.read = AsyncMock(side_effect=[b'["array"]', b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -428,7 +430,7 @@ class TestNip11CreateUrlScheme:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b"{}")
+        response.content.read = AsyncMock(side_effect=[b"{}", b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -446,7 +448,7 @@ class TestNip11CreateUrlScheme:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b"{}")
+        response.content.read = AsyncMock(side_effect=[b"{}", b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -473,7 +475,7 @@ class TestNip11CreateAcceptHeader:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b"{}")
+        response.content.read = AsyncMock(side_effect=[b"{}", b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -500,7 +502,7 @@ class TestNip11CreateContentType:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/nostr+json"}
-        response.content.read = AsyncMock(return_value=b'{"name": "Test"}')
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Test"}', b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -516,7 +518,7 @@ class TestNip11CreateContentType:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b'{"name": "Test"}')
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Test"}', b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -532,7 +534,7 @@ class TestNip11CreateContentType:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json; charset=utf-8"}
-        response.content.read = AsyncMock(return_value=b'{"name": "Test"}')
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Test"}', b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -557,7 +559,7 @@ class TestNip11CreateNetworkTypes:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b'{"name": "Tor Relay"}')
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Tor Relay"}', b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -574,7 +576,7 @@ class TestNip11CreateNetworkTypes:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b'{"name": "I2P Relay"}')
+        response.content.read = AsyncMock(side_effect=[b'{"name": "I2P Relay"}', b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -591,7 +593,7 @@ class TestNip11CreateNetworkTypes:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b'{"name": "Loki Relay"}')
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Loki Relay"}', b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -617,7 +619,7 @@ class TestNip11CreateParameters:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b"{}")
+        response.content.read = AsyncMock(side_effect=[b"{}", b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -635,7 +637,7 @@ class TestNip11CreateParameters:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b"x" * 2000)
+        response.content.read = AsyncMock(side_effect=[b"x" * 2000, b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -652,7 +654,7 @@ class TestNip11CreateParameters:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b"{}")
+        response.content.read = AsyncMock(side_effect=[b"{}", b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -829,7 +831,7 @@ class TestNip11CreateSelection:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b'{"name": "Test"}')
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Test"}', b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -846,7 +848,7 @@ class TestNip11CreateSelection:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b'{"name": "Test"}')
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Test"}', b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 
@@ -871,7 +873,7 @@ class TestNip11CreateOptions:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(return_value=b"x" * 2000)
+        response.content.read = AsyncMock(side_effect=[b"x" * 2000, b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 

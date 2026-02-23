@@ -276,7 +276,7 @@ def mock_http_response_success() -> MagicMock:
     response = AsyncMock()
     response.status = 200
     response.headers = {"Content-Type": "application/nostr+json"}
-    response.content.read = AsyncMock(return_value=b'{"name": "Test Relay"}')
+    response.content.read = AsyncMock(side_effect=[b'{"name": "Test Relay"}', b""])
     response.__aenter__ = AsyncMock(return_value=response)
     response.__aexit__ = AsyncMock(return_value=None)
     return response
@@ -298,7 +298,7 @@ def mock_http_response_invalid_content_type() -> MagicMock:
     response = AsyncMock()
     response.status = 200
     response.headers = {"Content-Type": "text/html"}
-    response.content.read = AsyncMock(return_value=b"<html></html>")
+    response.content.read = AsyncMock(side_effect=[b"<html></html>", b""])
     response.__aenter__ = AsyncMock(return_value=response)
     response.__aexit__ = AsyncMock(return_value=None)
     return response
@@ -310,7 +310,7 @@ def mock_http_response_invalid_json() -> MagicMock:
     response = AsyncMock()
     response.status = 200
     response.headers = {"Content-Type": "application/json"}
-    response.content.read = AsyncMock(return_value=b"not valid json")
+    response.content.read = AsyncMock(side_effect=[b"not valid json", b""])
     response.__aenter__ = AsyncMock(return_value=response)
     response.__aexit__ = AsyncMock(return_value=None)
     return response

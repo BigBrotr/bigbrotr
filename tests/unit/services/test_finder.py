@@ -33,7 +33,7 @@ def _mock_api_response(data: Any) -> MagicMock:
     """Build a mock aiohttp response returning *data* as bounded JSON body."""
     body = json.dumps(data).encode()
     content = MagicMock()
-    content.read = AsyncMock(return_value=body)
+    content.read = AsyncMock(side_effect=[body, b""])
 
     resp = MagicMock()
     resp.raise_for_status = MagicMock()
@@ -495,7 +495,7 @@ class TestFinderFetchSingleApi:
         # Body larger than max_response_size (1024 bytes)
         oversized_body = b"x" * 1025
         content = MagicMock()
-        content.read = AsyncMock(return_value=oversized_body)
+        content.read = AsyncMock(side_effect=[oversized_body, b""])
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
         mock_response.content = content
