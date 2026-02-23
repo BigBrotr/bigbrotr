@@ -13,6 +13,9 @@ BEGIN
     RAISE NOTICE 'LilBrotr database schema initialized successfully';
     RAISE NOTICE '============================================================================';
     RAISE NOTICE '';
+    RAISE NOTICE 'Roles:';
+    RAISE NOTICE '  lilbrotr_writer (DML + EXECUTE), lilbrotr_reader (SELECT only)';
+    RAISE NOTICE '';
     RAISE NOTICE 'Extensions: btree_gin';
     RAISE NOTICE '';
     RAISE NOTICE 'Tables:';
