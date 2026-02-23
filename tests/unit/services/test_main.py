@@ -4,7 +4,8 @@ Unit tests for bigbrotr.__main__ CLI module.
 Tests:
 - parse_args argument parsing
 - setup_logging configuration
-- load_brotr loading
+- _load_yaml_dict loading
+- _apply_pool_overrides merging
 - run_service execution
 - SERVICE_REGISTRY completeness
 - Signal handling
@@ -23,7 +24,8 @@ from bigbrotr.__main__ import (
     CORE_CONFIG,
     SERVICE_REGISTRY,
     ServiceEntry,
-    load_brotr,
+    _apply_pool_overrides,
+    _load_yaml_dict,
     main,
     parse_args,
     run_service,
@@ -340,68 +342,115 @@ class TestSetupLogging:
 
 
 # ============================================================================
-# load_brotr Tests
+# _load_yaml_dict Tests
 # ============================================================================
 
 
-class TestLoadBrotr:
-    """Tests for load_brotr function."""
+class TestLoadYamlDict:
+    """Tests for _load_yaml_dict function."""
 
-    def test_load_from_existing_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test loading Brotr from existing config file."""
-        monkeypatch.setenv("DB_PASSWORD", "testpass")
-        config_file = tmp_path / "brotr.yaml"
-        config_file.write_text("""
-pool:
-  database:
-    host: localhost
-    port: 5432
-    database: testdb
-    user: testuser
-""")
-        brotr = load_brotr(config_file)
-        assert isinstance(brotr, Brotr)
-        assert brotr._pool.config.database.host == "localhost"  # type: ignore[attr-defined]
+    def test_load_from_existing_file(self, tmp_path: Path) -> None:
+        """Test loading dict from existing YAML file."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("key: value\nnested:\n  a: 1\n")
+        result = _load_yaml_dict(config_file)
+        assert result == {"key": "value", "nested": {"a": 1}}
 
-    def test_load_from_nonexistent_file(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test loading Brotr when config file doesn't exist."""
-        monkeypatch.setenv("DB_PASSWORD", "testpass")
+    def test_load_from_nonexistent_file(self, tmp_path: Path) -> None:
+        """Test loading returns empty dict when file doesn't exist."""
         config_file = tmp_path / "nonexistent.yaml"
-        brotr = load_brotr(config_file)
-        assert isinstance(brotr, Brotr)
+        result = _load_yaml_dict(config_file)
+        assert result == {}
 
-    def test_load_brotr_returns_brotr_instance(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test load_brotr always returns a Brotr instance."""
-        monkeypatch.setenv("DB_PASSWORD", "testpass")
-        config_file = tmp_path / "nonexistent.yaml"
-        result = load_brotr(config_file)
-        assert isinstance(result, Brotr)
+    def test_load_empty_file(self, tmp_path: Path) -> None:
+        """Test loading returns empty dict for empty YAML file."""
+        config_file = tmp_path / "empty.yaml"
+        config_file.write_text("")
+        result = _load_yaml_dict(config_file)
+        assert result == {}
 
-    def test_load_brotr_with_custom_pool_settings(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test loading Brotr with custom pool settings."""
-        monkeypatch.setenv("DB_PASSWORD", "testpass")
-        config_file = tmp_path / "brotr.yaml"
-        config_file.write_text("""
-pool:
-  database:
-    host: customhost
-    port: 5433
-    database: customdb
-    user: customuser
-  pool:
-    min_size: 5
-    max_size: 20
-""")
-        brotr = load_brotr(config_file)
-        assert brotr._pool.config.database.host == "customhost"  # type: ignore[attr-defined]
-        assert brotr._pool.config.database.port == 5433  # type: ignore[attr-defined]
-        assert brotr._pool.config.database.database == "customdb"  # type: ignore[attr-defined]
+    def test_load_preserves_types(self, tmp_path: Path) -> None:
+        """Test loading preserves YAML types correctly."""
+        config_file = tmp_path / "typed.yaml"
+        config_file.write_text("count: 42\nenabled: true\nratio: 3.14\nname: test\n")
+        result = _load_yaml_dict(config_file)
+        assert result == {"count": 42, "enabled": True, "ratio": 3.14, "name": "test"}
+
+
+# ============================================================================
+# _apply_pool_overrides Tests
+# ============================================================================
+
+
+class TestApplyPoolOverrides:
+    """Tests for _apply_pool_overrides function."""
+
+    def test_no_overrides_sets_application_name(self) -> None:
+        """Test application_name is set to service_name without overrides."""
+        brotr_dict: dict = {}
+        _apply_pool_overrides(brotr_dict, None, "monitor")
+        assert brotr_dict["pool"]["server_settings"]["application_name"] == "monitor"
+
+    def test_no_overrides_preserves_existing_application_name(self) -> None:
+        """Test existing application_name is not overwritten without overrides."""
+        brotr_dict: dict = {"pool": {"server_settings": {"application_name": "custom"}}}
+        _apply_pool_overrides(brotr_dict, None, "monitor")
+        assert brotr_dict["pool"]["server_settings"]["application_name"] == "custom"
+
+    def test_full_overrides(self) -> None:
+        """Test all override fields are applied correctly."""
+        brotr_dict: dict = {"pool": {"database": {"host": "pgbouncer"}}}
+        overrides = {
+            "user": "bigbrotr_writer",
+            "password_env": "DB_WRITER_PASSWORD",  # pragma: allowlist secret
+            "min_size": 1,
+            "max_size": 3,
+        }
+        _apply_pool_overrides(brotr_dict, overrides, "monitor")
+
+        assert brotr_dict["pool"]["database"]["user"] == "bigbrotr_writer"
+        assert brotr_dict["pool"]["database"]["password_env"] == "DB_WRITER_PASSWORD"
+        assert brotr_dict["pool"]["database"]["host"] == "pgbouncer"
+        assert brotr_dict["pool"]["limits"]["min_size"] == 1
+        assert brotr_dict["pool"]["limits"]["max_size"] == 3
+        assert brotr_dict["pool"]["server_settings"]["application_name"] == "monitor"
+
+    def test_partial_override_only_min_size(self) -> None:
+        """Test partial override with only min_size."""
+        brotr_dict: dict = {"pool": {"database": {"host": "pgbouncer", "user": "admin"}}}
+        overrides = {"min_size": 2}
+        _apply_pool_overrides(brotr_dict, overrides, "finder")
+
+        assert brotr_dict["pool"]["database"]["user"] == "admin"
+        assert brotr_dict["pool"]["limits"]["min_size"] == 2
+        assert "max_size" not in brotr_dict["pool"]["limits"]
+        assert brotr_dict["pool"]["server_settings"]["application_name"] == "finder"
+
+    def test_explicit_application_name_overrides_service_name(self) -> None:
+        """Test explicit application_name in overrides takes precedence."""
+        brotr_dict: dict = {}
+        overrides = {"application_name": "my_custom_app"}
+        _apply_pool_overrides(brotr_dict, overrides, "monitor")
+        assert brotr_dict["pool"]["server_settings"]["application_name"] == "my_custom_app"
+
+    def test_empty_overrides_dict(self) -> None:
+        """Test empty overrides dict behaves like None."""
+        brotr_dict: dict = {}
+        _apply_pool_overrides(brotr_dict, {}, "seeder")
+        assert brotr_dict["pool"]["server_settings"]["application_name"] == "seeder"
+        assert "database" not in brotr_dict["pool"]
+        assert "limits" not in brotr_dict["pool"]
+
+    def test_empty_brotr_dict(self) -> None:
+        """Test overrides work with empty brotr_dict."""
+        brotr_dict: dict = {}
+        overrides = {"user": "writer", "min_size": 1, "max_size": 5}
+        _apply_pool_overrides(brotr_dict, overrides, "synchronizer")
+
+        assert brotr_dict["pool"]["database"]["user"] == "writer"
+        assert brotr_dict["pool"]["limits"]["min_size"] == 1
+        assert brotr_dict["pool"]["limits"]["max_size"] == 5
+        assert brotr_dict["pool"]["server_settings"]["application_name"] == "synchronizer"
 
 
 # ============================================================================
@@ -412,136 +461,107 @@ pool:
 class TestRunService:
     """Tests for run_service function."""
 
-    async def test_oneshot_service_success(self, mock_brotr_for_cli: Brotr, tmp_path: Path) -> None:
+    async def test_oneshot_service_success(self, mock_brotr_for_cli: Brotr) -> None:
         """Test oneshot service completes successfully."""
         from bigbrotr.services.seeder import Seeder
 
-        # Create a minimal config file
-        config_file = tmp_path / "seeder.yaml"
-        config_file.write_text("""
-seed:
-  file_path: nonexistent.txt
-""")
+        service_dict = {"seed": {"file_path": "nonexistent.txt"}}
 
         result = await run_service(
             service_name="seeder",
             service_class=Seeder,
             brotr=mock_brotr_for_cli,
-            config_path=config_file,
+            service_dict=service_dict,
             once=True,
         )
 
         assert result == 0
 
-    async def test_oneshot_service_config_not_found(
-        self, mock_brotr_for_cli: Brotr, tmp_path: Path
-    ) -> None:
-        """Test oneshot service with missing config uses defaults."""
+    async def test_oneshot_service_empty_dict(self, mock_brotr_for_cli: Brotr) -> None:
+        """Test oneshot service with empty dict uses defaults."""
         from bigbrotr.services.seeder import Seeder
 
-        config_file = tmp_path / "nonexistent.yaml"
-
         result = await run_service(
             service_name="seeder",
             service_class=Seeder,
             brotr=mock_brotr_for_cli,
-            config_path=config_file,
+            service_dict={},
             once=True,
         )
 
         assert result == 0
 
-    async def test_oneshot_service_failure(self, mock_brotr_for_cli: Brotr, tmp_path: Path) -> None:
+    async def test_oneshot_service_failure(self, mock_brotr_for_cli: Brotr) -> None:
         """Test oneshot service failure returns 1."""
         from bigbrotr.services.seeder import Seeder
 
-        config_file = tmp_path / "seeder.yaml"
-        config_file.write_text("""
-seed:
-  file_path: nonexistent.txt
-""")
+        service_dict = {"seed": {"file_path": "nonexistent.txt"}}
 
-        # Patch the run method to raise an exception
         with patch.object(Seeder, "run", AsyncMock(side_effect=Exception("Test error"))):
             result = await run_service(
                 service_name="seeder",
                 service_class=Seeder,
                 brotr=mock_brotr_for_cli,
-                config_path=config_file,
+                service_dict=service_dict,
                 once=True,
             )
 
         assert result == 1
 
-    async def test_continuous_service_success(
-        self, mock_brotr_for_cli: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_continuous_service_success(self, mock_brotr_for_cli: Brotr) -> None:
         """Test continuous service with once=False runs via run_forever."""
         from bigbrotr.services.finder import Finder
 
-        config_file = tmp_path / "finder.yaml"
-        config_file.write_text("""
-interval: 60.0
-max_consecutive_failures: 5
-discovery:
-  enabled_sources: []
-""")
+        service_dict = {
+            "interval": 60.0,
+            "max_consecutive_failures": 5,
+            "discovery": {"enabled_sources": []},
+        }
 
-        # Mock run_forever to immediately return
         with patch.object(Finder, "run_forever", AsyncMock()):
             result = await run_service(
                 service_name="finder",
                 service_class=Finder,
                 brotr=mock_brotr_for_cli,
-                config_path=config_file,
+                service_dict=service_dict,
                 once=False,
             )
 
         assert result == 0
 
-    async def test_continuous_service_failure(
-        self, mock_brotr_for_cli: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_continuous_service_failure(self, mock_brotr_for_cli: Brotr) -> None:
         """Test continuous service failure returns 1."""
         from bigbrotr.services.finder import Finder
 
-        config_file = tmp_path / "finder.yaml"
-        config_file.write_text("""
-interval: 60.0
-max_consecutive_failures: 5
-discovery:
-  enabled_sources: []
-""")
+        service_dict = {
+            "interval": 60.0,
+            "max_consecutive_failures": 5,
+            "discovery": {"enabled_sources": []},
+        }
 
-        # Mock run_forever to raise an exception
         with patch.object(Finder, "run_forever", AsyncMock(side_effect=Exception("Test error"))):
             result = await run_service(
                 service_name="finder",
                 service_class=Finder,
                 brotr=mock_brotr_for_cli,
-                config_path=config_file,
+                service_dict=service_dict,
                 once=False,
             )
 
         assert result == 1
 
     async def test_continuous_service_starts_metrics_server(
-        self, mock_brotr_for_cli: Brotr, tmp_path: Path, mock_metrics_server: MagicMock
+        self, mock_brotr_for_cli: Brotr, mock_metrics_server: MagicMock
     ) -> None:
         """Test continuous service starts metrics server."""
         from bigbrotr.services.finder import Finder
 
-        config_file = tmp_path / "finder.yaml"
-        config_file.write_text("""
-interval: 60.0
-max_consecutive_failures: 5
-discovery:
-  enabled_sources: []
-metrics:
-  enabled: true
-  host: "127.0.0.1"
-  port: 9999
-""")
+        service_dict = {
+            "interval": 60.0,
+            "max_consecutive_failures": 5,
+            "discovery": {"enabled_sources": []},
+            "metrics": {"enabled": True, "host": "127.0.0.1", "port": 9999},
+        }
 
         with (
             patch.object(Finder, "run_forever", AsyncMock()),
@@ -554,7 +574,7 @@ metrics:
                 service_name="finder",
                 service_class=Finder,
                 brotr=mock_brotr_for_cli,
-                config_path=config_file,
+                service_dict=service_dict,
                 once=False,
             )
 
@@ -562,20 +582,17 @@ metrics:
             mock_metrics_server.stop.assert_called_once()
 
     async def test_continuous_service_stops_metrics_server_on_failure(
-        self, mock_brotr_for_cli: Brotr, tmp_path: Path, mock_metrics_server: MagicMock
+        self, mock_brotr_for_cli: Brotr, mock_metrics_server: MagicMock
     ) -> None:
         """Test metrics server is stopped even on service failure."""
         from bigbrotr.services.finder import Finder
 
-        config_file = tmp_path / "finder.yaml"
-        config_file.write_text("""
-interval: 60.0
-max_consecutive_failures: 5
-discovery:
-  enabled_sources: []
-metrics:
-  enabled: true
-""")
+        service_dict = {
+            "interval": 60.0,
+            "max_consecutive_failures": 5,
+            "discovery": {"enabled_sources": []},
+            "metrics": {"enabled": True},
+        }
 
         with (
             patch.object(Finder, "run_forever", AsyncMock(side_effect=Exception("Test error"))),
@@ -588,32 +605,27 @@ metrics:
                 service_name="finder",
                 service_class=Finder,
                 brotr=mock_brotr_for_cli,
-                config_path=config_file,
+                service_dict=service_dict,
                 once=False,
             )
 
             mock_metrics_server.stop.assert_called_once()
 
-    async def test_oneshot_does_not_start_metrics_server(
-        self, mock_brotr_for_cli: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_oneshot_does_not_start_metrics_server(self, mock_brotr_for_cli: Brotr) -> None:
         """Test oneshot mode does not start metrics server."""
         from bigbrotr.services.seeder import Seeder
 
-        config_file = tmp_path / "seeder.yaml"
-        config_file.write_text("""
-seed:
-  file_path: nonexistent.txt
-metrics:
-  enabled: true
-""")
+        service_dict = {
+            "seed": {"file_path": "nonexistent.txt"},
+            "metrics": {"enabled": True},
+        }
 
         with patch("bigbrotr.__main__.start_metrics_server", AsyncMock()) as mock_start:
             await run_service(
                 service_name="seeder",
                 service_class=Seeder,
                 brotr=mock_brotr_for_cli,
-                config_path=config_file,
+                service_dict=service_dict,
                 once=True,
             )
 
@@ -629,18 +641,16 @@ class TestSignalHandling:
     """Tests for signal handling in run_service."""
 
     async def test_signal_handler_registered(
-        self, mock_brotr_for_cli: Brotr, tmp_path: Path, mock_metrics_server: MagicMock
+        self, mock_brotr_for_cli: Brotr, mock_metrics_server: MagicMock
     ) -> None:
         """Test signal handlers are registered for continuous mode."""
         from bigbrotr.services.finder import Finder
 
-        config_file = tmp_path / "finder.yaml"
-        config_file.write_text("""
-interval: 60.0
-max_consecutive_failures: 5
-discovery:
-  enabled_sources: []
-""")
+        service_dict = {
+            "interval": 60.0,
+            "max_consecutive_failures": 5,
+            "discovery": {"enabled_sources": []},
+        }
 
         with (
             patch.object(Finder, "run_forever", AsyncMock()),
@@ -654,7 +664,7 @@ discovery:
                 service_name="finder",
                 service_class=Finder,
                 brotr=mock_brotr_for_cli,
-                config_path=config_file,
+                service_dict=service_dict,
                 once=False,
             )
 
@@ -704,7 +714,7 @@ pool:
                     "--once",
                 ],
             ),
-            patch("bigbrotr.__main__.load_brotr", return_value=mock_brotr_for_cli),
+            patch("bigbrotr.__main__.Brotr.from_dict", return_value=mock_brotr_for_cli),
             patch("bigbrotr.__main__.run_service", AsyncMock(return_value=0)),
         ):
             result = await main()
@@ -716,10 +726,11 @@ pool:
         brotr_config = tmp_path / "brotr.yaml"
         brotr_config.write_text("""
 pool:
-  host: localhost
-  port: 5432
-  database: testdb
-  user: testuser
+  database:
+    host: localhost
+    port: 5432
+    database: testdb
+    user: testuser
 """)
 
         mock_brotr = MagicMock(spec=Brotr)
@@ -736,7 +747,7 @@ pool:
                     str(brotr_config),
                 ],
             ),
-            patch("bigbrotr.__main__.load_brotr", return_value=mock_brotr),
+            patch("bigbrotr.__main__.Brotr.from_dict", return_value=mock_brotr),
         ):
             result = await main()
 
@@ -747,10 +758,11 @@ pool:
         brotr_config = tmp_path / "brotr.yaml"
         brotr_config.write_text("""
 pool:
-  host: localhost
-  port: 5432
-  database: testdb
-  user: testuser
+  database:
+    host: localhost
+    port: 5432
+    database: testdb
+    user: testuser
 """)
 
         with (
@@ -763,7 +775,7 @@ pool:
                     str(brotr_config),
                 ],
             ),
-            patch("bigbrotr.__main__.load_brotr", return_value=mock_brotr_for_cli),
+            patch("bigbrotr.__main__.Brotr.from_dict", return_value=mock_brotr_for_cli),
             patch(
                 "bigbrotr.__main__.run_service",
                 AsyncMock(side_effect=KeyboardInterrupt),
@@ -787,11 +799,11 @@ pool:
     user: testuser
 """)
 
-        captured_config_path = None
+        captured_service_dict = None
 
         async def capture_run_service(*args, **kwargs):
-            nonlocal captured_config_path
-            captured_config_path = kwargs.get("config_path")
+            nonlocal captured_service_dict
+            captured_service_dict = kwargs.get("service_dict")
             return 0
 
         with (
@@ -805,13 +817,13 @@ pool:
                     "--once",
                 ],
             ),
-            patch("bigbrotr.__main__.load_brotr", return_value=mock_brotr_for_cli),
+            patch("bigbrotr.__main__.Brotr.from_dict", return_value=mock_brotr_for_cli),
             patch("bigbrotr.__main__.run_service", AsyncMock(side_effect=capture_run_service)),
         ):
             await main()
 
-        expected_path = CONFIG_BASE / "services" / "finder.yaml"
-        assert captured_config_path == expected_path
+        # Default config file doesn't exist in tmp, so service_dict should be empty
+        assert captured_service_dict == {}
 
     async def test_main_uses_custom_config_when_specified(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
@@ -828,13 +840,13 @@ pool:
 """)
 
         custom_config = tmp_path / "custom_finder.yaml"
-        custom_config.write_text("interval: 120.0")
+        custom_config.write_text("interval: 120.0\n")
 
-        captured_config_path = None
+        captured_service_dict = None
 
         async def capture_run_service(*args, **kwargs):
-            nonlocal captured_config_path
-            captured_config_path = kwargs.get("config_path")
+            nonlocal captured_service_dict
+            captured_service_dict = kwargs.get("service_dict")
             return 0
 
         with (
@@ -850,12 +862,12 @@ pool:
                     "--once",
                 ],
             ),
-            patch("bigbrotr.__main__.load_brotr", return_value=mock_brotr_for_cli),
+            patch("bigbrotr.__main__.Brotr.from_dict", return_value=mock_brotr_for_cli),
             patch("bigbrotr.__main__.run_service", AsyncMock(side_effect=capture_run_service)),
         ):
             await main()
 
-        assert captured_config_path == custom_config
+        assert captured_service_dict == {"interval": 120.0}
 
     async def test_main_calls_setup_logging(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
@@ -884,7 +896,7 @@ pool:
                     "--once",
                 ],
             ),
-            patch("bigbrotr.__main__.load_brotr", return_value=mock_brotr_for_cli),
+            patch("bigbrotr.__main__.Brotr.from_dict", return_value=mock_brotr_for_cli),
             patch("bigbrotr.__main__.run_service", AsyncMock(return_value=0)),
             patch("bigbrotr.__main__.setup_logging") as mock_setup,
         ):
@@ -929,7 +941,7 @@ pool:
                     "--once",
                 ],
             ),
-            patch("bigbrotr.__main__.load_brotr", return_value=mock_brotr_for_cli),
+            patch("bigbrotr.__main__.Brotr.from_dict", return_value=mock_brotr_for_cli),
             patch("bigbrotr.__main__.run_service", mock_run),
         ):
             result = await main()
@@ -957,6 +969,106 @@ pool:
                 f"Registry class mismatch for {service_name}"
             )
 
+    async def test_main_extracts_pool_overrides(
+        self, mock_brotr_for_cli: Brotr, tmp_path: Path
+    ) -> None:
+        """Test main extracts pool section from service config and applies overrides."""
+        brotr_config = tmp_path / "brotr.yaml"
+        brotr_config.write_text("""
+pool:
+  database:
+    host: pgbouncer
+    database: bigbrotr
+""")
+
+        service_config = tmp_path / "monitor.yaml"
+        service_config.write_text("""
+pool:
+  user: bigbrotr_writer
+  password_env: DB_WRITER_PASSWORD  # pragma: allowlist secret
+  min_size: 1
+  max_size: 3
+metrics:
+  enabled: true
+""")
+
+        captured_service_dict = None
+
+        async def capture_run_service(*args, **kwargs):
+            nonlocal captured_service_dict
+            captured_service_dict = kwargs.get("service_dict")
+            return 0
+
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "prog",
+                    "monitor",
+                    "--config",
+                    str(service_config),
+                    "--brotr-config",
+                    str(brotr_config),
+                    "--once",
+                ],
+            ),
+            patch(
+                "bigbrotr.__main__.Brotr.from_dict", return_value=mock_brotr_for_cli
+            ) as mock_from_dict,
+            patch("bigbrotr.__main__.run_service", AsyncMock(side_effect=capture_run_service)),
+        ):
+            await main()
+
+        # pool section should be stripped from service_dict
+        assert "pool" not in captured_service_dict
+        assert captured_service_dict == {"metrics": {"enabled": True}}
+
+        # Brotr.from_dict should receive merged config
+        brotr_call_dict = mock_from_dict.call_args[0][0]
+        assert brotr_call_dict["pool"]["database"]["user"] == "bigbrotr_writer"
+        assert brotr_call_dict["pool"]["database"]["password_env"] == "DB_WRITER_PASSWORD"
+        assert brotr_call_dict["pool"]["database"]["host"] == "pgbouncer"
+        assert brotr_call_dict["pool"]["limits"]["min_size"] == 1
+        assert brotr_call_dict["pool"]["limits"]["max_size"] == 3
+        assert brotr_call_dict["pool"]["server_settings"]["application_name"] == "monitor"
+
+    async def test_main_auto_application_name_without_pool_overrides(
+        self, mock_brotr_for_cli: Brotr, tmp_path: Path
+    ) -> None:
+        """Test application_name is set to service name even without pool overrides."""
+        brotr_config = tmp_path / "brotr.yaml"
+        brotr_config.write_text("""
+pool:
+  database:
+    host: pgbouncer
+""")
+
+        service_config = tmp_path / "finder.yaml"
+        service_config.write_text("metrics:\n  enabled: true\n")
+
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "prog",
+                    "finder",
+                    "--config",
+                    str(service_config),
+                    "--brotr-config",
+                    str(brotr_config),
+                    "--once",
+                ],
+            ),
+            patch(
+                "bigbrotr.__main__.Brotr.from_dict", return_value=mock_brotr_for_cli
+            ) as mock_from_dict,
+            patch("bigbrotr.__main__.run_service", AsyncMock(return_value=0)),
+        ):
+            await main()
+
+        brotr_call_dict = mock_from_dict.call_args[0][0]
+        assert brotr_call_dict["pool"]["server_settings"]["application_name"] == "finder"
+
 
 # ============================================================================
 # Integration Tests
@@ -969,7 +1081,7 @@ class TestCLIIntegration:
     async def test_full_workflow_seeder_oneshot(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
     ) -> None:
-        """Test full workflow: parse args -> load brotr -> run service (oneshot)."""
+        """Test full workflow: parse args -> load config -> run service (oneshot)."""
         config_file = tmp_path / "seeder.yaml"
         config_file.write_text("""
 seed:
@@ -1001,7 +1113,7 @@ pool:
                     "--once",
                 ],
             ),
-            patch("bigbrotr.__main__.load_brotr", return_value=mock_brotr_for_cli),
+            patch("bigbrotr.__main__.Brotr.from_dict", return_value=mock_brotr_for_cli),
         ):
             result = await main()
 
