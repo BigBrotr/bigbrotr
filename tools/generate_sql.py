@@ -44,12 +44,7 @@ OVERRIDES: dict[str, dict[str, str | None]] = {
         "07_functions_refresh": None,
         "08_indexes": "05_indexes",
     },
-    "_template": {
-        "05_views": None,
-        "06_materialized_views": None,
-        "07_functions_refresh": None,
-        "08_indexes": "05_indexes",
-    },
+    "_template": {},
 }
 
 

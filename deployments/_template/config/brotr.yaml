@@ -161,12 +161,12 @@ pool:
     # Default: "UTC"
     timezone: UTC
 
-    # Maximum query execution time in milliseconds
-    # Queries exceeding this are automatically cancelled
-    # Set to 0 to disable (no timeout)
+    # Server-side query timeout in milliseconds (sent via server_settings)
+    # Set to 0 when using PgBouncer in transaction mode (stripped by ignore_startup_parameters)
+    # Client-side timeouts (BrotrTimeoutsConfig) and PgBouncer query_timeout handle enforcement
     # Range: >= 0
-    # Default: 300000 (5 minutes)
-    statement_timeout: 300000
+    # Default: 0
+    statement_timeout: 0
 
 # -----------------------------------------------------------------------------
 # Batch Operation Settings

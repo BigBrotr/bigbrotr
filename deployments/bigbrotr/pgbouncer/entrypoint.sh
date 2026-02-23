@@ -14,5 +14,6 @@ cat > /tmp/pgbouncer/userlist.txt <<EOF
 "${WRITER_ROLE}" "${DB_WRITER_PASSWORD}"
 "${READER_ROLE}" "${DB_READER_PASSWORD}"
 EOF
+chmod 600 /tmp/pgbouncer/userlist.txt
 
 exec pgbouncer /etc/pgbouncer/pgbouncer.ini
