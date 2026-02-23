@@ -74,7 +74,7 @@ cd bigbrotr/deployments/bigbrotr
 
 # Configure secrets
 cp .env.example .env
-# Edit .env: set DB_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
 
 # Start everything
 docker compose up -d
@@ -250,7 +250,9 @@ JSON mode available for cloud aggregation:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DB_PASSWORD` | Yes | PostgreSQL password |
+| `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin password |
+| `DB_WRITER_PASSWORD` | Yes | Writer role password (pipeline services) |
+| `DB_READER_PASSWORD` | Yes | Reader role password (read-only services) |
 | `PRIVATE_KEY` | For Monitor | Nostr private key (hex or nsec) for event publishing and RTT write tests |
 | `GRAFANA_PASSWORD` | No | Grafana admin password |
 
