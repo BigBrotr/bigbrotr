@@ -130,7 +130,7 @@ jobs:
           --cov-report=term-missing
           -v --tb=short
         env:
-          DB_PASSWORD: test_password
+          DB_ADMIN_PASSWORD: test_password
 
       - name: Upload coverage
         if: matrix.python-version == '3.11' && github.actor != 'dependabot[bot]'
@@ -173,7 +173,7 @@ jobs:
           uv run pytest tests/integration/
           -v --tb=short --timeout=120
         env:
-          DB_PASSWORD: test_password
+          DB_ADMIN_PASSWORD: test_password
 
   # --------------------------------------------------------------------------
   # Docs: Build documentation (strict mode)

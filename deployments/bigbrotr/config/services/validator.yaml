@@ -6,7 +6,11 @@
 # See _template/config/services/validator.yaml for all options and documentation.
 # =============================================================================
 
-interval: 28800.0                  # Validate every 8 hours
+pool:
+  user: bigbrotr_writer
+  password_env: DB_WRITER_PASSWORD
+  min_size: 1
+  max_size: 3
 
 metrics:
   enabled: true
@@ -16,5 +20,7 @@ cleanup:
   enabled: true                    # Remove candidates that exceed max_failures
 
 networks:
+  clearnet:
+    max_tasks: 100                 # Double the default for faster validation
   tor:
     enabled: true                  # Validate Tor (.onion) relays

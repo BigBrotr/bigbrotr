@@ -54,7 +54,7 @@ Create `.vscode/launch.json` to debug a service:
     "args": ["finder", "--log-level", "DEBUG", "--once"],
     "cwd": "${workspaceFolder}/deployments/bigbrotr",
     "env": {
-        "DB_PASSWORD": "your_password"
+        "DB_ADMIN_PASSWORD": "your_password"
     }
 }
 ```
@@ -64,7 +64,7 @@ Create `.vscode/launch.json` to debug a service:
 - **Module**: `bigbrotr`
 - **Parameters**: `finder --log-level DEBUG --once`
 - **Working directory**: `deployments/bigbrotr`
-- **Environment variables**: `DB_PASSWORD=your_password`
+- **Environment variables**: `DB_ADMIN_PASSWORD=your_password`
 
 ---
 

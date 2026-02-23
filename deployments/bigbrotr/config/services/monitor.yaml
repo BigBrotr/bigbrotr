@@ -6,7 +6,11 @@
 # See _template/config/services/monitor.yaml for all options and documentation.
 # =============================================================================
 
-interval: 3600.0                   # Monitor relays every hour
+pool:
+  user: bigbrotr_writer
+  password_env: DB_WRITER_PASSWORD
+  min_size: 1
+  max_size: 3
 
 metrics:
   enabled: true
@@ -31,6 +35,6 @@ processing:
 
 networks:
   clearnet:
-    max_tasks: 50                  # Concurrent clearnet health checks
+    max_tasks: 100                 # Double the default for faster health checks
   tor:
     enabled: true                  # Monitor Tor (.onion) relays

@@ -16,7 +16,7 @@ cd deployments/myimpl
 
 # 3. Configure environment
 cp .env.example .env
-# Edit .env and set DB_PASSWORD (required)
+# Edit .env and set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD (required)
 
 # 4. Customize schema (optional)
 #    - Edit postgres/init/02_tables.sql to adjust event table columns
@@ -199,7 +199,9 @@ These functions are called by `src/bigbrotr/core/brotr.py` and MUST exist:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DB_PASSWORD` | Yes | PostgreSQL password |
+| `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin password |
+| `DB_WRITER_PASSWORD` | Yes | Writer role password (pipeline services) |
+| `DB_READER_PASSWORD` | Yes | Reader role password (read-only services) |
 | `PRIVATE_KEY` | No | Nostr private key (hex, 64 chars) |
 | `GRAFANA_PASSWORD` | No | Grafana admin password (default: admin) |
 | `FINDER_METRICS_PORT` | No | Finder Prometheus port (default: 8001) |

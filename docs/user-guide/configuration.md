@@ -20,7 +20,7 @@ flowchart TD
     A["CLI invocation<br/><small>python -m bigbrotr &lt;service&gt;</small>"] --> B["Brotr.from_yaml<br/><small>config/brotr.yaml</small>"]
     B --> C["Service.from_yaml<br/><small>config/services/&lt;service&gt;.yaml</small>"]
     C --> D["Pydantic validation<br/><small>field constraints, cross-field checks</small>"]
-    D --> E["Environment variable resolution<br/><small>DB_PASSWORD, PRIVATE_KEY</small>"]
+    D --> E["Environment variable resolution<br/><small>DB_ADMIN_PASSWORD, PRIVATE_KEY</small>"]
     E --> F["Service starts<br/><small>validated configuration</small>"]
 
     style A fill:#7B1FA2,color:#fff,stroke:#4A148C
@@ -64,7 +64,9 @@ deployments/
 
 | Variable | Required | Used By | Description |
 |----------|----------|---------|-------------|
-| `DB_PASSWORD` | Yes | All services | PostgreSQL password (referenced by `pool.database.password_env`) |
+| `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer | Admin user password for database initialization and PGBouncer auth |
+| `DB_WRITER_PASSWORD` | Yes | Pipeline services | Writer role password (seeder, finder, validator, monitor, synchronizer) |
+| `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, future API/DVM) |
 | `PRIVATE_KEY` | Monitor, optional for Synchronizer | Monitor, Synchronizer | Nostr private key (64-char hex or `nsec1...` bech32). Required for NIP-66 write tests and event publishing. Optional for Synchronizer NIP-42 authentication. |
 | `GRAFANA_PASSWORD` | Docker only | Grafana | Grafana admin password |
 
@@ -74,13 +76,13 @@ deployments/
 
 ```bash
 cp deployments/bigbrotr/.env.example deployments/bigbrotr/.env
-# Edit and set DB_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit and set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
 ```
 
 **Shell**:
 
 ```bash
-export DB_PASSWORD=your_secure_password
+export DB_WRITER_PASSWORD=your_writer_password
 export PRIVATE_KEY=your_hex_private_key
 ```
 
@@ -88,7 +90,7 @@ export PRIVATE_KEY=your_hex_private_key
 
 ```ini
 [Service]
-Environment="DB_PASSWORD=your_secure_password"
+Environment="DB_WRITER_PASSWORD=your_writer_password"
 Environment="PRIVATE_KEY=your_hex_private_key"
 ```
 
@@ -113,7 +115,7 @@ options:
 
 ## Core Configuration (brotr.yaml)
 
-The Brotr configuration controls the database connection pool and query behavior shared by all services.
+The Brotr configuration controls the database connection pool and query behavior shared by all services. Per-service pool overrides (`user`, `password_env`, `min_size`, `max_size`) are set in each service's YAML file under a `pool:` section (see [Pool Overrides](#pool-overrides)).
 
 !!! tip "API Reference"
     See [`bigbrotr.core.pool.PoolConfig`](../reference/core/pool.md) and [`bigbrotr.core.brotr.BrotrConfig`](../reference/core/brotr.md) for the config class APIs.
@@ -126,12 +128,12 @@ pool:
     host: pgbouncer                          # Database/PGBouncer hostname
     port: 5432                               # Connection port
     database: bigbrotr                       # Database name
-    user: admin                              # Database user
-    password_env: DB_PASSWORD                # Environment variable name for password
+    user: admin                              # Database user (overridden per-service)
+    password_env: DB_ADMIN_PASSWORD                # Env var for password (overridden per-service)
 
   limits:
-    min_size: 5                              # Minimum pool connections
-    max_size: 20                             # Maximum pool connections
+    min_size: 2                              # Minimum pool connections (overridden per-service)
+    max_size: 20                             # Maximum pool connections (overridden per-service)
     max_queries: 50000                       # Queries before connection recycle
     max_inactive_connection_lifetime: 300.0  # Idle connection timeout (seconds)
 
@@ -145,7 +147,7 @@ pool:
     exponential_backoff: true                # Use exponential backoff
 
   server_settings:
-    application_name: bigbrotr               # Shown in pg_stat_activity
+    application_name: bigbrotr               # Auto-set to service name if omitted
     timezone: UTC                            # Session timezone
     statement_timeout: 300000                # Max query time (milliseconds)
 
@@ -159,6 +161,9 @@ timeouts:
   refresh: null                              # Materialized view refresh (null = no timeout)
 ```
 
+!!! note
+    In production, `brotr.yaml` typically only contains `pool.database.host` and `pool.database.database`. The `user`, `password_env`, `min_size`, and `max_size` are set per-service via pool overrides.
+
 ### Field Reference
 
 #### DatabaseConfig
@@ -168,14 +173,14 @@ timeouts:
 | `host` | string | `localhost` | Database/PGBouncer hostname |
 | `port` | int | `5432` | Connection port (1-65535) |
 | `database` | string | `bigbrotr` | Database name |
-| `user` | string | `admin` | Database username |
-| `password_env` | string | `DB_PASSWORD` | Environment variable containing password |
+| `user` | string | `admin` | Database username (typically overridden per-service via pool overrides) |
+| `password_env` | string | `DB_ADMIN_PASSWORD` | Environment variable containing password (typically overridden per-service) |
 
 #### LimitsConfig
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `min_size` | int | `5` | 1-100 | Minimum pool connections |
+| `min_size` | int | `2` | 1-100 | Minimum pool connections (typically overridden per-service) |
 | `max_size` | int | `20` | 1-200 | Maximum pool connections (must be >= min_size) |
 | `max_queries` | int | `50000` | >= 100 | Queries before connection recycle |
 | `max_inactive_connection_lifetime` | float | `300.0` | - | Idle connection timeout (seconds) |
@@ -199,7 +204,7 @@ timeouts:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `application_name` | string | `bigbrotr` | Application name in pg_stat_activity |
+| `application_name` | string | `bigbrotr` | Application name in pg_stat_activity (auto-set to service name at startup) |
 | `timezone` | string | `UTC` | Session timezone |
 | `statement_timeout` | int | `300000` | Max query time in milliseconds (0 = no limit) |
 
@@ -217,6 +222,55 @@ timeouts:
 | `batch` | float or null | `120.0` | >= 0.1 | Batch insert timeout |
 | `cleanup` | float or null | `90.0` | >= 0.1 | Cleanup procedure timeout |
 | `refresh` | float or null | `null` | >= 0.1 | Materialized view refresh timeout |
+
+---
+
+## Pool Overrides
+
+Each service declares its own database connection settings in its YAML config file under a `pool:` section. These overrides are merged into the shared `brotr.yaml` configuration at startup. This enables per-service role isolation and right-sized connection pools.
+
+### Example
+
+```yaml
+# config/services/monitor.yaml
+pool:
+  user: bigbrotr_writer
+  password_env: DB_WRITER_PASSWORD
+  min_size: 1
+  max_size: 3
+
+# ... rest of monitor config
+```
+
+### Override Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `user` | string | Database role for this service (e.g., `bigbrotr_writer`, `bigbrotr_reader`) |
+| `password_env` | string | Environment variable containing the role's password |
+| `min_size` | int | Minimum pool connections for this service |
+| `max_size` | int | Maximum pool connections for this service |
+| `application_name` | string | Override for `pg_stat_activity` (auto-set to service name if omitted) |
+
+### Merge Behavior
+
+At startup, `__main__.py` extracts the `pool:` section from the service config and applies it to the shared brotr config:
+
+- `user` / `password_env` → `pool.database.user` / `pool.database.password_env`
+- `min_size` / `max_size` → `pool.limits.min_size` / `pool.limits.max_size`
+- `application_name` → `pool.server_settings.application_name` (defaults to service name)
+
+If no `pool:` section is present, the service uses the brotr.yaml defaults.
+
+### Production Pool Sizing
+
+| Service | Role | min | max | Notes |
+|---------|------|-----|-----|-------|
+| Seeder | writer | 1 | 2 | One-shot, minimal connections |
+| Finder | writer | 1 | 3 | Periodic API + event scanning |
+| Validator | writer | 1 | 3 | WebSocket testing + promotion |
+| Monitor | writer | 1 | 3 | Health checks + metadata persistence |
+| Synchronizer | writer | 2 | 5 | Highest throughput service |
 
 ---
 
@@ -646,7 +700,7 @@ All configuration uses Pydantic v2 models with `Field()` constraints:
 
 ```python
 class LimitsConfig(BaseModel):
-    min_size: int = Field(default=5, ge=1, le=100)
+    min_size: int = Field(default=2, ge=1, le=100)
     max_size: int = Field(default=20, ge=1, le=200)
 ```
 
@@ -677,27 +731,32 @@ Some models enforce relationships between fields:
 ### Minimal Development
 
 ```yaml
-# brotr.yaml
+# brotr.yaml -- shared connection settings
 pool:
   database:
     host: localhost
     port: 5432
-  limits:
-    min_size: 2
-    max_size: 5
+```
+
+```yaml
+# services/finder.yaml -- per-service pool overrides
+pool:
+  user: bigbrotr_writer
+  password_env: DB_WRITER_PASSWORD
+  min_size: 1
+  max_size: 3
+
+interval: 3600.0
 ```
 
 ### Production with PGBouncer
 
 ```yaml
-# brotr.yaml
+# brotr.yaml -- host and database only, pool sizing per-service
 pool:
   database:
     host: pgbouncer
-    port: 5432
-  limits:
-    min_size: 10
-    max_size: 50
+    database: bigbrotr
   retry:
     max_attempts: 5
     exponential_backoff: true
@@ -735,7 +794,7 @@ processing:
 
 ## Troubleshooting
 
-**"DB_PASSWORD environment variable not set"** -- Set the environment variable or add it to your `.env` file.
+**"DB_WRITER_PASSWORD environment variable not set"** -- Set the environment variable or add it to your `.env` file. Pipeline services use `DB_WRITER_PASSWORD`, read-only services use `DB_READER_PASSWORD`.
 
 **"Connection refused"** -- Check `pool.database.host`. In Docker, use the service name (`pgbouncer` or `postgres`). Outside Docker, use `localhost`.
 

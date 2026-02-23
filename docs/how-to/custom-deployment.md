@@ -36,20 +36,33 @@ services:
 
 ## Step 3: Configure the Database Connection
 
-Edit `config/brotr.yaml`:
+Edit `config/brotr.yaml` with shared connection settings:
 
 ```yaml
 pool:
   database:
     host: pgbouncer       # Use 'localhost' for manual deployment
-    port: 5432
     database: myproject    # Your database name
-    user: admin
 ```
+
+Per-service pool settings (user, password, pool sizing) are configured in each service's YAML file. See Step 4.
 
 ## Step 4: Customize Service Configs
 
-Edit files in `config/services/`:
+Edit files in `config/services/`. Each service config includes a `pool:` section for per-service database role and pool sizing:
+
+```yaml
+# config/services/finder.yaml
+pool:
+  user: myproject_writer           # Database role for this service
+  password_env: DB_WRITER_PASSWORD # Env var with the role's password
+  min_size: 1
+  max_size: 3
+
+# ... service-specific config below
+```
+
+Service files to customize:
 
 - `seeder.yaml` -- seed file path and insertion mode
 - `finder.yaml` -- discovery interval, API sources, event kinds
@@ -58,7 +71,7 @@ Edit files in `config/services/`:
 - `synchronizer.yaml` -- sync interval, concurrency, event filters
 
 !!! tip
-    The `_template` deployment contains every configuration field with comments. Start by reading the template files, then remove fields where you want the defaults.
+    The `_template` deployment contains every configuration field with comments, including `# <-- CUSTOMIZE` markers for deployment-specific values. Start by reading the template files, then adjust.
 
 ## Step 5: Choose a Schema
 
@@ -86,7 +99,7 @@ wss://nos.lol
 
 ```bash
 cp .env.example .env
-# Edit .env: set DB_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
 chmod 600 .env
 ```
 
@@ -109,6 +122,10 @@ docker compose logs -f seeder
 ```bash
 # Check that the database schema was applied
 docker compose exec postgres psql -U admin -d myproject -c "\dt"
+
+# Verify roles were created
+docker compose exec postgres psql -U admin -d myproject -c \
+    "SELECT rolname FROM pg_roles WHERE rolname LIKE 'myproject_%'"
 
 # Check that the seeder populated candidates
 docker compose logs seeder

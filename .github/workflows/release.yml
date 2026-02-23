@@ -93,7 +93,7 @@ jobs:
           --ignore=tests/integration/
           -v --tb=short
         env:
-          DB_PASSWORD: test_password
+          DB_ADMIN_PASSWORD: test_password
 
   # --------------------------------------------------------------------------
   # Build Python: sdist + wheel + twine check

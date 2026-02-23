@@ -14,6 +14,9 @@ BEGIN
     RAISE NOTICE 'Template database schema initialized successfully';
     RAISE NOTICE '============================================================================';
     RAISE NOTICE '';
+    RAISE NOTICE 'Roles:';
+    RAISE NOTICE '  myimpl_writer (DML + EXECUTE), myimpl_reader (SELECT only)';
+    RAISE NOTICE '';
     RAISE NOTICE 'Extensions: btree_gin';
     RAISE NOTICE '';
     RAISE NOTICE 'Tables:';

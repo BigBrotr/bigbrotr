@@ -109,11 +109,11 @@ Async PostgreSQL connection pool via asyncpg with retry/backoff, health-checked 
 
 ```python
 class PoolConfig(BaseModel):
-    database: DatabaseConfig       # host, port, database, user (password from DB_PASSWORD env)
+    database: DatabaseConfig       # host, port, database, user, password_env (per-service overrides)
     limits: LimitsConfig           # min_size, max_size, max_queries, max_inactive_connection_lifetime
     timeouts: PoolTimeoutsConfig   # acquisition
     retry: PoolRetryConfig         # max_attempts, initial_delay, max_delay, exponential_backoff
-    server_settings: ServerSettingsConfig  # application_name, timezone, statement_timeout
+    server_settings: ServerSettingsConfig  # application_name (auto-set), timezone, statement_timeout
 ```
 
 !!! tip "API Reference"
@@ -535,36 +535,41 @@ All I/O is async:
 
 ```mermaid
 flowchart LR
-    subgraph Application
+    subgraph "Writer Services"
         F["Finder"]
         V["Validator"]
         MO["Monitor"]
         SY["Synchronizer"]
     end
 
-    subgraph "asyncpg Pool"
-        AP["Connection Pool<br/><small>configurable size</small>"]
+    subgraph "Per-Service asyncpg Pool"
+        APW["Writer Pool<br/><small>per-service sizing</small>"]
     end
 
     subgraph PGBouncer
-        PB["Transaction-mode<br/>pooling"]
+        PBW["Writer pool<br/><small>pool_size=10</small>"]
+        PBR["Reader pool<br/><small>pool_size=8</small>"]
     end
 
     subgraph PostgreSQL
-        PG["Database<br/><small>max_connections</small>"]
+        PG["Database<br/><small>max_connections=200</small>"]
     end
 
-    F --> AP
-    V --> AP
-    MO --> AP
-    SY --> AP
-    AP --> PB
-    PB --> PG
+    F --> APW
+    V --> APW
+    MO --> APW
+    SY --> APW
+    APW --> PBW
+    PBW --> PG
+    PBR --> PG
 
-    style AP fill:#512DA8,color:#fff,stroke:#311B92
-    style PB fill:#1565C0,color:#fff,stroke:#0D47A1
+    style APW fill:#512DA8,color:#fff,stroke:#311B92
+    style PBW fill:#1565C0,color:#fff,stroke:#0D47A1
+    style PBR fill:#1565C0,color:#fff,stroke:#0D47A1
     style PG fill:#1B5E20,color:#fff,stroke:#0D3B0F
 ```
+
+Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: a **writer pool** for pipeline services and a **reader pool** for read-only consumers (postgres-exporter, future API/DVM).
 
 ### Per-Network Semaphores
 
@@ -665,13 +670,15 @@ All configuration uses Pydantic v2 models with:
 - Typed fields with defaults and constraints (`Field(ge=1, le=65535)`)
 - Nested models (e.g., `MonitorConfig.networks.clearnet.timeout`)
 - `model_validator` for cross-field validation (e.g., Monitor keys at config load time)
-- Environment variable injection for secrets (`DB_PASSWORD`, `PRIVATE_KEY`)
+- Environment variable injection for secrets (`DB_WRITER_PASSWORD`, `DB_READER_PASSWORD`, `PRIVATE_KEY`)
 
 ### Environment Variables
 
 | Variable | Required | Used By |
 |----------|----------|---------|
-| `DB_PASSWORD` | Yes | Pool (database password) |
+| `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer auth |
+| `DB_WRITER_PASSWORD` | Yes | Pipeline services (via per-service pool overrides) |
+| `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, future API/DVM) |
 | `PRIVATE_KEY` | For Monitor | Monitor (Nostr event signing, RTT write tests) |
 | `GRAFANA_PASSWORD` | No | Grafana (admin password) |
 

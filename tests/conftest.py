@@ -55,7 +55,7 @@ def mock_private_key(monkeypatch: pytest.MonkeyPatch) -> str:
 def mock_db_password(monkeypatch: pytest.MonkeyPatch) -> str:
     """Set up a mock database password in environment."""
     password = "test_password"  # pragma: allowlist secret
-    monkeypatch.setenv("DB_PASSWORD", password)
+    monkeypatch.setenv("DB_ADMIN_PASSWORD", password)
     return password
 
 
