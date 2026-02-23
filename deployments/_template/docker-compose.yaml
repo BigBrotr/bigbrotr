@@ -418,6 +418,43 @@ services:
         max-file: "5"
 
   # --------------------------------------------------------------------------
+  # Postgres Exporter (Database Metrics)
+  # --------------------------------------------------------------------------
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: myimpl-postgres-exporter      # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    environment:
+      DATA_SOURCE_NAME: "postgresql://admin:${DB_PASSWORD}@postgres:5432/myimpl?sslmode=disable"  # <-- CUSTOMIZE db name
+
+    volumes:
+      - ./monitoring/postgres-exporter/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+
+    command:
+      - "--extend.query-path=/etc/postgres-exporter/queries.yaml"
+
+    networks:
+      - myimpl-data-network                       # <-- CUSTOMIZE
+      - myimpl-monitoring-network                  # <-- CUSTOMIZE
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
   # Prometheus (Metrics Collection)
   # --------------------------------------------------------------------------
   prometheus:
