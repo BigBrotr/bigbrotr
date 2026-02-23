@@ -2,9 +2,20 @@
 Validated Nostr relay URL with network type detection.
 
 Parses, normalizes, and validates WebSocket relay URLs (``ws://`` or ``wss://``),
-automatically detecting the network type (clearnet, Tor, I2P, Lokinet) and
-enforcing the correct scheme for each network. Local and private IP addresses
-are rejected.
+automatically detecting the [NetworkType][bigbrotr.models.constants.NetworkType]
+(clearnet, Tor, I2P, Lokinet) and enforcing the correct scheme for each network.
+Local and private IP addresses are rejected.
+
+See Also:
+    [bigbrotr.models.constants][]: Defines the
+        [NetworkType][bigbrotr.models.constants.NetworkType] enum used for classification.
+    [bigbrotr.models.event_relay][]: Links a [Relay][bigbrotr.models.relay.Relay] to an
+        [Event][bigbrotr.models.event.Event] via the ``event_relay`` junction table.
+    [bigbrotr.models.relay_metadata][]: Links a [Relay][bigbrotr.models.relay.Relay] to a
+        [Metadata][bigbrotr.models.metadata.Metadata] record via the ``relay_metadata``
+        junction table.
+    [bigbrotr.utils.transport][]: Uses [Relay][bigbrotr.models.relay.Relay] URLs for
+        WebSocket connectivity checks.
 """
 
 from __future__ import annotations
@@ -18,11 +29,26 @@ from rfc3986 import uri_reference
 from rfc3986.exceptions import UnpermittedComponentError, ValidationError
 from rfc3986.validators import Validator
 
+from ._validation import validate_str_no_null, validate_timestamp
 from .constants import NetworkType
 
 
 class RelayDbParams(NamedTuple):
-    """Positional parameters for the relay database insert procedure."""
+    """Positional parameters for the relay database insert procedure.
+
+    Produced by [Relay.to_db_params()][bigbrotr.models.relay.Relay.to_db_params]
+    and consumed by the ``relay_insert`` stored procedure in PostgreSQL.
+
+    Attributes:
+        url: Fully normalized WebSocket URL including scheme.
+        network: Network type string (e.g., ``"clearnet"``, ``"tor"``).
+        discovered_at: Unix timestamp when the relay was first discovered.
+
+    See Also:
+        [Relay][bigbrotr.models.relay.Relay]: The model that produces these parameters.
+        [Relay.from_db_params()][bigbrotr.models.relay.Relay.from_db_params]: Reconstructs
+            a [Relay][bigbrotr.models.relay.Relay] from these parameters.
+    """
 
     url: str
     network: str
@@ -34,14 +60,15 @@ class Relay:
     """Immutable representation of a Nostr relay.
 
     Validates and normalizes a WebSocket URL on construction, detecting the
-    network type from the hostname. The scheme is enforced per network:
+    [NetworkType][bigbrotr.models.constants.NetworkType] from the hostname.
+    The scheme is enforced per network:
 
     * **clearnet** -- ``wss://`` (TLS required on the public internet)
     * **tor / i2p / loki** -- ``ws://`` (encryption handled by the overlay)
 
     Attributes:
         url: Fully normalized URL including scheme.
-        network: Detected ``NetworkType`` enum value.
+        network: Detected [NetworkType][bigbrotr.models.constants.NetworkType] enum value.
         scheme: URL scheme (``ws`` or ``wss``).
         host: Hostname or IP address (brackets stripped for IPv6).
         port: Explicit port number, or ``None`` when using the default.
@@ -62,13 +89,33 @@ class Relay:
         # RelayDbParams(url='wss://relay.damus.io', network='clearnet', ...)
         ```
 
-        Overlay networks automatically use `ws://`:
+        Overlay networks automatically use ``ws://``:
 
         ```python
         tor_relay = Relay("wss://abc123.onion")
         tor_relay.scheme    # 'ws'
         tor_relay.network   # NetworkType.TOR
         ```
+
+    Note:
+        [from_db_params()][bigbrotr.models.relay.Relay.from_db_params] always
+        re-parses the URL through ``__post_init__``, re-detecting the network type
+        rather than trusting the stored ``network`` value. This is by design for
+        safety -- it guarantees that a Relay instance is always fully validated,
+        even when reconstructed from the database.
+
+        Computed fields are set via ``object.__setattr__`` in ``__post_init__``
+        because the dataclass is frozen. This is the standard workaround and is
+        safe because it runs during ``__init__`` before the instance is exposed.
+
+    See Also:
+        [NetworkType][bigbrotr.models.constants.NetworkType]: Enum of supported network types.
+        [RelayDbParams][bigbrotr.models.relay.RelayDbParams]: Database parameter container
+            produced by [to_db_params()][bigbrotr.models.relay.Relay.to_db_params].
+        [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]: Junction linking
+            a relay to a [Metadata][bigbrotr.models.metadata.Metadata] record.
+        [EventRelay][bigbrotr.models.event_relay.EventRelay]: Junction linking a relay
+            to an [Event][bigbrotr.models.event.Event].
     """
 
     # Input fields
@@ -82,8 +129,12 @@ class Relay:
     host: str = field(init=False)
     port: int | None = field(init=False)
     path: str | None = field(init=False)
-    _db_params: RelayDbParams | None = field(
-        default=None, init=False, repr=False, compare=False, hash=False
+    _db_params: RelayDbParams = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,  # type: ignore[assignment]
     )
 
     # Standard default ports for WebSocket schemes
@@ -138,10 +189,11 @@ class Relay:
         """Parse and validate the raw URL, populating all computed fields.
 
         Raises:
+            TypeError: If field types are incorrect.
             ValueError: If the URL is invalid, local, or contains null bytes.
         """
-        if "\x00" in self.raw_url:
-            raise ValueError("Relay URL contains null bytes")
+        validate_str_no_null(self.raw_url, "raw_url")
+        validate_timestamp(self.discovered_at, "discovered_at")
 
         parsed = self._parse(self.raw_url)
 
@@ -164,18 +216,24 @@ class Relay:
 
     @staticmethod
     def _detect_network(host: str) -> NetworkType:
-        """Classify a hostname into a network type.
+        """Classify a hostname into a [NetworkType][bigbrotr.models.constants.NetworkType].
 
-        Checks overlay network TLDs first, then tests whether the host
-        is a known local/private IP, and finally validates standard
+        Checks overlay network TLDs first (``.onion``, ``.i2p``, ``.loki``),
+        then tests whether the host is a known local/private IP against the
+        IANA special-purpose registries, and finally validates standard
         domain name format.
 
         Args:
             host: Hostname or IP address string to classify.
 
         Returns:
-            The detected NetworkType. Returns ``UNKNOWN`` for empty or
-            invalid hostnames, and ``LOCAL`` for private/reserved IPs.
+            The detected [NetworkType][bigbrotr.models.constants.NetworkType].
+            Returns ``UNKNOWN`` for empty or invalid hostnames, and ``LOCAL``
+            for private/reserved IPs.
+
+        Note:
+            Both ``LOCAL`` and ``UNKNOWN`` results cause ``__post_init__`` to
+            raise ``ValueError``, preventing construction of invalid relays.
         """
         if not host:
             return NetworkType.UNKNOWN
@@ -209,8 +267,9 @@ class Relay:
     def _parse(raw: str) -> dict[str, Any]:
         """Parse and normalize a raw relay URL string.
 
-        Validates the URI structure using RFC 3986, detects the network
-        type, enforces the correct WebSocket scheme, normalizes the path,
+        Validates the URI structure using RFC 3986 (via ``rfc3986`` library),
+        detects the [NetworkType][bigbrotr.models.constants.NetworkType],
+        enforces the correct WebSocket scheme, normalizes the path,
         and strips default ports.
 
         Args:
@@ -221,7 +280,8 @@ class Relay:
             ``host``, ``port``, ``path``, and ``network``.
 
         Raises:
-            ValueError: If the scheme is not ``ws``/``wss`` or the URI is invalid.
+            ValueError: If the scheme is not ``ws``/``wss``, the URI is
+                structurally invalid, or it contains query strings or fragments.
         """
         uri = uri_reference(raw.strip()).normalize()
 
@@ -277,6 +337,23 @@ class Relay:
             "network": network,
         }
 
+    def _compute_db_params(self) -> RelayDbParams:
+        """Compute positional parameters for the database insert procedure.
+
+        Called once during ``__post_init__`` to populate the ``_db_params``
+        cache. All subsequent access goes through
+        [to_db_params()][bigbrotr.models.relay.Relay.to_db_params].
+
+        Returns:
+            [RelayDbParams][bigbrotr.models.relay.RelayDbParams] with the
+            normalized URL, network name, and discovery timestamp.
+        """
+        return RelayDbParams(
+            url=self.url,
+            network=self.network,
+            discovered_at=self.discovered_at,
+        )
+
     def to_db_params(self) -> RelayDbParams:
         """Return cached positional parameters for the database insert procedure.
 
@@ -285,39 +362,29 @@ class Relay:
         conversions.
 
         Returns:
-            RelayDbParams with the normalized URL, network name, and
-            discovery timestamp.
+            [RelayDbParams][bigbrotr.models.relay.RelayDbParams] with the
+            normalized URL, network name, and discovery timestamp.
         """
-        assert self._db_params is not None  # noqa: S101  # Always set in __post_init__
         return self._db_params
-
-    def _compute_db_params(self) -> RelayDbParams:
-        """Compute positional parameters for the database insert procedure.
-
-        Called once during ``__post_init__`` to populate the ``_db_params``
-        cache. All subsequent access goes through ``to_db_params()``.
-
-        Returns:
-            RelayDbParams with the normalized URL, network name, and
-            discovery timestamp.
-        """
-        return RelayDbParams(
-            url=self.url,
-            network=self.network,
-            discovered_at=self.discovered_at,
-        )
 
     @classmethod
     def from_db_params(cls, params: RelayDbParams) -> Relay:
-        """Reconstruct a Relay from database parameters.
+        """Reconstruct a [Relay][bigbrotr.models.relay.Relay] from database parameters.
 
-        The URL is re-parsed and re-validated; the ``network`` field in
-        *params* is not used directly because it is recomputed from the URL.
+        The URL is re-parsed and re-validated through ``__post_init__``; the
+        ``network`` field in *params* is **not** used directly because it is
+        recomputed from the URL.
 
         Args:
-            params: Database row values previously produced by ``to_db_params()``.
+            params: Database row values previously produced by
+                [to_db_params()][bigbrotr.models.relay.Relay.to_db_params].
 
         Returns:
-            A new Relay instance.
+            A new [Relay][bigbrotr.models.relay.Relay] instance.
+
+        Note:
+            The re-parsing behavior is intentional -- it guarantees that every
+            Relay instance is fully validated regardless of origin, at the cost
+            of a small overhead on reconstruction.
         """
         return cls(params.url, params.discovered_at)

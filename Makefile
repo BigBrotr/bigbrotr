@@ -3,7 +3,7 @@
 # ============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help install pre-commit lint format typecheck test-unit test-integration test-fast coverage ci docs docs-serve build docker-build docker-up docker-down clean
+.PHONY: help install pre-commit lint format format-check typecheck test test-unit test-integration test-fast coverage audit sql-generate sql-check ci docs docs-serve build docker-build docker-up docker-down clean
 
 DEPLOYMENT ?= bigbrotr
 
@@ -16,7 +16,7 @@ help: ## Show this help
 		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install: ## Install package with dev dependencies and pre-commit hooks
-	pip install -e ".[dev]"
+	uv sync --group dev --group docs
 	pre-commit install
 
 pre-commit: ## Run all pre-commit hooks on all files
@@ -25,8 +25,11 @@ pre-commit: ## Run all pre-commit hooks on all files
 lint: ## Run ruff linter
 	ruff check src/ tests/
 
-format: ## Run ruff formatter
+format: ## Format code with ruff
 	ruff format src/ tests/
+
+format-check: ## Check formatting without modifying files
+	ruff format --check src/ tests/
 
 typecheck: ## Run mypy type checker
 	mypy src/bigbrotr
@@ -35,23 +38,40 @@ typecheck: ## Run mypy type checker
 # Testing
 # --------------------------------------------------------------------------
 
-test-unit: ## Run unit tests with verbose output
-	pytest tests/ --ignore=tests/integration/ -v --tb=short
+test: test-unit ## Run unit tests (alias for test-unit)
+
+test-unit: ## Run unit tests
+	pytest tests/ --ignore=tests/integration/
 
 test-integration: ## Run integration tests (requires Docker)
-	pytest tests/integration/ -v --tb=short --timeout=120
+	pytest tests/integration/
 
 test-fast: ## Run unit tests without slow markers
-	pytest tests/ --ignore=tests/integration/ -v --tb=short -m "not slow"
+	pytest tests/ --ignore=tests/integration/ -m "not slow"
 
 coverage: ## Run unit tests with coverage report
-	pytest tests/ --ignore=tests/integration/ --cov=src/bigbrotr --cov-report=term-missing --cov-report=html -v
+	pytest tests/ --ignore=tests/integration/ --cov=src/bigbrotr --cov-report=term-missing --cov-report=html
+
+# --------------------------------------------------------------------------
+# Quality
+# --------------------------------------------------------------------------
+
+audit: ## Run uv-secure for dependency vulnerabilities
+	uv-secure uv.lock
+
+sql-generate: ## Regenerate SQL from templates
+	python3 tools/generate_sql.py
+
+sql-check: ## Verify generated SQL matches templates
+	python3 tools/generate_sql.py --check
+
+ci: lint format-check typecheck test-unit sql-check audit ## Run all quality checks
 
 # --------------------------------------------------------------------------
 # Documentation
 # --------------------------------------------------------------------------
 
-docs: ## Build documentation site
+docs: ## Build documentation site (strict mode)
 	mkdocs build --strict
 
 docs-serve: ## Serve documentation locally with live reload
@@ -62,14 +82,7 @@ docs-serve: ## Serve documentation locally with live reload
 # --------------------------------------------------------------------------
 
 build: ## Build Python package (sdist + wheel)
-	python -m build
-	twine check dist/*
-
-# --------------------------------------------------------------------------
-# Quality
-# --------------------------------------------------------------------------
-
-ci: lint format typecheck test-unit ## Run all quality checks (lint, format, typecheck, test)
+	uv build
 
 # --------------------------------------------------------------------------
 # Docker
@@ -89,9 +102,10 @@ docker-down: ## Stop deployment stack (DEPLOYMENT=bigbrotr|lilbrotr)
 # --------------------------------------------------------------------------
 
 clean: ## Remove build artifacts and caches
-	rm -rf build/ dist/ *.egg-info .eggs/
+	rm -rf build/ dist/ .eggs/
 	rm -rf .mypy_cache/ .pytest_cache/ .ruff_cache/
 	rm -rf htmlcov/ coverage.xml .coverage
 	rm -rf site/
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	find . -type d -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name '*.pyc' -delete 2>/dev/null || true

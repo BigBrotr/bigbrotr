@@ -52,22 +52,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+        with:
+          enable-cache: true
+
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION_DEFAULT }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv sync --frozen --group dev
 
       - name: Verify version matches tag
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          PKG_VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          PKG_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           if [[ "$TAG_VERSION" != "$PKG_VERSION" ]]; then
             echo "::error::Tag version ($TAG_VERSION) does not match pyproject.toml ($PKG_VERSION)"
             exit 1
@@ -88,11 +89,11 @@ jobs:
 
       - name: Run unit tests
         run: >-
-          pytest tests/
+          uv run pytest tests/
           --ignore=tests/integration/
           -v --tb=short
         env:
-          DB_PASSWORD: test_password
+          DB_ADMIN_PASSWORD: test_password
 
   # --------------------------------------------------------------------------
   # Build Python: sdist + wheel + twine check
@@ -108,19 +109,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION_DEFAULT }}
 
-      - name: Install build tools
-        run: pip install build twine
-
       - name: Build sdist and wheel
-        run: python -m build
+        run: uv build
 
       - name: Validate package metadata
-        run: twine check dist/*
+        run: |
+          uv tool install twine
+          twine check dist/*
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -150,10 +153,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Build image
+      - name: Build image (amd64 for scan)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -163,6 +169,7 @@ jobs:
             VERSION=${{ github.ref_name }}
           push: false
           load: true
+          platforms: linux/amd64
           tags: ${{ matrix.deployment }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.deployment }}
           cache-to: type=gha,scope=${{ matrix.deployment }},mode=max
@@ -210,7 +217,7 @@ jobs:
           retention-days: 5
 
   # --------------------------------------------------------------------------
-  # Publish to PyPI (OIDC trusted publisher)
+  # Publish to PyPI (OIDC trusted publisher via uv)
   # --------------------------------------------------------------------------
   publish-pypi:
     name: Publish to PyPI
@@ -221,6 +228,9 @@ jobs:
       id-token: write
     environment: pypi
     steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+
       - name: Download package artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -228,7 +238,7 @@ jobs:
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+        run: uv publish --trusted-publishing always dist/*
 
   # --------------------------------------------------------------------------
   # Publish to GHCR (cache-hit rebuild + push)
@@ -249,6 +259,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -280,6 +293,7 @@ jobs:
             DEPLOYMENT=${{ matrix.deployment }}
             VERSION=${{ github.ref_name }}
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.deployment }}
@@ -337,9 +351,10 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NOTES: ${{ steps.changelog.outputs.notes }}
         run: |
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
-            --notes "${{ steps.changelog.outputs.notes }}" \
+            --notes "$RELEASE_NOTES" \
             --verify-tag \
             dist/*.tar.gz dist/*.whl sbom/*.cdx.json

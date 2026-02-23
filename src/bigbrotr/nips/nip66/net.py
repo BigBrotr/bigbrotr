@@ -3,7 +3,30 @@ NIP-66 network metadata container with ASN lookup capabilities.
 
 Resolves a relay's hostname to IPv4/IPv6 addresses and queries the
 GeoIP ASN database for autonomous system number, organization name,
-and CIDR network ranges. Clearnet relays only.
+and CIDR network ranges as part of
+[NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md)
+monitoring. Clearnet relays only.
+
+Note:
+    Hostname resolution uses [resolve_host][bigbrotr.utils.dns.resolve_host]
+    to obtain both IPv4 and IPv6 addresses. The GeoIP ASN database
+    (GeoLite2-ASN) must be provided as an open ``geoip2.database.Reader``
+    -- the caller is responsible for database lifecycle management.
+
+    IPv4 ASN data takes priority; IPv6 ASN data is used only as a fallback
+    when no IPv4 address is available. IPv6-specific network ranges are
+    always recorded separately.
+
+See Also:
+    [bigbrotr.nips.nip66.data.Nip66NetData][bigbrotr.nips.nip66.data.Nip66NetData]:
+        Data model for network/ASN fields.
+    [bigbrotr.nips.nip66.logs.Nip66NetLogs][bigbrotr.nips.nip66.logs.Nip66NetLogs]:
+        Log model for network lookup results.
+    [bigbrotr.nips.nip66.geo.Nip66GeoMetadata][bigbrotr.nips.nip66.geo.Nip66GeoMetadata]:
+        Geolocation test that also uses
+        [resolve_host][bigbrotr.utils.dns.resolve_host] for IP resolution.
+    [bigbrotr.utils.dns.resolve_host][bigbrotr.utils.dns.resolve_host]:
+        DNS resolution utility used to obtain IP addresses.
 """
 
 from __future__ import annotations
@@ -17,7 +40,7 @@ import geoip2.errors
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.dns import resolve_host
 
 from .data import Nip66NetData
@@ -27,11 +50,19 @@ from .logs import Nip66NetLogs
 logger = logging.getLogger("bigbrotr.nips.nip66")
 
 
-class Nip66NetMetadata(BaseMetadata):
+class Nip66NetMetadata(BaseNipMetadata):
     """Container for network/ASN data and lookup logs.
 
     Provides the ``execute()`` class method that resolves the relay hostname
     and performs GeoIP ASN lookups for both IPv4 and IPv6 addresses.
+
+    See Also:
+        [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
+            Top-level model that orchestrates this alongside other tests.
+        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+            The ``NIP66_NET`` variant used when storing these results.
+        [bigbrotr.nips.nip66.geo.Nip66GeoMetadata][bigbrotr.nips.nip66.geo.Nip66GeoMetadata]:
+            Geolocation test that shares the IP resolution step.
     """
 
     data: Nip66NetData
@@ -110,14 +141,16 @@ class Nip66NetMetadata(BaseMetadata):
 
         Returns:
             An ``Nip66NetMetadata`` instance with network data and logs.
-
-        Raises:
-            ValueError: If the relay is not on the clearnet network.
         """
         logger.debug("net_testing relay=%s", relay.url)
 
         if relay.network != NetworkType.CLEARNET:
-            raise ValueError(f"net lookup requires clearnet, got {relay.network.value}")
+            return cls(
+                data=Nip66NetData(),
+                logs=Nip66NetLogs(
+                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                ),
+            )
 
         logs: dict[str, Any] = {"success": False, "reason": None}
 

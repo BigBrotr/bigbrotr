@@ -7,7 +7,11 @@
 # See _template/config/services/synchronizer.yaml for all options and documentation.
 # =============================================================================
 
-interval: 900.0                    # Sync every 15 minutes
+pool:
+  user: bigbrotr_writer
+  password_env: DB_WRITER_PASSWORD
+  min_size: 2
+  max_size: 5
 
 metrics:
   enabled: true
@@ -15,17 +19,9 @@ metrics:
 
 networks:
   clearnet:
-    max_tasks: 10                  # Reduced from default 50 to limit resource usage
+    max_tasks: 100                 # Double the default for faster sync
   tor:
     enabled: true                  # Sync from Tor (.onion) relays
-    max_tasks: 5                   # Lower concurrency for Tor network limitations
-  i2p:
-    max_tasks: 3                   # Lower concurrency for I2P network limitations
-  loki:
-    max_tasks: 3                   # Lower concurrency for Lokinet limitations
-
-concurrency:
-  max_parallel: 20                 # Concurrent relay connections
 
 overrides:
   - url: "wss://relay.damus.io"

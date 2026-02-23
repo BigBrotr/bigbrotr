@@ -39,13 +39,13 @@
  * Returns: Number of newly inserted rows
 {% endblock %}
 {% block events_insert_params %}
-    p_event_ids BYTEA[],
-    p_pubkeys BYTEA[],
-    p_created_ats BIGINT[],
-    p_kinds INTEGER[],
-    p_tags JSONB[],           -- Used to compute tagvalues, NOT stored
-    p_content_values TEXT[],  -- Accepted but NOT stored
-    p_sigs BYTEA[]            -- Accepted but NOT stored
+    p_event_ids BYTEA [],
+    p_pubkeys BYTEA [],
+    p_created_ats BIGINT [],
+    p_kinds INTEGER [],
+    p_tags JSONB [],           -- Used to compute tagvalues, NOT stored
+    p_content_values TEXT [],  -- Accepted but NOT stored
+    p_sigs BYTEA []            -- Accepted but NOT stored
 {% endblock %}
 {% block events_insert_body %}
     -- Store only essential fields; compute tagvalues from tags, discard the rest
@@ -70,17 +70,17 @@
  * Returns: Number of junction rows inserted in event_relay
  */
 CREATE OR REPLACE FUNCTION event_relay_insert_cascade(
-    p_event_ids BYTEA[],
-    p_pubkeys BYTEA[],
-    p_created_ats BIGINT[],
-    p_kinds INTEGER[],
-    p_tags JSONB[],           -- Used to compute tagvalues, NOT stored
-    p_content_values TEXT[],  -- Accepted but NOT stored
-    p_sigs BYTEA[],           -- Accepted but NOT stored
-    p_relay_urls TEXT[],
-    p_relay_networks TEXT[],
-    p_relay_discovered_ats BIGINT[],
-    p_seen_ats BIGINT[]
+    p_event_ids BYTEA [],
+    p_pubkeys BYTEA [],
+    p_created_ats BIGINT [],
+    p_kinds INTEGER [],
+    p_tags JSONB [],           -- Used to compute tagvalues, NOT stored
+    p_content_values TEXT [],  -- Accepted but NOT stored
+    p_sigs BYTEA [],           -- Accepted but NOT stored
+    p_relay_urls TEXT [],
+    p_relay_networks TEXT [],
+    p_relay_discovered_ats BIGINT [],
+    p_seen_ats BIGINT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -105,7 +105,10 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION event_relay_insert_cascade(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[], TEXT[], TEXT[], BIGINT[], BIGINT[]) IS
+COMMENT ON FUNCTION event_relay_insert_cascade(
+    BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA [],
+    TEXT [], TEXT [], BIGINT [], BIGINT []
+) IS
 'Atomically insert events with relays and junctions (lightweight), returns junction row count';
 {% endblock %}
 {% block service_data_functions %}
@@ -118,43 +121,44 @@ COMMENT ON FUNCTION event_relay_insert_cascade(BYTEA[], BYTEA[], BIGINT[], INTEG
  * service_state_upsert(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[]) -> VOID
  *
  * Bulk upsert (insert or replace) service state records. When a record with
- * the same (service_name, state_type, state_key) already exists, its payload
- * and timestamp are fully replaced. DISTINCT ON deduplicates within the batch.
+ * the same (service_name, state_type, state_key) already exists, its
+ * state_value and timestamp are fully replaced. DISTINCT ON deduplicates
+ * within the batch.
  */
 CREATE OR REPLACE FUNCTION service_state_upsert(
-    p_service_names TEXT[],
-    p_state_types TEXT[],
-    p_state_keys TEXT[],
-    p_payloads JSONB[],
-    p_updated_ats BIGINT[]
+    p_service_names TEXT [],
+    p_state_types TEXT [],
+    p_state_keys TEXT [],
+    p_state_values JSONB [],
+    p_updated_ats BIGINT []
 )
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    INSERT INTO service_state (service_name, state_type, state_key, payload, updated_at)
+    INSERT INTO service_state (service_name, state_type, state_key, state_value, updated_at)
     SELECT DISTINCT ON (service_name, state_type, state_key)
-        service_name, state_type, state_key, payload, updated_at
+        service_name, state_type, state_key, state_value, updated_at
     FROM unnest(
         p_service_names,
         p_state_types,
         p_state_keys,
-        p_payloads,
+        p_state_values,
         p_updated_ats
-    ) AS t(service_name, state_type, state_key, payload, updated_at)
+    ) AS t(service_name, state_type, state_key, state_value, updated_at)
     ON CONFLICT (service_name, state_type, state_key)
     DO UPDATE SET
-        payload = EXCLUDED.payload,
+        state_value = EXCLUDED.state_value,
         updated_at = EXCLUDED.updated_at;
 END;
 $$;
 
-COMMENT ON FUNCTION service_state_upsert(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[]) IS
+COMMENT ON FUNCTION service_state_upsert(TEXT [], TEXT [], TEXT [], JSONB [], BIGINT []) IS
 'Bulk upsert service state with deduplication and full replacement semantics';
 
 
 /*
- * service_state_get(TEXT, TEXT, TEXT) -> TABLE(state_key, payload, updated_at)
+ * service_state_get(TEXT, TEXT, TEXT) -> TABLE(state_key, state_value, updated_at)
  *
  * Retrieves service state records. When p_state_key is provided, returns the
  * single matching record. When NULL, returns all records for the given
@@ -167,7 +171,7 @@ CREATE OR REPLACE FUNCTION service_state_get(
 )
 RETURNS TABLE (
     state_key TEXT,
-    payload JSONB,
+    state_value JSONB,
     updated_at BIGINT
 )
 LANGUAGE plpgsql
@@ -175,14 +179,14 @@ AS $$
 BEGIN
     IF p_state_key IS NOT NULL THEN
         RETURN QUERY
-        SELECT ss.state_key, ss.payload, ss.updated_at
+        SELECT ss.state_key, ss.state_value, ss.updated_at
         FROM service_state ss
         WHERE ss.service_name = p_service_name
           AND ss.state_type = p_state_type
           AND ss.state_key = p_state_key;
     ELSE
         RETURN QUERY
-        SELECT ss.state_key, ss.payload, ss.updated_at
+        SELECT ss.state_key, ss.state_value, ss.updated_at
         FROM service_state ss
         WHERE ss.service_name = p_service_name
           AND ss.state_type = p_state_type
@@ -203,9 +207,9 @@ COMMENT ON FUNCTION service_state_get IS
  * Returns: Number of rows deleted
  */
 CREATE OR REPLACE FUNCTION service_state_delete(
-    p_service_names TEXT[],
-    p_state_types TEXT[],
-    p_state_keys TEXT[]
+    p_service_names TEXT [],
+    p_state_types TEXT [],
+    p_state_keys TEXT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -228,6 +232,6 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION service_state_delete(TEXT[], TEXT[], TEXT[]) IS
+COMMENT ON FUNCTION service_state_delete(TEXT [], TEXT [], TEXT []) IS
 'Bulk delete service state records, returns number of rows deleted';
 {% endblock %}

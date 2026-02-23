@@ -17,52 +17,13 @@ from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.rtt import Nip66RttDependencies, Nip66RttMetadata
-
-
-class TestNip66RttMetadataValidateNetwork:
-    """Test Nip66RttMetadata._validate_network() method."""
-
-    def test_clearnet_without_proxy_valid(self, relay: Relay) -> None:
-        """Clearnet relay without proxy is valid."""
-        # Should not raise
-        Nip66RttMetadata._validate_network(relay, None)
-
-    def test_clearnet_with_proxy_valid(self, relay: Relay) -> None:
-        """Clearnet relay with proxy is valid."""
-        Nip66RttMetadata._validate_network(relay, "socks5://localhost:9050")
-
-    def test_tor_without_proxy_raises(self, tor_relay: Relay) -> None:
-        """Tor relay without proxy raises ValueError."""
-        with pytest.raises(ValueError, match="overlay network tor requires proxy"):
-            Nip66RttMetadata._validate_network(tor_relay, None)
-
-    def test_tor_with_proxy_valid(self, tor_relay: Relay) -> None:
-        """Tor relay with proxy is valid."""
-        Nip66RttMetadata._validate_network(tor_relay, "socks5://localhost:9050")
-
-    def test_i2p_without_proxy_raises(self, i2p_relay: Relay) -> None:
-        """I2P relay without proxy raises ValueError."""
-        with pytest.raises(ValueError, match="overlay network i2p requires proxy"):
-            Nip66RttMetadata._validate_network(i2p_relay, None)
-
-    def test_i2p_with_proxy_valid(self, i2p_relay: Relay) -> None:
-        """I2P relay with proxy is valid."""
-        Nip66RttMetadata._validate_network(i2p_relay, "socks5://localhost:4447")
-
-    def test_loki_without_proxy_raises(self, loki_relay: Relay) -> None:
-        """Lokinet relay without proxy raises ValueError."""
-        with pytest.raises(ValueError, match="overlay network loki requires proxy"):
-            Nip66RttMetadata._validate_network(loki_relay, None)
 
 
 class TestNip66RttMetadataTestOpen:
     """Test Nip66RttMetadata._test_open() phase method."""
 
-    @pytest.mark.asyncio
     async def test_successful_connection_returns_client_and_rtt(
         self,
         relay: Relay,
@@ -75,7 +36,7 @@ class TestNip66RttMetadataTestOpen:
         async def mock_connect(*args: Any, **kwargs: Any) -> MagicMock:
             return mock_nostr_client
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             client, rtt_open = await Nip66RttMetadata._test_open(
                 relay, mock_keys, None, 10.0, allow_insecure=True, logs=logs
             )
@@ -87,7 +48,6 @@ class TestNip66RttMetadataTestOpen:
         # _test_open only sets logs on failure; success is set by the caller
         assert "open_success" not in logs
 
-    @pytest.mark.asyncio
     async def test_connection_failure_returns_none_and_sets_logs(
         self,
         relay: Relay,
@@ -99,7 +59,7 @@ class TestNip66RttMetadataTestOpen:
         async def mock_connect(*args: Any, **kwargs: Any) -> None:
             raise TimeoutError("Connection refused")
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             client, rtt_open = await Nip66RttMetadata._test_open(
                 relay, mock_keys, None, 10.0, allow_insecure=True, logs=logs
             )
@@ -111,7 +71,6 @@ class TestNip66RttMetadataTestOpen:
         assert logs["read_success"] is False
         assert logs["write_success"] is False
 
-    @pytest.mark.asyncio
     async def test_connection_with_proxy(
         self,
         relay: Relay,
@@ -132,7 +91,7 @@ class TestNip66RttMetadataTestOpen:
             assert proxy_url == "socks5://localhost:9050"
             return mock_nostr_client
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             client, _ = await Nip66RttMetadata._test_open(
                 relay, mock_keys, proxy_url, 10.0, allow_insecure=True, logs=logs
             )
@@ -143,7 +102,6 @@ class TestNip66RttMetadataTestOpen:
 class TestNip66RttMetadataTestRead:
     """Test Nip66RttMetadata._test_read() phase method."""
 
-    @pytest.mark.asyncio
     async def test_successful_read_returns_rtt(
         self,
         mock_nostr_client: MagicMock,
@@ -160,7 +118,6 @@ class TestNip66RttMetadataTestRead:
         assert result["rtt_read"] >= 0
         assert result["read_reason"] is None
 
-    @pytest.mark.asyncio
     async def test_no_events_returns_failure(
         self,
         mock_nostr_client: MagicMock,
@@ -179,7 +136,6 @@ class TestNip66RttMetadataTestRead:
         assert result["rtt_read"] is None
         assert "no events returned" in result["read_reason"]
 
-    @pytest.mark.asyncio
     async def test_exception_returns_failure(
         self,
         mock_nostr_client: MagicMock,
@@ -196,7 +152,6 @@ class TestNip66RttMetadataTestRead:
         assert result["rtt_read"] is None
         assert "Stream error" in result["read_reason"]
 
-    @pytest.mark.asyncio
     async def test_uses_timeout_in_stream_events(
         self,
         mock_nostr_client: MagicMock,
@@ -215,7 +170,6 @@ class TestNip66RttMetadataTestRead:
 class TestNip66RttMetadataTestWrite:
     """Test Nip66RttMetadata._test_write() phase method."""
 
-    @pytest.mark.asyncio
     async def test_successful_write_with_verification(
         self,
         mock_nostr_client: MagicMock,
@@ -253,7 +207,6 @@ class TestNip66RttMetadataTestWrite:
         assert isinstance(result["rtt_write"], int)
         assert result["write_reason"] is None
 
-    @pytest.mark.asyncio
     async def test_write_rejected_by_relay(
         self,
         mock_nostr_client: MagicMock,
@@ -282,7 +235,6 @@ class TestNip66RttMetadataTestWrite:
         assert result["rtt_write"] is None
         assert "auth-required" in result["write_reason"]
 
-    @pytest.mark.asyncio
     async def test_no_response_from_relay(
         self,
         mock_nostr_client: MagicMock,
@@ -310,7 +262,6 @@ class TestNip66RttMetadataTestWrite:
         assert result["write_success"] is False
         assert "no response from relay" in result["write_reason"]
 
-    @pytest.mark.asyncio
     async def test_exception_during_write(
         self,
         mock_nostr_client: MagicMock,
@@ -333,7 +284,6 @@ class TestNip66RttMetadataTestWrite:
         assert result["write_success"] is False
         assert "Send error" in result["write_reason"]
 
-    @pytest.mark.asyncio
     async def test_verification_fails(
         self,
         mock_nostr_client: MagicMock,
@@ -371,7 +321,6 @@ class TestNip66RttMetadataTestWrite:
 class TestNip66RttMetadataVerifyWrite:
     """Test Nip66RttMetadata._verify_write() method."""
 
-    @pytest.mark.asyncio
     async def test_successful_verification(self, mock_nostr_client: MagicMock) -> None:
         """Successful verification returns verified=True."""
         from nostr_sdk import EventId
@@ -390,7 +339,6 @@ class TestNip66RttMetadataVerifyWrite:
         assert result["verified"] is True
         assert result["reason"] is None
 
-    @pytest.mark.asyncio
     async def test_event_not_found(self, mock_nostr_client: MagicMock) -> None:
         """Event not found returns verified=False."""
         from nostr_sdk import EventId
@@ -408,7 +356,6 @@ class TestNip66RttMetadataVerifyWrite:
         assert result["verified"] is False
         assert "accepted but not retrievable" in result["reason"]
 
-    @pytest.mark.asyncio
     async def test_exception_during_verification(self, mock_nostr_client: MagicMock) -> None:
         """Exception during verification returns verified=False."""
         from nostr_sdk import EventId
@@ -427,13 +374,11 @@ class TestNip66RttMetadataVerifyWrite:
 class TestNip66RttMetadataCleanup:
     """Test Nip66RttMetadata._cleanup() method."""
 
-    @pytest.mark.asyncio
     async def test_successful_disconnect(self, mock_nostr_client: MagicMock) -> None:
         """Cleanup disconnects the client."""
         await Nip66RttMetadata._cleanup(mock_nostr_client)
         mock_nostr_client.disconnect.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_disconnect_exception_suppressed(self, mock_nostr_client: MagicMock) -> None:
         """Exceptions during disconnect are suppressed."""
         mock_nostr_client.disconnect = AsyncMock(side_effect=Exception("Disconnect error"))
@@ -445,7 +390,6 @@ class TestNip66RttMetadataCleanup:
 class TestNip66RttMetadataRtt:
     """Test Nip66RttMetadata.execute() main entry point."""
 
-    @pytest.mark.asyncio
     async def test_clearnet_returns_rtt_metadata(
         self,
         relay: Relay,
@@ -462,14 +406,13 @@ class TestNip66RttMetadataRtt:
         async def mock_connect(*args: Any, **kwargs: Any) -> MagicMock:
             return mock_nostr_client
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             result = await Nip66RttMetadata.execute(relay, deps, timeout=10.0)
 
         assert isinstance(result, Nip66RttMetadata)
         assert result.data.rtt_open is not None
         assert result.logs.open_success is True
 
-    @pytest.mark.asyncio
     async def test_connection_failure_returns_rtt_with_failure_logs(
         self,
         relay: Relay,
@@ -485,7 +428,7 @@ class TestNip66RttMetadataRtt:
         async def mock_connect(*args: Any, **kwargs: Any) -> None:
             raise TimeoutError("Connection refused")
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             result = await Nip66RttMetadata.execute(relay, deps, timeout=10.0)
 
         assert isinstance(result, Nip66RttMetadata)
@@ -493,22 +436,23 @@ class TestNip66RttMetadataRtt:
         assert "Connection refused" in result.logs.open_reason
         assert result.data.rtt_open is None
 
-    @pytest.mark.asyncio
-    async def test_overlay_without_proxy_raises(
+    async def test_overlay_without_proxy_returns_failure(
         self,
         tor_relay: Relay,
         mock_keys: MagicMock,
         mock_event_builder: MagicMock,
         mock_read_filter: MagicMock,
     ) -> None:
-        """Overlay network without proxy raises ValueError."""
+        """Overlay network without proxy returns failure."""
         deps = Nip66RttDependencies(
             keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
         )
-        with pytest.raises(ValueError, match="overlay network tor requires proxy"):
-            await Nip66RttMetadata.execute(tor_relay, deps, timeout=10.0, proxy_url=None)
+        result = await Nip66RttMetadata.execute(tor_relay, deps, timeout=10.0, proxy_url=None)
+        assert result.logs.open_success is False
+        assert "overlay network tor requires proxy" in result.logs.open_reason
+        assert result.logs.read_success is False
+        assert result.logs.write_success is False
 
-    @pytest.mark.asyncio
     async def test_overlay_with_proxy_works(
         self,
         tor_relay: Relay,
@@ -525,14 +469,13 @@ class TestNip66RttMetadataRtt:
         async def mock_connect(*args: Any, **kwargs: Any) -> MagicMock:
             return mock_nostr_client
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             result = await Nip66RttMetadata.execute(
                 tor_relay, deps, timeout=10.0, proxy_url="socks5://localhost:9050"
             )
 
         assert isinstance(result, Nip66RttMetadata)
 
-    @pytest.mark.asyncio
     async def test_uses_default_timeout(
         self,
         relay: Relay,
@@ -549,12 +492,11 @@ class TestNip66RttMetadataRtt:
         async def mock_connect(*args: Any, **kwargs: Any) -> MagicMock:
             return mock_nostr_client
 
-        with patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect):
+        with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
             result = await Nip66RttMetadata.execute(relay, deps, timeout=None)
 
         assert isinstance(result, Nip66RttMetadata)
 
-    @pytest.mark.asyncio
     async def test_cleanup_called_after_phases(
         self,
         relay: Relay,
@@ -572,7 +514,7 @@ class TestNip66RttMetadataRtt:
             return mock_nostr_client
 
         with (
-            patch("bigbrotr.utils.transport.connect_relay", side_effect=mock_connect),
+            patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect),
             patch.object(Nip66RttMetadata, "_cleanup", new_callable=AsyncMock) as mock_cleanup,
         ):
             await Nip66RttMetadata.execute(relay, deps, timeout=10.0)

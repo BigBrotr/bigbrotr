@@ -2,8 +2,35 @@
 NIP-66 RTT metadata container with relay probe capabilities.
 
 Tests a relay's round-trip time by measuring connection open, event
-read, and event write latencies. Results are stored as millisecond
-integers alongside detailed logs for each phase.
+read, and event write latencies as defined by
+[NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md).
+Results are stored as millisecond integers alongside detailed logs
+for each phase.
+
+Note:
+    The RTT test executes three sequential phases:
+
+    1. **Open** -- measures WebSocket connection establishment time via
+       [connect_relay][bigbrotr.utils.protocol.connect_relay].
+    2. **Read** -- measures time to receive the first event matching a
+       filter via ``stream_events``.
+    3. **Write** -- measures time to publish an event and verify it can
+       be retrieved back from the relay.
+
+    If the open phase fails, read and write are automatically marked as
+    failed with the same reason (cascading failure). The write phase
+    includes a verification step that re-fetches the published event to
+    confirm the relay actually stored it.
+
+See Also:
+    [bigbrotr.nips.nip66.data.Nip66RttData][bigbrotr.nips.nip66.data.Nip66RttData]:
+        Data model for RTT measurements.
+    [bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]:
+        Multi-phase log model with per-phase success/reason.
+    [bigbrotr.utils.protocol.connect_relay][bigbrotr.utils.protocol.connect_relay]:
+        Transport function used for the open phase.
+    [bigbrotr.utils.keys.KeysConfig][bigbrotr.utils.keys.KeysConfig]:
+        Key management -- RTT probes require signing keys for the write phase.
 """
 
 from __future__ import annotations
@@ -17,9 +44,10 @@ from typing import TYPE_CHECKING, Any, NamedTuple, Self
 
 from nostr_sdk import Filter, NostrSdkError, RelayUrl
 
-from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
+from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .data import Nip66RttData
 from .logs import Nip66RttMultiPhaseLogs
@@ -37,6 +65,12 @@ class Nip66RttDependencies(NamedTuple):
 
     Bundles the signing keys, event builder, and read filter required
     by the RTT measurement phases (open, read, write).
+
+    See Also:
+        [bigbrotr.nips.nip66.nip66.Nip66Dependencies][bigbrotr.nips.nip66.nip66.Nip66Dependencies]:
+            Top-level dependency container that includes these plus GeoIP readers.
+        [bigbrotr.utils.keys.load_keys_from_env][bigbrotr.utils.keys.load_keys_from_env]:
+            Function used to load the signing keys.
     """
 
     keys: Keys
@@ -44,11 +78,24 @@ class Nip66RttDependencies(NamedTuple):
     read_filter: Filter
 
 
-class Nip66RttMetadata(BaseMetadata):
+class Nip66RttMetadata(BaseNipMetadata):
     """Container for RTT measurement data and multi-phase probe logs.
 
     Provides the ``execute()`` class method that connects to a relay and
     measures open, read, and write round-trip times.
+
+    Warning:
+        The ``execute()`` method **never raises exceptions** for transport
+        errors or missing dependencies. All failures are captured in the
+        [Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]
+        fields. Overlay network relays tested without a proxy URL receive
+        an immediate failure result (all phases marked as failed).
+
+    See Also:
+        [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
+            Top-level model that orchestrates this alongside other tests.
+        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+            The ``NIP66_RTT`` variant used when storing these results.
     """
 
     data: Nip66RttData
@@ -66,7 +113,7 @@ class Nip66RttMetadata(BaseMetadata):
         timeout: float | None = None,  # noqa: ASYNC109
         proxy_url: str | None = None,
         *,
-        allow_insecure: bool = True,
+        allow_insecure: bool = False,
     ) -> Self:
         """Test a relay's round-trip times across three phases.
 
@@ -79,18 +126,28 @@ class Nip66RttMetadata(BaseMetadata):
             deps: Grouped dependencies (keys, event_builder, read_filter).
             timeout: Connection timeout in seconds (default: 10.0).
             proxy_url: Optional SOCKS5 proxy URL for overlay networks.
-            allow_insecure: Fall back to unverified SSL (default: True).
+            allow_insecure: Fall back to unverified SSL (default: False).
 
         Returns:
             An ``Nip66RttMetadata`` instance with measurement data and logs.
-
-        Raises:
-            ValueError: If an overlay network relay has no proxy configured.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("rtt_started relay=%s timeout_s=%s proxy=%s", relay.url, timeout, proxy_url)
 
-        cls._validate_network(relay, proxy_url)
+        overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
+        if proxy_url is None and relay.network in overlay_networks:
+            reason = f"overlay network {relay.network.value} requires proxy"
+            return cls(
+                data=Nip66RttData(),
+                logs=Nip66RttMultiPhaseLogs(
+                    open_success=False,
+                    open_reason=reason,
+                    read_success=False,
+                    read_reason=reason,
+                    write_success=False,
+                    write_reason=reason,
+                ),
+            )
 
         rtt_data = cls._empty_rtt_data()
         logs = cls._empty_logs()
@@ -138,17 +195,6 @@ class Nip66RttMetadata(BaseMetadata):
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _validate_network(relay: Relay, proxy_url: str | None) -> None:
-        """Ensure overlay network relays have a proxy configured.
-
-        Raises:
-            ValueError: If the relay is on an overlay network without a proxy.
-        """
-        overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-        if proxy_url is None and relay.network in overlay_networks:
-            raise ValueError(f"overlay network {relay.network.value} requires proxy")
-
-    @staticmethod
     def _empty_rtt_data() -> dict[str, Any]:
         """Return an initialized RTT data dictionary with all fields set to None."""
         return {"rtt_open": None, "rtt_read": None, "rtt_write": None}
@@ -194,7 +240,7 @@ class Nip66RttMetadata(BaseMetadata):
         On failure, sets cascading failure logs for all three phases and
         returns (None, None).
         """
-        from bigbrotr.utils.transport import connect_relay  # noqa: PLC0415 - Avoid circular import
+        from bigbrotr.utils.protocol import connect_relay  # noqa: PLC0415 - Avoid circular import
 
         logger.debug("rtt_connecting relay=%s", relay.url)
         try:
@@ -333,5 +379,6 @@ class Nip66RttMetadata(BaseMetadata):
     @staticmethod
     async def _cleanup(client: Client) -> None:
         """Disconnect the client, suppressing any errors."""
+        # nostr-sdk Rust FFI can raise arbitrary exception types during disconnect.
         with contextlib.suppress(Exception):
             await client.disconnect()

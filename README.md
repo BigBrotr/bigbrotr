@@ -5,6 +5,7 @@
   <img src="https://img.shields.io/badge/docker-compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="MIT License">
   <a href="https://codecov.io/gh/Bigbrotr/bigbrotr"><img src="https://img.shields.io/codecov/c/github/Bigbrotr/bigbrotr?token=LM9D3ABW0L&style=for-the-badge&logo=codecov&logoColor=white&label=coverage" alt="Coverage"></a>
+  <a href="https://bigbrotr.github.io/bigbrotr/"><img src="https://img.shields.io/badge/docs-latest-brightgreen?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Documentation"></a>
 </p>
 
 <h1 align="center">BigBrotr</h1>
@@ -73,7 +74,7 @@ cd bigbrotr/deployments/bigbrotr
 
 # Configure secrets
 cp .env.example .env
-# Edit .env: set DB_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
 
 # Start everything
 docker compose up -d
@@ -94,7 +95,7 @@ This starts PostgreSQL, PGBouncer, Tor proxy, all 5 services, Prometheus, and Gr
 ### Run a Single Service Locally
 
 ```bash
-pip install -e ".[dev]"
+uv sync --group dev
 cd deployments/bigbrotr
 
 # One cycle
@@ -147,7 +148,7 @@ PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 | `relay` | Validated relay URLs with network type and discovery timestamp |
 | `event` | Nostr events (BYTEA ids/pubkeys/sigs for space efficiency) |
 | `event_relay` | Junction: which events were seen at which relays |
-| `metadata` | Content-addressed NIP-11/NIP-66 documents (SHA-256 dedup, `payload` JSONB) |
+| `metadata` | Content-addressed NIP-11/NIP-66 documents (SHA-256 dedup, `data` JSONB) |
 | `relay_metadata` | Time-series snapshots linking relays to metadata records (`metadata_type` column) |
 | `service_state` | Per-service operational data (candidates, cursors, checkpoints) |
 
@@ -249,7 +250,9 @@ JSON mode available for cloud aggregation:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DB_PASSWORD` | Yes | PostgreSQL password |
+| `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin password |
+| `DB_WRITER_PASSWORD` | Yes | Writer role password (pipeline services) |
+| `DB_READER_PASSWORD` | Yes | Reader role password (read-only services) |
 | `PRIVATE_KEY` | For Monitor | Nostr private key (hex or nsec) for event publishing and RTT write tests |
 | `GRAFANA_PASSWORD` | No | Grafana admin password |
 
@@ -276,8 +279,8 @@ All configs use Pydantic v2 validation with typed defaults and constraints.
 
 ```bash
 git clone https://github.com/BigBrotr/bigbrotr.git && cd bigbrotr
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv (one-time)
+uv sync --group dev
 pre-commit install
 ```
 
@@ -317,10 +320,10 @@ make clean            # remove build artifacts and caches
 | Unit Test | pytest (Python 3.11--3.14 matrix) | Unit tests + coverage |
 | Integration Test | pytest + testcontainers | PostgreSQL integration tests |
 | Build | Docker Buildx (matrix) | Multi-deployment image builds + Trivy scan |
-| Security | pip-audit, Trivy, CodeQL | Dependency vulns, container scanning, static analysis |
+| Security | uv-secure, Trivy, CodeQL | Dependency vulns, container scanning, static analysis |
 | Release | PyPI (OIDC) + GHCR | Package + Docker image publishing, SBOM generation |
 | Docs | MkDocs Material | Auto-generated API docs deployed to GitHub Pages |
-| Dependencies | Dependabot | Weekly updates for pip, Docker, GitHub Actions |
+| Dependencies | Dependabot | Weekly updates for uv, Docker, GitHub Actions |
 
 ---
 
@@ -342,8 +345,8 @@ bigbrotr/
 |   |   +-- relay.py                 # URL validation, network detection
 |   |   +-- event.py                 # Nostr event wrapper
 |   |   +-- metadata.py              # Content-addressed metadata (SHA-256)
-|   |   +-- service_state.py         # ServiceState, EventKind, StateType
-|   |   +-- constants.py             # NetworkType enum
+|   |   +-- service_state.py         # ServiceState, ServiceStateType, ServiceStateDbParams
+|   |   +-- constants.py             # NetworkType, ServiceName, EventKind enums
 |   |   +-- event_relay.py           # Event-relay junction
 |   |   +-- relay_metadata.py        # Relay-metadata junction
 |   +-- nips/                        # NIP protocol implementations (I/O)
@@ -440,15 +443,32 @@ BigBrotrError
 | Networking | aiohttp-socks (SOCKS5), dnspython, geoip2, tldextract |
 | Testing | pytest, pytest-asyncio, pytest-cov, testcontainers |
 | Quality | ruff (lint+format), mypy (strict), pre-commit (21 hooks) |
-| CI/CD | GitHub Actions, pip-audit, Trivy, CodeQL, Dependabot |
+| CI/CD | GitHub Actions, uv-secure, Trivy, CodeQL, Dependabot |
 | Containers | Docker, Docker Compose, tini |
+
+---
+
+## Documentation
+
+Full documentation is available at **[bigbrotr.github.io/bigbrotr](https://bigbrotr.github.io/bigbrotr/)**.
+
+| Section | Description |
+|---------|-------------|
+| [Getting Started](https://bigbrotr.github.io/bigbrotr/getting-started/) | Installation, quick start tutorial, first deployment |
+| [User Guide](https://bigbrotr.github.io/bigbrotr/user-guide/) | Architecture, configuration, database, monitoring |
+| [How-to Guides](https://bigbrotr.github.io/bigbrotr/how-to/) | Docker deploy, manual deploy, Tor setup, troubleshooting |
+| [Development](https://bigbrotr.github.io/bigbrotr/development/) | Setup, testing, contributing |
+| [API Reference](https://bigbrotr.github.io/bigbrotr/reference/) | Auto-generated Python API docs |
+| [Changelog](CHANGELOG.md) | Version history and migration guides |
 
 ---
 
 ## Contributing
 
+See the [Contributing Guide](https://bigbrotr.github.io/bigbrotr/development/contributing/) for detailed instructions.
+
 1. Fork and clone
-2. `pip install -e ".[dev]"` and `pre-commit install`
+2. `uv sync --group dev` and `pre-commit install`
 3. Write tests for new functionality
 4. `make ci` -- all checks must pass
 5. Submit a pull request
@@ -465,6 +485,8 @@ MIT -- see [LICENSE](LICENSE).
 
 ## Links
 
+- [Full Documentation](https://bigbrotr.github.io/bigbrotr/)
+- [Changelog](CHANGELOG.md)
 - [Nostr Protocol](https://nostr.com)
 - [NIP-11: Relay Information Document](https://github.com/nostr-protocol/nips/blob/master/11.md)
 - [NIP-66: Relay Discovery and Monitoring](https://github.com/nostr-protocol/nips/blob/master/66.md)

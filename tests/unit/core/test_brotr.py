@@ -27,7 +27,8 @@ from bigbrotr.core.brotr import (
     BrotrTimeoutsConfig,
 )
 from bigbrotr.core.pool import Pool
-from bigbrotr.services.common.constants import ServiceState, ServiceStateKey
+from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 
 
 # ============================================================================
@@ -149,7 +150,7 @@ class TestBrotrInit:
 
     def test_default_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test Brotr with default configuration."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         assert brotr._pool is not None
@@ -187,14 +188,14 @@ class TestBrotrFactoryMethods:
         self, brotr_config_dict: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test Brotr.from_dict() factory method."""
-        monkeypatch.setenv("DB_PASSWORD", "dict_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "dict_pass")
         brotr = Brotr.from_dict(brotr_config_dict)
 
         assert brotr.config.batch.max_size == 500
 
     def test_from_dict_without_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test from_dict creates default pool when not provided."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         config_dict = {"batch": {"max_size": 2000}}
 
         brotr = Brotr.from_dict(config_dict)
@@ -208,7 +209,7 @@ class TestBrotrFactoryMethods:
         """Test Brotr.from_yaml() factory method."""
         import yaml
 
-        monkeypatch.setenv("DB_PASSWORD", "yaml_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "yaml_pass")
         config_file = tmp_path / "brotr_config.yaml"
         config_file.write_text(yaml.dump(brotr_config_dict))
 
@@ -218,7 +219,7 @@ class TestBrotrFactoryMethods:
 
     def test_from_yaml_file_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test from_yaml raises FileNotFoundError for missing file."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
 
         with pytest.raises(FileNotFoundError):
             Brotr.from_yaml("/nonexistent/path/config.yaml")
@@ -321,14 +322,12 @@ class TestTransposeToColumns:
 class TestCallProcedure:
     """Tests for Brotr._call_procedure() method."""
 
-    @pytest.mark.asyncio
     async def test_valid_procedure_names(self, mock_brotr: Brotr) -> None:
         """Test that valid SQL identifiers are accepted."""
         valid_names = [
             "my_procedure",
             "procedure123",
             "_private_proc",
-            "CamelCaseProc",
             "a",
             "_",
             "delete_123_test",
@@ -341,7 +340,6 @@ class TestCallProcedure:
                 if "Invalid procedure name" in str(e):
                     pytest.fail(f"Valid name '{name}' was rejected")
 
-    @pytest.mark.asyncio
     async def test_invalid_procedure_names(self, mock_brotr: Brotr) -> None:
         """Test that invalid SQL identifiers are rejected."""
         invalid_names = [
@@ -355,30 +353,27 @@ class TestCallProcedure:
             "proc\nname",  # Newline
             "proc'name",  # Single quote
             'proc"name',  # Double quote
+            "CamelCaseProc",  # Uppercase (convention: lowercase only)
         ]
 
         for name in invalid_names:
             with pytest.raises(ValueError, match="Invalid procedure name"):
                 await mock_brotr._call_procedure(name)
 
-    @pytest.mark.asyncio
     async def test_fetch_result_true(self, mock_brotr: Brotr) -> None:
         """Test procedure call with fetch_result=True."""
         result = await mock_brotr._call_procedure("test_proc", fetch_result=True)
         assert result == 1  # Mock returns 1 by default
 
-    @pytest.mark.asyncio
     async def test_fetch_result_false(self, mock_brotr: Brotr) -> None:
         """Test procedure call with fetch_result=False."""
         result = await mock_brotr._call_procedure("test_proc", fetch_result=False)
         assert result is None
 
-    @pytest.mark.asyncio
     async def test_with_arguments(self, mock_brotr: Brotr) -> None:
         """Test procedure call with arguments."""
         await mock_brotr._call_procedure("test_proc", "arg1", 123, True, fetch_result=True)
 
-    @pytest.mark.asyncio
     async def test_with_timeout(self, mock_brotr: Brotr) -> None:
         """Test procedure call with custom timeout."""
         await mock_brotr._call_procedure("test_proc", fetch_result=True, timeout=30.0)
@@ -392,19 +387,16 @@ class TestCallProcedure:
 class TestInsertRelay:
     """Tests for Brotr.insert_relay() method."""
 
-    @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
         inserted = await mock_brotr.insert_relay([])
         assert inserted == 0
 
-    @pytest.mark.asyncio
     async def test_single_relay(self, mock_brotr: Brotr, sample_relay: Any) -> None:
         """Test inserting single relay."""
         inserted = await mock_brotr.insert_relay([sample_relay])
         assert inserted == 1
 
-    @pytest.mark.asyncio
     async def test_multiple_relays(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_relays_batch: list[Any]
     ) -> None:
@@ -419,13 +411,11 @@ class TestInsertRelay:
 class TestInsertEvent:
     """Tests for Brotr.insert_event() method."""
 
-    @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
         inserted = await mock_brotr.insert_event([])
         assert inserted == 0
 
-    @pytest.mark.asyncio
     async def test_single_event(self, mock_brotr: Brotr, sample_event: Any) -> None:
         """Test inserting single event."""
         inserted = await mock_brotr.insert_event([sample_event.event])
@@ -435,19 +425,16 @@ class TestInsertEvent:
 class TestInsertEventRelay:
     """Tests for Brotr.insert_event_relay() method."""
 
-    @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
         inserted = await mock_brotr.insert_event_relay([])
         assert inserted == 0
 
-    @pytest.mark.asyncio
     async def test_single_event_relay(self, mock_brotr: Brotr, sample_event: Any) -> None:
         """Test inserting single event-relay junction."""
         inserted = await mock_brotr.insert_event_relay([sample_event])
         assert inserted == 1
 
-    @pytest.mark.asyncio
     async def test_multiple_event_relays(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_events_batch: list[Any]
     ) -> None:
@@ -458,75 +445,71 @@ class TestInsertEventRelay:
         inserted = await mock_brotr.insert_event_relay(sample_events_batch)
         assert inserted == len(sample_events_batch)
 
-    @pytest.mark.asyncio
-    async def test_cascade_true_default(
+    async def test_cascade_true_calls_cascade_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_event: Any
     ) -> None:
-        """Test that cascade=True is the default."""
+        """Test that cascade=True calls event_relay_insert_cascade."""
         await mock_brotr.insert_event_relay([sample_event], cascade=True)
-        # Verify cascade query was used (11 parameters)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.fetchval.call_args
-        assert "cascade" in call_args[0][0].lower()
+        query = mock_conn.fetchval.call_args[0][0]
+        assert "event_relay_insert_cascade" in query
 
-    @pytest.mark.asyncio
-    async def test_cascade_false(
+    async def test_cascade_false_calls_junction_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_event: Any
     ) -> None:
-        """Test inserting with cascade=False."""
+        """Test that cascade=False calls event_relay_insert (junction-only)."""
         await mock_brotr.insert_event_relay([sample_event], cascade=False)
-        # Verify non-cascade query was used (3 parameters)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.fetchval.call_args
-        assert "event_relay_insert" in call_args[0][0]
-        assert "cascade" not in call_args[0][0].lower()
+        query = mock_conn.fetchval.call_args[0][0]
+        assert "event_relay_insert(" in query
+        assert "cascade" not in query
 
 
 class TestInsertMetadata:
     """Tests for Brotr.insert_metadata() method."""
 
-    @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
         inserted = await mock_brotr.insert_metadata([])
         assert inserted == 0
 
+    async def test_single_metadata(self, mock_brotr: Brotr, sample_metadata: Any) -> None:
+        """Test inserting single metadata record."""
+        inserted = await mock_brotr.insert_metadata([sample_metadata.metadata])
+        assert inserted == 1
+
 
 class TestInsertRelayMetadata:
     """Tests for Brotr.insert_relay_metadata() method."""
 
-    @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
         inserted = await mock_brotr.insert_relay_metadata([])
         assert inserted == 0
 
-    @pytest.mark.asyncio
     async def test_single_metadata(self, mock_brotr: Brotr, sample_metadata: Any) -> None:
         """Test inserting single relay metadata."""
         inserted = await mock_brotr.insert_relay_metadata([sample_metadata])
         assert inserted == 1
 
-    @pytest.mark.asyncio
-    async def test_cascade_true_default(
+    async def test_cascade_true_calls_cascade_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_metadata: Any
     ) -> None:
-        """Test that cascade=True is the default."""
+        """Test that cascade=True calls relay_metadata_insert_cascade."""
         await mock_brotr.insert_relay_metadata([sample_metadata], cascade=True)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.fetchval.call_args
-        assert "cascade" in call_args[0][0].lower()
+        query = mock_conn.fetchval.call_args[0][0]
+        assert "relay_metadata_insert_cascade" in query
 
-    @pytest.mark.asyncio
-    async def test_cascade_false(
+    async def test_cascade_false_calls_junction_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_metadata: Any
     ) -> None:
-        """Test inserting with cascade=False."""
+        """Test that cascade=False calls relay_metadata_insert (junction-only)."""
         await mock_brotr.insert_relay_metadata([sample_metadata], cascade=False)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.fetchval.call_args
-        assert "relay_metadata_insert" in call_args[0][0]
-        assert "cascade" not in call_args[0][0].lower()
+        query = mock_conn.fetchval.call_args[0][0]
+        assert "relay_metadata_insert(" in query
+        assert "cascade" not in query
 
 
 # ============================================================================
@@ -537,166 +520,111 @@ class TestInsertRelayMetadata:
 class TestUpsertServiceState:
     """Tests for Brotr.upsert_service_state() method."""
 
-    @pytest.mark.asyncio
     async def test_empty_records_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty records list returns 0."""
         result = await mock_brotr.upsert_service_state([])
         assert result == 0
 
-    @pytest.mark.asyncio
     async def test_single_record(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
         """Test upserting single record."""
         records = [
             ServiceState(
-                service_name="finder",
-                state_type="cursor",
+                service_name=ServiceName.FINDER,
+                state_type=ServiceStateType.CURSOR,
                 state_key="key1",
-                payload={"count": 1},
+                state_value={"count": 1},
                 updated_at=1700000000,
             )
         ]
         result = await mock_brotr.upsert_service_state(records)
         assert result == 1
 
-    @pytest.mark.asyncio
     async def test_multiple_records(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
         """Test upserting multiple records."""
         records = [
             ServiceState(
-                service_name="finder",
-                state_type="cursor",
+                service_name=ServiceName.FINDER,
+                state_type=ServiceStateType.CURSOR,
                 state_key="key1",
-                payload={"count": 1},
+                state_value={"count": 1},
                 updated_at=1700000000,
             ),
             ServiceState(
-                service_name="finder",
-                state_type="cursor",
+                service_name=ServiceName.FINDER,
+                state_type=ServiceStateType.CURSOR,
                 state_key="key2",
-                payload={"count": 2},
+                state_value={"count": 2},
                 updated_at=1700000000,
             ),
             ServiceState(
-                service_name="monitor",
-                state_type="state",
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CHECKPOINT,
                 state_key="key3",
-                payload={"status": "ok"},
+                state_value={"status": "ok"},
                 updated_at=1700000000,
             ),
         ]
         result = await mock_brotr.upsert_service_state(records)
         assert result == 3
 
-    @pytest.mark.asyncio
-    async def test_dict_values_passed_directly(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
-        """Test that dict values are passed directly (JSON codec handles encoding)."""
+    async def test_batch_size_exceeded(self, mock_brotr: Brotr) -> None:
+        """Test that batch exceeding max_size raises ValueError."""
         records = [
             ServiceState(
-                service_name="finder",
-                state_type="cursor",
-                state_key="key1",
-                payload={"nested": {"level": 1}},
+                service_name=ServiceName.FINDER,
+                state_type=ServiceStateType.CURSOR,
+                state_key=f"key{i}",
+                state_value={"i": i},
                 updated_at=1700000000,
             )
+            for i in range(1001)
         ]
-        await mock_brotr.upsert_service_state(records)
-
-        mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.execute.call_args
-        values_list = call_args[0][4]
-        assert values_list[0] == {"nested": {"level": 1}}
-
-    @pytest.mark.asyncio
-    async def test_list_values_passed_directly(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
-        """Test that list values are passed directly (JSON codec handles encoding)."""
-        records = [
-            ServiceState(
-                service_name="finder",
-                state_type="cursor",
-                state_key="key1",
-                payload=["item1", "item2", "item3"],  # type: ignore[arg-type]
-                updated_at=1700000000,
-            )
-        ]
-        await mock_brotr.upsert_service_state(records)
-
-        mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.execute.call_args
-        values_list = call_args[0][4]
-        assert values_list[0] == ["item1", "item2", "item3"]
-
-    @pytest.mark.asyncio
-    async def test_complex_nested_values(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
-        """Test complex nested objects are passed correctly."""
-        complex_value = {
-            "nested": {"level2": {"level3": ["a", "b", "c"]}},
-            "list_of_dicts": [{"key1": "value1"}, {"key2": "value2"}],
-            "mixed": [1, "string", True, None],
-        }
-        records = [
-            ServiceState(
-                service_name="monitor",
-                state_type="state",
-                state_key="complex_key",
-                payload=complex_value,
-                updated_at=1700000000,
-            )
-        ]
-
-        await mock_brotr.upsert_service_state(records)
-
-        mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
-        call_args = mock_conn.execute.call_args
-        values_list = call_args[0][4]
-        assert values_list[0] == complex_value
+        with pytest.raises(ValueError, match="batch size"):
+            await mock_brotr.upsert_service_state(records)
 
 
 class TestGetServiceState:
     """Tests for Brotr.get_service_state() method."""
 
-    @pytest.mark.asyncio
     async def test_returns_list(self, mock_brotr: Brotr) -> None:
         """Test that get returns a list."""
-        result = await mock_brotr.get_service_state("finder", "cursor")
+        result = await mock_brotr.get_service_state(ServiceName.FINDER, ServiceStateType.CURSOR)
         assert isinstance(result, list)
 
-    @pytest.mark.asyncio
     async def test_with_specific_key(self, mock_brotr: Brotr) -> None:
         """Test getting specific key."""
-        await mock_brotr.get_service_state("finder", "cursor", key="specific_key")
+        await mock_brotr.get_service_state(
+            ServiceName.FINDER, ServiceStateType.CURSOR, key="specific_key"
+        )
 
-    @pytest.mark.asyncio
     async def test_without_key(self, mock_brotr: Brotr) -> None:
         """Test getting all records without specific key."""
-        await mock_brotr.get_service_state("finder", "cursor", key=None)
+        await mock_brotr.get_service_state(ServiceName.FINDER, ServiceStateType.CURSOR, key=None)
 
 
 class TestDeleteServiceState:
     """Tests for Brotr.delete_service_state() method."""
 
-    @pytest.mark.asyncio
     async def test_empty_keys_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty keys list returns 0."""
-        result = await mock_brotr.delete_service_state([])
+        result = await mock_brotr.delete_service_state([], [], [])
         assert result == 0
 
-    @pytest.mark.asyncio
     async def test_single_key(self, mock_brotr: Brotr) -> None:
         """Test deleting single key."""
-        keys = [ServiceStateKey(service_name="finder", state_type="cursor", state_key="key1")]
-        result = await mock_brotr.delete_service_state(keys)
+        result = await mock_brotr.delete_service_state(
+            [ServiceName.FINDER], [ServiceStateType.CURSOR], ["key1"]
+        )
         assert result == 1
 
-    @pytest.mark.asyncio
     async def test_multiple_keys(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
         """Test deleting multiple keys."""
         mock_pool._mock_connection.fetchval = AsyncMock(return_value=3)  # type: ignore[attr-defined]
-        keys = [
-            ServiceStateKey(service_name="finder", state_type="cursor", state_key="key1"),
-            ServiceStateKey(service_name="finder", state_type="cursor", state_key="key2"),
-            ServiceStateKey(service_name="monitor", state_type="state", state_key="key3"),
-        ]
-        result = await mock_brotr.delete_service_state(keys)
+        result = await mock_brotr.delete_service_state(
+            [ServiceName.FINDER, ServiceName.FINDER, ServiceName.MONITOR],
+            [ServiceStateType.CURSOR, ServiceStateType.CURSOR, ServiceStateType.CHECKPOINT],
+            ["key1", "key2", "key3"],
+        )
         assert result == 3
 
 
@@ -708,7 +636,6 @@ class TestDeleteServiceState:
 class TestDeleteOrphanEvent:
     """Tests for Brotr.delete_orphan_event() method."""
 
-    @pytest.mark.asyncio
     async def test_returns_deleted_count(self, mock_brotr: Brotr) -> None:
         """Test that method returns count of deleted events."""
         result = await mock_brotr.delete_orphan_event()
@@ -718,7 +645,6 @@ class TestDeleteOrphanEvent:
 class TestDeleteOrphanMetadata:
     """Tests for Brotr.delete_orphan_metadata() method."""
 
-    @pytest.mark.asyncio
     async def test_returns_deleted_count(self, mock_brotr: Brotr) -> None:
         """Test that method returns count of deleted metadata."""
         result = await mock_brotr.delete_orphan_metadata()
@@ -733,10 +659,9 @@ class TestDeleteOrphanMetadata:
 class TestBrotrQueryOperations:
     """Tests for Brotr query facade methods (fetch, fetchrow, fetchval, execute)."""
 
-    @pytest.mark.asyncio
     async def test_fetch_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that fetch() delegates to pool.fetch() with default timeout."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        """Test that fetch() delegates to pool.fetch() with config timeout."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(brotr._pool, "fetch", new_callable=AsyncMock, return_value=[]) as mock:
@@ -744,22 +669,18 @@ class TestBrotrQueryOperations:
             mock.assert_called_once_with("SELECT 1", timeout=brotr._config.timeouts.query)
             assert result == []
 
-    @pytest.mark.asyncio
-    async def test_fetch_passes_args_and_custom_timeout(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test that fetch() passes query args and custom timeout."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+    async def test_fetch_passes_args(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that fetch() passes query args with config timeout."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(brotr._pool, "fetch", new_callable=AsyncMock, return_value=[]) as mock:
-            await brotr.fetch("SELECT $1", "arg1", timeout=5.0)
-            mock.assert_called_once_with("SELECT $1", "arg1", timeout=5.0)
+            await brotr.fetch("SELECT $1", "arg1")
+            mock.assert_called_once_with("SELECT $1", "arg1", timeout=brotr._config.timeouts.query)
 
-    @pytest.mark.asyncio
     async def test_fetchrow_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that fetchrow() delegates to pool.fetchrow() with default timeout."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(
@@ -769,10 +690,9 @@ class TestBrotrQueryOperations:
             mock.assert_called_once_with("SELECT 1", timeout=brotr._config.timeouts.query)
             assert result is None
 
-    @pytest.mark.asyncio
     async def test_fetchval_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that fetchval() delegates to pool.fetchval() with default timeout."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(brotr._pool, "fetchval", new_callable=AsyncMock, return_value=42) as mock:
@@ -780,10 +700,9 @@ class TestBrotrQueryOperations:
             mock.assert_called_once_with("SELECT count(*)", timeout=brotr._config.timeouts.query)
             assert result == 42
 
-    @pytest.mark.asyncio
     async def test_execute_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that execute() delegates to pool.execute() with default timeout."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(
@@ -797,22 +716,6 @@ class TestBrotrQueryOperations:
             )
             assert result == "DELETE 5"
 
-    @pytest.mark.asyncio
-    async def test_execute_with_custom_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that execute() passes custom timeout to pool."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
-        brotr = Brotr()
-
-        with patch.object(
-            brotr._pool, "execute", new_callable=AsyncMock, return_value="INSERT 0 1"
-        ) as mock:
-            await brotr.execute("INSERT INTO relay VALUES ($1)", "wss://x", timeout=10.0)
-            mock.assert_called_once_with(
-                "INSERT INTO relay VALUES ($1)",
-                "wss://x",
-                timeout=10.0,
-            )
-
 
 # ============================================================================
 # Refresh Operations Tests
@@ -822,7 +725,6 @@ class TestBrotrQueryOperations:
 class TestRefreshMatview:
     """Tests for Brotr.refresh_materialized_view() method."""
 
-    @pytest.mark.asyncio
     async def test_valid_view_names(self, mock_brotr: Brotr) -> None:
         """Test refreshing valid materialized view names."""
         valid_names = [
@@ -834,7 +736,6 @@ class TestRefreshMatview:
         for name in valid_names:
             await mock_brotr.refresh_materialized_view(name)
 
-    @pytest.mark.asyncio
     async def test_sql_injection_prevented(self, mock_brotr: Brotr) -> None:
         """Test that SQL injection attempts are prevented by procedure name regex."""
         with pytest.raises(ValueError, match="Invalid procedure name"):
@@ -849,32 +750,29 @@ class TestRefreshMatview:
 class TestBrotrLifecycle:
     """Tests for Brotr explicit connect/close lifecycle methods."""
 
-    @pytest.mark.asyncio
     async def test_connect_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that connect() delegates to pool.connect()."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(brotr._pool, "connect", new_callable=AsyncMock) as mock_connect:
             await brotr.connect()
             mock_connect.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_close_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that close() delegates to pool.close()."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(brotr._pool, "close", new_callable=AsyncMock) as mock_close:
             await brotr.close()
             mock_close.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_context_manager_delegates_to_connect_close(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that async context manager delegates to connect/close."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with (
@@ -894,10 +792,9 @@ class TestBrotrLifecycle:
 class TestBrotrContextManager:
     """Tests for Brotr async context manager."""
 
-    @pytest.mark.asyncio
     async def test_connects_pool_on_enter(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that context manager connects pool on entry."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with (
@@ -907,10 +804,9 @@ class TestBrotrContextManager:
             async with brotr:
                 mock_connect.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_closes_pool_on_exit(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that context manager closes pool on exit."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with (
@@ -921,10 +817,9 @@ class TestBrotrContextManager:
                 pass
             mock_close.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_closes_pool_on_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that context manager closes pool even on exception."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with (

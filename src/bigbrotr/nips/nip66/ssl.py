@@ -3,21 +3,50 @@ NIP-66 SSL metadata container with certificate inspection capabilities.
 
 Connects to a relay's TLS endpoint, extracts certificate details (subject,
 issuer, validity, SANs, fingerprint, cipher), and separately validates the
-certificate chain. Clearnet relays only.
+certificate chain as part of
+[NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md) monitoring.
+Clearnet relays only.
+
+Note:
+    The SSL test uses a two-connection methodology:
+
+    1. **Extraction** -- connects with ``CERT_NONE`` to obtain the
+       DER-encoded certificate regardless of chain validity, then parses
+       it with the ``cryptography`` library.  This allows inspecting
+       self-signed or expired certificates.
+    2. **Validation** -- connects with the default (validating) SSL context
+       to verify the certificate chain against the system trust store.
+
+    Both connections are synchronous socket operations delegated to a thread
+    pool via ``asyncio.to_thread`` to avoid blocking the event loop.
+
+See Also:
+    [bigbrotr.nips.nip66.data.Nip66SslData][bigbrotr.nips.nip66.data.Nip66SslData]:
+        Data model for SSL certificate fields.
+    [bigbrotr.nips.nip66.logs.Nip66SslLogs][bigbrotr.nips.nip66.logs.Nip66SslLogs]:
+        Log model for SSL inspection results.
+    [bigbrotr.utils.transport.InsecureWebSocketTransport][bigbrotr.utils.transport.InsecureWebSocketTransport]:
+        Related insecure transport used for WebSocket connections (distinct
+        from the raw socket approach used here for certificate extraction).
 """
 
 from __future__ import annotations
 
 import asyncio
+import calendar
 import hashlib
 import logging
 import socket
 import ssl
 from typing import Any, Self
 
-from bigbrotr.models.constants import DEFAULT_TIMEOUT, NetworkType
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+
+from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .data import Nip66SslData
 from .logs import Nip66SslLogs
@@ -27,10 +56,17 @@ logger = logging.getLogger("bigbrotr.nips.nip66")
 
 
 class CertificateExtractor:
-    """Extracts structured fields from a Python SSL certificate dictionary.
+    """Extracts structured fields from SSL certificates.
 
-    The certificate dictionary is obtained from ``SSLSocket.getpeercert()``
-    and follows the format documented in the Python ``ssl`` module.
+    Supports both the Python ``ssl`` module dict format (from
+    ``SSLSocket.getpeercert()``) and ``cryptography`` X.509 objects
+    (from DER-encoded certificates).
+
+    See Also:
+        [Nip66SslMetadata][bigbrotr.nips.nip66.ssl.Nip66SslMetadata]:
+            Container that uses this extractor during certificate inspection.
+        [bigbrotr.nips.nip66.data.Nip66SslData][bigbrotr.nips.nip66.data.Nip66SslData]:
+            Data model populated by the extracted fields.
     """
 
     @staticmethod
@@ -126,12 +162,58 @@ class CertificateExtractor:
 
         return result
 
+    @classmethod
+    def extract_all_from_x509(cls, cert: x509.Certificate) -> dict[str, Any]:
+        """Extract all fields from a ``cryptography`` X.509 certificate object."""
+        result: dict[str, Any] = {}
 
-class Nip66SslMetadata(BaseMetadata):
+        cns = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+        if cns:
+            result["ssl_subject_cn"] = cns[0].value
+
+        orgs = cert.issuer.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)
+        if orgs:
+            result["ssl_issuer"] = orgs[0].value
+        issuer_cns = cert.issuer.get_attributes_for_oid(NameOID.COMMON_NAME)
+        if issuer_cns:
+            result["ssl_issuer_cn"] = issuer_cns[0].value
+
+        result["ssl_expires"] = int(calendar.timegm(cert.not_valid_after_utc.timetuple()))
+        result["ssl_not_before"] = int(calendar.timegm(cert.not_valid_before_utc.timetuple()))
+
+        try:
+            san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+            dns_names = san_ext.value.get_values_for_type(x509.DNSName)
+            if dns_names:
+                result["ssl_san"] = dns_names
+        except x509.ExtensionNotFound:
+            pass
+
+        result["ssl_serial"] = format(cert.serial_number, "X")
+        result["ssl_version"] = cert.version.value
+
+        return result
+
+
+class Nip66SslMetadata(BaseNipMetadata):
     """Container for SSL/TLS certificate data and inspection logs.
 
     Provides the ``execute()`` class method that performs certificate
     extraction and chain validation against a relay's TLS endpoint.
+
+    Warning:
+        The certificate extraction phase uses ``CERT_NONE`` to read
+        certificates from relays with invalid chains. This is intentional
+        for monitoring purposes and does not affect the ``ssl_valid`` field,
+        which is determined by a separate validating connection.
+
+    See Also:
+        [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
+            Top-level model that orchestrates this alongside other tests.
+        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+            The ``NIP66_SSL`` variant used when storing these results.
+        [bigbrotr.nips.nip66.rtt.Nip66RttMetadata][bigbrotr.nips.nip66.rtt.Nip66RttMetadata]:
+            RTT test that also involves SSL connections.
     """
 
     data: Nip66SslData
@@ -166,8 +248,11 @@ class Nip66SslMetadata(BaseMetadata):
     def _extract_certificate_data(host: str, port: int, timeout: float) -> dict[str, Any]:
         """Extract certificate fields using a non-validating SSL context.
 
-        Uses ``CERT_NONE`` to ensure the certificate can be read even
-        when the chain is invalid or self-signed.
+        Uses ``CERT_NONE`` so the certificate can be read even when the
+        chain is invalid or self-signed.  The DER-encoded certificate is
+        parsed via the ``cryptography`` library because
+        ``getpeercert()`` (dict form) returns an empty dict with
+        ``CERT_NONE``.
         """
         result: dict[str, Any] = {}
         context = ssl.create_default_context()
@@ -179,16 +264,14 @@ class Nip66SslMetadata(BaseMetadata):
                 socket.create_connection((host, port), timeout=timeout) as sock,
                 context.wrap_socket(sock, server_hostname=host) as ssock,
             ):
-                cert = ssock.getpeercert()
                 cert_binary = ssock.getpeercert(binary_form=True)
-
-                if cert:
-                    result.update(CertificateExtractor.extract_all(cert))
 
                 if cert_binary:
                     result["ssl_fingerprint"] = CertificateExtractor.extract_fingerprint(
                         cert_binary
                     )
+                    parsed = x509.load_der_x509_certificate(cert_binary)
+                    result.update(CertificateExtractor.extract_all_from_x509(parsed))
 
                 result.update(Nip66SslMetadata._extract_tls_info(ssock))
 
@@ -252,15 +335,17 @@ class Nip66SslMetadata(BaseMetadata):
 
         Returns:
             An ``Nip66SslMetadata`` instance with certificate data and logs.
-
-        Raises:
-            ValueError: If the relay is not on the clearnet network.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         logger.debug("ssl_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:
-            raise ValueError(f"SSL test requires clearnet, got {relay.network.value}")
+            return cls(
+                data=Nip66SslData(),
+                logs=Nip66SslLogs(
+                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                ),
+            )
 
         data: dict[str, Any] = {}
         logs: dict[str, Any] = {"success": False, "reason": None}
@@ -276,7 +361,7 @@ class Nip66SslMetadata(BaseMetadata):
                 logs["reason"] = "no certificate data extracted"
                 logger.debug("ssl_no_data relay=%s", relay.url)
         except OSError as e:
-            logs["reason"] = str(e)
+            logs["reason"] = str(e) or type(e).__name__
             logger.debug("ssl_error relay=%s error=%s", relay.url, str(e))
 
         return cls(

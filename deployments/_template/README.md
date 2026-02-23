@@ -16,17 +16,17 @@ cd deployments/myimpl
 
 # 3. Configure environment
 cp .env.example .env
-# Edit .env and set DB_PASSWORD (required)
+# Edit .env and set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD (required)
 
 # 4. Customize schema (optional)
-#    - Edit postgres/init/02_tables.sql to remove columns
-#    - Edit postgres/init/03_functions_crud.sql to match
+#    - Edit postgres/init/02_tables.sql to adjust event table columns
+#    - Edit postgres/init/03_functions_crud.sql to match event_insert()
 
 # 5. Start services
-docker-compose up -d
+docker compose up -d
 
 # 6. Verify
-docker-compose exec postgres psql -U admin -d myimpl -c "\dt"
+docker compose exec postgres psql -U admin -d myimpl -c "\dt"
 ```
 
 ## Directory Structure
@@ -36,7 +36,6 @@ deployments/myimpl/
 ├── README.md                         # This file
 ├── .env.example                      # Environment template
 ├── docker-compose.yaml               # Container orchestration
-├── Dockerfile                        # Application image build
 ├── postgres/
 │   ├── postgresql.conf               # PostgreSQL tuning
 │   └── init/                         # SQL initialization (run in order)
@@ -67,34 +66,35 @@ deployments/myimpl/
 
 ### Mandatory (included in template)
 
-| Component | Files |
-|-----------|-------|
+| Component | Details |
+|-----------|---------|
 | Extensions | `btree_gin` |
-| Tables | `relays`, `events`, `events_relays`, `metadata`, `relay_metadata`, `service_data` |
-| CRUD Functions | `*_insert`, `*_insert_cascade`, `service_data_*` |
-| Cleanup Functions | `orphan_*_delete` |
+| Tables | `relay`, `event`, `event_relay`, `metadata`, `relay_metadata`, `service_state` |
+| CRUD Functions | `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `event_relay_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
+| Cleanup Functions | `orphan_metadata_delete`, `orphan_event_delete` |
 | Indexes | Basic table indexes for performance |
 
-### Optional (NOT included - add from bigbrotr if needed)
+### Optional (NOT included -- add from bigbrotr if needed)
 
 | Component | Files in bigbrotr |
 |-----------|-------------------|
+| Views | `05_views.sql` |
 | Materialized Views | `06_materialized_views.sql` |
 | Refresh Functions | `07_functions_refresh.sql` |
 | Materialized View Indexes | Additional indexes in `08_indexes.sql` |
 
 ## Customization Guide
 
-### Events Table
+### Event Table
 
-The `events` table only requires `id BYTEA PRIMARY KEY`. All other columns are optional.
+The `event` table only requires `id BYTEA PRIMARY KEY`. All other columns are optional.
 
 ```sql
 -- Minimal (just tracking event IDs per relay):
-CREATE TABLE events (id BYTEA PRIMARY KEY);
+CREATE TABLE event (id BYTEA PRIMARY KEY);
 
--- Lightweight (metadata + tag filtering):
-CREATE TABLE events (
+-- Lightweight (metadata + tag filtering, ~60% disk savings):
+CREATE TABLE event (
     id BYTEA PRIMARY KEY,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
@@ -102,8 +102,8 @@ CREATE TABLE events (
     tagvalues TEXT[]
 );
 
--- Full storage (complete events):
-CREATE TABLE events (
+-- Full storage (complete events, used by default):
+CREATE TABLE event (
     id BYTEA PRIMARY KEY,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
@@ -116,15 +116,17 @@ CREATE TABLE events (
 ```
 
 When customizing, update `03_functions_crud.sql`:
-- Function signatures are **FIXED** (brotr.py calls with all parameters)
-- Only modify the INSERT statements inside the function body
+
+- Function signatures are **FIXED** (`src/bigbrotr/core/brotr.py` calls with all parameters)
+- Only modify the INSERT statement inside `event_insert()`
+- All parameters must be accepted even if not stored
 
 ### Port Configuration
 
 Avoid port conflicts with other implementations:
 
 ```yaml
-# For second implementation, use different ports:
+# For a second implementation, use different ports:
 ports:
   - "127.0.0.1:5433:5432"  # PostgreSQL
   - "127.0.0.1:6433:5432"  # PGBouncer
@@ -144,6 +146,7 @@ SYNCHRONIZER_METRICS_PORT=9004 # Default: 8004
 ```
 
 **Port allocation by implementation:**
+
 | Implementation | PostgreSQL | PGBouncer | Metrics | Prometheus | Grafana |
 |---------------|------------|-----------|---------|------------|---------|
 | bigbrotr      | 5432       | 6432      | 8001-04 | 9090       | 3000    |
@@ -152,31 +155,35 @@ SYNCHRONIZER_METRICS_PORT=9004 # Default: 8004
 
 ## Required SQL Functions
 
-These functions are called by `src/core/brotr.py` and MUST exist:
+These functions are called by `src/bigbrotr/core/brotr.py` and MUST exist:
 
 ### Base Functions
+
 | Function | Purpose |
 |----------|---------|
-| `relays_insert(TEXT[], TEXT[], BIGINT[])` | Bulk insert relays |
-| `events_insert(...)` | Bulk insert events |
-| `metadata_insert(JSONB[])` | Bulk insert metadata |
-| `events_relays_insert(BYTEA[], TEXT[], BIGINT[])` | Insert junctions |
-| `relay_metadata_insert(TEXT[], JSONB[], TEXT[], BIGINT[])` | Insert junctions |
-| `service_data_upsert(...)` | Upsert service data |
-| `service_data_get(...)` | Get service data |
-| `service_data_delete(...)` | Delete service data |
+| `relay_insert(TEXT[], TEXT[], BIGINT[])` | Bulk insert relays |
+| `event_insert(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[])` | Bulk insert events |
+| `metadata_insert(BYTEA[], JSONB[])` | Bulk insert metadata |
+| `event_relay_insert(BYTEA[], TEXT[], BIGINT[])` | Insert event-relay junctions |
+| `relay_metadata_insert(TEXT[], BYTEA[], TEXT[], BIGINT[])` | Insert relay-metadata junctions |
+| `service_state_upsert(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[])` | Upsert service state |
+| `service_state_get(TEXT, TEXT, TEXT)` | Get service state (3rd param optional) |
+| `service_state_delete(TEXT[], TEXT[], TEXT[])` | Delete service state |
 
 ### Cascade Functions
+
 | Function | Purpose |
 |----------|---------|
-| `events_relays_insert_cascade(...)` | Atomic: relays + events + junctions |
-| `relay_metadata_insert_cascade(...)` | Atomic: relays + metadata + junctions |
+| `event_relay_insert_cascade(...)` | Atomic: relay + event + event_relay |
+| `relay_metadata_insert_cascade(...)` | Atomic: relay + metadata + relay_metadata |
 
 ### Cleanup Functions
+
 | Function | Purpose |
 |----------|---------|
-| `orphan_metadata_delete()` | Remove unreferenced metadata |
-| `orphan_events_delete()` | Remove events without relays |
+| `orphan_metadata_delete(INTEGER)` | Remove unreferenced metadata (batched) |
+| `orphan_event_delete(INTEGER)` | Remove events without relay associations (batched) |
+| `relay_metadata_delete_expired(INTEGER, INTEGER)` | Remove old metadata snapshots (batched) |
 
 ## Services
 
@@ -184,15 +191,17 @@ These functions are called by `src/core/brotr.py` and MUST exist:
 |---------|------|---------|
 | Seeder | One-shot | Load initial relay URLs |
 | Finder | Continuous | Discover new relays |
-| Validator | Continuous | Validate candidates |
-| Monitor | Continuous | Check relay health |
-| Synchronizer | Continuous | Fetch events |
+| Validator | Continuous | Validate relay candidates |
+| Monitor | Continuous | Check relay health, publish NIP-66 events |
+| Synchronizer | Continuous | Fetch and archive events |
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DB_PASSWORD` | Yes | PostgreSQL password |
+| `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin password |
+| `DB_WRITER_PASSWORD` | Yes | Writer role password (pipeline services) |
+| `DB_READER_PASSWORD` | Yes | Reader role password (read-only services) |
 | `PRIVATE_KEY` | No | Nostr private key (hex, 64 chars) |
 | `GRAFANA_PASSWORD` | No | Grafana admin password (default: admin) |
 | `FINDER_METRICS_PORT` | No | Finder Prometheus port (default: 8001) |
@@ -204,11 +213,11 @@ These functions are called by `src/core/brotr.py` and MUST exist:
 
 ```bash
 # Check logs
-docker-compose logs -f
+docker compose logs -f
 
 # Connect to database
-docker-compose exec postgres psql -U admin -d myimpl
+docker compose exec postgres psql -U admin -d myimpl
 
 # Reset database
-docker-compose down && rm -rf data/postgres && docker-compose up -d
+docker compose down && rm -rf data/postgres && docker compose up -d
 ```

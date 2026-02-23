@@ -6,7 +6,11 @@
 # See _template/config/services/finder.yaml for all options and documentation.
 # =============================================================================
 
-interval: 3600.0                   # Run discovery cycle every hour
+pool:
+  user: bigbrotr_writer
+  password_env: DB_WRITER_PASSWORD
+  min_size: 1
+  max_size: 3
 
 metrics:
   enabled: true

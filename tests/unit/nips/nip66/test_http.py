@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.http import Nip66HttpMetadata
 
@@ -20,7 +18,6 @@ from bigbrotr.nips.nip66.http import Nip66HttpMetadata
 class TestNip66HttpMetadataHttpAsync:
     """Test Nip66HttpMetadata._http() async method."""
 
-    @pytest.mark.asyncio
     async def test_captures_server_header(self, relay: Relay) -> None:
         """Captures Server header from WebSocket handshake."""
         http_result = {"http_server": "nginx/1.24.0"}
@@ -32,7 +29,6 @@ class TestNip66HttpMetadataHttpAsync:
         assert result.data.http_server == "nginx/1.24.0"
         assert result.logs.success is True
 
-    @pytest.mark.asyncio
     async def test_captures_powered_by_header(self, relay: Relay) -> None:
         """Captures X-Powered-By header from WebSocket handshake."""
         http_result = {
@@ -45,7 +41,6 @@ class TestNip66HttpMetadataHttpAsync:
 
         assert result.data.http_powered_by == "Strfry"
 
-    @pytest.mark.asyncio
     async def test_empty_headers_returns_empty_dict(self, relay: Relay) -> None:
         """Empty headers returns empty dict."""
         with patch.object(Nip66HttpMetadata, "_http", return_value={}):
@@ -58,7 +53,6 @@ class TestNip66HttpMetadataHttpAsync:
 class TestNip66HttpMetadataHttp:
     """Test Nip66HttpMetadata.execute() async class method."""
 
-    @pytest.mark.asyncio
     async def test_clearnet_returns_http_metadata(self, relay: Relay) -> None:
         """Returns Nip66HttpMetadata for clearnet relay."""
         http_result = {
@@ -74,25 +68,24 @@ class TestNip66HttpMetadataHttp:
         assert result.data.http_powered_by == "Strfry"
         assert result.logs.success is True
 
-    @pytest.mark.asyncio
-    async def test_tor_without_proxy_raises(self, tor_relay: Relay) -> None:
-        """Raises ValueError for Tor relay without proxy."""
-        with pytest.raises(ValueError, match=r"overlay network tor requires proxy"):
-            await Nip66HttpMetadata.execute(tor_relay, 10.0)
+    async def test_tor_without_proxy_returns_failure(self, tor_relay: Relay) -> None:
+        """Returns failure for Tor relay without proxy."""
+        result = await Nip66HttpMetadata.execute(tor_relay, 10.0)
+        assert result.logs.success is False
+        assert "overlay network tor requires proxy" in result.logs.reason
 
-    @pytest.mark.asyncio
-    async def test_i2p_without_proxy_raises(self, i2p_relay: Relay) -> None:
-        """Raises ValueError for I2P relay without proxy."""
-        with pytest.raises(ValueError, match=r"overlay network i2p requires proxy"):
-            await Nip66HttpMetadata.execute(i2p_relay, 10.0)
+    async def test_i2p_without_proxy_returns_failure(self, i2p_relay: Relay) -> None:
+        """Returns failure for I2P relay without proxy."""
+        result = await Nip66HttpMetadata.execute(i2p_relay, 10.0)
+        assert result.logs.success is False
+        assert "overlay network i2p requires proxy" in result.logs.reason
 
-    @pytest.mark.asyncio
-    async def test_loki_without_proxy_raises(self, loki_relay: Relay) -> None:
-        """Raises ValueError for Lokinet relay without proxy."""
-        with pytest.raises(ValueError, match=r"overlay network loki requires proxy"):
-            await Nip66HttpMetadata.execute(loki_relay, 10.0)
+    async def test_loki_without_proxy_returns_failure(self, loki_relay: Relay) -> None:
+        """Returns failure for Lokinet relay without proxy."""
+        result = await Nip66HttpMetadata.execute(loki_relay, 10.0)
+        assert result.logs.success is False
+        assert "overlay network loki requires proxy" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_tor_with_proxy_works(self, tor_relay: Relay) -> None:
         """Tor relay with proxy succeeds."""
         http_result = {"http_server": "nginx/1.24.0"}
@@ -105,7 +98,6 @@ class TestNip66HttpMetadataHttp:
         assert isinstance(result, Nip66HttpMetadata)
         assert result.data.http_server == "nginx/1.24.0"
 
-    @pytest.mark.asyncio
     async def test_clearnet_with_proxy_works(self, relay: Relay) -> None:
         """Clearnet relay with optional proxy works."""
         http_result = {"http_server": "nginx/1.24.0"}
@@ -117,7 +109,6 @@ class TestNip66HttpMetadataHttp:
 
         assert isinstance(result, Nip66HttpMetadata)
 
-    @pytest.mark.asyncio
     async def test_no_headers_returns_failure(self, relay: Relay) -> None:
         """No HTTP headers returns failure logs."""
         with patch.object(Nip66HttpMetadata, "_http", return_value={}):
@@ -127,7 +118,6 @@ class TestNip66HttpMetadataHttp:
         assert result.logs.success is False
         assert "no HTTP headers captured" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_exception_returns_failure(self, relay: Relay) -> None:
         """Exception during HTTP check returns failure logs."""
         with patch.object(Nip66HttpMetadata, "_http", side_effect=OSError("Connection timeout")):
@@ -137,7 +127,6 @@ class TestNip66HttpMetadataHttp:
         assert result.logs.success is False
         assert "Connection timeout" in result.logs.reason
 
-    @pytest.mark.asyncio
     async def test_uses_default_timeout(self, relay: Relay) -> None:
         """Uses default timeout when None provided."""
         http_result = {"http_server": "nginx/1.24.0"}
@@ -149,7 +138,6 @@ class TestNip66HttpMetadataHttp:
         call_args = mock_http.call_args
         assert call_args[0][1] > 0
 
-    @pytest.mark.asyncio
     async def test_passes_proxy_url_to_http(self, relay: Relay) -> None:
         """Passes proxy_url to _http method."""
         http_result = {"http_server": "nginx/1.24.0"}
@@ -162,7 +150,6 @@ class TestNip66HttpMetadataHttp:
         call_args = mock_http.call_args
         assert call_args[0][2] == proxy_url  # Third positional arg is proxy_url
 
-    @pytest.mark.asyncio
     async def test_only_server_header_success(self, relay: Relay) -> None:
         """Success when only Server header is present."""
         http_result = {"http_server": "apache/2.4.41"}
@@ -174,7 +161,6 @@ class TestNip66HttpMetadataHttp:
         assert result.data.http_server == "apache/2.4.41"
         assert result.data.http_powered_by is None
 
-    @pytest.mark.asyncio
     async def test_only_powered_by_header_success(self, relay: Relay) -> None:
         """Success when only X-Powered-By header is present."""
         http_result = {"http_powered_by": "Express"}
@@ -186,7 +172,6 @@ class TestNip66HttpMetadataHttp:
         assert result.data.http_server is None
         assert result.data.http_powered_by == "Express"
 
-    @pytest.mark.asyncio
     async def test_ws_relay_works(self, ws_relay: Relay) -> None:
         """ws:// relay (no SSL) works for HTTP check."""
         http_result = {"http_server": "nginx/1.24.0"}

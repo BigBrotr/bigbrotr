@@ -1,0 +1,15 @@
+include LICENSE
+include README.md
+include CHANGELOG.md
+include pyproject.toml
+
+recursive-include src *.py py.typed
+recursive-include src *.pyi
+
+prune deployments
+prune tests
+prune tools
+prune docs
+prune site
+prune .github
+prune .claude

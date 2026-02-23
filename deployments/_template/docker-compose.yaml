@@ -23,10 +23,12 @@ services:
 
     environment:
       POSTGRES_USER: admin
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD}
       POSTGRES_DB: myimpl                     # <-- CUSTOMIZE: Match brotr.yaml
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
       PGDATA: /var/lib/postgresql/data/pgdata
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD}
 
     volumes:
       # Persistent data storage
@@ -50,7 +52,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s
 
     deploy:
       resources:
@@ -76,15 +78,16 @@ services:
     restart: unless-stopped
 
     environment:
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_NAME: myimpl                              # <-- CUSTOMIZE db
-      DB_USER: admin
-      DB_PASSWORD: ${DB_PASSWORD}
-      POOL_MODE: transaction
-      MAX_CLIENT_CONN: 1000
-      DEFAULT_POOL_SIZE: 20
-      AUTH_TYPE: scram-sha-256
+      POSTGRES_DB: myimpl                          # <-- CUSTOMIZE: Match brotr.yaml
+      DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD}
+
+    entrypoint: ["/custom-entrypoint.sh"]
+
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/entrypoint.sh:/custom-entrypoint.sh:ro
 
     ports:
       # CUSTOMIZE: Use unique port (e.g., 6433 for second implementation)
@@ -98,10 +101,11 @@ services:
         condition: service_healthy
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U admin"]
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 20s
 
     deploy:
       resources:
@@ -163,7 +167,7 @@ services:
     restart: "no"
 
     environment:
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
 
     volumes:
       - ./config:/app/config:ro
@@ -177,7 +181,7 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["python", "-m", "bigbrotr", "seeder"]
+    command: ["bigbrotr", "seeder", "--once"]
 
     healthcheck:
       disable: true
@@ -207,7 +211,7 @@ services:
     restart: unless-stopped
 
     environment:
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
 
     volumes:
       - ./config:/app/config:ro
@@ -224,7 +228,7 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["python", "-m", "bigbrotr", "finder"]
+    command: ["bigbrotr", "finder"]
 
     stop_grace_period: 60s
 
@@ -260,7 +264,7 @@ services:
     restart: unless-stopped
 
     environment:
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
       PRIVATE_KEY: ${PRIVATE_KEY}
 
     volumes:
@@ -280,7 +284,7 @@ services:
       tor:
         condition: service_healthy            # Remove if not using Tor
 
-    command: ["python", "-m", "bigbrotr", "validator"]
+    command: ["bigbrotr", "validator"]
 
     stop_grace_period: 60s
 
@@ -316,12 +320,12 @@ services:
     restart: unless-stopped
 
     environment:
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
       PRIVATE_KEY: ${PRIVATE_KEY}
 
     volumes:
       - ./config:/app/config:ro
-      - ./static:/app/static:ro
+      - ./static:/app/static
 
     ports:
       # CUSTOMIZE: Use unique port to avoid conflicts
@@ -337,7 +341,7 @@ services:
       tor:
         condition: service_healthy            # Remove if not using Tor
 
-    command: ["python", "-m", "bigbrotr", "monitor"]
+    command: ["bigbrotr", "monitor"]
 
     stop_grace_period: 60s
 
@@ -373,7 +377,7 @@ services:
     restart: unless-stopped
 
     environment:
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
       PRIVATE_KEY: ${PRIVATE_KEY}
 
     volumes:
@@ -393,7 +397,7 @@ services:
       tor:
         condition: service_healthy            # Remove if not using Tor
 
-    command: ["python", "-m", "bigbrotr", "synchronizer"]
+    command: ["bigbrotr", "synchronizer"]
 
     stop_grace_period: 60s
 
@@ -417,6 +421,43 @@ services:
         max-file: "5"
 
   # --------------------------------------------------------------------------
+  # PostgreSQL Exporter (Database Metrics)
+  # --------------------------------------------------------------------------
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: myimpl-postgres-exporter     # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    environment:
+      DATA_SOURCE_NAME: "postgresql://myimpl_reader:${DB_READER_PASSWORD}@postgres:5432/myimpl?sslmode=disable"  # <-- CUSTOMIZE db name + role
+
+    volumes:
+      - ./monitoring/postgres-exporter/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+
+    command:
+      - "--extend.query-path=/etc/postgres-exporter/queries.yaml"
+
+    networks:
+      - myimpl-data-network                      # <-- CUSTOMIZE
+      - myimpl-monitoring-network                # <-- CUSTOMIZE
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
   # Prometheus (Metrics Collection)
   # --------------------------------------------------------------------------
   prometheus:
@@ -426,6 +467,7 @@ services:
 
     volumes:
       - ./monitoring/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
 
     ports:
@@ -452,6 +494,46 @@ services:
         limits:
           cpus: '0.5'
           memory: 512M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # Alertmanager (Alert Routing)
+  # --------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: myimpl-alertmanager             # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+    ports:
+      # CUSTOMIZE: Use unique port to avoid conflicts
+      - "127.0.0.1:9093:9093"
+
+    networks:
+      - myimpl-monitoring-network                   # <-- CUSTOMIZE
+
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
 
     logging:
       driver: "json-file"
@@ -530,7 +612,7 @@ networks:
 #
 # 1. Setup:
 #    cp .env.example .env
-#    nano .env  # Set DB_PASSWORD and optionally PRIVATE_KEY
+#    nano .env  # Set DB_ADMIN_PASSWORD and optionally PRIVATE_KEY
 #
 # 2. Start:
 #    docker-compose up -d

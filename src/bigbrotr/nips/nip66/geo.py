@@ -3,7 +3,30 @@ NIP-66 geolocation metadata container with GeoIP lookup capabilities.
 
 Resolves a relay's hostname to an IP address and performs a GeoIP City
 database lookup to determine geographic location, including country,
-city, coordinates, and a computed geohash. Clearnet relays only.
+city, coordinates, and a computed geohash as part of
+[NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md)
+monitoring. Clearnet relays only.
+
+Note:
+    Hostname resolution uses [resolve_host][bigbrotr.utils.dns.resolve_host],
+    preferring IPv4 over IPv6 for the GeoIP lookup. The GeoIP City database
+    (GeoLite2-City) must be provided as an open ``geoip2.database.Reader``
+    -- the caller is responsible for database lifecycle management.
+
+    The geohash is computed at precision 9 (approximately 5-meter accuracy)
+    using the ``geohash2`` library and is useful for spatial proximity
+    queries.
+
+See Also:
+    [bigbrotr.nips.nip66.data.Nip66GeoData][bigbrotr.nips.nip66.data.Nip66GeoData]:
+        Data model for geolocation fields.
+    [bigbrotr.nips.nip66.logs.Nip66GeoLogs][bigbrotr.nips.nip66.logs.Nip66GeoLogs]:
+        Log model for geolocation lookup results.
+    [bigbrotr.nips.nip66.net.Nip66NetMetadata][bigbrotr.nips.nip66.net.Nip66NetMetadata]:
+        Network/ASN test that also uses
+        [resolve_host][bigbrotr.utils.dns.resolve_host] for IP resolution.
+    [bigbrotr.utils.dns.resolve_host][bigbrotr.utils.dns.resolve_host]:
+        DNS resolution utility used to obtain IP addresses.
 """
 
 from __future__ import annotations
@@ -18,7 +41,7 @@ import geoip2.errors
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips.base import BaseMetadata
+from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.dns import resolve_host
 
 from .data import Nip66GeoData
@@ -29,7 +52,14 @@ logger = logging.getLogger("bigbrotr.nips.nip66")
 
 
 class GeoExtractor:
-    """Extracts structured geolocation fields from a GeoIP2 City response."""
+    """Extracts structured geolocation fields from a GeoIP2 City response.
+
+    See Also:
+        [Nip66GeoMetadata][bigbrotr.nips.nip66.geo.Nip66GeoMetadata]:
+            Container that uses this extractor during geolocation lookup.
+        [bigbrotr.nips.nip66.data.Nip66GeoData][bigbrotr.nips.nip66.data.Nip66GeoData]:
+            Data model populated by the extracted fields.
+    """
 
     @staticmethod
     def extract_country(response: Any) -> dict[str, Any]:
@@ -113,11 +143,19 @@ class GeoExtractor:
         return result
 
 
-class Nip66GeoMetadata(BaseMetadata):
+class Nip66GeoMetadata(BaseNipMetadata):
     """Container for geolocation data and lookup logs.
 
     Provides the ``execute()`` class method that resolves the relay hostname,
     performs a GeoIP City lookup, and extracts location fields.
+
+    See Also:
+        [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
+            Top-level model that orchestrates this alongside other tests.
+        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+            The ``NIP66_GEO`` variant used when storing these results.
+        [bigbrotr.nips.nip66.net.Nip66NetMetadata][bigbrotr.nips.nip66.net.Nip66NetMetadata]:
+            Network/ASN test that shares the IP resolution step.
     """
 
     data: Nip66GeoData
@@ -166,14 +204,16 @@ class Nip66GeoMetadata(BaseMetadata):
 
         Returns:
             An ``Nip66GeoMetadata`` instance with location data and logs.
-
-        Raises:
-            ValueError: If the relay is not on the clearnet network.
         """
         logger.debug("geo_testing relay=%s", relay.url)
 
         if relay.network != NetworkType.CLEARNET:
-            raise ValueError(f"geo lookup requires clearnet, got {relay.network.value}")
+            return cls(
+                data=Nip66GeoData(),
+                logs=Nip66GeoLogs(
+                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                ),
+            )
 
         logs: dict[str, Any] = {"success": False, "reason": None}
 
@@ -193,7 +233,7 @@ class Nip66GeoMetadata(BaseMetadata):
                     logs["reason"] = "no geo data found for IP"
                     logger.debug("geo_no_data relay=%s", relay.url)
             except (geoip2.errors.GeoIP2Error, ValueError) as e:
-                logs["reason"] = str(e)
+                logs["reason"] = str(e) or type(e).__name__
                 logger.debug("geo_lookup_failed relay=%s error=%s", relay.url, str(e))
         else:
             logs["reason"] = "could not resolve hostname to IP"

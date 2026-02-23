@@ -25,6 +25,22 @@
 # -----------------------------------------------------------------------------
 # Class: src/core/base_service.py::BaseServiceConfig
 
+# -----------------------------------------------------------------------------
+# Connection Pool Overrides
+# -----------------------------------------------------------------------------
+# Per-service pool settings merged into brotr.yaml at startup.
+# Keys: user, password_env, min_size, max_size, application_name
+# application_name is auto-set to the service name if omitted.
+
+pool:
+  # Database user for this service                  # <-- CUSTOMIZE role name
+  user: myimpl_writer
+  # Environment variable containing the password    # <-- CUSTOMIZE env var
+  password_env: DB_WRITER_PASSWORD
+  # Connection pool sizing for this service
+  min_size: 2
+  max_size: 5
+
 # Seconds between synchronization cycles
 # Lower values = more frequent sync, higher resource usage
 # Recommendation: 900-1800 for production
@@ -182,9 +198,9 @@ time_range:
 # -----------------------------------------------------------------------------
 # Maximum time allowed for syncing each relay (per relay session).
 # This is separate from the WebSocket request timeout in networks.*.timeout.
-# Class: src/services/synchronizer.py::SyncTimeoutsConfig
+# Class: src/services/synchronizer.py::TimeoutsConfig
 
-sync_timeouts:
+timeouts:
   # Maximum time (seconds) for syncing a clearnet relay
   # Range: 60.0-14400.0
   # Default: 1800.0 (30 minutes)
@@ -209,15 +225,9 @@ sync_timeouts:
 # Concurrency Configuration
 # -----------------------------------------------------------------------------
 # Controls parallel execution of relay synchronization.
-# Class: src/services/synchronizer.py::SyncConcurrencyConfig
+# Class: src/services/synchronizer.py::ConcurrencyConfig
 
 concurrency:
-  # Maximum parallel relay connections (bounded by asyncio.Semaphore)
-  # Higher values = faster sync, more memory/network usage
-  # Range: 1-100
-  # Default: 10
-  max_parallel: 10
-
   # Random delay range [min, max] seconds before starting each relay
   # Prevents thundering herd on startup
   # Default: [0, 60]
@@ -236,18 +246,6 @@ source:
   # Default: true
   from_database: true
 
-  # Only sync relays with metadata updated within N seconds
-  # Ensures relays have been recently checked by Monitor
-  # Range: >= 0 (0 = no age limit)
-  # Default: 43200 (12 hours)
-  max_metadata_age: 43200
-
-  # Only sync relays marked as readable by Monitor
-  # true = skip relays that failed read tests
-  # false = attempt sync on all relays regardless of read status
-  # Default: true
-  require_readable: true
-
 # -----------------------------------------------------------------------------
 # Relay Overrides
 # -----------------------------------------------------------------------------
@@ -260,7 +258,7 @@ overrides: []
   # - url: "wss://relay.damus.io"
   #   timeouts:
   #     request: 60.0     # WebSocket request timeout (overrides networks.*.timeout)
-  #     relay: 7200.0     # Per-relay sync timeout (overrides sync_timeouts.relay_*)
+  #     relay: 7200.0     # Per-relay sync timeout (overrides timeouts.relay_*)
 
 # =============================================================================
 # CUSTOMIZATION GUIDE
@@ -271,12 +269,12 @@ overrides: []
 #
 # MINIMAL RESOURCES (low throughput, low resource usage):
 #   interval: 1800.0
-#   concurrency.max_parallel: 5
+#   networks.clearnet.max_tasks: 3
 #   filter.limit: 200
 #
 # AGGRESSIVE SYNC (high throughput, high resource usage):
 #   interval: 300.0
-#   concurrency.max_parallel: 50
+#   networks.clearnet.max_tasks: 30
 #   filter.limit: 1000
 #
 # DISABLE OVERLAY NETWORKS:

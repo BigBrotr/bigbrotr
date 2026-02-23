@@ -15,6 +15,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from nostr_sdk import Event as NostrEvent
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.pool import Pool
@@ -54,7 +55,7 @@ def mock_private_key(monkeypatch: pytest.MonkeyPatch) -> str:
 def mock_db_password(monkeypatch: pytest.MonkeyPatch) -> str:
     """Set up a mock database password in environment."""
     password = "test_password"  # pragma: allowlist secret
-    monkeypatch.setenv("DB_PASSWORD", password)
+    monkeypatch.setenv("DB_ADMIN_PASSWORD", password)
     return password
 
 
@@ -71,7 +72,6 @@ def mock_connection() -> MagicMock:
     conn.fetchrow = AsyncMock(return_value=None)
     conn.fetchval = AsyncMock(return_value=1)
     conn.execute = AsyncMock(return_value="OK")
-    conn.executemany = AsyncMock()
 
     # Mock transaction context manager
     mock_transaction = MagicMock()
@@ -153,7 +153,6 @@ def pool_config_dict() -> dict[str, Any]:
         },
         "timeouts": {
             "acquisition": 5.0,
-            "health_check": 3.0,
         },
         "retry": {
             "max_attempts": 2,
@@ -213,7 +212,7 @@ def make_mock_event(
     if tags is None:
         tags = [["e", "c" * 64], ["p", "d" * 64]]
 
-    mock_event = MagicMock()
+    mock_event = MagicMock(spec=NostrEvent)
     mock_event.id.return_value.to_hex.return_value = event_id
     mock_event.author.return_value.to_hex.return_value = pubkey
     mock_event.created_at.return_value.as_secs.return_value = created_at
@@ -273,7 +272,7 @@ def sample_metadata() -> RelayMetadata:
     relay = Relay("wss://relay.example.com", discovered_at=1700000000)
     metadata = Metadata(
         type=MetadataType.NIP11_INFO,
-        value={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
+        data={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
     )
     return RelayMetadata(
         relay=relay,

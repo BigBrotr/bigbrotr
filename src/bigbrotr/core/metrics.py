@@ -2,19 +2,33 @@
 Prometheus metrics collection and HTTP exposition.
 
 Defines module-level metric objects (singletons, thread-safe) that are shared
-across all services. ``BaseService.run_forever()`` automatically records cycle
-counts, durations, and failure streaks. Services add custom metrics through
-``set_gauge()`` and ``inc_counter()`` on the base class.
+across all services.
+[BaseService.run_forever()][bigbrotr.core.base_service.BaseService.run_forever]
+automatically records cycle counts, durations, and failure streaks. Services
+add custom metrics through
+[set_gauge()][bigbrotr.core.base_service.BaseService.set_gauge] and
+[inc_counter()][bigbrotr.core.base_service.BaseService.inc_counter] on the
+base class.
 
-The ``MetricsServer`` provides an async HTTP endpoint (via aiohttp) for
-Prometheus scraping. Configuration is handled through ``MetricsConfig``,
-which can be embedded in any service's YAML configuration.
+The [MetricsServer][bigbrotr.core.metrics.MetricsServer] provides an async
+HTTP endpoint (via aiohttp) for Prometheus scraping. Configuration is handled
+through [MetricsConfig][bigbrotr.core.metrics.MetricsConfig], which can be
+embedded in any service's YAML configuration via
+[BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig].
 
 Attributes:
     SERVICE_INFO: Static metadata set once at startup.
     SERVICE_GAUGE: Point-in-time values (current state).
     SERVICE_COUNTER: Cumulative totals (monotonically increasing).
     CYCLE_DURATION_SECONDS: Histogram for latency percentiles (p50/p95/p99).
+
+See Also:
+    [BaseService][bigbrotr.core.base_service.BaseService]: Automatically
+        records metrics during
+        [run_forever()][bigbrotr.core.base_service.BaseService.run_forever].
+    [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]: Embeds
+        [MetricsConfig][bigbrotr.core.metrics.MetricsConfig] for per-service
+        metrics configuration.
 """
 
 from __future__ import annotations
@@ -41,12 +55,22 @@ class MetricsConfig(BaseModel):
 
     Set ``host`` to ``"0.0.0.0"`` in container environments to allow
     external scraping. The endpoint is only started when ``enabled``
-    is True.
+    is ``True``.
+
+    See Also:
+        [MetricsServer][bigbrotr.core.metrics.MetricsServer]: HTTP server
+            that consumes this configuration.
+        [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
+            Parent configuration that embeds this model.
     """
 
     enabled: bool = Field(default=False, description="Enable metrics collection")
     port: int = Field(default=8000, ge=1024, le=65535, description="Metrics HTTP port")
-    host: str = Field(default="127.0.0.1", description="Metrics HTTP bind address")
+    host: str = Field(
+        default="127.0.0.1",
+        description="Metrics HTTP bind address. Use 0.0.0.0 in containers "
+        "(relies on Docker network isolation for access control)",
+    )
     path: str = Field(default="/metrics", description="Metrics endpoint path")
 
 
@@ -100,10 +124,11 @@ SERVICE_COUNTER = Counter(
 
 
 class MetricsServer:
-    """Async HTTP server exposing a Prometheus-compatible /metrics endpoint.
+    """Async HTTP server exposing a Prometheus-compatible ``/metrics`` endpoint.
 
     Built on aiohttp for compatibility with the async service architecture.
-    The endpoint path is configurable via ``MetricsConfig.path``.
+    The endpoint path is configurable via
+    [MetricsConfig.path][bigbrotr.core.metrics.MetricsConfig].
 
     Examples:
         ```python
@@ -112,6 +137,14 @@ class MetricsServer:
         # ... service runs ...
         await server.stop()
         ```
+
+    See Also:
+        [MetricsConfig][bigbrotr.core.metrics.MetricsConfig]: Configuration
+            model controlling host, port, path, and enabled state.
+        [start_metrics_server()][bigbrotr.core.metrics.start_metrics_server]:
+            Convenience function that creates and starts a server in one call.
+        [BaseService][bigbrotr.core.base_service.BaseService]: Service base
+            class that records metrics consumed by this endpoint.
     """
 
     def __init__(self, config: MetricsConfig) -> None:
@@ -122,11 +155,15 @@ class MetricsServer:
         """Start listening for Prometheus scrape requests.
 
         Returns immediately (no-op) if metrics are disabled in the
-        configuration. Otherwise, binds an aiohttp server to the
-        configured host and port.
+        [MetricsConfig][bigbrotr.core.metrics.MetricsConfig]. Otherwise,
+        binds an aiohttp server to the configured host and port.
 
         Raises:
             OSError: If the port is already in use or binding fails.
+
+        See Also:
+            [stop()][bigbrotr.core.metrics.MetricsServer.stop]: Shut down
+                the server and release the bound port.
         """
         if not self._config.enabled:
             return
@@ -152,6 +189,7 @@ class MetricsServer:
         """
         if self._runner:
             await self._runner.cleanup()
+            self._runner = None
 
     @staticmethod
     async def _handle_metrics(_request: web.Request) -> web.Response:
@@ -169,11 +207,18 @@ async def start_metrics_server(
     """Convenience function to create and start a metrics server.
 
     Args:
-        config: Metrics configuration. Uses defaults if not provided.
+        config: [MetricsConfig][bigbrotr.core.metrics.MetricsConfig]
+            instance. Uses defaults if not provided.
 
     Returns:
-        A running MetricsServer instance. Caller should call ``stop()``
-        during shutdown to release the bound port.
+        A running [MetricsServer][bigbrotr.core.metrics.MetricsServer]
+        instance. Caller should call
+        [stop()][bigbrotr.core.metrics.MetricsServer.stop] during
+        shutdown to release the bound port.
+
+    See Also:
+        [MetricsServer][bigbrotr.core.metrics.MetricsServer]: The server
+            class instantiated by this function.
     """
     config = config or MetricsConfig()
     server = MetricsServer(config)

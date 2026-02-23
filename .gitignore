@@ -213,6 +213,7 @@ temp/
 
 # MkDocs
 site/
+.cache/
 
 # Sphinx
 docs/_build/
@@ -259,9 +260,6 @@ CLAUDE.md
 *.tgz
 *.rar
 *.7z
-
-# Audit reports
-AUDIT_REPORT.*
 
 # Jupyter Notebooks checkpoints
 .ipynb_checkpoints/

@@ -137,7 +137,6 @@ class TestMetricsServerInit:
 class TestMetricsServerLifecycle:
     """Tests for MetricsServer start/stop lifecycle."""
 
-    @pytest.mark.asyncio
     async def test_start_disabled_is_noop(self) -> None:
         """Test start() returns immediately when metrics disabled."""
         config = MetricsConfig(enabled=False)
@@ -147,7 +146,6 @@ class TestMetricsServerLifecycle:
 
         assert server._runner is None
 
-    @pytest.mark.asyncio
     async def test_start_enabled_creates_runner(self) -> None:
         """Test start() creates runner when enabled."""
         config = MetricsConfig(enabled=True, port=19876, host="127.0.0.1")
@@ -159,7 +157,6 @@ class TestMetricsServerLifecycle:
         finally:
             await server.stop()
 
-    @pytest.mark.asyncio
     async def test_stop_cleans_up_runner(self) -> None:
         """Test stop() cleans up runner."""
         config = MetricsConfig(enabled=True, port=19877, host="127.0.0.1")
@@ -171,7 +168,6 @@ class TestMetricsServerLifecycle:
         finally:
             await server.stop()
 
-    @pytest.mark.asyncio
     async def test_stop_without_start_is_safe(self) -> None:
         """Test stop() is safe to call without prior start()."""
         config = MetricsConfig()
@@ -179,7 +175,6 @@ class TestMetricsServerLifecycle:
 
         await server.stop()  # Should not raise
 
-    @pytest.mark.asyncio
     async def test_stop_multiple_times_is_safe(self) -> None:
         """Test stop() can be called multiple times safely."""
         config = MetricsConfig(enabled=True, port=19878, host="127.0.0.1")
@@ -195,21 +190,18 @@ class TestMetricsServerLifecycle:
 class TestMetricsServerHandler:
     """Tests for MetricsServer request handler."""
 
-    @pytest.mark.asyncio
     async def test_handle_metrics_returns_response(self) -> None:
         """Test _handle_metrics returns proper Response object."""
         response = await MetricsServer._handle_metrics(None)  # type: ignore[arg-type]
 
         assert isinstance(response, web.Response)
 
-    @pytest.mark.asyncio
     async def test_handle_metrics_content_type(self) -> None:
         """Test _handle_metrics sets correct content type."""
         response = await MetricsServer._handle_metrics(None)  # type: ignore[arg-type]
 
         assert response.headers["Content-Type"] == CONTENT_TYPE_LATEST
 
-    @pytest.mark.asyncio
     async def test_handle_metrics_returns_bytes(self) -> None:
         """Test _handle_metrics returns bytes body."""
         response = await MetricsServer._handle_metrics(None)  # type: ignore[arg-type]
@@ -221,7 +213,6 @@ class TestMetricsServerHandler:
 class TestMetricsServerEndpoint:
     """Tests for MetricsServer HTTP endpoint."""
 
-    @pytest.mark.asyncio
     async def test_metrics_endpoint_serves_content(self) -> None:
         """Test metrics endpoint serves prometheus content."""
         from aiohttp import ClientSession
@@ -245,7 +236,6 @@ class TestMetricsServerEndpoint:
         finally:
             await server.stop()
 
-    @pytest.mark.asyncio
     async def test_custom_path_works(self) -> None:
         """Test server respects custom path configuration."""
         from aiohttp import ClientSession
@@ -267,7 +257,6 @@ class TestMetricsServerEndpoint:
         finally:
             await server.stop()
 
-    @pytest.mark.asyncio
     async def test_prometheus_format_indicators(self) -> None:
         """Test response contains prometheus format indicators."""
         from aiohttp import ClientSession
@@ -301,7 +290,6 @@ class TestMetricsServerEndpoint:
 class TestStartMetricsServer:
     """Tests for start_metrics_server() helper function."""
 
-    @pytest.mark.asyncio
     async def test_with_custom_config(self) -> None:
         """Test start_metrics_server with custom configuration."""
         config = MetricsConfig(enabled=True, port=19882, host="127.0.0.1")
@@ -314,7 +302,6 @@ class TestStartMetricsServer:
         finally:
             await server.stop()
 
-    @pytest.mark.asyncio
     async def test_with_default_config(self) -> None:
         """Test start_metrics_server with default configuration."""
         # Use disabled config to avoid port conflicts
@@ -326,7 +313,6 @@ class TestStartMetricsServer:
         finally:
             await server.stop()
 
-    @pytest.mark.asyncio
     async def test_disabled_server(self) -> None:
         """Test start_metrics_server with disabled configuration."""
         config = MetricsConfig(enabled=False)
@@ -338,7 +324,6 @@ class TestStartMetricsServer:
         finally:
             await server.stop()
 
-    @pytest.mark.asyncio
     async def test_with_none_config(self) -> None:
         """Test start_metrics_server with None uses defaults."""
         # Default config is disabled, so this is safe

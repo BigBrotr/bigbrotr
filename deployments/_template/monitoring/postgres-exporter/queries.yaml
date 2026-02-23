@@ -1,0 +1,51 @@
+# ============================================================================
+# postgres_exporter Custom Queries Template
+# ============================================================================
+# CUSTOMIZE: Replace "myimpl" prefix with your implementation name.
+# These queries expose application-level database metrics as Prometheus gauges.
+# Scraped every 30s by Prometheus via postgres_exporter.
+#
+# Design decisions:
+#   - relay/metadata/service_state: COUNT(*) is fine (small tables, <10k rows)
+#   - event: uses pg_class.reltuples (O(1) approximation, ~95% accurate after ANALYZE)
+#   - No materialized view dependency: all queries hit base tables or pg_catalog
+# ============================================================================
+
+myimpl_overview:                                         # <-- CUSTOMIZE prefix
+  query: |
+    SELECT
+      (SELECT COUNT(*)::float FROM relay) AS relay_count,
+      (SELECT reltuples FROM pg_class WHERE relname = 'event') AS event_count_approx,
+      (SELECT COUNT(*)::float FROM metadata) AS metadata_count,
+      (SELECT COUNT(*)::float FROM service_state) AS service_state_count
+  metrics:
+    - relay_count:
+        usage: "GAUGE"
+        description: "Total relays in database"
+    - event_count_approx:
+        usage: "GAUGE"
+        description: "Approximate total events (from pg_class.reltuples)"
+    - metadata_count:
+        usage: "GAUGE"
+        description: "Total unique metadata records"
+    - service_state_count:
+        usage: "GAUGE"
+        description: "Active service state entries"
+
+myimpl_relay_by_network:                                 # <-- CUSTOMIZE prefix
+  query: "SELECT network, COUNT(*)::float AS count FROM relay GROUP BY network"
+  metrics:
+    - count:
+        usage: "GAUGE"
+        description: "Number of relays per network type"
+
+myimpl_table_sizes:                                      # <-- CUSTOMIZE prefix
+  query: |
+    SELECT relname AS table_name,
+           pg_total_relation_size(relid)::float AS total_bytes
+    FROM pg_catalog.pg_statio_user_tables
+    ORDER BY pg_total_relation_size(relid) DESC
+  metrics:
+    - total_bytes:
+        usage: "GAUGE"
+        description: "Total size of table including indexes (bytes)"

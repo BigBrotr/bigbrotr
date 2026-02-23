@@ -5,4 +5,8 @@
 # See _template/config/services/seeder.yaml for all options and documentation.
 # =============================================================================
 
-# All values use defaults - seed file path and to_validate behavior
+pool:
+  user: lilbrotr_writer
+  password_env: DB_WRITER_PASSWORD
+  min_size: 1
+  max_size: 2

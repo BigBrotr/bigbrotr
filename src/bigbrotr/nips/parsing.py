@@ -2,12 +2,27 @@
 Declarative field parsing for NIP data models.
 
 Centralizes the type-coercion logic shared by all NIP-11 and NIP-66 data
-classes. Each model declares a ``FieldSpec`` describing which fields should
-be parsed as which types; ``parse_fields()`` then applies the spec to raw
-dictionaries from external sources, silently dropping invalid values.
+classes. Each model declares a [FieldSpec][bigbrotr.nips.parsing.FieldSpec]
+describing which fields should be parsed as which types;
+[parse_fields][bigbrotr.nips.parsing.parse_fields] then applies the spec
+to raw dictionaries from external sources, silently dropping invalid values.
 
 Supported field types: ``int``, ``bool``, ``str``, ``float``,
 ``list[int]``, ``list[str]``.
+
+Note:
+    This module is intentionally defensive: no exceptions are raised for
+    invalid data. Values that fail type checks are silently excluded from
+    the result dictionary. This design is critical for handling untrusted
+    relay responses that may contain arbitrary or malformed JSON.
+
+See Also:
+    [bigbrotr.nips.base.BaseData][bigbrotr.nips.base.BaseData]: Base class
+        that uses ``FieldSpec`` and ``parse_fields`` for declarative parsing.
+    [bigbrotr.nips.nip11.data][bigbrotr.nips.nip11.data]: NIP-11 data models
+        that declare their own ``_FIELD_SPEC``.
+    [bigbrotr.nips.nip66.data][bigbrotr.nips.nip66.data]: NIP-66 data models
+        that declare their own ``_FIELD_SPEC``.
 """
 
 from __future__ import annotations
@@ -82,6 +97,15 @@ class FieldSpec:
         str_list_fields: Fields expected as ``list[str]`` (invalid elements filtered).
         float_fields: Fields expected as ``float`` (``int`` accepted and converted).
         int_list_fields: Fields expected as ``list[int]`` (invalid elements filtered).
+
+    Note:
+        Python's ``bool`` is a subclass of ``int``, so ``int_fields`` parsing
+        explicitly excludes ``bool`` values to prevent ``True``/``False``
+        from being accepted as integers.
+
+    See Also:
+        [parse_fields][bigbrotr.nips.parsing.parse_fields]: The function that
+            applies this spec to raw data dictionaries.
     """
 
     int_fields: frozenset[str] = field(default_factory=frozenset)
@@ -93,7 +117,7 @@ class FieldSpec:
 
 
 def parse_fields(data: dict[str, Any], spec: FieldSpec) -> dict[str, Any]:
-    """Parse a dictionary according to a FieldSpec, dropping invalid values.
+    """Parse a dictionary according to a ``FieldSpec``, dropping invalid values.
 
     Each key-value pair is checked against the field sets in *spec*.
     Values that do not match the expected type are silently excluded
@@ -111,10 +135,14 @@ def parse_fields(data: dict[str, Any], spec: FieldSpec) -> dict[str, Any]:
 
     Args:
         data: Raw dictionary to parse.
-        spec: Field type specification.
+        spec: [FieldSpec][bigbrotr.nips.parsing.FieldSpec] type specification.
 
     Returns:
         A new dictionary containing only valid, type-checked fields.
+
+    See Also:
+        [bigbrotr.nips.base.BaseData.parse][bigbrotr.nips.base.BaseData.parse]:
+            Class method that delegates to this function.
     """
     dispatch: dict[str, Callable[[Any], Any]] = {}
     for attr_name, parser in _FIELD_PARSERS:

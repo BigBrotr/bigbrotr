@@ -24,10 +24,12 @@ services:
 
     environment:
       POSTGRES_USER: admin
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD}
       POSTGRES_DB: bigbrotr
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
       PGDATA: /var/lib/postgresql/data/pgdata
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD}
 
     volumes:
       - ./data/postgres:/var/lib/postgresql/data                # Persistent data
@@ -45,7 +47,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s
 
     deploy:
       resources:
@@ -70,16 +72,16 @@ services:
     restart: unless-stopped
 
     environment:
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_NAME: bigbrotr
-      DB_USER: admin
-      DB_PASSWORD: ${DB_PASSWORD}
-      POOL_MODE: transaction
-      MAX_CLIENT_CONN: 1000
-      DEFAULT_POOL_SIZE: 20
-      AUTH_TYPE: scram-sha-256
-      IGNORE_STARTUP_PARAMETERS: extra_float_digits
+      POSTGRES_DB: bigbrotr
+      DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD}
+
+    entrypoint: ["/custom-entrypoint.sh"]
+
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/entrypoint.sh:/custom-entrypoint.sh:ro
 
     ports:
       - "127.0.0.1:6432:5432"
@@ -92,10 +94,11 @@ services:
         condition: service_healthy
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U admin"]
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 20s
 
     deploy:
       resources:
@@ -225,7 +228,7 @@ services:
     restart: "no"
 
     environment:
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
 
     volumes:
       - ./config:/app/config:ro
@@ -239,7 +242,7 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["python", "-m", "bigbrotr", "seeder", "--once"]
+    command: ["bigbrotr", "seeder", "--once"]
 
     healthcheck:
       disable: true
@@ -269,7 +272,7 @@ services:
     restart: unless-stopped
 
     environment:
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
 
     volumes:
       - ./config:/app/config:ro
@@ -285,7 +288,7 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["python", "-m", "bigbrotr", "finder"]
+    command: ["bigbrotr", "finder"]
 
     stop_grace_period: 60s
 
@@ -321,7 +324,7 @@ services:
     restart: unless-stopped
 
     environment:
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
       PRIVATE_KEY: ${PRIVATE_KEY}
 
     volumes:
@@ -344,7 +347,7 @@ services:
       # lokinet:
       #   condition: service_healthy
 
-    command: ["python", "-m", "bigbrotr", "validator"]
+    command: ["bigbrotr", "validator"]
 
     stop_grace_period: 60s
 
@@ -380,12 +383,12 @@ services:
     restart: unless-stopped
 
     environment:
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
       PRIVATE_KEY: ${PRIVATE_KEY}
 
     volumes:
       - ./config:/app/config:ro
-      - ./static:/app/static:ro
+      - ./static:/app/static
 
     ports:
       - "127.0.0.1:${MONITOR_METRICS_PORT:-8003}:8000"  # Prometheus metrics
@@ -404,7 +407,7 @@ services:
       # lokinet:
       #   condition: service_healthy
 
-    command: ["python", "-m", "bigbrotr", "monitor"]
+    command: ["bigbrotr", "monitor"]
 
     stop_grace_period: 60s
 
@@ -440,7 +443,7 @@ services:
     restart: unless-stopped
 
     environment:
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
       PRIVATE_KEY: ${PRIVATE_KEY}
 
     volumes:
@@ -463,7 +466,7 @@ services:
       # lokinet:
       #   condition: service_healthy
 
-    command: ["python", "-m", "bigbrotr", "synchronizer"]
+    command: ["bigbrotr", "synchronizer"]
 
     stop_grace_period: 60s
 
@@ -485,6 +488,43 @@ services:
       options:
         max-size: "100m"
         max-file: "5"
+
+  # --------------------------------------------------------------------------
+  # PostgreSQL Exporter (Database Metrics)
+  # --------------------------------------------------------------------------
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: bigbrotr-postgres-exporter
+    restart: unless-stopped
+
+    environment:
+      DATA_SOURCE_NAME: "postgresql://bigbrotr_reader:${DB_READER_PASSWORD}@postgres:5432/bigbrotr?sslmode=disable"
+
+    volumes:
+      - ./monitoring/postgres-exporter/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+
+    command:
+      - "--extend.query-path=/etc/postgres-exporter/queries.yaml"
+
+    networks:
+      - bigbrotr-data-network
+      - bigbrotr-monitoring-network
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
 
   # --------------------------------------------------------------------------
   # Prometheus (Metrics Collection)
@@ -522,6 +562,45 @@ services:
         limits:
           cpus: '0.5'
           memory: 512M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # Alertmanager (Alert Routing)
+  # --------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: bigbrotr-alertmanager
+    restart: unless-stopped
+
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+    ports:
+      - "127.0.0.1:9093:9093"
+
+    networks:
+      - bigbrotr-monitoring-network
+
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
 
     logging:
       driver: "json-file"
@@ -603,7 +682,7 @@ networks:
 # ============================================================================
 #
 # 1. Setup:
-#    cp .env.example .env && nano .env  # Set DB_PASSWORD, PRIVATE_KEY
+#    cp .env.example .env && nano .env  # Set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD, PRIVATE_KEY
 #
 # 2. Start:
 #    docker-compose up -d

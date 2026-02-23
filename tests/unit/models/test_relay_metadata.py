@@ -26,7 +26,7 @@ def relay():
 @pytest.fixture
 def metadata():
     """Create a test Metadata with type."""
-    return Metadata(type=MetadataType.NIP11_INFO, value={"name": "Test", "value": 42})
+    return Metadata(type=MetadataType.NIP11_INFO, data={"name": "Test", "value": 42})
 
 
 @pytest.fixture
@@ -93,8 +93,8 @@ class TestRelayMetadataDbParams:
             relay_network="clearnet",
             relay_discovered_at=1234567890,
             metadata_id=b"\x00" * 32,
-            metadata_payload='{"key": "value"}',
             metadata_type="nip11_info",
+            metadata_data='{"key": "value"}',
             generated_at=1234567891,
         )
         assert isinstance(params, tuple)
@@ -108,16 +108,16 @@ class TestRelayMetadataDbParams:
             relay_network="tor",
             relay_discovered_at=1000000000,
             metadata_id=test_hash,
-            metadata_payload='{"name": "test"}',
             metadata_type="nip66_rtt",
+            metadata_data='{"name": "test"}',
             generated_at=2000000000,
         )
         assert params.relay_url == "wss://relay.test:8080"
         assert params.relay_network == "tor"
         assert params.relay_discovered_at == 1000000000
         assert params.metadata_id == test_hash
-        assert params.metadata_payload == '{"name": "test"}'
         assert params.metadata_type == "nip66_rtt"
+        assert params.metadata_data == '{"name": "test"}'
         assert params.generated_at == 2000000000
 
     def test_field_access_by_index(self):
@@ -128,16 +128,16 @@ class TestRelayMetadataDbParams:
             relay_network="tor",
             relay_discovered_at=1111111111,
             metadata_id=test_hash,
-            metadata_payload="{}",
             metadata_type="nip66_ssl",
+            metadata_data="{}",
             generated_at=2222222222,
         )
         assert params[0] == "ws://abc.onion"
         assert params[1] == "tor"
         assert params[2] == 1111111111
         assert params[3] == test_hash
-        assert params[4] == "{}"
-        assert params[5] == "nip66_ssl"
+        assert params[4] == "nip66_ssl"
+        assert params[5] == "{}"
         assert params[6] == 2222222222
 
     def test_immutability(self):
@@ -147,8 +147,8 @@ class TestRelayMetadataDbParams:
             relay_network="clearnet",
             relay_discovered_at=1234567890,
             metadata_id=b"\x00" * 32,
-            metadata_payload="{}",
             metadata_type="nip11_info",
+            metadata_data="{}",
             generated_at=1234567891,
         )
         with pytest.raises(AttributeError):
@@ -165,7 +165,7 @@ class TestConstruction:
 
     def test_with_all_params(self, relay):
         """Constructs with all parameters explicitly set."""
-        metadata = Metadata(type=MetadataType.NIP11_INFO, value={"name": "Test"})
+        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Test"})
         rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
         assert rm.relay is relay
         assert rm.metadata is metadata
@@ -175,14 +175,14 @@ class TestConstruction:
     def test_generated_at_defaults_to_now(self, relay):
         """generated_at defaults to current time if not provided."""
         before = int(time())
-        metadata = Metadata(type=MetadataType.NIP11_INFO, value={"name": "Test"})
+        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Test"})
         rm = RelayMetadata(relay=relay, metadata=metadata)
         after = int(time())
         assert before <= rm.generated_at <= after
 
     def test_generated_at_explicit(self, relay):
         """Explicit generated_at is preserved."""
-        metadata = Metadata(type=MetadataType.NIP66_RTT, value={"rtt": 100})
+        metadata = Metadata(type=MetadataType.NIP66_RTT, data={"rtt": 100})
         rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=9999999999)
         assert rm.generated_at == 9999999999
 
@@ -200,7 +200,7 @@ class TestConstruction:
     )
     def test_all_metadata_types(self, relay, mtype):
         """All metadata types can be used."""
-        metadata = Metadata(type=mtype, value={"test": "data"})
+        metadata = Metadata(type=mtype, data={"test": "data"})
         rm = RelayMetadata(relay=relay, metadata=metadata)
         assert rm.metadata.type == mtype
 
@@ -223,7 +223,7 @@ class TestImmutability:
     def test_metadata_mutation_blocked(self, relay, metadata):
         """Cannot modify metadata attribute."""
         rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
-        new_metadata = Metadata(type=MetadataType.NIP11_INFO, value={"other": "data"})
+        new_metadata = Metadata(type=MetadataType.NIP11_INFO, data={"other": "data"})
         with pytest.raises(FrozenInstanceError):
             rm.metadata = new_metadata
 
@@ -260,13 +260,13 @@ class TestToDbParams:
 
     def test_structure(self, relay):
         """Verifies correct field values."""
-        metadata = Metadata(type=MetadataType.NIP66_RTT, value={"name": "Test", "value": 42})
+        metadata = Metadata(type=MetadataType.NIP66_RTT, data={"name": "Test", "value": 42})
         rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=9999999999)
         result = rm.to_db_params()
         assert result.relay_url == "wss://relay.example.com:8080/nostr"
         assert result.relay_network == "clearnet"
         assert result.relay_discovered_at == 1234567890
-        parsed = json.loads(result.metadata_payload)
+        parsed = json.loads(result.metadata_data)
         assert parsed == {"name": "Test", "value": 42}
         assert result.metadata_type == "nip66_rtt"
         assert result.generated_at == 9999999999
@@ -274,7 +274,7 @@ class TestToDbParams:
     def test_with_tor_relay(self):
         """Works with Tor relay."""
         tor_relay = Relay("wss://abc123.onion", discovered_at=1234567890)
-        metadata = Metadata(type=MetadataType.NIP11_INFO, value={"test": "data"})
+        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"test": "data"})
         rm = RelayMetadata(relay=tor_relay, metadata=metadata, generated_at=1234567890)
         result = rm.to_db_params()
         assert result.relay_url == "ws://abc123.onion"
@@ -283,7 +283,7 @@ class TestToDbParams:
     def test_with_i2p_relay(self):
         """Works with I2P relay."""
         i2p_relay = Relay("wss://relay.i2p", discovered_at=1234567890)
-        metadata = Metadata(type=MetadataType.NIP66_GEO, value={"test": "data"})
+        metadata = Metadata(type=MetadataType.NIP66_GEO, data={"test": "data"})
         rm = RelayMetadata(relay=i2p_relay, metadata=metadata, generated_at=1234567890)
         result = rm.to_db_params()
         assert result.relay_url == "ws://relay.i2p"
@@ -308,15 +308,15 @@ class TestFromDbParams:
             relay_network="clearnet",
             relay_discovered_at=1234567890,
             metadata_id=hash_bytes,
-            metadata_payload='{"name": "Test"}',
             metadata_type=MetadataType.NIP11_INFO,
+            metadata_data='{"name": "Test"}',
             generated_at=9999999999,
         )
         rm = RelayMetadata.from_db_params(params)
         assert rm.relay.url == "wss://relay.example.com"
         assert rm.relay.network == NetworkType.CLEARNET
         assert rm.relay.discovered_at == 1234567890
-        assert rm.metadata.value == {"name": "Test"}
+        assert rm.metadata.data == {"name": "Test"}
         assert rm.metadata.type == MetadataType.NIP11_INFO
         assert rm.generated_at == 9999999999
 
@@ -330,8 +330,8 @@ class TestFromDbParams:
             relay_network="tor",
             relay_discovered_at=1234567890,
             metadata_id=hash_bytes,
-            metadata_payload="{}",
             metadata_type=MetadataType.NIP66_RTT,
+            metadata_data="{}",
             generated_at=1234567891,
         )
         rm = RelayMetadata.from_db_params(params)
@@ -340,21 +340,21 @@ class TestFromDbParams:
 
     def test_roundtrip(self, relay):
         """to_db_params -> from_db_params preserves data."""
-        metadata = Metadata(type=MetadataType.NIP66_RTT, value={"rtt": 100})
+        metadata = Metadata(type=MetadataType.NIP66_RTT, data={"rtt": 100})
         original = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
         params = original.to_db_params()
         reconstructed = RelayMetadata.from_db_params(params)
         assert reconstructed.relay.url == original.relay.url
         assert reconstructed.relay.network == original.relay.network
         assert reconstructed.relay.discovered_at == original.relay.discovered_at
-        assert reconstructed.metadata.value == original.metadata.value
+        assert reconstructed.metadata.data == original.metadata.data
         assert reconstructed.metadata.type == original.metadata.type
         assert reconstructed.generated_at == original.generated_at
 
     def test_roundtrip_all_metadata_types(self, relay):
         """Roundtrip works for all metadata types."""
         for mtype in MetadataType:
-            metadata = Metadata(type=mtype, value={"test": "data"})
+            metadata = Metadata(type=mtype, data={"test": "data"})
             original = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
             params = original.to_db_params()
             reconstructed = RelayMetadata.from_db_params(params)
@@ -377,8 +377,8 @@ class TestEquality:
 
     def test_different_type(self, relay):
         """RelayMetadata with different metadata type are not equal."""
-        metadata1 = Metadata(type=MetadataType.NIP11_INFO, value={"test": "data"})
-        metadata2 = Metadata(type=MetadataType.NIP66_RTT, value={"test": "data"})
+        metadata1 = Metadata(type=MetadataType.NIP11_INFO, data={"test": "data"})
+        metadata2 = Metadata(type=MetadataType.NIP66_RTT, data={"test": "data"})
         rm1 = RelayMetadata(relay=relay, metadata=metadata1, generated_at=1234567890)
         rm2 = RelayMetadata(relay=relay, metadata=metadata2, generated_at=1234567890)
         assert rm1 != rm2
@@ -399,8 +399,8 @@ class TestEquality:
 
     def test_different_metadata_value(self, relay):
         """RelayMetadata with different metadata value are not equal."""
-        metadata1 = Metadata(type=MetadataType.NIP11_INFO, value={"key": "value1"})
-        metadata2 = Metadata(type=MetadataType.NIP11_INFO, value={"key": "value2"})
+        metadata1 = Metadata(type=MetadataType.NIP11_INFO, data={"key": "value1"})
+        metadata2 = Metadata(type=MetadataType.NIP11_INFO, data={"key": "value2"})
         rm1 = RelayMetadata(relay=relay, metadata=metadata1, generated_at=1234567890)
         rm2 = RelayMetadata(relay=relay, metadata=metadata2, generated_at=1234567890)
         assert rm1 != rm2
@@ -416,16 +416,16 @@ class TestEdgeCases:
 
     def test_with_empty_metadata(self, relay):
         """Works with empty metadata value."""
-        empty_metadata = Metadata(type=MetadataType.NIP11_INFO, value={})
+        empty_metadata = Metadata(type=MetadataType.NIP11_INFO, data={})
         rm = RelayMetadata(relay=relay, metadata=empty_metadata, generated_at=1234567890)
         result = rm.to_db_params()
-        assert result.metadata_payload == "{}"
+        assert result.metadata_data == "{}"
 
     def test_with_complex_metadata(self, relay):
         """Works with complex nested metadata."""
         complex_metadata = Metadata(
             type=MetadataType.NIP66_NET,
-            value={
+            data={
                 "name": "Test Relay",
                 "nested": {"deep": {"value": [1, 2, 3]}},
                 "tags": ["tag1", "tag2"],
@@ -433,20 +433,58 @@ class TestEdgeCases:
         )
         rm = RelayMetadata(relay=relay, metadata=complex_metadata, generated_at=1234567890)
         result = rm.to_db_params()
-        parsed = json.loads(result.metadata_payload)
+        parsed = json.loads(result.metadata_data)
         assert parsed["nested"]["deep"]["value"] == [1, 2, 3]
 
     def test_generated_at_zero(self, relay):
         """generated_at can be zero (epoch)."""
-        metadata = Metadata(type=MetadataType.NIP11_INFO, value={"test": "data"})
+        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"test": "data"})
         rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=0)
         assert rm.generated_at == 0
 
     def test_with_ipv6_relay(self):
         """Works with IPv6 relay."""
         ipv6_relay = Relay("wss://[2001:4860:4860::8888]", discovered_at=1234567890)
-        metadata = Metadata(type=MetadataType.NIP66_DNS, value={"dns": "data"})
+        metadata = Metadata(type=MetadataType.NIP66_DNS, data={"dns": "data"})
         rm = RelayMetadata(relay=ipv6_relay, metadata=metadata, generated_at=1234567890)
         result = rm.to_db_params()
         assert result.relay_url == "wss://[2001:4860:4860::8888]"
         assert result.relay_network == "clearnet"
+
+
+# =============================================================================
+# Type Validation Tests
+# =============================================================================
+
+
+class TestTypeValidation:
+    """Runtime type validation in __post_init__."""
+
+    def test_relay_non_relay_rejected(self):
+        """relay must be a Relay instance."""
+        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"key": "value"})
+        with pytest.raises(TypeError, match="relay must be a Relay"):
+            RelayMetadata(relay="not a relay", metadata=metadata, generated_at=123)  # type: ignore[arg-type]
+
+    def test_metadata_non_metadata_rejected(self, relay):
+        """metadata must be a Metadata instance."""
+        with pytest.raises(TypeError, match="metadata must be a Metadata"):
+            RelayMetadata(relay=relay, metadata="not metadata", generated_at=123)  # type: ignore[arg-type]
+
+    def test_generated_at_non_int_rejected(self, relay):
+        """generated_at must be an int."""
+        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"key": "value"})
+        with pytest.raises(TypeError, match="generated_at must be an int"):
+            RelayMetadata(relay=relay, metadata=metadata, generated_at="abc")  # type: ignore[arg-type]
+
+    def test_generated_at_bool_rejected(self, relay):
+        """bool is not accepted as int for generated_at."""
+        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"key": "value"})
+        with pytest.raises(TypeError, match="generated_at must be an int"):
+            RelayMetadata(relay=relay, metadata=metadata, generated_at=True)  # type: ignore[arg-type]
+
+    def test_generated_at_negative_rejected(self, relay):
+        """generated_at must be non-negative."""
+        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"key": "value"})
+        with pytest.raises(ValueError, match="generated_at must be non-negative"):
+            RelayMetadata(relay=relay, metadata=metadata, generated_at=-1)

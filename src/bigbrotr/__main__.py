@@ -24,7 +24,8 @@ from typing import Any, NamedTuple
 from bigbrotr.core import Brotr, start_metrics_server
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.core.logger import Logger, StructuredFormatter
-from bigbrotr.services.common.constants import ServiceName
+from bigbrotr.core.yaml import load_yaml
+from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.finder import Finder
 from bigbrotr.services.monitor import Monitor
 from bigbrotr.services.seeder import Seeder
@@ -69,7 +70,7 @@ async def run_service(
     service_name: str,
     service_class: type[BaseService[Any]],
     brotr: Brotr,
-    config_path: Path,
+    service_dict: dict[str, Any],
     *,
     once: bool,
 ) -> int:
@@ -83,16 +84,15 @@ async def run_service(
         service_name: Service identifier used for logging.
         service_class: The BaseService subclass to instantiate.
         brotr: Initialized Brotr database interface.
-        config_path: Path to the service's YAML configuration file.
+        service_dict: Parsed service configuration (without ``pool`` key).
         once: If True, run a single cycle and exit. If False, run continuously.
 
     Returns:
         Exit code: 0 for success, 1 for failure.
     """
-    if await asyncio.to_thread(config_path.exists):
-        service = service_class.from_yaml(str(config_path), brotr=brotr)
+    if service_dict:
+        service = service_class.from_dict(service_dict, brotr=brotr)
     else:
-        logger.warning("config_not_found", path=str(config_path))
         service = service_class(brotr=brotr)
 
     # One-shot mode: single cycle, no metrics server
@@ -118,13 +118,13 @@ async def run_service(
         )
 
     # Signal handling for graceful shutdown
-    def handle_signal(sig: int, _frame: object) -> None:
-        sig_name = signal.Signals(sig).name
-        logger.info("shutdown_signal", signal=sig_name)
+    def handle_signal(sig: signal.Signals) -> None:
+        logger.info("shutdown_signal", signal=sig.name)
         service.request_shutdown()
 
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, handle_signal, sig)
 
     try:
         async with service:
@@ -200,13 +200,50 @@ def setup_logging(level: str) -> None:
     logging.root.setLevel(getattr(logging, level))
 
 
-def load_brotr(config_path: Path) -> Brotr:
-    """Load and return a Brotr instance from a YAML config file."""
-    if config_path.exists():
-        return Brotr.from_yaml(str(config_path))
+def _load_yaml_dict(path: Path) -> dict[str, Any]:
+    """Load a YAML file as a dict, returning ``{}`` if the file does not exist."""
+    if not path.exists():
+        logger.warning("config_not_found", path=str(path))
+        return {}
+    return load_yaml(str(path))
 
-    logger.warning("brotr_config_not_found", path=str(config_path))
-    return Brotr()
+
+def _apply_pool_overrides(
+    brotr_dict: dict[str, Any],
+    pool_overrides: dict[str, Any] | None,
+    service_name: str,
+) -> None:
+    """Merge per-service pool overrides into the shared brotr configuration.
+
+    Applies ``user``, ``password_env`` to ``pool.database``, ``min_size`` and
+    ``max_size`` to ``pool.limits``, and auto-sets ``application_name`` to the
+    service name (unless explicitly provided in overrides).
+    """
+    pool = brotr_dict.setdefault("pool", {})
+
+    # Auto-set application_name to the service name
+    server_settings = pool.setdefault("server_settings", {})
+    if "application_name" not in server_settings:
+        server_settings["application_name"] = service_name
+
+    if not pool_overrides:
+        return
+
+    # Explicit application_name in overrides takes precedence
+    if "application_name" in pool_overrides:
+        server_settings["application_name"] = pool_overrides["application_name"]
+
+    # Database-level overrides (user, password_env)
+    db_keys = ("user", "password_env")
+    db_overrides = {k: pool_overrides[k] for k in db_keys if k in pool_overrides}
+    if db_overrides:
+        pool.setdefault("database", {}).update(db_overrides)
+
+    # Pool limits overrides (min_size, max_size)
+    limits_keys = ("min_size", "max_size")
+    limits_overrides = {k: pool_overrides[k] for k in limits_keys if k in pool_overrides}
+    if limits_overrides:
+        pool.setdefault("limits", {}).update(limits_overrides)
 
 
 async def main() -> int:
@@ -216,7 +253,13 @@ async def main() -> int:
 
     entry = SERVICE_REGISTRY[args.service]
     config_path = args.config or entry.config_path
-    brotr = load_brotr(args.brotr_config)
+
+    brotr_dict = _load_yaml_dict(args.brotr_config)
+    service_dict = _load_yaml_dict(config_path)
+    pool_overrides = service_dict.pop("pool", None)
+    _apply_pool_overrides(brotr_dict, pool_overrides, args.service)
+
+    brotr = Brotr.from_dict(brotr_dict) if brotr_dict else Brotr()
 
     try:
         async with brotr:
@@ -224,7 +267,7 @@ async def main() -> int:
                 service_name=args.service,
                 service_class=entry.cls,
                 brotr=brotr,
-                config_path=config_path,
+                service_dict=service_dict,
                 once=args.once,
             )
     except ConnectionError as e:

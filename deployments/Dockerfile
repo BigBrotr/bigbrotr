@@ -8,12 +8,14 @@
 # Build arg must be declared before FROM to be available in both stages
 ARG DEPLOYMENT=bigbrotr
 
-# Stage 1: Build wheels
+# Stage 1: Build with uv
 FROM python:3.11.14-slim AS builder
 
-WORKDIR /build
+COPY --from=ghcr.io/astral-sh/uv:0.10.2 /uv /bin/uv
 
-# Install build dependencies
+WORKDIR /app
+
+# Install build dependencies (native extensions for asyncpg, nostr-sdk)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
@@ -21,10 +23,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsecp256k1-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Build wheels from pyproject.toml (includes bigbrotr + all dependencies)
-COPY pyproject.toml .
+# Layer 1: Install dependencies only (cached unless pyproject.toml or uv.lock change)
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project --no-editable
+
+# Layer 2: Install the project itself (rebuilds when src/ changes)
+COPY README.md ./
 COPY src/ ./src/
-RUN pip wheel --no-cache-dir --wheel-dir /build/wheels .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
 
 # Stage 2: Production image
 FROM python:3.11.14-slim
@@ -47,17 +55,22 @@ RUN groupadd -g 1000 ${DEPLOYMENT} && \
 
 WORKDIR /app
 
-# Install runtime dependencies (libpq for asyncpg, libsecp256k1 for crypto, tini for PID 1)
+# Install runtime dependencies then strip the base image's Python packaging toolchain.
+# The production image runs exclusively from the .venv copied from the builder stage;
+# system-level Python packages are unused and only increase the attack surface.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libsecp256k1-dev \
     tini \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+              /usr/local/lib/python*/site-packages \
+              /usr/local/lib/python*/dist-packages \
+              /usr/local/lib/python*/ensurepip \
+    && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/wheel
 
-# Install wheels from builder (includes bigbrotr package + console_scripts)
-COPY --from=builder /build/wheels /wheels
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir /wheels/* && rm -rf /wheels
+# Copy the virtual environment from builder (no pip/setuptools in production image)
+COPY --from=builder /app/.venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy deployment-specific config (needed at runtime, not part of the package)
 COPY --chown=${DEPLOYMENT}:${DEPLOYMENT} deployments/${DEPLOYMENT}/config/ /app/config/
@@ -77,5 +90,5 @@ STOPSIGNAL SIGTERM
 # Use tini as PID 1 init process
 ENTRYPOINT ["tini", "--"]
 
-# Default command
-CMD ["python", "-m", "bigbrotr"]
+# Default command (uses console_scripts entry point)
+CMD ["bigbrotr"]

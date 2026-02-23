@@ -1,0 +1,46 @@
+/* ============================================================================
+   BigBrotr Documentation -- Custom Styles
+   ============================================================================ */
+
+/* API reference heading borders */
+.doc-heading {
+  border-bottom: 2px solid var(--md-primary-fg-color);
+  padding-bottom: 0.4em;
+}
+
+/* Improve signature readability */
+.doc-signature {
+  font-size: 0.85em;
+}
+
+/* Source code link styling */
+.doc-source-link {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.doc-source-link:hover {
+  opacity: 1;
+}
+
+/* Tighter spacing for parameter lists */
+.doc-md-description dt {
+  font-weight: 600;
+}
+
+/* Mermaid diagram centering */
+.mermaid {
+  text-align: center;
+}
+
+/* Grid cards for landing page features */
+.grid.cards > ul > li {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.4rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.grid.cards > ul > li:hover {
+  border-color: var(--md-primary-fg-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}

@@ -9,7 +9,11 @@
 #   Brotr: src/core/brotr.py (BatchConfig, TimeoutsConfig)
 #
 # Environment variables:
-#   DB_PASSWORD: Required. Database password (never stored in YAML).
+#   DB_WRITER_PASSWORD / DB_READER_PASSWORD: Set via service config pool overrides.
+#
+# Note: user, password_env, min_size, max_size, and application_name are now
+# set per-service in config/services/*.yaml (pool: section). This file only
+# contains shared connection settings (host, database, timeouts, retry, batch).
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -49,10 +53,11 @@ pool:
     # Default: "admin"
     user: admin
 
-    # Password is loaded from DB_PASSWORD environment variable
+    # Password is loaded from the environment variable specified by password_env
     # NEVER store passwords in configuration files
-    # Set via: export DB_PASSWORD="your-secure-password"
-    # password: (loaded from DB_PASSWORD environment variable)
+    # In production, user and password_env are set per-service via pool overrides
+    # in config/services/*.yaml (pool: section)
+    # password: (loaded from DB_ADMIN_PASSWORD environment variable by default)
 
   # ---------------------------------------------------------------------------
   # Connection Pool Limits
@@ -66,8 +71,8 @@ pool:
     # These connections are pre-established and ready for use
     # Higher values = faster initial queries, more idle resources
     # Range: 1-100
-    # Default: 5
-    min_size: 5
+    # Default: 2
+    min_size: 2
 
     # Maximum number of connections allowed in the pool
     # Additional connection requests will wait or fail based on timeout
@@ -103,12 +108,6 @@ pool:
     # Range: >= 0.1
     # Default: 10.0
     acquisition: 10.0
-
-    # Timeout (seconds) for connection health check queries
-    # Used to validate connections before returning them to callers
-    # Range: >= 0.1
-    # Default: 5.0
-    health_check: 5.0
 
   # ---------------------------------------------------------------------------
   # Retry Configuration
@@ -162,12 +161,12 @@ pool:
     # Default: "UTC"
     timezone: UTC
 
-    # Maximum query execution time in milliseconds
-    # Queries exceeding this are automatically cancelled
-    # Set to 0 to disable (no timeout)
+    # Server-side query timeout in milliseconds (sent via server_settings)
+    # Set to 0 when using PgBouncer in transaction mode (stripped by ignore_startup_parameters)
+    # Client-side timeouts (BrotrTimeoutsConfig) and PgBouncer query_timeout handle enforcement
     # Range: >= 0
-    # Default: 300000 (5 minutes)
-    statement_timeout: 300000
+    # Default: 0
+    statement_timeout: 0
 
 # -----------------------------------------------------------------------------
 # Batch Operation Settings
@@ -205,7 +204,7 @@ timeouts:
   # Default: 120.0
   batch: 120.0
 
-  # Timeout (seconds) for cleanup procedures (orphan_events_delete, etc.)
+  # Timeout (seconds) for cleanup procedures (orphan_event_delete, etc.)
   # These scan and delete unreferenced records
   # null = no timeout
   # Range: >= 0.1 or null
@@ -239,7 +238,6 @@ timeouts:
 #
 # HIGH LATENCY DATABASE (remote PostgreSQL, cloud database):
 #   pool.timeouts.acquisition: 30.0
-#   pool.timeouts.health_check: 10.0
 #   pool.retry.max_attempts: 5
 #   timeouts.query: 120.0
 #

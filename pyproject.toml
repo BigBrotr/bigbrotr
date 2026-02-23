@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=75.0"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.10.2,<0.11"]
+build-backend = "uv_build"
 
 [project]
 name = "bigbrotr"
-version = "5.0.1"
+version = "5.1.0"
 description = "A modular Nostr data archiving and monitoring system"
 readme = "README.md"
 license = { text = "MIT" }
@@ -47,7 +47,6 @@ dependencies = [
     "dnspython>=2.5.0",
     "geoip2>=4.8.0",
     "geohash2>=1.1",
-    "Jinja2>=3.1.0",
     "nostr-sdk>=0.37.0",
     "prometheus-client>=0.20.0",
     "pydantic>=2.5.0",
@@ -55,10 +54,12 @@ dependencies = [
     "rfc3986>=2.0.0",
     "tldextract>=5.1.0",
     "typing-extensions>=4.9.0",
+    "cryptography>=46.0.5",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
+    "Jinja2>=3.1.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=5.0.0",
@@ -71,9 +72,7 @@ dev = [
     "sqlfluff>=3.5.0",
     "pre-commit>=4.0.0",
     "detect-secrets>=1.5.0",
-    "pip-audit>=2.7.0",
-    "build>=1.0.0",
-    "twine>=6.0.0",
+    "uv-secure>=0.15.0",
     "types-PyYAML>=6.0.12",
     "asyncpg-stubs>=0.30.0",
     "testcontainers[postgres]>=4.0.0",
@@ -86,6 +85,7 @@ docs = [
     "mkdocstrings[python]>=0.27.0",
     "mkdocs-gen-files>=0.5.0",
     "mkdocs-literate-nav>=0.6.0",
+    "mike>=2.0.0",
 ]
 
 [project.urls]
@@ -97,13 +97,6 @@ Changelog = "https://github.com/BigBrotr/bigbrotr/blob/main/CHANGELOG.md"
 
 [project.scripts]
 bigbrotr = "bigbrotr.__main__:cli"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["bigbrotr*"]
-
-[tool.setuptools.package-data]
-"*" = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -220,6 +213,7 @@ module = [
     "dns.*",
     "prometheus_client.*",
     "tldextract.*",
+    "cryptography.*",
 ]
 ignore_missing_imports = true
 
@@ -256,4 +250,4 @@ capitalisation_policy = "upper"
 capitalisation_policy = "upper"
 
 [tool.sqlfluff.rules.references.keywords]
-ignore_words = "value,content,data"
+ignore_words = "value,content,data,type"
