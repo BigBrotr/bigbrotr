@@ -897,3 +897,130 @@ class TestSynchronizerSyncAllRelays:
             await sync._sync_all_relays([relay])
 
         assert sync._counters.synced_relays == 1
+
+
+# ============================================================================
+# Synchronizer Metrics Tests
+# ============================================================================
+
+
+class TestSynchronizerMetrics:
+    """Tests for Synchronizer Prometheus metric emission."""
+
+    async def test_run_emits_gauges(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test run() emits all progress gauges after synchronization."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[
+                {
+                    "url": "wss://relay1.example.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
+            ]
+        )
+
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._sync_all_relays = AsyncMock()  # type: ignore[method-assign]
+        sync.set_gauge = MagicMock()  # type: ignore[method-assign]
+
+        await sync.run()
+
+        sync.set_gauge.assert_any_call("total", 1)
+        sync.set_gauge.assert_any_call("synced_relays", 0)
+        sync.set_gauge.assert_any_call("failed_relays", 0)
+        sync.set_gauge.assert_any_call("synced_events", 0)
+        sync.set_gauge.assert_any_call("invalid_events", 0)
+        sync.set_gauge.assert_any_call("skipped_events", 0)
+
+    async def test_run_no_relays_emits_zero_total(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test run() emits total=0 gauge when no relays to sync."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[]
+        )
+
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync.set_gauge = MagicMock()  # type: ignore[method-assign]
+
+        await sync.run()
+
+        sync.set_gauge.assert_any_call("total", 0)
+
+    async def test_sync_single_relay_emits_counters(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test _sync_single_relay emits cumulative counters after sync."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
+        sync.inc_counter = MagicMock()  # type: ignore[method-assign]
+
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            return_value=(10, 2, 1),
+        ):
+            await sync._sync_all_relays([relay])
+
+        sync.inc_counter.assert_any_call("total_events_synced", 10)
+        sync.inc_counter.assert_any_call("total_events_invalid", 2)
+        sync.inc_counter.assert_any_call("total_events_skipped", 1)
+
+    async def test_sync_failed_relay_no_counters(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test failed relay does not emit event counters."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
+        sync.inc_counter = MagicMock()  # type: ignore[method-assign]
+
+        relay = Relay("wss://failing.relay.com")
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("timeout"),
+        ):
+            await sync._sync_all_relays([relay])
+
+        # No event counters should be emitted for failed relays
+        for call in sync.inc_counter.call_args_list:
+            assert call[0][0] not in (
+                "total_events_synced",
+                "total_events_invalid",
+                "total_events_skipped",
+            )
+
+    async def test_synchronize_returns_relay_count(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test synchronize() returns the number of relays processed."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[
+                {
+                    "url": "wss://relay1.example.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
+                {
+                    "url": "wss://relay2.example.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
+            ]
+        )
+
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync._sync_all_relays = AsyncMock()  # type: ignore[method-assign]
+
+        result = await sync.synchronize()
+
+        assert result == 2
+
+    async def test_synchronize_returns_zero_when_no_relays(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test synchronize() returns 0 when no relays available."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[]
+        )
+
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+
+        result = await sync.synchronize()
+
+        assert result == 0

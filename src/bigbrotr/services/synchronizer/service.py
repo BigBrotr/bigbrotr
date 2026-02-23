@@ -142,7 +142,14 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         cycle_start = time.monotonic()
         self._counters = SyncCycleCounters()
 
-        await self.synchronize()
+        relay_count = await self.synchronize()
+
+        self.set_gauge("total", relay_count)
+        self.set_gauge("synced_relays", self._counters.synced_relays)
+        self.set_gauge("failed_relays", self._counters.failed_relays)
+        self.set_gauge("synced_events", self._counters.synced_events)
+        self.set_gauge("invalid_events", self._counters.invalid_events)
+        self.set_gauge("skipped_events", self._counters.skipped_events)
 
         self._logger.info(
             "cycle_completed",
@@ -158,7 +165,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
     # Public API
     # -------------------------------------------------------------------------
 
-    async def synchronize(self) -> None:
+    async def synchronize(self) -> int:
         """Fetch relays, merge overrides, and sync events from all of them.
 
         High-level entry point that fetches relays from the database,
@@ -167,17 +174,21 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
 
         This is the method ``run()`` delegates to. It can also be called
         standalone without cycle-level logging or counter reset.
+
+        Returns:
+            Number of relays that were processed.
         """
         relays = await self.fetch_relays()
         relays = self._merge_overrides(relays)
 
         if not relays:
             self._logger.info("no_relays_to_sync")
-            return
+            return 0
 
         self._logger.info("sync_started", relay_count=len(relays))
         random.shuffle(relays)
         await self._sync_all_relays(relays)
+        return len(relays)
 
     async def fetch_relays(self) -> list[Relay]:
         """Fetch validated relays from the database for synchronization.
@@ -335,6 +346,10 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                     self._counters.invalid_events += invalid_events
                     self._counters.skipped_events += skipped_events
                     self._counters.synced_relays += 1
+
+                self.inc_counter("total_events_synced", events_synced)
+                self.inc_counter("total_events_invalid", invalid_events)
+                self.inc_counter("total_events_skipped", skipped_events)
 
                 async with batch.cursor_lock:
                     batch.cursor_updates.append(
