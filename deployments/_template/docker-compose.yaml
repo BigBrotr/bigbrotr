@@ -436,6 +436,7 @@ services:
 
     command:
       - "--extend.query-path=/etc/postgres-exporter/queries.yaml"
+      - "--no-collector.wal"
 
     networks:
       - myimpl-data-network                      # <-- CUSTOMIZE
