@@ -196,6 +196,12 @@ class Finder(BaseService[FinderConfig]):
             total_relays_found += relay_relays
             relays_processed += 1
 
+        self.set_gauge("events_scanned", total_events_scanned)
+        self.set_gauge("relays_found", total_relays_found)
+        self.set_gauge("relays_processed", relays_processed)
+        self.inc_counter("total_events_scanned", total_events_scanned)
+        self.inc_counter("total_relays_found", total_relays_found)
+
         self._logger.info(
             "events_completed",
             scanned=total_events_scanned,
@@ -280,6 +286,8 @@ class Finder(BaseService[FinderConfig]):
                     error_type=type(e).__name__,
                     count=len(all_relays),
                 )
+
+        self.set_gauge("api_relays", len(all_relays))
 
         if found:
             self._logger.info("apis_completed", relays=len(all_relays))

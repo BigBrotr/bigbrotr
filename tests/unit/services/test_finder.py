@@ -895,3 +895,115 @@ class TestParseRelayUrl:
 
         assert result is not None
         assert result.url == "wss://relay.example.com"
+
+
+# ============================================================================
+# Finder Metrics Tests
+# ============================================================================
+
+
+class TestFinderMetrics:
+    """Tests for Finder Prometheus metric emission."""
+
+    async def test_find_from_events_emits_gauges_and_counters(self, mock_brotr: Brotr) -> None:
+        """Test find_from_events emits gauges and counters for scanned events."""
+        mock_event = {
+            "id": b"\x01" * 32,
+            "created_at": 1700000000,
+            "kind": 10002,
+            "tags": [["r", "wss://relay1.example.com"], ["r", "wss://relay2.example.com"]],
+            "content": "",
+            "seen_at": 1700000001,
+        }
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.get_all_relay_urls",
+                new_callable=AsyncMock,
+                return_value=["wss://source.relay.com"],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.get_all_service_cursors",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.get_events_with_relay_urls",
+                new_callable=AsyncMock,
+                side_effect=[[mock_event], []],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.insert_candidates",
+                new_callable=AsyncMock,
+                return_value=2,
+            ),
+        ):
+            mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
+
+            finder = Finder(brotr=mock_brotr)
+            finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_counter = MagicMock()  # type: ignore[method-assign]
+
+            await finder.find_from_events()
+
+            finder.set_gauge.assert_any_call("events_scanned", 1)
+            finder.set_gauge.assert_any_call("relays_found", 2)
+            finder.set_gauge.assert_any_call("relays_processed", 1)
+            finder.inc_counter.assert_any_call("total_events_scanned", 1)
+            finder.inc_counter.assert_any_call("total_relays_found", 2)
+
+    async def test_find_from_events_disabled_no_metrics(self, mock_brotr: Brotr) -> None:
+        """Test find_from_events emits no metrics when events disabled."""
+        config = FinderConfig(events=EventsConfig(enabled=False))
+        finder = Finder(brotr=mock_brotr, config=config)
+        finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+        finder.inc_counter = MagicMock()  # type: ignore[method-assign]
+
+        result = await finder.find_from_events()
+
+        assert result == 0
+        finder.set_gauge.assert_not_called()
+        finder.inc_counter.assert_not_called()
+
+    async def test_find_from_api_emits_gauge(self, mock_brotr: Brotr) -> None:
+        """Test find_from_api emits api_relays gauge."""
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                sources=[ApiSourceConfig(url="https://api.example.com")],
+                delay_between_requests=0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+        finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+
+        mock_response = _mock_api_response(["wss://relay1.com", "wss://relay2.com"])
+
+        with (
+            patch("aiohttp.ClientSession") as mock_session_cls,
+            patch(
+                "bigbrotr.services.finder.service.insert_candidates",
+                new_callable=AsyncMock,
+                return_value=2,
+            ),
+        ):
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+
+            await finder.find_from_api()
+
+            finder.set_gauge.assert_any_call("api_relays", 2)
+
+    async def test_find_from_api_disabled_no_metrics(self, mock_brotr: Brotr) -> None:
+        """Test find_from_api emits no metrics when API disabled."""
+        config = FinderConfig(api=ApiConfig(enabled=False))
+        finder = Finder(brotr=mock_brotr, config=config)
+        finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+
+        result = await finder.find_from_api()
+
+        assert result == 0
+        finder.set_gauge.assert_not_called()
