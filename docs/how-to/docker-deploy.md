@@ -30,10 +30,14 @@ cp .env.example .env
 Edit `.env` and set the required secrets:
 
 ```bash
-# Required
-DB_PASSWORD=your_secure_password        # openssl rand -base64 32
-PRIVATE_KEY=your_hex_private_key        # openssl rand -hex 32
-GRAFANA_PASSWORD=your_grafana_password  # openssl rand -base64 16
+# Required -- database passwords
+DB_ADMIN_PASSWORD=your_admin_password      # openssl rand -base64 32
+DB_WRITER_PASSWORD=your_writer_password    # openssl rand -base64 32
+DB_READER_PASSWORD=your_reader_password    # openssl rand -base64 32
+
+# Required -- application secrets
+PRIVATE_KEY=your_hex_private_key           # openssl rand -hex 32
+GRAFANA_PASSWORD=your_grafana_password     # openssl rand -base64 16
 
 # Optional -- metrics port overrides
 FINDER_METRICS_PORT=8001

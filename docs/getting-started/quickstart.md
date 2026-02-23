@@ -51,11 +51,11 @@ You should see both `postgres` and `pgbouncer` with status `healthy`.
 
 ## Step 3: Set Environment Variables
 
-Services need the database password to connect. If running against the Docker
-PostgreSQL instance, set the same password you configured in `.env`:
+Services need the database password to connect. Each service uses its own role
+(configured via pool overrides in the service YAML). Set the writer password:
 
 ```bash
-export DB_PASSWORD=your_password
+export DB_WRITER_PASSWORD=your_writer_password
 ```
 
 ## Step 4: Run the Seeder

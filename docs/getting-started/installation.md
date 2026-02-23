@@ -29,7 +29,7 @@ Choose the path that matches your use case:
 
     # Configure secrets
     cp .env.example .env
-    # Edit .env: set DB_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
+    # Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
 
     # Start the full stack
     docker compose up -d

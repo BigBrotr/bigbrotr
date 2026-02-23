@@ -25,26 +25,28 @@ Solutions for common issues and frequently asked questions about BigBrotr.
 
 3. Ensure the database port is correct and not blocked by a firewall.
 
-### "DB_PASSWORD environment variable not set"
+### "DB_WRITER_PASSWORD environment variable not set"
 
-**Symptom**: Service exits immediately on startup with a configuration error.
+**Symptom**: Service exits immediately on startup with a configuration error about a missing password environment variable.
 
 **Solution**:
+
+Pipeline services (seeder, finder, validator, monitor, synchronizer) use `DB_WRITER_PASSWORD`. Read-only services use `DB_READER_PASSWORD`. Set the appropriate variable:
 
 1. Set the environment variable:
 
     === "Docker"
 
-        Add `DB_PASSWORD` to your `.env` file and verify with:
+        Add `DB_WRITER_PASSWORD` and `DB_READER_PASSWORD` to your `.env` file and verify with:
 
         ```bash
-        docker compose config | grep DB_PASSWORD
+        docker compose config | grep DB_WRITER_PASSWORD
         ```
 
     === "Shell"
 
         ```bash
-        export DB_PASSWORD=your_secure_password
+        export DB_WRITER_PASSWORD=your_secure_password
         ```
 
     === "Systemd"
@@ -52,7 +54,7 @@ Solutions for common issues and frequently asked questions about BigBrotr.
         Add to the service file or an `EnvironmentFile`:
 
         ```ini
-        Environment="DB_PASSWORD=your_secure_password"
+        Environment="DB_WRITER_PASSWORD=your_secure_password"
         ```
 
 ### "Pool exhausted"

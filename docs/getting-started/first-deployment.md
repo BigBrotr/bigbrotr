@@ -23,12 +23,16 @@ Generate secure values for each required secret:
 
 ```bash
 # Generate and set all secrets at once
-DB_PASSWORD=$(openssl rand -base64 32)
+DB_ADMIN_PASSWORD=$(openssl rand -base64 32)
+DB_WRITER_PASSWORD=$(openssl rand -base64 32)
+DB_READER_PASSWORD=$(openssl rand -base64 32)
 PRIVATE_KEY=$(openssl rand -hex 32)
 GRAFANA_PASSWORD=$(openssl rand -base64 16)
 
 cat > .env << EOF
-DB_PASSWORD=${DB_PASSWORD}
+DB_ADMIN_PASSWORD=${DB_ADMIN_PASSWORD}
+DB_WRITER_PASSWORD=${DB_WRITER_PASSWORD}
+DB_READER_PASSWORD=${DB_READER_PASSWORD}
 PRIVATE_KEY=${PRIVATE_KEY}
 GRAFANA_PASSWORD=${GRAFANA_PASSWORD}
 EOF

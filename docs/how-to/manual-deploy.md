@@ -23,22 +23,42 @@ sudo systemctl start postgresql && sudo systemctl enable postgresql
 ### Create the database
 
 ```bash
-sudo -u postgres psql -c "CREATE USER admin WITH PASSWORD 'your_password';"
+sudo -u postgres psql -c "CREATE USER admin WITH PASSWORD 'your_admin_password';"
 sudo -u postgres psql -c "CREATE DATABASE bigbrotr OWNER admin;"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE bigbrotr TO admin;"
 ```
 
+### Create application roles
+
+```bash
+sudo -u postgres psql -d bigbrotr -c "CREATE ROLE bigbrotr_writer LOGIN PASSWORD 'your_writer_password';"
+sudo -u postgres psql -d bigbrotr -c "CREATE ROLE bigbrotr_reader LOGIN PASSWORD 'your_reader_password';"
+```
+
 ### Apply the schema
+
+The init directory contains SQL files and shell scripts (for roles and grants). Apply SQL files first, then run the shell scripts:
 
 ```bash
 cd deployments/bigbrotr
+
+# Apply SQL schema files
 for f in postgres/init/*.sql; do
     psql -U admin -d bigbrotr -f "$f"
 done
+
+# Apply grants (run the shell script manually or apply the SQL equivalent)
+psql -U admin -d bigbrotr -c "
+    GRANT USAGE ON SCHEMA public TO bigbrotr_writer;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO bigbrotr_writer;
+    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO bigbrotr_writer;
+    GRANT USAGE ON SCHEMA public TO bigbrotr_reader;
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO bigbrotr_reader;
+"
 ```
 
 !!! tip
-    The SQL files in `postgres/init/` are numbered and must be applied in order. The `for` loop handles this automatically.
+    The SQL files in `postgres/init/` are numbered and must be applied in order. The `for` loop handles this automatically. Shell scripts (`01_roles.sh`, `98_grants.sh`) are designed for Docker init and can be adapted for manual deployment as shown above.
 
 ## 2. Configure PGBouncer (Recommended)
 
@@ -52,16 +72,19 @@ sudo apt install pgbouncer
 
 ```ini
 [databases]
-bigbrotr = host=localhost port=5432 dbname=bigbrotr
+bigbrotr          = host=localhost port=5432 dbname=bigbrotr pool_size=10
+bigbrotr_readonly = host=localhost port=5432 dbname=bigbrotr pool_size=8
 
 [pgbouncer]
 listen_addr = 127.0.0.1
 listen_port = 6432
 auth_type = scram-sha-256
-auth_file = /etc/pgbouncer/userlist.txt
+auth_user = admin
+auth_query = SELECT usename, passwd FROM pg_shadow WHERE usename=$1
 pool_mode = transaction
-max_client_conn = 1000
-default_pool_size = 20
+max_client_conn = 200
+default_pool_size = 5
+reserve_pool_size = 2
 ```
 
 ### Start PGBouncer
@@ -80,7 +103,7 @@ uv sync --no-dev
 ### Set environment variables
 
 ```bash
-export DB_PASSWORD=your_password
+export DB_WRITER_PASSWORD=your_writer_password
 export PRIVATE_KEY=your_hex_key
 ```
 
@@ -117,7 +140,7 @@ User=bigbrotr
 Group=bigbrotr
 WorkingDirectory=/opt/bigbrotr/deployments/bigbrotr
 Environment="PATH=/opt/bigbrotr/venv/bin"
-Environment="DB_PASSWORD=your_password"
+Environment="DB_WRITER_PASSWORD=your_writer_password"
 Environment="PRIVATE_KEY=your_hex_key"
 ExecStart=/opt/bigbrotr/venv/bin/python -m bigbrotr finder
 Restart=always
