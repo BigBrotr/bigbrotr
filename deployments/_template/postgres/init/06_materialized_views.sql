@@ -1,5 +1,5 @@
 /*
- * Template - 06_materialized_views.sql
+ * BigBrotr - 06_materialized_views.sql
  *
  * Materialized views for pre-computed statistics and lookups. These provide
  * fast read access to aggregate data that would be expensive to compute on
