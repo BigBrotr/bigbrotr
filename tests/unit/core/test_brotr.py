@@ -150,7 +150,7 @@ class TestBrotrInit:
 
     def test_default_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test Brotr with default configuration."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         assert brotr._pool is not None
@@ -188,14 +188,14 @@ class TestBrotrFactoryMethods:
         self, brotr_config_dict: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test Brotr.from_dict() factory method."""
-        monkeypatch.setenv("DB_PASSWORD", "dict_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "dict_pass")
         brotr = Brotr.from_dict(brotr_config_dict)
 
         assert brotr.config.batch.max_size == 500
 
     def test_from_dict_without_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test from_dict creates default pool when not provided."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         config_dict = {"batch": {"max_size": 2000}}
 
         brotr = Brotr.from_dict(config_dict)
@@ -209,7 +209,7 @@ class TestBrotrFactoryMethods:
         """Test Brotr.from_yaml() factory method."""
         import yaml
 
-        monkeypatch.setenv("DB_PASSWORD", "yaml_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "yaml_pass")
         config_file = tmp_path / "brotr_config.yaml"
         config_file.write_text(yaml.dump(brotr_config_dict))
 
@@ -219,7 +219,7 @@ class TestBrotrFactoryMethods:
 
     def test_from_yaml_file_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test from_yaml raises FileNotFoundError for missing file."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
 
         with pytest.raises(FileNotFoundError):
             Brotr.from_yaml("/nonexistent/path/config.yaml")
@@ -661,7 +661,7 @@ class TestBrotrQueryOperations:
 
     async def test_fetch_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that fetch() delegates to pool.fetch() with config timeout."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(brotr._pool, "fetch", new_callable=AsyncMock, return_value=[]) as mock:
@@ -671,7 +671,7 @@ class TestBrotrQueryOperations:
 
     async def test_fetch_passes_args(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that fetch() passes query args with config timeout."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(brotr._pool, "fetch", new_callable=AsyncMock, return_value=[]) as mock:
@@ -680,7 +680,7 @@ class TestBrotrQueryOperations:
 
     async def test_fetchrow_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that fetchrow() delegates to pool.fetchrow() with default timeout."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(
@@ -692,7 +692,7 @@ class TestBrotrQueryOperations:
 
     async def test_fetchval_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that fetchval() delegates to pool.fetchval() with default timeout."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(brotr._pool, "fetchval", new_callable=AsyncMock, return_value=42) as mock:
@@ -702,7 +702,7 @@ class TestBrotrQueryOperations:
 
     async def test_execute_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that execute() delegates to pool.execute() with default timeout."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(
@@ -752,7 +752,7 @@ class TestBrotrLifecycle:
 
     async def test_connect_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that connect() delegates to pool.connect()."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(brotr._pool, "connect", new_callable=AsyncMock) as mock_connect:
@@ -761,7 +761,7 @@ class TestBrotrLifecycle:
 
     async def test_close_delegates_to_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that close() delegates to pool.close()."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with patch.object(brotr._pool, "close", new_callable=AsyncMock) as mock_close:
@@ -772,7 +772,7 @@ class TestBrotrLifecycle:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that async context manager delegates to connect/close."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with (
@@ -794,7 +794,7 @@ class TestBrotrContextManager:
 
     async def test_connects_pool_on_enter(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that context manager connects pool on entry."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with (
@@ -806,7 +806,7 @@ class TestBrotrContextManager:
 
     async def test_closes_pool_on_exit(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that context manager closes pool on exit."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with (
@@ -819,7 +819,7 @@ class TestBrotrContextManager:
 
     async def test_closes_pool_on_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that context manager closes pool even on exception."""
-        monkeypatch.setenv("DB_PASSWORD", "test_pass")
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         brotr = Brotr()
 
         with (
