@@ -20,12 +20,18 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
         GRANT EXECUTE ON FUNCTIONS TO ${WRITER_ROLE};
 
-    -- Reader: SELECT-only
+    -- Reader: SELECT + EXECUTE (SECURITY INVOKER ensures no privilege escalation)
     GRANT USAGE ON SCHEMA public TO ${READER_ROLE};
     GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${READER_ROLE};
+    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${READER_ROLE};
 
     ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
         GRANT SELECT ON TABLES TO ${READER_ROLE};
+    ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
+        GRANT EXECUTE ON FUNCTIONS TO ${READER_ROLE};
+
+    -- Monitoring: pg_monitor grants read access to system statistics (WAL, replication)
+    GRANT pg_monitor TO ${READER_ROLE};
 
     DO \$\$ BEGIN RAISE NOTICE 'Grants applied: % (writer), % (reader)', '${WRITER_ROLE}', '${READER_ROLE}'; END \$\$;
 EOSQL
