@@ -35,10 +35,10 @@ async def download_bounded_file(
 ) -> None:
     """Download a file with size enforcement.
 
-    Reads up to ``max_size + 1`` bytes from the URL. If the body exceeds
-    ``max_size``, raises ``ValueError`` *before* writing, preventing
-    disk exhaustion from oversized payloads. Creates parent directories
-    if they do not exist.
+    Accumulates chunks from the response stream until EOF or ``max_size``
+    is exceeded. If the body exceeds ``max_size``, raises ``ValueError``
+    *before* writing, preventing disk exhaustion from oversized payloads.
+    Creates parent directories if they do not exist.
 
     Args:
         url: Download URL.
@@ -58,18 +58,48 @@ async def download_bounded_file(
         session.get(url) as response,
     ):
         response.raise_for_status()
-        data = await response.content.read(max_size + 1)
-        if len(data) > max_size:
-            raise ValueError(f"Download too large: >{max_size} bytes")
+        data = await _read_bounded(response, max_size)
         dest.write_bytes(data)  # noqa: ASYNC240
+
+
+async def _read_bounded(response: aiohttp.ClientResponse, max_size: int) -> bytes:
+    """Read an entire response body with size enforcement.
+
+    Accumulates chunks from the response stream until EOF or the size limit
+    is exceeded. Unlike a single ``response.content.read(n)`` call, this
+    correctly handles chunked transfer-encoding where a single read may
+    return fewer bytes than requested even when more data is available.
+
+    Args:
+        response: An aiohttp response whose body has not yet been consumed.
+        max_size: Maximum allowed response body size in bytes.
+
+    Returns:
+        The complete response body as bytes.
+
+    Raises:
+        ValueError: If the response body exceeds *max_size*.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await response.content.read(max_size + 1 - total)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_size:
+            raise ValueError(f"Response body too large: >{max_size} bytes")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 async def read_bounded_json(response: aiohttp.ClientResponse, max_size: int) -> Any:
     """Read and parse a JSON response body with size enforcement.
 
-    Reads up to ``max_size + 1`` bytes from the response stream. If the body
-    exceeds ``max_size``, raises ``ValueError`` *before* attempting JSON
-    parsing, preventing memory exhaustion from oversized payloads.
+    Accumulates chunks from the response stream until EOF or ``max_size``
+    is exceeded. If the body exceeds ``max_size``, raises ``ValueError``
+    *before* attempting JSON parsing, preventing memory exhaustion from
+    oversized payloads.
 
     Args:
         response: An aiohttp response whose body has not yet been consumed.
@@ -82,7 +112,5 @@ async def read_bounded_json(response: aiohttp.ClientResponse, max_size: int) -> 
         ValueError: If the response body exceeds *max_size*.
         json.JSONDecodeError: If the body is not valid JSON.
     """
-    body = await response.content.read(max_size + 1)
-    if len(body) > max_size:
-        raise ValueError(f"Response body too large: >{max_size} bytes")
+    body = await _read_bounded(response, max_size)
     return json.loads(body)
