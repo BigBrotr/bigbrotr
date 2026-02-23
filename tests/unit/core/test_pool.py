@@ -309,7 +309,7 @@ class TestServerSettingsConfig:
 
         assert config.application_name == "bigbrotr"
         assert config.timezone == "UTC"
-        assert config.statement_timeout == 300000
+        assert config.statement_timeout == 0
 
     def test_custom_values(self) -> None:
         """Test configuration with custom values."""
@@ -654,6 +654,48 @@ class TestPoolConnect:
 
         # Linear: 1.0 -> 2.0 -> 3.0
         assert sleep_delays == [1.0, 2.0, 3.0]
+
+
+class TestPoolCreatePoolArgs:
+    """Tests for asyncpg.create_pool() argument correctness."""
+
+    async def test_statement_cache_size_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Prepared statement caching must be disabled for PgBouncer transaction mode."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        pool = Pool()
+
+        with patch("asyncpg.create_pool", new_callable=AsyncMock, return_value=MagicMock()) as mock:
+            await pool.connect()
+
+        _, kwargs = mock.call_args
+        assert kwargs["statement_cache_size"] == 0
+
+    async def test_statement_timeout_omitted_when_zero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """statement_timeout should not be in server_settings when default (0)."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        pool = Pool()
+
+        with patch("asyncpg.create_pool", new_callable=AsyncMock, return_value=MagicMock()) as mock:
+            await pool.connect()
+
+        _, kwargs = mock.call_args
+        assert "statement_timeout" not in kwargs["server_settings"]
+
+    async def test_statement_timeout_included_when_nonzero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """statement_timeout should be in server_settings when explicitly set > 0."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        config = PoolConfig(server_settings=ServerSettingsConfig(statement_timeout=300_000))
+        pool = Pool(config=config)
+
+        with patch("asyncpg.create_pool", new_callable=AsyncMock, return_value=MagicMock()) as mock:
+            await pool.connect()
+
+        _, kwargs = mock.call_args
+        assert kwargs["server_settings"]["statement_timeout"] == "300000"
 
 
 class TestPoolClose:

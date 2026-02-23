@@ -226,11 +226,19 @@ class ServerSettingsConfig(BaseModel):
     and apply to every connection in the pool.
 
     Note:
-        ``statement_timeout`` is specified in milliseconds (PostgreSQL convention)
-        and acts as a safety net against runaway queries. Set to ``0`` to disable.
-        This is distinct from the per-query ``timeout`` parameter on
-        [Pool][bigbrotr.core.pool.Pool] methods, which is enforced client-side
-        by asyncpg.
+        When using PgBouncer in ``transaction`` pooling mode,
+        ``statement_timeout`` is stripped by ``ignore_startup_parameters``
+        and never reaches PostgreSQL. Set to ``0`` (default) to avoid
+        sending a parameter that has no effect. Use PgBouncer's
+        ``query_timeout`` as the server-side safety net instead.
+
+        Timeout cascade (tightest wins):
+
+        1. asyncpg client-side via ``BrotrTimeoutsConfig``
+           (query=60s, batch=120s, cleanup=90s).
+        2. PgBouncer ``query_timeout`` (300s safety net for crashed clients).
+        3. PostgreSQL ``statement_timeout`` in ``postgresql.conf``
+           (0 = disabled; handled by layers above).
 
     See Also:
         [PoolConfig][bigbrotr.core.pool.PoolConfig]: Parent configuration that
@@ -240,7 +248,12 @@ class ServerSettingsConfig(BaseModel):
     application_name: str = Field(default="bigbrotr", description="Application name")
     timezone: str = Field(default="UTC", description="Timezone")
     statement_timeout: int = Field(
-        default=300_000, ge=0, description="Max query execution time in milliseconds (0=unlimited)"
+        default=0,
+        ge=0,
+        description=(
+            "Server-side query timeout in milliseconds. Set to 0 (default) when using "
+            "PgBouncer in transaction mode, as it is stripped by ignore_startup_parameters."
+        ),
     )
 
 
@@ -423,6 +436,15 @@ class Pool:
 
             for attempt in range(self._config.retry.max_attempts):
                 try:
+                    server_settings: dict[str, str] = {
+                        "application_name": self._config.server_settings.application_name,
+                        "timezone": self._config.server_settings.timezone,
+                    }
+                    if self._config.server_settings.statement_timeout > 0:
+                        server_settings["statement_timeout"] = str(
+                            self._config.server_settings.statement_timeout
+                        )
+
                     self._pool = await asyncpg.create_pool(
                         host=db.host,
                         port=db.port,
@@ -434,14 +456,9 @@ class Pool:
                         max_queries=self._config.limits.max_queries,
                         max_inactive_connection_lifetime=self._config.limits.max_inactive_connection_lifetime,
                         timeout=self._config.timeouts.acquisition,
+                        statement_cache_size=0,
                         init=_init_connection,
-                        server_settings={
-                            "application_name": self._config.server_settings.application_name,
-                            "timezone": self._config.server_settings.timezone,
-                            "statement_timeout": str(
-                                self._config.server_settings.statement_timeout
-                            ),
-                        },
+                        server_settings=server_settings,
                     )
                     self._is_connected = True
                     self._logger.info("connection_established")
