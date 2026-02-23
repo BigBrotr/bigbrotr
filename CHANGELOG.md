@@ -5,7 +5,78 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [5.1.0] - 2026-02-23
+
+Major infrastructure and architecture release: services restructured into packages with clear public APIs, PostgreSQL role isolation with PgBouncer dual-pool routing, full monitoring stack (postgres-exporter + Grafana dashboards), asyncpg/PgBouncer compatibility hardening, and comprehensive audit remediation across all layers. 152 commits across 22 PRs.
+
+### DEPLOYMENT CHANGES
+
+These changes require deployment updates (env vars, Docker Compose, PostgreSQL schema). No Python API breaking changes.
+
+- **`DB_PASSWORD` renamed to `DB_ADMIN_PASSWORD`**: Update `.env` files and Docker Compose environment sections
+- **PostgreSQL role isolation**: New `*_writer` and `*_reader` roles replace single-role access. Requires fresh `initdb` or manual `98_grants.sh` execution
+- **PgBouncer dual-pool**: Separate `[bigbrotr_writer]` and `[bigbrotr_reader]` pool sections. Update `pgbouncer.ini` and `userlist.txt`
+- **`metadata.metadata_type` column renamed to `type`**: SQL schema change across all deployments. Requires fresh `initdb` or manual migration
+- **`pg_stat_statements` extension**: Now enabled in all deployments. Requires `shared_preload_libraries` in `postgresql.conf`
+
+### Added
+
+- **PostgreSQL role isolation** (`98_grants.sh`): Separate writer (DML + EXECUTE) and reader (SELECT + EXECUTE + `pg_monitor`) roles with principle of least privilege (#197)
+- **PgBouncer dual-pool routing** (`pgbouncer.ini`): Writer and reader pools with independent connection limits, routed by PostgreSQL role (#197)
+- **Per-service pool overrides** (`BaseServiceConfig`): Services can override `min_size`, `max_size`, and timeouts in their YAML config (#197)
+- **Postgres-exporter** (`monitoring/postgres-exporter/`): Custom SQL queries for materialized view age, event ingestion rates, relay counts, service state health (#196)
+- **Grafana dashboard panels**: 35+ panels covering PostgreSQL internals, relay statistics, event pipeline, service health across all deployments (#196, #198)
+- **Prometheus metrics for Finder and Synchronizer**: Relay discovery counts, event fetch counters, cursor synchronization progress (#198)
+- **`pg_stat_statements`**: Enabled across all deployments (template, bigbrotr, lilbrotr) for query performance analysis (#199)
+- **Template schema completeness**: Views, materialized views, refresh functions, and full indexes now included in `_template` deployment (#199)
+- **BaseNip abstract hierarchy** (`nips/base.py`): Uniform `BaseNip` → `BaseNipMetadata` → `BaseNipDependencies` class hierarchy for all NIP implementations (#174)
+- **Lazy imports** (`bigbrotr/__init__.py`): Deferred import system for faster CLI startup (#162)
+- **Integration tests**: Full stored procedure coverage with testcontainers PostgreSQL (#195)
+- **SQL generation tooling**: Jinja2 templates (`tools/templates/sql/`) with CI drift check via `generate_sql.py --check` (#162)
+- **Bounded file download** (`utils/http.py`): `download_file()` with configurable size cap for GeoLite2 and NIP-11 responses (#174)
+- **PgBouncer `query_timeout`**: 300s server-side safety net for abandoned queries (#199)
+
+### Refactored
+
+- **Services package restructure** (#194): All 5 services converted from single modules to packages with explicit public APIs:
+  - Each service now exposes granular methods (`seed()`, `find_from_events()`, `validate()`, `fetch_relays()`, etc.)
+  - Extracted `GeoReaders`, `NetworkSemaphores`, `ChunkProgress` as standalone classes
+  - Split `transport.py` into `transport.py` (low-level WebSocket) + `protocol.py` (Nostr protocol)
+  - Extracted `event_builders.py` from Monitor to NIP layer
+  - Standardized sub-config naming and field names across all services
+- **NIP layer hardening** (#174): `BaseNipMetadata` naming consistency, NIP-66 `execute()` methods return graceful failures instead of raising, response size limits on Finder API and NIP-11 info fetch
+- **Brotr simplification** (#192): Removed unused Pool/Brotr methods, aligned `ServiceState` db_params pattern, cleaned up candidate lifecycle
+- **Model field alignment** (#163): `ServiceState` promoted to DbParams pattern, SQL columns and stored procedure parameters aligned with Python models
+- **Schema cleanup** (#175): `metadata.metadata_type` column renamed to `type`, PgBouncer config improvements
+- **Build system** (#170): Migrated from pip/setuptools to uv with `uv.lock`
+- **Makefile** (#169): Redesigned for consistency with `pyproject.toml` and CI workflows
+- **Documentation** (#164, #165): Consolidated CONTRIBUTING.md, fixed stale docstring references, restructured docs/ into mkdocs-material sections
+
+### Fixed
+
+- **asyncpg prepared statement caching** (#199): Disabled (`statement_cache_size=0`) for PgBouncer transaction mode compatibility — previously caused silent `prepared statement does not exist` errors
+- **`statement_timeout` ineffective** (#199): Default changed to 0 because PgBouncer's `ignore_startup_parameters` strips it before it reaches PostgreSQL
+- **PgBouncer `userlist.txt` permissions** (#199): `chmod 600` after creation to prevent credential exposure
+- **Health check `start_period`** (#199): PostgreSQL 10s→30s, PgBouncer 15s→20s to accommodate init scripts
+- **WAL metrics** (#199): `GRANT pg_monitor` to reader role replaces `--no-collector.wal` workaround, re-enabling full WAL collector
+- **Reader role permissions** (#199): `GRANT EXECUTE` on all functions + `ALTER DEFAULT PRIVILEGES` for future functions
+- **Chunked transfer-encoding** (#196): HTTP response handling in NIP-11 info fetch
+- **Monitor completion percentage** (#196): Correct handling on empty batches (division by zero)
+- **NIP-42 detection** (#192): Standardized `auth-required` prefix per NIP-01
+- **Publisher state type** (#168): Use `CHECKPOINT` state type for publisher timestamps in `MonitorPublisherMixin`
+- **Config-driven timeouts** (#167): Graceful shutdown waits and per-network semaphores now configurable
+- **Docker image size** (#171, #172): Removed system Python packages and `site-packages` to resolve Trivy findings
+- **Shell injection** (#162): Hardened `release.yml` against untrusted input in shell commands
+- **SQL hardening** (#177, #178, #191): Cleanup functions batched, views improved, redundant indexes removed, SSL validation tightened
+- **Models and core validation** (#191): Empty reason string rejection, NIP-11 parsing deduplication, fail-fast validation improvements
+- **Dockerfile HEALTHCHECK** (#162): Corrected port and switched to `console_scripts` entrypoint
+
+### Documentation
+
+- MkDocs Material site restructured with auto-generated API reference
+- Database and architecture docs updated for role isolation and schema changes
+- Cross-references and broken links fixed after services restructure
+- All deployment README and CI workflow documentation updated
 
 ---
 
@@ -522,7 +593,8 @@ Initial prototype release.
 
 ---
 
-[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.0.1...HEAD
+[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.1.0...HEAD
+[5.1.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.0.1...v5.1.0
 [5.0.1]: https://github.com/bigbrotr/bigbrotr/compare/v5.0.0...v5.0.1
 [5.0.0]: https://github.com/bigbrotr/bigbrotr/compare/v4.0.0...v5.0.0
 [4.0.0]: https://github.com/bigbrotr/bigbrotr/compare/v3.0.4...v4.0.0
