@@ -16,7 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from bigbrotr.core.brotr import Brotr, BrotrConfig, BrotrTimeoutsConfig
+from bigbrotr.core.brotr import Brotr, BrotrConfig
+from bigbrotr.core.brotr import TimeoutsConfig as BrotrTimeoutsConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import NetworksConfig, TorConfig

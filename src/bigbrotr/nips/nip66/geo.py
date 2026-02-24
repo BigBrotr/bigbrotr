@@ -161,10 +161,6 @@ class Nip66GeoMetadata(BaseNipMetadata):
     data: Nip66GeoData
     logs: Nip66GeoLogs
 
-    # -------------------------------------------------------------------------
-    # Geolocation Lookup
-    # -------------------------------------------------------------------------
-
     @staticmethod
     def _geo(
         ip: str, city_reader: geoip2.database.Reader, geohash_precision: int = 9

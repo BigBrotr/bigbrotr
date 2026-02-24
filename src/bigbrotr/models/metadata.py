@@ -156,7 +156,6 @@ class Metadata:
     type: MetadataType
     data: Mapping[str, Any] = field(default_factory=dict)
 
-    # Cached computed values (set in __post_init__)
     _canonical_json: str = field(default="", init=False, repr=False, compare=False)
     _content_hash: bytes = field(default=b"", init=False, repr=False, compare=False)
     _db_params: MetadataDbParams = field(
@@ -164,7 +163,7 @@ class Metadata:
         init=False,
         repr=False,
         compare=False,
-        hash=False,  # type: ignore[assignment]
+        hash=False,  # type: ignore[assignment]  # mypy expects bool literal, field() accepts it at runtime
     )
 
     def __post_init__(self) -> None:

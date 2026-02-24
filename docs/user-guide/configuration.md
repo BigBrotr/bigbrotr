@@ -185,13 +185,13 @@ timeouts:
 | `max_queries` | int | `50000` | >= 100 | Queries before connection recycle |
 | `max_inactive_connection_lifetime` | float | `300.0` | - | Idle connection timeout (seconds) |
 
-#### PoolTimeoutsConfig
+#### TimeoutsConfig
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
 | `acquisition` | float | `10.0` | >= 0.1 | Connection acquisition timeout |
 
-#### PoolRetryConfig
+#### RetryConfig
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
@@ -214,7 +214,7 @@ timeouts:
 |-------|------|---------|-------|-------------|
 | `max_size` | int | `1000` | 1-100000 | Records per bulk operation |
 
-#### BrotrTimeoutsConfig
+#### TimeoutsConfig
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
@@ -717,7 +717,7 @@ max_size
 Some models enforce relationships between fields:
 
 - `LimitsConfig`: `max_size` must be >= `min_size`
-- `PoolRetryConfig`: `max_delay` must be >= `initial_delay`
+- `RetryConfig`: `max_delay` must be >= `initial_delay`
 - `ProcessingConfig`: `store` flags must be a subset of `compute` flags
 - `KeysConfig`: validates hex string length (64 chars) or nsec1 bech32 format
 

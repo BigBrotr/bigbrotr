@@ -145,7 +145,7 @@ class ServiceState:
         init=False,
         repr=False,
         compare=False,
-        hash=False,  # type: ignore[assignment]
+        hash=False,  # type: ignore[assignment]  # mypy expects bool literal, field() accepts it at runtime
     )
 
     def __post_init__(self) -> None:

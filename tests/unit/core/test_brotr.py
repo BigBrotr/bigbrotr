@@ -2,7 +2,7 @@
 Unit tests for core.brotr module.
 
 Tests:
-- Configuration models (BatchConfig, BrotrTimeoutsConfig, BrotrConfig)
+- Configuration models (BatchConfig, TimeoutsConfig, BrotrConfig)
 - Brotr initialization with defaults and custom config
 - Factory methods (from_yaml, from_dict)
 - Helper methods (_validate_batch_size, _transpose_to_columns, _call_procedure)
@@ -24,7 +24,7 @@ from bigbrotr.core.brotr import (
     BatchConfig,
     Brotr,
     BrotrConfig,
-    BrotrTimeoutsConfig,
+    TimeoutsConfig,
 )
 from bigbrotr.core.pool import Pool
 from bigbrotr.models.constants import ServiceName
@@ -66,12 +66,12 @@ class TestBatchConfig:
             BatchConfig(max_size=100001)
 
 
-class TestBrotrTimeoutsConfig:
-    """Tests for BrotrTimeoutsConfig Pydantic model."""
+class TestTimeoutsConfig:
+    """Tests for TimeoutsConfig Pydantic model."""
 
     def test_defaults(self) -> None:
         """Test default configuration values."""
-        config = BrotrTimeoutsConfig()
+        config = TimeoutsConfig()
 
         assert config.query == 60.0
         assert config.batch == 120.0
@@ -80,7 +80,7 @@ class TestBrotrTimeoutsConfig:
 
     def test_custom_values(self) -> None:
         """Test custom timeout configuration."""
-        config = BrotrTimeoutsConfig(
+        config = TimeoutsConfig(
             query=30.0,
             batch=60.0,
             cleanup=45.0,
@@ -94,7 +94,7 @@ class TestBrotrTimeoutsConfig:
 
     def test_none_for_infinite_timeout(self) -> None:
         """Test that None represents infinite timeout."""
-        config = BrotrTimeoutsConfig(
+        config = TimeoutsConfig(
             query=None,
             batch=None,
             cleanup=None,
@@ -109,12 +109,12 @@ class TestBrotrTimeoutsConfig:
     def test_minimum_validation(self) -> None:
         """Test minimum value validation (>= 0.1 or None)."""
         # Valid at minimum
-        config = BrotrTimeoutsConfig(query=0.1)
+        config = TimeoutsConfig(query=0.1)
         assert config.query == 0.1
 
         # Invalid: below minimum
         with pytest.raises(ValidationError):
-            BrotrTimeoutsConfig(query=0.05)
+            TimeoutsConfig(query=0.05)
 
 
 class TestBrotrConfig:
@@ -132,7 +132,7 @@ class TestBrotrConfig:
         """Test configuration with nested custom values."""
         config = BrotrConfig(
             batch=BatchConfig(max_size=5000),
-            timeouts=BrotrTimeoutsConfig(query=30.0, batch=60.0),
+            timeouts=TimeoutsConfig(query=30.0, batch=60.0),
         )
 
         assert config.batch.max_size == 5000
@@ -167,7 +167,7 @@ class TestBrotrInit:
         """Test Brotr with custom configuration."""
         config = BrotrConfig(
             batch=BatchConfig(max_size=5000),
-            timeouts=BrotrTimeoutsConfig(query=30.0),
+            timeouts=TimeoutsConfig(query=30.0),
         )
         brotr = Brotr(pool=mock_pool, config=config)
 

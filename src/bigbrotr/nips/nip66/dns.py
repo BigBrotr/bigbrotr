@@ -80,10 +80,6 @@ class Nip66DnsMetadata(BaseNipMetadata):
     data: Nip66DnsData
     logs: Nip66DnsLogs
 
-    # -------------------------------------------------------------------------
-    # DNS Resolution
-    # -------------------------------------------------------------------------
-
     @staticmethod
     def _dns(host: str, timeout: float) -> dict[str, Any]:
         """Perform synchronous DNS resolution across multiple record types.

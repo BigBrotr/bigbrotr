@@ -33,10 +33,6 @@ from bigbrotr.services.synchronizer import Synchronizer
 from bigbrotr.services.validator import Validator
 
 
-# =============================================================================
-# Configuration
-# =============================================================================
-
 CONFIG_BASE = Path("config")
 CORE_CONFIG = CONFIG_BASE / "brotr.yaml"
 
@@ -59,11 +55,6 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
 }
 
 logger = Logger("cli")
-
-
-# =============================================================================
-# Service Runner
-# =============================================================================
 
 
 async def run_service(
@@ -137,11 +128,6 @@ async def run_service(
         await metrics_server.stop()
         if metrics_config.enabled:
             logger.info("metrics_server_stopped")
-
-
-# =============================================================================
-# CLI
-# =============================================================================
 
 
 def parse_args() -> argparse.Namespace:

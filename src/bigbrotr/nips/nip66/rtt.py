@@ -101,10 +101,6 @@ class Nip66RttMetadata(BaseNipMetadata):
     data: Nip66RttData
     logs: Nip66RttMultiPhaseLogs
 
-    # -------------------------------------------------------------------------
-    # RTT Test - Main Entry Point
-    # -------------------------------------------------------------------------
-
     @classmethod
     async def execute(
         cls,
@@ -190,10 +186,6 @@ class Nip66RttMetadata(BaseNipMetadata):
         )
         return cls._build_result(rtt_data, logs)
 
-    # -------------------------------------------------------------------------
-    # Validation and Construction Helpers
-    # -------------------------------------------------------------------------
-
     @staticmethod
     def _empty_rtt_data() -> dict[str, Any]:
         """Return an initialized RTT data dictionary with all fields set to None."""
@@ -218,10 +210,6 @@ class Nip66RttMetadata(BaseNipMetadata):
             data=Nip66RttData.model_validate(Nip66RttData.parse(rtt_data)),
             logs=Nip66RttMultiPhaseLogs.model_validate(logs),
         )
-
-    # -------------------------------------------------------------------------
-    # Phase Methods
-    # -------------------------------------------------------------------------
 
     @classmethod
     async def _test_open(  # noqa: PLR0913

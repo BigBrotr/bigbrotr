@@ -143,10 +143,6 @@ class Nip11(BaseNip):
 
     info: Nip11InfoMetadata | None = None
 
-    # -------------------------------------------------------------------------
-    # Database Serialization
-    # -------------------------------------------------------------------------
-
     def to_relay_metadata_tuple(self) -> RelayNip11MetadataTuple:
         """Convert to a ``RelayMetadata`` tuple for database storage.
 
@@ -170,12 +166,8 @@ class Nip11(BaseNip):
             )
         return RelayNip11MetadataTuple(nip11_info=nip11_info)
 
-    # -------------------------------------------------------------------------
-    # Factory Method
-    # -------------------------------------------------------------------------
-
     @classmethod
-    async def create(  # type: ignore[override]  # noqa: PLR0913
+    async def create(  # type: ignore[override]  # noqa: PLR0913  # NIP-specific params widen base signature
         cls,
         relay: Relay,
         *,

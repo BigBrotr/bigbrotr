@@ -44,12 +44,9 @@ __version__ = _get_version("bigbrotr")
 
 __all__ = [
     "BaseService",
-    "BatchConfig",
     "Brotr",
     "BrotrConfig",
-    "BrotrTimeoutsConfig",
     "ConfigT",
-    "DatabaseConfig",
     "Event",
     "EventRelay",
     "Finder",
@@ -64,38 +61,24 @@ __all__ = [
     "Nip66",
     "Pool",
     "PoolConfig",
-    "PoolLimitsConfig",
-    "PoolRetryConfig",
-    "PoolTimeoutsConfig",
     "Relay",
     "RelayMetadata",
     "Seeder",
     "SeederConfig",
-    "ServerSettingsConfig",
     "Synchronizer",
     "SynchronizerConfig",
     "Validator",
     "ValidatorConfig",
 ]
 
-# Lazy import mapping: name -> (module, attribute)
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
-    # core
     "BaseService": ("bigbrotr.core", "BaseService"),
-    "BatchConfig": ("bigbrotr.core", "BatchConfig"),
     "Brotr": ("bigbrotr.core", "Brotr"),
     "BrotrConfig": ("bigbrotr.core", "BrotrConfig"),
-    "BrotrTimeoutsConfig": ("bigbrotr.core", "BrotrTimeoutsConfig"),
     "ConfigT": ("bigbrotr.core", "ConfigT"),
-    "DatabaseConfig": ("bigbrotr.core", "DatabaseConfig"),
     "Logger": ("bigbrotr.core", "Logger"),
     "Pool": ("bigbrotr.core", "Pool"),
     "PoolConfig": ("bigbrotr.core", "PoolConfig"),
-    "PoolLimitsConfig": ("bigbrotr.core", "PoolLimitsConfig"),
-    "PoolRetryConfig": ("bigbrotr.core", "PoolRetryConfig"),
-    "PoolTimeoutsConfig": ("bigbrotr.core", "PoolTimeoutsConfig"),
-    "ServerSettingsConfig": ("bigbrotr.core", "ServerSettingsConfig"),
-    # models
     "Event": ("bigbrotr.models", "Event"),
     "EventRelay": ("bigbrotr.models", "EventRelay"),
     "Metadata": ("bigbrotr.models", "Metadata"),
@@ -103,10 +86,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "NetworkType": ("bigbrotr.models", "NetworkType"),
     "Relay": ("bigbrotr.models", "Relay"),
     "RelayMetadata": ("bigbrotr.models", "RelayMetadata"),
-    # nips
     "Nip11": ("bigbrotr.nips", "Nip11"),
     "Nip66": ("bigbrotr.nips", "Nip66"),
-    # services
     "Finder": ("bigbrotr.services", "Finder"),
     "FinderConfig": ("bigbrotr.services", "FinderConfig"),
     "Monitor": ("bigbrotr.services", "Monitor"),

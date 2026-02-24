@@ -2,7 +2,7 @@
 Unit tests for core.pool module.
 
 Tests:
-- Configuration models (DatabaseConfig, PoolLimitsConfig, PoolTimeoutsConfig, PoolRetryConfig, ServerSettingsConfig)
+- Configuration models (DatabaseConfig, LimitsConfig, TimeoutsConfig, RetryConfig, ServerSettingsConfig)
 - Pool initialization with defaults and custom config
 - Factory methods (from_yaml, from_dict)
 - Connection lifecycle (connect, close)
@@ -24,12 +24,12 @@ from pydantic import SecretStr, ValidationError
 
 from bigbrotr.core.pool import (
     DatabaseConfig,
+    LimitsConfig,
     Pool,
     PoolConfig,
-    PoolLimitsConfig,
-    PoolRetryConfig,
-    PoolTimeoutsConfig,
+    RetryConfig,
     ServerSettingsConfig,
+    TimeoutsConfig,
     _init_connection,
 )
 
@@ -141,12 +141,12 @@ class TestDatabaseConfig:
             DatabaseConfig(user="")
 
 
-class TestPoolLimitsConfig:
-    """Tests for PoolLimitsConfig Pydantic model."""
+class TestLimitsConfig:
+    """Tests for LimitsConfig Pydantic model."""
 
     def test_defaults(self) -> None:
         """Test default configuration values."""
-        config = PoolLimitsConfig()
+        config = LimitsConfig()
 
         assert config.min_size == 2
         assert config.max_size == 20
@@ -155,7 +155,7 @@ class TestPoolLimitsConfig:
 
     def test_custom_values(self) -> None:
         """Test configuration with custom values."""
-        config = PoolLimitsConfig(
+        config = LimitsConfig(
             min_size=10,
             max_size=50,
             max_queries=100000,
@@ -170,81 +170,81 @@ class TestPoolLimitsConfig:
     def test_max_size_greater_than_or_equal_to_min_size(self) -> None:
         """Test that max_size must be >= min_size."""
         # Valid case: equal sizes are allowed
-        config = PoolLimitsConfig(min_size=10, max_size=10)
+        config = LimitsConfig(min_size=10, max_size=10)
         assert config.max_size == 10
 
         # Invalid case: smaller max_size should fail
         with pytest.raises(ValidationError, match="max_size"):
-            PoolLimitsConfig(min_size=10, max_size=5)
+            LimitsConfig(min_size=10, max_size=5)
 
     def test_min_size_boundaries(self) -> None:
         """Test min_size boundary validations."""
         # Valid minimum
-        config = PoolLimitsConfig(min_size=1)
+        config = LimitsConfig(min_size=1)
         assert config.min_size == 1
 
         # Invalid: below minimum
         with pytest.raises(ValidationError):
-            PoolLimitsConfig(min_size=0)
+            LimitsConfig(min_size=0)
 
         # Invalid: above maximum
         with pytest.raises(ValidationError):
-            PoolLimitsConfig(min_size=101)
+            LimitsConfig(min_size=101)
 
     def test_max_size_boundaries(self) -> None:
         """Test max_size boundary validations."""
         # Valid at boundaries
-        config_min = PoolLimitsConfig(min_size=1, max_size=1)
+        config_min = LimitsConfig(min_size=1, max_size=1)
         assert config_min.max_size == 1
 
-        config_max = PoolLimitsConfig(max_size=200)
+        config_max = LimitsConfig(max_size=200)
         assert config_max.max_size == 200
 
         # Invalid: above maximum
         with pytest.raises(ValidationError):
-            PoolLimitsConfig(max_size=201)
+            LimitsConfig(max_size=201)
 
     def test_max_queries_minimum(self) -> None:
         """Test max_queries minimum validation."""
-        config = PoolLimitsConfig(max_queries=100)
+        config = LimitsConfig(max_queries=100)
         assert config.max_queries == 100
 
         with pytest.raises(ValidationError):
-            PoolLimitsConfig(max_queries=99)
+            LimitsConfig(max_queries=99)
 
 
-class TestPoolTimeoutsConfig:
-    """Tests for PoolTimeoutsConfig Pydantic model."""
+class TestTimeoutsConfig:
+    """Tests for TimeoutsConfig Pydantic model."""
 
     def test_defaults(self) -> None:
         """Test default configuration values."""
-        config = PoolTimeoutsConfig()
+        config = TimeoutsConfig()
 
         assert config.acquisition == 10.0
 
     def test_custom_values(self) -> None:
         """Test configuration with custom values."""
-        config = PoolTimeoutsConfig(acquisition=30.0)
+        config = TimeoutsConfig(acquisition=30.0)
 
         assert config.acquisition == 30.0
 
     def test_minimum_validation(self) -> None:
         """Test minimum value validation (>= 0.1)."""
         # Valid at minimum
-        config = PoolTimeoutsConfig(acquisition=0.1)
+        config = TimeoutsConfig(acquisition=0.1)
         assert config.acquisition == 0.1
 
         # Invalid: below minimum
         with pytest.raises(ValidationError):
-            PoolTimeoutsConfig(acquisition=0.05)
+            TimeoutsConfig(acquisition=0.05)
 
 
-class TestPoolRetryConfig:
-    """Tests for PoolRetryConfig Pydantic model."""
+class TestRetryConfig:
+    """Tests for RetryConfig Pydantic model."""
 
     def test_defaults(self) -> None:
         """Test default configuration values."""
-        config = PoolRetryConfig()
+        config = RetryConfig()
 
         assert config.max_attempts == 3
         assert config.initial_delay == 1.0
@@ -253,7 +253,7 @@ class TestPoolRetryConfig:
 
     def test_custom_values(self) -> None:
         """Test configuration with custom values."""
-        config = PoolRetryConfig(
+        config = RetryConfig(
             max_attempts=5,
             initial_delay=0.5,
             max_delay=30.0,
@@ -268,36 +268,36 @@ class TestPoolRetryConfig:
     def test_max_delay_greater_than_or_equal_to_initial(self) -> None:
         """Test that max_delay must be >= initial_delay."""
         # Valid case: equal delays are allowed
-        config = PoolRetryConfig(initial_delay=5.0, max_delay=5.0)
+        config = RetryConfig(initial_delay=5.0, max_delay=5.0)
         assert config.max_delay == 5.0
 
         # Invalid case: smaller max_delay should fail
         with pytest.raises(ValidationError, match="max_delay"):
-            PoolRetryConfig(initial_delay=5.0, max_delay=2.0)
+            RetryConfig(initial_delay=5.0, max_delay=2.0)
 
     def test_max_attempts_boundaries(self) -> None:
         """Test max_attempts boundary validations."""
         # Valid boundaries
-        config_min = PoolRetryConfig(max_attempts=1)
+        config_min = RetryConfig(max_attempts=1)
         assert config_min.max_attempts == 1
 
-        config_max = PoolRetryConfig(max_attempts=10)
+        config_max = RetryConfig(max_attempts=10)
         assert config_max.max_attempts == 10
 
         # Invalid
         with pytest.raises(ValidationError):
-            PoolRetryConfig(max_attempts=0)
+            RetryConfig(max_attempts=0)
 
         with pytest.raises(ValidationError):
-            PoolRetryConfig(max_attempts=11)
+            RetryConfig(max_attempts=11)
 
     def test_delay_minimum_validation(self) -> None:
         """Test delay minimum validation (>= 0.1)."""
-        config = PoolRetryConfig(initial_delay=0.1, max_delay=0.1)
+        config = RetryConfig(initial_delay=0.1, max_delay=0.1)
         assert config.initial_delay == 0.1
 
         with pytest.raises(ValidationError):
-            PoolRetryConfig(initial_delay=0.05)
+            RetryConfig(initial_delay=0.05)
 
 
 class TestServerSettingsConfig:
@@ -353,9 +353,9 @@ class TestPoolConfig:
                 user="customuser",
                 password="custompass",  # pragma: allowlist secret
             ),
-            limits=PoolLimitsConfig(min_size=10, max_size=50),
-            timeouts=PoolTimeoutsConfig(acquisition=30.0),
-            retry=PoolRetryConfig(max_attempts=5),
+            limits=LimitsConfig(min_size=10, max_size=50),
+            timeouts=TimeoutsConfig(acquisition=30.0),
+            retry=RetryConfig(max_attempts=5),
             server_settings=ServerSettingsConfig(application_name="custom_app"),
         )
 
@@ -412,7 +412,7 @@ class TestPoolInit:
                 user="myuser",
                 password="mypass",
             ),
-            limits=PoolLimitsConfig(min_size=10, max_size=50),
+            limits=LimitsConfig(min_size=10, max_size=50),
         )
         pool = Pool(config=config)
 
@@ -516,7 +516,7 @@ class TestPoolConnect:
     async def test_connect_retry_on_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test connection retry on transient failures."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
-        config = PoolConfig(retry=PoolRetryConfig(max_attempts=3, initial_delay=0.1, max_delay=0.5))
+        config = PoolConfig(retry=RetryConfig(max_attempts=3, initial_delay=0.1, max_delay=0.5))
         pool = Pool(config=config)
         call_count = 0
 
@@ -541,7 +541,7 @@ class TestPoolConnect:
     ) -> None:
         """Test that exceeding max retries raises ConnectionError."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
-        config = PoolConfig(retry=PoolRetryConfig(max_attempts=2, initial_delay=0.1, max_delay=0.2))
+        config = PoolConfig(retry=RetryConfig(max_attempts=2, initial_delay=0.1, max_delay=0.2))
         pool = Pool(config=config)
 
         with (
@@ -558,7 +558,7 @@ class TestPoolConnect:
     async def test_connect_handles_postgres_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that PostgresError triggers retry."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
-        config = PoolConfig(retry=PoolRetryConfig(max_attempts=2, initial_delay=0.1))
+        config = PoolConfig(retry=RetryConfig(max_attempts=2, initial_delay=0.1))
         pool = Pool(config=config)
 
         with (
@@ -575,7 +575,7 @@ class TestPoolConnect:
     async def test_connect_handles_os_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that OSError triggers retry."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
-        config = PoolConfig(retry=PoolRetryConfig(max_attempts=2, initial_delay=0.1))
+        config = PoolConfig(retry=RetryConfig(max_attempts=2, initial_delay=0.1))
         pool = Pool(config=config)
 
         with (
@@ -593,7 +593,7 @@ class TestPoolConnect:
         """Test exponential backoff delay calculation."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         config = PoolConfig(
-            retry=PoolRetryConfig(
+            retry=RetryConfig(
                 max_attempts=4,
                 initial_delay=1.0,
                 max_delay=10.0,
@@ -628,7 +628,7 @@ class TestPoolConnect:
         """Test linear backoff when exponential is disabled."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         config = PoolConfig(
-            retry=PoolRetryConfig(
+            retry=RetryConfig(
                 max_attempts=4,
                 initial_delay=1.0,
                 max_delay=10.0,

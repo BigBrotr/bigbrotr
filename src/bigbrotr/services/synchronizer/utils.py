@@ -40,10 +40,6 @@ if TYPE_CHECKING:
     from .configs import FilterConfig
 
 
-# =============================================================================
-# Logging
-# =============================================================================
-
 _logger = logging.getLogger(__name__)
 
 
@@ -63,11 +59,6 @@ def _log(level: str, message: str, **kwargs: Any) -> None:
     if _logger.isEnabledFor(log_level):
         formatted = message + format_kv_pairs(kwargs, max_value_length=None)
         _logger.log(log_level, formatted)
-
-
-# =============================================================================
-# Event Batch
-# =============================================================================
 
 
 class EventBatch:
@@ -146,11 +137,6 @@ class EventBatch:
         return iter(self.events)
 
 
-# =============================================================================
-# Filter Builder
-# =============================================================================
-
-
 def create_filter(since: int, until: int, config: FilterConfig) -> Filter:
     """Build a nostr-sdk ``Filter`` from the given time range and filter configuration.
 
@@ -198,11 +184,6 @@ def create_filter(since: int, until: int, config: FilterConfig) -> Filter:
                     )
 
     return f
-
-
-# =============================================================================
-# Batch Insertion
-# =============================================================================
 
 
 async def insert_batch(
@@ -278,11 +259,6 @@ async def insert_batch(
     return total_inserted, invalid_count, 0
 
 
-# =============================================================================
-# Sync State Types
-# =============================================================================
-
-
 @dataclass(slots=True)
 class SyncCycleCounters:
     """Per-cycle synchronization counters.
@@ -335,11 +311,6 @@ class SyncContext:
     request_timeout: float
     brotr: Brotr
     keys: Keys
-
-
-# =============================================================================
-# Core Sync Function
-# =============================================================================
 
 
 async def sync_relay_events(

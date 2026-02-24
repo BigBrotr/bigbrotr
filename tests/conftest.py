@@ -27,20 +27,10 @@ from bigbrotr.models.metadata import Metadata, MetadataType
 pytest_plugins = ["tests.fixtures.relays"]
 
 
-# ============================================================================
-# Logging Configuration
-# ============================================================================
-
-
 @pytest.fixture(scope="session", autouse=True)
 def setup_logging() -> None:
     """Configure logging for tests."""
     logging.basicConfig(level=logging.DEBUG)
-
-
-# ============================================================================
-# Environment Fixtures
-# ============================================================================
 
 
 @pytest.fixture
@@ -57,11 +47,6 @@ def mock_db_password(monkeypatch: pytest.MonkeyPatch) -> str:
     password = "test_password"  # pragma: allowlist secret
     monkeypatch.setenv("DB_ADMIN_PASSWORD", password)
     return password
-
-
-# ============================================================================
-# Mock Fixtures
-# ============================================================================
 
 
 @pytest.fixture
@@ -130,11 +115,6 @@ def mock_brotr(mock_pool: Pool) -> Brotr:
     return Brotr(pool=mock_pool)
 
 
-# ============================================================================
-# Configuration Fixtures
-# ============================================================================
-
-
 @pytest.fixture
 def pool_config_dict() -> dict[str, Any]:
     """Sample pool configuration dictionary."""
@@ -192,11 +172,6 @@ def brotr_config_dict() -> dict[str, Any]:
             "batch": 90.0,
         },
     }
-
-
-# ============================================================================
-# Sample Data Fixtures
-# ============================================================================
 
 
 def make_mock_event(
@@ -307,11 +282,6 @@ def sample_relays_batch() -> list[Relay]:
     return [Relay(f"wss://relay{i}.example.com", discovered_at=1700000000) for i in range(10)]
 
 
-# ============================================================================
-# Helper Functions
-# ============================================================================
-
-
 def create_mock_record(data: dict[str, Any]) -> MagicMock:
     """Create a mock asyncpg Record from a dictionary."""
     record = MagicMock()
@@ -321,11 +291,6 @@ def create_mock_record(data: dict[str, Any]) -> MagicMock:
     record.values = data.values
     record.items = data.items
     return record
-
-
-# ============================================================================
-# Pytest Configuration
-# ============================================================================
 
 
 def pytest_configure(config: pytest.Config) -> None:

@@ -111,8 +111,8 @@ Async PostgreSQL connection pool via asyncpg with retry/backoff, health-checked 
 class PoolConfig(BaseModel):
     database: DatabaseConfig       # host, port, database, user, password_env (per-service overrides)
     limits: LimitsConfig           # min_size, max_size, max_queries, max_inactive_connection_lifetime
-    timeouts: PoolTimeoutsConfig   # acquisition
-    retry: PoolRetryConfig         # max_attempts, initial_delay, max_delay, exponential_backoff
+    timeouts: TimeoutsConfig   # acquisition
+    retry: RetryConfig         # max_attempts, initial_delay, max_delay, exponential_backoff
     server_settings: ServerSettingsConfig  # application_name (auto-set), timezone, statement_timeout
 ```
 
@@ -175,7 +175,7 @@ High-level database facade. Wraps stored procedures via `_call_procedure()`. Pro
 ```python
 class BrotrConfig(BaseModel):
     batch: BatchConfig              # max_size (default 1000)
-    timeouts: BrotrTimeoutsConfig   # query (60s), batch (120s), cleanup (90s), refresh (None)
+    timeouts: TimeoutsConfig   # query (60s), batch (120s), cleanup (90s), refresh (None)
 ```
 
 **Insert operations** (all accept lists, auto-batch by `batch.max_size`):

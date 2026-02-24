@@ -44,11 +44,6 @@ from .metrics import (
 from .yaml import load_yaml
 
 
-# ---------------------------------------------------------------------------
-# Base Configuration
-# ---------------------------------------------------------------------------
-
-
 class BaseServiceConfig(BaseModel):
     """Base configuration shared by all services that run in a loop.
 
@@ -302,10 +297,6 @@ class BaseService(ABC, Generic[ConfigT]):
 
         self._logger.info("run_forever_stopped")
 
-    # -------------------------------------------------------------------------
-    # Factory Methods
-    # -------------------------------------------------------------------------
-
     @classmethod
     def from_yaml(cls, config_path: str, brotr: Brotr, **kwargs: Any) -> Self:
         """Create a service instance from a YAML configuration file.
@@ -342,10 +333,6 @@ class BaseService(ABC, Generic[ConfigT]):
         config = cast("ConfigT", cls.CONFIG_CLASS(**data))
         return cls(brotr=brotr, config=config, **kwargs)
 
-    # -------------------------------------------------------------------------
-    # Context Manager
-    # -------------------------------------------------------------------------
-
     async def __aenter__(self) -> Self:
         """Mark the service as running on context entry."""
         self._shutdown_event.clear()
@@ -361,10 +348,6 @@ class BaseService(ABC, Generic[ConfigT]):
         """Signal shutdown on context exit."""
         self._shutdown_event.set()
         self._logger.info("service_stopped")
-
-    # -------------------------------------------------------------------------
-    # Custom Metrics
-    # -------------------------------------------------------------------------
 
     def set_gauge(self, name: str, value: float) -> None:
         """Set a named gauge metric for this service.

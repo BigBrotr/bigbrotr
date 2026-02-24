@@ -68,10 +68,6 @@ class Nip66NetMetadata(BaseNipMetadata):
     data: Nip66NetData
     logs: Nip66NetLogs
 
-    # -------------------------------------------------------------------------
-    # Network/ASN Lookup
-    # -------------------------------------------------------------------------
-
     @staticmethod
     def _net(
         ipv4: str | None,

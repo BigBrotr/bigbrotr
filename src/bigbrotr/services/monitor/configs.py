@@ -75,7 +75,7 @@ class RetriesConfig(BaseModel):
     """Per-metadata-type retry settings.
 
     Each field corresponds to one of the seven health check types and
-    holds a [RetryConfig][bigbrotr.services.monitor.RetryConfig]
+    holds a [RetryConfig][bigbrotr.services.monitor.configs.RetryConfig]
     with independent ``max_attempts``, ``initial_delay``, ``max_delay``,
     and ``jitter`` values.
 
