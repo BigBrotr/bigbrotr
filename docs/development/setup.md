@@ -99,7 +99,6 @@ bigbrotr/
 |   +-- Dockerfile                    # Single parametric Dockerfile
 |   +-- bigbrotr/                     # Full-featured deployment
 |   +-- lilbrotr/                     # Lightweight deployment
-|   +-- brotr/                        # Reference implementation (base schema)
 +-- tools/
 |   +-- generate_sql.py              # SQL template generator
 |   +-- templates/sql/               # Jinja2 SQL templates (base + overrides)

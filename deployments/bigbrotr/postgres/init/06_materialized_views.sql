@@ -1,11 +1,11 @@
 /*
- * BigBrotr - 06_materialized_views.sql
+ * Brotr - 06_materialized_views.sql
  *
- * Materialized views for pre-computed statistics and lookups. Extends the
- * base schema with event analytics, relay metrics, kind/pubkey distributions,
- * network aggregates, NIP-11 software/NIP distribution, and time-series.
+ * Materialized views for pre-computed lookups. Each view has a corresponding
+ * refresh function in 07_functions_refresh.sql and a unique index for
+ * REFRESH CONCURRENTLY in 08_indexes.sql.
  *
- * Dependencies: 02_tables.sql, 06_materialized_views.sql (base: relay_metadata_latest)
+ * Dependencies: 02_tables.sql
  */
 
 

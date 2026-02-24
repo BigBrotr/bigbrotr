@@ -56,7 +56,7 @@ deployments/
 ```
 
 !!! tip
-    The `brotr` deployment contains every field with comments and is the canonical reference for defaults.
+    See the `bigbrotr` deployment for a working example of all configuration files.
 
 ---
 

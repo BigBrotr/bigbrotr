@@ -20,14 +20,12 @@ deployment-specific objects without duplicating the shared structure.
 tools/
 +-- generate_sql.py              # Generator script
 +-- templates/sql/
-    +-- base/                    # 10 base templates (minimal shared schema)
-    +-- bigbrotr/                # Override templates (stat matviews, extra cleanup)
+    +-- base/                    # 10 base templates (shared schema)
     +-- lilbrotr/                # Override templates (lightweight event table)
 
 deployments/
 +-- bigbrotr/postgres/init/      # 10 generated SQL files (DO NOT EDIT DIRECTLY)
 +-- lilbrotr/postgres/init/      # 10 generated SQL files
-+-- brotr/postgres/init/         # 10 generated SQL files (uses base directly)
 ```
 
 !!! warning

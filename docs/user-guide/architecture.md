@@ -18,7 +18,7 @@ BigBrotr uses a **Diamond DAG** architecture. Five layers with strict top-to-bot
 | **Mid** | Utils | DNS, keys, transport, SOCKS5 proxy | Cross-cutting needs |
 | **Foundation** | Models | Frozen dataclasses, validation, DB mapping | Schema changes |
 
-Deployments (`deployments/{bigbrotr,lilbrotr,brotr}/`) sit outside the package and configure behavior through YAML, SQL schemas, and Docker Compose.
+Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and configure behavior through YAML, SQL schemas, and Docker Compose.
 
 ---
 

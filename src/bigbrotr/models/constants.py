@@ -80,6 +80,8 @@ class ServiceName(StrEnum):
             ([Monitor][bigbrotr.services.monitor.Monitor]).
         SYNCHRONIZER: Cursor-based event collection service
             ([Synchronizer][bigbrotr.services.synchronizer.Synchronizer]).
+        REFRESHER: Periodic materialized view refresh service
+            ([Refresher][bigbrotr.services.refresher.Refresher]).
 
     See Also:
         [BaseService][bigbrotr.core.base_service.BaseService]: Abstract
@@ -93,6 +95,7 @@ class ServiceName(StrEnum):
     VALIDATOR = "validator"
     MONITOR = "monitor"
     SYNCHRONIZER = "synchronizer"
+    REFRESHER = "refresher"
 
 
 class EventKind(IntEnum):

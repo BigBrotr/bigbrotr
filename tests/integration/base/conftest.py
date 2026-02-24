@@ -1,4 +1,4 @@
-"""Brotr (base) schema fixture."""
+"""Base schema fixture (uses bigbrotr deployment)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,6 @@ from tests.integration.conftest import make_brotr
 
 @pytest.fixture
 async def brotr(pg_dsn: dict[str, str | int]) -> Brotr:
-    """Provide a Brotr instance backed by the brotr (base) schema."""
-    async for b in make_brotr(pg_dsn, "brotr"):
+    """Provide a Brotr instance backed by the bigbrotr (base) schema."""
+    async for b in make_brotr(pg_dsn, "bigbrotr"):
         yield b

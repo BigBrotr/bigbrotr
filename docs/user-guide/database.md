@@ -18,8 +18,8 @@ Two schema variants exist:
 
 | Variant | Event Storage | Materialized Views | Disk Usage |
 |---------|--------------|-------------------|------------|
-| **BigBrotr** | Full NIP-01 (id, pubkey, created_at, kind, tags, content, sig) | 7 views | 100% |
-| **LilBrotr** | Metadata only (id, pubkey, created_at, kind, tagvalues) | None | ~40% |
+| **BigBrotr** | Full NIP-01 (id, pubkey, created_at, kind, tags, content, sig) | 11 views | 100% |
+| **LilBrotr** | Metadata only (id, pubkey, created_at, kind, tagvalues) | 11 views | ~40% |
 
 ---
 
@@ -375,10 +375,9 @@ Removes events with no associated relays in `event_relay`. Enforces the invarian
 
 ---
 
-## Materialized Views (BigBrotr Only)
+## Materialized Views
 
-!!! note
-    LilBrotr has no materialized views. All views use `REFRESH MATERIALIZED VIEW CONCURRENTLY` which requires a unique index.
+All deployments (BigBrotr, LilBrotr) share the same 11 materialized views. All views use `REFRESH MATERIALIZED VIEW CONCURRENTLY` which requires a unique index.
 
 ### relay_metadata_latest
 
@@ -534,9 +533,9 @@ Daily event aggregation for time-series analysis (UTC).
 
 ---
 
-## Refresh Functions (BigBrotr Only)
+## Refresh Functions
 
-All return `VOID` with `SECURITY INVOKER`. Each uses `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
+All return `VOID` with `SECURITY INVOKER`. Each uses `REFRESH MATERIALIZED VIEW CONCURRENTLY`. The **Refresher** service (`python -m bigbrotr refresher`) orchestrates these functions automatically, refreshing each view individually in dependency order with per-view logging and error isolation.
 
 | Function | Target View | Recommended Schedule |
 |----------|-------------|---------------------|
@@ -618,9 +617,9 @@ Refreshes all materialized views in dependency order:
 !!! note
     The partial index on `service_state` has a WHERE clause: `WHERE service_name = 'validator' AND state_type = 'candidate'`.
 
-### BigBrotr Materialized View Indexes
+### Materialized View Indexes
 
-All materialized views require at least one unique index for `REFRESH CONCURRENTLY`.
+All materialized views require at least one unique index for `REFRESH CONCURRENTLY`. These indexes are shared across all deployments.
 
 | Index | View | Columns | Unique |
 |-------|------|---------|--------|
@@ -642,7 +641,7 @@ All materialized views require at least one unique index for `REFRESH CONCURRENT
 
 ### LilBrotr Table Indexes
 
-LilBrotr has a simpler index set (no materialized views).
+LilBrotr has a simpler table index set optimized for its lightweight event schema. Materialized view indexes are identical to BigBrotr (see above).
 
 | Index | Table | Columns | Type |
 |-------|-------|---------|------|
@@ -689,8 +688,8 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 | `03_functions_crud.sql` | 10 CRUD + 2 cascade functions |
 | `04_functions_cleanup.sql` | 2 cleanup functions |
 | `05_views.sql` | Regular views (reserved) |
-| `06_materialized_views.sql` | 1 materialized view (`relay_metadata_latest`) |
-| `07_functions_refresh.sql` | 1 refresh function |
+| `06_materialized_views.sql` | 11 materialized views |
+| `07_functions_refresh.sql` | 12 refresh functions |
 | `08_indexes.sql` | Table and materialized view indexes |
 | `99_verify.sql` | Verification queries |
 
@@ -713,7 +712,7 @@ CREATE TABLE event (
 );
 ```
 
-**LilBrotr** (lightweight): omits tags, tagvalues, content for ~60% disk savings.
+**LilBrotr** (lightweight): omits tags, content, sig for ~60% disk savings. Tagvalues is a regular column computed at insert time.
 
 ```sql
 CREATE TABLE event (
@@ -721,7 +720,7 @@ CREATE TABLE event (
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
-    sig BYTEA NOT NULL
+    tagvalues TEXT[]
 );
 ```
 
@@ -755,6 +754,6 @@ CREATE TABLE event (
 ## Related Documentation
 
 - [Architecture](architecture.md) -- System architecture and module reference
-- [Service Pipeline](pipeline.md) -- Deep dive into the five-service pipeline
+- [Service Pipeline](pipeline.md) -- Deep dive into the service pipeline
 - [Configuration](configuration.md) -- YAML configuration reference
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards
