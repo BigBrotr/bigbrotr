@@ -377,6 +377,7 @@ CROSS JOIN LATERAL jsonb_array_elements_text(data -> 'supported_nips') AS nip_te
 WHERE metadata_type = 'nip11_info'
     AND data ? 'supported_nips'
     AND jsonb_typeof(data -> 'supported_nips') = 'array'
+    AND nip_text ~ '^\d+$'
 GROUP BY nip_text::INTEGER
 ORDER BY relay_count DESC;
 
