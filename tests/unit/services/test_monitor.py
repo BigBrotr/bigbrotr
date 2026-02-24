@@ -238,7 +238,7 @@ class TestDiscoveryConfig:
         assert config.enabled is True
         assert config.interval == 3600
         assert config.include.nip11_info is True
-        assert config.relays == []
+        assert config.relays is None
 
     def test_custom_values(self) -> None:
         """Test custom discovery config."""
@@ -277,7 +277,7 @@ class TestAnnouncementConfig:
 
         assert config.enabled is True
         assert config.interval == 86400
-        assert config.relays == []
+        assert config.relays is None
 
     def test_custom_values(self) -> None:
         """Test custom announcement config."""
@@ -306,7 +306,7 @@ class TestProfileConfig:
 
         assert config.enabled is False
         assert config.interval == 86400
-        assert config.relays == []
+        assert config.relays is None
 
     def test_custom_values(self) -> None:
         """Test custom profile config."""
@@ -1371,7 +1371,24 @@ class TestGetPublishRelays:
         assert relays[0].url == "wss://disc.relay.com"
 
     def test_get_publish_relays_discovery_falls_back_to_publishing(self, test_keys: Keys) -> None:
-        """Test _get_publish_relays falls back to publishing.relays when discovery empty."""
+        """Test _get_publish_relays falls back to publishing.relays when discovery relays unset."""
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
+        )
+        harness = _MonitorStub(config, test_keys)
+        relays = harness._get_publish_relays(harness._config.discovery.relays)
+        assert len(relays) == 1
+        assert relays[0].url == "wss://fallback.relay.com"
+
+    def test_get_publish_relays_discovery_empty_list_no_fallback(self, test_keys: Keys) -> None:
+        """Test _get_publish_relays returns empty list when discovery relays explicitly []."""
         config = MonitorConfig(
             processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1385,8 +1402,7 @@ class TestGetPublishRelays:
         )
         harness = _MonitorStub(config, test_keys)
         relays = harness._get_publish_relays(harness._config.discovery.relays)
-        assert len(relays) == 1
-        assert relays[0].url == "wss://fallback.relay.com"
+        assert relays == []
 
     def test_get_publish_relays_returns_announcement_primary(self, stub: _MonitorStub) -> None:
         """Test _get_publish_relays returns announcement-specific relays when set."""
@@ -1397,7 +1413,24 @@ class TestGetPublishRelays:
     def test_get_publish_relays_announcement_falls_back_to_publishing(
         self, test_keys: Keys
     ) -> None:
-        """Test _get_publish_relays falls back to publishing.relays when announcement empty."""
+        """Test _get_publish_relays falls back to publishing.relays when announcement relays unset."""
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
+        )
+        harness = _MonitorStub(config, test_keys)
+        relays = harness._get_publish_relays(harness._config.announcement.relays)
+        assert len(relays) == 1
+        assert relays[0].url == "wss://fallback.relay.com"
+
+    def test_get_publish_relays_announcement_empty_list_no_fallback(self, test_keys: Keys) -> None:
+        """Test _get_publish_relays returns empty list when announcement relays explicitly []."""
         config = MonitorConfig(
             processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1411,8 +1444,7 @@ class TestGetPublishRelays:
         )
         harness = _MonitorStub(config, test_keys)
         relays = harness._get_publish_relays(harness._config.announcement.relays)
-        assert len(relays) == 1
-        assert relays[0].url == "wss://fallback.relay.com"
+        assert relays == []
 
     def test_get_publish_relays_returns_profile_primary(self, stub: _MonitorStub) -> None:
         """Test _get_publish_relays returns profile-specific relays when set."""
@@ -1421,7 +1453,24 @@ class TestGetPublishRelays:
         assert relays[0].url == "wss://profile.relay.com"
 
     def test_get_publish_relays_profile_falls_back_to_publishing(self, test_keys: Keys) -> None:
-        """Test _get_publish_relays falls back to publishing.relays when profile empty."""
+        """Test _get_publish_relays falls back to publishing.relays when profile relays unset."""
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
+        )
+        harness = _MonitorStub(config, test_keys)
+        relays = harness._get_publish_relays(harness._config.profile.relays)
+        assert len(relays) == 1
+        assert relays[0].url == "wss://fallback.relay.com"
+
+    def test_get_publish_relays_profile_empty_list_no_fallback(self, test_keys: Keys) -> None:
+        """Test _get_publish_relays returns empty list when profile relays explicitly []."""
         config = MonitorConfig(
             processing=ProcessingConfig(
                 compute=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1435,8 +1484,7 @@ class TestGetPublishRelays:
         )
         harness = _MonitorStub(config, test_keys)
         relays = harness._get_publish_relays(harness._config.profile.relays)
-        assert len(relays) == 1
-        assert relays[0].url == "wss://fallback.relay.com"
+        assert relays == []
 
 
 # ============================================================================

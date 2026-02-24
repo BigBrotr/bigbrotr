@@ -179,9 +179,9 @@ class DiscoveryConfig(BaseModel):
     interval: int = Field(default=3600, ge=60)
     include: MetadataFlags = Field(default_factory=MetadataFlags)
     relays: Annotated[
-        list[Relay],
-        BeforeValidator(lambda v: models_from_db_params(v, Relay)),
-    ] = Field(default_factory=list)  # Overrides publishing.relays
+        list[Relay] | None,
+        BeforeValidator(lambda v: models_from_db_params(v, Relay) if v is not None else None),
+    ] = Field(default=None)
 
 
 class AnnouncementConfig(BaseModel):
@@ -195,9 +195,9 @@ class AnnouncementConfig(BaseModel):
     enabled: bool = Field(default=True)
     interval: int = Field(default=86_400, ge=60)
     relays: Annotated[
-        list[Relay],
-        BeforeValidator(lambda v: models_from_db_params(v, Relay)),
-    ] = Field(default_factory=list)
+        list[Relay] | None,
+        BeforeValidator(lambda v: models_from_db_params(v, Relay) if v is not None else None),
+    ] = Field(default=None)
 
 
 class ProfileConfig(BaseModel):
@@ -211,9 +211,9 @@ class ProfileConfig(BaseModel):
     enabled: bool = Field(default=False)
     interval: int = Field(default=86_400, ge=60)
     relays: Annotated[
-        list[Relay],
-        BeforeValidator(lambda v: models_from_db_params(v, Relay)),
-    ] = Field(default_factory=list)
+        list[Relay] | None,
+        BeforeValidator(lambda v: models_from_db_params(v, Relay) if v is not None else None),
+    ] = Field(default=None)
     name: str | None = Field(default=None)
     about: str | None = Field(default=None)
     picture: str | None = Field(default=None)

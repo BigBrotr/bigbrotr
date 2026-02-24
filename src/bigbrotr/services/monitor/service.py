@@ -767,7 +767,7 @@ class Monitor(
 
     def _get_publish_relays(self, section_relays: list[Relay] | None) -> list[Relay]:
         """Get relays for event publishing, falling back to the global publishing relays."""
-        return section_relays or self._config.publishing.relays
+        return section_relays if section_relays is not None else self._config.publishing.relays
 
     async def _publish_if_due(  # noqa: PLR0913
         self,
