@@ -1,5 +1,5 @@
 /*
- * Brotr - 06_materialized_views.sql
+ * LilBrotr - 06_materialized_views.sql
  *
  * Materialized views for pre-computed lookups. Each view has a corresponding
  * refresh function in 07_functions_refresh.sql and a unique index for
