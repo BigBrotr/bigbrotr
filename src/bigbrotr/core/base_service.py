@@ -26,7 +26,7 @@ import asyncio
 import time
 from abc import ABC, abstractmethod
 from types import TracebackType
-from typing import Any, ClassVar, Generic, TypeVar, cast
+from typing import Any, ClassVar, Generic, Self, TypeVar, cast
 
 from pydantic import BaseModel, Field
 
@@ -307,7 +307,7 @@ class BaseService(ABC, Generic[ConfigT]):
     # -------------------------------------------------------------------------
 
     @classmethod
-    def from_yaml(cls, config_path: str, brotr: Brotr, **kwargs: Any) -> "BaseService[ConfigT]":
+    def from_yaml(cls, config_path: str, brotr: Brotr, **kwargs: Any) -> Self:
         """Create a service instance from a YAML configuration file.
 
         Delegates to [load_yaml()][bigbrotr.core.yaml.load_yaml] for safe
@@ -328,7 +328,7 @@ class BaseService(ABC, Generic[ConfigT]):
         return cls.from_dict(load_yaml(config_path), brotr=brotr, **kwargs)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], brotr: Brotr, **kwargs: Any) -> "BaseService[ConfigT]":
+    def from_dict(cls, data: dict[str, Any], brotr: Brotr, **kwargs: Any) -> Self:
         """Create a service instance from a configuration dictionary.
 
         Parses ``data`` into the service's ``CONFIG_CLASS`` Pydantic model.
@@ -346,7 +346,7 @@ class BaseService(ABC, Generic[ConfigT]):
     # Context Manager
     # -------------------------------------------------------------------------
 
-    async def __aenter__(self) -> "BaseService[ConfigT]":
+    async def __aenter__(self) -> Self:
         """Mark the service as running on context entry."""
         self._shutdown_event.clear()
         self._logger.info("service_started")
