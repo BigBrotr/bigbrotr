@@ -190,7 +190,7 @@ processing:
 
 ### What is the difference between BigBrotr and LilBrotr?
 
-**BigBrotr** stores complete Nostr events including `tags` (JSON), `content`, and `sig`. It provides 7 materialized views for analytics and uses more disk space.
+**BigBrotr** stores complete Nostr events including `tags` (JSON), `content`, and `sig`. It provides 11 materialized views for analytics and uses more disk space.
 
 **LilBrotr** stores only event metadata: `id`, `pubkey`, `created_at`, `kind`, and `tagvalues` (extracted single-char tag values). It omits tags JSON, content, and signatures, resulting in approximately 60% disk savings. Materialized views are not available.
 

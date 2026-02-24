@@ -92,8 +92,8 @@ these blocks to add objects beyond the minimal schema:
 | Block | Used by | Content |
 |-------|---------|---------|
 | `extra_cleanup_functions` | (none yet) | Additional cleanup functions |
-| `extra_materialized_views` | bigbrotr | 6 statistics matviews |
-| `extra_refresh_functions` | bigbrotr | 6 stat refresh + `all_statistics_refresh()` |
+| `extra_materialized_views` | bigbrotr | 10 statistics/analytics matviews |
+| `extra_refresh_functions` | bigbrotr | 10 stat refresh + `all_statistics_refresh()` |
 | `extra_matview_indexes` | bigbrotr | Indexes for statistics matviews |
 | `views` | (none yet) | Regular SQL views |
 

@@ -79,7 +79,7 @@ Edit `postgres/init/02_tables.sql` to select which schema to use:
 
 === "BigBrotr (full archive)"
 
-    Keep the full event table with all columns (`tags`, `content`, `sig`). This stores complete Nostr events and enables the 7 materialized views.
+    Keep the full event table with all columns (`tags`, `content`, `sig`). This stores complete Nostr events and enables the 11 materialized views.
 
 === "LilBrotr (lightweight)"
 

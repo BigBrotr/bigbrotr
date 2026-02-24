@@ -113,7 +113,7 @@ BigBrotr supports multiple deployment configurations from the same codebase via 
 
 ### BigBrotr (Full Archive)
 
-Stores complete Nostr events (id, pubkey, created_at, kind, tags, content, sig). 7 materialized views for analytics. Tor enabled. All 5 services + Prometheus + Grafana.
+Stores complete Nostr events (id, pubkey, created_at, kind, tags, content, sig). 11 materialized views for analytics. Tor enabled. All 5 services + Prometheus + Grafana.
 
 ```bash
 cd deployments/bigbrotr && docker compose up -d
@@ -152,18 +152,18 @@ PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 | `relay_metadata` | Time-series snapshots linking relays to metadata records (`metadata_type` column) |
 | `service_state` | Per-service operational data (candidates, cursors, checkpoints) |
 
-### Stored Functions (21)
+### Stored Functions (25)
 
 - **1 utility**: `tags_to_tagvalues` (extracts single-char tag values for GIN indexing)
 - **10 CRUD**: `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `event_relay_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
 - **2 cleanup**: `orphan_event_delete`, `orphan_metadata_delete` (all batched)
-- **8 refresh**: one per materialized view + `all_statistics_refresh`
+- **12 refresh**: one per materialized view + `all_statistics_refresh`
 
 All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO NOTHING`.
 
-### Materialized Views (7, BigBrotr Only)
+### Materialized Views (11, BigBrotr Only)
 
-`relay_metadata_latest`, `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay` -- all support `REFRESH CONCURRENTLY` via unique indexes.
+`relay_metadata_latest`, `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay`, `network_stats`, `relay_software_counts`, `supported_nip_counts`, `event_daily_counts` -- all support `REFRESH CONCURRENTLY` via unique indexes.
 
 ---
 
@@ -366,7 +366,7 @@ bigbrotr/
 |   +-- Dockerfile                   # Single parametric (ARG DEPLOYMENT)
 |   +-- bigbrotr/                    # Full archive deployment
 |   |   +-- config/                  # YAML configs
-|   |   +-- postgres/init/           # SQL schema (10 files, 22 functions)
+|   |   +-- postgres/init/           # SQL schema (10 files, 25 functions)
 |   |   +-- monitoring/              # Prometheus + Grafana provisioning
 |   |   +-- docker-compose.yaml
 |   +-- lilbrotr/                    # Lightweight deployment
