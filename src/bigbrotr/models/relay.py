@@ -118,11 +118,9 @@ class Relay:
             to an [Event][bigbrotr.models.event.Event].
     """
 
-    # Input fields
     raw_url: str = field(repr=False)
     discovered_at: int = field(default_factory=lambda: int(time()))
 
-    # Computed fields (set in __post_init__)
     url: str = field(init=False)
     network: NetworkType = field(init=False)
     scheme: str = field(init=False)
@@ -134,14 +132,12 @@ class Relay:
         init=False,
         repr=False,
         compare=False,
-        hash=False,  # type: ignore[assignment]
+        hash=False,  # type: ignore[assignment]  # mypy expects bool literal, field() accepts it at runtime
     )
 
-    # Standard default ports for WebSocket schemes
     _PORT_WS: ClassVar[int] = 80
     _PORT_WSS: ClassVar[int] = 443
 
-    # Overlay network TLD-to-NetworkType mapping
     _NETWORK_TLDS: ClassVar[dict[str, NetworkType]] = {
         ".onion": NetworkType.TOR,
         ".i2p": NetworkType.I2P,
@@ -153,7 +149,6 @@ class Relay:
     #   https://www.iana.org/assignments/iana-ipv4-special-registry/
     #   https://www.iana.org/assignments/iana-ipv6-special-registry/
     _LOCAL_NETWORKS: ClassVar[list[IPv4Network | IPv6Network]] = [
-        # IPv4
         ip_network("0.0.0.0/8"),
         ip_network("10.0.0.0/8"),
         ip_network("100.64.0.0/10"),
@@ -170,7 +165,6 @@ class Relay:
         ip_network("224.0.0.0/4"),
         ip_network("240.0.0.0/4"),
         ip_network("255.255.255.255/32"),
-        # IPv6
         ip_network("::1/128"),
         ip_network("::/128"),
         ip_network("::ffff:0:0/96"),
@@ -202,7 +196,6 @@ class Relay:
         if parsed["network"] == NetworkType.UNKNOWN:
             raise ValueError(f"Invalid host: '{parsed['host']}'")
 
-        # Bypass frozen restriction to set computed fields
         object.__setattr__(self, "url", f"{parsed['scheme']}://{parsed['url_without_scheme']}")
         object.__setattr__(self, "network", parsed["network"])
         object.__setattr__(self, "scheme", parsed["scheme"])
@@ -210,8 +203,6 @@ class Relay:
         object.__setattr__(self, "port", parsed["port"])
         object.__setattr__(self, "path", parsed["path"])
 
-        # Compute and cache DB params at creation time (fail-fast validation).
-        # object.__setattr__ is required because the dataclass is frozen.
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
     @staticmethod

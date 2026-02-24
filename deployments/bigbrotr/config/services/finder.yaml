@@ -3,7 +3,7 @@
 # =============================================================================
 # Discovers new relay URLs from stored events and external APIs.
 # Only values that differ from defaults are specified here.
-# See _template/config/services/finder.yaml for all options and documentation.
+# See brotr/config/services/finder.yaml for all options and documentation.
 # =============================================================================
 
 pool:

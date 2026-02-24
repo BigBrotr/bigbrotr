@@ -44,11 +44,6 @@ from pydantic import BaseModel, Field
 from bigbrotr.models.constants import NetworkType
 
 
-# =============================================================================
-# Network-Specific Configuration Classes
-# =============================================================================
-
-
 class ClearnetConfig(BaseModel):
     """Configuration for clearnet (standard internet) relays.
 
@@ -122,11 +117,6 @@ class LokiConfig(BaseModel):
 
 # Union type for any network-specific configuration
 NetworkTypeConfig = ClearnetConfig | TorConfig | I2pConfig | LokiConfig
-
-
-# =============================================================================
-# Unified Network Configuration
-# =============================================================================
 
 
 class NetworksConfig(BaseModel):

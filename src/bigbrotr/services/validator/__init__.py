@@ -6,11 +6,10 @@ Re-exports all public symbols for backwards-compatible imports::
 """
 
 from .configs import CleanupConfig, ProcessingConfig, ValidatorConfig
-from .service import Candidate, Validator
+from .service import Validator
 
 
 __all__ = [
-    "Candidate",
     "CleanupConfig",
     "ProcessingConfig",
     "Validator",

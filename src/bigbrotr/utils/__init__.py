@@ -33,35 +33,7 @@ See Also:
 
 Examples:
     ```python
-    from bigbrotr.utils import create_client, KeysConfig
+    from bigbrotr.utils.protocol import create_client
+    from bigbrotr.utils.keys import KeysConfig
     ```
 """
-
-from bigbrotr.utils.dns import ResolvedHost, resolve_host
-from bigbrotr.utils.http import download_bounded_file, read_bounded_json
-from bigbrotr.utils.keys import KeysConfig, load_keys_from_env
-from bigbrotr.utils.parsing import models_from_db_params, models_from_dict
-from bigbrotr.utils.protocol import (
-    broadcast_events,
-    connect_relay,
-    create_client,
-    fetch_relay_events,
-    is_nostr_relay,
-)
-
-
-__all__ = [
-    "KeysConfig",
-    "ResolvedHost",
-    "broadcast_events",
-    "connect_relay",
-    "create_client",
-    "download_bounded_file",
-    "fetch_relay_events",
-    "is_nostr_relay",
-    "load_keys_from_env",
-    "models_from_db_params",
-    "models_from_dict",
-    "read_bounded_json",
-    "resolve_host",
-]

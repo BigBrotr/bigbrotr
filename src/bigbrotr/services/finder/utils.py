@@ -41,21 +41,18 @@ def extract_relays_from_rows(rows: list[dict[str, Any]]) -> dict[str, Relay]:
         tags = row["tags"]
         content = row["content"]
 
-        # Extract relay URLs from tags (r-tags)
         if tags:
             for tag in tags:
-                if isinstance(tag, list) and len(tag) >= 2 and tag[0] == "r":  # noqa: PLR2004
+                if isinstance(tag, list) and len(tag) >= 2 and tag[0] == "r":  # noqa: PLR2004  # NIP tag structure: ["r", url, ...]
                     validated = parse_relay_url(tag[1])
                     if validated:
                         relays[validated.url] = validated
 
-        # Kind 2: content is the relay URL (deprecated NIP)
         if kind == EventKind.RECOMMEND_RELAY and content:
             validated = parse_relay_url(content.strip())
             if validated:
                 relays[validated.url] = validated
 
-        # Kind 3: content may be JSON with relay URLs as keys
         if kind == EventKind.CONTACTS and content:
             try:
                 relay_data = json.loads(content)

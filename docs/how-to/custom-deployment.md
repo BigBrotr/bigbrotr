@@ -1,17 +1,17 @@
 # Creating a Custom Deployment
 
-Create a new BigBrotr deployment from the `_template` directory with custom configuration, schema, and Docker settings.
+Create a new deployment from the `bigbrotr` base with custom configuration, schema, and Docker settings.
 
 ---
 
 ## Overview
 
-BigBrotr ships with two ready-made deployments (`bigbrotr` and `lilbrotr`) and a `_template` directory for creating your own. Each deployment is a self-contained directory with configuration, SQL schema, Docker Compose, and monitoring files.
+BigBrotr ships with two deployments: `bigbrotr` (full event archive) and `lilbrotr` (lightweight, omits tags/content/sig). To create your own, copy `bigbrotr` and customize. Each deployment is a self-contained directory with configuration, SQL schema, Docker Compose, and monitoring files.
 
 ## Step 1: Copy the Template
 
 ```bash
-cp -r deployments/_template deployments/myproject
+cp -r deployments/bigbrotr deployments/myproject
 cd deployments/myproject
 ```
 
@@ -71,7 +71,7 @@ Service files to customize:
 - `synchronizer.yaml` -- sync interval, concurrency, event filters
 
 !!! tip
-    The `_template` deployment contains every configuration field with comments, including `# <-- CUSTOMIZE` markers for deployment-specific values. Start by reading the template files, then adjust.
+    See the [Configuration](../user-guide/configuration.md) reference for all available fields and their defaults.
 
 ## Step 5: Choose a Schema
 
@@ -79,11 +79,11 @@ Edit `postgres/init/02_tables.sql` to select which schema to use:
 
 === "BigBrotr (full archive)"
 
-    Keep the full event table with all columns (`tags`, `content`, `sig`). This stores complete Nostr events and enables the 7 materialized views.
+    Keep the full event table with all columns (`tags`, `content`, `sig`). This stores complete Nostr events and enables the 11 materialized views.
 
 === "LilBrotr (lightweight)"
 
-    Use the lightweight event table that stores only `id`, `pubkey`, `created_at`, `kind`, and `tagvalues`. This omits tags JSON, content, and signatures for approximately 60% disk savings. Materialized views are not available.
+    Use the lightweight event table that stores only `id`, `pubkey`, `created_at`, `kind`, and `tagvalues`. This omits tags JSON, content, and signatures for approximately 60% disk savings. All 11 materialized views are still available.
 
 ## Step 6: Set Up the Seed File
 

@@ -77,17 +77,13 @@ class Nip11InfoMetadata(BaseNipMetadata):
 
     _INFO_MAX_SIZE: ClassVar[int] = 65_536  # 64 KB
 
-    # -------------------------------------------------------------------------
-    # HTTP Info Retrieval
-    # -------------------------------------------------------------------------
-
     @staticmethod
     async def _info(  # noqa: PLR0913
         http_url: str,
         headers: dict[str, str],
         timeout: float,  # noqa: ASYNC109
         max_size: int,
-        ssl_context: ssl.SSLContext | bool,  # noqa: FBT001
+        ssl_context: ssl.SSLContext | bool,  # noqa: FBT001  # aiohttp SSL API accepts SSLContext|bool
         proxy_url: str | None = None,
     ) -> dict[str, Any]:
         """Execute a single HTTP GET request and return the parsed JSON body.

@@ -10,11 +10,6 @@ import pytest
 from bigbrotr.models import Relay
 
 
-# =============================================================================
-# Individual relay fixtures
-# =============================================================================
-
-
 @pytest.fixture
 def relay_clearnet() -> Relay:
     """Standard clearnet wss:// relay."""
@@ -58,11 +53,6 @@ def relay_ipv6() -> Relay:
     return Relay("wss://[2607:f8b0:4000::1]:8080", discovered_at=1700000000)
 
 
-# =============================================================================
-# Parametrized overlay fixture
-# =============================================================================
-
-
 @pytest.fixture(
     params=["tor", "i2p", "loki"],
     ids=["tor", "i2p", "loki"],
@@ -75,11 +65,6 @@ def relay_overlay(request: pytest.FixtureRequest) -> Relay:
         "loki": "wss://example.loki",
     }
     return Relay(urls[request.param], discovered_at=1700000000)
-
-
-# =============================================================================
-# Batch fixture
-# =============================================================================
 
 
 @pytest.fixture

@@ -230,7 +230,6 @@ class Nip11InfoData(BaseData):
 
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
-    # Relay identification
     name: str | None = None
     description: str | None = None
     banner: str | None = None
@@ -241,19 +240,16 @@ class Nip11InfoData(BaseData):
     software: str | None = None
     version: str | None = None
 
-    # Policy URLs
     privacy_policy: str | None = None
     terms_of_service: str | None = None
     posting_policy: str | None = None
     payments_url: str | None = None
 
-    # Capabilities
     supported_nips: list[StrictInt] | None = None
     limitation: Nip11InfoDataLimitation = Field(default_factory=Nip11InfoDataLimitation)
     retention: list[Nip11InfoDataRetentionEntry] | None = None
     fees: Nip11InfoDataFees = Field(default_factory=Nip11InfoDataFees)
 
-    # Content filtering
     relay_countries: list[str] | None = None
     language_tags: list[str] | None = None
     tags: list[str] | None = None

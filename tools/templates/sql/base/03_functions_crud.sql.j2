@@ -1,6 +1,6 @@
 /*
 {% block header_comment %}
- * BigBrotr - 03_functions_crud.sql
+ * Brotr - 03_functions_crud.sql
  *
  * CRUD stored functions for bulk data operations. Organized in two levels:
  *
@@ -13,10 +13,12 @@
  *     event_relay_insert_cascade  -> relay + event + event_relay
  *     relay_metadata_insert_cascade -> relay + metadata + relay_metadata
  *
- * All functions use array parameters for bulk operations via unnest(),
- * and ON CONFLICT DO NOTHING for idempotent inserts.
+ * IMPORTANT: Function signatures are fixed and called by src/bigbrotr/core/brotr.py.
+ * All parameters must be accepted even if not stored. To customize event
+ * storage, modify only the INSERT statement inside event_insert().
  *
  * Dependencies: 02_tables.sql
+ * Customization: event_insert() INSERT statement (see events_insert_comment block)
 {% endblock %}
  */
 
@@ -67,18 +69,25 @@ COMMENT ON FUNCTION relay_insert(TEXT [], TEXT [], BIGINT []) IS
 {% block events_insert_comment %}
  * event_insert(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[]) -> INTEGER
  *
- * Bulk-inserts Nostr events. Duplicate events (by id) are silently skipped.
- * Foreign key references to relays are NOT enforced here; use the cascade
- * version if relays may not exist yet.
+ * Bulk-inserts Nostr events. The function signature is fixed for interface
+ * compatibility, but the INSERT statement should be customized to match
+ * your event table schema.
  *
- * Parameters:
- *   p_event_ids        - Array of 32-byte event hashes
- *   p_pubkeys          - Array of 32-byte author public keys
- *   p_created_ats      - Array of Unix creation timestamps
- *   p_kinds            - Array of NIP-01 event kinds
- *   p_tags             - Array of JSONB tag arrays
- *   p_content_values   - Array of event content strings
- *   p_sigs             - Array of 64-byte Schnorr signatures
+ * Customization examples:
+ *
+ *   Minimal table (only id):
+ *     INSERT INTO event (id)
+ *     SELECT id FROM unnest(p_event_ids) AS t(id)
+ *
+ *   Lightweight table (id, pubkey, created_at, kind, tagvalues):
+ *     INSERT INTO event (id, pubkey, created_at, kind, tagvalues)
+ *     SELECT id, pubkey, created_at, kind, tags_to_tagvalues(tags)
+ *     FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags)
+ *         AS t(id, pubkey, created_at, kind, tags)
+ *
+ *   Full table (all columns, used below):
+ *     INSERT INTO event (id, pubkey, created_at, kind, tags, content, sig)
+ *     SELECT * FROM unnest(p_event_ids, p_pubkeys, ...)
  *
  * Returns: Number of newly inserted rows
 {% endblock %}

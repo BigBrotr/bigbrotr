@@ -44,13 +44,16 @@ deployments/lilbrotr/
 ├── Dockerfile                        # Application image build
 ├── postgres/
 │   ├── postgresql.conf               # PostgreSQL tuning
-│   └── init/                         # SQL initialization
+│   └── init/                         # SQL initialization (10 files)
 │       ├── 00_extensions.sql
 │       ├── 01_functions_utility.sql
 │       ├── 02_tables.sql             # Lightweight events table
 │       ├── 03_functions_crud.sql     # Adapted CRUD functions
 │       ├── 04_functions_cleanup.sql
-│       ├── 05_indexes.sql
+│       ├── 05_views.sql
+│       ├── 06_materialized_views.sql # relay_metadata_latest
+│       ├── 07_functions_refresh.sql
+│       ├── 08_indexes.sql
 │       └── 99_verify.sql
 ├── config/
 │   ├── brotr.yaml                    # Database connection config

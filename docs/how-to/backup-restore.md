@@ -122,7 +122,7 @@ After restoring, refresh all materialized views to ensure they reflect the resto
 SELECT all_statistics_refresh();
 ```
 
-This calls the stored function that refreshes all 7 materialized views concurrently.
+This calls the stored function that refreshes all 11 materialized views concurrently.
 
 ### Restart services
 

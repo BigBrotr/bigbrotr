@@ -40,6 +40,11 @@ scrape_configs:
       - targets: ["synchronizer:8000"]
     scrape_interval: 30s
 
+  - job_name: "refresher"
+    static_configs:
+      - targets: ["refresher:8000"]
+    scrape_interval: 30s
+
   # --------------------------------------------------------------------------
   # PostgreSQL Exporter
   # --------------------------------------------------------------------------

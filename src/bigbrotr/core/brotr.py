@@ -56,11 +56,6 @@ if TYPE_CHECKING:
     from bigbrotr.models.service_state import ServiceStateType
 
 
-# ---------------------------------------------------------------------------
-# Configuration Models
-# ---------------------------------------------------------------------------
-
-
 class BatchConfig(BaseModel):
     """Controls the maximum number of records per bulk insert operation.
 
@@ -80,7 +75,7 @@ class BatchConfig(BaseModel):
     )
 
 
-class BrotrTimeoutsConfig(BaseModel):
+class TimeoutsConfig(BaseModel):
     """Timeout settings for [Brotr][bigbrotr.core.brotr.Brotr] operations (in seconds).
 
     Each timeout can be set to ``None`` for no limit (infinite wait) or to a
@@ -98,7 +93,7 @@ class BrotrTimeoutsConfig(BaseModel):
     See Also:
         [BrotrConfig][bigbrotr.core.brotr.BrotrConfig]: Parent configuration
             that embeds this model.
-        [PoolTimeoutsConfig][bigbrotr.core.pool.PoolTimeoutsConfig]:
+        [TimeoutsConfig][bigbrotr.core.pool.TimeoutsConfig]:
             Lower-level pool acquisition and health-check timeouts.
     """
 
@@ -129,19 +124,14 @@ class BrotrConfig(BaseModel):
 
     See Also:
         [BatchConfig][bigbrotr.core.brotr.BatchConfig]: Bulk insert size limits.
-        [BrotrTimeoutsConfig][bigbrotr.core.brotr.BrotrTimeoutsConfig]: Per-category
+        [TimeoutsConfig][bigbrotr.core.brotr.TimeoutsConfig]: Per-category
             timeout settings.
         [Brotr][bigbrotr.core.brotr.Brotr]: The database interface class that
             consumes this configuration.
     """
 
     batch: BatchConfig = Field(default_factory=BatchConfig)
-    timeouts: BrotrTimeoutsConfig = Field(default_factory=BrotrTimeoutsConfig)
-
-
-# ---------------------------------------------------------------------------
-# Brotr Class
-# ---------------------------------------------------------------------------
+    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
 
 
 class Brotr:
@@ -277,10 +267,6 @@ class Brotr:
 
         return cls(pool=pool, config=config)
 
-    # -------------------------------------------------------------------------
-    # Helper Methods
-    # -------------------------------------------------------------------------
-
     def _validate_batch_size(self, batch: list[Any], operation: str) -> None:
         """Raise ValueError if batch exceeds the configured maximum size."""
         if len(batch) > self._config.batch.max_size:
@@ -373,10 +359,6 @@ class Brotr:
         await self._pool.execute(query, *args, timeout=timeout)
         return None
 
-    # -------------------------------------------------------------------------
-    # Generic Query Facade
-    # -------------------------------------------------------------------------
-
     async def fetch(
         self,
         query: str,
@@ -386,7 +368,7 @@ class Brotr:
 
         Delegates to [Pool.fetch()][bigbrotr.core.pool.Pool.fetch] with
         timeout from
-        [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
+        [config.timeouts.query][bigbrotr.core.brotr.TimeoutsConfig].
 
         Args:
             query: SQL query with ``$1``, ``$2``, ... placeholders.
@@ -403,7 +385,7 @@ class Brotr:
 
         Delegates to [Pool.fetchrow()][bigbrotr.core.pool.Pool.fetchrow] with
         timeout from
-        [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
+        [config.timeouts.query][bigbrotr.core.brotr.TimeoutsConfig].
 
         Args:
             query: SQL query with ``$1``, ``$2``, ... placeholders.
@@ -416,7 +398,7 @@ class Brotr:
 
         Delegates to [Pool.fetchval()][bigbrotr.core.pool.Pool.fetchval] with
         timeout from
-        [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
+        [config.timeouts.query][bigbrotr.core.brotr.TimeoutsConfig].
 
         Args:
             query: SQL query with ``$1``, ``$2``, ... placeholders.
@@ -429,7 +411,7 @@ class Brotr:
 
         Delegates to [Pool.execute()][bigbrotr.core.pool.Pool.execute] with
         timeout from
-        [config.timeouts.query][bigbrotr.core.brotr.BrotrTimeoutsConfig].
+        [config.timeouts.query][bigbrotr.core.brotr.TimeoutsConfig].
 
         Args:
             query: SQL query with ``$1``, ``$2``, ... placeholders.
@@ -460,10 +442,6 @@ class Brotr:
                 Underlying pool method.
         """
         return self._pool.transaction()
-
-    # -------------------------------------------------------------------------
-    # Insert Operations
-    # -------------------------------------------------------------------------
 
     async def insert_relay(self, records: list[Relay]) -> int:
         """Bulk-insert relay records into the ``relay`` table.
@@ -737,10 +715,6 @@ class Brotr:
         )
         return inserted
 
-    # -------------------------------------------------------------------------
-    # Cleanup Operations
-    # -------------------------------------------------------------------------
-
     async def delete_orphan_event(self) -> int:
         """Delete events that have no associated relay in the junction table.
 
@@ -790,10 +764,6 @@ class Brotr:
             timeout=self._config.timeouts.cleanup,
         )
         return result
-
-    # -------------------------------------------------------------------------
-    # Service State Operations
-    # -------------------------------------------------------------------------
 
     async def upsert_service_state(self, records: list[ServiceState]) -> int:
         """Atomically upsert service state records using bulk array parameters.
@@ -937,10 +907,6 @@ class Brotr:
         )
         return deleted
 
-    # -------------------------------------------------------------------------
-    # Refresh Operations
-    # -------------------------------------------------------------------------
-
     async def refresh_materialized_view(self, view_name: str) -> None:
         """Refresh a materialized view concurrently (non-blocking).
 
@@ -960,7 +926,7 @@ class Brotr:
         Note:
             The timeout for refresh operations defaults to ``None``
             (infinite) via
-            [BrotrTimeoutsConfig.refresh][bigbrotr.core.brotr.BrotrTimeoutsConfig]
+            [TimeoutsConfig.refresh][bigbrotr.core.brotr.TimeoutsConfig]
             because ``REFRESH MATERIALIZED VIEW CONCURRENTLY`` can take
             several minutes on large tables with complex indexes.
         """
@@ -969,10 +935,6 @@ class Brotr:
             timeout=self._config.timeouts.refresh,
         )
         self._logger.debug("matview_refreshed", view=view_name)
-
-    # -------------------------------------------------------------------------
-    # Lifecycle
-    # -------------------------------------------------------------------------
 
     async def connect(self) -> None:
         """Connect the underlying pool. Idempotent."""
@@ -983,10 +945,6 @@ class Brotr:
         """Close the underlying pool. Idempotent."""
         self._logger.debug("session_ending")
         await self._pool.close()
-
-    # -------------------------------------------------------------------------
-    # Context Manager
-    # -------------------------------------------------------------------------
 
     async def __aenter__(self) -> Brotr:
         """Connect the underlying pool on context entry."""

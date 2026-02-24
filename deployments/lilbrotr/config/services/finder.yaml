@@ -2,7 +2,7 @@
 # Finder Service Configuration (LilBrotr)
 # =============================================================================
 # Only values that differ from defaults are specified here.
-# See _template/config/services/finder.yaml for all options and documentation.
+# See brotr/config/services/finder.yaml for all options and documentation.
 #
 # Note: Event scanning is disabled because LilBrotr does not store
 # tags/tagvalues/content columns which are required for event scanning.

@@ -4,7 +4,7 @@
 # Fetches Nostr events from relays and stores them with relay associations.
 # Uses asyncio.TaskGroup with semaphore-bounded concurrency.
 # Only values that differ from defaults are specified here.
-# See _template/config/services/synchronizer.yaml for all options and documentation.
+# See brotr/config/services/synchronizer.yaml for all options and documentation.
 # =============================================================================
 
 pool:

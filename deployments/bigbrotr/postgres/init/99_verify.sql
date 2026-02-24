@@ -1,5 +1,5 @@
 /*
- * BigBrotr - 99_verify.sql
+ * Brotr - 99_verify.sql
  *
  * Post-initialization verification script. Prints a summary of all created
  * database objects to confirm successful schema setup.
@@ -10,11 +10,8 @@
 DO $$
 BEGIN
     RAISE NOTICE '============================================================================';
-    RAISE NOTICE 'BigBrotr database schema initialized successfully';
+    RAISE NOTICE 'Brotr database schema initialized successfully';
     RAISE NOTICE '============================================================================';
-    RAISE NOTICE '';
-    RAISE NOTICE 'Roles:';
-    RAISE NOTICE '  bigbrotr_writer (DML + EXECUTE), bigbrotr_reader (SELECT only)';
     RAISE NOTICE '';
     RAISE NOTICE 'Extensions:';
     RAISE NOTICE '  btree_gin, pg_stat_statements';
@@ -34,21 +31,23 @@ BEGIN
     RAISE NOTICE '  event_relay_insert_cascade, relay_metadata_insert_cascade';
     RAISE NOTICE '';
     RAISE NOTICE 'Cleanup Functions:';
-    RAISE NOTICE '  orphan_metadata_delete, orphan_event_delete, relay_metadata_delete_expired';
+    RAISE NOTICE '  orphan_metadata_delete, orphan_event_delete';
     RAISE NOTICE '';
-    RAISE NOTICE 'Views:';
-    RAISE NOTICE '  (none)';
-    RAISE NOTICE '';
-    RAISE NOTICE 'Materialized Views:';
-    RAISE NOTICE '  relay_metadata_latest, event_stats, relay_stats';
-    RAISE NOTICE '  kind_counts, kind_counts_by_relay';
+    RAISE NOTICE 'Materialized Views (11):';
+    RAISE NOTICE '  relay_metadata_latest';
+    RAISE NOTICE '  event_stats, relay_stats, kind_counts, kind_counts_by_relay';
     RAISE NOTICE '  pubkey_counts, pubkey_counts_by_relay';
+    RAISE NOTICE '  network_stats, relay_software_counts, supported_nip_counts';
+    RAISE NOTICE '  event_daily_counts';
     RAISE NOTICE '';
-    RAISE NOTICE 'Refresh Functions:';
-    RAISE NOTICE '  relay_metadata_latest_refresh, event_stats_refresh';
-    RAISE NOTICE '  relay_stats_refresh, kind_counts_refresh';
-    RAISE NOTICE '  kind_counts_by_relay_refresh, pubkey_counts_refresh';
-    RAISE NOTICE '  pubkey_counts_by_relay_refresh, all_statistics_refresh';
+    RAISE NOTICE 'Refresh Functions (12):';
+    RAISE NOTICE '  relay_metadata_latest_refresh';
+    RAISE NOTICE '  event_stats_refresh, relay_stats_refresh';
+    RAISE NOTICE '  kind_counts_refresh, kind_counts_by_relay_refresh';
+    RAISE NOTICE '  pubkey_counts_refresh, pubkey_counts_by_relay_refresh';
+    RAISE NOTICE '  network_stats_refresh, relay_software_counts_refresh';
+    RAISE NOTICE '  supported_nip_counts_refresh, event_daily_counts_refresh';
+    RAISE NOTICE '  all_statistics_refresh';
     RAISE NOTICE '';
     RAISE NOTICE '============================================================================';
 END $$;

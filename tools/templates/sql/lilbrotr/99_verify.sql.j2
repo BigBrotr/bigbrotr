@@ -5,7 +5,7 @@
  * Post-initialization verification script. Prints a summary of all created
  * database objects to confirm successful schema setup.
  *
- * Dependencies: All previous initialization files (00-05)
+ * Dependencies: All previous initialization files (00-08)
 {% endblock %}
 {% block verify_body %}
 DO $$
@@ -29,6 +29,22 @@ BEGIN
     RAISE NOTICE '  event_relay_insert_cascade, relay_metadata_insert_cascade,';
     RAISE NOTICE '  service_state_upsert, service_state_get, service_state_delete,';
     RAISE NOTICE '  orphan_metadata_delete, orphan_event_delete';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Materialized Views (11):';
+    RAISE NOTICE '  relay_metadata_latest';
+    RAISE NOTICE '  event_stats, relay_stats, kind_counts, kind_counts_by_relay';
+    RAISE NOTICE '  pubkey_counts, pubkey_counts_by_relay';
+    RAISE NOTICE '  network_stats, relay_software_counts, supported_nip_counts';
+    RAISE NOTICE '  event_daily_counts';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Refresh Functions (12):';
+    RAISE NOTICE '  relay_metadata_latest_refresh';
+    RAISE NOTICE '  event_stats_refresh, relay_stats_refresh';
+    RAISE NOTICE '  kind_counts_refresh, kind_counts_by_relay_refresh';
+    RAISE NOTICE '  pubkey_counts_refresh, pubkey_counts_by_relay_refresh';
+    RAISE NOTICE '  network_stats_refresh, relay_software_counts_refresh';
+    RAISE NOTICE '  supported_nip_counts_refresh, event_daily_counts_refresh';
+    RAISE NOTICE '  all_statistics_refresh';
     RAISE NOTICE '';
     RAISE NOTICE 'Note: Event table stores id, pubkey, created_at, kind, tagvalues only.';
     RAISE NOTICE '      Tags, content, and sig are discarded at insert time (~60%% savings).';

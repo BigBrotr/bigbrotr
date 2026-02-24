@@ -3,7 +3,7 @@
 # =============================================================================
 # Performs NIP-11 and NIP-66 health checks on validated relays.
 # Only values that differ from defaults are specified here.
-# See _template/config/services/monitor.yaml for all options and documentation.
+# See brotr/config/services/monitor.yaml for all options and documentation.
 # =============================================================================
 
 pool:

@@ -55,15 +55,12 @@ class RelayMetadataDbParams(NamedTuple):
             metadata fields.
     """
 
-    # Relay fields
     relay_url: str
     relay_network: str
     relay_discovered_at: int
-    # Metadata fields (matching metadata table order: id, metadata_type, data)
     metadata_id: bytes
     metadata_type: MetadataType
     metadata_data: str
-    # Junction field
     generated_at: int
 
 
@@ -123,7 +120,7 @@ class RelayMetadata:
         init=False,
         repr=False,
         compare=False,
-        hash=False,  # type: ignore[assignment]
+        hash=False,  # type: ignore[assignment]  # mypy expects bool literal, field() accepts it at runtime
     )
 
     def __post_init__(self) -> None:

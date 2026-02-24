@@ -32,19 +32,11 @@ BASE_TEMPLATES: list[str] = [
     "99_verify",
 ]
 
-# Per-implementation overrides. Only deviations from the base set are listed.
-#   - None  = skip this template entirely
-#   - str   = rename the output file (e.g., base 08_indexes -> output 05_indexes)
-# Entries not listed inherit the base template name as the output filename.
+# Implementations to generate. Each key maps to a deployments/{name}/ directory.
+# Values may contain overrides: None = skip template, str = rename output file.
 OVERRIDES: dict[str, dict[str, str | None]] = {
     "bigbrotr": {},
-    "lilbrotr": {
-        "05_views": None,
-        "06_materialized_views": None,
-        "07_functions_refresh": None,
-        "08_indexes": "05_indexes",
-    },
-    "_template": {},
+    "lilbrotr": {},
 }
 
 

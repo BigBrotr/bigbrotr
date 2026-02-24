@@ -57,7 +57,6 @@ class EventRelayDbParams(NamedTuple):
         [RelayDbParams][bigbrotr.models.relay.RelayDbParams]: Source of the relay fields.
     """
 
-    # Event fields
     event_id: bytes
     pubkey: bytes
     created_at: int
@@ -65,11 +64,9 @@ class EventRelayDbParams(NamedTuple):
     tags: str
     content: str
     sig: bytes
-    # Relay fields
     relay_url: str
     relay_network: str
     relay_discovered_at: int
-    # Junction field
     seen_at: int
 
 
@@ -116,7 +113,7 @@ class EventRelay:
         init=False,
         repr=False,
         compare=False,
-        hash=False,  # type: ignore[assignment]
+        hash=False,  # type: ignore[assignment]  # mypy expects bool literal, field() accepts it at runtime
     )
 
     def __post_init__(self) -> None:

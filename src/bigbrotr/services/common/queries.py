@@ -18,7 +18,7 @@ The 14 query functions are grouped into four categories:
 
 Warning:
     All queries use the timeout from
-    [BrotrTimeoutsConfig][bigbrotr.core.brotr.BrotrTimeoutsConfig]
+    [TimeoutsConfig][bigbrotr.core.brotr.TimeoutsConfig]
     (``timeouts.query`` for reads, ``timeouts.batch`` for writes).
     The PostgreSQL ``statement_timeout`` acts as a server-side safety net.
 
@@ -44,11 +44,6 @@ from bigbrotr.services.common.utils import parse_delete_result
 if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models.relay import Relay
-
-
-# ---------------------------------------------------------------------------
-# Relay Queries
-# ---------------------------------------------------------------------------
 
 
 async def get_all_relay_urls(brotr: Brotr) -> list[str]:
@@ -159,10 +154,6 @@ async def insert_relays(brotr: Brotr, relays: list[Relay]) -> int:
     return inserted
 
 
-# ---------------------------------------------------------------------------
-# Check / Monitoring Queries
-# ---------------------------------------------------------------------------
-
 # Shared FROM/JOIN/WHERE for relay check queries (count + fetch).
 # Parameters: $1=service_name, $2=state_type, $3=networks, $4=threshold
 _RELAYS_DUE_FOR_CHECK_BASE = """
@@ -262,11 +253,6 @@ async def fetch_relays_due_for_check(
     return [dict(row) for row in rows]
 
 
-# ---------------------------------------------------------------------------
-# Event Queries
-# ---------------------------------------------------------------------------
-
-
 async def get_events_with_relay_urls(
     brotr: Brotr,
     relay_url: str,
@@ -324,11 +310,6 @@ async def get_events_with_relay_urls(
         limit,
     )
     return [dict(row) for row in rows]
-
-
-# ---------------------------------------------------------------------------
-# Candidate Lifecycle
-# ---------------------------------------------------------------------------
 
 
 async def insert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
@@ -604,11 +585,6 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
         )
 
     return inserted
-
-
-# ---------------------------------------------------------------------------
-# Cursor Queries
-# ---------------------------------------------------------------------------
 
 
 async def get_all_service_cursors(

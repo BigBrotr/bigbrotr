@@ -1,12 +1,13 @@
 /*
 {% block header_comment %}
- * BigBrotr - 02_tables.sql
+ * Brotr - 02_tables.sql
  *
  * Core database tables for Nostr relay archiving and monitoring.
- * BigBrotr uses full event storage: all NIP-01 fields are preserved,
- * enabling complete event reconstruction and tag-based queries.
+ * The event table is the primary customization point: only the id column
+ * is mandatory. All other tables have fixed structures.
  *
  * Dependencies: 01_functions_utility.sql (tags_to_tagvalues for generated column)
+ * Customization: event table columns (see storage modes in events_table block)
 {% endblock %}
  */
 
@@ -32,12 +33,28 @@ COMMENT ON COLUMN relay.discovered_at IS 'Unix timestamp when first discovered a
 
 {% block events_table %}
 -- ==========================================================================
--- event: Full Nostr event storage with computed tag index
+-- event: Nostr event storage (CUSTOMIZABLE)
 -- ==========================================================================
--- Stores complete NIP-01 events. Binary fields (id, pubkey, sig) use BYTEA
--- for 50% space savings compared to hex CHAR(64). The tagvalues column is
--- automatically computed from the tags JSONB via a generated column, enabling
--- efficient GIN index lookups without manual maintenance.
+-- Only the id column (BYTEA PRIMARY KEY) is mandatory for the event_relay
+-- foreign key. All other columns are optional. Customize the event_insert()
+-- function in 03_functions_crud.sql to match your chosen schema.
+--
+-- Storage modes:
+--
+--   Minimal (tracking event IDs per relay only):
+--     CREATE TABLE event (id BYTEA PRIMARY KEY);
+--
+--   Lightweight (metadata + tag filtering, ~60% disk savings):
+--     CREATE TABLE event (
+--         id BYTEA PRIMARY KEY,
+--         pubkey BYTEA NOT NULL,
+--         created_at BIGINT NOT NULL,
+--         kind INTEGER NOT NULL,
+--         tagvalues TEXT[]
+--     );
+--
+--   Full (complete event reconstruction, used below):
+--     Includes all NIP-01 fields with auto-computed tagvalues.
 
 CREATE TABLE IF NOT EXISTS event (
     id BYTEA PRIMARY KEY,

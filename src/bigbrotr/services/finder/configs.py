@@ -16,14 +16,19 @@ from bigbrotr.models.constants import EventKind
 
 
 class ConcurrencyConfig(BaseModel):
-    """Concurrency limits for parallel API requests.
+    """Concurrency limits for parallel operations.
 
     See Also:
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Parent
             config that embeds this model.
     """
 
-    max_parallel: int = Field(default=5, ge=1, le=20, description="Maximum concurrent API requests")
+    max_parallel_api: int = Field(
+        default=5, ge=1, le=20, description="Maximum concurrent API requests"
+    )
+    max_parallel_events: int = Field(
+        default=10, ge=1, le=50, description="Maximum concurrent relay event scans"
+    )
 
 
 class EventsConfig(BaseModel):

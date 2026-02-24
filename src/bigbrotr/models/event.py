@@ -119,7 +119,7 @@ class Event:
         init=False,
         repr=False,
         compare=False,
-        hash=False,  # type: ignore[assignment]
+        hash=False,  # type: ignore[assignment]  # mypy expects bool literal, field() accepts it at runtime
     )
 
     def __post_init__(self) -> None:
@@ -135,8 +135,6 @@ class Event:
                 if "\x00" in value:
                     raise ValueError(f"Event {event_id}... tags contain null bytes")
 
-        # Compute and cache DB params at creation time (fail-fast validation).
-        # object.__setattr__ is required because the dataclass is frozen.
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
     def __getattr__(self, name: str) -> Any:

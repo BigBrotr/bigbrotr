@@ -22,11 +22,13 @@
 
 ## What It Does
 
-BigBrotr runs a pipeline of five async services that continuously map and monitor the Nostr relay ecosystem:
+BigBrotr runs a pipeline of async services that continuously map and monitor the Nostr relay ecosystem:
 
 ```text
 Seeder ──> Finder ──> Validator ──> Monitor ──> Synchronizer
 (seed URLs)  (discover)  (test)    (health)     (archive events)
+                                                      |
+                                          Refresher (materialized views)
 ```
 
 1. **Seeder** loads relay URLs from a seed file (one-shot)
@@ -34,6 +36,7 @@ Seeder ──> Finder ──> Validator ──> Monitor ──> Synchronizer
 3. **Validator** tests WebSocket connectivity for each candidate, promoting valid relays
 4. **Monitor** performs NIP-11 info document fetches and NIP-66 health checks (RTT, SSL, DNS, GeoIP, ASN, HTTP headers), then publishes results as kind 10166/30166 Nostr events
 5. **Synchronizer** connects to all validated relays, subscribes to events, and archives them with per-relay cursor tracking for incremental sync
+6. **Refresher** periodically refreshes materialized views in dependency order, with per-view logging, timing, and error isolation
 
 All services expose Prometheus metrics, run behind PGBouncer connection pooling, and support clearnet + Tor + I2P + Lokinet connectivity.
 
@@ -55,7 +58,7 @@ Diamond DAG with strict import direction (top to bottom only):
 - **core** -- Pool (asyncpg), Brotr (DB facade), BaseService, Logger, Metrics, Exceptions.
 - **nips** -- NIP-11 relay info fetch/parse, NIP-66 health checks (RTT, SSL, DNS, Geo, Net, HTTP). Has I/O.
 - **utils** -- DNS resolution, Nostr key management, WebSocket/HTTP transport with SOCKS5 proxy.
-- **services** -- Business logic: Seeder, Finder, Validator, Monitor (+ Publisher + Tags), Synchronizer.
+- **services** -- Business logic: Seeder, Finder, Validator, Monitor (+ Publisher + Tags), Synchronizer, Refresher.
 
 ---
 
@@ -83,7 +86,7 @@ docker compose up -d
 docker compose logs -f seeder
 ```
 
-This starts PostgreSQL, PGBouncer, Tor proxy, all 5 services, Prometheus, and Grafana.
+This starts PostgreSQL, PGBouncer, Tor proxy, all 6 services, Prometheus, and Grafana.
 
 | Endpoint | URL |
 |----------|-----|
@@ -113,7 +116,7 @@ BigBrotr supports multiple deployment configurations from the same codebase via 
 
 ### BigBrotr (Full Archive)
 
-Stores complete Nostr events (id, pubkey, created_at, kind, tags, content, sig). 7 materialized views for analytics. Tor enabled. All 5 services + Prometheus + Grafana.
+Stores complete Nostr events (id, pubkey, created_at, kind, tags, content, sig). 11 materialized views for analytics. Tor enabled. All 5 services + Prometheus + Grafana.
 
 ```bash
 cd deployments/bigbrotr && docker compose up -d
@@ -130,7 +133,7 @@ cd deployments/lilbrotr && docker compose up -d
 ### Custom Deployment
 
 ```bash
-cp -r deployments/_template deployments/myrelay
+cp -r deployments/bigbrotr deployments/myrelay
 # Edit config, SQL schema, docker-compose.yaml
 cd deployments/myrelay && docker compose up -d
 ```
@@ -152,18 +155,18 @@ PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 | `relay_metadata` | Time-series snapshots linking relays to metadata records (`metadata_type` column) |
 | `service_state` | Per-service operational data (candidates, cursors, checkpoints) |
 
-### Stored Functions (22)
+### Stored Functions (25)
 
 - **1 utility**: `tags_to_tagvalues` (extracts single-char tag values for GIN indexing)
 - **10 CRUD**: `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `event_relay_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
-- **3 cleanup**: `orphan_event_delete`, `orphan_metadata_delete`, `relay_metadata_delete_expired` (all batched)
-- **8 refresh**: one per materialized view + `all_statistics_refresh`
+- **2 cleanup**: `orphan_event_delete`, `orphan_metadata_delete` (all batched)
+- **12 refresh**: one per materialized view + `all_statistics_refresh`
 
 All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO NOTHING`.
 
-### Materialized Views (7, BigBrotr Only)
+### Materialized Views (11, BigBrotr Only)
 
-`relay_metadata_latest`, `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay` -- all support `REFRESH CONCURRENTLY` via unique indexes.
+`relay_metadata_latest`, `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay`, `network_stats`, `relay_software_counts`, `supported_nip_counts`, `event_daily_counts` -- all support `REFRESH CONCURRENTLY` via unique indexes.
 
 ---
 
@@ -366,11 +369,10 @@ bigbrotr/
 |   +-- Dockerfile                   # Single parametric (ARG DEPLOYMENT)
 |   +-- bigbrotr/                    # Full archive deployment
 |   |   +-- config/                  # YAML configs
-|   |   +-- postgres/init/           # SQL schema (10 files, 22 functions)
+|   |   +-- postgres/init/           # SQL schema (10 files, 25 functions)
 |   |   +-- monitoring/              # Prometheus + Grafana provisioning
 |   |   +-- docker-compose.yaml
 |   +-- lilbrotr/                    # Lightweight deployment
-|   +-- _template/                   # Custom deployment template
 +-- tests/
 |   +-- fixtures/relays.py           # Shared relay fixtures
 |   +-- unit/                        # 2049 tests (mirrors src/ structure)

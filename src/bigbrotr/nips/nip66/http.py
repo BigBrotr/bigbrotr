@@ -68,10 +68,6 @@ class Nip66HttpMetadata(BaseNipMetadata):
     data: Nip66HttpData
     logs: Nip66HttpLogs
 
-    # -------------------------------------------------------------------------
-    # HTTP Header Extraction
-    # -------------------------------------------------------------------------
-
     @staticmethod
     async def _http(
         relay: Relay,

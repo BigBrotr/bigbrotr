@@ -1,12 +1,19 @@
 """Integration test fixtures providing ephemeral PostgreSQL via testcontainers.
 
 The PostgresContainer is session-scoped to avoid the ~3s Docker startup per test.
-Schema is re-initialized per test (function-scoped ``brotr`` fixture) for isolation.
+Each deployment subdirectory defines its own ``brotr`` fixture that calls
+``make_brotr()`` with the appropriate deployment name.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 import asyncpg
 import pytest
@@ -17,19 +24,8 @@ from bigbrotr.core.brotr import Brotr, BrotrConfig
 from bigbrotr.core.pool import DatabaseConfig, Pool, PoolConfig
 
 
-def _strip_sql_comments(sql: str) -> str:
-    """Remove SQL block comments and line comments, return remaining content."""
-    import re
-
-    # Remove block comments (/* ... */)
-    sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.DOTALL)
-    # Remove line comments (-- ...)
-    sql = re.sub(r"--[^\n]*", "", sql)
-    return sql.strip()
-
-
 # ---------------------------------------------------------------------------
-# Session-scoped container
+# Session-scoped container (shared across all integration tests)
 # ---------------------------------------------------------------------------
 
 
@@ -53,15 +49,30 @@ def pg_dsn(pg_container: PostgresContainer) -> dict[str, str | int]:
 
 
 # ---------------------------------------------------------------------------
-# Function-scoped Brotr with fresh schema
+# Deployment-aware Brotr factory
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-async def brotr(pg_dsn: dict[str, str | int]):
-    """Provide a Brotr instance backed by a real database with fresh schema.
+def _strip_sql_comments(sql: str) -> str:
+    """Remove SQL block comments and line comments, return remaining content."""
+    sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.DOTALL)
+    sql = re.sub(r"--[^\n]*", "", sql)
+    return sql.strip()
+
+
+async def make_brotr(
+    pg_dsn: dict[str, str | int],
+    deployment: str,
+) -> AsyncIterator[Brotr]:
+    """Create a Brotr instance with fresh schema from the specified deployment.
 
     Drops and recreates all objects for full isolation between tests.
+    The caller yields the result in an async fixture::
+
+        @pytest.fixture
+        async def brotr(pg_dsn):
+            async for b in make_brotr(pg_dsn, "bigbrotr"):
+                yield b
     """
     host = str(pg_dsn["host"])
     port = int(pg_dsn["port"])
@@ -69,21 +80,17 @@ async def brotr(pg_dsn: dict[str, str | int]):
     user = str(pg_dsn["user"])
     password = str(pg_dsn["password"])
 
-    # Connect with raw asyncpg for schema setup (bypass Pool)
     conn = await asyncpg.connect(
         host=host, port=port, database=database, user=user, password=password
     )
 
     try:
-        # Drop everything for clean state
         await conn.execute("DROP SCHEMA public CASCADE")
         await conn.execute("CREATE SCHEMA public")
 
-        # Apply SQL files in order (skip comment-only files that cause asyncpg protocol errors)
-        sql_dir = Path(__file__).parent.parent.parent / "deployments/bigbrotr/postgres/init"
+        sql_dir = Path(__file__).parent.parent.parent / f"deployments/{deployment}/postgres/init"
         for sql_file in sorted(sql_dir.glob("*.sql")):
             sql = sql_file.read_text()
-            # asyncpg fails on files with no executable SQL (only comments)
             stripped = _strip_sql_comments(sql)
             if not stripped:
                 continue
@@ -91,7 +98,6 @@ async def brotr(pg_dsn: dict[str, str | int]):
     finally:
         await conn.close()
 
-    # Build Pool + Brotr for the test
     config = PoolConfig(
         database=DatabaseConfig(
             host=host,

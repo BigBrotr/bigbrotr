@@ -43,7 +43,7 @@ class TestServiceName:
 
     def test_members(self) -> None:
         """All expected service names are defined."""
-        expected = {"SEEDER", "FINDER", "VALIDATOR", "MONITOR", "SYNCHRONIZER"}
+        expected = {"SEEDER", "FINDER", "VALIDATOR", "MONITOR", "SYNCHRONIZER", "REFRESHER"}
         assert {m.name for m in ServiceName} == expected
 
     def test_values(self) -> None:
@@ -53,6 +53,7 @@ class TestServiceName:
         assert ServiceName.VALIDATOR.value == "validator"
         assert ServiceName.MONITOR.value == "monitor"
         assert ServiceName.SYNCHRONIZER.value == "synchronizer"
+        assert ServiceName.REFRESHER.value == "refresher"
 
     def test_is_str_enum(self) -> None:
         """ServiceName members are both str and StrEnum instances."""
@@ -70,8 +71,8 @@ class TestServiceName:
         assert d["monitor"] == "running"
 
     def test_member_count(self) -> None:
-        """ServiceName has exactly 5 members."""
-        assert len(ServiceName) == 5
+        """ServiceName has exactly 6 members."""
+        assert len(ServiceName) == 6
 
 
 class TestEventKind:

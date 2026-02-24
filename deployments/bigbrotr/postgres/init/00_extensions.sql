@@ -1,7 +1,7 @@
 /*
- * BigBrotr - 00_extensions.sql
+ * Brotr - 00_extensions.sql
  *
- * PostgreSQL extensions required for BigBrotr functionality.
+ * PostgreSQL extensions required by the Brotr schema.
  * This script runs first during database initialization.
  *
  * Dependencies: None

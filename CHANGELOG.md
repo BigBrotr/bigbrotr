@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.2.0] - 2026-02-24
+
+Refresher service, rich analytics materialized views, shared deployment SQL, concurrent Finder event scanning, and legacy brotr deployment removal. 8 commits across 6 PRs.
+
+### DEPLOYMENT CHANGES
+
+These changes require deployment updates (Docker Compose, SQL schema, monitoring). No Python API breaking changes.
+
+- **Refresher service container**: New `refresher` container added to both `docker-compose.yaml` files. Requires `DB_WRITER_PASSWORD` environment variable and `config/services/refresher.yaml` config file
+- **`deployments/brotr/` removed**: The legacy monolithic deployment has been deleted. Use `bigbrotr` or `lilbrotr` instead
+- **Materialized views shared**: All 11 materialized views, 12 refresh functions, and matview indexes are now present in both bigbrotr and lilbrotr (previously only bigbrotr had statistical views). LilBrotr deployments require fresh `initdb` or manual `06_materialized_views.sql` + `07_functions_refresh.sql` + `08_indexes.sql` execution
+- **Config class renames**: `PoolLimitsConfig` → `LimitsConfig`, `PoolTimeoutsConfig` → `TimeoutsConfig`, `PoolRetryConfig` → `RetryConfig`, `BrotrTimeoutsConfig` → `TimeoutsConfig`. Old names are removed (no backward compatibility shim)
+
+### Added
+
+- **Refresher service** (`services/refresher/`): Periodically refreshes all 11 materialized views in 3-level dependency order (relay_metadata_latest → independent stats → dependent stats). Per-view logging, timing, error isolation, and Prometheus gauges (`views_refreshed`, `views_failed`) (#207, #208)
+- **4 new materialized views**: `network_stats` (per-network relay/event/pubkey/kind counts), `relay_software_counts` (NIP-11 software distribution), `supported_nip_counts` (NIP support frequency), `event_daily_counts` (daily event volume time series) (#206)
+- **Concurrent Finder event scanning**: `find_from_events()` uses `asyncio.TaskGroup` + `asyncio.Semaphore` for bounded concurrent relay scanning, replacing the sequential `for` loop. New config field `ConcurrencyConfig.max_parallel_events` (default: 10) (#203)
+- **Refresher Docker containers**: Service definitions and Prometheus scrape jobs in both bigbrotr and lilbrotr `docker-compose.yaml` and `prometheus.yaml` (#208)
+- **389 Refresher unit tests**: Full coverage of service lifecycle, dependency ordering, error handling, metrics, and configuration validation (#207)
+- **Comprehensive codebase review** (`REVIEW.md`): Full project audit covering all source files, tests, deployment configs, SQL, and documentation. 58 findings documented with exact locations and solutions (#208)
+
+### Refactored
+
+- **Materialized views redesigned** (#206): 6 existing BigBrotr stat matviews enriched with `events_per_day`, `unique_kinds`, NIP-11 info columns, NIP-01 category labels, and `HAVING >= 2` anti-explosion filter. `all_statistics_refresh()` updated with 3-level dependency ordering
+- **Deployment SQL shared** (#205, #207): Moved matview definitions, refresh functions, and indexes from bigbrotr-specific Jinja2 overrides to shared base templates. Both bigbrotr and lilbrotr now generate identical matview SQL from the same base blocks (`extra_materialized_views`, `extra_refresh_functions`, `extra_matview_indexes`)
+- **Deployment base restructured** (#205): `_template` renamed to `brotr` as the reference implementation. Integration tests reorganized by deployment: `base/` (61 tests), `bigbrotr/` (25 tests), `lilbrotr/` (8 tests)
+- **Config naming cleaned up** (#204): Removed redundant prefixes from 4 config classes. Slimmed down `__init__.py` exports to public API only, removing 45+ dead re-exports across 6 packages. Removed ~110 decorative comments while preserving ~65 meaningful comments
+- **`deployments/brotr/` removed** (#207): 35 files deleted after matview consolidation made brotr and bigbrotr generate identical SQL. `generate_sql.py` updated to produce 20 files instead of 30
+
+### Fixed
+
+- **`BaseService.from_yaml()` return type** (#203): Factory methods `from_yaml()`, `from_dict()`, and `__aenter__()` now return `Self` instead of `"BaseService[ConfigT]"`, giving type checkers the correct subclass return type
+- **`ConcurrencyConfig.max_parallel` renamed** (#203): Renamed to `max_parallel_api` for clarity, distinguishing API-based from event-based concurrency
+
+### Documentation
+
+- MkDocs cross-references fixed for removed re-exports (#204)
+- README, database.md, architecture.md, configuration.md, custom-deployment.md, sql-templates.md, and new-service.md updated for Refresher service, shared matviews, and deployment changes
+- PostgreSQL guide updated for 25 stored functions (was 21)
+
+---
+
 ## [5.1.0] - 2026-02-23
 
 Major infrastructure and architecture release: services restructured into packages with clear public APIs, PostgreSQL role isolation with PgBouncer dual-pool routing, full monitoring stack (postgres-exporter + Grafana dashboards), asyncpg/PgBouncer compatibility hardening, and comprehensive audit remediation across all layers. 152 commits across 22 PRs.
@@ -593,7 +636,8 @@ Initial prototype release.
 
 ---
 
-[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.1.0...HEAD
+[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.2.0...HEAD
+[5.2.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.0.1...v5.1.0
 [5.0.1]: https://github.com/bigbrotr/bigbrotr/compare/v5.0.0...v5.0.1
 [5.0.0]: https://github.com/bigbrotr/bigbrotr/compare/v4.0.0...v5.0.0

@@ -39,7 +39,7 @@ Five async services form a processing pipeline, each running independently and c
 
     ---
 
-    22 stored functions, 7 materialized views, 44 indexes. Content-addressed metadata with SHA-256 deduplication.
+    25 stored functions, 11 materialized views, 44 indexes. Content-addressed metadata with SHA-256 deduplication.
 
 -   :material-lightning-bolt:{ .lg .middle } **Fully Async**
 

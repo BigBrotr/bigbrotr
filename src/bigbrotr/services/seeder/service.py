@@ -78,10 +78,6 @@ class Seeder(BaseService[SeederConfig]):
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.SEEDER
     CONFIG_CLASS: ClassVar[type[SeederConfig]] = SeederConfig
 
-    # -------------------------------------------------------------------------
-    # Main Cycle
-    # -------------------------------------------------------------------------
-
     async def run(self) -> None:
         """Execute the full seeding sequence: parse file and insert relays."""
         self._logger.info(
@@ -91,10 +87,6 @@ class Seeder(BaseService[SeederConfig]):
         )
         inserted = await self.seed()
         self._logger.info("cycle_completed", inserted=inserted)
-
-    # -------------------------------------------------------------------------
-    # Public API
-    # -------------------------------------------------------------------------
 
     async def seed(self) -> int:
         """Parse the seed file and insert relays.
@@ -117,10 +109,6 @@ class Seeder(BaseService[SeederConfig]):
         if self._config.seed.to_validate:
             return await self._seed_as_candidates(relays)
         return await self._seed_as_relays(relays)
-
-    # -------------------------------------------------------------------------
-    # Internals
-    # -------------------------------------------------------------------------
 
     async def _seed_as_candidates(self, relays: list[Relay]) -> int:
         """Insert relays as validation candidates in ``service_state``."""

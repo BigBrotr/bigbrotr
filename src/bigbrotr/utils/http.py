@@ -59,7 +59,7 @@ async def download_bounded_file(
     ):
         response.raise_for_status()
         data = await _read_bounded(response, max_size)
-        dest.write_bytes(data)  # noqa: ASYNC240
+        dest.write_bytes(data)  # noqa: ASYNC240  # small atomic write, async I/O overhead unnecessary
 
 
 async def _read_bounded(response: aiohttp.ClientResponse, max_size: int) -> bytes:
