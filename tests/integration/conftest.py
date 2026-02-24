@@ -71,7 +71,7 @@ async def make_brotr(
 
         @pytest.fixture
         async def brotr(pg_dsn):
-            async for b in make_brotr(pg_dsn, "brotr"):
+            async for b in make_brotr(pg_dsn, "bigbrotr"):
                 yield b
     """
     host = str(pg_dsn["host"])

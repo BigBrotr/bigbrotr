@@ -1,0 +1,18 @@
+# =============================================================================
+# Refresher Service Configuration (LilBrotr)
+# =============================================================================
+# Periodically refreshes materialized views in dependency order.
+# Only values that differ from defaults are specified here.
+# =============================================================================
+
+pool:
+  user: lilbrotr_writer
+  password_env: DB_WRITER_PASSWORD
+  min_size: 1
+  max_size: 2
+
+interval: 3600                          # 1 hour between refresh cycles
+
+metrics:
+  enabled: true
+  host: "0.0.0.0"                       # Bind to all interfaces for Docker access

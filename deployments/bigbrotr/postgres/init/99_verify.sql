@@ -1,5 +1,5 @@
 /*
- * BigBrotr - 99_verify.sql
+ * Brotr - 99_verify.sql
  *
  * Post-initialization verification script. Prints a summary of all created
  * database objects to confirm successful schema setup.
@@ -10,7 +10,7 @@
 DO $$
 BEGIN
     RAISE NOTICE '============================================================================';
-    RAISE NOTICE 'BigBrotr database schema initialized successfully';
+    RAISE NOTICE 'Brotr database schema initialized successfully';
     RAISE NOTICE '============================================================================';
     RAISE NOTICE '';
     RAISE NOTICE 'Extensions:';

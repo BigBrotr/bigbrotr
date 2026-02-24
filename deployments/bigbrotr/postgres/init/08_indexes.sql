@@ -1,8 +1,9 @@
 /*
- * BigBrotr - 08_indexes.sql
+ * Brotr - 08_indexes.sql
  *
- * Performance indexes for tables and materialized views. Extends the
- * base schema with indexes for statistics materialized views.
+ * Performance indexes for tables and materialized views. Organized by
+ * target object. Every materialized view requires a UNIQUE index for
+ * REFRESH MATERIALIZED VIEW CONCURRENTLY to work.
  *
  * Dependencies: 02_tables.sql, 06_materialized_views.sql
  */

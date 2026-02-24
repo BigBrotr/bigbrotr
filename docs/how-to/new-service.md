@@ -100,7 +100,7 @@ metrics:
 ```
 
 !!! tip
-    Copy the config to every deployment that needs the service. The `brotr` deployment should contain a fully commented version of all defaults.
+    Copy the config to every deployment that needs the service.
 
 ## Step 5: Write Tests
 

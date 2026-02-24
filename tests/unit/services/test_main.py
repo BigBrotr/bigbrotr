@@ -90,7 +90,7 @@ class TestServiceRegistry:
 
     def test_all_services_registered(self) -> None:
         """Test all expected services are in registry."""
-        expected = {"seeder", "finder", "validator", "monitor", "synchronizer"}
+        expected = {"seeder", "finder", "validator", "monitor", "synchronizer", "refresher"}
         assert set(SERVICE_REGISTRY.keys()) == expected
 
     def test_service_config_paths(self) -> None:
@@ -101,13 +101,21 @@ class TestServiceRegistry:
 
     def test_service_classes_are_importable(self) -> None:
         """Test all service classes are valid."""
-        from bigbrotr.services import Finder, Monitor, Seeder, Synchronizer, Validator
+        from bigbrotr.services import (
+            Finder,
+            Monitor,
+            Refresher,
+            Seeder,
+            Synchronizer,
+            Validator,
+        )
 
         expected_classes = {
             "seeder": Seeder,
             "finder": Finder,
             "validator": Validator,
             "monitor": Monitor,
+            "refresher": Refresher,
             "synchronizer": Synchronizer,
         }
 
@@ -908,7 +916,14 @@ pool:
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
     ) -> None:
         """Test main passes correct service class to run_service."""
-        from bigbrotr.services import Finder, Monitor, Seeder, Synchronizer, Validator
+        from bigbrotr.services import (
+            Finder,
+            Monitor,
+            Refresher,
+            Seeder,
+            Synchronizer,
+            Validator,
+        )
 
         brotr_config = tmp_path / "brotr.yaml"
         brotr_config.write_text("""
@@ -925,6 +940,7 @@ pool:
             "finder": Finder,
             "validator": Validator,
             "monitor": Monitor,
+            "refresher": Refresher,
             "synchronizer": Synchronizer,
         }
 
@@ -954,13 +970,21 @@ pool:
 
     def test_registry_classes_match_imports(self) -> None:
         """Test SERVICE_REGISTRY has correct classes for all services."""
-        from bigbrotr.services import Finder, Monitor, Seeder, Synchronizer, Validator
+        from bigbrotr.services import (
+            Finder,
+            Monitor,
+            Refresher,
+            Seeder,
+            Synchronizer,
+            Validator,
+        )
 
         expected_classes = {
             "seeder": Seeder,
             "finder": Finder,
             "validator": Validator,
             "monitor": Monitor,
+            "refresher": Refresher,
             "synchronizer": Synchronizer,
         }
 

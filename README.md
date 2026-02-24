@@ -22,11 +22,13 @@
 
 ## What It Does
 
-BigBrotr runs a pipeline of five async services that continuously map and monitor the Nostr relay ecosystem:
+BigBrotr runs a pipeline of async services that continuously map and monitor the Nostr relay ecosystem:
 
 ```text
 Seeder ──> Finder ──> Validator ──> Monitor ──> Synchronizer
 (seed URLs)  (discover)  (test)    (health)     (archive events)
+                                                      |
+                                          Refresher (materialized views)
 ```
 
 1. **Seeder** loads relay URLs from a seed file (one-shot)
@@ -34,6 +36,7 @@ Seeder ──> Finder ──> Validator ──> Monitor ──> Synchronizer
 3. **Validator** tests WebSocket connectivity for each candidate, promoting valid relays
 4. **Monitor** performs NIP-11 info document fetches and NIP-66 health checks (RTT, SSL, DNS, GeoIP, ASN, HTTP headers), then publishes results as kind 10166/30166 Nostr events
 5. **Synchronizer** connects to all validated relays, subscribes to events, and archives them with per-relay cursor tracking for incremental sync
+6. **Refresher** periodically refreshes materialized views in dependency order, with per-view logging, timing, and error isolation
 
 All services expose Prometheus metrics, run behind PGBouncer connection pooling, and support clearnet + Tor + I2P + Lokinet connectivity.
 
@@ -55,7 +58,7 @@ Diamond DAG with strict import direction (top to bottom only):
 - **core** -- Pool (asyncpg), Brotr (DB facade), BaseService, Logger, Metrics, Exceptions.
 - **nips** -- NIP-11 relay info fetch/parse, NIP-66 health checks (RTT, SSL, DNS, Geo, Net, HTTP). Has I/O.
 - **utils** -- DNS resolution, Nostr key management, WebSocket/HTTP transport with SOCKS5 proxy.
-- **services** -- Business logic: Seeder, Finder, Validator, Monitor (+ Publisher + Tags), Synchronizer.
+- **services** -- Business logic: Seeder, Finder, Validator, Monitor (+ Publisher + Tags), Synchronizer, Refresher.
 
 ---
 
@@ -83,7 +86,7 @@ docker compose up -d
 docker compose logs -f seeder
 ```
 
-This starts PostgreSQL, PGBouncer, Tor proxy, all 5 services, Prometheus, and Grafana.
+This starts PostgreSQL, PGBouncer, Tor proxy, all 6 services, Prometheus, and Grafana.
 
 | Endpoint | URL |
 |----------|-----|
@@ -130,7 +133,7 @@ cd deployments/lilbrotr && docker compose up -d
 ### Custom Deployment
 
 ```bash
-cp -r deployments/brotr deployments/myrelay
+cp -r deployments/bigbrotr deployments/myrelay
 # Edit config, SQL schema, docker-compose.yaml
 cd deployments/myrelay && docker compose up -d
 ```
@@ -370,7 +373,6 @@ bigbrotr/
 |   |   +-- monitoring/              # Prometheus + Grafana provisioning
 |   |   +-- docker-compose.yaml
 |   +-- lilbrotr/                    # Lightweight deployment
-|   +-- brotr/                       # Reference implementation (base schema)
 +-- tests/
 |   +-- fixtures/relays.py           # Shared relay fixtures
 |   +-- unit/                        # 2049 tests (mirrors src/ structure)

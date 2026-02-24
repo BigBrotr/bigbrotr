@@ -35,7 +35,6 @@ BASE_TEMPLATES: list[str] = [
 # Implementations to generate. Each key maps to a deployments/{name}/ directory.
 # Values may contain overrides: None = skip template, str = rename output file.
 OVERRIDES: dict[str, dict[str, str | None]] = {
-    "brotr": {},
     "bigbrotr": {},
     "lilbrotr": {},
 }

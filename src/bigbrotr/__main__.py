@@ -28,6 +28,7 @@ from bigbrotr.core.yaml import load_yaml
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.finder import Finder
 from bigbrotr.services.monitor import Monitor
+from bigbrotr.services.refresher import Refresher
 from bigbrotr.services.seeder import Seeder
 from bigbrotr.services.synchronizer import Synchronizer
 from bigbrotr.services.validator import Validator
@@ -49,6 +50,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
     ServiceName.FINDER: ServiceEntry(Finder, CONFIG_BASE / "services" / "finder.yaml"),
     ServiceName.VALIDATOR: ServiceEntry(Validator, CONFIG_BASE / "services" / "validator.yaml"),
     ServiceName.MONITOR: ServiceEntry(Monitor, CONFIG_BASE / "services" / "monitor.yaml"),
+    ServiceName.REFRESHER: ServiceEntry(Refresher, CONFIG_BASE / "services" / "refresher.yaml"),
     ServiceName.SYNCHRONIZER: ServiceEntry(
         Synchronizer, CONFIG_BASE / "services" / "synchronizer.yaml"
     ),

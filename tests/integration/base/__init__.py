@@ -1,1 +1,1 @@
-"""Base schema integration tests (run against brotr deployment)."""
+"""Base schema integration tests (run against bigbrotr deployment)."""

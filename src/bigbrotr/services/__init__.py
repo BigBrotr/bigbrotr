@@ -1,4 +1,4 @@
-"""The five-service processing pipeline plus shared utilities.
+"""The service processing pipeline plus shared utilities.
 
 Services are the top layer of the diamond DAG, depending on
 [bigbrotr.core][bigbrotr.core], [bigbrotr.nips][bigbrotr.nips],
@@ -8,6 +8,8 @@ and implements ``async def run()`` for one cycle of work.
 
 ```text
 Seeder (one-shot) -> Finder -> Validator -> Monitor -> Synchronizer
+                                                         |
+                                            Refresher (materialized views)
 ```
 
 Attributes:
@@ -20,6 +22,8 @@ Attributes:
         semaphore concurrency. Publishes kind 10166/30166 Nostr events.
     Synchronizer: Continuous event collection from relays using cursor-based
         pagination with per-relay state tracking.
+    Refresher: Periodic materialized view refresh in dependency order.
+        Provides per-view logging, timing, and error isolation.
 
 Note:
     All services follow the same lifecycle pattern: instantiate with a
@@ -55,6 +59,10 @@ from .monitor import (
     Monitor,
     MonitorConfig,
 )
+from .refresher import (
+    Refresher,
+    RefresherConfig,
+)
 from .seeder import (
     Seeder,
     SeederConfig,
@@ -74,6 +82,8 @@ __all__ = [
     "FinderConfig",
     "Monitor",
     "MonitorConfig",
+    "Refresher",
+    "RefresherConfig",
     "Seeder",
     "SeederConfig",
     "Synchronizer",
