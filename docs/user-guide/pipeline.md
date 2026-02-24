@@ -361,7 +361,6 @@ class EventBatch:
 | `time_range.use_relay_state` | bool | `true` | Use per-relay incremental cursors |
 | `time_range.lookback_seconds` | int | `86400` | Lookback window from cursor position |
 | `concurrency.max_parallel` | int | `10` | Concurrent relays |
-| `concurrency.stagger_delay` | list[int] | `[0, 60]` | Random delay range [min, max] seconds |
 | `source.from_database` | bool | `true` | Fetch relay list from database |
 | `networks` | NetworkConfig | -- | Per-network timeouts and concurrency |
 

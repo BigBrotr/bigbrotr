@@ -231,7 +231,6 @@ class TestConcurrencyConfig:
         """Test default concurrency config."""
         config = ConcurrencyConfig()
 
-        assert config.stagger_delay == (0, 60)
         assert config.cursor_flush_interval == 50
 
 

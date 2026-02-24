@@ -29,5 +29,4 @@ networks:
   loki:
     max_tasks: 2                   # Reduced concurrency (default: 5)
 
-concurrency:
-  stagger_delay: [0, 30]           # Shorter delay range (default: [0, 60])
+concurrency: {}

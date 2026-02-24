@@ -21,9 +21,9 @@ Note:
     with ``state_type='cursor'``. Cursor updates are batched (flushed
     every ``cursor_flush_interval`` relays) for crash resilience.
 
-    The stagger delay (``concurrency.stagger_delay``) randomizes the
-    relay processing order to avoid thundering-herd effects when multiple
-    synchronizer instances run concurrently.
+    Relay processing order is randomized (shuffled) to avoid
+    thundering-herd effects when multiple synchronizer instances run
+    concurrently.
 
 See Also:
     [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
