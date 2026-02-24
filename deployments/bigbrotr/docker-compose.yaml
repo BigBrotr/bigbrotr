@@ -684,7 +684,8 @@ services:
       - bigbrotr-monitoring-network
 
     depends_on:
-      - prometheus
+      prometheus:
+        condition: service_healthy
 
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
