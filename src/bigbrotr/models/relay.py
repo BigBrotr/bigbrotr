@@ -118,7 +118,7 @@ class Relay:
             to an [Event][bigbrotr.models.event.Event].
     """
 
-    raw_url: str = field(repr=False)
+    raw_url: str = field(repr=False, compare=False)
     discovered_at: int = field(default_factory=lambda: int(time()))
 
     url: str = field(init=False)
