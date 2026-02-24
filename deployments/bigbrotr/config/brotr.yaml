@@ -3,7 +3,7 @@
 # =============================================================================
 # Database connection and operation settings for the BigBrotr implementation.
 # Only values that differ from defaults are specified here.
-# See _template/config/brotr.yaml for all options and documentation.
+# See brotr/config/brotr.yaml for all options and documentation.
 # =============================================================================
 
 pool:

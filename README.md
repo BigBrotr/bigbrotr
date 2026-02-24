@@ -130,7 +130,7 @@ cd deployments/lilbrotr && docker compose up -d
 ### Custom Deployment
 
 ```bash
-cp -r deployments/_template deployments/myrelay
+cp -r deployments/brotr deployments/myrelay
 # Edit config, SQL schema, docker-compose.yaml
 cd deployments/myrelay && docker compose up -d
 ```
@@ -152,11 +152,11 @@ PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 | `relay_metadata` | Time-series snapshots linking relays to metadata records (`metadata_type` column) |
 | `service_state` | Per-service operational data (candidates, cursors, checkpoints) |
 
-### Stored Functions (22)
+### Stored Functions (21)
 
 - **1 utility**: `tags_to_tagvalues` (extracts single-char tag values for GIN indexing)
 - **10 CRUD**: `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `event_relay_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
-- **3 cleanup**: `orphan_event_delete`, `orphan_metadata_delete`, `relay_metadata_delete_expired` (all batched)
+- **2 cleanup**: `orphan_event_delete`, `orphan_metadata_delete` (all batched)
 - **8 refresh**: one per materialized view + `all_statistics_refresh`
 
 All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO NOTHING`.
@@ -370,7 +370,7 @@ bigbrotr/
 |   |   +-- monitoring/              # Prometheus + Grafana provisioning
 |   |   +-- docker-compose.yaml
 |   +-- lilbrotr/                    # Lightweight deployment
-|   +-- _template/                   # Custom deployment template
+|   +-- brotr/                       # Reference implementation (base schema)
 +-- tests/
 |   +-- fixtures/relays.py           # Shared relay fixtures
 |   +-- unit/                        # 2049 tests (mirrors src/ structure)

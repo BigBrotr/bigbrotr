@@ -1,17 +1,17 @@
 # Creating a Custom Deployment
 
-Create a new BigBrotr deployment from the `_template` directory with custom configuration, schema, and Docker settings.
+Create a new BigBrotr deployment from the `brotr` reference implementation with custom configuration, schema, and Docker settings.
 
 ---
 
 ## Overview
 
-BigBrotr ships with two ready-made deployments (`bigbrotr` and `lilbrotr`) and a `_template` directory for creating your own. Each deployment is a self-contained directory with configuration, SQL schema, Docker Compose, and monitoring files.
+BigBrotr ships with two ready-made deployments (`bigbrotr` and `lilbrotr`) and a `brotr` reference implementation for creating your own. Each deployment is a self-contained directory with configuration, SQL schema, Docker Compose, and monitoring files.
 
 ## Step 1: Copy the Template
 
 ```bash
-cp -r deployments/_template deployments/myproject
+cp -r deployments/brotr deployments/myproject
 cd deployments/myproject
 ```
 
@@ -71,7 +71,7 @@ Service files to customize:
 - `synchronizer.yaml` -- sync interval, concurrency, event filters
 
 !!! tip
-    The `_template` deployment contains every configuration field with comments, including `# <-- CUSTOMIZE` markers for deployment-specific values. Start by reading the template files, then adjust.
+    The `brotr` deployment contains every configuration field with comments, including `# <-- CUSTOMIZE` markers for deployment-specific values. Start by reading the template files, then adjust.
 
 ## Step 5: Choose a Schema
 

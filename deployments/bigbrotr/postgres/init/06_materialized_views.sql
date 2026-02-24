@@ -1,11 +1,8 @@
 /*
  * BigBrotr - 06_materialized_views.sql
  *
- * Materialized views for pre-computed statistics and lookups. These provide
- * fast read access to aggregate data that would be expensive to compute on
- * every query. Each view has a corresponding refresh function in
- * 07_functions_refresh.sql and a unique index for REFRESH CONCURRENTLY
- * in 08_indexes.sql.
+ * Materialized views for pre-computed statistics and lookups. Extends the
+ * base schema with event and relay analytics views.
  *
  * Dependencies: 02_tables.sql
  */

@@ -373,17 +373,6 @@ orphan_event_delete(p_batch_size INTEGER DEFAULT 10000) -> INTEGER
 
 Removes events with no associated relays in `event_relay`. Enforces the invariant that every event must have at least one relay. Schedule: daily or after relay deletions.
 
-### relay_metadata_delete_expired
-
-```sql
-relay_metadata_delete_expired(
-    p_max_age_seconds INTEGER DEFAULT 2592000,
-    p_batch_size INTEGER DEFAULT 10000
-) -> INTEGER
-```
-
-Retention policy: deletes `relay_metadata` snapshots older than `p_max_age_seconds` (default 30 days). Run `orphan_metadata_delete()` afterward to clean up dereferenced metadata documents.
-
 ---
 
 ## Materialized Views (BigBrotr Only)
@@ -630,12 +619,15 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 
 | File | Content |
 |------|---------|
-| `00_extensions.sql` | `btree_gin` |
+| `00_extensions.sql` | `btree_gin`, `pg_stat_statements` |
 | `01_functions_utility.sql` | `tags_to_tagvalues()` |
 | `02_tables.sql` | 6 tables with lightweight event schema |
 | `03_functions_crud.sql` | 10 CRUD + 2 cascade functions |
-| `04_functions_cleanup.sql` | 3 cleanup functions |
-| `05_indexes.sql` | Table indexes |
+| `04_functions_cleanup.sql` | 2 cleanup functions |
+| `05_views.sql` | Regular views (reserved) |
+| `06_materialized_views.sql` | 1 materialized view (`relay_metadata_latest`) |
+| `07_functions_refresh.sql` | 1 refresh function |
+| `08_indexes.sql` | Table and materialized view indexes |
 | `99_verify.sql` | Verification queries |
 
 ---
@@ -678,9 +670,9 @@ CREATE TABLE event (
 | Utility | 1 | `tags_to_tagvalues` |
 | CRUD (Level 1) | 8 | `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
 | CRUD (Level 2) | 2 | `event_relay_insert_cascade`, `relay_metadata_insert_cascade` |
-| Cleanup | 3 | `orphan_metadata_delete`, `orphan_event_delete`, `relay_metadata_delete_expired` |
+| Cleanup | 2 | `orphan_metadata_delete`, `orphan_event_delete` |
 | Refresh | 8 | 7 individual + `all_statistics_refresh` |
-| **Total** | **22** | |
+| **Total** | **21** | |
 
 ---
 
@@ -692,7 +684,6 @@ CREATE TABLE event (
 | Refresh event_stats | Hourly | `SELECT event_stats_refresh()` |
 | Delete orphan events | Daily | `SELECT orphan_event_delete()` |
 | Delete orphan metadata | Daily | `SELECT orphan_metadata_delete()` |
-| Expire old metadata | Weekly | `SELECT relay_metadata_delete_expired(2592000)` |
 | VACUUM ANALYZE | Weekly | `VACUUM ANALYZE event; VACUUM ANALYZE event_relay;` |
 
 ---

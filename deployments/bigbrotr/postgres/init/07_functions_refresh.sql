@@ -1,10 +1,8 @@
 /*
  * BigBrotr - 07_functions_refresh.sql
  *
- * Refresh functions for materialized views. Each function wraps
- * REFRESH MATERIALIZED VIEW CONCURRENTLY, which rebuilds the view data
- * without blocking concurrent reads. Requires a unique index on each
- * materialized view (created in 08_indexes.sql).
+ * Refresh functions for materialized views. Extends the base schema
+ * with refresh functions for statistics views.
  *
  * Dependencies: 06_materialized_views.sql
  */

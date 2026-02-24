@@ -1,0 +1,29 @@
+/*
+ * Brotr - 07_functions_refresh.sql
+ *
+ * Refresh functions for materialized views. Each function wraps
+ * REFRESH MATERIALIZED VIEW CONCURRENTLY, which rebuilds the view data
+ * without blocking concurrent reads. Requires a unique index on each
+ * materialized view (created in 08_indexes.sql).
+ *
+ * Dependencies: 06_materialized_views.sql
+ */
+
+
+/*
+ * relay_metadata_latest_refresh() -> VOID
+ *
+ * Refreshes the relay_metadata_latest view concurrently.
+ * Schedule: Daily via cron or application scheduler.
+ */
+CREATE OR REPLACE FUNCTION relay_metadata_latest_refresh()
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY relay_metadata_latest;
+END;
+$$;
+
+COMMENT ON FUNCTION relay_metadata_latest_refresh() IS
+'Refresh relay_metadata_latest concurrently. Schedule daily.';

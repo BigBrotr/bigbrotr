@@ -2,7 +2,7 @@
 # Brotr Configuration (LilBrotr)
 # =============================================================================
 # Only values that differ from defaults are specified here.
-# See _template/config/brotr.yaml for all options and documentation.
+# See brotr/config/brotr.yaml for all options and documentation.
 #
 # Note: LilBrotr is a lightweight implementation that does not store
 # tags/tagvalues/content columns in the events table (~60% disk savings).

@@ -2,7 +2,7 @@
 # Synchronizer Service Configuration (LilBrotr)
 # =============================================================================
 # Only values that differ from defaults are specified here.
-# See _template/config/services/synchronizer.yaml for all options and documentation.
+# See brotr/config/services/synchronizer.yaml for all options and documentation.
 #
 # Note: Lighter configuration for reduced resource usage (clearnet only).
 # =============================================================================

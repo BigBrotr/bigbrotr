@@ -19,7 +19,7 @@ Every BigBrotr service follows the same pattern:
 Create `src/bigbrotr/services/pruner.py`:
 
 ```python
-"""Pruner service -- removes stale relay metadata on a schedule."""
+"""Pruner service -- removes orphaned events on a schedule."""
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models.constants import ServiceName
@@ -31,29 +31,21 @@ class PrunerConfig(BaseServiceConfig):
     """Configuration for the Pruner service."""
 
     interval: float = Field(default=86400.0, ge=60.0)
-    max_age_days: int = Field(default=90, ge=1, le=365)
-    batch_size: int = Field(default=1000, ge=100, le=10000)
-    dry_run: bool = False
+    batch_size: int = Field(default=10000, ge=100, le=100000)
 
 
 class Pruner(BaseService[PrunerConfig]):
-    """Removes relay metadata older than a configured threshold."""
+    """Removes orphaned events with no associated relays."""
 
     SERVICE_NAME = ServiceName.PRUNER
     CONFIG_CLASS = PrunerConfig
 
     async def run(self) -> None:
         """Execute one pruning cycle."""
-        self._logger.info(
-            "cycle_started",
-            max_age_days=self._config.max_age_days,
-            dry_run=self._config.dry_run,
-        )
+        self._logger.info("cycle_started", batch_size=self._config.batch_size)
 
-        deleted = await self._brotr.execute(
-            "SELECT relay_metadata_delete_expired($1, $2)",
-            self._config.max_age_days,
-            self._config.batch_size,
+        deleted = await self._brotr.delete_orphan_event(
+            batch_size=self._config.batch_size,
         )
 
         self._logger.info("cycle_completed", deleted=deleted)
@@ -108,7 +100,7 @@ metrics:
 ```
 
 !!! tip
-    Copy the config to every deployment that needs the service. The `_template` deployment should contain a fully commented version of all defaults.
+    Copy the config to every deployment that needs the service. The `brotr` deployment should contain a fully commented version of all defaults.
 
 ## Step 5: Write Tests
 
