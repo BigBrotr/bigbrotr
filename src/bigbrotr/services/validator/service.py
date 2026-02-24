@@ -268,7 +268,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay].
 
         Args:
-            candidate: [Candidate][bigbrotr.services.validator.Candidate]
+            candidate: [Candidate][bigbrotr.services.validator.service.Candidate]
                 to validate.
 
         Returns:
@@ -397,7 +397,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         Args:
             valid: [Relay][bigbrotr.models.relay.Relay] objects that
                 passed validation.
-            invalid: [Candidate][bigbrotr.services.validator.Candidate]
+            invalid: [Candidate][bigbrotr.services.validator.service.Candidate]
                 objects that failed validation.
         """
         # Update failed candidates

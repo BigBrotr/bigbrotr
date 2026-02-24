@@ -475,7 +475,7 @@ class Monitor(
         Args:
             coro_factory: Callable that creates the coroutine to execute.
                 Must return a fresh coroutine on each call.
-            retry: [RetryConfig][bigbrotr.services.monitor.RetryConfig]
+            retry: [RetryConfig][bigbrotr.services.monitor.configs.RetryConfig]
                 with max retries, delays, and jitter.
             operation: Operation name for structured log messages.
             relay_url: Relay URL for logging context.
