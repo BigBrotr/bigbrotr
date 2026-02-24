@@ -1,0 +1,91 @@
+# =============================================================================
+# Seeder Service Configuration Template (All Default Values)
+# =============================================================================
+# Loads initial relay URLs from a seed file and stores them as candidates
+# for the Validator service. This bootstraps the relay discovery pipeline.
+#
+# Run mode: One-shot (runs once at startup, then exits)
+# Dependencies: None (first service in the chain)
+# Configuration class: src/services/seeder.py::SeederConfig
+#
+# Note: As a one-shot service, the Seeder ignores interval,
+# max_consecutive_failures, and metrics settings from BaseServiceConfig.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Seed Configuration
+# -----------------------------------------------------------------------------
+# Controls how the seed file is processed and where relays are stored.
+# Class: src/services/seeder.py::SeedConfig
+
+# -----------------------------------------------------------------------------
+# Connection Pool Overrides
+# -----------------------------------------------------------------------------
+# Per-service pool settings merged into brotr.yaml at startup.
+# Keys: user, password_env, min_size, max_size, application_name
+# application_name is auto-set to the service name if omitted.
+
+pool:
+  # Database user for this service                  # <-- CUSTOMIZE role name
+  user: brotr_writer
+  # Environment variable containing the password    # <-- CUSTOMIZE env var
+  password_env: DB_WRITER_PASSWORD
+  # Connection pool sizing for this service
+  min_size: 1
+  max_size: 2
+
+seed:
+  # Path to the seed file containing relay URLs (one per line)
+  #
+  # File format:
+  #   - One URL per line
+  #   - Lines starting with # are treated as comments
+  #   - Empty lines are ignored
+  #   - Invalid URLs are skipped with a warning
+  #
+  # Example content:
+  #   # Main relays
+  #   wss://relay.damus.io
+  #   wss://nos.lol
+  #   wss://relay.nostr.band
+  #   # Tor relay
+  #   ws://oxtrdevav64z64yb7x6rjg4ntzqjhedm5b5jqulugknhzr46ny2qwaid.onion
+  #
+  # Path resolution:
+  #   - Docker: relative to /app (working directory in container)
+  #   - Local: relative to current working directory
+  #
+  # Default: "static/seed_relays.txt"
+  file_path: static/seed_relays.txt
+
+  # How to process seed relays:
+  #   true  = Add as validation candidates (stored in service_state table)
+  #           Validator service will test them before adding to relays table
+  #   false = Insert directly into relays table (skip validation)
+  #           Use only if you trust all URLs in the seed file
+  #
+  # Default: true
+  to_validate: true
+
+# =============================================================================
+# CUSTOMIZATION GUIDE
+# =============================================================================
+#
+# MINIMAL SEED (recommended for new deployments):
+#   Create seed_relays.txt with 3-5 well-known relays.
+#   The Finder service will discover more relays automatically.
+#
+# LARGE SEED (for faster initial population):
+#   Download relay list from: https://api.nostr.watch/v1/online
+#   Save to seed_relays.txt (one URL per line)
+#
+# NETWORK-SPECIFIC RELAYS:
+#   Include Tor relays (.onion) if tor.enabled=true
+#   Include I2P relays (.i2p) if i2p.enabled=true
+#   Include Lokinet relays (.loki) if loki.enabled=true
+#
+# SKIP VALIDATION (not recommended):
+#   seed.to_validate: false
+#   Use only if all seed URLs are known to be valid relays
+#
+# =============================================================================

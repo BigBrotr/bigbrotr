@@ -8,9 +8,9 @@ from shared Jinja2 templates.
 ## Overview
 
 BigBrotr uses Jinja2 templates to generate PostgreSQL init scripts for each deployment
-variant (bigbrotr, lilbrotr, _template). A base set of templates defines the complete
-schema; each deployment overrides specific Jinja2 blocks to customize its database
-without duplicating the shared structure.
+variant (bigbrotr, lilbrotr, brotr). A base set of templates defines the minimal shared
+schema; each deployment extends the base via Jinja2 block overrides to add
+deployment-specific objects without duplicating the shared structure.
 
 ---
 
@@ -20,15 +20,14 @@ without duplicating the shared structure.
 tools/
 +-- generate_sql.py              # Generator script
 +-- templates/sql/
-    +-- base/                    # 10 base templates (complete schema)
-    +-- bigbrotr/                # Override templates (empty: uses base for all)
+    +-- base/                    # 10 base templates (minimal shared schema)
+    +-- bigbrotr/                # Override templates (stat matviews, extra cleanup)
     +-- lilbrotr/                # Override templates (lightweight event table)
-    +-- _template/               # Override templates (customization guide)
 
 deployments/
 +-- bigbrotr/postgres/init/      # 10 generated SQL files (DO NOT EDIT DIRECTLY)
-+-- lilbrotr/postgres/init/      # 7 generated SQL files
-+-- _template/postgres/init/     # 7 generated SQL files
++-- lilbrotr/postgres/init/      # 10 generated SQL files
++-- brotr/postgres/init/         # 10 generated SQL files (uses base directly)
 ```
 
 !!! warning
@@ -39,7 +38,7 @@ deployments/
 
 ## Base Templates
 
-The 10 base templates define the full BigBrotr schema:
+The 10 base templates define the minimal Brotr schema shared by all deployments:
 
 | Template | Purpose |
 |----------|---------|
@@ -47,11 +46,11 @@ The 10 base templates define the full BigBrotr schema:
 | `01_functions_utility.sql.j2` | Utility function: `tags_to_tagvalues()` |
 | `02_tables.sql.j2` | Core tables: relay, event, event_relay, metadata, relay_metadata, service_state |
 | `03_functions_crud.sql.j2` | 10 CRUD functions (inserts, upserts, cascade operations) |
-| `04_functions_cleanup.sql.j2` | 3 cleanup functions (orphan deletion, retention) |
-| `05_views.sql.j2` | Regular views (placeholder for future use) |
-| `06_materialized_views.sql.j2` | 7 materialized views for analytics |
-| `07_functions_refresh.sql.j2` | 8 refresh functions for materialized views |
-| `08_indexes.sql.j2` | Performance indexes for tables and materialized views |
+| `04_functions_cleanup.sql.j2` | 2 cleanup functions (orphan metadata + orphan event deletion) |
+| `05_views.sql.j2` | Regular views (extension point for future use) |
+| `06_materialized_views.sql.j2` | 1 materialized view: `relay_metadata_latest` |
+| `07_functions_refresh.sql.j2` | 1 refresh function: `relay_metadata_latest_refresh()` |
+| `08_indexes.sql.j2` | Performance indexes for tables and `relay_metadata_latest` |
 | `99_verify.sql.j2` | Post-init verification script (schema summary) |
 
 ---
@@ -60,8 +59,8 @@ The 10 base templates define the full BigBrotr schema:
 
 ### Jinja2 Block Inheritance
 
-Base templates define named blocks. Deployment-specific templates extend the base
-and override only the blocks they need to customize:
+Base templates define named blocks with `extra_*` extension points. Deployment-specific
+templates extend the base and override only the blocks they need to customize:
 
 ```jinja2
 {# lilbrotr/02_tables.sql.j2 #}
@@ -85,14 +84,21 @@ CREATE TABLE IF NOT EXISTS event (
 
 Blocks not overridden are inherited from the base template unchanged.
 
-### Skip and Rename
+### Extension Points
 
-The `OVERRIDES` dict in `generate_sql.py` controls per-deployment behavior:
+Base templates provide `extra_*` blocks that are empty by default. Deployments fill
+these blocks to add objects beyond the minimal schema:
 
-- **Skip**: Set to `None` to exclude a template entirely (e.g., lilbrotr skips
-  materialized views and refresh functions)
-- **Rename**: Set to a different stem to change the output filename (e.g., `_template`
-  outputs base `08_indexes` as `05_indexes.sql`)
+| Block | Used by | Content |
+|-------|---------|---------|
+| `extra_cleanup_functions` | (none yet) | Additional cleanup functions |
+| `extra_materialized_views` | bigbrotr | 6 statistics matviews |
+| `extra_refresh_functions` | bigbrotr | 6 stat refresh + `all_statistics_refresh()` |
+| `extra_matview_indexes` | bigbrotr | Indexes for statistics matviews |
+| `views` | (none yet) | Regular SQL views |
+
+All deployments generate the same 10 SQL files. The `OVERRIDES` dict in
+`generate_sql.py` is empty for all deployments (no skip, no rename).
 
 ---
 
@@ -118,11 +124,10 @@ make sql-check
 
 1. Create `tools/templates/sql/base/NN_name.sql.j2` with Jinja2 blocks for customization
 2. Add `"NN_name"` to `BASE_TEMPLATES` in `tools/generate_sql.py`
-3. If any deployment needs to skip or rename it, add an entry to `OVERRIDES`
-4. Create override templates in `tools/templates/sql/{deployment}/` as needed
-5. Run `make sql-generate` to generate the new files
-6. Run `make sql-check` to verify
-7. Commit both the template and the generated `.sql` files
+3. Create override templates in `tools/templates/sql/{deployment}/` as needed
+4. Run `make sql-generate` to generate the new files
+5. Run `make sql-check` to verify
+6. Commit both the template and the generated `.sql` files
 
 ## Modifying an Existing Template
 
@@ -134,8 +139,8 @@ make sql-check
 
 ## Adding a New Deployment
 
-1. Add an entry to `OVERRIDES` in `tools/generate_sql.py` with only the deltas from base
-2. Create a directory `tools/templates/sql/{deployment}/`
+1. Add an entry to `OVERRIDES` in `tools/generate_sql.py`
+2. Create a directory `tools/templates/sql/{deployment}/` (only if overrides are needed)
 3. Add override templates for any blocks that need customization
 4. Run `make sql-generate`
 5. Create the deployment directory structure: `deployments/{deployment}/`

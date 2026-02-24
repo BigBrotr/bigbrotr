@@ -3,7 +3,7 @@
 # =============================================================================
 # Tests candidate relay URLs via WebSocket before adding them to the
 # relays table. Only values that differ from defaults are specified here.
-# See _template/config/services/validator.yaml for all options and documentation.
+# See brotr/config/services/validator.yaml for all options and documentation.
 # =============================================================================
 
 pool:

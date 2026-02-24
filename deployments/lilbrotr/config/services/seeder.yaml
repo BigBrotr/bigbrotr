@@ -2,7 +2,7 @@
 # Seeder Service Configuration (LilBrotr)
 # =============================================================================
 # Only values that differ from defaults are specified here.
-# See _template/config/services/seeder.yaml for all options and documentation.
+# See brotr/config/services/seeder.yaml for all options and documentation.
 # =============================================================================
 
 pool:

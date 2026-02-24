@@ -1,0 +1,202 @@
+# =============================================================================
+# Finder Service Configuration Template (All Default Values)
+# =============================================================================
+# Discovers new relay URLs from two sources:
+#   1. Database events - Scans stored events for relay URLs in tags
+#   2. External APIs - Fetches relay lists from public API endpoints
+#
+# Discovered URLs are stored as candidates for the Validator service.
+#
+# Run mode: Continuous (runs every interval)
+# Dependencies: Seeder must have run first
+# Configuration class: src/services/finder.py::FinderConfig
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Base Service Settings (inherited from BaseServiceConfig)
+# -----------------------------------------------------------------------------
+# Class: src/core/base_service.py::BaseServiceConfig
+
+# -----------------------------------------------------------------------------
+# Connection Pool Overrides
+# -----------------------------------------------------------------------------
+# Per-service pool settings merged into brotr.yaml at startup.
+# Keys: user, password_env, min_size, max_size, application_name
+# application_name is auto-set to the service name if omitted.
+
+pool:
+  # Database user for this service                  # <-- CUSTOMIZE role name
+  user: brotr_writer
+  # Environment variable containing the password    # <-- CUSTOMIZE env var
+  password_env: DB_WRITER_PASSWORD
+  # Connection pool sizing for this service
+  min_size: 1
+  max_size: 3
+
+# Seconds between discovery cycles
+# Lower values = more frequent discovery, higher resource usage
+# Recommendation: 1800-3600 for production
+# Range: >= 60.0
+# Default: 300.0
+interval: 300.0
+
+# Stop service after this many consecutive cycle failures
+# Set to 0 for unlimited retries
+# Range: >= 0
+# Default: 5
+max_consecutive_failures: 5
+
+# -----------------------------------------------------------------------------
+# Prometheus Metrics Configuration
+# -----------------------------------------------------------------------------
+# Class: src/core/metrics.py::MetricsConfig
+
+metrics:
+  # Enable or disable metrics collection and HTTP server
+  # Default: false
+  enabled: false
+
+  # TCP port for the metrics HTTP server
+  # In Docker, all services can use the same port (different containers)
+  # Range: 1024-65535
+  # Default: 8000
+  port: 8000
+
+  # IP address to bind the metrics server to
+  # Use "0.0.0.0" for Docker/container environments
+  # Default: "127.0.0.1"
+  host: "127.0.0.1"
+
+  # URL path for the metrics endpoint
+  # Default: "/metrics"
+  path: "/metrics"
+
+# -----------------------------------------------------------------------------
+# Event Scanning Configuration
+# -----------------------------------------------------------------------------
+# Discovers relay URLs from stored Nostr events.
+# Scans events for relay URLs in tags (relay lists, relay recommendations).
+# Class: src/services/finder.py::EventsConfig
+
+events:
+  # Enable or disable event scanning
+  # Set to false to only use API discovery
+  # Note: Requires events table with tags/content columns (full schema)
+  # Default: true
+  enabled: true
+
+  # Number of events to process per database batch
+  # Higher values = fewer database round-trips, more memory
+  # Range: 100-10000
+  # Default: 1000
+  batch_size: 1000
+
+  # Event kinds to scan for relay URLs
+  # 2 = recommend relay (NIP-01)
+  # 3 = contacts list (may contain relay hints)
+  # 10002 = relay list (NIP-65)
+  # Default: [2, 3, 10002]
+  kinds:
+    - 2
+    - 3
+    - 10002
+
+# -----------------------------------------------------------------------------
+# API Fetching Configuration
+# -----------------------------------------------------------------------------
+# Discovers relay URLs from external public APIs.
+# Class: src/services/finder.py::ApiConfig
+
+api:
+  # Enable or disable API fetching
+  # Set to false to only use event scanning
+  # Default: true
+  enabled: true
+
+  # Verify TLS/SSL certificates for HTTPS connections
+  # Only disable for testing with self-signed certificates
+  # Default: true
+  verify_ssl: true
+
+  # Maximum response body size in bytes (safety limit)
+  # Prevents memory exhaustion from oversized API responses
+  # Range: 1024-52428800 (1 KB - 50 MB)
+  # Default: 5242880 (5 MB)
+  max_response_size: 5242880
+
+  # API sources to fetch relay URLs from
+  # Each source should return a JSON array of relay URLs or objects with URLs
+  # Class: src/services/finder.py::ApiSourceConfig
+  # Default: two nostr.watch endpoints
+  sources:
+    # nostr.watch online relays API
+    - url: https://api.nostr.watch/v1/online
+      # Enable or disable this specific source
+      # Default: true
+      enabled: true
+      # Request timeout in seconds
+      # Range: 0.1-120.0
+      # Default: 30.0
+      timeout: 30.0
+
+    # nostr.watch offline relays API (relays that were online but are now offline)
+    - url: https://api.nostr.watch/v1/offline
+      enabled: true
+      timeout: 30.0
+
+    # Add additional sources as needed:
+    # - url: https://your-api.com/relays
+    #   enabled: true
+    #   timeout: 30.0
+
+  # Delay (seconds) between API requests to avoid rate limiting
+  # Applies between requests to different sources
+  # Range: 0.0-10.0
+  # Default: 1.0
+  delay_between_requests: 1.0
+
+# -----------------------------------------------------------------------------
+# Concurrency Configuration
+# -----------------------------------------------------------------------------
+# Controls parallel execution of API requests and event scanning.
+# Class: src/services/finder.py::ConcurrencyConfig
+
+concurrency:
+  # Maximum concurrent API requests
+  # Higher values = faster discovery but more memory and network usage
+  # Range: 1-20
+  # Default: 5
+  max_parallel_api: 5
+
+  # Maximum concurrent relay event scans
+  # Controls how many relays are scanned for events in parallel (DB queries)
+  # Range: 1-50
+  # Default: 10
+  max_parallel_events: 10
+
+# =============================================================================
+# CUSTOMIZATION GUIDE
+# =============================================================================
+#
+# MINIMAL RESOURCES (slow discovery, low resource usage):
+#   interval: 7200.0
+#   concurrency.max_parallel_api: 2
+#   api.sources: (keep only one enabled)
+#
+# AGGRESSIVE DISCOVERY (fast discovery, higher resource usage):
+#   interval: 900.0
+#   concurrency.max_parallel_api: 10
+#   api.sources: (add more sources)
+#
+# EVENTS ONLY (no external API calls):
+#   api.enabled: false
+#   events.enabled: true
+#
+# API ONLY (no event scanning, for lightweight schema):
+#   events.enabled: false
+#   api.enabled: true
+#
+# CUSTOM METRICS PORT:
+#   metrics.port: 8001
+#
+# =============================================================================

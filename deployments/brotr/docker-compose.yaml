@@ -1,0 +1,635 @@
+# ============================================================================
+# Brotr Reference Implementation - Docker Compose Configuration
+# ============================================================================
+# Description: Complete containerized deployment
+# Components: PostgreSQL, PGBouncer, Tor (optional), BigBrotr services
+# Usage: docker-compose up -d
+#
+# CUSTOMIZE:
+#   1. Replace "brotr" with your implementation name throughout
+#   2. Update port numbers to avoid conflicts with other implementations
+#   3. Remove Tor service and dependencies if not needed
+#
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL Database
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: brotr-postgres           # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD}
+      POSTGRES_DB: brotr                     # <-- CUSTOMIZE: Match brotr.yaml
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      PGDATA: /var/lib/postgresql/data/pgdata
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD}
+
+    volumes:
+      # Persistent data storage
+      - ./data/postgres:/var/lib/postgresql/data
+
+      # SQL initialization scripts (run in alphabetical order)
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+
+      # PostgreSQL configuration
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+
+    ports:
+      # CUSTOMIZE: Use unique port to avoid conflicts
+      - "127.0.0.1:5432:5432"
+
+    networks:
+      - brotr-data-network                   # <-- CUSTOMIZE
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d brotr"]  # <-- CUSTOMIZE db name
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+    # Load configuration from file
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+
+  # --------------------------------------------------------------------------
+  # PGBouncer (Connection Pooler)
+  # --------------------------------------------------------------------------
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.1-p0
+    container_name: brotr-pgbouncer          # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: brotr                          # <-- CUSTOMIZE: Match brotr.yaml
+      DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD}
+
+    entrypoint: ["/custom-entrypoint.sh"]
+
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/entrypoint.sh:/custom-entrypoint.sh:ro
+
+    ports:
+      # CUSTOMIZE: Use unique port (e.g., 6433 for second implementation)
+      - "127.0.0.1:6432:5432"
+
+    networks:
+      - brotr-data-network                   # <-- CUSTOMIZE
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # Tor Proxy (SOCKS5) - OPTIONAL
+  # --------------------------------------------------------------------------
+  # Remove this service and all "tor" dependencies if not using .onion relays
+  tor:
+    image: osminogin/tor-simple:0.4.8.10
+    container_name: brotr-tor                # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    ports:
+      # CUSTOMIZE: Use unique port (e.g., 9051 for second implementation)
+      - "127.0.0.1:9050:9050"
+
+    networks:
+      - brotr-data-network                   # <-- CUSTOMIZE
+
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # Seeder Service (One-shot)
+  # --------------------------------------------------------------------------
+  seeder:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: brotr              # <-- CUSTOMIZE deployment name
+    container_name: brotr-seeder             # <-- CUSTOMIZE
+    restart: "no"
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./static:/app/static:ro
+
+    networks:
+      - brotr-data-network                   # <-- CUSTOMIZE
+      - brotr-monitoring-network             # <-- CUSTOMIZE
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "seeder", "--once"]
+
+    healthcheck:
+      disable: true
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # Finder Service (Continuous)
+  # --------------------------------------------------------------------------
+  finder:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: brotr              # <-- CUSTOMIZE deployment name
+    container_name: brotr-finder             # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+
+    volumes:
+      - ./config:/app/config:ro
+
+    ports:
+      # CUSTOMIZE: Use unique port to avoid conflicts
+      - "127.0.0.1:${FINDER_METRICS_PORT:-8001}:8000"  # Prometheus metrics
+
+    networks:
+      - brotr-data-network                   # <-- CUSTOMIZE
+      - brotr-monitoring-network             # <-- CUSTOMIZE
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "finder"]
+
+    stop_grace_period: 60s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # --------------------------------------------------------------------------
+  # Validator Service (Continuous)
+  # --------------------------------------------------------------------------
+  validator:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: brotr              # <-- CUSTOMIZE deployment name
+    container_name: brotr-validator          # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      PRIVATE_KEY: ${PRIVATE_KEY}
+
+    volumes:
+      - ./config:/app/config:ro
+
+    ports:
+      # CUSTOMIZE: Use unique port to avoid conflicts
+      - "127.0.0.1:${VALIDATOR_METRICS_PORT:-8002}:8000"  # Prometheus metrics
+
+    networks:
+      - brotr-data-network                   # <-- CUSTOMIZE
+      - brotr-monitoring-network             # <-- CUSTOMIZE
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      tor:
+        condition: service_healthy            # Remove if not using Tor
+
+    command: ["bigbrotr", "validator"]
+
+    stop_grace_period: 60s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # --------------------------------------------------------------------------
+  # Monitor Service (Continuous)
+  # --------------------------------------------------------------------------
+  monitor:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: brotr              # <-- CUSTOMIZE deployment name
+    container_name: brotr-monitor            # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      PRIVATE_KEY: ${PRIVATE_KEY}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./static:/app/static
+
+    ports:
+      # CUSTOMIZE: Use unique port to avoid conflicts
+      - "127.0.0.1:${MONITOR_METRICS_PORT:-8003}:8000"  # Prometheus metrics
+
+    networks:
+      - brotr-data-network                   # <-- CUSTOMIZE
+      - brotr-monitoring-network             # <-- CUSTOMIZE
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      tor:
+        condition: service_healthy            # Remove if not using Tor
+
+    command: ["bigbrotr", "monitor"]
+
+    stop_grace_period: 60s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # --------------------------------------------------------------------------
+  # Synchronizer Service (Continuous)
+  # --------------------------------------------------------------------------
+  synchronizer:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: brotr              # <-- CUSTOMIZE deployment name
+    container_name: brotr-synchronizer       # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      PRIVATE_KEY: ${PRIVATE_KEY}
+
+    volumes:
+      - ./config:/app/config:ro
+
+    ports:
+      # CUSTOMIZE: Use unique port to avoid conflicts
+      - "127.0.0.1:${SYNCHRONIZER_METRICS_PORT:-8004}:8000"  # Prometheus metrics
+
+    networks:
+      - brotr-data-network                   # <-- CUSTOMIZE
+      - brotr-monitoring-network             # <-- CUSTOMIZE
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      tor:
+        condition: service_healthy            # Remove if not using Tor
+
+    command: ["bigbrotr", "synchronizer"]
+
+    stop_grace_period: 60s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # --------------------------------------------------------------------------
+  # PostgreSQL Exporter (Database Metrics)
+  # --------------------------------------------------------------------------
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: brotr-postgres-exporter     # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    environment:
+      DATA_SOURCE_NAME: "postgresql://brotr_reader:${DB_READER_PASSWORD}@postgres:5432/brotr?sslmode=disable"  # <-- CUSTOMIZE db name + role
+
+    volumes:
+      - ./monitoring/postgres-exporter/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+
+    command:
+      - "--extend.query-path=/etc/postgres-exporter/queries.yaml"
+
+    networks:
+      - brotr-data-network                      # <-- CUSTOMIZE
+      - brotr-monitoring-network                # <-- CUSTOMIZE
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # Prometheus (Metrics Collection)
+  # --------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: brotr-prometheus              # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    volumes:
+      - ./monitoring/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+
+    ports:
+      # CUSTOMIZE: Use unique port to avoid conflicts
+      - "127.0.0.1:9090:9090"
+
+    networks:
+      - brotr-monitoring-network                  # <-- CUSTOMIZE
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yaml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # Alertmanager (Alert Routing)
+  # --------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: brotr-alertmanager             # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+    ports:
+      # CUSTOMIZE: Use unique port to avoid conflicts
+      - "127.0.0.1:9093:9093"
+
+    networks:
+      - brotr-monitoring-network                   # <-- CUSTOMIZE
+
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # Grafana (Metrics Visualization)
+  # --------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.1
+    container_name: brotr-grafana                 # <-- CUSTOMIZE
+    restart: unless-stopped
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+
+    ports:
+      # CUSTOMIZE: Use unique port to avoid conflicts
+      - "127.0.0.1:3000:3000"
+
+    networks:
+      - brotr-monitoring-network                  # <-- CUSTOMIZE
+
+    depends_on:
+      - prometheus
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+# ----------------------------------------------------------------------------
+# Volumes
+# ----------------------------------------------------------------------------
+volumes:
+  prometheus-data:
+    name: brotr-prometheus-data                   # <-- CUSTOMIZE
+  grafana-data:
+    name: brotr-grafana-data                      # <-- CUSTOMIZE
+
+# ----------------------------------------------------------------------------
+# Networks
+# ----------------------------------------------------------------------------
+networks:
+  brotr-data-network:                        # <-- CUSTOMIZE
+    driver: bridge
+    name: brotr-data-network                 # <-- CUSTOMIZE
+  brotr-monitoring-network:                  # <-- CUSTOMIZE
+    driver: bridge
+    name: brotr-monitoring-network           # <-- CUSTOMIZE
+
+# ============================================================================
+# USAGE
+# ============================================================================
+#
+# 1. Setup:
+#    cp .env.example .env
+#    nano .env  # Set DB_ADMIN_PASSWORD and optionally PRIVATE_KEY
+#
+# 2. Start:
+#    docker-compose up -d
+#
+# 3. Verify:
+#    docker-compose exec postgres psql -U admin -d brotr -c "\dt"
+#
+# 4. Logs:
+#    docker-compose logs -f
+#    docker-compose logs -f synchronizer  # Single service
+#
+# 5. Stop:
+#    docker-compose down
+#
+# 6. Reset (WARNING: deletes all data):
+#    docker-compose down
+#    rm -rf data/postgres
+#    docker-compose up -d
+#
+# ============================================================================

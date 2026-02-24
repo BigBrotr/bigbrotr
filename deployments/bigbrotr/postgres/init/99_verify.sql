@@ -13,9 +13,6 @@ BEGIN
     RAISE NOTICE 'BigBrotr database schema initialized successfully';
     RAISE NOTICE '============================================================================';
     RAISE NOTICE '';
-    RAISE NOTICE 'Roles:';
-    RAISE NOTICE '  bigbrotr_writer (DML + EXECUTE), bigbrotr_reader (SELECT only)';
-    RAISE NOTICE '';
     RAISE NOTICE 'Extensions:';
     RAISE NOTICE '  btree_gin, pg_stat_statements';
     RAISE NOTICE '';
@@ -34,10 +31,7 @@ BEGIN
     RAISE NOTICE '  event_relay_insert_cascade, relay_metadata_insert_cascade';
     RAISE NOTICE '';
     RAISE NOTICE 'Cleanup Functions:';
-    RAISE NOTICE '  orphan_metadata_delete, orphan_event_delete, relay_metadata_delete_expired';
-    RAISE NOTICE '';
-    RAISE NOTICE 'Views:';
-    RAISE NOTICE '  (none)';
+    RAISE NOTICE '  orphan_metadata_delete, orphan_event_delete';
     RAISE NOTICE '';
     RAISE NOTICE 'Materialized Views:';
     RAISE NOTICE '  relay_metadata_latest, event_stats, relay_stats';

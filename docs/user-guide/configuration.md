@@ -45,7 +45,7 @@ deployments/
 |   +-- brotr.yaml
 |   +-- services/
 |       +-- synchronizer.yaml
-+-- _template/config/              <-- fully documented defaults
++-- brotr/config/                  <-- fully documented defaults
     +-- brotr.yaml
     +-- services/
         +-- seeder.yaml
@@ -56,7 +56,7 @@ deployments/
 ```
 
 !!! tip
-    The `_template` deployment contains every field with comments and is the canonical reference for defaults.
+    The `brotr` deployment contains every field with comments and is the canonical reference for defaults.
 
 ---
 

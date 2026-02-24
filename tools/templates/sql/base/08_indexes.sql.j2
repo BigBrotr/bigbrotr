@@ -1,6 +1,6 @@
 /*
 {% block header_comment %}
- * BigBrotr - 08_indexes.sql
+ * Brotr - 08_indexes.sql
  *
  * Performance indexes for tables and materialized views. Organized by
  * target object. Every materialized view requires a UNIQUE index for
@@ -112,9 +112,9 @@ CREATE INDEX IF NOT EXISTS idx_service_state_candidate_network
 ON service_state USING btree ((state_value ->> 'network'))
 WHERE service_name = 'validator' AND state_type = 'candidate';
 {% endblock %}
-{% block matview_indexes %}
 
 
+{% block base_matview_indexes %}
 -- ==========================================================================
 -- MATERIALIZED VIEW INDEXES: relay_metadata_latest
 -- ==========================================================================
@@ -126,70 +126,5 @@ ON relay_metadata_latest USING btree (relay_url, metadata_type);
 -- Filter by check type: WHERE metadata_type = 'nip11_info'
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_latest_type
 ON relay_metadata_latest USING btree (metadata_type);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: event_stats
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY (single-row view uses singleton_key)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_event_stats_singleton_key
-ON event_stats USING btree (singleton_key);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: relay_stats
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_stats_relay_url
-ON relay_stats USING btree (relay_url);
-
--- Filter by network: WHERE network = ?
-CREATE INDEX IF NOT EXISTS idx_relay_stats_network
-ON relay_stats USING btree (network);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: kind_counts
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_kind_counts_kind
-ON kind_counts USING btree (kind);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: kind_counts_by_relay
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_kind_counts_by_relay_composite
-ON kind_counts_by_relay USING btree (kind, relay_url);
-
--- Filter by relay: WHERE relay_url = ?
-CREATE INDEX IF NOT EXISTS idx_kind_counts_by_relay_relay
-ON kind_counts_by_relay USING btree (relay_url);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: pubkey_counts
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_pubkey_counts_pubkey
-ON pubkey_counts USING btree (pubkey);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: pubkey_counts_by_relay
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_pubkey_counts_by_relay_composite
-ON pubkey_counts_by_relay USING btree (pubkey, relay_url);
-
--- Filter by relay: WHERE relay_url = ?
-CREATE INDEX IF NOT EXISTS idx_pubkey_counts_by_relay_relay
-ON pubkey_counts_by_relay USING btree (relay_url);
 {% endblock %}
+{% block extra_matview_indexes %}{% endblock %}
