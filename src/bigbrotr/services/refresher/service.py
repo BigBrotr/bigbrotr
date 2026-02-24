@@ -41,6 +41,8 @@ from __future__ import annotations
 import time
 from typing import ClassVar
 
+import asyncpg
+
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 
@@ -77,7 +79,7 @@ class Refresher(BaseService[RefresherConfig]):
                 elapsed = round(time.monotonic() - start, 2)
                 refreshed += 1
                 self._logger.info("view_refreshed", view=view, duration=elapsed)
-            except Exception as exc:
+            except (asyncpg.PostgresError, OSError) as exc:
                 failed += 1
                 self._logger.error("view_refresh_failed", view=view, error=str(exc))
 

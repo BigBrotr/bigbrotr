@@ -11,6 +11,7 @@ Tests:
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncpg
 import pytest
 
 from bigbrotr.core.brotr import Brotr, BrotrConfig
@@ -242,7 +243,7 @@ class TestRefresherRun:
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
             side_effect=[
                 None,
-                Exception("view_error"),
+                asyncpg.PostgresError("view_error"),
                 None,
             ]
         )
@@ -259,7 +260,7 @@ class TestRefresherRun:
     async def test_run_logs_failure(self, mock_refresher_brotr: Brotr) -> None:
         """Test run logs error when a view refresh fails."""
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=Exception("refresh_timeout")
+            side_effect=asyncpg.PostgresError("refresh_timeout")
         )
 
         config = RefresherConfig(
@@ -278,7 +279,7 @@ class TestRefresherRun:
     async def test_run_all_fail(self, mock_refresher_brotr: Brotr) -> None:
         """Test run completes even when all views fail."""
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=Exception("db_error")
+            side_effect=asyncpg.PostgresError("db_error")
         )
 
         config = RefresherConfig(
@@ -313,7 +314,7 @@ class TestRefresherRun:
     async def test_run_cycle_completed_counts(self, mock_refresher_brotr: Brotr) -> None:
         """Test cycle_completed log contains correct refreshed/failed counts."""
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[None, Exception("error"), None]
+            side_effect=[None, asyncpg.PostgresError("error"), None]
         )
 
         config = RefresherConfig(
@@ -355,7 +356,7 @@ class TestRefresherMetrics:
     async def test_set_gauge_failed(self, mock_refresher_brotr: Brotr) -> None:
         """Test views_failed gauge is set after run with failures."""
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=Exception("error")
+            side_effect=asyncpg.PostgresError("error")
         )
 
         config = RefresherConfig(
@@ -373,7 +374,7 @@ class TestRefresherMetrics:
     async def test_set_gauge_mixed(self, mock_refresher_brotr: Brotr) -> None:
         """Test gauges with mixed success and failure."""
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[None, Exception("error"), None]
+            side_effect=[None, asyncpg.PostgresError("error"), None]
         )
 
         config = RefresherConfig(
