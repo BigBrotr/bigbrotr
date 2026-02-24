@@ -182,3 +182,39 @@ ON pubkey_counts_by_relay USING btree (pubkey, relay_url);
 -- Filter by relay: WHERE relay_url = ?
 CREATE INDEX IF NOT EXISTS idx_pubkey_counts_by_relay_relay
 ON pubkey_counts_by_relay USING btree (relay_url);
+
+
+-- ==========================================================================
+-- MATERIALIZED VIEW INDEXES: network_stats
+-- ==========================================================================
+
+-- Required for REFRESH CONCURRENTLY
+CREATE UNIQUE INDEX IF NOT EXISTS idx_network_stats_network
+ON network_stats USING btree (network);
+
+
+-- ==========================================================================
+-- MATERIALIZED VIEW INDEXES: relay_software_counts
+-- ==========================================================================
+
+-- Required for REFRESH CONCURRENTLY
+CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_software_counts_composite
+ON relay_software_counts USING btree (software, version);
+
+
+-- ==========================================================================
+-- MATERIALIZED VIEW INDEXES: supported_nip_counts
+-- ==========================================================================
+
+-- Required for REFRESH CONCURRENTLY
+CREATE UNIQUE INDEX IF NOT EXISTS idx_supported_nip_counts_nip
+ON supported_nip_counts USING btree (nip);
+
+
+-- ==========================================================================
+-- MATERIALIZED VIEW INDEXES: event_daily_counts
+-- ==========================================================================
+
+-- Required for REFRESH CONCURRENTLY
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_daily_counts_day
+ON event_daily_counts USING btree (day);

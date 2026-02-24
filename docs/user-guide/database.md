@@ -410,14 +410,15 @@ Global event counts and time-window metrics (single-row view).
 | `replaceable_event_count` | BIGINT | Kind 0, 3, 10000-19999 |
 | `ephemeral_event_count` | BIGINT | Kind 20000-29999 |
 | `addressable_event_count` | BIGINT | Kind 30000-39999 |
-| `event_count_last_1h` | BIGINT | Events from past 1 hour |
-| `event_count_last_24h` | BIGINT | Events from past 24 hours |
-| `event_count_last_7d` | BIGINT | Events from past 7 days |
-| `event_count_last_30d` | BIGINT | Events from past 30 days |
+| `event_count_last_1h` | BIGINT | Events from past 1 hour (snapshot at refresh) |
+| `event_count_last_24h` | BIGINT | Events from past 24 hours (snapshot at refresh) |
+| `event_count_last_7d` | BIGINT | Events from past 7 days (snapshot at refresh) |
+| `event_count_last_30d` | BIGINT | Events from past 30 days (snapshot at refresh) |
+| `events_per_day` | NUMERIC | Average events per day (total / elapsed days) |
 
 ### relay_stats
 
-Per-relay event counts and averaged round-trip times.
+Per-relay event counts, averaged round-trip times, and NIP-11 info.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -431,18 +432,23 @@ Per-relay event counts and averaged round-trip times.
 | `avg_rtt_write` | NUMERIC | Average RTT write phase (last 10 measurements) |
 | `event_count` | BIGINT | Total events on relay |
 | `unique_pubkeys` | BIGINT | Unique authors on relay |
+| `unique_kinds` | BIGINT | Unique event kinds on relay |
+| `nip11_name` | TEXT | Relay name from NIP-11 info (NULL if not available) |
+| `nip11_software` | TEXT | Relay software from NIP-11 info (NULL if not available) |
+| `nip11_version` | TEXT | Relay software version from NIP-11 info (NULL if not available) |
 
-Uses `LATERAL` join to fetch the last 10 NIP-66 RTT measurements per relay.
+Uses `LATERAL` joins to fetch the last 10 NIP-66 RTT measurements and latest NIP-11 info per relay.
 
 ### kind_counts
 
-Global event count distribution by NIP-01 kind.
+Global event count distribution by NIP-01 kind with category labels.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `kind` | INTEGER | Event kind |
 | `event_count` | BIGINT | Total events of this kind |
 | `unique_pubkeys` | BIGINT | Authors publishing this kind |
+| `category` | TEXT | NIP-01 category: regular, replaceable, ephemeral, addressable, other |
 
 ### kind_counts_by_relay
 
@@ -469,16 +475,62 @@ Global author activity metrics.
 
 ### pubkey_counts_by_relay
 
-Per-relay author activity metrics.
+Per-relay author activity metrics. Only includes pubkeys with 2+ events per relay to avoid cartesian explosion at scale.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `relay_url` | TEXT | Relay WebSocket URL |
 | `pubkey` | TEXT | Author public key (hex-encoded) |
-| `event_count` | BIGINT | Events by this author on this relay |
+| `event_count` | BIGINT | Events by this author on this relay (min 2) |
 | `unique_kinds` | BIGINT | Kinds published to this relay |
 | `first_event_timestamp` | BIGINT | Earliest event on relay |
 | `last_event_timestamp` | BIGINT | Latest event on relay |
+
+### network_stats
+
+Aggregate statistics per network type (clearnet, tor, i2p, loki).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `network` | TEXT | Network type |
+| `relay_count` | BIGINT | Relays on this network |
+| `event_count` | BIGINT | Total events across relays |
+| `unique_pubkeys` | BIGINT | Unique authors across relays |
+| `unique_kinds` | BIGINT | Unique event kinds across relays |
+
+### relay_software_counts
+
+NIP-11 software distribution across relays. Only includes relays that report a software field.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `software` | TEXT | Software name from NIP-11 |
+| `version` | TEXT | Software version (or "unknown" if not reported) |
+| `relay_count` | BIGINT | Relays running this software |
+
+Depends on `relay_metadata_latest` -- refresh that view first.
+
+### supported_nip_counts
+
+NIP support distribution from NIP-11 info. Counts how many relays support each NIP number.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `nip` | INTEGER | NIP number |
+| `relay_count` | BIGINT | Relays supporting this NIP |
+
+Depends on `relay_metadata_latest` -- refresh that view first.
+
+### event_daily_counts
+
+Daily event aggregation for time-series analysis (UTC).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `day` | DATE | UTC date |
+| `event_count` | BIGINT | Events on this day |
+| `unique_pubkeys` | BIGINT | Unique authors on this day |
+| `unique_kinds` | BIGINT | Unique event kinds on this day |
 
 ---
 
@@ -495,18 +547,26 @@ All return `VOID` with `SECURITY INVOKER`. Each uses `REFRESH MATERIALIZED VIEW 
 | `kind_counts_by_relay_refresh()` | kind_counts_by_relay | Daily |
 | `pubkey_counts_refresh()` | pubkey_counts | Daily |
 | `pubkey_counts_by_relay_refresh()` | pubkey_counts_by_relay | Daily |
+| `network_stats_refresh()` | network_stats | Daily |
+| `relay_software_counts_refresh()` | relay_software_counts | Daily |
+| `supported_nip_counts_refresh()` | supported_nip_counts | Daily |
+| `event_daily_counts_refresh()` | event_daily_counts | Daily |
 
 ### all_statistics_refresh()
 
 Refreshes all materialized views in dependency order:
 
-1. `relay_metadata_latest_refresh()` (first: relay_stats depends on it)
+1. `relay_metadata_latest_refresh()` (first: relay_software_counts and supported_nip_counts depend on it)
 2. `event_stats_refresh()`
 3. `relay_stats_refresh()`
 4. `kind_counts_refresh()`
 5. `kind_counts_by_relay_refresh()`
 6. `pubkey_counts_refresh()`
 7. `pubkey_counts_by_relay_refresh()`
+8. `network_stats_refresh()`
+9. `event_daily_counts_refresh()`
+10. `relay_software_counts_refresh()`
+11. `supported_nip_counts_refresh()`
 
 !!! warning
     Schedule during a daily maintenance window -- this operation has high I/O cost.
@@ -575,6 +635,10 @@ All materialized views require at least one unique index for `REFRESH CONCURRENT
 | `idx_pubkey_counts_pubkey` | pubkey_counts | `pubkey` | Yes |
 | `idx_pubkey_counts_by_relay_composite` | pubkey_counts_by_relay | `pubkey, relay_url` | Yes |
 | `idx_pubkey_counts_by_relay_relay` | pubkey_counts_by_relay | `relay_url` | No |
+| `idx_network_stats_network` | network_stats | `network` | Yes |
+| `idx_relay_software_counts_composite` | relay_software_counts | `software, version` | Yes |
+| `idx_supported_nip_counts_nip` | supported_nip_counts | `nip` | Yes |
+| `idx_event_daily_counts_day` | event_daily_counts | `day` | Yes |
 
 ### LilBrotr Table Indexes
 
@@ -610,8 +674,8 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 | `03_functions_crud.sql` | 10 CRUD + 2 cascade functions |
 | `04_functions_cleanup.sql` | 3 cleanup functions |
 | `05_views.sql` | Regular views (reserved) |
-| `06_materialized_views.sql` | 7 materialized views |
-| `07_functions_refresh.sql` | 8 refresh functions |
+| `06_materialized_views.sql` | 11 materialized views |
+| `07_functions_refresh.sql` | 12 refresh functions |
 | `08_indexes.sql` | Table and materialized view indexes |
 | `99_verify.sql` | Verification queries |
 
@@ -671,8 +735,8 @@ CREATE TABLE event (
 | CRUD (Level 1) | 8 | `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
 | CRUD (Level 2) | 2 | `event_relay_insert_cascade`, `relay_metadata_insert_cascade` |
 | Cleanup | 2 | `orphan_metadata_delete`, `orphan_event_delete` |
-| Refresh | 8 | 7 individual + `all_statistics_refresh` |
-| **Total** | **21** | |
+| Refresh | 12 | 11 individual + `all_statistics_refresh` |
+| **Total** | **25** | |
 
 ---
 
