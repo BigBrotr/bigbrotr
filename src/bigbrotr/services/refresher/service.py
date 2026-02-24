@@ -6,7 +6,7 @@ is refreshed individually via
 providing per-view logging, timing, and error isolation.
 
 The default view list and ordering is defined in
-[DEFAULT_VIEWS][bigbrotr.services.refresher.configs.DEFAULT_VIEWS] and
+`DEFAULT_VIEWS` and
 respects the 3-level dependency chain:
 
 1. ``relay_metadata_latest`` (base dependency for software/NIP views)

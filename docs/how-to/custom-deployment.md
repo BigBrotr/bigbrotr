@@ -71,7 +71,7 @@ Service files to customize:
 - `synchronizer.yaml` -- sync interval, concurrency, event filters
 
 !!! tip
-    See the [Configuration](configuration.md) reference for all available fields and their defaults.
+    See the [Configuration](../user-guide/configuration.md) reference for all available fields and their defaults.
 
 ## Step 5: Choose a Schema
 
