@@ -109,10 +109,6 @@ class Finder(BaseService[FinderConfig]):
         super().__init__(brotr=brotr, config=config)
         self._config: FinderConfig
 
-    # -------------------------------------------------------------------------
-    # Main Cycle
-    # -------------------------------------------------------------------------
-
     async def run(self) -> None:
         """Execute a single discovery cycle across all configured sources.
 
@@ -126,10 +122,6 @@ class Finder(BaseService[FinderConfig]):
         )
         found = await self.find()
         self._logger.info("cycle_completed", found=found)
-
-    # -------------------------------------------------------------------------
-    # Public API
-    # -------------------------------------------------------------------------
 
     async def find(self) -> int:
         """Discover relay URLs from all configured sources.
@@ -316,10 +308,6 @@ class Finder(BaseService[FinderConfig]):
         if found:
             self._logger.info("apis_completed", relays=len(all_relays))
         return found
-
-    # -------------------------------------------------------------------------
-    # Internals
-    # -------------------------------------------------------------------------
 
     async def _fetch_all_cursors(self) -> dict[str, int]:
         """Fetch all event-scanning cursors in a single query."""

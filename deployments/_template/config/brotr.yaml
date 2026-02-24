@@ -99,7 +99,7 @@ pool:
   # Pool Timeouts
   # ---------------------------------------------------------------------------
   # Timeouts for pool-level operations (not query timeouts).
-  # Class: src/core/pool.py::PoolTimeoutsConfig
+  # Class: src/core/pool.py::TimeoutsConfig
 
   timeouts:
     # Maximum time (seconds) to wait when acquiring a connection from the pool
@@ -114,7 +114,7 @@ pool:
   # ---------------------------------------------------------------------------
   # Handles transient connection failures with automatic retries.
   # Useful for database restarts, network blips, and container orchestration.
-  # Class: src/core/pool.py::PoolRetryConfig
+  # Class: src/core/pool.py::RetryConfig
 
   retry:
     # Maximum number of connection attempts before giving up
@@ -163,7 +163,7 @@ pool:
 
     # Server-side query timeout in milliseconds (sent via server_settings)
     # Set to 0 when using PgBouncer in transaction mode (stripped by ignore_startup_parameters)
-    # Client-side timeouts (BrotrTimeoutsConfig) and PgBouncer query_timeout handle enforcement
+    # Client-side timeouts (TimeoutsConfig) and PgBouncer query_timeout handle enforcement
     # Range: >= 0
     # Default: 0
     statement_timeout: 0
@@ -187,7 +187,7 @@ batch:
 # -----------------------------------------------------------------------------
 # Query-level timeouts for different types of database operations.
 # Use null for no timeout (infinite wait - use with caution).
-# Class: src/core/brotr.py::BrotrTimeoutsConfig
+# Class: src/core/brotr.py::TimeoutsConfig
 
 timeouts:
   # Timeout (seconds) for standard SELECT, UPDATE, DELETE queries

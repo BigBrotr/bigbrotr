@@ -219,10 +219,6 @@ class Nip66SslMetadata(BaseNipMetadata):
     data: Nip66SslData
     logs: Nip66SslLogs
 
-    # -------------------------------------------------------------------------
-    # SSL Test Implementation
-    # -------------------------------------------------------------------------
-
     @staticmethod
     def _ssl(host: str, port: int, timeout: float) -> dict[str, Any]:
         """Perform synchronous certificate extraction and validation.

@@ -193,11 +193,6 @@ class BaseLogs(BaseModel):
         return self.model_dump(exclude_none=True)
 
 
-# =============================================================================
-# Top-level NIP Base Classes
-# =============================================================================
-
-
 class BaseNipSelection(BaseModel):
     """Which metadata types to retrieve during a NIP operation.
 

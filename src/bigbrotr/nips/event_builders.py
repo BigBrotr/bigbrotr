@@ -32,20 +32,11 @@ if TYPE_CHECKING:
     from bigbrotr.nips.nip66.nip66 import Nip66Selection
 
 
-# =============================================================================
-# Constants
-# =============================================================================
-
 _ISO_639_1_LENGTH = 2
 
 _NIP_CAP_SEARCH = 50
 _NIP_CAP_COMMUNITY = 29
 _NIP_CAP_BLOSSOM = 95
-
-
-# =============================================================================
-# Types
-# =============================================================================
 
 
 class AccessFlags(NamedTuple):
@@ -55,11 +46,6 @@ class AccessFlags(NamedTuple):
     auth: bool
     writes: bool
     read_auth: bool
-
-
-# =============================================================================
-# Kind 0 (NIP-01)
-# =============================================================================
 
 
 def build_profile_event(  # noqa: PLR0913
@@ -89,11 +75,6 @@ def build_profile_event(  # noqa: PLR0913
     if lud16:
         profile_data["lud16"] = lud16
     return EventBuilder.metadata(NostrMetadata.from_json(json.dumps(profile_data)))
-
-
-# =============================================================================
-# Kind 10166 (NIP-66)
-# =============================================================================
 
 
 def build_monitor_announcement(
@@ -131,11 +112,6 @@ def build_monitor_announcement(
         tags.append(Tag.parse(["c", "net"]))
 
     return EventBuilder(Kind(EventKind.MONITOR_ANNOUNCEMENT), "").tags(tags)
-
-
-# =============================================================================
-# Kind 30166 Tags (NIP-66)
-# =============================================================================
 
 
 def add_rtt_tags(tags: list[Tag], rtt_data: Nip66RttData | None) -> None:
@@ -309,11 +285,6 @@ def add_nip11_tags(
     add_requirement_and_type_tags(tags, nip11_data, rtt_logs)
 
 
-# =============================================================================
-# Kind 30166 Builder (NIP-66)
-# =============================================================================
-
-
 def build_relay_discovery(  # noqa: PLR0913
     relay_url: str,
     network_value: str,
@@ -340,10 +311,6 @@ def build_relay_discovery(  # noqa: PLR0913
 
     return EventBuilder(Kind(EventKind.RELAY_DISCOVERY), nip11_canonical_json).tags(tags)
 
-
-# =============================================================================
-# Exports
-# =============================================================================
 
 __all__ = [
     "AccessFlags",

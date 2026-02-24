@@ -104,23 +104,9 @@ if TYPE_CHECKING:
     from bigbrotr.nips.nip11.info import Nip11InfoMetadata
 
 
-# =============================================================================
-# Constants
-# =============================================================================
-
 _SECONDS_PER_DAY = 86_400
 
-
-# =============================================================================
-# Type Aliases and Helpers
-# =============================================================================
-
 _T = TypeVar("_T")
-
-
-# =============================================================================
-# Result Types
-# =============================================================================
 
 
 class CheckResult(NamedTuple):
@@ -171,11 +157,6 @@ class CheckResult(NamedTuple):
         )
 
 
-# =============================================================================
-# Service
-# =============================================================================
-
-
 class Monitor(
     ChunkProgressMixin,
     NetworkSemaphoresMixin,
@@ -217,10 +198,6 @@ class Monitor(
         super().__init__(brotr=brotr, config=config, networks=config.networks)
         self._config: MonitorConfig
         self._keys: Keys = self._config.keys.keys
-
-    # -------------------------------------------------------------------------
-    # Main Cycle
-    # -------------------------------------------------------------------------
 
     async def run(self) -> None:
         """Execute one complete monitoring cycle.
@@ -304,10 +281,6 @@ class Monitor(
             except (OSError, ValueError) as e:
                 self._logger.warning("geo_db_update_failed", db=name, error=str(e))
 
-    # -------------------------------------------------------------------------
-    # Public API
-    # -------------------------------------------------------------------------
-
     async def monitor(self) -> int:
         """Count, check, persist, and publish all pending relays.
 
@@ -383,10 +356,6 @@ class Monitor(
             successful, failed = await self._check_chunk(relays)
             processed += len(successful) + len(failed)
             yield successful, failed
-
-    # -------------------------------------------------------------------------
-    # Internals
-    # -------------------------------------------------------------------------
 
     async def _count_relays(self, networks: list[str]) -> int:
         """Count relays needing health checks for the given networks."""

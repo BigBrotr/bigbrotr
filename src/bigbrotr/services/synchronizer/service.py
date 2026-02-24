@@ -123,10 +123,6 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         self._counters = SyncCycleCounters()
         self._keys: Keys = self._config.keys.keys  # For NIP-42 authentication
 
-    # -------------------------------------------------------------------------
-    # Main Cycle
-    # -------------------------------------------------------------------------
-
     async def run(self) -> None:
         """Execute one complete synchronization cycle across all relays.
 
@@ -160,10 +156,6 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             skipped_events=self._counters.skipped_events,
             duration_s=round(time.monotonic() - cycle_start, 2),
         )
-
-    # -------------------------------------------------------------------------
-    # Public API
-    # -------------------------------------------------------------------------
 
     async def synchronize(self) -> int:
         """Fetch relays, merge overrides, and sync events from all of them.
@@ -237,10 +229,6 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             return {}
 
         return await get_all_service_cursors(self._brotr, self.SERVICE_NAME, "last_synced_at")
-
-    # -------------------------------------------------------------------------
-    # Internals
-    # -------------------------------------------------------------------------
 
     def _merge_overrides(self, relays: list[Relay]) -> list[Relay]:
         """Merge configured relay overrides into the relay list.

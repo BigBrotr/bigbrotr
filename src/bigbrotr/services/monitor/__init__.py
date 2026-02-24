@@ -13,8 +13,6 @@ from .configs import (
     ProcessingConfig,
     ProfileConfig,
     PublishingConfig,
-    RetriesConfig,
-    RetryConfig,
 )
 from .service import CheckResult, Monitor
 
@@ -30,6 +28,4 @@ __all__ = [
     "ProcessingConfig",
     "ProfileConfig",
     "PublishingConfig",
-    "RetriesConfig",
-    "RetryConfig",
 ]

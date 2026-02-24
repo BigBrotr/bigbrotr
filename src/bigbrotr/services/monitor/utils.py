@@ -70,7 +70,6 @@ def collect_metadata(
         records ready for database insertion.
     """
     metadata: list[RelayMetadata] = []
-    # (CheckResult field, MetadataFlags field, MetadataType)
     check_specs: list[tuple[str, str, MetadataType]] = [
         ("nip11", "nip11_info", MetadataType.NIP11_INFO),
         ("nip66_rtt", "nip66_rtt", MetadataType.NIP66_RTT),

@@ -132,7 +132,7 @@ class _StderrSuppressor:
     def __call__(self) -> Generator[None, None, None]:
         if self._refcount == 0:
             self._saved_stderr = sys.stderr
-            self._devnull = open(os.devnull, "w")  # noqa: PTH123, SIM115
+            self._devnull = open(os.devnull, "w")  # noqa: PTH123, SIM115  # os.devnull requires built-in open()
         self._refcount += 1
         sys.stderr = self._devnull
         try:

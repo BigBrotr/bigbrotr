@@ -29,11 +29,6 @@ if TYPE_CHECKING:
     from .configs import NetworksConfig
 
 
-# ---------------------------------------------------------------------------
-# Chunk Progress
-# ---------------------------------------------------------------------------
-
-
 @dataclass(slots=True)
 class ChunkProgress:
     """Tracks progress of a chunk-based processing cycle.
@@ -131,10 +126,6 @@ class ChunkProgressMixin:
         self.chunk_progress = ChunkProgress()
 
 
-# ---------------------------------------------------------------------------
-# Network Semaphore
-# ---------------------------------------------------------------------------
-
 #: Network types that support concurrent relay connections.
 OPERATIONAL_NETWORKS: tuple[NetworkType, ...] = (
     NetworkType.CLEARNET,
@@ -196,11 +187,6 @@ class NetworkSemaphoresMixin:
         networks: NetworksConfig = kwargs.pop("networks")
         super().__init__(**kwargs)
         self.network_semaphores = NetworkSemaphores(networks)
-
-
-# ---------------------------------------------------------------------------
-# GeoIP Reader
-# ---------------------------------------------------------------------------
 
 
 class GeoReaders:

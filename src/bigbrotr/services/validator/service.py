@@ -80,11 +80,6 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
 
 
-# =============================================================================
-# Data Types
-# =============================================================================
-
-
 @dataclass(frozen=True, slots=True)
 class Candidate:
     """Relay candidate pending validation.
@@ -111,11 +106,6 @@ class Candidate:
     def failures(self) -> int:
         """Return the number of failed validation attempts for this candidate."""
         return int(self.data.get("failures", 0))
-
-
-# =============================================================================
-# Service
-# =============================================================================
 
 
 class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
@@ -154,10 +144,6 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         super().__init__(brotr=brotr, config=config, networks=config.networks)
         self._config: ValidatorConfig
 
-    # -------------------------------------------------------------------------
-    # Main Cycle
-    # -------------------------------------------------------------------------
-
     async def run(self) -> None:
         """Execute one complete validation cycle.
 
@@ -184,10 +170,6 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             chunks=self.chunk_progress.chunks,
             duration_s=self.chunk_progress.elapsed,
         )
-
-    # -------------------------------------------------------------------------
-    # Public API
-    # -------------------------------------------------------------------------
 
     async def validate(self) -> int:
         """Count, validate, and persist all pending candidates.
@@ -339,10 +321,6 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             valid, invalid = await self._validate_chunk(candidates)
             processed += len(valid) + len(invalid)
             yield valid, invalid
-
-    # -------------------------------------------------------------------------
-    # Internals
-    # -------------------------------------------------------------------------
 
     async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Candidate]:
         """Fetch the next chunk of candidates ordered by priority.

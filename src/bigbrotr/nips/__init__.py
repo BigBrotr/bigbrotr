@@ -43,27 +43,11 @@ See Also:
         Service that orchestrates NIP-11 and NIP-66 checks per relay.
 """
 
-from bigbrotr.nips.base import (
-    BaseData,
-    BaseLogs,
-    BaseNip,
-    BaseNipDependencies,
-    BaseNipMetadata,
-    BaseNipOptions,
-    BaseNipSelection,
-)
 from bigbrotr.nips.nip11 import Nip11
 from bigbrotr.nips.nip66 import Nip66
 
 
 __all__ = [
-    "BaseData",
-    "BaseLogs",
-    "BaseNip",
-    "BaseNipDependencies",
-    "BaseNipMetadata",
-    "BaseNipOptions",
-    "BaseNipSelection",
     "Nip11",
     "Nip66",
 ]

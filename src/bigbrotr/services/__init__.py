@@ -70,19 +70,14 @@ from .validator import (
 
 
 __all__ = [
-    # Finder
     "Finder",
     "FinderConfig",
-    # Monitor
     "Monitor",
     "MonitorConfig",
-    # Seeder
     "Seeder",
     "SeederConfig",
-    # Synchronizer
     "Synchronizer",
     "SynchronizerConfig",
-    # Validator
     "Validator",
     "ValidatorConfig",
 ]

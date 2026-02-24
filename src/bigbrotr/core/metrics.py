@@ -45,11 +45,6 @@ from prometheus_client import (
 from pydantic import BaseModel, Field
 
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-
 class MetricsConfig(BaseModel):
     """Configuration for the Prometheus metrics endpoint.
 
@@ -74,10 +69,6 @@ class MetricsConfig(BaseModel):
     path: str = Field(default="/metrics", description="Metrics endpoint path")
 
 
-# ---------------------------------------------------------------------------
-# Common Service Metrics (auto-tracked by BaseService.run_forever)
-# ---------------------------------------------------------------------------
-
 # Static service metadata (set once at startup)
 SERVICE_INFO = Info(
     "service",
@@ -93,9 +84,6 @@ CYCLE_DURATION_SECONDS = Histogram(
 )
 
 
-# ---------------------------------------------------------------------------
-# Generic Label-Based Metrics (used by services via set_gauge/inc_counter)
-#
 # Automatic labels (BaseService.run_forever):
 #   gauge:   consecutive_failures, last_cycle_timestamp
 #   counter: cycles_success, cycles_failed, errors_{type}
@@ -103,7 +91,6 @@ CYCLE_DURATION_SECONDS = Histogram(
 # Service-specific labels (examples):
 #   gauge:   {service="validator", name="candidates"}
 #   counter: {service="validator", name="total_promoted"}
-# ---------------------------------------------------------------------------
 
 SERVICE_GAUGE = Gauge(
     "service_gauge",
@@ -116,11 +103,6 @@ SERVICE_COUNTER = Counter(
     "Service counter values (cumulative totals)",
     ["service", "name"],
 )
-
-
-# ---------------------------------------------------------------------------
-# HTTP Server
-# ---------------------------------------------------------------------------
 
 
 class MetricsServer:
