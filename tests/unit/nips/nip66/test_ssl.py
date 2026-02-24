@@ -392,8 +392,8 @@ class TestNip66SslMetadataSslSync:
         assert result.get("ssl_cipher_bits") == 256
         assert result.get("ssl_san") == ["relay.example.com", "*.example.com"]
 
-    def test_ssl_error_returns_invalid(self) -> None:
-        """SSL error returns ssl_valid=False."""
+    def test_ssl_error_returns_empty(self) -> None:
+        """SSL error during extraction skips validation, returns empty dict."""
         import ssl as ssl_module
 
         with patch("socket.create_connection") as mock_conn:
@@ -405,14 +405,16 @@ class TestNip66SslMetadataSslSync:
                 mock_ctx.return_value.wrap_socket.side_effect = ssl_module.SSLError()
                 result = Nip66SslMetadata._ssl("example.com", 443, 30.0)
 
-        assert result.get("ssl_valid") is False
+        assert result == {}
+        assert "ssl_valid" not in result
 
-    def test_connection_error_returns_invalid(self) -> None:
-        """Connection error returns ssl_valid=False."""
+    def test_connection_error_returns_empty(self) -> None:
+        """Connection error during extraction skips validation, returns empty dict."""
         with patch("socket.create_connection", side_effect=TimeoutError()):
             result = Nip66SslMetadata._ssl("example.com", 443, 30.0)
 
-        assert result.get("ssl_valid") is False
+        assert result == {}
+        assert "ssl_valid" not in result
 
 
 class TestNip66SslMetadataSslAsync:

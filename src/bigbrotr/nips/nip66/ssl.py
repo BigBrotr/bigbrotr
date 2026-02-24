@@ -236,8 +236,10 @@ class Nip66SslMetadata(BaseNipMetadata):
             Dictionary of extracted SSL fields including ``ssl_valid``.
         """
         result: dict[str, Any] = {}
-        result.update(Nip66SslMetadata._extract_certificate_data(host, port, timeout))
-        result["ssl_valid"] = Nip66SslMetadata._validate_certificate(host, port, timeout)
+        cert_data = Nip66SslMetadata._extract_certificate_data(host, port, timeout)
+        result.update(cert_data)
+        if cert_data:
+            result["ssl_valid"] = Nip66SslMetadata._validate_certificate(host, port, timeout)
         return result
 
     @staticmethod
