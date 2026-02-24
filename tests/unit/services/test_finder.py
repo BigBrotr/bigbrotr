@@ -15,6 +15,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
+import asyncpg
 import pytest
 
 from bigbrotr.core.brotr import Brotr
@@ -54,30 +55,42 @@ class TestConcurrencyConfig:
     def test_default_values(self) -> None:
         """Test default concurrency configuration."""
         config = ConcurrencyConfig()
-        assert config.max_parallel == 5
+        assert config.max_parallel_api == 5
+        assert config.max_parallel_events == 10
 
     def test_custom_values(self) -> None:
         """Test custom concurrency configuration."""
-        config = ConcurrencyConfig(max_parallel=10)
-        assert config.max_parallel == 10
+        config = ConcurrencyConfig(max_parallel_api=10, max_parallel_events=20)
+        assert config.max_parallel_api == 10
+        assert config.max_parallel_events == 20
 
-    def test_max_parallel_bounds(self) -> None:
-        """Test max_parallel validation bounds."""
-        # Min bound
-        config_min = ConcurrencyConfig(max_parallel=1)
-        assert config_min.max_parallel == 1
+    def test_max_parallel_api_bounds(self) -> None:
+        """Test max_parallel_api validation bounds."""
+        config_min = ConcurrencyConfig(max_parallel_api=1)
+        assert config_min.max_parallel_api == 1
 
-        # Max bound
-        config_max = ConcurrencyConfig(max_parallel=20)
-        assert config_max.max_parallel == 20
+        config_max = ConcurrencyConfig(max_parallel_api=20)
+        assert config_max.max_parallel_api == 20
 
-        # Below min
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel=0)
+            ConcurrencyConfig(max_parallel_api=0)
 
-        # Above max
         with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel=21)
+            ConcurrencyConfig(max_parallel_api=21)
+
+    def test_max_parallel_events_bounds(self) -> None:
+        """Test max_parallel_events validation bounds."""
+        config_min = ConcurrencyConfig(max_parallel_events=1)
+        assert config_min.max_parallel_events == 1
+
+        config_max = ConcurrencyConfig(max_parallel_events=50)
+        assert config_max.max_parallel_events == 50
+
+        with pytest.raises(ValueError):
+            ConcurrencyConfig(max_parallel_events=0)
+
+        with pytest.raises(ValueError):
+            ConcurrencyConfig(max_parallel_events=51)
 
 
 # ============================================================================
@@ -255,8 +268,8 @@ class TestFinderConfig:
 
     def test_concurrency_config(self) -> None:
         """Test concurrency configuration."""
-        config = FinderConfig(concurrency=ConcurrencyConfig(max_parallel=15))
-        assert config.concurrency.max_parallel == 15
+        config = FinderConfig(concurrency=ConcurrencyConfig(max_parallel_api=15))
+        assert config.concurrency.max_parallel_api == 15
 
 
 # ============================================================================
@@ -844,6 +857,184 @@ class TestFinderFindFromEvents:
             await finder.find_from_events()
 
             mock_insert.assert_called()
+
+
+# ============================================================================
+# Finder Event Scanning Concurrency Tests
+# ============================================================================
+
+
+class TestFinderEventScanConcurrency:
+    """Tests for concurrent event scanning in find_from_events()."""
+
+    async def test_multiple_relays_scanned_concurrently(self, mock_brotr: Brotr) -> None:
+        """Multiple relays are scanned via TaskGroup, not sequentially."""
+        mock_event = {
+            "id": b"\x01" * 32,
+            "created_at": 1700000000,
+            "kind": 10002,
+            "tags": [["r", "wss://found.relay.com"]],
+            "content": "",
+            "seen_at": 1700000001,
+        }
+
+        # Track per-relay call counts so side_effect works under concurrency
+        call_counts: dict[str, int] = {}
+
+        async def _events_side_effect(
+            brotr: Any, relay_url: str, seen_at: int, kinds: Any, batch_size: int
+        ) -> list[dict[str, Any]]:
+            count = call_counts.get(relay_url, 0)
+            call_counts[relay_url] = count + 1
+            if count == 0:
+                return [mock_event]
+            return []
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.get_all_relay_urls",
+                new_callable=AsyncMock,
+                return_value=["wss://relay1.com", "wss://relay2.com", "wss://relay3.com"],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.get_all_service_cursors",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.get_events_with_relay_urls",
+                new_callable=AsyncMock,
+                side_effect=_events_side_effect,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.insert_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+        ):
+            mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
+
+            config = FinderConfig(
+                concurrency=ConcurrencyConfig(max_parallel_events=10),
+            )
+            finder = Finder(brotr=mock_brotr, config=config)
+            finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_counter = MagicMock()  # type: ignore[method-assign]
+
+            result = await finder.find_from_events()
+
+            assert result == 3
+            finder.set_gauge.assert_any_call("relays_processed", 3)
+
+    async def test_task_failure_does_not_block_others(self, mock_brotr: Brotr) -> None:
+        """A DB error in one relay scan does not prevent other relays from completing."""
+        mock_event = {
+            "id": b"\x01" * 32,
+            "created_at": 1700000000,
+            "kind": 10002,
+            "tags": [["r", "wss://found.relay.com"]],
+            "content": "",
+            "seen_at": 1700000001,
+        }
+
+        async def _events_side_effect(
+            brotr: Any, relay_url: str, seen_at: int, kinds: Any, batch_size: int
+        ) -> list[dict[str, Any]]:
+            if relay_url == "wss://failing.relay.com" and seen_at == 0:
+                raise asyncpg.PostgresError("simulated DB error")
+            if seen_at > 0:
+                return []
+            return [mock_event]
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.get_all_relay_urls",
+                new_callable=AsyncMock,
+                return_value=["wss://good.relay.com", "wss://failing.relay.com"],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.get_all_service_cursors",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.get_events_with_relay_urls",
+                new_callable=AsyncMock,
+                side_effect=_events_side_effect,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.insert_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+        ):
+            mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
+
+            finder = Finder(brotr=mock_brotr)
+            finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_counter = MagicMock()  # type: ignore[method-assign]
+
+            result = await finder.find_from_events()
+
+            # _scan_relay_events catches DB errors internally: the failing relay
+            # returns (0, 0) and the good relay returns (1, 1). Both tasks
+            # complete without exception, so both count as processed.
+            assert result == 1
+            finder.set_gauge.assert_any_call("relays_processed", 2)
+
+    async def test_semaphore_limits_concurrency(self, mock_brotr: Brotr) -> None:
+        """Semaphore limits the number of concurrent scans."""
+        import asyncio
+
+        max_concurrent = 0
+        current_concurrent = 0
+        lock = asyncio.Lock()
+
+        original_scan = Finder._scan_relay_events
+
+        async def _tracking_scan(
+            self: Any, relay_url: str, cursors: dict[str, int]
+        ) -> tuple[int, int]:
+            nonlocal max_concurrent, current_concurrent
+            async with lock:
+                current_concurrent += 1
+                max_concurrent = max(max_concurrent, current_concurrent)
+            try:
+                return await original_scan(self, relay_url, cursors)
+            finally:
+                async with lock:
+                    current_concurrent -= 1
+
+        relay_urls = [f"wss://relay{i}.com" for i in range(20)]
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.get_all_relay_urls",
+                new_callable=AsyncMock,
+                return_value=relay_urls,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.get_all_service_cursors",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.get_events_with_relay_urls",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch.object(Finder, "_scan_relay_events", _tracking_scan),
+        ):
+            config = FinderConfig(
+                concurrency=ConcurrencyConfig(max_parallel_events=3),
+            )
+            finder = Finder(brotr=mock_brotr, config=config)
+            finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_counter = MagicMock()  # type: ignore[method-assign]
+
+            await finder.find_from_events()
+
+            assert max_concurrent <= 3
 
 
 # ============================================================================

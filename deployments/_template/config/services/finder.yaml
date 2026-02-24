@@ -158,16 +158,21 @@ api:
 # -----------------------------------------------------------------------------
 # Concurrency Configuration
 # -----------------------------------------------------------------------------
-# Controls parallel execution of API requests.
+# Controls parallel execution of API requests and event scanning.
 # Class: src/services/finder.py::ConcurrencyConfig
 
 concurrency:
   # Maximum concurrent API requests
   # Higher values = faster discovery but more memory and network usage
-  # Note: This controls API parallelism, not event scanning
   # Range: 1-20
   # Default: 5
-  max_parallel: 5
+  max_parallel_api: 5
+
+  # Maximum concurrent relay event scans
+  # Controls how many relays are scanned for events in parallel (DB queries)
+  # Range: 1-50
+  # Default: 10
+  max_parallel_events: 10
 
 # =============================================================================
 # CUSTOMIZATION GUIDE
@@ -175,12 +180,12 @@ concurrency:
 #
 # MINIMAL RESOURCES (slow discovery, low resource usage):
 #   interval: 7200.0
-#   concurrency.max_parallel: 2
+#   concurrency.max_parallel_api: 2
 #   api.sources: (keep only one enabled)
 #
 # AGGRESSIVE DISCOVERY (fast discovery, higher resource usage):
 #   interval: 900.0
-#   concurrency.max_parallel: 10
+#   concurrency.max_parallel_api: 10
 #   api.sources: (add more sources)
 #
 # EVENTS ONLY (no external API calls):

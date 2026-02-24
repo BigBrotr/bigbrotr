@@ -49,6 +49,7 @@ Examples:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import TYPE_CHECKING, ClassVar
 
@@ -151,10 +152,15 @@ class Finder(BaseService[FinderConfig]):
     async def find_from_events(self) -> int:
         """Discover relay URLs from stored events using per-relay cursor pagination.
 
-        Iterates over all relays in the database and scans their associated events
-        for relay URLs embedded in tags and content fields. Each relay maintains
-        its own cursor (based on ``seen_at`` timestamp) so that historical events
-        inserted by the Synchronizer are still processed.
+        Scans all relays in the database concurrently (bounded by
+        ``concurrency.max_parallel_events``) for relay URLs embedded in tags
+        and content fields. Each relay maintains its own cursor (based on
+        ``seen_at`` timestamp) so that historical events inserted by the
+        Synchronizer are still processed.
+
+        Uses ``asyncio.TaskGroup`` with a semaphore to bound concurrent
+        database queries, following the same pattern as
+        [Synchronizer._sync_all_relays][bigbrotr.services.synchronizer.Synchronizer].
 
         Controlled by ``events.enabled`` in
         [FinderConfig][bigbrotr.services.finder.FinderConfig].
@@ -187,14 +193,32 @@ class Finder(BaseService[FinderConfig]):
             self._logger.warning("fetch_cursors_failed", error=str(e), error_type=type(e).__name__)
             return 0
 
-        for relay_url in relay_urls:
-            if not self.is_running:
-                break
+        semaphore = asyncio.Semaphore(self._config.concurrency.max_parallel_events)
 
-            relay_events, relay_relays = await self._scan_relay_events(relay_url, cursors)
-            total_events_scanned += relay_events
-            total_relays_found += relay_relays
-            relays_processed += 1
+        async def _bounded_scan(url: str) -> tuple[int, int]:
+            async with semaphore:
+                if not self.is_running:
+                    return 0, 0
+                return await self._scan_relay_events(url, cursors)
+
+        tasks: list[asyncio.Task[tuple[int, int]]] = []
+        try:
+            async with asyncio.TaskGroup() as tg:
+                tasks.extend(tg.create_task(_bounded_scan(relay_url)) for relay_url in relay_urls)
+        except ExceptionGroup as eg:
+            for exc in eg.exceptions:
+                self._logger.error(
+                    "event_scan_worker_failed",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+
+        for task in tasks:
+            if not task.cancelled() and task.exception() is None:
+                events, relays = task.result()
+                total_events_scanned += events
+                total_relays_found += relays
+                relays_processed += 1
 
         self.set_gauge("events_scanned", total_events_scanned)
         self.set_gauge("relays_found", total_relays_found)
