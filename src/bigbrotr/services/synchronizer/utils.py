@@ -282,7 +282,6 @@ class SyncCycleCounters:
         self.synced_relays = 0
         self.failed_relays = 0
         self.invalid_events = 0
-        self.skipped_events = 0
 
 
 @dataclass(slots=True)
