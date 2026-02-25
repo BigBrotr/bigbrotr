@@ -637,7 +637,6 @@ timeouts:
 concurrency:
   max_parallel: 10                           # Concurrent relays per process
   cursor_flush_interval: 50                  # Flush cursors every N relays
-  stagger_delay: [0, 60]                     # Random delay range [min, max] seconds
 
 source:
   from_database: true                        # Fetch relay list from database
@@ -682,7 +681,6 @@ overrides: []                                # Per-relay timeout overrides
 |-------|------|---------|-------|-------------|
 | `concurrency.max_parallel` | int | `10` | 1-100 | Concurrent relays per process |
 | `concurrency.cursor_flush_interval` | int | `50` | - | Flush cursors every N relays |
-| `concurrency.stagger_delay` | list[int] | `[0, 60]` | - | Random delay range [min, max] seconds |
 
 ### Source Reference
 
@@ -769,7 +767,6 @@ pool:
 interval: 300.0
 concurrency:
   max_parallel: 50
-  stagger_delay: [0, 30]
 source:
   from_database: true
 ```
