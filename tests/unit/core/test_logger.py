@@ -315,6 +315,39 @@ class TestStructuredFormatter:
         result = formatter.format(record)
         assert "count: 42" in result
 
+    def test_truncation_uses_max_value_length_from_record(self) -> None:
+        """Test that StructuredFormatter reads max_value_length from the record."""
+        formatter = StructuredFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="event",
+            args=None,
+            exc_info=None,
+        )
+        record.structured_kv = {"key": "a" * 20}  # type: ignore[attr-defined]
+        record.structured_max_value_length = 10  # type: ignore[attr-defined]
+        result = formatter.format(record)
+        assert "truncated 10 chars" in result
+
+    def test_truncation_defaults_to_1000_without_max_value_length(self) -> None:
+        """Test that StructuredFormatter defaults to 1000 when no max is on the record."""
+        formatter = StructuredFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="event",
+            args=None,
+            exc_info=None,
+        )
+        record.structured_kv = {"key": "a" * 1500}  # type: ignore[attr-defined]
+        result = formatter.format(record)
+        assert "truncated 500 chars" in result
+
 
 # ============================================================================
 # Logger Initialization Tests
@@ -430,19 +463,23 @@ class TestMakeExtra:
         assert result["structured_kv"]["count"] == 42
         assert result["structured_kv"]["name"] == "test"
 
-    def test_truncation_applied(self) -> None:
-        """Test _make_extra applies truncation based on max_value_length."""
+    def test_raw_values_passed_through(self) -> None:
+        """Test _make_extra passes raw values without truncation."""
         logger = Logger("test", max_value_length=10)
         result = logger._make_extra({"key": "a" * 20})
-        val = result["structured_kv"]["key"]
-        assert "truncated" in val
-        assert "10 chars" in val
+        assert result["structured_kv"]["key"] == "a" * 20
 
-    def test_no_truncation_for_short_values(self) -> None:
-        """Test _make_extra does not truncate short values."""
-        logger = Logger("test", max_value_length=100)
-        result = logger._make_extra({"key": "short"})
-        assert result["structured_kv"]["key"] == "short"
+    def test_max_value_length_attached(self) -> None:
+        """Test _make_extra attaches max_value_length to the extra dict."""
+        logger = Logger("test", max_value_length=500)
+        result = logger._make_extra({"key": "value"})
+        assert result["structured_max_value_length"] == 500
+
+    def test_default_max_value_length_attached(self) -> None:
+        """Test _make_extra attaches default max_value_length (1000)."""
+        logger = Logger("test")
+        result = logger._make_extra({"key": "value"})
+        assert result["structured_max_value_length"] == 1000
 
     def test_non_string_values_preserved(self) -> None:
         """Test _make_extra preserves non-string types when under limit."""
@@ -705,6 +742,27 @@ class TestIntegration:
         )
         result = formatter.format(record)
         assert result == "warning models.metadata unknown type: foo"
+
+    def test_truncation_end_to_end(self) -> None:
+        """Test that truncation flows from Logger config through StructuredFormatter."""
+        formatter = StructuredFormatter()
+        logger = Logger("truncation_test", max_value_length=10)
+        extra = logger._make_extra({"key": "a" * 20})
+
+        record = logging.LogRecord(
+            name="truncation_test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="event",
+            args=None,
+            exc_info=None,
+        )
+        for attr, val in extra.items():
+            setattr(record, attr, val)
+
+        result = formatter.format(record)
+        assert "truncated 10 chars" in result
 
 
 # ============================================================================

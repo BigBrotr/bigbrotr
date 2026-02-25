@@ -113,7 +113,8 @@ class StructuredFormatter(logging.Formatter):
         base = f"{record.levelname.lower()} {record.name} {record.getMessage()}"
         extra: dict[str, Any] = getattr(record, "structured_kv", {})
         if extra:
-            base += format_kv_pairs(extra)
+            max_len: int | None = getattr(record, "structured_max_value_length", 1000)
+            base += format_kv_pairs(extra, max_value_length=max_len)
         return base
 
 
@@ -194,23 +195,16 @@ class Logger:
     def _make_extra(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Build the ``extra`` dict for structured log records.
 
-        Applies ``max_value_length`` truncation so the StructuredFormatter
-        receives pre-truncated values.
+        Passes raw values through to the ``structured_kv`` field along with
+        the configured ``max_value_length``, so truncation is handled in a
+        single place by ``format_kv_pairs()`` via the ``StructuredFormatter``.
         """
         if not kwargs:
             return {}
-        # Pre-truncate values so the formatter receives clean data
-        truncated: dict[str, Any] = {}
-        for k, v in kwargs.items():
-            s = str(v)
-            if self._max_value_length and len(s) > self._max_value_length:
-                truncated[k] = (
-                    s[: self._max_value_length]
-                    + f"...<truncated {len(s) - self._max_value_length} chars>"
-                )
-            else:
-                truncated[k] = v
-        return {"structured_kv": truncated}
+        return {
+            "structured_kv": kwargs,
+            "structured_max_value_length": self._max_value_length,
+        }
 
     def debug(self, msg: str, **kwargs: Any) -> None:
         """Log a DEBUG level message with optional key=value pairs."""
