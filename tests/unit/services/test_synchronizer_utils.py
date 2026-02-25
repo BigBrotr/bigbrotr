@@ -467,13 +467,12 @@ class TestInsertBatch:
         batch = EventBatch(since=100, until=200, limit=10)
         relay = Relay("wss://test.relay.com")
 
-        inserted, invalid, skipped = await insert_batch(
+        inserted, invalid = await insert_batch(
             batch, relay, mock_synchronizer_brotr, since=100, until=200
         )
 
         assert inserted == 0
         assert invalid == 0
-        assert skipped == 0
         mock_synchronizer_brotr.insert_event_relay.assert_not_called()
 
     async def test_batch_with_valid_events(self, mock_synchronizer_brotr: Brotr) -> None:
@@ -495,13 +494,12 @@ class TestInsertBatch:
                 mock_er = MagicMock()
                 MockEventRelay.return_value = mock_er
 
-                inserted, invalid, skipped = await insert_batch(
+                inserted, invalid = await insert_batch(
                     batch, relay, mock_synchronizer_brotr, since=100, until=200
                 )
 
         assert inserted == 3
         assert invalid == 0
-        assert skipped == 0
         mock_synchronizer_brotr.insert_event_relay.assert_called_once()
 
     async def test_batch_with_invalid_signature(self, mock_synchronizer_brotr: Brotr) -> None:
@@ -513,13 +511,12 @@ class TestInsertBatch:
         evt.verify.return_value = False
         batch.append(evt)
 
-        inserted, invalid, skipped = await insert_batch(
+        inserted, invalid = await insert_batch(
             batch, relay, mock_synchronizer_brotr, since=100, until=200
         )
 
         assert inserted == 0
         assert invalid == 1
-        assert skipped == 0
 
     async def test_batch_with_out_of_range_timestamp(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test that events with timestamps outside since/until are invalid."""
@@ -531,7 +528,7 @@ class TestInsertBatch:
         batch.append(evt)
 
         # But insert_batch checks against a tighter window
-        _inserted, invalid, _skipped = await insert_batch(
+        _inserted, invalid = await insert_batch(
             batch, relay, mock_synchronizer_brotr, since=160, until=200
         )
 
@@ -546,7 +543,7 @@ class TestInsertBatch:
         evt.verify.side_effect = ValueError("parse failed")
         batch.append(evt)
 
-        inserted, invalid, _skipped = await insert_batch(
+        inserted, invalid = await insert_batch(
             batch, relay, mock_synchronizer_brotr, since=100, until=200
         )
 
@@ -563,7 +560,7 @@ class TestInsertBatch:
         evt.verify.side_effect = TypeError("type error")
         batch.append(evt)
 
-        inserted, invalid, _skipped = await insert_batch(
+        inserted, invalid = await insert_batch(
             batch, relay, mock_synchronizer_brotr, since=100, until=200
         )
 
@@ -579,7 +576,7 @@ class TestInsertBatch:
         evt.verify.side_effect = OverflowError("overflow")
         batch.append(evt)
 
-        inserted, invalid, _skipped = await insert_batch(
+        inserted, invalid = await insert_batch(
             batch, relay, mock_synchronizer_brotr, since=100, until=200
         )
 
@@ -603,7 +600,7 @@ class TestInsertBatch:
             with patch("bigbrotr.services.synchronizer.utils.EventRelay") as MockEventRelay:
                 MockEventRelay.return_value = MagicMock()
 
-                inserted, _invalid, _skipped = await insert_batch(
+                inserted, _invalid = await insert_batch(
                     batch, relay, mock_synchronizer_brotr, since=100, until=200
                 )
 
@@ -631,7 +628,7 @@ class TestInsertBatch:
             with patch("bigbrotr.services.synchronizer.utils.EventRelay") as MockEventRelay:
                 MockEventRelay.return_value = MagicMock()
 
-                inserted, invalid, _skipped = await insert_batch(
+                inserted, invalid = await insert_batch(
                     batch, relay, mock_synchronizer_brotr, since=100, until=200
                 )
 
@@ -684,16 +681,15 @@ class TestSyncRelayEvents:
             patch(
                 "bigbrotr.services.synchronizer.utils.insert_batch",
                 new_callable=AsyncMock,
-                return_value=(5, 1, 0),
+                return_value=(5, 1),
             ) as mock_insert,
         ):
-            synced, invalid, skipped = await sync_relay_events(
+            synced, invalid = await sync_relay_events(
                 relay=relay, start_time=100, end_time=1000, ctx=ctx
             )
 
         assert synced == 5
         assert invalid == 1
-        assert skipped == 0
         mock_insert.assert_called_once()
 
     async def test_sync_with_no_events(self, mock_synchronizer_brotr: Brotr) -> None:
@@ -715,13 +711,12 @@ class TestSyncRelayEvents:
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
-            synced, invalid, skipped = await sync_relay_events(
+            synced, invalid = await sync_relay_events(
                 relay=relay, start_time=100, end_time=1000, ctx=ctx
             )
 
         assert synced == 0
         assert invalid == 0
-        assert skipped == 0
 
     async def test_sync_timeout_error(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test sync handles TimeoutError gracefully."""
@@ -738,13 +733,12 @@ class TestSyncRelayEvents:
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
-            synced, invalid, skipped = await sync_relay_events(
+            synced, invalid = await sync_relay_events(
                 relay=relay, start_time=100, end_time=1000, ctx=ctx
             )
 
         assert synced == 0
         assert invalid == 0
-        assert skipped == 0
 
     async def test_sync_os_error(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test sync handles OSError gracefully."""
@@ -761,13 +755,12 @@ class TestSyncRelayEvents:
             new_callable=AsyncMock,
             return_value=mock_client,
         ):
-            synced, invalid, skipped = await sync_relay_events(
+            synced, invalid = await sync_relay_events(
                 relay=relay, start_time=100, end_time=1000, ctx=ctx
             )
 
         assert synced == 0
         assert invalid == 0
-        assert skipped == 0
 
     async def test_sync_disconnect_called(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test that client disconnect and shutdown are called after sync."""
@@ -877,10 +870,10 @@ class TestSyncRelayEvents:
             patch(
                 "bigbrotr.services.synchronizer.utils.insert_batch",
                 new_callable=AsyncMock,
-                return_value=(1, 0, 0),
+                return_value=(1, 0),
             ),
         ):
-            synced, _invalid, _skipped = await sync_relay_events(
+            synced, _invalid = await sync_relay_events(
                 relay=relay, start_time=100, end_time=1000, ctx=ctx
             )
 

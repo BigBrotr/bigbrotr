@@ -145,7 +145,6 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         self.set_gauge("failed_relays", self._counters.failed_relays)
         self.set_gauge("synced_events", self._counters.synced_events)
         self.set_gauge("invalid_events", self._counters.invalid_events)
-        self.set_gauge("skipped_events", self._counters.skipped_events)
 
         self._logger.info(
             "cycle_completed",
@@ -153,7 +152,6 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             failed_relays=self._counters.failed_relays,
             synced_events=self._counters.synced_events,
             invalid_events=self._counters.invalid_events,
-            skipped_events=self._counters.skipped_events,
             duration_s=round(time.monotonic() - cycle_start, 2),
         )
 
@@ -324,7 +322,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             )
 
             try:
-                events_synced, invalid_events, skipped_events = await asyncio.wait_for(
+                events_synced, invalid_events = await asyncio.wait_for(
                     sync_relay_events(relay=relay, start_time=start, end_time=end_time, ctx=ctx),
                     timeout=relay_timeout,
                 )
@@ -332,12 +330,10 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                 async with self._counters.lock:
                     self._counters.synced_events += events_synced
                     self._counters.invalid_events += invalid_events
-                    self._counters.skipped_events += skipped_events
                     self._counters.synced_relays += 1
 
                 self.inc_counter("total_events_synced", events_synced)
                 self.inc_counter("total_events_invalid", invalid_events)
-                self.inc_counter("total_events_skipped", skipped_events)
 
                 async with batch.cursor_lock:
                     batch.cursor_updates.append(
