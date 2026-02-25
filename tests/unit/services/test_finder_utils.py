@@ -2,12 +2,90 @@
 Unit tests for services.finder.utils module.
 
 Tests:
-- extract_relays_from_rows: relay URL extraction from r-tags, kind 2 content,
-  kind 3 JSON contact list, deduplication, empty/invalid input
+- extract_urls_from_response: URL extraction from API JSON responses
+- extract_relays_from_rows: relay URL extraction from event tagvalues
 """
 
-from bigbrotr.models.constants import EventKind
-from bigbrotr.services.finder.utils import extract_relays_from_rows
+from bigbrotr.services.finder.utils import extract_relays_from_rows, extract_urls_from_response
+
+
+# ============================================================================
+# extract_urls_from_response Tests
+# ============================================================================
+
+
+class TestExtractUrlsFromResponse:
+    """Tests for extract_urls_from_response function (JMESPath-based)."""
+
+    # -- Default expression: [*] (flat string list) --------------------------
+
+    def test_flat_string_list_default(self) -> None:
+        """Default expression extracts all items from a flat list."""
+        data = ["wss://r1.com", "wss://r2.com"]
+        assert extract_urls_from_response(data) == ["wss://r1.com", "wss://r2.com"]
+
+    def test_empty_list(self) -> None:
+        assert extract_urls_from_response([]) == []
+
+    def test_non_string_items_filtered(self) -> None:
+        """Non-string items in the JMESPath result are silently dropped."""
+        data = ["wss://r.com", 42, None, True]
+        assert extract_urls_from_response(data) == ["wss://r.com"]
+
+    # -- Nested path expressions ---------------------------------------------
+
+    def test_nested_path(self) -> None:
+        data = {"data": {"relays": ["wss://r1.com", "wss://r2.com"]}}
+        result = extract_urls_from_response(data, "data.relays")
+        assert result == ["wss://r1.com", "wss://r2.com"]
+
+    def test_single_key_path(self) -> None:
+        data = {"relays": ["wss://r1.com"]}
+        assert extract_urls_from_response(data, "relays") == ["wss://r1.com"]
+
+    def test_nonexistent_path_returns_empty(self) -> None:
+        data = {"other": ["wss://r1.com"]}
+        assert extract_urls_from_response(data, "relays") == []
+
+    # -- Object field extraction: [*].key ------------------------------------
+
+    def test_extract_field_from_objects(self) -> None:
+        data = [{"url": "wss://r1.com"}, {"url": "wss://r2.com"}]
+        assert extract_urls_from_response(data, "[*].url") == ["wss://r1.com", "wss://r2.com"]
+
+    def test_nested_path_then_field(self) -> None:
+        data = {"data": [{"addr": "wss://r1.com"}, {"addr": "wss://r2.com"}]}
+        result = extract_urls_from_response(data, "data[*].addr")
+        assert result == ["wss://r1.com", "wss://r2.com"]
+
+    # -- Dict keys: keys(@) -------------------------------------------------
+
+    def test_keys_extraction(self) -> None:
+        data = {"wss://r1.com": {"info": "..."}, "wss://r2.com": {}}
+        result = extract_urls_from_response(data, "keys(@)")
+        assert set(result) == {"wss://r1.com", "wss://r2.com"}
+
+    def test_nested_keys_extraction(self) -> None:
+        data = {"data": {"wss://r1.com": {}}}
+        result = extract_urls_from_response(data, "keys(data)")
+        assert result == ["wss://r1.com"]
+
+    # -- Edge cases ----------------------------------------------------------
+
+    def test_none_data(self) -> None:
+        assert extract_urls_from_response(None) == []
+
+    def test_scalar_data(self) -> None:
+        assert extract_urls_from_response(42) == []
+        assert extract_urls_from_response("wss://r1.com") == []
+
+    def test_expression_returns_non_list(self) -> None:
+        """Expression that evaluates to a scalar returns empty."""
+        data = {"count": 5}
+        assert extract_urls_from_response(data, "count") == []
+
+    def test_empty_dict_keys(self) -> None:
+        assert extract_urls_from_response({}, "keys(@)") == []
 
 
 # ============================================================================
@@ -18,13 +96,14 @@ from bigbrotr.services.finder.utils import extract_relays_from_rows
 class TestExtractRelaysFromRows:
     """Tests for extract_relays_from_rows function."""
 
-    def test_extract_from_r_tags(self) -> None:
-        """Test relay extraction from r-tag entries."""
+    def test_extracts_valid_relay_urls(self) -> None:
+        """Test relay URL extraction from tagvalues."""
         rows = [
             {
-                "kind": 1,
-                "tags": [["r", "wss://relay1.example.com"], ["r", "wss://relay2.example.com"]],
-                "content": "",
+                "tagvalues": [
+                    "wss://relay1.example.com",
+                    "wss://relay2.example.com",
+                ],
                 "seen_at": 1700000000,
             }
         ]
@@ -36,13 +115,17 @@ class TestExtractRelaysFromRows:
         assert any("relay1.example.com" in u for u in urls)
         assert any("relay2.example.com" in u for u in urls)
 
-    def test_extract_from_kind2_content(self) -> None:
-        """Test relay extraction from kind 2 (recommend relay) content."""
+    def test_ignores_non_url_values(self) -> None:
+        """Test that hex IDs, pubkeys, hashtags etc. are filtered out."""
         rows = [
             {
-                "kind": EventKind.RECOMMEND_RELAY,
-                "tags": [],
-                "content": "wss://recommended.relay.com",
+                "tagvalues": [
+                    "a" * 64,  # hex event ID
+                    "b" * 64,  # hex pubkey
+                    "bitcoin",  # hashtag
+                    "nostr",  # hashtag
+                    "wss://valid.relay.com",
+                ],
                 "seen_at": 1700000000,
             }
         ]
@@ -50,76 +133,43 @@ class TestExtractRelaysFromRows:
         relays = extract_relays_from_rows(rows)
 
         assert len(relays) == 1
-        assert any("recommended.relay.com" in u for u in relays)
-
-    def test_extract_from_kind3_json_content(self) -> None:
-        """Test relay extraction from kind 3 (contacts) JSON content."""
-        import json
-
-        relay_map = {
-            "wss://contact1.relay.com": {"read": True, "write": True},
-            "wss://contact2.relay.com": {"read": True, "write": False},
-        }
-        rows = [
-            {
-                "kind": EventKind.CONTACTS,
-                "tags": [],
-                "content": json.dumps(relay_map),
-                "seen_at": 1700000000,
-            }
-        ]
-
-        relays = extract_relays_from_rows(rows)
-
-        assert len(relays) == 2
-        urls = set(relays.keys())
-        assert any("contact1.relay.com" in u for u in urls)
-        assert any("contact2.relay.com" in u for u in urls)
+        assert any("valid.relay.com" in u for u in relays)
 
     def test_empty_rows(self) -> None:
         """Test with empty input list."""
         relays = extract_relays_from_rows([])
         assert relays == {}
 
-    def test_no_tags_no_content(self) -> None:
-        """Test rows with no tags and empty content produce no relays."""
-        rows = [
-            {
-                "kind": 1,
-                "tags": [],
-                "content": "",
-                "seen_at": 1700000000,
-            }
-        ]
+    def test_none_tagvalues(self) -> None:
+        """Test rows with None tagvalues produce no relays."""
+        rows = [{"tagvalues": None, "seen_at": 1700000000}]
 
         relays = extract_relays_from_rows(rows)
         assert relays == {}
 
-    def test_none_tags(self) -> None:
-        """Test rows with None tags produce no relays."""
-        rows = [
-            {
-                "kind": 1,
-                "tags": None,
-                "content": "",
-                "seen_at": 1700000000,
-            }
-        ]
+    def test_empty_tagvalues(self) -> None:
+        """Test rows with empty tagvalues list produce no relays."""
+        rows = [{"tagvalues": [], "seen_at": 1700000000}]
 
         relays = extract_relays_from_rows(rows)
         assert relays == {}
 
-    def test_invalid_r_tag_values(self) -> None:
-        """Test invalid URLs in r-tags are skipped."""
+    def test_missing_tagvalues_key(self) -> None:
+        """Test rows missing the tagvalues key produce no relays."""
+        rows = [{"seen_at": 1700000000}]
+
+        relays = extract_relays_from_rows(rows)
+        assert relays == {}
+
+    def test_invalid_urls_skipped(self) -> None:
+        """Test invalid URLs in tagvalues are skipped."""
         rows = [
             {
-                "kind": 1,
-                "tags": [
-                    ["r", "not-a-valid-url"],
-                    ["r", "http://wrong-scheme.com"],
-                    ["r", ""],
+                "tagvalues": [
+                    "not-a-valid-url",
+                    "http://wrong-scheme.com",
+                    "",
                 ],
-                "content": "",
                 "seen_at": 1700000000,
             }
         ]
@@ -127,75 +177,14 @@ class TestExtractRelaysFromRows:
         relays = extract_relays_from_rows(rows)
         assert relays == {}
 
-    def test_r_tag_too_short(self) -> None:
-        """Test r-tags with fewer than 2 elements are skipped."""
+    def test_deduplication_within_row(self) -> None:
+        """Test duplicate relay URLs within a row are deduplicated."""
         rows = [
             {
-                "kind": 1,
-                "tags": [["r"], ["p", "some_pubkey"]],
-                "content": "",
-                "seen_at": 1700000000,
-            }
-        ]
-
-        relays = extract_relays_from_rows(rows)
-        assert relays == {}
-
-    def test_non_r_tags_ignored(self) -> None:
-        """Test that non-r tag entries are ignored."""
-        rows = [
-            {
-                "kind": 1,
-                "tags": [["p", "wss://not-an-r-tag.com"], ["e", "a" * 64]],
-                "content": "",
-                "seen_at": 1700000000,
-            }
-        ]
-
-        relays = extract_relays_from_rows(rows)
-        assert relays == {}
-
-    def test_deduplication(self) -> None:
-        """Test that duplicate relay URLs are deduplicated."""
-        rows = [
-            {
-                "kind": 1,
-                "tags": [["r", "wss://relay.example.com"], ["r", "wss://relay.example.com"]],
-                "content": "",
-                "seen_at": 1700000000,
-            },
-            {
-                "kind": 1,
-                "tags": [["r", "wss://relay.example.com"]],
-                "content": "",
-                "seen_at": 1700000000,
-            },
-        ]
-
-        relays = extract_relays_from_rows(rows)
-        assert len(relays) == 1
-
-    def test_kind2_empty_content_skipped(self) -> None:
-        """Test kind 2 with empty content produces no relays."""
-        rows = [
-            {
-                "kind": EventKind.RECOMMEND_RELAY,
-                "tags": [],
-                "content": "",
-                "seen_at": 1700000000,
-            }
-        ]
-
-        relays = extract_relays_from_rows(rows)
-        assert relays == {}
-
-    def test_kind2_whitespace_content(self) -> None:
-        """Test kind 2 with whitespace-padded content."""
-        rows = [
-            {
-                "kind": EventKind.RECOMMEND_RELAY,
-                "tags": [],
-                "content": "  wss://padded.relay.com  ",
+                "tagvalues": [
+                    "wss://relay.example.com",
+                    "wss://relay.example.com",
+                ],
                 "seen_at": 1700000000,
             }
         ]
@@ -203,114 +192,48 @@ class TestExtractRelaysFromRows:
         relays = extract_relays_from_rows(rows)
         assert len(relays) == 1
 
-    def test_kind3_invalid_json(self) -> None:
-        """Test kind 3 with invalid JSON content is handled gracefully."""
+    def test_deduplication_across_rows(self) -> None:
+        """Test duplicate relay URLs across rows are deduplicated."""
         rows = [
-            {
-                "kind": EventKind.CONTACTS,
-                "tags": [],
-                "content": "not valid json",
-                "seen_at": 1700000000,
-            }
-        ]
-
-        relays = extract_relays_from_rows(rows)
-        assert relays == {}
-
-    def test_kind3_non_dict_json(self) -> None:
-        """Test kind 3 with non-dict JSON (e.g., list) produces no relays."""
-        import json
-
-        rows = [
-            {
-                "kind": EventKind.CONTACTS,
-                "tags": [],
-                "content": json.dumps(["wss://relay.example.com"]),
-                "seen_at": 1700000000,
-            }
-        ]
-
-        relays = extract_relays_from_rows(rows)
-        assert relays == {}
-
-    def test_kind3_with_invalid_urls_in_keys(self) -> None:
-        """Test kind 3 JSON with invalid URLs as keys skips them."""
-        import json
-
-        relay_map = {
-            "not-a-url": {"read": True},
-            "wss://valid.relay.com": {"read": True},
-        }
-        rows = [
-            {
-                "kind": EventKind.CONTACTS,
-                "tags": [],
-                "content": json.dumps(relay_map),
-                "seen_at": 1700000000,
-            }
+            {"tagvalues": ["wss://relay.example.com"], "seen_at": 1700000000},
+            {"tagvalues": ["wss://relay.example.com"], "seen_at": 1700000001},
         ]
 
         relays = extract_relays_from_rows(rows)
         assert len(relays) == 1
-        assert any("valid.relay.com" in u for u in relays)
 
-    def test_mixed_sources(self) -> None:
-        """Test extraction from multiple sources in the same batch."""
-        import json
-
+    def test_mixed_valid_and_invalid(self) -> None:
+        """Test batch with mixed valid relay URLs and non-URL values."""
         rows = [
             {
-                "kind": 1,
-                "tags": [["r", "wss://from-tag.relay.com"]],
-                "content": "",
+                "tagvalues": ["wss://good.relay.com", "a" * 64],
                 "seen_at": 1700000000,
             },
             {
-                "kind": EventKind.RECOMMEND_RELAY,
-                "tags": [],
-                "content": "wss://from-kind2.relay.com",
-                "seen_at": 1700000000,
+                "tagvalues": ["bitcoin", "wss://another.relay.com"],
+                "seen_at": 1700000001,
             },
             {
-                "kind": EventKind.CONTACTS,
-                "tags": [],
-                "content": json.dumps({"wss://from-kind3.relay.com": {}}),
-                "seen_at": 1700000000,
+                "tagvalues": None,
+                "seen_at": 1700000002,
             },
         ]
 
         relays = extract_relays_from_rows(rows)
 
-        assert len(relays) == 3
+        assert len(relays) == 2
         urls = set(relays.keys())
-        assert any("from-tag.relay.com" in u for u in urls)
-        assert any("from-kind2.relay.com" in u for u in urls)
-        assert any("from-kind3.relay.com" in u for u in urls)
+        assert any("good.relay.com" in u for u in urls)
+        assert any("another.relay.com" in u for u in urls)
 
-    def test_kind3_empty_content_skipped(self) -> None:
-        """Test kind 3 with empty content produces no relays."""
+    def test_ws_scheme_accepted(self) -> None:
+        """Test that ws:// relay URLs are also accepted."""
         rows = [
             {
-                "kind": EventKind.CONTACTS,
-                "tags": [],
-                "content": "",
+                "tagvalues": ["ws://clearnet.relay.com"],
                 "seen_at": 1700000000,
             }
         ]
 
         relays = extract_relays_from_rows(rows)
-        assert relays == {}
-
-    def test_tag_not_list(self) -> None:
-        """Test non-list tag entries are ignored."""
-        rows = [
-            {
-                "kind": 1,
-                "tags": ["not-a-list", 42],
-                "content": "",
-                "seen_at": 1700000000,
-            }
-        ]
-
-        relays = extract_relays_from_rows(rows)
-        assert relays == {}
+        assert len(relays) == 1
