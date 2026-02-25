@@ -232,9 +232,8 @@ class BaseService(ABC, Generic[ConfigT]):
             [request_shutdown()][bigbrotr.core.base_service.BaseService.request_shutdown]:
                 Trigger graceful exit from this loop.
         """
-        # Fallback defaults ensure compatibility if config is not BaseServiceConfig
-        interval = getattr(self._config, "interval", 300.0)
-        max_consecutive_failures = getattr(self._config, "max_consecutive_failures", 5)
+        interval = self._config.interval
+        max_consecutive_failures = self._config.max_consecutive_failures
         metrics_enabled = self._config.metrics.enabled
 
         # Publish static service metadata once at startup
