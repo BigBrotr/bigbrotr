@@ -449,6 +449,20 @@ class TestFromDbParams:
         assert isinstance(params.content, str)
         assert isinstance(params.sig, bytes)
 
+    def test_roundtrip(self, event):
+        """to_db_params -> from_db_params preserves all fields."""
+        params = event.to_db_params()
+        reconstructed = Event.from_db_params(params)
+        reconstructed_params = reconstructed.to_db_params()
+
+        assert reconstructed_params.id == params.id
+        assert reconstructed_params.pubkey == params.pubkey
+        assert reconstructed_params.created_at == params.created_at
+        assert reconstructed_params.kind == params.kind
+        assert reconstructed_params.tags == params.tags
+        assert reconstructed_params.content == params.content
+        assert reconstructed_params.sig == params.sig
+
 
 # =============================================================================
 # Edge Cases Tests
