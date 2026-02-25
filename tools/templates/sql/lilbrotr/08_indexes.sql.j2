@@ -2,11 +2,11 @@
 {% block header_comment %}
  * LilBrotr - 08_indexes.sql
  *
- * Performance indexes for tables and materialized views. LilBrotr uses
- * a simpler event/event_relay index set than BigBrotr since the event
- * table has fewer columns.
+ * Performance indexes for tables and materialized views. Organized by
+ * target object. Every materialized view requires a UNIQUE index for
+ * REFRESH MATERIALIZED VIEW CONCURRENTLY to work.
  *
- * Dependencies: 02_tables.sql
+ * Dependencies: 02_tables.sql, 06_materialized_views.sql
 {% endblock %}
 {% block event_indexes %}
 -- Global timeline queries: ORDER BY created_at DESC LIMIT N
@@ -29,16 +29,29 @@ ON event USING btree (pubkey);
 -- Requires the btree_gin extension for GIN support on text arrays
 CREATE INDEX IF NOT EXISTS idx_event_tagvalues
 ON event USING gin (tagvalues);
+
+-- Cursor-based pagination for the Finder service:
+-- WHERE (created_at, id) > ($1, $2) ORDER BY created_at ASC, id ASC
+CREATE INDEX IF NOT EXISTS idx_event_created_at_id
+ON event USING btree (created_at ASC, id ASC);
 {% endblock %}
 {% block event_relay_indexes %}
+-- The composite primary key (event_id, relay_url) already provides an
+-- efficient B-tree index on event_id as the leftmost column, so no
+-- separate event_id index is needed.
 
 -- All events from a relay: WHERE relay_url = ?
 CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url
 ON event_relay USING btree (relay_url);
 
--- All relays for an event: WHERE event_id = ?
-CREATE INDEX IF NOT EXISTS idx_event_relay_event_id
-ON event_relay USING btree (event_id);
+-- Recently discovered events: ORDER BY seen_at DESC
+CREATE INDEX IF NOT EXISTS idx_event_relay_seen_at
+ON event_relay USING btree (seen_at DESC);
+
+-- Synchronizer progress tracking: WHERE relay_url = ? ORDER BY seen_at DESC
+-- Enables index-only scans for SELECT MAX(seen_at) WHERE relay_url = ?
+CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url_seen_at
+ON event_relay USING btree (relay_url, seen_at DESC);
 {% endblock %}
 {% block shared_table_indexes %}
 -- ==========================================================================
