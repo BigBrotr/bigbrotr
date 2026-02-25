@@ -272,12 +272,18 @@ class TestDeepFreeze:
 
     def test_list_contents_frozen(self) -> None:
         result = deep_freeze({"items": [{"a": 1}]})
+        assert isinstance(result["items"], tuple)
         assert isinstance(result["items"][0], MappingProxyType)
 
-    def test_list_preserved_as_list(self) -> None:
+    def test_list_rejects_mutation(self) -> None:
+        result = deep_freeze({"items": [1, 2, 3]})
+        with pytest.raises(TypeError):
+            result["items"][0] = 99  # type: ignore[index]
+
+    def test_list_becomes_tuple(self) -> None:
         result = deep_freeze([1, 2, 3])
-        assert isinstance(result, list)
-        assert result == [1, 2, 3]
+        assert isinstance(result, tuple)
+        assert result == (1, 2, 3)
 
     def test_primitives_unchanged(self) -> None:
         assert deep_freeze(42) == 42
@@ -292,4 +298,5 @@ class TestDeepFreeze:
 
     def test_empty_list(self) -> None:
         result = deep_freeze([])
-        assert result == []
+        assert isinstance(result, tuple)
+        assert result == ()

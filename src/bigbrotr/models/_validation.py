@@ -131,5 +131,5 @@ def deep_freeze(obj: Any) -> Any:
     if isinstance(obj, dict):
         return MappingProxyType({k: deep_freeze(v) for k, v in obj.items()})
     if isinstance(obj, list):
-        return [deep_freeze(item) for item in obj]
+        return tuple(deep_freeze(item) for item in obj)
     return obj
