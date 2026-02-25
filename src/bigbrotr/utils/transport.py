@@ -72,20 +72,29 @@ class _NostrSdkStderrFilter:
         wrapping on repeated imports.
     """
 
-    __slots__ = ("_original", "_suppressing")
+    __slots__ = ("_original", "_suppressed_count", "_suppressing")
+
+    _MAX_SUPPRESSED_LINES = 50
 
     def __init__(self, original: TextIO) -> None:
         self._original = original
         self._suppressing = False
+        self._suppressed_count = 0
 
     def write(self, text: str) -> int:
         """Write to stderr, suppressing UniFFI tracebacks."""
         if "UniFFI:" in text or "Unhandled exception" in text:
             self._suppressing = True
+            self._suppressed_count = 0
             return len(text)
 
         if self._suppressing:
-            if text.strip() == "" or text == "\n":
+            self._suppressed_count += 1
+            if (
+                text.strip() == ""
+                or text == "\n"
+                or self._suppressed_count >= self._MAX_SUPPRESSED_LINES
+            ):
                 self._suppressing = False
             return len(text)
 
