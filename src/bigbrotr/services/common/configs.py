@@ -39,9 +39,14 @@ Examples:
 
 from __future__ import annotations
 
+import logging
+
 from pydantic import BaseModel, Field
 
 from bigbrotr.models.constants import NetworkType
+
+
+logger = logging.getLogger(__name__)
 
 
 class ClearnetConfig(BaseModel):
@@ -162,7 +167,11 @@ class NetworksConfig(BaseModel):
             The configuration for the specified network.
             Falls back to clearnet config if network is not found.
         """
-        return getattr(self, network.value, self.clearnet)
+        config: NetworkTypeConfig | None = getattr(self, network.value, None)
+        if config is None:
+            logger.warning("no config for network=%s, falling back to clearnet", network.value)
+            return self.clearnet
+        return config
 
     def get_proxy_url(self, network: NetworkType) -> str | None:
         """Get the SOCKS5 proxy URL for a network type.
