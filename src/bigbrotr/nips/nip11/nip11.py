@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from bigbrotr.models.metadata import Metadata, MetadataType
 from bigbrotr.models.relay import Relay  # noqa: TC001
@@ -37,6 +37,10 @@ from bigbrotr.nips.base import (
 from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .info import Nip11InfoMetadata
+
+
+if TYPE_CHECKING:
+    import aiohttp
 
 
 logger = logging.getLogger("bigbrotr.nips.nip11")
@@ -173,6 +177,7 @@ class Nip11(BaseNip):
         *,
         timeout: float | None = None,  # noqa: ASYNC109
         proxy_url: str | None = None,
+        session: aiohttp.ClientSession | None = None,
         selection: Nip11Selection | None = None,
         options: Nip11Options | None = None,
         deps: Nip11Dependencies | None = None,
@@ -191,6 +196,10 @@ class Nip11(BaseNip):
             relay: Relay to retrieve from.
             timeout: HTTP request timeout in seconds (default: 10.0).
             proxy_url: Optional SOCKS5 proxy URL for overlay networks.
+            session: Optional shared aiohttp.ClientSession. When
+                provided, the session is reused and the caller retains
+                ownership. When None, a per-request session is created
+                and closed automatically.
             selection: Which metadata to retrieve (default: all enabled).
             options: How to execute the retrieval (default: secure mode).
             deps: Optional dependencies for future extensibility.
@@ -211,6 +220,7 @@ class Nip11(BaseNip):
                 timeout,
                 options.max_size,
                 proxy_url,
+                session,
                 allow_insecure=options.allow_insecure,
             )
 

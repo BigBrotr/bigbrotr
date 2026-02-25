@@ -78,23 +78,23 @@ class Nip11InfoMetadata(BaseNipMetadata):
     _INFO_MAX_SIZE: ClassVar[int] = 65_536  # 64 KB
 
     @staticmethod
-    async def _info(  # noqa: PLR0913
+    async def _request(  # noqa: PLR0913
+        active_session: aiohttp.ClientSession,
         http_url: str,
         headers: dict[str, str],
         timeout: float,  # noqa: ASYNC109
         max_size: int,
         ssl_context: ssl.SSLContext | bool,  # noqa: FBT001  # aiohttp SSL API accepts SSLContext|bool
-        proxy_url: str | None = None,
     ) -> dict[str, Any]:
         """Execute a single HTTP GET request and return the parsed JSON body.
 
         Args:
+            active_session: The session to use for the request.
             http_url: Full HTTP(S) URL to fetch.
             headers: HTTP request headers.
             timeout: Request timeout in seconds.
             max_size: Maximum allowed response body size in bytes.
             ssl_context: SSL context or boolean for TLS configuration.
-            proxy_url: Optional SOCKS5 proxy URL.
 
         Returns:
             Parsed JSON dictionary from the relay response.
@@ -104,20 +104,12 @@ class Nip11InfoMetadata(BaseNipMetadata):
                 is invalid, the body exceeds *max_size*, or the body is not
                 a JSON object.
         """
-        connector: aiohttp.BaseConnector
-        if proxy_url:
-            connector = ProxyConnector.from_url(proxy_url, ssl=ssl_context)
-        else:
-            connector = aiohttp.TCPConnector(ssl=ssl_context)
-
-        async with (
-            aiohttp.ClientSession(connector=connector) as session,
-            session.get(
-                http_url,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=timeout),
-            ) as resp,
-        ):
+        async with active_session.get(
+            http_url,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=timeout),
+            ssl=ssl_context,
+        ) as resp:
             if resp.status != HTTPStatus.OK:
                 raise ValueError(f"HTTP {resp.status}")
 
@@ -133,13 +125,72 @@ class Nip11InfoMetadata(BaseNipMetadata):
 
             return data
 
+    @staticmethod
+    async def _info(  # noqa: PLR0913
+        http_url: str,
+        headers: dict[str, str],
+        timeout: float,  # noqa: ASYNC109
+        max_size: int,
+        ssl_context: ssl.SSLContext | bool,  # noqa: FBT001  # aiohttp SSL API accepts SSLContext|bool
+        proxy_url: str | None = None,
+        session: aiohttp.ClientSession | None = None,
+    ) -> dict[str, Any]:
+        """Execute a single HTTP GET request and return the parsed JSON body.
+
+        Args:
+            http_url: Full HTTP(S) URL to fetch.
+            headers: HTTP request headers.
+            timeout: Request timeout in seconds.
+            max_size: Maximum allowed response body size in bytes.
+            ssl_context: SSL context or boolean for TLS configuration.
+            proxy_url: Optional SOCKS5 proxy URL.
+            session: Optional shared session. When provided, the session is
+                reused and the caller retains ownership (it will not be
+                closed). When ``None``, a new session is created and closed
+                after the request.
+
+        Returns:
+            Parsed JSON dictionary from the relay response.
+
+        Raises:
+            ValueError: If the response status is not 200, the Content-Type
+                is invalid, the body exceeds *max_size*, or the body is not
+                a JSON object.
+        """
+        if session is not None:
+            return await Nip11InfoMetadata._request(
+                session,
+                http_url,
+                headers,
+                timeout,
+                max_size,
+                ssl_context,
+            )
+
+        connector: aiohttp.BaseConnector
+        if proxy_url:
+            connector = ProxyConnector.from_url(proxy_url, ssl=ssl_context)
+        else:
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+
+        async with aiohttp.ClientSession(connector=connector) as new_session:
+            return await Nip11InfoMetadata._request(
+                new_session,
+                http_url,
+                headers,
+                timeout,
+                max_size,
+                ssl_context,
+            )
+
     @classmethod
-    async def execute(
+    async def execute(  # noqa: PLR0913
         cls,
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
         max_size: int | None = None,
         proxy_url: str | None = None,
+        session: aiohttp.ClientSession | None = None,
         *,
         allow_insecure: bool = False,
     ) -> Self:
@@ -161,6 +212,10 @@ class Nip11InfoMetadata(BaseNipMetadata):
             timeout: Request timeout in seconds (default: 10.0).
             max_size: Maximum response size in bytes (default: 64 KB).
             proxy_url: Optional SOCKS5 proxy URL for overlay networks.
+            session: Optional shared ``aiohttp.ClientSession``. When
+                provided, the session is reused and the caller retains
+                ownership. When ``None``, a per-request session is created
+                and closed automatically.
             allow_insecure: Fall back to unverified SSL on certificate
                 errors (default: False).
 
@@ -189,7 +244,15 @@ class Nip11InfoMetadata(BaseNipMetadata):
                 ctx = ssl.create_default_context()
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
-                data = await cls._info(http_url, headers, timeout, max_size, ctx, proxy_url)
+                data = await cls._info(
+                    http_url,
+                    headers,
+                    timeout,
+                    max_size,
+                    ctx,
+                    proxy_url,
+                    session=session,
+                )
 
             elif protocol == "http":
                 data = await cls._info(
@@ -199,6 +262,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
                     max_size,
                     ssl_context=False,
                     proxy_url=proxy_url,
+                    session=session,
                 )
 
             else:
@@ -211,6 +275,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
                         max_size,
                         ssl_context=True,
                         proxy_url=proxy_url,
+                        session=session,
                     )
                 except aiohttp.ClientConnectorCertificateError:
                     if not allow_insecure:
@@ -219,7 +284,15 @@ class Nip11InfoMetadata(BaseNipMetadata):
                     ctx = ssl.create_default_context()
                     ctx.check_hostname = False
                     ctx.verify_mode = ssl.CERT_NONE
-                    data = await cls._info(http_url, headers, timeout, max_size, ctx, proxy_url)
+                    data = await cls._info(
+                        http_url,
+                        headers,
+                        timeout,
+                        max_size,
+                        ctx,
+                        proxy_url,
+                        session=session,
+                    )
 
             logs["success"] = True
 
