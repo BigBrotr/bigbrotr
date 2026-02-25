@@ -221,10 +221,6 @@ ignore_missing_imports = true
 module = "bigbrotr.utils.transport"
 allow_subclassing_any = true
 
-[[tool.mypy.overrides]]
-module = "__main__.*"
-ignore_errors = true
-
 [tool.sqlfluff.core]
 dialect = "postgres"
 templater = "raw"
