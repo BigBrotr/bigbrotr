@@ -46,7 +46,7 @@ def parse_seed_file(path: Path) -> list[Relay]:
                     relays.append(relay)
                 else:
                     _logger.warning("relay_parse_failed: %s", url)
-    except FileNotFoundError:
-        _logger.warning("file_not_found: %s", path)
+    except (OSError, UnicodeDecodeError) as exc:
+        _logger.warning("seed_file_read_error: %s (%s)", path, exc)
 
     return relays
