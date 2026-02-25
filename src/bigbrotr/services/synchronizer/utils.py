@@ -278,6 +278,13 @@ class SyncCycleCounters:
     skipped_events: int = 0
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
+    def reset(self) -> None:
+        self.synced_events = 0
+        self.synced_relays = 0
+        self.failed_relays = 0
+        self.invalid_events = 0
+        self.skipped_events = 0
+
 
 @dataclass(slots=True)
 class SyncBatchState:
