@@ -173,14 +173,14 @@ class Nip66GeoMetadata(BaseNipMetadata):
             geohash_precision: Geohash encoding precision (1-12, default 9).
 
         Returns:
-            Dictionary of geolocation fields, or empty dict on error.
+            Dictionary of geolocation fields.
+
+        Raises:
+            geoip2.errors.GeoIP2Error: GeoIP database lookup failure.
+            ValueError: Invalid IP address or database response.
         """
-        try:
-            response = city_reader.city(ip)
-            return GeoExtractor.extract_all(response, geohash_precision=geohash_precision)
-        except (geoip2.errors.GeoIP2Error, ValueError) as e:
-            logger.debug("geo_geoip_lookup_error ip=%s error=%s", ip, str(e))
-            return {}
+        response = city_reader.city(ip)
+        return GeoExtractor.extract_all(response, geohash_precision=geohash_precision)
 
     @classmethod
     async def execute(

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.geo import GeoExtractor, Nip66GeoMetadata
 
@@ -363,14 +365,13 @@ class TestNip66GeoMetadataGeoSync:
         assert result["geo_city"] == "Mountain View"
         mock_city_reader.city.assert_called_once_with("8.8.8.8")
 
-    def test_lookup_exception_returns_empty_dict(self) -> None:
-        """Lookup exception returns empty dict."""
+    def test_lookup_exception_propagates(self) -> None:
+        """Lookup exception propagates to caller."""
         mock_city_reader = MagicMock()
         mock_city_reader.city.side_effect = ValueError("IP not found")
 
-        result = Nip66GeoMetadata._geo("192.168.1.1", mock_city_reader)
-
-        assert result == {}
+        with pytest.raises(ValueError, match="IP not found"):
+            Nip66GeoMetadata._geo("192.168.1.1", mock_city_reader)
 
     def test_lookup_with_different_ip(self, mock_geoip_response: MagicMock) -> None:
         """Lookup with IPv6 address."""
