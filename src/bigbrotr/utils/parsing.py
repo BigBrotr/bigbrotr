@@ -66,7 +66,7 @@ def models_from_dict(
     for row in rows:
         try:
             results.append(factory(row))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, KeyError):
             logger.warning("parse_failed row=%s", row)
     return results
 
