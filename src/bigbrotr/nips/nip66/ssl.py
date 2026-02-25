@@ -58,9 +58,8 @@ logger = logging.getLogger("bigbrotr.nips.nip66")
 class CertificateExtractor:
     """Extracts structured fields from SSL certificates.
 
-    Supports both the Python ``ssl`` module dict format (from
-    ``SSLSocket.getpeercert()``) and ``cryptography`` X.509 objects
-    (from DER-encoded certificates).
+    Uses ``cryptography`` X.509 objects (from DER-encoded certificates)
+    and raw DER bytes for fingerprint computation.
 
     See Also:
         [Nip66SslMetadata][bigbrotr.nips.nip66.ssl.Nip66SslMetadata]:
@@ -68,68 +67,6 @@ class CertificateExtractor:
         [bigbrotr.nips.nip66.data.Nip66SslData][bigbrotr.nips.nip66.data.Nip66SslData]:
             Data model populated by the extracted fields.
     """
-
-    @staticmethod
-    def extract_subject_cn(cert: dict[str, Any]) -> str | None:
-        """Extract the subject Common Name (CN) from the certificate."""
-        subject = cert.get("subject", ())
-        for rdn in subject:
-            for attr, value in rdn:
-                if attr == "commonName":
-                    return str(value)
-        return None
-
-    @staticmethod
-    def extract_issuer(cert: dict[str, Any]) -> dict[str, str]:
-        """Extract issuer organization name and CN from the certificate."""
-        result: dict[str, str] = {}
-        issuer = cert.get("issuer", ())
-        for rdn in issuer:
-            for attr, value in rdn:
-                if attr == "organizationName":
-                    result["ssl_issuer"] = str(value)
-                elif attr == "commonName":
-                    result["ssl_issuer_cn"] = str(value)
-        return result
-
-    @staticmethod
-    def extract_validity(cert: dict[str, Any]) -> dict[str, float]:
-        """Extract notAfter and notBefore dates as Unix timestamps."""
-        result: dict[str, float] = {}
-
-        not_after = cert.get("notAfter")
-        if not_after and isinstance(not_after, str):
-            result["ssl_expires"] = ssl.cert_time_to_seconds(not_after)
-
-        not_before = cert.get("notBefore")
-        if not_before and isinstance(not_before, str):
-            result["ssl_not_before"] = ssl.cert_time_to_seconds(not_before)
-
-        return result
-
-    @staticmethod
-    def extract_san(cert: dict[str, Any]) -> list[str] | None:
-        """Extract DNS Subject Alternative Names from the certificate."""
-        san_list: list[str] = []
-        for san_type, san_value in cert.get("subjectAltName", ()):
-            if san_type == "DNS" and isinstance(san_value, str):
-                san_list.append(san_value)
-        return san_list or None
-
-    @staticmethod
-    def extract_serial_and_version(cert: dict[str, Any]) -> dict[str, Any]:
-        """Extract serial number and X.509 version from the certificate."""
-        result: dict[str, Any] = {}
-
-        serial = cert.get("serialNumber")
-        if serial:
-            result["ssl_serial"] = serial
-
-        version = cert.get("version")
-        if version is not None:
-            result["ssl_version"] = version
-
-        return result
 
     @staticmethod
     def extract_fingerprint(cert_binary: bytes) -> str:
@@ -141,26 +78,6 @@ class CertificateExtractor:
         fingerprint = hashlib.sha256(cert_binary).hexdigest().upper()
         formatted = ":".join(fingerprint[i : i + 2] for i in range(0, len(fingerprint), 2))
         return f"SHA256:{formatted}"
-
-    @classmethod
-    def extract_all(cls, cert: dict[str, Any]) -> dict[str, Any]:
-        """Extract all available fields from a certificate into a flat dictionary."""
-        result: dict[str, Any] = {}
-
-        subject_cn = cls.extract_subject_cn(cert)
-        if subject_cn:
-            result["ssl_subject_cn"] = subject_cn
-
-        result.update(cls.extract_issuer(cert))
-        result.update(cls.extract_validity(cert))
-
-        san = cls.extract_san(cert)
-        if san:
-            result["ssl_san"] = san
-
-        result.update(cls.extract_serial_and_version(cert))
-
-        return result
 
     @classmethod
     def extract_all_from_x509(cls, cert: x509.Certificate) -> dict[str, Any]:
@@ -236,8 +153,10 @@ class Nip66SslMetadata(BaseNipMetadata):
             Dictionary of extracted SSL fields including ``ssl_valid``.
         """
         result: dict[str, Any] = {}
-        result.update(Nip66SslMetadata._extract_certificate_data(host, port, timeout))
-        result["ssl_valid"] = Nip66SslMetadata._validate_certificate(host, port, timeout)
+        cert_data = Nip66SslMetadata._extract_certificate_data(host, port, timeout)
+        result.update(cert_data)
+        if cert_data:
+            result["ssl_valid"] = Nip66SslMetadata._validate_certificate(host, port, timeout)
         return result
 
     @staticmethod

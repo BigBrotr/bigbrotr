@@ -6,9 +6,11 @@ Tests generic model parsing functions (models_from_db_params, models_from_dict).
 from __future__ import annotations
 
 import logging
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
-import pytest
+
+if TYPE_CHECKING:
+    import pytest
 
 from bigbrotr.models import Relay
 from bigbrotr.models.relay import RelayDbParams
@@ -144,7 +146,9 @@ class TestModelsFromDict:
         assert result == []
         assert "parse_failed" in caplog.text
 
-    def test_key_error_propagates(self) -> None:
-        """KeyError from missing dict key is NOT caught (only ValueError/TypeError)."""
-        with pytest.raises(KeyError):
-            models_from_dict([{"wrong_key": "x"}], lambda r: Relay(r["url"]))
+    def test_catches_key_error(self, caplog: pytest.LogCaptureFixture) -> None:
+        """KeyError from missing dict key is caught and row is skipped."""
+        with caplog.at_level(logging.WARNING, logger="bigbrotr.utils.parsing"):
+            result = models_from_dict([{"wrong_key": "x"}], lambda r: Relay(r["url"]))
+        assert result == []
+        assert "parse_failed" in caplog.text

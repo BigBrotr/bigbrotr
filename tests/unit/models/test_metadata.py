@@ -100,8 +100,8 @@ class TestConstruction:
         m = Metadata(
             type=MetadataType.NIP11_INFO, data={"items": [1, 2, 3], "names": ["a", "b", "c"]}
         )
-        assert m.data["items"] == [1, 2, 3]
-        assert m.data["names"] == ["a", "b", "c"]
+        assert m.data["items"] == (1, 2, 3)
+        assert m.data["names"] == ("a", "b", "c")
 
     def test_with_mixed_types(self):
         """Constructs with mixed value types (None is filtered out)."""
@@ -252,7 +252,7 @@ class TestFromDbParams:
             id=hash_bytes, type=MetadataType.NIP66_RTT, data='{"a": {"b": [1, 2, 3]}}'
         )
         m = Metadata.from_db_params(params)
-        assert m.data["a"]["b"] == [1, 2, 3]
+        assert m.data["a"]["b"] == (1, 2, 3)
         assert m.type == MetadataType.NIP66_RTT
 
     def test_empty(self):
@@ -339,7 +339,7 @@ class TestEdgeCases:
         m = Metadata(type=MetadataType.NIP11_INFO, data=data)
         params = m.to_db_params()
         reconstructed = Metadata.from_db_params(params)
-        assert reconstructed.data == data
+        assert reconstructed.data == {"items": tuple(range(10000))}
 
     def test_special_json_characters(self):
         """Special JSON characters are escaped."""
@@ -468,12 +468,12 @@ class TestNormalization:
     def test_empty_in_lists_removed(self):
         """Empty containers within lists are removed."""
         m = Metadata(type=MetadataType.NIP11_INFO, data={"items": [1, [], 2, {}, 3]})
-        assert m.data == {"items": [1, 2, 3]}
+        assert m.data == {"items": (1, 2, 3)}
 
     def test_none_in_lists_removed(self):
         """None values within lists are removed."""
         m = Metadata(type=MetadataType.NIP11_INFO, data={"items": [1, None, 2, None, 3]})
-        assert m.data == {"items": [1, 2, 3]}
+        assert m.data == {"items": (1, 2, 3)}
 
     def test_falsy_values_preserved(self):
         """Falsy values (False, 0, '') are preserved, only None/empty containers removed."""

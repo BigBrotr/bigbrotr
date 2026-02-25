@@ -2,13 +2,7 @@
 Unit tests for models.nips.nip66.ssl module.
 
 Tests:
-- CertificateExtractor.extract_subject_cn() - subject Common Name
-- CertificateExtractor.extract_issuer() - issuer organization and CN
-- CertificateExtractor.extract_validity() - notAfter, notBefore dates
-- CertificateExtractor.extract_san() - Subject Alternative Names
-- CertificateExtractor.extract_serial_and_version() - serial number and version
 - CertificateExtractor.extract_fingerprint() - SHA-256 fingerprint
-- CertificateExtractor.extract_all() - combines all extraction methods
 - Nip66SslMetadata._ssl() - synchronous SSL check
 - Nip66SslMetadata.execute() - async SSL check with clearnet validation
 """
@@ -21,226 +15,6 @@ from unittest.mock import MagicMock, patch
 
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.ssl import CertificateExtractor, Nip66SslMetadata
-
-
-class TestCertificateExtractorExtractSubjectCn:
-    """Test CertificateExtractor.extract_subject_cn() method."""
-
-    def test_extracts_common_name(self) -> None:
-        """Extract commonName from subject."""
-        cert: dict[str, Any] = {
-            "subject": ((("commonName", "relay.example.com"),),),
-        }
-        result = CertificateExtractor.extract_subject_cn(cert)
-        assert result == "relay.example.com"
-
-    def test_extracts_from_nested_rdn(self) -> None:
-        """Extract commonName from nested RDN structure."""
-        cert: dict[str, Any] = {
-            "subject": (
-                (("organizationName", "Example Inc"),),
-                (("commonName", "relay.example.com"),),
-            ),
-        }
-        result = CertificateExtractor.extract_subject_cn(cert)
-        assert result == "relay.example.com"
-
-    def test_returns_none_when_no_common_name(self) -> None:
-        """Return None when commonName is not present."""
-        cert: dict[str, Any] = {
-            "subject": ((("organizationName", "Example Inc"),),),
-        }
-        result = CertificateExtractor.extract_subject_cn(cert)
-        assert result is None
-
-    def test_returns_none_for_empty_subject(self) -> None:
-        """Return None for empty subject."""
-        cert: dict[str, Any] = {"subject": ()}
-        result = CertificateExtractor.extract_subject_cn(cert)
-        assert result is None
-
-    def test_returns_none_when_subject_missing(self) -> None:
-        """Return None when subject key is missing."""
-        cert: dict[str, Any] = {}
-        result = CertificateExtractor.extract_subject_cn(cert)
-        assert result is None
-
-
-class TestCertificateExtractorExtractIssuer:
-    """Test CertificateExtractor.extract_issuer() method."""
-
-    def test_extracts_issuer_org_and_cn(self) -> None:
-        """Extract both organizationName and commonName from issuer."""
-        cert: dict[str, Any] = {
-            "issuer": (
-                (("organizationName", "Let's Encrypt"),),
-                (("commonName", "R3"),),
-            ),
-        }
-        result = CertificateExtractor.extract_issuer(cert)
-        assert result["ssl_issuer"] == "Let's Encrypt"
-        assert result["ssl_issuer_cn"] == "R3"
-
-    def test_extracts_only_org(self) -> None:
-        """Extract only organizationName when CN is missing."""
-        cert: dict[str, Any] = {
-            "issuer": ((("organizationName", "DigiCert"),),),
-        }
-        result = CertificateExtractor.extract_issuer(cert)
-        assert result["ssl_issuer"] == "DigiCert"
-        assert "ssl_issuer_cn" not in result
-
-    def test_extracts_only_cn(self) -> None:
-        """Extract only commonName when org is missing."""
-        cert: dict[str, Any] = {
-            "issuer": ((("commonName", "Root CA"),),),
-        }
-        result = CertificateExtractor.extract_issuer(cert)
-        assert result["ssl_issuer_cn"] == "Root CA"
-        assert "ssl_issuer" not in result
-
-    def test_returns_empty_for_empty_issuer(self) -> None:
-        """Return empty dict for empty issuer."""
-        cert: dict[str, Any] = {"issuer": ()}
-        result = CertificateExtractor.extract_issuer(cert)
-        assert result == {}
-
-    def test_returns_empty_when_issuer_missing(self) -> None:
-        """Return empty dict when issuer key is missing."""
-        cert: dict[str, Any] = {}
-        result = CertificateExtractor.extract_issuer(cert)
-        assert result == {}
-
-
-class TestCertificateExtractorExtractValidity:
-    """Test CertificateExtractor.extract_validity() method."""
-
-    def test_extracts_expiration_date(self) -> None:
-        """Extract ssl_expires from notAfter."""
-        cert: dict[str, Any] = {
-            "notAfter": "Dec 31 23:59:59 2024 GMT",
-        }
-        result = CertificateExtractor.extract_validity(cert)
-        assert "ssl_expires" in result
-        assert isinstance(result["ssl_expires"], (int, float))
-
-    def test_extracts_not_before_date(self) -> None:
-        """Extract ssl_not_before from notBefore."""
-        cert: dict[str, Any] = {
-            "notBefore": "Jan  1 00:00:00 2024 GMT",
-        }
-        result = CertificateExtractor.extract_validity(cert)
-        assert "ssl_not_before" in result
-        assert isinstance(result["ssl_not_before"], (int, float))
-
-    def test_extracts_both_dates(self) -> None:
-        """Extract both notAfter and notBefore."""
-        cert: dict[str, Any] = {
-            "notAfter": "Dec 31 23:59:59 2024 GMT",
-            "notBefore": "Jan  1 00:00:00 2024 GMT",
-        }
-        result = CertificateExtractor.extract_validity(cert)
-        assert "ssl_expires" in result
-        assert "ssl_not_before" in result
-        assert result["ssl_expires"] > result["ssl_not_before"]
-
-    def test_returns_empty_when_dates_missing(self) -> None:
-        """Return empty dict when dates are missing."""
-        cert: dict[str, Any] = {}
-        result = CertificateExtractor.extract_validity(cert)
-        assert result == {}
-
-    def test_handles_none_values(self) -> None:
-        """Handle None values gracefully."""
-        cert: dict[str, Any] = {"notAfter": None, "notBefore": None}
-        result = CertificateExtractor.extract_validity(cert)
-        assert result == {}
-
-
-class TestCertificateExtractorExtractSan:
-    """Test CertificateExtractor.extract_san() method."""
-
-    def test_extracts_dns_entries(self) -> None:
-        """Extract DNS entries from SAN."""
-        cert: dict[str, Any] = {
-            "subjectAltName": (
-                ("DNS", "relay.example.com"),
-                ("DNS", "*.example.com"),
-            ),
-        }
-        result = CertificateExtractor.extract_san(cert)
-        assert result == ["relay.example.com", "*.example.com"]
-
-    def test_filters_non_dns_entries(self) -> None:
-        """Filter out non-DNS entries from SAN."""
-        cert: dict[str, Any] = {
-            "subjectAltName": (
-                ("DNS", "relay.example.com"),
-                ("IP Address", "8.8.8.8"),
-                ("DNS", "www.example.com"),
-            ),
-        }
-        result = CertificateExtractor.extract_san(cert)
-        assert result == ["relay.example.com", "www.example.com"]
-
-    def test_returns_none_for_empty_san(self) -> None:
-        """Return None for empty SAN."""
-        cert: dict[str, Any] = {"subjectAltName": ()}
-        result = CertificateExtractor.extract_san(cert)
-        assert result is None
-
-    def test_returns_none_when_san_missing(self) -> None:
-        """Return None when subjectAltName key is missing."""
-        cert: dict[str, Any] = {}
-        result = CertificateExtractor.extract_san(cert)
-        assert result is None
-
-    def test_filters_non_string_dns_values(self) -> None:
-        """Filter out non-string DNS values."""
-        cert: dict[str, Any] = {
-            "subjectAltName": (
-                ("DNS", "relay.example.com"),
-                ("DNS", 12345),  # Invalid
-                ("DNS", "www.example.com"),
-            ),
-        }
-        result = CertificateExtractor.extract_san(cert)
-        assert result == ["relay.example.com", "www.example.com"]
-
-
-class TestCertificateExtractorExtractSerialAndVersion:
-    """Test CertificateExtractor.extract_serial_and_version() method."""
-
-    def test_extracts_serial_number(self) -> None:
-        """Extract serial number."""
-        cert: dict[str, Any] = {"serialNumber": "04ABCDEF12345678"}
-        result = CertificateExtractor.extract_serial_and_version(cert)
-        assert result["ssl_serial"] == "04ABCDEF12345678"
-
-    def test_extracts_version(self) -> None:
-        """Extract certificate version."""
-        cert: dict[str, Any] = {"version": 3}
-        result = CertificateExtractor.extract_serial_and_version(cert)
-        assert result["ssl_version"] == 3
-
-    def test_extracts_both(self) -> None:
-        """Extract both serial and version."""
-        cert: dict[str, Any] = {"serialNumber": "ABCD1234", "version": 3}
-        result = CertificateExtractor.extract_serial_and_version(cert)
-        assert result["ssl_serial"] == "ABCD1234"
-        assert result["ssl_version"] == 3
-
-    def test_handles_version_zero(self) -> None:
-        """Handle version 0 (should be included)."""
-        cert: dict[str, Any] = {"version": 0}
-        result = CertificateExtractor.extract_serial_and_version(cert)
-        assert result["ssl_version"] == 0
-
-    def test_returns_empty_when_missing(self) -> None:
-        """Return empty dict when both are missing."""
-        cert: dict[str, Any] = {}
-        result = CertificateExtractor.extract_serial_and_version(cert)
-        assert result == {}
 
 
 class TestCertificateExtractorExtractFingerprint:
@@ -280,42 +54,6 @@ class TestCertificateExtractorExtractFingerprint:
         expected = "SHA256:" + ":".join(digest[i : i + 2] for i in range(0, len(digest), 2))
 
         assert result == expected
-
-
-class TestCertificateExtractorExtractAll:
-    """Test CertificateExtractor.extract_all() method."""
-
-    def test_combines_all_extraction_methods(
-        self,
-        mock_certificate_dict: dict[str, Any],
-    ) -> None:
-        """extract_all combines all certificate fields."""
-        result = CertificateExtractor.extract_all(mock_certificate_dict)
-
-        assert result["ssl_subject_cn"] == "relay.example.com"
-        assert result["ssl_issuer"] == "Let's Encrypt"
-        assert result["ssl_issuer_cn"] == "R3"
-        assert "ssl_expires" in result
-        assert "ssl_not_before" in result
-        assert result["ssl_san"] == ["relay.example.com", "*.example.com"]
-        assert result["ssl_serial"] == "04ABCDEF12345678"
-        assert result["ssl_version"] == 3
-
-    def test_empty_cert_returns_empty_dict(self) -> None:
-        """Empty certificate returns empty dict."""
-        result = CertificateExtractor.extract_all({})
-        assert result == {}
-
-    def test_partial_cert_data(self) -> None:
-        """Handle certificate with partial data."""
-        cert: dict[str, Any] = {
-            "subject": ((("commonName", "test.com"),),),
-            "version": 3,
-        }
-        result = CertificateExtractor.extract_all(cert)
-        assert result["ssl_subject_cn"] == "test.com"
-        assert result["ssl_version"] == 3
-        assert "ssl_issuer" not in result
 
 
 class TestNip66SslMetadataSslSync:
@@ -392,8 +130,8 @@ class TestNip66SslMetadataSslSync:
         assert result.get("ssl_cipher_bits") == 256
         assert result.get("ssl_san") == ["relay.example.com", "*.example.com"]
 
-    def test_ssl_error_returns_invalid(self) -> None:
-        """SSL error returns ssl_valid=False."""
+    def test_ssl_error_returns_empty(self) -> None:
+        """SSL error during extraction skips validation, returns empty dict."""
         import ssl as ssl_module
 
         with patch("socket.create_connection") as mock_conn:
@@ -405,14 +143,16 @@ class TestNip66SslMetadataSslSync:
                 mock_ctx.return_value.wrap_socket.side_effect = ssl_module.SSLError()
                 result = Nip66SslMetadata._ssl("example.com", 443, 30.0)
 
-        assert result.get("ssl_valid") is False
+        assert result == {}
+        assert "ssl_valid" not in result
 
-    def test_connection_error_returns_invalid(self) -> None:
-        """Connection error returns ssl_valid=False."""
+    def test_connection_error_returns_empty(self) -> None:
+        """Connection error during extraction skips validation, returns empty dict."""
         with patch("socket.create_connection", side_effect=TimeoutError()):
             result = Nip66SslMetadata._ssl("example.com", 443, 30.0)
 
-        assert result.get("ssl_valid") is False
+        assert result == {}
+        assert "ssl_valid" not in result
 
 
 class TestNip66SslMetadataSslAsync:

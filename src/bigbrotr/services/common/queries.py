@@ -4,17 +4,17 @@ All SQL queries used by services are centralized here.  Each function
 accepts a [Brotr][bigbrotr.core.brotr.Brotr] instance and returns typed
 results.  Services import from this module instead of writing inline SQL.
 
-The 14 query functions are grouped into four categories:
+The 15 query functions are grouped into five categories:
 
 - **Relay queries**: ``get_all_relay_urls``, ``get_all_relays``,
   ``filter_new_relay_urls``, ``insert_relays``
 - **Check / monitoring queries**: ``count_relays_due_for_check``,
   ``fetch_relays_due_for_check``
-- **Event queries**: ``get_events_with_relay_urls``
+- **Event queries**: ``fetch_event_tagvalues``
 - **Candidate lifecycle**: ``insert_candidates``, ``count_candidates``,
   ``fetch_candidate_chunk``, ``delete_stale_candidates``,
   ``delete_exhausted_candidates``, ``promote_candidates``
-- **Cursor queries**: ``get_all_service_cursors``
+- **Cursor queries**: ``get_all_service_cursors``, ``delete_orphan_cursors``
 
 Warning:
     All queries use the timeout from
@@ -253,20 +253,17 @@ async def fetch_relays_due_for_check(
     return [dict(row) for row in rows]
 
 
-async def get_events_with_relay_urls(
+async def fetch_event_tagvalues(
     brotr: Brotr,
     relay_url: str,
     last_seen_at: int,
-    kinds: list[int],
     limit: int,
 ) -> list[dict[str, Any]]:
-    """Fetch events containing relay URLs from a specific relay.
+    """Fetch event tagvalues from a specific relay, cursor-paginated.
 
-    Retrieves events that either match discovery-relevant kinds or contain
-    ``r`` tags, cursor-paginated by ``seen_at``. The cursor is stored per
-    relay in ``service_state`` so that historical events inserted by
-    [Synchronizer][bigbrotr.services.synchronizer.Synchronizer] are
-    eventually processed.
+    Retrieves all events seen on the relay after the cursor position.
+    The caller extracts relay URLs by parsing each tagvalue via
+    ``parse_relay_url``.
 
     Called by [Finder][bigbrotr.services.finder.Finder] during per-relay
     event scanning.
@@ -275,18 +272,11 @@ async def get_events_with_relay_urls(
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         relay_url: Source relay to scan events from.
         last_seen_at: Cursor position -- only events seen after this.
-        kinds: Event kinds to include (e.g. contact lists, relay lists).
         limit: Maximum events per batch.
 
     Returns:
-        List of event dicts with keys: ``id``, ``created_at``, ``kind``,
-        ``tags``, ``content``, ``seen_at``.
-
-    Warning:
-        This query joins ``event`` with ``event_relay`` and filters on
-        ``tagvalues``, which can be expensive on large tables. Always pass
-        an appropriate ``limit`` and ensure indexes exist on
-        ``event_relay(relay_url, seen_at)`` and ``event(tagvalues)``.
+        List of dicts with keys: ``tagvalues`` (``list[str]``),
+        ``seen_at`` (``int``).
 
     See Also:
         [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors]:
@@ -295,18 +285,16 @@ async def get_events_with_relay_urls(
     """
     rows = await brotr.fetch(
         """
-        SELECT e.id, e.created_at, e.kind, e.tags, e.content, er.seen_at
+        SELECT e.tagvalues, er.seen_at
         FROM event e
         INNER JOIN event_relay er ON e.id = er.event_id
         WHERE er.relay_url = $1
           AND er.seen_at > $2
-          AND (e.kind = ANY($3) OR e.tagvalues @> ARRAY['r'])
         ORDER BY er.seen_at ASC
-        LIMIT $4
+        LIMIT $3
         """,
         relay_url,
         last_seen_at,
-        kinds,
         limit,
     )
     return [dict(row) for row in rows]
@@ -628,3 +616,39 @@ async def get_all_service_cursors(
         ServiceStateType.CURSOR,
     )
     return {r["state_key"]: r["cursor_value"] for r in rows if r["cursor_value"] is not None}
+
+
+async def delete_orphan_cursors(brotr: Brotr, service_name: ServiceName) -> int:
+    """Remove cursor records whose relay no longer exists in the ``relay`` table.
+
+    Cursors accumulate indefinitely as relays are discovered and later removed.
+    This cleanup prevents unbounded growth of stale cursor rows in
+    ``service_state``.
+
+    Called by [Finder][bigbrotr.services.finder.Finder] and
+    [Synchronizer][bigbrotr.services.synchronizer.Synchronizer] at the start
+    of each cycle, before loading cursors.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        service_name: Service owning the cursors (e.g.,
+            ``ServiceName.FINDER``).
+
+    Returns:
+        Number of orphan cursor rows deleted.
+
+    See Also:
+        [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors]:
+            The companion fetch query for cursor records.
+    """
+    result = await brotr.execute(
+        """
+        DELETE FROM service_state
+        WHERE service_name = $1
+          AND state_type = $2
+          AND state_key NOT IN (SELECT url FROM relay)
+        """,
+        service_name,
+        ServiceStateType.CURSOR,
+    )
+    return parse_delete_result(result)

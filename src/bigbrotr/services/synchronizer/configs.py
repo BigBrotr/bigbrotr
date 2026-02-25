@@ -142,9 +142,6 @@ class ConcurrencyConfig(BaseModel):
     cursor_flush_interval: int = Field(
         default=50, ge=1, description="Flush cursor updates every N relays"
     )
-    stagger_delay: tuple[int, int] = Field(
-        default=(0, 60), description="Random delay range (min, max) seconds"
-    )
 
 
 class SourceConfig(BaseModel):

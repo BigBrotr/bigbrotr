@@ -240,7 +240,7 @@ class Nip66RttMetadata(BaseNipMetadata):
             logger.debug("rtt_open_ok relay=%s rtt_open_ms=%s", relay.url, rtt_open)
             return client, rtt_open
         except (OSError, TimeoutError, NostrSdkError, ValueError) as e:
-            reason = str(e)
+            reason = str(e) or type(e).__name__
             logger.debug("rtt_open_failed relay=%s reason=%s", relay.url, reason)
             # Cascading failure: mark all phases as failed
             logs["open_success"] = False

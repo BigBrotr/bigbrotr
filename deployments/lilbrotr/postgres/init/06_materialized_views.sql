@@ -1,5 +1,5 @@
 /*
- * Brotr - 06_materialized_views.sql
+ * LilBrotr - 06_materialized_views.sql
  *
  * Materialized views for pre-computed lookups. Each view has a corresponding
  * refresh function in 07_functions_refresh.sql and a unique index for
@@ -310,24 +310,15 @@ COMMENT ON MATERIALIZED VIEW pubkey_counts_by_relay IS
 -- Refresh: Daily via network_stats_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS network_stats AS
-WITH relay_events AS (
-    SELECT
-        er.relay_url,
-        COUNT(DISTINCT er.event_id) AS event_count,
-        COUNT(DISTINCT e.pubkey) AS unique_pubkeys,
-        COUNT(DISTINCT e.kind) AS unique_kinds
-    FROM event_relay AS er
-    LEFT JOIN event AS e ON er.event_id = e.id
-    GROUP BY er.relay_url
-)
 SELECT
     r.network,
     COUNT(DISTINCT r.url) AS relay_count,
-    COALESCE(SUM(re.event_count), 0)::BIGINT AS event_count,
-    COALESCE(SUM(re.unique_pubkeys), 0)::BIGINT AS unique_pubkeys,
-    COALESCE(SUM(re.unique_kinds), 0)::BIGINT AS unique_kinds
+    COUNT(DISTINCT er.event_id)::BIGINT AS event_count,
+    COUNT(DISTINCT e.pubkey)::BIGINT AS unique_pubkeys,
+    COUNT(DISTINCT e.kind)::BIGINT AS unique_kinds
 FROM relay AS r
-LEFT JOIN relay_events AS re ON r.url = re.relay_url
+LEFT JOIN event_relay AS er ON r.url = er.relay_url
+LEFT JOIN event AS e ON er.event_id = e.id
 GROUP BY r.network
 ORDER BY relay_count DESC;
 
@@ -377,6 +368,7 @@ CROSS JOIN LATERAL jsonb_array_elements_text(data -> 'supported_nips') AS nip_te
 WHERE metadata_type = 'nip11_info'
     AND data ? 'supported_nips'
     AND jsonb_typeof(data -> 'supported_nips') = 'array'
+    AND nip_text ~ '^\d+$'
 GROUP BY nip_text::INTEGER
 ORDER BY relay_count DESC;
 

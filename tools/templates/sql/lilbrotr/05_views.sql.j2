@@ -1,4 +1,5 @@
-/*
+{% extends "base/05_views.sql.j2" %}
+{% block header_comment %}
  * LilBrotr - 05_views.sql
  *
  * Regular (non-materialized) views for real-time query abstractions.
@@ -6,6 +7,4 @@
  * staleness trade-off of materialized views.
  *
  * Dependencies: 02_tables.sql
- */
-
--- No regular views defined in the base schema.
+{% endblock %}

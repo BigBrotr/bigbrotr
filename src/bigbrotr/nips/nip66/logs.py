@@ -65,7 +65,7 @@ class Nip66RttMultiPhaseLogs(BaseModel):
         # Open phase
         if self.open_success and self.open_reason is not None:
             raise ValueError("open_reason must be None when open_success is True")
-        if not self.open_success and self.open_reason is None:
+        if not self.open_success and not self.open_reason:
             raise ValueError("open_reason is required when open_success is False")
 
         # Cascading failure: open failure implies read/write failure
@@ -79,14 +79,14 @@ class Nip66RttMultiPhaseLogs(BaseModel):
         if self.read_success is not None:
             if self.read_success and self.read_reason is not None:
                 raise ValueError("read_reason must be None when read_success is True")
-            if not self.read_success and self.read_reason is None:
+            if not self.read_success and not self.read_reason:
                 raise ValueError("read_reason is required when read_success is False")
 
         # Write phase (if present)
         if self.write_success is not None:
             if self.write_success and self.write_reason is not None:
                 raise ValueError("write_reason must be None when write_success is True")
-            if not self.write_success and self.write_reason is None:
+            if not self.write_success and not self.write_reason:
                 raise ValueError("write_reason is required when write_success is False")
 
         return self

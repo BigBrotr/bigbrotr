@@ -325,7 +325,7 @@ class Brotr:
 
         Args:
             procedure_name: Name of the stored procedure. Must match
-                ``[a-z_][a-z0-9_]*`` (case-insensitive).
+                ``[a-z_][a-z0-9_]*``.
             *args: Arguments passed as parameterized query values.
             fetch_result: If ``True``, return the scalar result (defaulting
                 to ``0`` for ``None``). If ``False``, execute without returning.
@@ -795,6 +795,7 @@ class Brotr:
         params = [r.to_db_params() for r in records]
         columns = self._transpose_to_columns(params)
 
+        # Procedure returns VOID; no DB-confirmed count available
         await self._call_procedure(
             "service_state_upsert",
             *columns,

@@ -378,6 +378,35 @@ class TestParseSeedFile:
         assert len(relays) == 1
         assert "i2p" in relays[0].url
 
+    def test_parse_file_not_found(self, tmp_path: Path) -> None:
+        """Test parsing returns empty list for non-existent file."""
+        relays = parse_seed_file(tmp_path / "nonexistent.txt")
+        assert relays == []
+
+    def test_parse_permission_error(self, tmp_path: Path) -> None:
+        """Test parsing returns empty list when file is not readable."""
+        seed_file = tmp_path / "seed.txt"
+        seed_file.write_text("wss://relay.example.com")
+        seed_file.chmod(0o000)
+
+        relays = parse_seed_file(seed_file)
+        assert relays == []
+
+        seed_file.chmod(0o644)
+
+    def test_parse_is_a_directory_error(self, tmp_path: Path) -> None:
+        """Test parsing returns empty list when path is a directory."""
+        relays = parse_seed_file(tmp_path)
+        assert relays == []
+
+    def test_parse_unicode_decode_error(self, tmp_path: Path) -> None:
+        """Test parsing returns empty list for non-UTF-8 file."""
+        seed_file = tmp_path / "seed.txt"
+        seed_file.write_bytes(b"\xff\xfe" + b"\x00" * 50)
+
+        relays = parse_seed_file(seed_file)
+        assert relays == []
+
 
 # ============================================================================
 # Seed As Candidates Tests

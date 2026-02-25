@@ -1,6 +1,6 @@
 """Shared infrastructure for all BigBrotr services.
 
-Provides the foundational building blocks used across all five pipeline
+Provides the foundational building blocks used across all six pipeline
 services: configuration models, mixins, and centralized SQL query functions.
 
 Attributes:
@@ -16,7 +16,7 @@ Attributes:
         for per-network concurrency control, and
         [GeoReaders][bigbrotr.services.common.mixins.GeoReaders] for GeoIP
         database reader lifecycle management.
-    queries: 14 domain-specific SQL query functions centralized in one module
+    queries: 15 domain-specific SQL query functions centralized in one module
         to avoid scattering inline SQL across services.
 
 See Also:

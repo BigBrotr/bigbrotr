@@ -1,0 +1,10 @@
+{% extends "base/06_materialized_views.sql.j2" %}
+{% block header_comment %}
+ * LilBrotr - 06_materialized_views.sql
+ *
+ * Materialized views for pre-computed lookups. Each view has a corresponding
+ * refresh function in 07_functions_refresh.sql and a unique index for
+ * REFRESH CONCURRENTLY in 08_indexes.sql.
+ *
+ * Dependencies: 02_tables.sql
+{% endblock %}

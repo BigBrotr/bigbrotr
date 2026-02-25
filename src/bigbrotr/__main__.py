@@ -91,7 +91,8 @@ async def run_service(
     # One-shot mode: single cycle, no metrics server
     if once:
         try:
-            await service.run()
+            async with service:
+                await service.run()
             logger.info(f"{service_name}_completed")
             return 0
         except Exception as e:  # Intentionally broad: CLI error boundary for one-shot mode

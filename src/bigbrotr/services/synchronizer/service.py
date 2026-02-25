@@ -21,9 +21,9 @@ Note:
     with ``state_type='cursor'``. Cursor updates are batched (flushed
     every ``cursor_flush_interval`` relays) for crash resilience.
 
-    The stagger delay (``concurrency.stagger_delay``) randomizes the
-    relay processing order to avoid thundering-herd effects when multiple
-    synchronizer instances run concurrently.
+    Relay processing order is randomized (shuffled) to avoid
+    thundering-herd effects when multiple synchronizer instances run
+    concurrently.
 
 See Also:
     [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
@@ -68,7 +68,11 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
-from bigbrotr.services.common.queries import get_all_relays, get_all_service_cursors
+from bigbrotr.services.common.queries import (
+    delete_orphan_cursors,
+    get_all_relays,
+    get_all_service_cursors,
+)
 
 from .configs import SynchronizerConfig
 from .utils import SyncBatchState, SyncContext, SyncCycleCounters, sync_relay_events
@@ -136,7 +140,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         )
 
         cycle_start = time.monotonic()
-        self._counters = SyncCycleCounters()
+        self._counters.reset()
 
         relay_count = await self.synchronize()
 
@@ -145,7 +149,6 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         self.set_gauge("failed_relays", self._counters.failed_relays)
         self.set_gauge("synced_events", self._counters.synced_events)
         self.set_gauge("invalid_events", self._counters.invalid_events)
-        self.set_gauge("skipped_events", self._counters.skipped_events)
 
         self._logger.info(
             "cycle_completed",
@@ -153,7 +156,6 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             failed_relays=self._counters.failed_relays,
             synced_events=self._counters.synced_events,
             invalid_events=self._counters.invalid_events,
-            skipped_events=self._counters.skipped_events,
             duration_s=round(time.monotonic() - cycle_start, 2),
         )
 
@@ -170,6 +172,15 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         Returns:
             Number of relays that were processed.
         """
+        try:
+            removed = await delete_orphan_cursors(self._brotr, self.SERVICE_NAME)
+            if removed:
+                self._logger.info("orphan_cursors_removed", count=removed)
+        except (asyncpg.PostgresError, OSError) as e:
+            self._logger.warning(
+                "orphan_cursor_cleanup_failed", error=str(e), error_type=type(e).__name__
+            )
+
         relays = await self.fetch_relays()
         relays = self._merge_overrides(relays)
 
@@ -185,11 +196,14 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
     async def fetch_relays(self) -> list[Relay]:
         """Fetch validated relays from the database for synchronization.
 
+        Filters relays to only include enabled networks, avoiding unnecessary
+        relay loading for disabled network types.
+
         Controlled by ``source.from_database`` in
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig].
 
         Returns:
-            List of relays to sync.
+            List of relays to sync (filtered by enabled networks).
 
         See Also:
             [get_all_relays][bigbrotr.services.common.queries.get_all_relays]:
@@ -200,12 +214,14 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
 
         rows = await get_all_relays(self._brotr)
 
+        enabled = set(self._config.networks.get_enabled_networks())
         relays: list[Relay] = []
         for row in rows:
             url_str = row["url"].strip()
             try:
                 relay = Relay(url_str, discovered_at=row["discovered_at"])
-                relays.append(relay)
+                if relay.network.value in enabled:
+                    relays.append(relay)
             except (ValueError, TypeError) as e:
                 self._logger.debug("invalid_relay_url", url=url_str, error=str(e))
 
@@ -324,7 +340,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             )
 
             try:
-                events_synced, invalid_events, skipped_events = await asyncio.wait_for(
+                events_synced, invalid_events = await asyncio.wait_for(
                     sync_relay_events(relay=relay, start_time=start, end_time=end_time, ctx=ctx),
                     timeout=relay_timeout,
                 )
@@ -332,12 +348,10 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                 async with self._counters.lock:
                     self._counters.synced_events += events_synced
                     self._counters.invalid_events += invalid_events
-                    self._counters.skipped_events += skipped_events
                     self._counters.synced_relays += 1
 
                 self.inc_counter("total_events_synced", events_synced)
                 self.inc_counter("total_events_invalid", invalid_events)
-                self.inc_counter("total_events_skipped", skipped_events)
 
                 async with batch.cursor_lock:
                     batch.cursor_updates.append(

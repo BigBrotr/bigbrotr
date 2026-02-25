@@ -1,7 +1,7 @@
 """Nostr protocol client operations for BigBrotr.
 
 Provides client factory, relay connection with SSL fallback, event
-broadcasting, relay validation, and event fetching. Built on top of the
+broadcasting, and relay validation. Built on top of the
 WebSocket transport primitives in
 [bigbrotr.utils.transport][bigbrotr.utils.transport].
 
@@ -10,7 +10,6 @@ Attributes:
     connect_relay: High-level helper with automatic SSL fallback.
     is_nostr_relay: Check whether a URL hosts a Nostr relay.
     broadcast_events: Sign and broadcast events to multiple relays.
-    fetch_relay_events: Async generator yielding validated events from a relay.
 
 Note:
     The SSL fallback strategy for clearnet relays follows a two-phase
@@ -71,13 +70,12 @@ from nostr_sdk import (
 )
 
 from bigbrotr.models.constants import NetworkType
-from bigbrotr.models.event import Event
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.utils.transport import DEFAULT_TIMEOUT, InsecureWebSocketTransport
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Generator
+    from collections.abc import Generator
 
     from nostr_sdk import EventBuilder, Keys
 
@@ -116,9 +114,26 @@ def _is_ssl_error(error_message: str) -> bool:
 class _StderrSuppressor:
     """Reference-counted stderr suppressor for async-safe batch suppression.
 
+    nostr-sdk's Rust FFI layer writes diagnostic output directly to the
+    process stderr file descriptor from arbitrary native threads.  Because
+    these writes bypass Python's I/O stack and are not associated with any
+    Python thread, there is no way to selectively suppress only nostr-sdk
+    output while preserving stderr from other libraries.
+
+    Trade-off: while the suppressor is active, ALL stderr output -- including
+    from unrelated libraries -- is redirected to ``/dev/null``.  This is an
+    intentional choice: the alternative (e.g. dup2 tricks or pty-based
+    filtering) would be significantly more complex and fragile for negligible
+    benefit.
+
+    Mitigation: the suppression scope is deliberately narrow, wrapping only
+    the short ``is_nostr_relay`` validation window (connect + single event
+    fetch).  Any stderr produced outside that window is unaffected.
+
     Multiple concurrent async tasks can enter suppression without blocking
-    the event loop. A ``threading.Lock`` would deadlock here because the
-    context manager ``yield`` crosses ``await`` boundaries.
+    the event loop.  A ``threading.Lock`` would deadlock here because the
+    context manager ``yield`` crosses ``await`` boundaries; instead, a
+    simple reference count tracks active suppressors.
     """
 
     __slots__ = ("_devnull", "_refcount", "_saved_stderr")
@@ -438,55 +453,3 @@ async def is_nostr_relay(
                 # nostr-sdk Rust FFI can raise arbitrary exception types during disconnect.
                 with contextlib.suppress(Exception):
                     await asyncio.wait_for(client.disconnect(), timeout=timeout)
-
-
-async def fetch_relay_events(
-    relay: Relay,
-    event_filter: Filter,
-    *,
-    timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
-    proxy_url: str | None = None,
-    keys: Keys | None = None,
-) -> AsyncIterator[Event]:
-    """Connect to a relay and yield signature-verified Event objects.
-
-    The connection is managed automatically: opened on iteration start,
-    closed when the generator exits (including on break/exception).
-
-    Args:
-        relay: Relay to connect to.
-        event_filter: nostr-sdk Filter specifying which events to fetch.
-        timeout: Request timeout in seconds.
-        proxy_url: SOCKS5 proxy URL for overlay networks.
-        keys: Optional signing keys for NIP-42 authentication.
-
-    Yields:
-        Validated [Event][bigbrotr.models.event.Event] objects
-        (signature-verified, model-constructed).
-
-    Examples:
-        ```python
-        from nostr_sdk import Filter, Kind, Timestamp
-        from bigbrotr.models import Relay
-
-        relay = Relay("wss://relay.damus.io")
-        f = Filter().kinds([Kind(1)]).since(Timestamp.from_secs(ts)).limit(100)
-
-        async for event in fetch_relay_events(relay, f, timeout=30):
-            print(f"Event {event.id[:8]}... kind={event.kind}")
-        ```
-    """
-    client = await create_client(keys, proxy_url)
-    await client.add_relay(RelayUrl.parse(relay.url))
-    try:
-        await client.connect()
-        events = await client.fetch_events(event_filter, timedelta(seconds=timeout))
-        for evt in events.to_vec():
-            try:
-                if evt.verify():
-                    yield Event(evt)
-            except (ValueError, TypeError, OverflowError):
-                continue
-    finally:
-        with contextlib.suppress(Exception):
-            await client.shutdown()

@@ -76,19 +76,24 @@ repos:
         additional_dependencies:
           # Type stubs
           - types-PyYAML>=6.0.12
+          - types-jmespath>=1.0.0
           - asyncpg-stubs>=0.30.0
           # Runtime dependencies (for type inference)
+          - jmespath>=1.0.0
           - pydantic>=2.5.0
           - aiohttp>=3.9.0
           - aiohttp-socks>=0.9.0
           - aiomultiprocess>=0.9.1
           - asyncpg>=0.29.0
+          - cryptography>=46.0.5
+          - dnspython>=2.5.0
           - geoip2>=4.8.0
           - geohash2>=1.1
           - nostr-sdk>=0.37.0
           - prometheus-client>=0.21.0
           - PyYAML>=6.0.1
           - rfc3986>=2.0.0
+          - tldextract>=5.1.0
           - typing-extensions>=4.9.0
         args: [--config-file=pyproject.toml]
         pass_filenames: false

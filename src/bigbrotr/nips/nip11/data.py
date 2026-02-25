@@ -338,7 +338,7 @@ class Nip11InfoData(BaseData):
                 n for n in data["supported_nips"] if isinstance(n, int) and not isinstance(n, bool)
             ]
             if nips:
-                result["supported_nips"] = nips
+                result["supported_nips"] = sorted(set(nips))
 
         result.update(cls._parse_sub_objects(data))
         return result

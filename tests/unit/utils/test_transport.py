@@ -2,6 +2,7 @@
 Unit tests for utils.transport module.
 
 Tests:
+- _NostrSdkStderrFilter - Stderr suppression for UniFFI tracebacks
 - InsecureWebSocketAdapter - WebSocket adapter for insecure connections
 - InsecureWebSocketTransport - Custom transport with SSL disabled
 """
@@ -13,7 +14,107 @@ import pytest
 from bigbrotr.utils.transport import (
     InsecureWebSocketAdapter,
     InsecureWebSocketTransport,
+    _NostrSdkStderrFilter,
 )
+
+
+# =============================================================================
+# _NostrSdkStderrFilter Tests
+# =============================================================================
+
+
+class TestNostrSdkStderrFilterWrite:
+    def _make_filter(self) -> _NostrSdkStderrFilter:
+        original = MagicMock()
+        original.write = MagicMock(return_value=0)
+        return _NostrSdkStderrFilter(original)
+
+    def test_normal_text_passes_through(self) -> None:
+        f = self._make_filter()
+        f.write("hello world")
+        f._original.write.assert_called_once_with("hello world")
+
+    def test_uniffi_triggers_suppression(self) -> None:
+        f = self._make_filter()
+        f.write("UniFFI: some error")
+        assert f._suppressing is True
+        assert f._suppressed_count == 0
+
+    def test_unhandled_exception_triggers_suppression(self) -> None:
+        f = self._make_filter()
+        f.write("Unhandled exception in callback")
+        assert f._suppressing is True
+
+    def test_suppressed_lines_are_not_forwarded(self) -> None:
+        f = self._make_filter()
+        f.write("UniFFI: error")
+        f.write("traceback line 1")
+        f.write("traceback line 2")
+        f._original.write.assert_not_called()
+
+    def test_empty_line_ends_suppression(self) -> None:
+        f = self._make_filter()
+        f.write("UniFFI: error")
+        f.write("traceback line")
+        f.write("")
+        assert f._suppressing is False
+        f.write("normal output")
+        f._original.write.assert_called_once_with("normal output")
+
+    def test_newline_ends_suppression(self) -> None:
+        f = self._make_filter()
+        f.write("UniFFI: error")
+        f.write("traceback line")
+        f.write("\n")
+        assert f._suppressing is False
+
+    def test_counter_resets_on_new_suppression(self) -> None:
+        f = self._make_filter()
+        f.write("UniFFI: first")
+        for _ in range(10):
+            f.write("line")
+        assert f._suppressed_count == 10
+        f.write("UniFFI: second")
+        assert f._suppressed_count == 0
+
+    def test_max_lines_exits_suppression(self) -> None:
+        f = self._make_filter()
+        f.write("UniFFI: error")
+        for i in range(f._MAX_SUPPRESSED_LINES):
+            f.write(f"traceback line {i}")
+        assert f._suppressing is False
+        f.write("normal output after max")
+        f._original.write.assert_called_once_with("normal output after max")
+
+    def test_max_lines_value_is_50(self) -> None:
+        assert _NostrSdkStderrFilter._MAX_SUPPRESSED_LINES == 50
+
+    def test_write_returns_len_when_suppressing(self) -> None:
+        f = self._make_filter()
+        f.write("UniFFI: error")
+        result = f.write("suppressed text")
+        assert result == len("suppressed text")
+
+    def test_write_returns_original_result_when_not_suppressing(self) -> None:
+        f = self._make_filter()
+        f._original.write.return_value = 42
+        result = f.write("hello")
+        assert result == 42
+
+
+class TestNostrSdkStderrFilterFlush:
+    def test_flush_delegates_to_original(self) -> None:
+        f = _NostrSdkStderrFilter(MagicMock())
+        f.flush()
+        f._original.flush.assert_called_once()
+
+
+class TestNostrSdkStderrFilterGetattr:
+    def test_getattr_delegates_to_original(self) -> None:
+        original = MagicMock()
+        original.fileno.return_value = 2
+        f = _NostrSdkStderrFilter(original)
+        assert f.fileno() == 2
 
 
 # =============================================================================

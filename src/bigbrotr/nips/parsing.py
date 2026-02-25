@@ -27,6 +27,7 @@ See Also:
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -116,6 +117,15 @@ class FieldSpec:
     int_list_fields: frozenset[str] = field(default_factory=frozenset)
 
 
+@functools.lru_cache(maxsize=8)
+def _build_dispatch(spec: FieldSpec) -> dict[str, Callable[[Any], Any]]:
+    dispatch: dict[str, Callable[[Any], Any]] = {}
+    for attr_name, parser in _FIELD_PARSERS:
+        for name in getattr(spec, attr_name):
+            dispatch[name] = parser
+    return dispatch
+
+
 def parse_fields(data: dict[str, Any], spec: FieldSpec) -> dict[str, Any]:
     """Parse a dictionary according to a ``FieldSpec``, dropping invalid values.
 
@@ -144,10 +154,7 @@ def parse_fields(data: dict[str, Any], spec: FieldSpec) -> dict[str, Any]:
         [bigbrotr.nips.base.BaseData.parse][bigbrotr.nips.base.BaseData.parse]:
             Class method that delegates to this function.
     """
-    dispatch: dict[str, Callable[[Any], Any]] = {}
-    for attr_name, parser in _FIELD_PARSERS:
-        for name in getattr(spec, attr_name):
-            dispatch[name] = parser
+    dispatch = _build_dispatch(spec)
 
     result: dict[str, Any] = {}
     for key, value in data.items():

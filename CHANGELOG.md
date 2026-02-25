@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.3.0] - 2026-02-25
+
+Comprehensive codebase hardening: 46 commits across 44 PRs. Finder refactored from kind-specific event parsing to kind-agnostic tagvalues scanning with JMESPath-based configurable API extraction. Extensive bug fixes across all layers (models, core, NIPs, services, deployments), dead code removal, and improved error handling.
+
+### DEPLOYMENT CHANGES
+
+- **SQL template sync**: LilBrotr deployment SQL files updated for batched orphan_event_delete, network_stats direct-join rewrite, supported_nip_counts cast guard, Synchronizer indexes, and corrected file headers. Requires fresh `initdb` or manual execution of updated SQL files (04, 05, 06, 07, 08)
+- **Grafana depends_on**: Added `service_healthy` condition to Grafana container's Prometheus dependency
+
+### Added
+
+- **JMESPath API extraction** (#309): `ApiSourceConfig.jmespath` field enables configurable relay URL extraction from diverse JSON API response formats (`[*]`, `data.relays`, `[*].url`, `keys(@)`)
+- **`jmespath` dependency**: `jmespath>=1.0.0` (runtime) and `types-jmespath>=1.0.0` (dev type stubs)
+- **`delete_orphan_cursors` query**: Removes cursor records for relays no longer in the database, shared by Finder and Synchronizer (#309)
+- **Finder metrics**: `relays_failed` gauge and `total_api_relays_found` counter (#309)
+- **Synchronizer network filtering**: `fetch_relays()` now filters by enabled networks, avoiding unnecessary relay loading (#309)
+- **NIP-11 shared session**: `Nip11.fetch_info()` accepts an optional shared `aiohttp.ClientSession` for connection pooling (#307)
+- **Event.from_db_params() roundtrip test** (#295)
+
+### Refactored
+
+- **Finder event scanning** (#309): Replaced kind-specific parsing (r-tags, kind 2 content, kind 3 JSON) with kind-agnostic `tagvalues` scanning via `parse_relay_url`. Removed `EventsConfig.kinds` field. Renamed `get_events_with_relay_urls` → `fetch_event_tagvalues` (simpler query selecting only `tagvalues` + `seen_at`)
+- **Logger truncation** (#300): Consolidated duplicate value truncation logic to single point in `format_kv_pairs()`
+- **Dead code removal**: Removed unused `fetch_relay_events` function (#280), unused dict-based `CertificateExtractor` methods (#306), hardcoded `skipped_events` from Synchronizer (#297), unused `stagger_delay` config (#272), unnecessary `getattr` fallbacks in `run_forever()` (#275)
+
+### Fixed
+
+- **Relay equality** (#287, #289): Excluded `raw_url` from `Relay.__eq__` comparison, preventing false negatives when the same URL is stored with different original casing
+- **SSL validation** (#268): Made conditional on successful certificate extraction, preventing false validation errors
+- **`_persist_scan_chunk`** (#309): No longer re-raises non-fatal cursor update errors
+- **`upsert_service_state`** (#305): Returns confirmed count from database instead of input count
+- **`_get_publish_relays`** (#285): Uses `is not None` instead of truthiness check
+- **`_publish_if_due`** (#279): Uses `int` timestamp consistently
+- **`deep_freeze`** (#284): Returns `tuple` instead of `list` for true immutability
+- **`parse_seed_file`** (#292): Widened exception handling to catch all I/O errors
+- **`models_from_dict`** (#293): Catches `KeyError` for missing keys
+- **`SyncCycleCounters`** (#298, #308): Removed duplicate initialization and stale `skipped_events` reference
+- **NIP-11 `supported_nips`** (#291): Deduplicates NIP values during parsing
+- **NIP-66 log classes** (#270): Unified reason validation to falsy check
+- **NIP-66 DNS** (#269): Catches `tldextract` exceptions
+- **NIP-66 GeoIP** (#278): Removed dead exception catch in `_geo()` method
+- **`_NostrSdkStderrFilter`** (#299): Added max line safety valve
+- **`NetworksConfig`** (#294): Logs warning on fallback to clearnet
+- **`parse_fields`** (#277): Cached dispatch dict with `lru_cache`
+- **One-shot mode** (#276): Wrapped in service context manager
+- **Refresher** (#271): Narrowed exception catch to database errors only
+- **`network_stats`** (#274): Computes unique counts at network level with direct join
+- **`supported_nip_counts`** (#273): Guards against non-integer NIP values
+- **`orphan_event_delete`** (#283): Added batching for large deletions
+- **mypy** (#302, #304): Removed blanket `ignore_errors` from `__main__` and `asyncpg` from ignore list
+- **Pre-commit mypy hook** (#303): Added missing runtime dependencies
+- **LilBrotr SQL** (#282, #286): Fixed file headers and added missing Synchronizer indexes
+- **Grafana** (#281): Added health check condition to `depends_on`
+- **SQL templates**: Synced with all deployment fixes (batching, joins, cast guards, headers)
+
+### Tests
+
+- Relaxed exact mock call count assertions in Event tests (#296)
+- Added 170+ new tests for Finder (JMESPath, orphan cursors, metrics), Synchronizer (network filter, orphan cursors), queries (`delete_orphan_cursors`, `fetch_event_tagvalues`), and transport
+
+### Documentation
+
+- Removed incorrect case-insensitive claim from procedure name docstring (#288)
+- Documented `_StderrSuppressor` global scope trade-off (#301)
+- Updated service count from five to six in common package docstring (#290)
+
+---
+
 ## [5.2.0] - 2026-02-24
 
 Refresher service, rich analytics materialized views, shared deployment SQL, concurrent Finder event scanning, and legacy brotr deployment removal. 8 commits across 6 PRs.
@@ -636,7 +704,8 @@ Initial prototype release.
 
 ---
 
-[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.2.0...HEAD
+[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.3.0...HEAD
+[5.3.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.2.0...v5.3.0
 [5.2.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.0.1...v5.1.0
 [5.0.1]: https://github.com/bigbrotr/bigbrotr/compare/v5.0.0...v5.0.1
