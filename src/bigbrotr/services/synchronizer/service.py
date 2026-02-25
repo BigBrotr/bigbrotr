@@ -136,7 +136,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         )
 
         cycle_start = time.monotonic()
-        self._counters = SyncCycleCounters()
+        self._counters.reset()
 
         relay_count = await self.synchronize()
 
