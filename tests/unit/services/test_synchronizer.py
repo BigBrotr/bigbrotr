@@ -623,7 +623,6 @@ class TestSynchronizerRun:
         sync._counters.synced_relays = 99
         sync._counters.failed_relays = 99
         sync._counters.invalid_events = 99
-        sync._counters.skipped_events = 99
 
         await sync.run()
 
@@ -631,7 +630,6 @@ class TestSynchronizerRun:
         assert sync._counters.synced_relays == 0
         assert sync._counters.failed_relays == 0
         assert sync._counters.invalid_events == 0
-        assert sync._counters.skipped_events == 0
 
 
 # ============================================================================
@@ -666,14 +664,13 @@ class TestSynchronizerSyncAllRelays:
         with patch(
             "bigbrotr.services.synchronizer.service.sync_relay_events",
             new_callable=AsyncMock,
-            return_value=(10, 2, 1),
+            return_value=(10, 2),
         ):
             await sync._sync_all_relays([relay])
 
         assert sync._counters.synced_relays == 1
         assert sync._counters.synced_events == 10
         assert sync._counters.invalid_events == 2
-        assert sync._counters.skipped_events == 1
 
     async def test_sync_all_relays_handles_task_group_errors(
         self, mock_synchronizer_brotr: Brotr
@@ -767,7 +764,7 @@ class TestSynchronizerSyncAllRelays:
         with patch(
             "bigbrotr.services.synchronizer.service.sync_relay_events",
             new_callable=AsyncMock,
-            return_value=(1, 0, 0),
+            return_value=(1, 0),
         ):
             await sync._sync_all_relays([relay])
 
@@ -794,7 +791,7 @@ class TestSynchronizerSyncAllRelays:
         with patch(
             "bigbrotr.services.synchronizer.service.sync_relay_events",
             new_callable=AsyncMock,
-            return_value=(1, 0, 0),
+            return_value=(1, 0),
         ):
             await sync._sync_all_relays(relays)
 
@@ -821,7 +818,7 @@ class TestSynchronizerSyncAllRelays:
         with patch(
             "bigbrotr.services.synchronizer.service.sync_relay_events",
             new_callable=AsyncMock,
-            return_value=(1, 0, 0),
+            return_value=(1, 0),
         ):
             # Should not raise
             await sync._sync_all_relays([relay])
@@ -874,7 +871,7 @@ class TestSynchronizerSyncAllRelays:
         with patch(
             "bigbrotr.services.synchronizer.service.sync_relay_events",
             new_callable=AsyncMock,
-            return_value=(0, 0, 0),
+            return_value=(0, 0),
         ):
             await sync._sync_all_relays([relay])
 
@@ -893,7 +890,7 @@ class TestSynchronizerSyncAllRelays:
         with patch(
             "bigbrotr.services.synchronizer.service.sync_relay_events",
             new_callable=AsyncMock,
-            return_value=(1, 0, 0),
+            return_value=(1, 0),
         ):
             await sync._sync_all_relays([relay])
 
@@ -931,7 +928,6 @@ class TestSynchronizerMetrics:
         sync.set_gauge.assert_any_call("failed_relays", 0)
         sync.set_gauge.assert_any_call("synced_events", 0)
         sync.set_gauge.assert_any_call("invalid_events", 0)
-        sync.set_gauge.assert_any_call("skipped_events", 0)
 
     async def test_run_no_relays_emits_zero_total(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test run() emits total=0 gauge when no relays to sync."""
@@ -957,13 +953,12 @@ class TestSynchronizerMetrics:
         with patch(
             "bigbrotr.services.synchronizer.service.sync_relay_events",
             new_callable=AsyncMock,
-            return_value=(10, 2, 1),
+            return_value=(10, 2),
         ):
             await sync._sync_all_relays([relay])
 
         sync.inc_counter.assert_any_call("total_events_synced", 10)
         sync.inc_counter.assert_any_call("total_events_invalid", 2)
-        sync.inc_counter.assert_any_call("total_events_skipped", 1)
 
     async def test_sync_failed_relay_no_counters(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test failed relay does not emit event counters."""
@@ -985,7 +980,6 @@ class TestSynchronizerMetrics:
             assert call[0][0] not in (
                 "total_events_synced",
                 "total_events_invalid",
-                "total_events_skipped",
             )
 
     async def test_synchronize_returns_relay_count(self, mock_synchronizer_brotr: Brotr) -> None:

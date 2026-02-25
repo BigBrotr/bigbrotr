@@ -188,7 +188,7 @@ def create_filter(since: int, until: int, config: FilterConfig) -> Filter:
 
 async def insert_batch(
     batch: EventBatch, relay: Relay, brotr: Brotr, since: int, until: int
-) -> tuple[int, int, int]:
+) -> tuple[int, int]:
     """Validate and insert a batch of events into the database.
 
     Each event is verified for signature validity and timestamp range before
@@ -203,7 +203,7 @@ async def insert_batch(
         until: Upper timestamp bound (events must be <= this).
 
     Returns:
-        Tuple of (events_inserted, events_invalid, events_skipped).
+        Tuple of (events_inserted, events_invalid).
 
     Note:
         Events are inserted via the ``event_relay_insert_cascade`` stored
@@ -212,7 +212,7 @@ async def insert_batch(
         ``brotr.config.batch.max_size`` for insertion.
     """
     if batch.is_empty():
-        return 0, 0, 0
+        return 0, 0
 
     event_relays: list[EventRelay] = []
     invalid_count = 0
@@ -256,7 +256,7 @@ async def insert_batch(
             inserted = await brotr.insert_event_relay(event_relays[i : i + batch_size])
             total_inserted += inserted
 
-    return total_inserted, invalid_count, 0
+    return total_inserted, invalid_count
 
 
 @dataclass(slots=True)
@@ -275,7 +275,6 @@ class SyncCycleCounters:
     synced_relays: int = 0
     failed_relays: int = 0
     invalid_events: int = 0
-    skipped_events: int = 0
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -318,7 +317,7 @@ async def sync_relay_events(
     start_time: int,
     end_time: int,
     ctx: SyncContext,
-) -> tuple[int, int, int]:
+) -> tuple[int, int]:
     """Core sync algorithm: connect to a relay, fetch events, and insert into the database.
 
     Uses [create_client][bigbrotr.utils.protocol.create_client] to
@@ -334,11 +333,10 @@ async def sync_relay_events(
             with filter, network, timeout, database, and key settings.
 
     Returns:
-        Tuple of (events_synced, invalid_events, skipped_events).
+        Tuple of (events_synced, invalid_events).
     """
     events_synced = 0
     invalid_events = 0
-    skipped_events = 0
 
     proxy_url = ctx.network_config.get_proxy_url(relay.network)
     client = await create_client(ctx.keys, proxy_url)
@@ -360,7 +358,7 @@ async def sync_relay_events(
                 except OverflowError:
                     break
 
-            events_synced, invalid_events, skipped_events = await insert_batch(
+            events_synced, invalid_events = await insert_batch(
                 batch, relay, ctx.brotr, start_time, end_time
             )
 
@@ -373,4 +371,4 @@ async def sync_relay_events(
         with contextlib.suppress(Exception):
             await client.shutdown()
 
-    return events_synced, invalid_events, skipped_events
+    return events_synced, invalid_events
