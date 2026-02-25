@@ -127,8 +127,11 @@ class Nip66DnsMetadata(BaseNipMetadata):
 
         # NS records (resolved against the registered domain)
         with contextlib.suppress(*_dns_errors):
-            ext = tldextract.extract(host)
-            if ext.domain and ext.suffix:
+            try:
+                ext = tldextract.extract(host)
+            except Exception:
+                ext = None
+            if ext and ext.domain and ext.suffix:
                 domain = f"{ext.domain}.{ext.suffix}"
                 answers = resolver.resolve(domain, "NS")
                 ns_list = [str(cast("NS", rdata).target).rstrip(".") for rdata in answers]
