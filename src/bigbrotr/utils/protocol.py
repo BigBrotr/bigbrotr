@@ -116,9 +116,26 @@ def _is_ssl_error(error_message: str) -> bool:
 class _StderrSuppressor:
     """Reference-counted stderr suppressor for async-safe batch suppression.
 
+    nostr-sdk's Rust FFI layer writes diagnostic output directly to the
+    process stderr file descriptor from arbitrary native threads.  Because
+    these writes bypass Python's I/O stack and are not associated with any
+    Python thread, there is no way to selectively suppress only nostr-sdk
+    output while preserving stderr from other libraries.
+
+    Trade-off: while the suppressor is active, ALL stderr output -- including
+    from unrelated libraries -- is redirected to ``/dev/null``.  This is an
+    intentional choice: the alternative (e.g. dup2 tricks or pty-based
+    filtering) would be significantly more complex and fragile for negligible
+    benefit.
+
+    Mitigation: the suppression scope is deliberately narrow, wrapping only
+    the short ``is_nostr_relay`` validation window (connect + single event
+    fetch).  Any stderr produced outside that window is unaffected.
+
     Multiple concurrent async tasks can enter suppression without blocking
-    the event loop. A ``threading.Lock`` would deadlock here because the
-    context manager ``yield`` crosses ``await`` boundaries.
+    the event loop.  A ``threading.Lock`` would deadlock here because the
+    context manager ``yield`` crosses ``await`` boundaries; instead, a
+    simple reference count tracks active suppressors.
     """
 
     __slots__ = ("_devnull", "_refcount", "_saved_stderr")
