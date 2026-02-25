@@ -789,7 +789,7 @@ class Monitor(
             ServiceStateType.CHECKPOINT,
             state_key,
         )
-        last_ts = results[0].state_value.get("timestamp", 0.0) if results else 0.0
+        last_ts = results[0].state_value.get("timestamp", 0) if results else 0
         if time.time() - last_ts < interval:
             return
 
@@ -804,7 +804,7 @@ class Monitor(
             return
 
         self._logger.info("publish_completed", event=event_name, relays=sent)
-        now = time.time()
+        now = int(time.time())
         await self._brotr.upsert_service_state(
             [
                 ServiceState(
@@ -812,7 +812,7 @@ class Monitor(
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key=state_key,
                     state_value={"timestamp": now},
-                    updated_at=int(now),
+                    updated_at=now,
                 ),
             ]
         )
