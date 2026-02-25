@@ -795,6 +795,7 @@ class Brotr:
         params = [r.to_db_params() for r in records]
         columns = self._transpose_to_columns(params)
 
+        # Procedure returns VOID; no DB-confirmed count available
         await self._call_procedure(
             "service_state_upsert",
             *columns,
