@@ -564,11 +564,8 @@ class TestUpsertServiceState:
                 updated_at=1700000000,
             ),
         ]
-        mock_pool._mock_connection.fetchval = AsyncMock(  # type: ignore[attr-defined]
-            return_value=len(records)
-        )
         result = await mock_brotr.upsert_service_state(records)
-        assert result == len(records)
+        assert result == 3
 
     async def test_batch_size_exceeded(self, mock_brotr: Brotr) -> None:
         """Test that batch exceeding max_size raises ValueError."""

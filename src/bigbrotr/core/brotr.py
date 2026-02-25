@@ -795,15 +795,16 @@ class Brotr:
         params = [r.to_db_params() for r in records]
         columns = self._transpose_to_columns(params)
 
-        upserted: int = await self._call_procedure(
+        # Procedure returns VOID; no DB-confirmed count available
+        await self._call_procedure(
             "service_state_upsert",
             *columns,
-            fetch_result=True,
+            fetch_result=False,
             timeout=self._config.timeouts.batch,
         )
 
-        self._logger.debug("service_state_upserted", count=upserted, attempted=len(records))
-        return upserted
+        self._logger.debug("service_state_upserted", count=len(records))
+        return len(records)
 
     async def get_service_state(
         self,
