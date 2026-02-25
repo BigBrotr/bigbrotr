@@ -203,7 +203,6 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = [
-    "asyncpg.*",
     "nostr_sdk.*",
     "aiohttp_socks.*",
     "aiomultiprocess.*",
