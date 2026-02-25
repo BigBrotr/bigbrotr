@@ -28,14 +28,15 @@ from bigbrotr.services.common.queries import (
     count_candidates,
     count_relays_due_for_check,
     delete_exhausted_candidates,
+    delete_orphan_cursors,
     delete_stale_candidates,
     fetch_candidate_chunk,
+    fetch_event_tagvalues,
     fetch_relays_due_for_check,
     filter_new_relay_urls,
     get_all_relay_urls,
     get_all_relays,
     get_all_service_cursors,
-    get_events_with_relay_urls,
     insert_candidates,
     promote_candidates,
 )
@@ -321,20 +322,19 @@ class TestFetchRelaysDueForCheck:
 
 
 # ============================================================================
-# TestGetEventsWithRelayUrls
+# TestFetchEventTagvalues
 # ============================================================================
 
 
-class TestGetEventsWithRelayUrls:
-    """Tests for get_events_with_relay_urls()."""
+class TestFetchEventTagvalues:
+    """Tests for fetch_event_tagvalues()."""
 
     async def test_calls_fetch_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes relay_url, last_seen_at, kinds, and limit."""
-        await get_events_with_relay_urls(
+        """Passes relay_url, last_seen_at, and limit."""
+        await fetch_event_tagvalues(
             mock_brotr,
             relay_url="wss://source.relay.com",
             last_seen_at=1700000000,
-            kinds=[3, 10002],
             limit=500,
         )
 
@@ -345,39 +345,31 @@ class TestGetEventsWithRelayUrls:
         assert "event_relay er" in sql
         assert "relay_url = $1" in sql
         assert "seen_at > $2" in sql
-        assert "kind = ANY($3)" in sql
-        assert "LIMIT $4" in sql
+        assert "LIMIT $3" in sql
         # Positional params
         assert args[0][1] == "wss://source.relay.com"
         assert args[0][2] == 1700000000
-        assert args[0][3] == [3, 10002]
-        assert args[0][4] == 500
+        assert args[0][3] == 500
 
     async def test_returns_list_of_event_dicts(self, mock_brotr: MagicMock) -> None:
-        """Returns event dicts with id, created_at, kind, tags, content, seen_at."""
+        """Returns event dicts with tagvalues and seen_at."""
         row = _make_dict_row(
             {
-                "id": b"\x01" * 32,
-                "created_at": 1700000000,
-                "kind": 10002,
-                "tags": [["r", "wss://relay.example.com"]],
-                "content": "",
+                "tagvalues": ["wss://relay.example.com", "a" * 64],
                 "seen_at": 1700000001,
             }
         )
         mock_brotr.fetch = AsyncMock(return_value=[row])
 
-        result = await get_events_with_relay_urls(
-            mock_brotr, "wss://source.relay.com", 0, [10002], 100
-        )
+        result = await fetch_event_tagvalues(mock_brotr, "wss://source.relay.com", 0, 100)
 
         assert len(result) == 1
-        assert result[0]["kind"] == 10002
+        assert result[0]["tagvalues"] == ["wss://relay.example.com", "a" * 64]
         assert result[0]["seen_at"] == 1700000001
 
     async def test_empty_result(self, mock_brotr: MagicMock) -> None:
         """Returns an empty list when no matching events exist."""
-        result = await get_events_with_relay_urls(mock_brotr, "wss://source.relay.com", 0, [3], 100)
+        result = await fetch_event_tagvalues(mock_brotr, "wss://source.relay.com", 0, 100)
 
         assert result == []
 
@@ -786,6 +778,50 @@ class TestGetAllServiceCursors:
         result = await get_all_service_cursors(mock_brotr, "finder")
 
         assert result == {}
+
+
+# ============================================================================
+# TestDeleteOrphanCursors
+# ============================================================================
+
+
+class TestDeleteOrphanCursors:
+    """Tests for delete_orphan_cursors()."""
+
+    async def test_calls_execute_with_correct_params(self, mock_brotr: MagicMock) -> None:
+        """Passes service_name and ServiceStateType.CURSOR."""
+        mock_brotr.execute = AsyncMock(return_value="DELETE 3")
+
+        result = await delete_orphan_cursors(mock_brotr, service_name=ServiceName.FINDER)
+
+        mock_brotr.execute.assert_awaited_once()
+        args = mock_brotr.execute.call_args
+        sql = args[0][0]
+        assert "DELETE FROM service_state" in sql
+        assert "service_name = $1" in sql
+        assert "state_type = $2" in sql
+        assert "NOT IN (SELECT url FROM relay)" in sql
+        assert args[0][1] == ServiceName.FINDER
+        assert args[0][2] == ServiceStateType.CURSOR
+        assert result == 3
+
+    async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
+        """Returns 0 when no orphan cursors exist."""
+        mock_brotr.execute = AsyncMock(return_value="DELETE 0")
+
+        result = await delete_orphan_cursors(mock_brotr, ServiceName.SYNCHRONIZER)
+
+        assert result == 0
+
+    async def test_works_for_synchronizer(self, mock_brotr: MagicMock) -> None:
+        """Works correctly with ServiceName.SYNCHRONIZER."""
+        mock_brotr.execute = AsyncMock(return_value="DELETE 7")
+
+        result = await delete_orphan_cursors(mock_brotr, ServiceName.SYNCHRONIZER)
+
+        args = mock_brotr.execute.call_args
+        assert args[0][1] == ServiceName.SYNCHRONIZER
+        assert result == 7
 
 
 # ============================================================================

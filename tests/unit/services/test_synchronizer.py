@@ -1018,3 +1018,145 @@ class TestSynchronizerMetrics:
         result = await sync.synchronize()
 
         assert result == 0
+
+
+# ============================================================================
+# Synchronizer Network Filter Tests
+# ============================================================================
+
+
+class TestSynchronizerNetworkFilter:
+    """Tests for network filtering in Synchronizer.fetch_relays()."""
+
+    async def test_fetch_relays_filters_disabled_networks(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Relays on disabled networks are excluded from the result."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[
+                {
+                    "url": "wss://clearnet.relay.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
+                {
+                    "url": "ws://hidden.onion",
+                    "network": "tor",
+                    "discovered_at": 1700000000,
+                },
+            ]
+        )
+
+        # Default config: only clearnet enabled, tor disabled
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        relays = await sync.fetch_relays()
+
+        assert len(relays) == 1
+        assert "clearnet.relay.com" in str(relays[0].url)
+
+    async def test_fetch_relays_includes_enabled_tor(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Tor relays included when tor network is enabled."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[
+                {
+                    "url": "wss://clearnet.relay.com",
+                    "network": "clearnet",
+                    "discovered_at": 1700000000,
+                },
+                {
+                    "url": "ws://hidden.onion",
+                    "network": "tor",
+                    "discovered_at": 1700000000,
+                },
+            ]
+        )
+
+        config = SynchronizerConfig(
+            networks=NetworksConfig(tor=TorConfig(enabled=True)),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        relays = await sync.fetch_relays()
+
+        assert len(relays) == 2
+
+    async def test_fetch_relays_returns_empty_when_all_networks_disabled(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Returns empty list when all networks are disabled."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[
+                {
+                    "url": "ws://hidden.onion",
+                    "network": "tor",
+                    "discovered_at": 1700000000,
+                },
+            ]
+        )
+
+        # Default config: tor disabled, the only relay is tor
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        relays = await sync.fetch_relays()
+
+        assert relays == []
+
+
+# ============================================================================
+# Synchronizer Orphan Cursor Cleanup Tests
+# ============================================================================
+
+
+class TestSynchronizerOrphanCursorCleanup:
+    """Tests for orphan cursor cleanup in Synchronizer.synchronize()."""
+
+    async def test_orphan_cursors_cleaned_before_fetch_relays(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """delete_orphan_cursors is called before relay fetching."""
+        call_order: list[str] = []
+
+        async def _mock_delete_orphan(*args: object, **kwargs: object) -> int:
+            call_order.append("delete_orphan_cursors")
+            return 2
+
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[]
+        )
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.delete_orphan_cursors",
+            new_callable=AsyncMock,
+            side_effect=_mock_delete_orphan,
+        ):
+            sync = Synchronizer(brotr=mock_synchronizer_brotr)
+
+            original_fetch = sync.fetch_relays
+
+            async def _tracked_fetch() -> list[Relay]:
+                call_order.append("fetch_relays")
+                return await original_fetch()
+
+            sync.fetch_relays = _tracked_fetch  # type: ignore[method-assign]
+
+            await sync.synchronize()
+
+            assert call_order[0] == "delete_orphan_cursors"
+            assert "fetch_relays" in call_order
+
+    async def test_orphan_cursor_cleanup_failure_does_not_block(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Orphan cursor cleanup DB error does not prevent synchronization."""
+        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
+            return_value=[]
+        )
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.delete_orphan_cursors",
+            new_callable=AsyncMock,
+            side_effect=asyncpg.PostgresError("cleanup failed"),
+        ):
+            sync = Synchronizer(brotr=mock_synchronizer_brotr)
+
+            # Should not raise — cleanup failure is non-fatal
+            result = await sync.synchronize()
+            assert result == 0

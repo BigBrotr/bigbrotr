@@ -3,11 +3,14 @@
 Discovers Nostr relay URLs from two sources:
 
 1. **External APIs** -- Public endpoints like nostr.watch that list relays.
-2. **Database events** -- Relay URLs extracted from stored Nostr events:
-   - Kind 3 (NIP-02): ``content`` is JSON with relay URLs as keys.
-   - Kind 10002 (NIP-65): ``r`` tags contain relay URLs.
-   - Kind 2 (deprecated, opt-in): ``content`` field contains a relay URL.
-   - Any event with ``r`` tags.
+   Each API source declares how relay URLs are extracted from its JSON
+   response (flat array, nested path, object keys, etc.) via
+   [ApiSourceConfig][bigbrotr.services.finder.ApiSourceConfig].
+2. **Database events** -- Tag values from all stored events are parsed via
+   [parse_relay_url][bigbrotr.services.common.utils.parse_relay_url]; only
+   valid ``wss://`` / ``ws://`` URLs pass validation. This is kind-agnostic:
+   any event whose ``tagvalues`` column contains relay-like strings will
+   contribute discovered URLs.
 
 Discovered URLs are inserted as validation candidates for the
 [Validator][bigbrotr.services.validator.Validator] service via
@@ -61,16 +64,17 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.queries import (
+    delete_orphan_cursors,
+    fetch_event_tagvalues,
     get_all_relay_urls,
     get_all_service_cursors,
-    get_events_with_relay_urls,
     insert_candidates,
 )
 from bigbrotr.services.common.utils import parse_relay_url
 from bigbrotr.utils.http import read_bounded_json
 
 from .configs import ApiSourceConfig, FinderConfig
-from .utils import extract_relays_from_rows
+from .utils import extract_relays_from_rows, extract_urls_from_response
 
 
 if TYPE_CHECKING:
@@ -166,6 +170,16 @@ class Finder(BaseService[FinderConfig]):
         total_events_scanned = 0
         total_relays_found = 0
         relays_processed = 0
+        relays_failed = 0
+
+        try:
+            removed = await delete_orphan_cursors(self._brotr, self.SERVICE_NAME)
+            if removed:
+                self._logger.info("orphan_cursors_removed", count=removed)
+        except (asyncpg.PostgresError, OSError) as e:
+            self._logger.warning(
+                "orphan_cursor_cleanup_failed", error=str(e), error_type=type(e).__name__
+            )
 
         try:
             relay_urls = await get_all_relay_urls(self._brotr)
@@ -206,15 +220,20 @@ class Finder(BaseService[FinderConfig]):
                 )
 
         for task in tasks:
-            if not task.cancelled() and task.exception() is None:
+            if task.cancelled():
+                continue
+            if task.exception() is None:
                 events, relays = task.result()
                 total_events_scanned += events
                 total_relays_found += relays
                 relays_processed += 1
+            else:
+                relays_failed += 1
 
         self.set_gauge("events_scanned", total_events_scanned)
         self.set_gauge("relays_found", total_relays_found)
         self.set_gauge("relays_processed", relays_processed)
+        self.set_gauge("relays_failed", relays_failed)
         self.inc_counter("total_events_scanned", total_events_scanned)
         self.inc_counter("total_relays_found", total_relays_found)
 
@@ -223,6 +242,7 @@ class Finder(BaseService[FinderConfig]):
             scanned=total_events_scanned,
             relays_found=total_relays_found,
             relays_processed=relays_processed,
+            relays_failed=relays_failed,
         )
         return total_relays_found
 
@@ -304,9 +324,9 @@ class Finder(BaseService[FinderConfig]):
                 )
 
         self.set_gauge("api_relays", len(all_relays))
+        self.inc_counter("total_api_relays_found", len(all_relays))
 
-        if found:
-            self._logger.info("apis_completed", relays=len(all_relays))
+        self._logger.info("apis_completed", found=found, fetched=len(all_relays))
         return found
 
     async def _fetch_all_cursors(self) -> dict[str, int]:
@@ -330,11 +350,10 @@ class Finder(BaseService[FinderConfig]):
 
         while self.is_running:
             try:
-                rows = await get_events_with_relay_urls(
+                rows = await fetch_event_tagvalues(
                     self._brotr,
                     relay_url,
                     last_seen_at,
-                    self._config.events.kinds,
                     self._config.events.batch_size,
                 )
             except (asyncpg.PostgresError, OSError) as e:
@@ -398,7 +417,6 @@ class Finder(BaseService[FinderConfig]):
                 error=str(e),
                 error_type=type(e).__name__,
             )
-            raise
 
         return found
 
@@ -407,11 +425,14 @@ class Finder(BaseService[FinderConfig]):
     ) -> list[RelayUrl]:
         """Fetch relay URLs from a single API endpoint.
 
-        Expects the API to return a JSON array of relay URL strings.
+        The response format is configurable per source via the ``jmespath``
+        field on [ApiSourceConfig][bigbrotr.services.finder.ApiSourceConfig].
+        When left at its default (``[*]``) the response is expected to be a
+        flat JSON array of URL strings.
 
         Args:
             session: Shared aiohttp ClientSession for connection pooling.
-            source: API source configuration (URL, timeout, enabled).
+            source: API source configuration (URL, timeout, extraction params).
 
         Returns:
             List of parsed RelayUrl objects from the API response.
@@ -427,17 +448,12 @@ class Finder(BaseService[FinderConfig]):
             resp.raise_for_status()
             data = await read_bounded_json(resp, self._config.api.max_response_size)
 
-            if isinstance(data, list):
-                for item in data:
-                    if isinstance(item, str):
-                        try:
-                            relay_url = RelayUrl.parse(item)
-                            relays.append(relay_url)
-                        except NostrSdkError:
-                            self._logger.debug("invalid_relay_url", url=item)
-                    else:
-                        self._logger.debug("unexpected_item_type", url=source.url, item=item)
-            else:
-                self._logger.debug("unexpected_api_response", url=source.url, data=data)
+            url_strings = extract_urls_from_response(data, source.jmespath)
+
+            for item in url_strings:
+                try:
+                    relays.append(RelayUrl.parse(item))
+                except NostrSdkError:
+                    self._logger.debug("invalid_relay_url", url=item)
 
         return relays

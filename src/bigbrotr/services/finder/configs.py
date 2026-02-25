@@ -9,10 +9,10 @@ See Also:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+import jmespath
+from pydantic import BaseModel, Field, field_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
-from bigbrotr.models.constants import EventKind
 
 
 class ConcurrencyConfig(BaseModel):
@@ -34,31 +34,42 @@ class ConcurrencyConfig(BaseModel):
 class EventsConfig(BaseModel):
     """Event scanning configuration for discovering relay URLs from stored events.
 
-    Requires a full database schema with ``tags``, ``tagvalues``, and ``content``
-    columns. Set ``enabled=false`` for minimal-schema implementations (e.g., LilBrotr).
+    Scans all events per relay (cursor-paginated by ``seen_at``) and extracts
+    relay URLs from ``tagvalues``. Any tagvalue that parses as a valid relay
+    URL becomes a validation candidate.
 
     See Also:
-        [get_events_with_relay_urls][bigbrotr.services.common.queries.get_events_with_relay_urls]:
-            The SQL query driven by ``batch_size`` and ``kinds``.
+        [fetch_event_tagvalues][bigbrotr.services.common.queries.fetch_event_tagvalues]:
+            The SQL query driven by ``batch_size``.
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Parent
             config that embeds this model.
     """
 
-    enabled: bool = Field(
-        default=True,
-        description="Enable event scanning (requires full schema with tags/content columns)",
-    )
+    enabled: bool = Field(default=True, description="Enable event scanning")
     batch_size: int = Field(
         default=1000, ge=100, le=10_000, description="Events to process per batch"
-    )
-    kinds: list[int] = Field(
-        default_factory=lambda: [int(EventKind.CONTACTS), int(EventKind.RELAY_LIST)],
-        description="Event kinds to scan (3=contacts, 10002=relay list)",
     )
 
 
 class ApiSourceConfig(BaseModel):
-    """Single API source configuration."""
+    """Single API source configuration.
+
+    The ``jmespath`` field declares how relay URL strings are extracted from
+    the JSON response.  It accepts any valid
+    `JMESPath <https://jmespath.org/>`_ expression.  The default ``[*]``
+    assumes the response is a flat JSON array of URL strings.
+
+    Examples of common expressions::
+
+        [*]                   -- flat list of strings (default)
+        data.relays           -- nested path to a list
+        data.relays[*].url    -- list of objects, extract "url" field
+        keys(@)               -- dict keys are the URLs
+
+    See Also:
+        [extract_urls_from_response][bigbrotr.services.finder.utils.extract_urls_from_response]:
+            The extraction function driven by this field.
+    """
 
     url: str = Field(description="API endpoint URL")
     enabled: bool = Field(default=True, description="Enable this source")
@@ -69,6 +80,20 @@ class ApiSourceConfig(BaseModel):
         le=60.0,
         description="HTTP connection timeout (capped to total timeout)",
     )
+    jmespath: str = Field(
+        default="[*]",
+        description="JMESPath expression to extract URL strings from the JSON response",
+    )
+
+    @field_validator("jmespath")
+    @classmethod
+    def _validate_jmespath(cls, v: str) -> str:
+        try:
+            jmespath.compile(v)
+        except jmespath.exceptions.ParseError as e:
+            msg = f"invalid JMESPath expression: {e}"
+            raise ValueError(msg) from e
+        return v
 
 
 class ApiConfig(BaseModel):

@@ -68,7 +68,11 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
-from bigbrotr.services.common.queries import get_all_relays, get_all_service_cursors
+from bigbrotr.services.common.queries import (
+    delete_orphan_cursors,
+    get_all_relays,
+    get_all_service_cursors,
+)
 
 from .configs import SynchronizerConfig
 from .utils import SyncBatchState, SyncContext, SyncCycleCounters, sync_relay_events
@@ -168,6 +172,15 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         Returns:
             Number of relays that were processed.
         """
+        try:
+            removed = await delete_orphan_cursors(self._brotr, self.SERVICE_NAME)
+            if removed:
+                self._logger.info("orphan_cursors_removed", count=removed)
+        except (asyncpg.PostgresError, OSError) as e:
+            self._logger.warning(
+                "orphan_cursor_cleanup_failed", error=str(e), error_type=type(e).__name__
+            )
+
         relays = await self.fetch_relays()
         relays = self._merge_overrides(relays)
 
@@ -183,11 +196,14 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
     async def fetch_relays(self) -> list[Relay]:
         """Fetch validated relays from the database for synchronization.
 
+        Filters relays to only include enabled networks, avoiding unnecessary
+        relay loading for disabled network types.
+
         Controlled by ``source.from_database`` in
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig].
 
         Returns:
-            List of relays to sync.
+            List of relays to sync (filtered by enabled networks).
 
         See Also:
             [get_all_relays][bigbrotr.services.common.queries.get_all_relays]:
@@ -198,12 +214,14 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
 
         rows = await get_all_relays(self._brotr)
 
+        enabled = set(self._config.networks.get_enabled_networks())
         relays: list[Relay] = []
         for row in rows:
             url_str = row["url"].strip()
             try:
                 relay = Relay(url_str, discovered_at=row["discovered_at"])
-                relays.append(relay)
+                if relay.network.value in enabled:
+                    relays.append(relay)
             except (ValueError, TypeError) as e:
                 self._logger.debug("invalid_relay_url", url=url_str, error=str(e))
 
