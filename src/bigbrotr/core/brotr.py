@@ -305,7 +305,7 @@ class Brotr:
             if len(row) != expected_len:
                 raise ValueError(f"Row {i} has {len(row)} columns, expected {expected_len}")
 
-        return tuple(list(col) for col in zip(*params, strict=False))
+        return tuple(list(col) for col in zip(*params, strict=True))
 
     # Pattern for valid SQL identifiers (prevents injection in procedure calls)
     _VALID_PROCEDURE_NAME: ClassVar[re.Pattern[str]] = re.compile(r"^[a-z_][a-z0-9_]*$")
