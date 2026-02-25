@@ -10,7 +10,6 @@ Provides:
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -463,26 +462,6 @@ def mock_asn_response() -> MagicMock:
 # =============================================================================
 # SSL Certificate Fixtures
 # =============================================================================
-
-
-@pytest.fixture
-def mock_certificate_dict() -> dict[str, Any]:
-    """Mock X509 certificate dictionary as returned by getpeercert()."""
-    return {
-        "subject": ((("commonName", "relay.example.com"),),),
-        "issuer": (
-            (("organizationName", "Let's Encrypt"),),
-            (("commonName", "R3"),),
-        ),
-        "notAfter": "Dec 31 23:59:59 2024 GMT",
-        "notBefore": "Jan  1 00:00:00 2024 GMT",
-        "subjectAltName": (
-            ("DNS", "relay.example.com"),
-            ("DNS", "*.example.com"),
-        ),
-        "serialNumber": "04ABCDEF12345678",  # pragma: allowlist secret
-        "version": 3,
-    }
 
 
 @pytest.fixture
