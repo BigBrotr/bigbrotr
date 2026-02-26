@@ -8,7 +8,7 @@ BigBrotr is a production-grade, fully asynchronous Python system that continuous
 2. **How healthy are they?**
 3. **What events are they publishing?**
 
-The system operates as a 6-service pipeline deployed via Docker Compose, backed by PostgreSQL 16, with full Prometheus/Grafana observability. It supports clearnet (TLS), Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay networks.
+The system runs 6 independent services deployed via Docker Compose, backed by PostgreSQL 16, with full Prometheus/Grafana observability. It supports clearnet (TLS), Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay networks.
 
 ---
 
@@ -17,7 +17,7 @@ The system operates as a 6-service pipeline deployed via Docker Compose, backed 
 1. [Purpose and Scope](#1-purpose-and-scope)
 2. [Architecture Overview](#2-architecture-overview)
 3. [Domain Model](#3-domain-model)
-4. [Service Pipeline](#4-service-pipeline)
+4. [Services](#4-services)
 5. [NIP Protocol Implementations](#5-nip-protocol-implementations)
 6. [Database Design](#6-database-design)
 7. [Infrastructure and Deployment](#7-infrastructure-and-deployment)
@@ -64,7 +64,7 @@ BigBrotr is also a **NIP-66 relay monitor**. It publishes its findings back to t
 The codebase follows a strict **diamond-shaped Directed Acyclic Graph** for imports:
 
 ```
-                 services          (Business logic, pipeline orchestration)
+                 services          (Business logic and orchestration)
                 /   |   \
              core  nips  utils     (Infrastructure, protocol I/O, network primitives)
                 \   |   /
@@ -214,7 +214,7 @@ Generic key-value persistence for operational state between service restarts.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `service_name` | `ServiceName` | Pipeline service identifier (6 values) |
+| `service_name` | `ServiceName` | Service identifier (6 values) |
 | `state_type` | `ServiceStateType` | CANDIDATE, CURSOR, or CHECKPOINT |
 | `state_key` | `str` | Application-defined key (e.g., relay URL) |
 | `state_value` | `Mapping[str, Any]` | Deep-frozen JSON dict |
@@ -231,7 +231,7 @@ Generic key-value persistence for operational state between service restarts.
 | Enum | Values | Purpose |
 |------|--------|---------|
 | `NetworkType` | CLEARNET, TOR, I2P, LOKI, LOCAL, UNKNOWN | Relay network classification |
-| `ServiceName` | SEEDER, FINDER, VALIDATOR, MONITOR, SYNCHRONIZER, REFRESHER | Pipeline service identifiers |
+| `ServiceName` | SEEDER, FINDER, VALIDATOR, MONITOR, SYNCHRONIZER, REFRESHER | Service identifiers |
 | `EventKind` | SET_METADATA(0), RECOMMEND_RELAY(2), CONTACTS(3), RELAY_LIST(10002), NIP66_TEST(22456), MONITOR_ANNOUNCEMENT(10166), RELAY_DISCOVERY(30166) | Well-known Nostr event kinds |
 | `MetadataType` | NIP11_INFO, NIP66_RTT, NIP66_SSL, NIP66_GEO, NIP66_NET, NIP66_DNS, NIP66_HTTP | Health check result types |
 | `ServiceStateType` | CANDIDATE, CURSOR, CHECKPOINT | Service state discriminator |
@@ -851,7 +851,7 @@ All configuration uses Pydantic v2 models with:
 
 ### Database Access Control
 
-- **Writer role**: Full DML on all tables, used by pipeline services.
+- **Writer role**: Full DML on all tables, used by writer services.
 - **Reader role**: SELECT only, used by API/monitoring.
 - **All functions SECURITY INVOKER**: Run with caller's permissions, not definer's.
 - **PGBouncer**: Transaction-mode pooling with scram-sha-256 authentication.
@@ -900,7 +900,7 @@ All configuration uses Pydantic v2 models with:
 1. Create `src/bigbrotr/nips/nip<N>/` with data models, logs, metadata, and top-level factory.
 2. Follow the never-raise contract (errors in logs, not exceptions).
 3. Add `MetadataType` variant to `models/metadata.py`.
-4. Integrate into Monitor service's check pipeline.
+4. Integrate into Monitor service's check flow.
 5. Add materialized views if analytics needed.
 
 ### Adding a New Deployment

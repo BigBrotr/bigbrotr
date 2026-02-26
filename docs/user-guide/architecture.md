@@ -541,6 +541,7 @@ flowchart LR
         V["Validator"]
         MO["Monitor"]
         SY["Synchronizer"]
+        RE["Refresher"]
     end
 
     subgraph "Per-Service asyncpg Pool"
@@ -560,6 +561,7 @@ flowchart LR
     V --> APW
     MO --> APW
     SY --> APW
+    RE --> APW
     APW --> PBW
     PBW --> PG
     PBR --> PG
@@ -655,6 +657,7 @@ flowchart TD
     C --> F["validator.yaml"]
     C --> G["monitor.yaml"]
     C --> H["synchronizer.yaml"]
+    C --> I["refresher.yaml"]
 
     style A fill:#7B1FA2,color:#fff,stroke:#4A148C
     style B fill:#512DA8,color:#fff,stroke:#311B92

@@ -198,6 +198,8 @@ graph TD
     S --> C
     S --> N
     S --> U
+    N --> C
+    N --> U
     C --> M
     N --> M
     U --> M

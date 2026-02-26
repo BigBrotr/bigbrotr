@@ -123,25 +123,26 @@ Imports flow strictly downward:
           │    │ metadata_type FK ─┤► metadata(id, type)
           │    │ generated_at BIGINT
           │    │ PK(relay_url, generated_at, metadata_type)
-          │    └──────────┬────────────┘
-          │               │
-          │    ┌──────────┴────────────┐
-          │    │      metadata         │
-          │    │───────────────────────│
-          │    │ id       PK  (BYTEA, SHA-256)
-          │    │ type     PK  (TEXT, 7 types)
-          │    │ data     JSONB
-          │    └───────────────────────┘
-          │
-          │    ┌───────────────────────┐
-          │    │    service_state      │
-          │    │───────────────────────│
-          │    │ service_name PK (TEXT)│
-          │    │ state_type   PK (TEXT)│  candidate, cursor, checkpoint
-          │    │ state_key    PK (TEXT)│  typically relay URL
-          │    │ state_value  JSONB    │
-          │    │ updated_at   BIGINT   │
-          └    └───────────────────────┘
+               └──────────┬────────────┘
+                          │
+               ┌──────────┴────────────┐
+               │      metadata         │
+               │───────────────────────│
+               │ id       PK  (BYTEA, SHA-256)
+               │ type     PK  (TEXT, 7 types)
+               │ data     JSONB
+               └───────────────────────┘
+
+
+               ┌───────────────────────┐
+               │    service_state      │
+               │───────────────────────│
+               │ service_name PK (TEXT)│  candidate, cursor, checkpoint
+               │ state_type   PK (TEXT)│
+               │ state_key    PK (TEXT)│  typically relay URL
+               │ state_value  JSONB    │
+               │ updated_at   BIGINT   │
+               └───────────────────────┘
 ```
 
 **Key relationships**:
@@ -189,7 +190,7 @@ cp .env.example .env
 # Start everything
 docker compose up -d
 
-# Watch the pipeline start
+# Watch services start
 docker compose logs -f seeder
 ```
 
@@ -232,7 +233,7 @@ cd deployments/bigbrotr && docker compose up -d
 
 ### LilBrotr (Lightweight)
 
-Stores event metadata only (id, pubkey, created_at, kind, tagvalues). Omits tags JSON, content, and sig for approximately 60% disk savings. No materialized views. Same service pipeline.
+Stores event metadata only (id, pubkey, created_at, kind, tagvalues). Omits tags JSON, content, and sig for approximately 60% disk savings. Same six services and all 11 materialized views.
 
 ```bash
 cd deployments/lilbrotr && docker compose up -d
@@ -364,7 +365,7 @@ JSON mode available for cloud aggregation:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin password |
-| `DB_WRITER_PASSWORD` | Yes | Writer role password (pipeline services) |
+| `DB_WRITER_PASSWORD` | Yes | Writer role password (all six services) |
 | `DB_READER_PASSWORD` | Yes | Reader role password (read-only access) |
 | `PRIVATE_KEY` | For Monitor/Synchronizer | Nostr private key (hex or nsec) for event signing |
 | `GRAFANA_PASSWORD` | For Grafana | Grafana admin password |
