@@ -1,6 +1,6 @@
 # Quick Start
 
-A step-by-step tutorial that walks you through the BigBrotr service pipeline, from seeding initial relay URLs to viewing data in the database.
+A step-by-step tutorial that walks you through BigBrotr's core services, from seeding initial relay URLs to viewing data in the database.
 
 ---
 
@@ -152,7 +152,7 @@ SELECT key, state_type, count(*) FROM service_state GROUP BY key, state_type;
 
 ## What Just Happened?
 
-You ran the first three stages of the BigBrotr pipeline:
+You ran three of BigBrotr's six independent services:
 
 --8<-- "docs/_snippets/pipeline.md"
 
@@ -160,14 +160,15 @@ You ran the first three stages of the BigBrotr pipeline:
 2. **Finder** discovered additional relay URLs from events and external APIs
 3. **Validator** tested every candidate via WebSocket and promoted live relays
 
-The remaining two services complete the pipeline:
+The remaining three services handle monitoring, event archiving, and analytics:
 
 - **Monitor** performs NIP-11 and NIP-66 health checks on validated relays and
   publishes results as kind 10166/30166 Nostr events (requires `PRIVATE_KEY`)
 - **Synchronizer** connects to validated relays, subscribes to events, and
   archives them with cursor-based pagination
+- **Refresher** refreshes materialized views that power analytics queries
 
-## Running the Full Pipeline
+## Running All Services
 
 To run all services continuously (not just `--once`), each service enters an
 infinite loop with configurable intervals between cycles:
@@ -178,6 +179,7 @@ python -m bigbrotr finder
 python -m bigbrotr validator
 python -m bigbrotr monitor       # requires PRIVATE_KEY env var
 python -m bigbrotr synchronizer
+python -m bigbrotr refresher
 ```
 
 !!! warning
@@ -189,7 +191,7 @@ python -m bigbrotr synchronizer
 
 ## Next Steps
 
-You have successfully run the BigBrotr pipeline manually. To deploy the full
+You have successfully run BigBrotr's core services manually. To deploy the full
 stack with monitoring, Grafana dashboards, and automatic restarts:
 
 - [First Deployment](first-deployment.md) -- Full Docker Compose deployment

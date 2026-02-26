@@ -101,7 +101,7 @@ SYNCHRONIZER_METRICS_PORT=9004
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin password |
-| `DB_WRITER_PASSWORD` | Yes | Writer role password (pipeline services) |
+| `DB_WRITER_PASSWORD` | Yes | Writer role password (services) |
 | `DB_READER_PASSWORD` | Yes | Reader role password (read-only services) |
 | `PRIVATE_KEY` | Yes | Nostr private key (hex, 64 chars) |
 | `GRAFANA_PASSWORD` | No | Grafana admin password (default: admin) |

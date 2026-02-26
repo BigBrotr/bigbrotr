@@ -6,7 +6,7 @@ Comprehensive architecture reference for BigBrotr.
 
 ## Overview
 
-BigBrotr uses a **Diamond DAG** architecture. Five layers with strict top-to-bottom import flow:
+BigBrotr uses a **Diamond DAG** architecture. Four tiers with strict top-to-bottom import flow:
 
 --8<-- "docs/_snippets/dag-diagram.md"
 
@@ -217,7 +217,7 @@ class BrotrConfig(BaseModel):
 
 ### BaseService (`base_service.py`)
 
-Abstract base class for all five services. Generic over configuration type.
+Abstract base class for all six services. Generic over configuration type.
 
 ```python
 class BaseService(ABC, Generic[ConfigT]):
@@ -415,11 +415,11 @@ flowchart TD
 `src/bigbrotr/services/` -- Business logic. Depends on core, nips, utils, models.
 
 !!! note
-    For a detailed walkthrough of each service and data flow, see [Service Pipeline](pipeline.md).
+    For a detailed walkthrough of each service and data flow, see [Services](services.md).
 
 ### Service Architecture Pattern
 
-All five services follow the same pattern:
+All six services follow the same pattern:
 
 ```python
 class MyService(BaseService[MyServiceConfig]):
@@ -448,7 +448,7 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | `mixins.py` | `ChunkProgress`, `NetworkSemaphores`, `GeoReaders` + cooperative-inheritance mixins |
 | `configs.py` | Per-network Pydantic config models |
 
-**Domain Query Functions** (14 total in `queries.py`):
+**Domain Query Functions** (15 total in `queries.py`):
 
 | Function | Purpose |
 |----------|---------|
@@ -466,6 +466,7 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | `delete_exhausted_candidates(brotr, ...)` | Remove candidates exceeding max_failures |
 | `promote_candidates(brotr, relays)` | Move validated candidates to relay table |
 | `get_all_service_cursors(brotr, ...)` | Get sync cursors for all relays |
+| `delete_orphan_cursors(brotr, ...)` | Delete cursors for relays no longer in the relay table |
 
 **Network Configuration** (`configs.py`):
 
@@ -540,6 +541,7 @@ flowchart LR
         V["Validator"]
         MO["Monitor"]
         SY["Synchronizer"]
+        RE["Refresher"]
     end
 
     subgraph "Per-Service asyncpg Pool"
@@ -559,6 +561,7 @@ flowchart LR
     V --> APW
     MO --> APW
     SY --> APW
+    RE --> APW
     APW --> PBW
     PBW --> PG
     PBR --> PG
@@ -569,7 +572,7 @@ flowchart LR
     style PG fill:#1B5E20,color:#fff,stroke:#0D3B0F
 ```
 
-Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: a **writer pool** for pipeline services and a **reader pool** for read-only consumers (postgres-exporter, future API/DVM).
+Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: a **writer pool** for services and a **reader pool** for read-only consumers (postgres-exporter, future API/DVM).
 
 ### Per-Network Semaphores
 
@@ -654,6 +657,7 @@ flowchart TD
     C --> F["validator.yaml"]
     C --> G["monitor.yaml"]
     C --> H["synchronizer.yaml"]
+    C --> I["refresher.yaml"]
 
     style A fill:#7B1FA2,color:#fff,stroke:#4A148C
     style B fill:#512DA8,color:#fff,stroke:#311B92
@@ -677,7 +681,7 @@ All configuration uses Pydantic v2 models with:
 | Variable | Required | Used By |
 |----------|----------|---------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer auth |
-| `DB_WRITER_PASSWORD` | Yes | Pipeline services (via per-service pool overrides) |
+| `DB_WRITER_PASSWORD` | Yes | Writer services (via per-service pool overrides) |
 | `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, future API/DVM) |
 | `PRIVATE_KEY` | For Monitor | Monitor (Nostr event signing, RTT write tests) |
 | `GRAFANA_PASSWORD` | No | Grafana (admin password) |
@@ -693,13 +697,13 @@ tests/
 ├── conftest.py                  # Root: mock_pool, mock_brotr, mock_connection, sample_*
 ├── fixtures/
 │   └── relays.py                # Shared relay fixtures (registered as pytest plugin)
-├── unit/                        # 2049 tests, mirrors src/ structure
+├── unit/                        # ~2300 tests, mirrors src/ structure
 │   ├── core/                    # test_pool.py, test_brotr.py, test_base_service.py, ...
 │   ├── models/                  # test_relay.py, test_event.py, test_metadata.py, ...
 │   ├── nips/                    # nip11/, nip66/
 │   ├── services/                # test_monitor.py, test_synchronizer.py, ...
 │   └── utils/                   # test_transport.py, test_keys.py, ...
-└── integration/                 # 8 tests (testcontainers PostgreSQL)
+└── integration/                 # ~95 tests (testcontainers PostgreSQL)
 ```
 
 ### Test Configuration
@@ -720,7 +724,7 @@ tests/
 
 ## Related Documentation
 
-- [Service Pipeline](pipeline.md) -- Deep dive into the five-service pipeline and data flow
+- [Services](services.md) -- Deep dive into the six independent services and data flow
 - [Configuration](configuration.md) -- Complete YAML configuration reference
 - [Database](database.md) -- PostgreSQL schema, stored functions, and indexes
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

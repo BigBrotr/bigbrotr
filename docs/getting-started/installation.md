@@ -105,7 +105,7 @@ python -m bigbrotr --help
 Expected output:
 
 ```text
-usage: python -m bigbrotr [-h] {seeder,finder,validator,monitor,synchronizer} ...
+usage: python -m bigbrotr [-h] {seeder,finder,validator,monitor,synchronizer,refresher} ...
 
 BigBrotr - Nostr relay discovery, monitoring, and event archiving
 ```
@@ -119,7 +119,7 @@ BigBrotr - Nostr relay discovery, monitoring, and event archiving
 
 ## Related Documentation
 
-- [Quick Start](quickstart.md) -- Run each service in the pipeline
+- [Quick Start](quickstart.md) -- Run each service step by step
 - [First Deployment](first-deployment.md) -- Full stack Docker deployment
 - [Development Setup](../development/setup.md) -- Testing, linting, and contributing
 - [Configuration Reference](../user-guide/configuration.md) -- YAML configuration details

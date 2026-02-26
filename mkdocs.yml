@@ -60,7 +60,7 @@ nav:
   - User Guide:
       - user-guide/index.md
       - Architecture: user-guide/architecture.md
-      - Service Pipeline: user-guide/pipeline.md
+      - Services: user-guide/services.md
       - Configuration: user-guide/configuration.md
       - Database: user-guide/database.md
       - Monitoring: user-guide/monitoring.md

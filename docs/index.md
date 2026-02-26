@@ -13,7 +13,7 @@ BigBrotr continuously discovers Nostr relays across all network types, validates
 
 ## How It Works
 
-Five async services form a processing pipeline, each running independently and communicating through a shared PostgreSQL database:
+Six independent async services share a PostgreSQL database, each with a distinct role in the discovery-monitoring-archiving workflow:
 
 --8<-- "docs/_snippets/pipeline.md"
 

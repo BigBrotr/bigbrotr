@@ -75,7 +75,7 @@ docker compose ps
 All services should show as `Up` with `(healthy)` status. The Seeder will show
 `Exited (0)` after completing its one-shot run -- this is expected.
 
-Watch the pipeline progress in real time:
+Watch service progress in real time:
 
 ```bash
 # Follow the seeder (completes quickly)
