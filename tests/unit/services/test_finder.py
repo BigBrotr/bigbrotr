@@ -19,6 +19,7 @@ import asyncpg
 import pytest
 
 from bigbrotr.core.brotr import Brotr
+from bigbrotr.models import Relay
 from bigbrotr.services.common.utils import parse_relay_url
 from bigbrotr.services.finder import (
     ApiConfig,
@@ -615,14 +616,15 @@ class TestFinderFindFromEvents:
         mock_event = {
             "tagvalues": ["wss://relay.example.com"],
             "seen_at": 1700000001,
+            "event_id": b"\xab" * 32,
         }
 
         with (
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
-            ) as mock_get_relay_urls,
+                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+            ) as mock_get_relays,
             patch(
-                "bigbrotr.services.finder.service.get_all_service_cursors",
+                "bigbrotr.services.finder.service.get_all_cursor_values",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -634,7 +636,7 @@ class TestFinderFindFromEvents:
                 "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
-            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 1
 
@@ -656,14 +658,15 @@ class TestFinderFindFromEvents:
         mock_event = {
             "tagvalues": ["wss://relay1.example.com", "wss://relay2.example.com"],
             "seen_at": 1700000001,
+            "event_id": b"\xab" * 32,
         }
 
         with (
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
-            ) as mock_get_relay_urls,
+                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+            ) as mock_get_relays,
             patch(
-                "bigbrotr.services.finder.service.get_all_service_cursors",
+                "bigbrotr.services.finder.service.get_all_cursor_values",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -675,7 +678,7 @@ class TestFinderFindFromEvents:
                 "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
-            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 2
 
@@ -698,14 +701,15 @@ class TestFinderFindFromEvents:
         mock_event = {
             "tagvalues": ["wss://rtag-relay.com", "a" * 64, "bitcoin"],
             "seen_at": 1700000001,
+            "event_id": b"\xab" * 32,
         }
 
         with (
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
-            ) as mock_get_relay_urls,
+                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+            ) as mock_get_relays,
             patch(
-                "bigbrotr.services.finder.service.get_all_service_cursors",
+                "bigbrotr.services.finder.service.get_all_cursor_values",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -717,7 +721,7 @@ class TestFinderFindFromEvents:
                 "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
-            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 1
 
@@ -739,14 +743,15 @@ class TestFinderFindFromEvents:
         mock_event = {
             "tagvalues": ["not-a-valid-url", "http://wrong-scheme.com", "also-not-valid"],
             "seen_at": 1700000001,
+            "event_id": b"\xab" * 32,
         }
 
         with (
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
-            ) as mock_get_relay_urls,
+                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+            ) as mock_get_relays,
             patch(
-                "bigbrotr.services.finder.service.get_all_service_cursors",
+                "bigbrotr.services.finder.service.get_all_cursor_values",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -758,7 +763,7 @@ class TestFinderFindFromEvents:
                 "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
-            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 0
 
@@ -778,14 +783,15 @@ class TestFinderFindFromEvents:
                 "wss://duplicate.relay.com",
             ],
             "seen_at": 1700000001,
+            "event_id": b"\xab" * 32,
         }
 
         with (
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
-            ) as mock_get_relay_urls,
+                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+            ) as mock_get_relays,
             patch(
-                "bigbrotr.services.finder.service.get_all_service_cursors",
+                "bigbrotr.services.finder.service.get_all_cursor_values",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -797,7 +803,7 @@ class TestFinderFindFromEvents:
                 "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
-            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 1
 
@@ -817,14 +823,15 @@ class TestFinderFindFromEvents:
         mock_event = {
             "tagvalues": ["wss://relay.example.com"],
             "seen_at": 1700000200,
+            "event_id": b"\xab" * 32,
         }
 
         with (
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
-            ) as mock_get_relay_urls,
+                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+            ) as mock_get_relays,
             patch(
-                "bigbrotr.services.finder.service.get_all_service_cursors",
+                "bigbrotr.services.finder.service.get_all_cursor_values",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -836,7 +843,7 @@ class TestFinderFindFromEvents:
                 "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
-            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 1
 
@@ -868,14 +875,15 @@ class TestFinderFindFromEvents:
         mock_event = {
             "tagvalues": ["wss://clearnet.relay.com", "ws://tortest.onion"],
             "seen_at": 1700000001,
+            "event_id": b"\xab" * 32,
         }
 
         with (
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls", new_callable=AsyncMock
-            ) as mock_get_relay_urls,
+                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+            ) as mock_get_relays,
             patch(
-                "bigbrotr.services.finder.service.get_all_service_cursors",
+                "bigbrotr.services.finder.service.get_all_cursor_values",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -887,7 +895,7 @@ class TestFinderFindFromEvents:
                 "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
             ) as mock_insert,
         ):
-            mock_get_relay_urls.return_value = ["wss://source.relay.com"]
+            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 2
 
@@ -912,13 +920,18 @@ class TestFinderEventScanConcurrency:
         mock_event = {
             "tagvalues": ["wss://found.relay.com"],
             "seen_at": 1700000001,
+            "event_id": b"\xab" * 32,
         }
 
         # Track per-relay call counts so side_effect works under concurrency
         call_counts: dict[str, int] = {}
 
         async def _events_side_effect(
-            brotr: Any, relay_url: str, seen_at: int, batch_size: int
+            brotr: Any,
+            relay_url: str,
+            cursor_seen_at: int | None,
+            cursor_event_id: bytes | None,
+            batch_size: int,
         ) -> list[dict[str, Any]]:
             count = call_counts.get(relay_url, 0)
             call_counts[relay_url] = count + 1
@@ -928,12 +941,16 @@ class TestFinderEventScanConcurrency:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls",
+                "bigbrotr.services.finder.service.fetch_all_relays",
                 new_callable=AsyncMock,
-                return_value=["wss://relay1.com", "wss://relay2.com", "wss://relay3.com"],
+                return_value=[
+                    Relay("wss://relay1.com"),
+                    Relay("wss://relay2.com"),
+                    Relay("wss://relay3.com"),
+                ],
             ),
             patch(
-                "bigbrotr.services.finder.service.get_all_service_cursors",
+                "bigbrotr.services.finder.service.get_all_cursor_values",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -967,25 +984,30 @@ class TestFinderEventScanConcurrency:
         mock_event = {
             "tagvalues": ["wss://found.relay.com"],
             "seen_at": 1700000001,
+            "event_id": b"\xab" * 32,
         }
 
         async def _events_side_effect(
-            brotr: Any, relay_url: str, seen_at: int, batch_size: int
+            brotr: Any,
+            relay_url: str,
+            cursor_seen_at: int | None,
+            cursor_event_id: bytes | None,
+            batch_size: int,
         ) -> list[dict[str, Any]]:
-            if relay_url == "wss://failing.relay.com" and seen_at == 0:
+            if relay_url == "wss://failing.relay.com" and cursor_seen_at is None:
                 raise asyncpg.PostgresError("simulated DB error")
-            if seen_at > 0:
+            if cursor_seen_at is not None:
                 return []
             return [mock_event]
 
         with (
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls",
+                "bigbrotr.services.finder.service.fetch_all_relays",
                 new_callable=AsyncMock,
-                return_value=["wss://good.relay.com", "wss://failing.relay.com"],
+                return_value=[Relay("wss://good.relay.com"), Relay("wss://failing.relay.com")],
             ),
             patch(
-                "bigbrotr.services.finder.service.get_all_service_cursors",
+                "bigbrotr.services.finder.service.get_all_cursor_values",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -1025,7 +1047,7 @@ class TestFinderEventScanConcurrency:
         original_scan = Finder._scan_relay_events
 
         async def _tracking_scan(
-            self: Any, relay_url: str, cursors: dict[str, int]
+            self: Any, relay_url: str, cursors: dict[str, tuple[int, bytes]]
         ) -> tuple[int, int]:
             nonlocal max_concurrent, current_concurrent
             async with lock:
@@ -1037,16 +1059,16 @@ class TestFinderEventScanConcurrency:
                 async with lock:
                     current_concurrent -= 1
 
-        relay_urls = [f"wss://relay{i}.com" for i in range(20)]
+        relays = [Relay(f"wss://relay{i}.com") for i in range(20)]
 
         with (
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls",
+                "bigbrotr.services.finder.service.fetch_all_relays",
                 new_callable=AsyncMock,
-                return_value=relay_urls,
+                return_value=relays,
             ),
             patch(
-                "bigbrotr.services.finder.service.get_all_service_cursors",
+                "bigbrotr.services.finder.service.get_all_cursor_values",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -1133,16 +1155,17 @@ class TestFinderMetrics:
         mock_event = {
             "tagvalues": ["wss://relay1.example.com", "wss://relay2.example.com"],
             "seen_at": 1700000001,
+            "event_id": b"\xab" * 32,
         }
 
         with (
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls",
+                "bigbrotr.services.finder.service.fetch_all_relays",
                 new_callable=AsyncMock,
-                return_value=["wss://source.relay.com"],
+                return_value=[Relay("wss://source.relay.com")],
             ),
             patch(
-                "bigbrotr.services.finder.service.get_all_service_cursors",
+                "bigbrotr.services.finder.service.get_all_cursor_values",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -1264,7 +1287,11 @@ class TestFinderMetrics:
         """Test find_from_events emits relays_failed gauge when tasks fail."""
 
         async def _failing_events(
-            brotr: Any, relay_url: str, seen_at: int, batch_size: int
+            brotr: Any,
+            relay_url: str,
+            cursor_seen_at: int | None,
+            cursor_event_id: bytes | None,
+            batch_size: int,
         ) -> list[dict[str, Any]]:
             if relay_url == "wss://bad.relay.com":
                 raise RuntimeError("unexpected error")
@@ -1272,12 +1299,12 @@ class TestFinderMetrics:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls",
+                "bigbrotr.services.finder.service.fetch_all_relays",
                 new_callable=AsyncMock,
-                return_value=["wss://good.relay.com", "wss://bad.relay.com"],
+                return_value=[Relay("wss://good.relay.com"), Relay("wss://bad.relay.com")],
             ),
             patch(
-                "bigbrotr.services.finder.service.get_all_service_cursors",
+                "bigbrotr.services.finder.service.get_all_cursor_values",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -1322,7 +1349,9 @@ class TestFinderPersistScanChunk:
             }
 
             # Should NOT raise despite cursor update failure
-            result = await finder._persist_scan_chunk("wss://source.relay.com", relays, 1700000001)
+            result = await finder._persist_scan_chunk(
+                "wss://source.relay.com", relays, 1700000001, b"\xab" * 32
+            )
 
             assert result == 1
 
@@ -1335,7 +1364,9 @@ class TestFinderPersistScanChunk:
         finder = Finder(brotr=mock_brotr)
 
         # Should NOT raise
-        result = await finder._persist_scan_chunk("wss://source.relay.com", {}, 1700000001)
+        result = await finder._persist_scan_chunk(
+            "wss://source.relay.com", {}, 1700000001, b"\xab" * 32
+        )
 
         assert result == 0
 
@@ -1349,15 +1380,15 @@ class TestFinderOrphanCursorCleanup:
     """Tests for orphan cursor cleanup in find_from_events()."""
 
     async def test_orphan_cursors_cleaned_before_scan(self, mock_brotr: Brotr) -> None:
-        """delete_orphan_cursors is called before relay URL fetch."""
+        """delete_orphan_cursors is called before relay fetch."""
         call_order: list[str] = []
 
         async def _mock_delete_orphan(*args: Any, **kwargs: Any) -> int:
             call_order.append("delete_orphan_cursors")
             return 3
 
-        async def _mock_get_urls(*args: Any, **kwargs: Any) -> list[str]:
-            call_order.append("get_all_relay_urls")
+        async def _mock_get_relays(*args: Any, **kwargs: Any) -> list[Relay]:
+            call_order.append("fetch_all_relays")
             return []
 
         with (
@@ -1367,15 +1398,15 @@ class TestFinderOrphanCursorCleanup:
                 side_effect=_mock_delete_orphan,
             ),
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls",
+                "bigbrotr.services.finder.service.fetch_all_relays",
                 new_callable=AsyncMock,
-                side_effect=_mock_get_urls,
+                side_effect=_mock_get_relays,
             ),
         ):
             finder = Finder(brotr=mock_brotr)
             await finder.find_from_events()
 
-            assert call_order == ["delete_orphan_cursors", "get_all_relay_urls"]
+            assert call_order == ["delete_orphan_cursors", "fetch_all_relays"]
 
     async def test_orphan_cursor_cleanup_failure_does_not_block(self, mock_brotr: Brotr) -> None:
         """Orphan cursor cleanup DB error does not prevent event scanning."""
@@ -1386,13 +1417,13 @@ class TestFinderOrphanCursorCleanup:
                 side_effect=asyncpg.PostgresError("cleanup failed"),
             ),
             patch(
-                "bigbrotr.services.finder.service.get_all_relay_urls",
+                "bigbrotr.services.finder.service.fetch_all_relays",
                 new_callable=AsyncMock,
                 return_value=[],
-            ) as mock_get_urls,
+            ) as mock_get_relays,
         ):
             finder = Finder(brotr=mock_brotr)
             result = await finder.find_from_events()
 
             assert result == 0
-            mock_get_urls.assert_awaited_once()
+            mock_get_relays.assert_awaited_once()

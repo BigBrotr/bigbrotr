@@ -4,17 +4,16 @@ All SQL queries used by services are centralized here.  Each function
 accepts a [Brotr][bigbrotr.core.brotr.Brotr] instance and returns typed
 results.  Services import from this module instead of writing inline SQL.
 
-The 15 query functions are grouped into five categories:
+The 13 query functions are grouped into five categories:
 
-- **Relay queries**: ``get_all_relay_urls``, ``get_all_relays``,
-  ``filter_new_relay_urls``, ``insert_relays``
-- **Check / monitoring queries**: ``count_relays_due_for_check``,
-  ``fetch_relays_due_for_check``
+- **Relay queries**: ``fetch_all_relays``, ``filter_new_relays``,
+  ``insert_relays``
+- **Monitoring queries**: ``fetch_relays_to_monitor``
 - **Event queries**: ``fetch_event_tagvalues``
 - **Candidate lifecycle**: ``insert_candidates``, ``count_candidates``,
-  ``fetch_candidate_chunk``, ``delete_stale_candidates``,
+  ``fetch_candidates``, ``delete_stale_candidates``,
   ``delete_exhausted_candidates``, ``promote_candidates``
-- **Cursor queries**: ``get_all_service_cursors``, ``delete_orphan_cursors``
+- **Cursor queries**: ``get_all_cursor_values``, ``delete_orphan_cursors``
 
 Warning:
     All queries use the timeout from
@@ -32,79 +31,119 @@ See Also:
 
 from __future__ import annotations
 
+import logging
 import time
-from collections.abc import Iterable  # noqa: TC003
 from typing import TYPE_CHECKING, Any
 
-from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.constants import NetworkType, ServiceName
+from bigbrotr.models.relay import Relay, RelayDbParams
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.utils import parse_delete_result
 
 
 if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
-    from bigbrotr.models.relay import Relay
+
+logger = logging.getLogger(__name__)
 
 
-async def get_all_relay_urls(brotr: Brotr) -> list[str]:
-    """Fetch all relay URLs from the database, ordered alphabetically.
+# =============================================================================
+# Private helpers
+# =============================================================================
 
-    Called by [Finder][bigbrotr.services.finder.Finder] at the start of
-    event-scanning relay discovery to determine which relays to scan.
 
-    See Also:
-        [get_all_relays][bigbrotr.services.common.queries.get_all_relays]:
-            Similar query that also returns ``network`` and
-            ``discovered_at``.
+async def _fetch_relays(brotr: Brotr, query: str, *args: Any) -> list[Relay]:
+    """Execute *query* via ``brotr.fetch`` and construct Relay objects from the rows.
+
+    Shared implementation for :func:`fetch_all_relays` and
+    :func:`fetch_relays_to_monitor`.  Rows that fail ``Relay``
+    construction (invalid URL) are silently skipped.
     """
-    rows = await brotr.fetch("SELECT url FROM relay ORDER BY url")
-    return [row["url"] for row in rows]
+    rows = await brotr.fetch(query, *args)
+    relays: list[Relay] = []
+    for row in rows:
+        try:
+            params = RelayDbParams(row["url"], row["network"], row["discovered_at"])
+            relays.append(Relay.from_db_params(params))
+        except (ValueError, TypeError) as e:
+            logger.debug("Skipping invalid relay URL %s: %s", row["url"], e)
+    return relays
 
 
-async def get_all_relays(brotr: Brotr) -> list[dict[str, Any]]:
-    """Fetch all relays with their network and discovery timestamp.
+async def _fetch_service_states(brotr: Brotr, query: str, *args: Any) -> list[ServiceState]:
+    """Execute *query* via ``brotr.fetch`` and construct ServiceState objects.
 
-    Called by [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]
-    to build the list of relays for event collection.
+    Shared implementation for service_state fetch queries.  Rows that fail
+    ``ServiceState`` construction are silently skipped.
+    """
+    rows = await brotr.fetch(query, *args)
+    states: list[ServiceState] = []
+    for row in rows:
+        try:
+            states.append(
+                ServiceState(
+                    service_name=row["service_name"],
+                    state_type=row["state_type"],
+                    state_key=row["state_key"],
+                    state_value=row["state_value"],
+                    updated_at=row["updated_at"],
+                )
+            )
+        except (ValueError, TypeError) as e:
+            logger.debug("Skipping invalid service state %s: %s", row["state_key"], e)
+    return states
+
+
+# =============================================================================
+# Relay queries
+# =============================================================================
+
+
+async def fetch_all_relays(brotr: Brotr) -> list[Relay]:
+    """Fetch all relays from the database as domain objects.
+
+    Called by [Finder][bigbrotr.services.finder.Finder] and
+    [Synchronizer][bigbrotr.services.synchronizer.Synchronizer].
+    Rows that fail ``Relay`` construction (invalid URL) are silently
+    skipped.
 
     Returns:
-        List of dicts with keys: ``url``, ``network``, ``discovered_at``.
-
-    See Also:
-        [get_all_relay_urls][bigbrotr.services.common.queries.get_all_relay_urls]:
-            Lightweight variant returning only URLs.
+        List of [Relay][bigbrotr.models.relay.Relay] instances ordered
+        by ``discovered_at`` ascending.
     """
-    rows = await brotr.fetch(
+    return await _fetch_relays(
+        brotr,
         """
         SELECT url, network, discovered_at
         FROM relay
         ORDER BY discovered_at ASC
-        """
+        """,
     )
-    return [dict(row) for row in rows]
 
 
-async def filter_new_relay_urls(
+async def filter_new_relays(
     brotr: Brotr,
-    urls: list[str],
-) -> list[str]:
-    """Filter URLs to those not already in relays or validator candidates.
+    relays: list[Relay],
+) -> list[Relay]:
+    """Keep only relays not already in the database or pending validation.
 
-    Called by [Seeder][bigbrotr.services.seeder.Seeder] to avoid inserting
-    duplicate seed URLs that already exist as relays or as pending
-    validation candidates in ``service_state``.
+    Queries the ``relay`` table and ``service_state`` candidates to
+    determine which of the given relays are genuinely new.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        urls: Candidate URLs to check.
+        relays: [Relay][bigbrotr.models.relay.Relay] objects to check.
 
     Returns:
-        URLs that are genuinely new (not in relays, not in candidates).
+        Relays whose URL is not yet known (not in relays, not in candidates).
 
     See Also:
         [insert_candidates][bigbrotr.services.common.queries.insert_candidates]:
-            Uses this function internally to skip known URLs.
+            Uses this function internally to skip known relays.
     """
+    urls = [r.url for r in relays]
+    if not urls:
+        return []
+
     rows = await brotr.fetch(
         """
         SELECT url FROM unnest($1::text[]) AS url
@@ -119,7 +158,8 @@ async def filter_new_relay_urls(
         ServiceName.VALIDATOR,
         ServiceStateType.CANDIDATE,
     )
-    return [row["url"] for row in rows]
+    new_urls = {row["url"] for row in rows}
+    return [r for r in relays if r.url in new_urls]
 
 
 async def insert_relays(brotr: Brotr, relays: list[Relay]) -> int:
@@ -154,116 +194,74 @@ async def insert_relays(brotr: Brotr, relays: list[Relay]) -> int:
     return inserted
 
 
-# Shared FROM/JOIN/WHERE for relay check queries (count + fetch).
-# Parameters: $1=service_name, $2=state_type, $3=networks, $4=threshold
-_RELAYS_DUE_FOR_CHECK_BASE = """
-    FROM relay r
-    LEFT JOIN service_state ss ON
-        ss.service_name = $1
-        AND ss.state_type = $2
-        AND ss.state_key = r.url
-    WHERE
-        r.network = ANY($3)
-        AND (ss.state_key IS NULL OR (ss.state_value->>'last_check_at')::BIGINT < $4)
-"""
+# =============================================================================
+# Monitoring queries
+# =============================================================================
 
 
-async def count_relays_due_for_check(
+async def fetch_relays_to_monitor(
     brotr: Brotr,
-    service_name: ServiceName,
-    threshold: int,
-    networks: list[str],
-) -> int:
-    """Count relays needing health checks.
+    monitored_before: int,
+    networks: list[NetworkType],
+) -> list[Relay]:
+    """Fetch relays due for monitoring, ordered by least-recently-monitored.
 
-    Called by [Monitor][bigbrotr.services.monitor.Monitor] at the start of
-    each cycle to populate
-    ``ChunkProgress.total``.
+    Returns relays that have never been monitored or whose last monitoring
+    occurred before ``monitored_before``.  Ordering ensures that relays
+    with the oldest (or missing) monitoring marker are monitored first.
+    Rows that fail ``Relay`` construction are skipped.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        service_name: Service requesting checks (e.g.,
-            ``ServiceName.MONITOR``).
-        threshold: Unix timestamp cutoff -- relays last checked before this
-            are considered due.
-        networks: Network type strings to include.
+        monitored_before: Exclusive upper bound -- only relays whose
+            ``monitored_at`` is before this Unix timestamp (or NULL)
+            are returned.
+        networks: Network types to include.
 
     Returns:
-        Number of relays due for a check.
-
-    See Also:
-        [fetch_relays_due_for_check][bigbrotr.services.common.queries.fetch_relays_due_for_check]:
-            Companion function that fetches the actual relay rows.
+        List of [Relay][bigbrotr.models.relay.Relay] instances.
     """
-    row = await brotr.fetchrow(
-        f"SELECT COUNT(*)::int AS count {_RELAYS_DUE_FOR_CHECK_BASE}",
-        service_name,
-        ServiceStateType.CHECKPOINT,
-        networks,
-        threshold,
-    )
-    return row["count"] if row else 0
-
-
-async def fetch_relays_due_for_check(
-    brotr: Brotr,
-    service_name: ServiceName,
-    threshold: int,
-    networks: list[str],
-    limit: int,
-) -> list[dict[str, Any]]:
-    """Fetch relays due for health checks, ordered by least-recently-checked.
-
-    Called by [Monitor][bigbrotr.services.monitor.Monitor] during chunk-based
-    processing to retrieve the next batch of relays needing health checks.
-    Ordering ensures that relays with the oldest (or missing) checkpoint
-    are checked first.
-
-    Args:
-        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        service_name: Service requesting checks (e.g.,
-            ``ServiceName.MONITOR``).
-        threshold: Unix timestamp cutoff -- relays last checked before this
-            are considered due.
-        networks: Network type strings to include.
-        limit: Maximum relays to return.
-
-    Returns:
-        List of dicts with keys: ``url``, ``network``, ``discovered_at``.
-
-    See Also:
-        [count_relays_due_for_check][bigbrotr.services.common.queries.count_relays_due_for_check]:
-            Companion count query sharing the same base SQL.
-    """
-    rows = await brotr.fetch(
-        f"""
+    return await _fetch_relays(
+        brotr,
+        """
         SELECT r.url, r.network, r.discovered_at
-        {_RELAYS_DUE_FOR_CHECK_BASE}
+        FROM relay r
+        LEFT JOIN service_state ss ON
+            ss.service_name = $3
+            AND ss.state_type = $4
+            AND ss.state_key = r.url
+        WHERE
+            r.network = ANY($1)
+            AND (ss.state_key IS NULL
+                 OR (ss.state_value->>'monitored_at')::BIGINT < $2)
         ORDER BY
-            COALESCE((ss.state_value->>'last_check_at')::BIGINT, 0) ASC,
+            COALESCE((ss.state_value->>'monitored_at')::BIGINT, 0) ASC,
             r.discovered_at ASC
-        LIMIT $5
         """,
-        service_name,
-        ServiceStateType.CHECKPOINT,
         networks,
-        threshold,
-        limit,
+        monitored_before,
+        ServiceName.MONITOR,
+        ServiceStateType.MONITORING,
     )
-    return [dict(row) for row in rows]
+
+
+# =============================================================================
+# Event queries
+# =============================================================================
 
 
 async def fetch_event_tagvalues(
     brotr: Brotr,
     relay_url: str,
-    last_seen_at: int,
+    cursor_seen_at: int | None,
+    cursor_event_id: bytes | None,
     limit: int,
 ) -> list[dict[str, Any]]:
     """Fetch event tagvalues from a specific relay, cursor-paginated.
 
-    Retrieves all events seen on the relay after the cursor position.
-    The caller extracts relay URLs by parsing each tagvalue via
-    ``parse_relay_url``.
+    Uses a composite cursor ``(seen_at, event_id)`` for deterministic
+    pagination that handles ties in ``seen_at``. When both cursor
+    components are ``None`` (new cursor), all events are returned.
 
     Called by [Finder][bigbrotr.services.finder.Finder] during per-relay
     event scanning.
@@ -271,36 +269,45 @@ async def fetch_event_tagvalues(
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         relay_url: Source relay to scan events from.
-        last_seen_at: Cursor position -- only events seen after this.
+        cursor_seen_at: ``seen_at`` from the last processed row, or
+            ``None`` to start from the beginning.
+        cursor_event_id: ``event_id`` (raw bytes) from the last processed
+            row, or ``None`` to start from the beginning.
         limit: Maximum events per batch.
 
     Returns:
         List of dicts with keys: ``tagvalues`` (``list[str]``),
-        ``seen_at`` (``int``).
+        ``seen_at`` (``int``), ``event_id`` (``bytes``).
 
     See Also:
-        [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors]:
-            Batch-fetches the per-relay cursor values used as
-            ``last_seen_at``.
+        [get_all_cursor_values][bigbrotr.services.common.queries.get_all_cursor_values]:
+            Batch-fetches the per-relay cursor state used to supply
+            ``cursor_seen_at`` and ``cursor_event_id``.
     """
     rows = await brotr.fetch(
         """
-        SELECT e.tagvalues, er.seen_at
+        SELECT e.tagvalues, er.seen_at, e.id AS event_id
         FROM event e
         INNER JOIN event_relay er ON e.id = er.event_id
         WHERE er.relay_url = $1
-          AND er.seen_at > $2
-        ORDER BY er.seen_at ASC
-        LIMIT $3
+          AND ($2::bigint IS NULL OR (er.seen_at, e.id) > ($2::bigint, $3::bytea))
+        ORDER BY er.seen_at ASC, e.id ASC
+        LIMIT $4
         """,
         relay_url,
-        last_seen_at,
+        cursor_seen_at,
+        cursor_event_id,
         limit,
     )
     return [dict(row) for row in rows]
 
 
-async def insert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
+# =============================================================================
+# Candidate lifecycle
+# =============================================================================
+
+
+async def insert_candidates(brotr: Brotr, relays: list[Relay]) -> int:
     """Insert new validation candidates, skipping known relays and duplicates.
 
     Filters out URLs that already exist in the ``relay`` table or as
@@ -324,16 +331,11 @@ async def insert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
         [promote_candidates][bigbrotr.services.common.queries.promote_candidates]:
             Moves validated candidates from ``service_state`` to the
             ``relay`` table.
-        [fetch_candidate_chunk][bigbrotr.services.common.queries.fetch_candidate_chunk]:
+        [fetch_candidates][bigbrotr.services.common.queries.fetch_candidates]:
             Retrieves candidates for validation processing.
     """
-    relay_list = list(relays)
-    urls = [r.url for r in relay_list]
-    if not urls:
-        return 0
-
-    new_urls = set(await filter_new_relay_urls(brotr, urls))
-    if not new_urls:
+    new_relays = await filter_new_relays(brotr, relays)
+    if not new_relays:
         return 0
 
     now = int(time.time())
@@ -345,8 +347,7 @@ async def insert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
             state_value={"failures": 0, "network": relay.network.value, "inserted_at": now},
             updated_at=now,
         )
-        for relay in relay_list
-        if relay.url in new_urls
+        for relay in new_relays
     ]
     batch_size = brotr.config.batch.max_size
     for i in range(0, len(records), batch_size):
@@ -356,7 +357,7 @@ async def insert_candidates(brotr: Brotr, relays: Iterable[Relay]) -> int:
 
 async def count_candidates(
     brotr: Brotr,
-    networks: list[str],
+    networks: list[NetworkType],
 ) -> int:
     """Count pending validation candidates for the given networks.
 
@@ -366,13 +367,13 @@ async def count_candidates(
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        networks: Network type strings (e.g. ``['clearnet', 'tor']``).
+        networks: Network types to include.
 
     Returns:
         Total count of matching candidates.
 
     See Also:
-        [fetch_candidate_chunk][bigbrotr.services.common.queries.fetch_candidate_chunk]:
+        [fetch_candidates][bigbrotr.services.common.queries.fetch_candidates]:
             Fetches the actual candidate rows for processing.
     """
     row = await brotr.fetchrow(
@@ -390,12 +391,12 @@ async def count_candidates(
     return row["count"] if row else 0
 
 
-async def fetch_candidate_chunk(
+async def fetch_candidates(
     brotr: Brotr,
-    networks: list[str],
+    networks: list[NetworkType],
     before_timestamp: int,
     limit: int,
-) -> list[dict[str, Any]]:
+) -> list[ServiceState]:
     """Fetch candidates prioritized by fewest failures, then oldest.
 
     Only returns candidates updated before ``before_timestamp`` to avoid
@@ -407,12 +408,13 @@ async def fetch_candidate_chunk(
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        networks: Network type strings to include.
+        networks: Network types to include.
         before_timestamp: Exclude candidates updated after this time.
         limit: Maximum candidates to return.
 
     Returns:
-        List of dicts with keys: ``state_key``, ``state_value``.
+        List of [ServiceState][bigbrotr.models.service_state.ServiceState]
+        instances.
 
     See Also:
         [count_candidates][bigbrotr.services.common.queries.count_candidates]:
@@ -421,9 +423,10 @@ async def fetch_candidate_chunk(
             Called after successful validation to move candidates to
             the ``relay`` table.
     """
-    rows = await brotr.fetch(
+    return await _fetch_service_states(
+        brotr,
         """
-        SELECT state_key, state_value
+        SELECT service_name, state_type, state_key, state_value, updated_at
         FROM service_state
         WHERE service_name = $1
           AND state_type = $2
@@ -439,7 +442,6 @@ async def fetch_candidate_chunk(
         before_timestamp,
         limit,
     )
-    return [dict(row) for row in rows]
 
 
 async def delete_stale_candidates(brotr: Brotr) -> int:
@@ -457,17 +459,21 @@ async def delete_stale_candidates(brotr: Brotr) -> int:
         [delete_exhausted_candidates][bigbrotr.services.common.queries.delete_exhausted_candidates]:
             Companion cleanup that removes permanently failing candidates.
     """
-    result = await brotr.execute(
+    count: int = await brotr.fetchval(
         """
-        DELETE FROM service_state
-        WHERE service_name = $1
-          AND state_type = $2
-          AND EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)
+        WITH deleted AS (
+            DELETE FROM service_state
+            WHERE service_name = $1
+              AND state_type = $2
+              AND EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)
+            RETURNING 1
+        )
+        SELECT count(*)::int FROM deleted
         """,
         ServiceName.VALIDATOR,
         ServiceStateType.CANDIDATE,
     )
-    return parse_delete_result(result)
+    return count
 
 
 async def delete_exhausted_candidates(
@@ -493,30 +499,31 @@ async def delete_exhausted_candidates(
         [delete_stale_candidates][bigbrotr.services.common.queries.delete_stale_candidates]:
             Companion cleanup that removes already-promoted candidates.
     """
-    result = await brotr.execute(
+    count: int = await brotr.fetchval(
         """
-        DELETE FROM service_state
-        WHERE service_name = $1
-          AND state_type = $2
-          AND COALESCE((state_value->>'failures')::int, 0) >= $3
+        WITH deleted AS (
+            DELETE FROM service_state
+            WHERE service_name = $1
+              AND state_type = $2
+              AND COALESCE((state_value->>'failures')::int, 0) >= $3
+            RETURNING 1
+        )
+        SELECT count(*)::int FROM deleted
         """,
         ServiceName.VALIDATOR,
         ServiceStateType.CANDIDATE,
         max_failures,
     )
-    return parse_delete_result(result)
+    return count
 
 
 async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
-    """Atomically insert relays and remove their candidate records.
-
-    Runs both operations in a single
-    [Brotr.transaction()][bigbrotr.core.brotr.Brotr.transaction] to
-    prevent orphaned candidates if the process crashes mid-promotion.
+    """Insert relays and remove their candidate records.
 
     Called by [Validator][bigbrotr.services.validator.Validator] after
     successful WebSocket validation to move candidates into the ``relay``
-    table.
+    table. If the delete fails, orphaned candidates are cleaned up by
+    ``delete_stale_candidates`` at the next cycle.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
@@ -526,61 +533,40 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
     Returns:
         Number of relays inserted (duplicates skipped via ``ON CONFLICT``).
 
-    Note:
-        Uses the ``relay_insert`` stored procedure for bulk insertion.
-        The transaction ensures atomicity: if the insert succeeds but
-        the delete fails, neither operation is committed.
-
-        Uses ``brotr.transaction()`` for atomicity, which yields a raw
-        asyncpg connection that bypasses Brotr's timeout facade.
-        Timeout uses ``config.timeouts.batch`` explicitly.
-
     See Also:
         [insert_candidates][bigbrotr.services.common.queries.insert_candidates]:
             The inverse operation that creates candidate records.
+        [delete_stale_candidates][bigbrotr.services.common.queries.delete_stale_candidates]:
+            Safety net that removes candidates already in the relay table.
     """
     if not relays:
         return 0
 
-    params = [relay.to_db_params() for relay in relays]
-    urls = [p.url for p in params]
-    networks = [p.network for p in params]
-    discovered_ats = [p.discovered_at for p in params]
-    t = brotr.config.timeouts.batch
-
-    async with brotr.transaction() as conn:
-        inserted = (
-            await conn.fetchval(
-                "SELECT relay_insert($1, $2, $3)",
-                urls,
-                networks,
-                discovered_ats,
-                timeout=t,
-            )
-            or 0
-        )
-        await conn.execute(
-            """
-            DELETE FROM service_state
-            WHERE service_name = $1
-              AND state_type = $2
-              AND state_key = ANY($3::text[])
-            """,
-            ServiceName.VALIDATOR,
-            ServiceStateType.CANDIDATE,
-            urls,
-            timeout=t,
-        )
-
+    inserted = await brotr.insert_relay(relays)
+    urls = [relay.url for relay in relays]
+    await brotr.delete_service_state(
+        [ServiceName.VALIDATOR] * len(relays),
+        [ServiceStateType.CANDIDATE] * len(relays),
+        urls,
+    )
     return inserted
 
 
-async def get_all_service_cursors(
+# =============================================================================
+# Cursor queries
+# =============================================================================
+
+
+async def get_all_cursor_values(
     brotr: Brotr,
     service_name: ServiceName,
-    cursor_field: str = "last_synced_at",
-) -> dict[str, int]:
-    """Batch-fetch all cursor positions for a service.
+) -> dict[str, dict[str, Any]]:
+    """Batch-fetch all cursor state values for a service.
+
+    Returns the full ``state_value`` dict for each cursor row so that
+    each service can extract the fields it needs. The Finder uses a
+    composite ``(seen_at, event_id)`` cursor; the Synchronizer uses a
+    single ``last_synced_at`` timestamp.
 
     Called by [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]
     and [Finder][bigbrotr.services.finder.Finder] to pre-fetch all per-relay
@@ -591,15 +577,10 @@ async def get_all_service_cursors(
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         service_name: Service owning the cursors (e.g.,
             ``ServiceName.SYNCHRONIZER``).
-        cursor_field: JSON key in ``state_value`` containing the cursor value
-            (e.g., ``"last_synced_at"`` or ``"last_seen_at"``).
 
     Returns:
-        Dict mapping ``state_key`` (relay URL) to cursor value (timestamp).
-
-    Note:
-        Rows where the cursor field is ``NULL`` or missing are silently
-        excluded from the result.
+        Dict mapping ``state_key`` (relay URL) to the ``state_value``
+        dict for that cursor row.
 
     See Also:
         [ServiceStateType.CURSOR][bigbrotr.models.service_state.ServiceStateType]:
@@ -607,15 +588,14 @@ async def get_all_service_cursors(
     """
     rows = await brotr.fetch(
         """
-        SELECT state_key, (state_value->>$1)::BIGINT as cursor_value
+        SELECT state_key, state_value
         FROM service_state
-        WHERE service_name = $2 AND state_type = $3
+        WHERE service_name = $1 AND state_type = $2
         """,
-        cursor_field,
         service_name,
         ServiceStateType.CURSOR,
     )
-    return {r["state_key"]: r["cursor_value"] for r in rows if r["cursor_value"] is not None}
+    return {r["state_key"]: dict(r["state_value"]) for r in rows}
 
 
 async def delete_orphan_cursors(brotr: Brotr, service_name: ServiceName) -> int:
@@ -638,17 +618,21 @@ async def delete_orphan_cursors(brotr: Brotr, service_name: ServiceName) -> int:
         Number of orphan cursor rows deleted.
 
     See Also:
-        [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors]:
+        [get_all_cursor_values][bigbrotr.services.common.queries.get_all_cursor_values]:
             The companion fetch query for cursor records.
     """
-    result = await brotr.execute(
+    count: int = await brotr.fetchval(
         """
-        DELETE FROM service_state
-        WHERE service_name = $1
-          AND state_type = $2
-          AND state_key NOT IN (SELECT url FROM relay)
+        WITH deleted AS (
+            DELETE FROM service_state
+            WHERE service_name = $1
+              AND state_type = $2
+              AND state_key NOT IN (SELECT url FROM relay)
+            RETURNING 1
+        )
+        SELECT count(*)::int FROM deleted
         """,
         service_name,
         ServiceStateType.CURSOR,
     )
-    return parse_delete_result(result)
+    return count

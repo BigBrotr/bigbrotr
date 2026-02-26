@@ -17,6 +17,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from bigbrotr.core.brotr import Brotr
+from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.configs import (
     ClearnetConfig,
     I2pConfig,
@@ -40,8 +42,11 @@ from bigbrotr.services.validator import (
 def make_candidate_row(url: str, network: str = "clearnet", failures: int = 0) -> dict:
     """Create a mock candidate row from database."""
     return {
+        "service_name": "validator",
+        "state_type": "candidate",
         "state_key": url,
         "state_value": {"network": network, "failures": failures},
+        "updated_at": 1700000000,
     }
 
 
@@ -245,7 +250,7 @@ class TestValidatorRun:
         mock_validator_brotr._pool.fetch = AsyncMock(
             side_effect=[[make_candidate_row("wss://relay.com")], []]
         )
-        mock_validator_brotr._pool.execute = AsyncMock(return_value="DELETE 0")
+        mock_validator_brotr._pool.fetchval = AsyncMock(return_value=0)
 
         validator = Validator(brotr=mock_validator_brotr)
 
@@ -256,8 +261,8 @@ class TestValidatorRun:
         ):
             await validator.run()
 
-        assert mock_validator_brotr._pool.execute.called
-        calls = mock_validator_brotr._pool.execute.call_args_list
+        assert mock_validator_brotr._pool.fetchval.called
+        calls = mock_validator_brotr._pool.fetchval.call_args_list
         cleanup_called = any(
             "EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)" in str(c) for c in calls
         )
@@ -606,10 +611,12 @@ class TestPersistence:
     async def test_valid_relays_inserted_and_candidates_deleted(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """Test valid relays are atomically inserted and candidates removed."""
+        """Test valid relays are inserted and candidates removed."""
         mock_validator_brotr._pool.fetch = AsyncMock(
             side_effect=[[make_candidate_row("wss://valid.relay.com")], []]
         )
+        mock_validator_brotr.insert_relay = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        mock_validator_brotr.delete_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
         validator = Validator(brotr=mock_validator_brotr)
 
@@ -620,19 +627,16 @@ class TestPersistence:
         ):
             await validator.run()
 
-        # Both operations happen on the same connection inside a transaction
-        conn = mock_validator_brotr._pool._mock_connection
-        # relay_insert called via fetchval
-        fetchval_calls = conn.fetchval.call_args_list
-        insert_call = [c for c in fetchval_calls if "relay_insert" in str(c)]
-        assert len(insert_call) == 1, f"Expected one relay_insert call, got {insert_call}"
-        assert "wss://valid.relay.com" in insert_call[0].args[1]
+        mock_validator_brotr.insert_relay.assert_awaited_once()
+        relays = mock_validator_brotr.insert_relay.call_args[0][0]
+        assert len(relays) == 1
+        assert relays[0].url == "wss://valid.relay.com"
 
-        # candidate deletion called via execute (atomic, within the same transaction)
-        execute_calls = conn.execute.call_args_list
-        delete_call = [c for c in execute_calls if "ANY($3::text[])" in str(c)]
-        assert len(delete_call) == 1, f"Expected one candidate DELETE call, got {delete_call}"
-        assert "wss://valid.relay.com" in delete_call[0].args[3]
+        mock_validator_brotr.delete_service_state.assert_awaited_once()
+        delete_args = mock_validator_brotr.delete_service_state.call_args
+        assert delete_args[0][0] == [ServiceName.VALIDATOR]
+        assert delete_args[0][1] == [ServiceStateType.CANDIDATE]
+        assert delete_args[0][2] == ["wss://valid.relay.com"]
 
     async def test_invalid_candidates_failures_incremented(
         self, mock_validator_brotr: Brotr
@@ -692,44 +696,43 @@ class TestCleanup:
 
     async def test_cleanup_stale(self, mock_validator_brotr: Brotr) -> None:
         """Test stale candidates (already in relays) are cleaned up."""
-        mock_validator_brotr._pool.execute = AsyncMock(return_value="DELETE 5")
+        mock_validator_brotr._pool.fetchval = AsyncMock(return_value=5)
 
         validator = Validator(brotr=mock_validator_brotr)
         await validator.cleanup_stale()
 
-        mock_validator_brotr._pool.execute.assert_called_once()
-        query = mock_validator_brotr._pool.execute.call_args[0][0]
+        mock_validator_brotr._pool.fetchval.assert_called_once()
+        query = mock_validator_brotr._pool.fetchval.call_args[0][0]
         assert "DELETE FROM service_state" in query
         assert "EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)" in query
 
     async def test_cleanup_exhausted_when_enabled(self, mock_validator_brotr: Brotr) -> None:
         """Test exhausted candidates are cleaned up when enabled."""
-        mock_validator_brotr._pool.execute = AsyncMock(return_value="DELETE 3")
+        mock_validator_brotr._pool.fetchval = AsyncMock(return_value=3)
 
         config = ValidatorConfig(cleanup={"enabled": True, "max_failures": 5})
         validator = Validator(brotr=mock_validator_brotr, config=config)
         await validator.cleanup_exhausted()
 
-        mock_validator_brotr._pool.execute.assert_called_once()
-        call_args = mock_validator_brotr._pool.execute.call_args
+        mock_validator_brotr._pool.fetchval.assert_called_once()
+        call_args = mock_validator_brotr._pool.fetchval.call_args
         assert call_args[0][3] == 5  # max_failures threshold
 
     async def test_cleanup_exhausted_not_called_when_disabled(
         self, mock_validator_brotr: Brotr
     ) -> None:
         """Test exhausted cleanup is skipped when disabled."""
-        # Set up execute as an AsyncMock to track calls
-        mock_validator_brotr._pool._mock_connection.execute = AsyncMock(return_value="DELETE 0")
+        mock_validator_brotr._pool._mock_connection.fetchval = AsyncMock(return_value=0)
 
         config = ValidatorConfig(cleanup={"enabled": False})
         validator = Validator(brotr=mock_validator_brotr, config=config)
         await validator.cleanup_exhausted()
 
-        mock_validator_brotr._pool._mock_connection.execute.assert_not_called()
+        mock_validator_brotr._pool._mock_connection.fetchval.assert_not_called()
 
     async def test_cleanup_propagates_db_errors(self, mock_validator_brotr: Brotr) -> None:
         """Test cleanup propagates database errors (no internal error handling)."""
-        mock_validator_brotr._pool.execute = AsyncMock(side_effect=Exception("DB error"))
+        mock_validator_brotr._pool.fetchval = AsyncMock(side_effect=Exception("DB error"))
 
         validator = Validator(brotr=mock_validator_brotr)
         with pytest.raises(Exception, match="DB error"):

@@ -6,10 +6,10 @@ Uses ``asyncio.TaskGroup`` with per-network semaphores for structured, bounded c
 The synchronization workflow proceeds as follows:
 
 1. Fetch relays from the database via
-   [get_all_relays][bigbrotr.services.common.queries.get_all_relays]
+   [fetch_all_relays][bigbrotr.services.common.queries.fetch_all_relays]
    (optionally filtered by metadata age).
 2. Load per-relay sync cursors from ``service_state`` via
-   [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors].
+   [get_all_cursor_values][bigbrotr.services.common.queries.get_all_cursor_values].
 3. Connect to each relay and fetch events since the last sync timestamp.
 4. Validate event signatures and timestamps before insertion.
 5. Update per-relay cursors for the next cycle.
@@ -70,8 +70,8 @@ from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import (
     delete_orphan_cursors,
-    get_all_relays,
-    get_all_service_cursors,
+    fetch_all_relays,
+    get_all_cursor_values,
 )
 
 from .configs import SynchronizerConfig
@@ -109,7 +109,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             that health-checks relays before they are synced.
         [Finder][bigbrotr.services.finder.Finder]: Downstream consumer
             that discovers relay URLs from the events collected here.
-        [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors]:
+        [get_all_cursor_values][bigbrotr.services.common.queries.get_all_cursor_values]:
             Pre-fetches all per-relay cursor values.
     """
 
@@ -206,24 +206,15 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             List of relays to sync (filtered by enabled networks).
 
         See Also:
-            [get_all_relays][bigbrotr.services.common.queries.get_all_relays]:
+            [fetch_all_relays][bigbrotr.services.common.queries.fetch_all_relays]:
                 The SQL query executed by this method.
         """
         if not self._config.source.from_database:
             return []
 
-        rows = await get_all_relays(self._brotr)
-
+        all_relays = await fetch_all_relays(self._brotr)
         enabled = set(self._config.networks.get_enabled_networks())
-        relays: list[Relay] = []
-        for row in rows:
-            url_str = row["url"].strip()
-            try:
-                relay = Relay(url_str, discovered_at=row["discovered_at"])
-                if relay.network.value in enabled:
-                    relays.append(relay)
-            except (ValueError, TypeError) as e:
-                self._logger.debug("invalid_relay_url", url=url_str, error=str(e))
+        relays = [r for r in all_relays if r.network.value in enabled]
 
         self._logger.debug("relays_fetched", count=len(relays))
         return relays
@@ -238,13 +229,14 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             Dict mapping relay URL to ``last_synced_at`` timestamp.
 
         See Also:
-            [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors]:
+            [get_all_cursor_values][bigbrotr.services.common.queries.get_all_cursor_values]:
                 The SQL query executed by this method.
         """
         if not self._config.time_range.use_relay_state:
             return {}
 
-        return await get_all_service_cursors(self._brotr, self.SERVICE_NAME, "last_synced_at")
+        raw = await get_all_cursor_values(self._brotr, self.SERVICE_NAME)
+        return {k: v["last_synced_at"] for k, v in raw.items() if "last_synced_at" in v}
 
     def _merge_overrides(self, relays: list[Relay]) -> list[Relay]:
         """Merge configured relay overrides into the relay list.

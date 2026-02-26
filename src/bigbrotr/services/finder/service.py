@@ -22,7 +22,8 @@ Note:
     [Synchronizer][bigbrotr.services.synchronizer.Synchronizer] are
     eventually processed. Cursors are stored as
     [ServiceState][bigbrotr.models.service_state.ServiceState] records
-    with ``state_type='cursor'`` and ``state_value.last_seen_at``.
+    with ``state_type='cursor'`` and a composite ``(seen_at, event_id)``
+    cursor in ``state_value`` for deterministic resumption.
 
 See Also:
     [FinderConfig][bigbrotr.services.finder.FinderConfig]: Configuration
@@ -65,9 +66,9 @@ from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.queries import (
     delete_orphan_cursors,
+    fetch_all_relays,
     fetch_event_tagvalues,
-    get_all_relay_urls,
-    get_all_service_cursors,
+    get_all_cursor_values,
     insert_candidates,
 )
 from bigbrotr.services.common.utils import parse_relay_url
@@ -182,11 +183,12 @@ class Finder(BaseService[FinderConfig]):
             )
 
         try:
-            relay_urls = await get_all_relay_urls(self._brotr)
+            all_relays = await fetch_all_relays(self._brotr)
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.warning("fetch_relays_failed", error=str(e), error_type=type(e).__name__)
             return 0
 
+        relay_urls = [r.url for r in all_relays]
         if not relay_urls:
             self._logger.debug("no_relays_to_scan")
             return 0
@@ -314,7 +316,7 @@ class Finder(BaseService[FinderConfig]):
 
         if all_relays:
             try:
-                found = await insert_candidates(self._brotr, all_relays.values())
+                found = await insert_candidates(self._brotr, list(all_relays.values()))
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
                     "insert_candidates_failed",
@@ -329,16 +331,33 @@ class Finder(BaseService[FinderConfig]):
         self._logger.info("apis_completed", found=found, fetched=len(all_relays))
         return found
 
-    async def _fetch_all_cursors(self) -> dict[str, int]:
-        """Fetch all event-scanning cursors in a single query."""
-        return await get_all_service_cursors(self._brotr, self.SERVICE_NAME, "last_seen_at")
+    async def _fetch_all_cursors(self) -> dict[str, tuple[int, bytes]]:
+        """Fetch all event-scanning cursors in a single query.
 
-    async def _scan_relay_events(self, relay_url: str, cursors: dict[str, int]) -> tuple[int, int]:
-        """Scan events from a single relay using cursor-based pagination.
+        Returns a dict mapping relay URL to ``(seen_at, event_id)``
+        tuples. Cursor rows with missing or incomplete fields (e.g.
+        legacy ``last_seen_at``-only records) are omitted -- their relay
+        will be rescanned from the beginning, which is safe because
+        ``insert_candidates`` is idempotent.
+        """
+        raw = await get_all_cursor_values(self._brotr, self.SERVICE_NAME)
+        cursors: dict[str, tuple[int, bytes]] = {}
+        for relay_url, value in raw.items():
+            seen_at = value.get("seen_at")
+            event_id_hex = value.get("event_id")
+            if seen_at is not None and event_id_hex is not None:
+                cursors[relay_url] = (int(seen_at), bytes.fromhex(str(event_id_hex)))
+        return cursors
+
+    async def _scan_relay_events(
+        self, relay_url: str, cursors: dict[str, tuple[int, bytes]]
+    ) -> tuple[int, int]:
+        """Scan events from a single relay using composite cursor pagination.
 
         Args:
             relay_url: The relay URL to scan events from.
-            cursors: Pre-fetched mapping of relay URL to last_seen_at timestamp.
+            cursors: Pre-fetched mapping of relay URL to
+                ``(seen_at, event_id)`` cursor tuple.
 
         Returns:
             Tuple of (events_scanned, relays_found).
@@ -346,14 +365,17 @@ class Finder(BaseService[FinderConfig]):
         events_scanned = 0
         relays_found = 0
 
-        last_seen_at = cursors.get(relay_url, 0)
+        cursor = cursors.get(relay_url)
+        cursor_seen_at: int | None = cursor[0] if cursor else None
+        cursor_event_id: bytes | None = cursor[1] if cursor else None
 
         while self.is_running:
             try:
                 rows = await fetch_event_tagvalues(
                     self._brotr,
                     relay_url,
-                    last_seen_at,
+                    cursor_seen_at,
+                    cursor_event_id,
                     self._config.events.batch_size,
                 )
             except (asyncpg.PostgresError, OSError) as e:
@@ -370,11 +392,14 @@ class Finder(BaseService[FinderConfig]):
 
             relays = extract_relays_from_rows(rows)
             chunk_events = len(rows)
-            last_seen_at_update = rows[-1]["seen_at"]
+            last_row = rows[-1]
+            cursor_seen_at = last_row["seen_at"]
+            cursor_event_id = last_row["event_id"]
 
-            relays_found += await self._persist_scan_chunk(relay_url, relays, last_seen_at_update)
+            relays_found += await self._persist_scan_chunk(
+                relay_url, relays, cursor_seen_at, cursor_event_id
+            )
             events_scanned += chunk_events
-            last_seen_at = last_seen_at_update
 
             if chunk_events < self._config.events.batch_size:
                 break
@@ -382,14 +407,14 @@ class Finder(BaseService[FinderConfig]):
         return events_scanned, relays_found
 
     async def _persist_scan_chunk(
-        self, relay_url: str, relays: dict[str, Relay], last_seen_at: int
+        self, relay_url: str, relays: dict[str, Relay], seen_at: int, event_id: bytes
     ) -> int:
         """Upsert discovered relay candidates and save the scan cursor."""
         found = 0
 
         if relays:
             try:
-                found = await insert_candidates(self._brotr, relays.values())
+                found = await insert_candidates(self._brotr, list(relays.values()))
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
                     "insert_candidates_failed",
@@ -405,7 +430,7 @@ class Finder(BaseService[FinderConfig]):
                         service_name=self.SERVICE_NAME,
                         state_type=ServiceStateType.CURSOR,
                         state_key=relay_url,
-                        state_value={"last_seen_at": last_seen_at},
+                        state_value={"seen_at": seen_at, "event_id": event_id.hex()},
                         updated_at=int(time.time()),
                     )
                 ]

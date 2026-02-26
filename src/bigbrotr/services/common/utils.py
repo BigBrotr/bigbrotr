@@ -43,24 +43,3 @@ def parse_relay_url(url: str) -> Relay | None:
         return Relay(url)
     except (ValueError, TypeError):
         return None
-
-
-def parse_delete_result(result: str | None) -> int:
-    """Extract the row count from a PostgreSQL DELETE command status string.
-
-    PostgreSQL returns status strings like ``'DELETE 42'`` from DELETE
-    commands. This function extracts the trailing integer count.
-
-    Args:
-        result: The command status string (e.g., ``'DELETE 42'``), or
-            ``None`` if the command returned no status.
-
-    Returns:
-        Number of rows affected, or ``0`` if parsing fails.
-    """
-    if not result:
-        return 0
-    try:
-        return int(result.split()[-1])
-    except (ValueError, IndexError):
-        return 0

@@ -54,8 +54,10 @@ class ServiceStateType(StrEnum):
         CANDIDATE: A candidate URL discovered but not yet validated.
         CURSOR: A processing cursor marking the last-processed position
             in an ordered data source (e.g., event timestamp, relay index).
-        CHECKPOINT: A checkpoint marking a milestone in a long-running
-            operation (e.g., synchronization progress).
+        MONITORING: A per-relay marker recording when the last health
+            monitoring was performed.
+        PUBLICATION: A marker recording when a Nostr event (profile,
+            announcement) was last published.
 
     See Also:
         [ServiceState][bigbrotr.models.service_state.ServiceState]: The row
@@ -64,7 +66,8 @@ class ServiceStateType(StrEnum):
 
     CANDIDATE = "candidate"
     CURSOR = "cursor"
-    CHECKPOINT = "checkpoint"
+    MONITORING = "monitoring"
+    PUBLICATION = "publication"
 
 
 class ServiceStateDbParams(NamedTuple):

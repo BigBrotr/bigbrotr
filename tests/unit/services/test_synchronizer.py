@@ -20,7 +20,7 @@ import pytest
 from bigbrotr.core.brotr import Brotr, BrotrConfig
 from bigbrotr.core.brotr import TimeoutsConfig as BrotrTimeoutsConfig
 from bigbrotr.models import Relay
-from bigbrotr.models.constants import NetworkType
+from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.services.common.configs import NetworksConfig, TorConfig
 from bigbrotr.services.synchronizer import (
     ConcurrencyConfig,
@@ -426,23 +426,43 @@ class TestSynchronizerFetchCursors:
         assert result == {}
 
     async def test_delegates_to_query_function(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Test delegates to get_all_service_cursors when relay_state enabled."""
+        """Test delegates to get_all_cursor_values when relay_state enabled."""
         config = SynchronizerConfig(
             time_range=TimeRangeConfig(use_relay_state=True),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.synchronizer.service.get_all_service_cursors",
+            "bigbrotr.services.synchronizer.service.get_all_cursor_values",
             new_callable=AsyncMock,
-            return_value={"wss://r1.com": 1000, "wss://r2.com": 2000},
+            return_value={
+                "wss://r1.com": {"last_synced_at": 1000},
+                "wss://r2.com": {"last_synced_at": 2000},
+            },
         ) as mock_query:
             result = await sync.fetch_cursors()
 
-        mock_query.assert_called_once_with(
-            mock_synchronizer_brotr, "synchronizer", "last_synced_at"
-        )
+        mock_query.assert_called_once_with(mock_synchronizer_brotr, ServiceName.SYNCHRONIZER)
         assert result == {"wss://r1.com": 1000, "wss://r2.com": 2000}
+
+    async def test_filters_cursors_with_missing_field(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test cursors missing last_synced_at are filtered out."""
+        config = SynchronizerConfig(
+            time_range=TimeRangeConfig(use_relay_state=True),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.get_all_cursor_values",
+            new_callable=AsyncMock,
+            return_value={
+                "wss://r1.com": {"last_synced_at": 1000},
+                "wss://r2.com": {"stale_field": 999},
+            },
+        ):
+            result = await sync.fetch_cursors()
+
+        assert result == {"wss://r1.com": 1000}
 
 
 # ============================================================================

@@ -59,14 +59,14 @@ import asyncpg
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models import Relay
-from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import ChunkProgressMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import (
     count_candidates,
     delete_exhausted_candidates,
     delete_stale_candidates,
-    fetch_candidate_chunk,
+    fetch_candidates,
     promote_candidates,
 )
 from bigbrotr.utils.protocol import is_nostr_relay
@@ -75,7 +75,7 @@ from .configs import ValidatorConfig
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Mapping
 
     from bigbrotr.core.brotr import Brotr
 
@@ -95,12 +95,12 @@ class Candidate:
             ``failures``, etc.).
 
     See Also:
-        [fetch_candidate_chunk][bigbrotr.services.common.queries.fetch_candidate_chunk]:
+        [fetch_candidates][bigbrotr.services.common.queries.fetch_candidates]:
             Query that produces the rows from which candidates are built.
     """
 
     relay: Relay
-    data: dict[str, Any]
+    data: Mapping[str, Any]
 
     @property
     def failures(self) -> int:
@@ -184,7 +184,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         Returns:
             Total number of candidates processed (valid + invalid).
         """
-        networks = self._config.networks.get_enabled_networks()
+        networks = [NetworkType(n) for n in self._config.networks.get_enabled_networks()]
 
         self.chunk_progress.total = await count_candidates(self._brotr, networks)
         self._logger.info("candidates_available", total=self.chunk_progress.total)
@@ -300,7 +300,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         Yields:
             Tuple of (valid Relay list, invalid Candidate list) per chunk.
         """
-        networks = self._config.networks.get_enabled_networks()
+        networks = [NetworkType(n) for n in self._config.networks.get_enabled_networks()]
         chunk_size = self._config.processing.chunk_size
         max_candidates = self._config.processing.max_candidates
         processed = 0
@@ -322,7 +322,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             processed += len(valid) + len(invalid)
             yield valid, invalid
 
-    async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Candidate]:
+    async def _fetch_chunk(self, networks: list[NetworkType], limit: int) -> list[Candidate]:
         """Fetch the next chunk of candidates ordered by priority.
 
         Prioritizes candidates with fewer failures (more likely to succeed),
@@ -330,13 +330,13 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         candidates updated before the cycle start to avoid reprocessing.
 
         Args:
-            networks: Enabled network type strings to fetch.
+            networks: Enabled network types to fetch.
             limit: Maximum candidates to return.
 
         Returns:
             List of Candidate objects, possibly empty if none remain.
         """
-        rows = await fetch_candidate_chunk(
+        states = await fetch_candidates(
             self._brotr,
             networks,
             int(self.chunk_progress.started_at),
@@ -344,12 +344,12 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         )
 
         candidates = []
-        for row in rows:
+        for state in states:
             try:
-                relay = Relay(row["state_key"])
-                candidates.append(Candidate(relay=relay, data=dict(row["state_value"])))
+                relay = Relay(state.state_key)
+                candidates.append(Candidate(relay=relay, data=state.state_value))
             except (ValueError, TypeError) as e:
-                self._logger.warning("parse_failed", url=row["state_key"], error=str(e))
+                self._logger.warning("parse_failed", url=state.state_key, error=str(e))
 
         return candidates
 
