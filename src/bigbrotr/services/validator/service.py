@@ -184,7 +184,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         Returns:
             Total number of candidates processed (valid + invalid).
         """
-        networks = [NetworkType(n) for n in self._config.networks.get_enabled_networks()]
+        networks = self._config.networks.get_enabled_networks()
 
         self.chunk_progress.total = await count_candidates(self._brotr, networks)
         self._logger.info("candidates_available", total=self.chunk_progress.total)
@@ -300,7 +300,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         Yields:
             Tuple of (valid Relay list, invalid Candidate list) per chunk.
         """
-        networks = [NetworkType(n) for n in self._config.networks.get_enabled_networks()]
+        networks = self._config.networks.get_enabled_networks()
         chunk_size = self._config.processing.chunk_size
         max_candidates = self._config.processing.max_candidates
         processed = 0

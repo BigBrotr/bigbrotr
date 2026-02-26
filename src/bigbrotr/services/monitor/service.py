@@ -296,7 +296,7 @@ class Monitor(
         Returns:
             Total number of relays processed (successful + failed).
         """
-        networks = [NetworkType(n) for n in self._config.networks.get_enabled_networks()]
+        networks = self._config.networks.get_enabled_networks()
 
         if not networks:
             self._logger.warning("no_networks_enabled")

@@ -214,7 +214,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
 
         all_relays = await fetch_all_relays(self._brotr)
         enabled = set(self._config.networks.get_enabled_networks())
-        relays = [r for r in all_relays if r.network.value in enabled]
+        relays = [r for r in all_relays if r.network in enabled]
 
         self._logger.debug("relays_fetched", count=len(relays))
         return relays
