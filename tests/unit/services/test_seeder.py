@@ -13,6 +13,7 @@ Tests:
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncpg
 import pytest
 
 from bigbrotr.core.brotr import Brotr, BrotrConfig
@@ -583,6 +584,42 @@ class TestSeederErrorHandling:
 
         with pytest.raises(Exception, match="Database error"):
             await seeder.seed()
+
+    async def test_postgres_error_in_seed_as_candidates(
+        self, mock_seeder_brotr: Brotr, tmp_path: Path
+    ) -> None:
+        """asyncpg.PostgresError in _seed_as_candidates returns 0."""
+        seed_file = tmp_path / "seed.txt"
+        seed_file.write_text("wss://relay.example.com\n")
+        config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=True))
+        seeder = Seeder(brotr=mock_seeder_brotr, config=config)
+
+        with patch(
+            "bigbrotr.services.seeder.service.insert_candidates",
+            new_callable=AsyncMock,
+            side_effect=asyncpg.PostgresError("connection lost"),
+        ):
+            result = await seeder.seed()
+
+        assert result == 0
+
+    async def test_postgres_error_in_seed_as_relays(
+        self, mock_seeder_brotr: Brotr, tmp_path: Path
+    ) -> None:
+        """asyncpg.PostgresError in _seed_as_relays returns 0."""
+        seed_file = tmp_path / "seed.txt"
+        seed_file.write_text("wss://relay.example.com\n")
+        config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=False))
+        seeder = Seeder(brotr=mock_seeder_brotr, config=config)
+
+        with patch(
+            "bigbrotr.services.seeder.service.insert_relays",
+            new_callable=AsyncMock,
+            side_effect=asyncpg.PostgresError("connection lost"),
+        ):
+            result = await seeder.seed()
+
+        assert result == 0
 
     async def test_invalid_url_logged_not_raised(self, tmp_path: Path) -> None:
         """Test invalid URLs are logged but don't raise exceptions."""

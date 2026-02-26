@@ -492,7 +492,7 @@ class Monitor(
             "check_exhausted",
             operation=operation,
             relay=relay_url,
-            attempts=max_retries + 1,
+            total_attempts=max_retries + 1,
             reason=get_reason(result) if result else None,
         )
         return result

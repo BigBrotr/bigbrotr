@@ -6,7 +6,6 @@ Module-level sync logic, event batch management, and context types.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -373,8 +372,10 @@ async def sync_relay_events(
         _log("WARNING", "sync_relay_error", relay=relay.url, error=str(e))
     finally:
         # nostr-sdk client.shutdown() can raise arbitrary errors from the
-        # Rust FFI layer during cleanup; suppress broadly in this finally block.
-        with contextlib.suppress(Exception):
+        # Rust FFI layer during cleanup; log and suppress in this finally block.
+        try:
             await client.shutdown()
+        except Exception as e:
+            _log("DEBUG", "client_shutdown_error", relay=relay.url, error=str(e))
 
     return events_synced, invalid_events

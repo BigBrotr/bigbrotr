@@ -46,6 +46,8 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
+import asyncpg
+
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.queries import insert_candidates, insert_relays
@@ -112,12 +114,30 @@ class Seeder(BaseService[SeederConfig]):
 
     async def _seed_as_candidates(self, relays: list[Relay]) -> int:
         """Insert relays as validation candidates in ``service_state``."""
-        count = await insert_candidates(self._brotr, relays)
+        try:
+            count = await insert_candidates(self._brotr, relays)
+        except (asyncpg.PostgresError, OSError) as e:
+            self._logger.error(
+                "candidates_insert_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                total=len(relays),
+            )
+            return 0
         self._logger.info("candidates_inserted", total=len(relays), inserted=count)
         return count
 
     async def _seed_as_relays(self, relays: list[Relay]) -> int:
         """Insert relays directly into the relays table."""
-        count = await insert_relays(self._brotr, relays)
+        try:
+            count = await insert_relays(self._brotr, relays)
+        except (asyncpg.PostgresError, OSError) as e:
+            self._logger.error(
+                "relays_insert_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                total=len(relays),
+            )
+            return 0
         self._logger.info("relays_inserted", total=len(relays), inserted=count)
         return count
