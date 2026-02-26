@@ -25,7 +25,7 @@ Attributes:
     RelayMetadata: Junction linking a [Relay][bigbrotr.models.relay.Relay] to a
         [Metadata][bigbrotr.models.metadata.Metadata] record via
         content-addressed hashing, with cascade insert support.
-    ServiceState: Cursor-based processing state for pipeline services,
+    ServiceState: Cursor-based processing state for services,
         enabling resume after restart.
     NetworkType: Enum classifying relay URLs into clearnet, tor, i2p, loki,
         local, or unknown.

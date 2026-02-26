@@ -1,17 +1,14 @@
 r"""BigBrotr -- Modular Nostr data archiving and monitoring system.
 
-Five async services form a processing pipeline that discovers, monitors,
-and archives data from the Nostr relay network:
-
-```text
-Seeder (one-shot) -> Finder -> Validator -> Monitor -> Synchronizer
-```
+Six independent async services discover, monitor, and archive data from
+the Nostr relay network, communicating exclusively through a shared
+PostgreSQL database.
 
 Architecture follows a **diamond DAG** dependency structure where imports
 flow strictly downward:
 
 ```text
-              services         Business logic and pipeline orchestration
+              services         Business logic and orchestration
              /   |   \
           core  nips  utils    Infrastructure, protocol, and helpers
              \   |   /
@@ -24,7 +21,7 @@ Attributes:
         logging, metrics.
     nips: NIP-11 relay information, NIP-66 relay monitoring. Has I/O.
     utils: DNS resolution, Nostr key management, WebSocket/HTTP transport.
-    services: Business logic. The five-service pipeline.
+    services: Business logic. Six independent services.
 
 Note:
     For lightweight usage, import directly from subpackages::

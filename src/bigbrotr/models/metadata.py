@@ -268,7 +268,7 @@ class Metadata:
             this method performs an explicit integrity check by comparing the
             recomputed SHA-256 hash against the stored ``id``. This catches
             silent data corruption that could otherwise propagate through the
-            pipeline.
+            system.
         """
         value_dict = json.loads(params.data)
         instance = cls(type=params.type, data=value_dict)

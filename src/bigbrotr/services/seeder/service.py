@@ -2,7 +2,7 @@
 
 Seeds initial relay URLs into the database as candidates for validation.
 This is a one-shot service intended to run once at startup to bootstrap
-the relay discovery pipeline.
+relay discovery.
 
 Relay URLs are read from a text file (one URL per line) and can be
 inserted either as validation candidates (picked up by
@@ -10,7 +10,7 @@ inserted either as validation candidates (picked up by
 the relays table.
 
 Note:
-    The seeder is the only one-shot service in the pipeline. Call
+    The seeder is the only one-shot service. Call
     ``run()`` once at startup; do not use ``run_forever()``. In the
     default configuration (``to_validate=True``), seed URLs are inserted
     as candidates in ``service_state`` so that the
@@ -71,8 +71,8 @@ class Seeder(BaseService[SeederConfig]):
     See Also:
         [SeederConfig][bigbrotr.services.seeder.SeederConfig]: Configuration
             model for this service.
-        [Finder][bigbrotr.services.finder.Finder]: The next stage in the
-            pipeline that discovers additional relay URLs continuously.
+        [Finder][bigbrotr.services.finder.Finder]: Discovers additional
+            relay URLs continuously.
     """
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.SEEDER
