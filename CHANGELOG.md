@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.3.1] - 2026-02-26
+
+Patch release: one bug fix and comprehensive documentation overhaul. Architecture terminology corrected across all documentation, README rewritten, project specification added.
+
+### Fixed
+
+- **`_transpose_to_columns`** (#311): Use `strict=True` in `zip()` to catch row length mismatches that bypass validation. Closes #242
+
+### Documentation
+
+- **Architecture terminology** (#312): Replaced "pipeline" terminology with "independent services" across all documentation, source docstrings, and deployment configs. Renamed `pipeline.md` to `services.md`. Fixed service count (5 -> 6), architecture tiers (5 -> 4), test counts, query function count (14 -> 15), Prometheus ports, alert rules (4 -> 6), and DAG diagram edges
+- **README**: Rewritten with comprehensive project overview reflecting current architecture
+- **PROJECT_SPECIFICATION.md**: Added full system specification with database schema, service descriptions, deployment variants, and architecture diagrams
+- **Removed stale REVIEW.md**: Cleanup of previous review artifact
+
+---
+
 ## [5.3.0] - 2026-02-25
 
 Comprehensive codebase hardening: 46 commits across 44 PRs. Finder refactored from kind-specific event parsing to kind-agnostic tagvalues scanning with JMESPath-based configurable API extraction. Extensive bug fixes across all layers (models, core, NIPs, services, deployments), dead code removal, and improved error handling.
