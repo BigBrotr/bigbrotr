@@ -92,7 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_service_state_service_name_state_type
 ON service_state USING btree (service_name, state_type);
 
 -- Candidate network filtering: WHERE state_value->>'network' = ANY($3)
--- Used by count_candidates() and fetch_candidate_chunk() in the Validator service
+-- Used by count_candidates() and fetch_candidates() in the Validator service
 CREATE INDEX IF NOT EXISTS idx_service_state_candidate_network
 ON service_state USING btree ((state_value ->> 'network'))
 WHERE service_name = 'validator' AND state_type = 'candidate';

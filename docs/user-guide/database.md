@@ -179,7 +179,7 @@ Generic key-value store for per-service persistent state between restarts.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `service_name` | TEXT | PK (partial) | Service identifier |
-| `state_type` | TEXT | PK (partial) | State category: `candidate`, `cursor`, `checkpoint`, `config` |
+| `state_type` | TEXT | PK (partial) | State category: `candidate`, `cursor`, `monitoring`, `publication` |
 | `state_key` | TEXT | PK (partial) | Unique key within service+type |
 | `state_value` | JSONB | NOT NULL, DEFAULT `{}` | Service-specific JSONB state value |
 | `updated_at` | BIGINT | NOT NULL | Unix timestamp of last update |

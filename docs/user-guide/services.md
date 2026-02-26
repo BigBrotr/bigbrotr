@@ -183,7 +183,7 @@ flowchart TD
 flowchart TD
     A["Validator.run()"] --> B["delete_stale_candidates()"]
     B --> C["delete_exhausted_candidates()"]
-    C --> D["fetch_candidate_chunk()"]
+    C --> D["fetch_candidates()"]
     D --> E{Candidates?}
     E -->|No| F["Cycle complete"]
     E -->|Yes| G["Validate in parallel<br/><small>per-network semaphores</small>"]
