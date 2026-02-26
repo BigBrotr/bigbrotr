@@ -332,7 +332,7 @@ class TestMyServiceConfig:
 
 ```python
 async def test_run_handles_connectivity_error(self, service, mock_brotr):
-    mock_brotr.fetch.side_effect = ConnectivityError("unreachable")
+    mock_brotr.fetch.side_effect = ConnectionError("unreachable")
 
     # Should not raise -- handled internally
     await service.run()

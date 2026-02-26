@@ -107,7 +107,6 @@ pre-commit run --all-files
 ```python
 from bigbrotr.core.logger import Logger
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
-from bigbrotr.core.exceptions import ConnectivityError, RelayTimeoutError
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
@@ -163,18 +162,16 @@ Design principles:
 
 ## Error Handling
 
-Exception hierarchy -- always use the most specific subclass:
+The project uses Python built-in and library exceptions (e.g., `ConnectionError`, `asyncio.TimeoutError`, `asyncpg.PostgresError`, `OSError`). There is no custom exception hierarchy.
 
 | Scenario | Exception | Retry? |
 |----------|-----------|--------|
-| Missing config, bad YAML, missing env var | `ConfigurationError` | No |
-| Pool exhausted, connection refused | `ConnectionPoolError` | Yes (transient) |
-| Bad SQL, constraint violation | `QueryError` | No (permanent) |
-| Relay unreachable, connection dropped | `ConnectivityError` | Depends |
-| Connection or response timed out | `RelayTimeoutError` | Yes |
-| TLS/SSL handshake failure | `RelaySSLError` | No |
-| Invalid NIP-11 JSON, malformed NIP-66 data | `ProtocolError` | No |
-| Failed to broadcast Nostr event | `PublishingError` | Yes |
+| Pool exhausted, connection refused | `ConnectionError`, `asyncpg.PostgresError` | Yes (transient) |
+| Bad SQL, constraint violation | `asyncpg.PostgresError` | No (permanent) |
+| Relay unreachable, connection dropped | `ConnectionError`, `OSError` | Depends |
+| Connection or response timed out | `asyncio.TimeoutError`, `TimeoutError` | Yes |
+| TLS/SSL handshake failure | `ssl.SSLError` | No |
+| Invalid NIP-11 JSON, malformed data | `ValueError`, `KeyError`, `json.JSONDecodeError` | No |
 
 Rules:
 
@@ -218,7 +215,7 @@ graph TD
 | **core** | models | Pool, Brotr, BaseService, Logger, Metrics, YAML |
 | **utils** | models | DNS resolution, keys, transport helpers |
 | **nips** | models, utils, core | NIP-11 and NIP-66 protocol I/O |
-| **services** | core, nips, utils, models | Business logic (all 5 services) |
+| **services** | core, nips, utils, models | Business logic (all 6 services) |
 
 ### Adding a New Service
 
@@ -262,8 +259,8 @@ def fetch_relay_info(url: str, timeout: float = 10.0) -> dict[str, Any]:
         Parsed relay information document as a dictionary.
 
     Raises:
-        ConnectivityError: If the relay is unreachable.
-        ProtocolError: If the response is not valid JSON.
+        ConnectionError: If the relay is unreachable.
+        ValueError: If the response is not valid JSON.
     """
 ```
 

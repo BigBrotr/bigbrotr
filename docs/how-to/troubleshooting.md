@@ -31,7 +31,7 @@ Solutions for common issues and frequently asked questions about BigBrotr.
 
 **Solution**:
 
-Pipeline services (seeder, finder, validator, monitor, synchronizer) use `DB_WRITER_PASSWORD`. Read-only services use `DB_READER_PASSWORD`. Set the appropriate variable:
+Writer services (seeder, finder, validator, monitor, synchronizer, refresher) use `DB_WRITER_PASSWORD`. Read-only services use `DB_READER_PASSWORD`. Set the appropriate variable:
 
 1. Set the environment variable:
 
@@ -192,11 +192,11 @@ processing:
 
 **BigBrotr** stores complete Nostr events including `tags` (JSON), `content`, and `sig`. It provides 11 materialized views for analytics and uses more disk space.
 
-**LilBrotr** stores only event metadata: `id`, `pubkey`, `created_at`, `kind`, and `tagvalues` (extracted single-char tag values). It omits tags JSON, content, and signatures, resulting in approximately 60% disk savings. Materialized views are not available.
+**LilBrotr** stores only event metadata: `id`, `pubkey`, `created_at`, `kind`, and `tagvalues` (extracted single-char tag values). It omits tags JSON, content, and signatures, resulting in approximately 60% disk savings. All 11 materialized views are available in both variants.
 
-Both use the same service pipeline and codebase. The only difference is the SQL schema.
+Both use the same services and codebase. The only difference is the SQL schema.
 
-### Do I need to run all five services?
+### Do I need to run all six services?
 
 No. The only required services are:
 
@@ -208,6 +208,7 @@ The remaining services are optional:
 
 - **Monitor** -- performs NIP-11/NIP-66 health checks and publishes Nostr events. Required if you want relay metadata.
 - **Synchronizer** -- archives events from validated relays. Required only if you want to store Nostr events.
+- **Refresher** -- refreshes materialized views. Required only if you use analytics views.
 
 ### How much disk space does BigBrotr use?
 
@@ -225,7 +226,7 @@ Disk usage depends on the number of relays monitored and events archived:
 
 ### What happens when a service crashes?
 
-All long-running services (`finder`, `validator`, `monitor`, `synchronizer`) have `restart: unless-stopped` in Docker Compose. When a service crashes:
+All long-running services (`finder`, `validator`, `monitor`, `synchronizer`, `refresher`) have `restart: unless-stopped` in Docker Compose. When a service crashes:
 
 1. Docker restarts the container automatically after `RestartSec` (10s default).
 2. The service picks up where it left off using cursor state stored in the `service_state` table.

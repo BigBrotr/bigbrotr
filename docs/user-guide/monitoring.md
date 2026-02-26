@@ -123,22 +123,22 @@ global:
 scrape_configs:
   - job_name: "finder"
     static_configs:
-      - targets: ["finder:8000"]
+      - targets: ["finder:8001"]
     scrape_interval: 30s
 
   - job_name: "validator"
     static_configs:
-      - targets: ["validator:8000"]
+      - targets: ["validator:8002"]
     scrape_interval: 30s
 
   - job_name: "monitor"
     static_configs:
-      - targets: ["monitor:8000"]
+      - targets: ["monitor:8003"]
     scrape_interval: 30s
 
   - job_name: "synchronizer"
     static_configs:
-      - targets: ["synchronizer:8000"]
+      - targets: ["synchronizer:8004"]
     scrape_interval: 30s
 
   - job_name: "prometheus"
@@ -154,7 +154,7 @@ Prometheus is configured with 30-day data retention. Data is persisted to a name
 
 ## Alerting Rules
 
-Four alerting rules are defined in `deployments/bigbrotr/monitoring/prometheus/rules/alerts.yml`:
+Six alerting rules are defined in `deployments/bigbrotr/monitoring/prometheus/rules/alerts.yml`:
 
 ### ServiceDown
 
@@ -192,17 +192,53 @@ labels:
 
 Fires when the database connection pool has zero available connections for more than 2 minutes. Queries will queue or timeout. Resolution: increase `pool.limits.max_size` in `brotr.yaml`.
 
-### DatabaseSlow
+### ConsecutiveFailures
 
 ```yaml
-alert: DatabaseSlow
-expr: histogram_quantile(0.99, rate(bigbrotr_query_duration_seconds_bucket[5m])) > 5
+alert: ConsecutiveFailures
+expr: service_gauge{name="consecutive_failures"} >= 5
+for: 1m
+labels:
+  severity: warning
+```
+
+Fires when a service has accumulated 5 or more consecutive failures. This typically means the service is about to auto-stop (default `max_consecutive_failures: 5`).
+
+### SlowCycles
+
+```yaml
+alert: SlowCycles
+expr: histogram_quantile(0.99, rate(cycle_duration_seconds_bucket[5m])) > 300
 for: 5m
 labels:
   severity: warning
 ```
 
-Fires when the p99 query duration exceeds 5 seconds over a 5-minute window. This may indicate missing indexes, table bloat, or insufficient database resources.
+Fires when the p99 cycle duration exceeds 5 minutes. This may indicate network congestion, database contention, or relay connectivity issues.
+
+### DatabaseConnectionsHigh
+
+```yaml
+alert: DatabaseConnectionsHigh
+expr: pg_stat_activity_count > 80
+for: 5m
+labels:
+  severity: warning
+```
+
+Fires when the total PostgreSQL connection count exceeds 80. Check pool sizing and PGBouncer configuration.
+
+### CacheHitRatioLow
+
+```yaml
+alert: CacheHitRatioLow
+expr: pg_stat_database_blks_hit / (pg_stat_database_blks_hit + pg_stat_database_blks_read) < 0.95
+for: 10m
+labels:
+  severity: warning
+```
+
+Fires when the PostgreSQL buffer cache hit ratio drops below 95%. This may indicate insufficient `shared_buffers` or dataset growth exceeding available memory.
 
 ### Alert Summary
 
@@ -210,8 +246,10 @@ Fires when the p99 query duration exceeds 5 seconds over a 5-minute window. This
 |-------|-----------|----------|----------|
 | ServiceDown | `up == 0` | 5 min | critical |
 | HighFailureRate | Error rate > 0.1/s | 5 min | warning |
-| PoolExhausted | Zero available connections | 2 min | critical |
-| DatabaseSlow | p99 query > 5s | 5 min | warning |
+| ConsecutiveFailures | Consecutive failures >= 5 | 1 min | warning |
+| SlowCycles | p99 cycle duration > 300s | 5 min | warning |
+| DatabaseConnectionsHigh | PG connections > 80 | 5 min | warning |
+| CacheHitRatioLow | Buffer cache hit < 95% | 10 min | warning |
 
 ---
 
@@ -366,6 +404,6 @@ increase(service_counter{name="errors"}[24h])
 ## Related Documentation
 
 - [Architecture](architecture.md) -- System architecture and module reference
-- [Service Pipeline](pipeline.md) -- Deep dive into the five-service pipeline
+- [Services](services.md) -- Deep dive into the six independent services
 - [Configuration](configuration.md) -- YAML configuration reference (MetricsConfig details)
 - [Database](database.md) -- PostgreSQL schema and stored functions

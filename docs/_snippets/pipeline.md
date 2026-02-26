@@ -1,16 +1,26 @@
 ```mermaid
-flowchart LR
-    A["Seeder<br/><small>Bootstrap</small>"]
-    B["Finder<br/><small>Discovery</small>"]
-    C["Validator<br/><small>Verification</small>"]
-    D["Monitor<br/><small>Health checks</small>"]
-    E["Synchronizer<br/><small>Event collection</small>"]
+flowchart TD
+    DB[("PostgreSQL")]
 
-    A --> B --> C --> D --> E
+    SE["Seeder<br/><small>Bootstrap</small>"]
+    FI["Finder<br/><small>Discovery</small>"]
+    VA["Validator<br/><small>Verification</small>"]
+    MO["Monitor<br/><small>Health checks</small>"]
+    SY["Synchronizer<br/><small>Event collection</small>"]
+    RE["Refresher<br/><small>View refresh</small>"]
 
-    style A fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style B fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style C fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style D fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style E fill:#7B1FA2,color:#fff,stroke:#4A148C
+    SE --> DB
+    FI --> DB
+    VA --> DB
+    MO --> DB
+    SY --> DB
+    RE --> DB
+
+    style SE fill:#7B1FA2,color:#fff,stroke:#4A148C
+    style FI fill:#7B1FA2,color:#fff,stroke:#4A148C
+    style VA fill:#7B1FA2,color:#fff,stroke:#4A148C
+    style MO fill:#7B1FA2,color:#fff,stroke:#4A148C
+    style SY fill:#7B1FA2,color:#fff,stroke:#4A148C
+    style RE fill:#7B1FA2,color:#fff,stroke:#4A148C
+    style DB fill:#311B92,color:#fff,stroke:#1A237E
 ```
