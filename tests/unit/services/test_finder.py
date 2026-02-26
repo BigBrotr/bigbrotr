@@ -1427,3 +1427,40 @@ class TestFinderOrphanCursorCleanup:
 
             assert result == 0
             mock_get_relays.assert_awaited_once()
+
+
+class TestFinderFetchAllCursors:
+    """Tests for Finder._fetch_all_cursors() cursor parsing and validation."""
+
+    async def test_invalid_event_id_hex_skipped_with_warning(self, mock_brotr: Brotr) -> None:
+        """Non-hex event_id is skipped and a warning is logged."""
+        with patch(
+            "bigbrotr.services.finder.service.get_all_cursor_values",
+            new_callable=AsyncMock,
+            return_value={
+                "wss://good.com": {"seen_at": 100, "event_id": "ab" * 32},
+                "wss://bad.com": {"seen_at": 200, "event_id": "not-hex"},
+            },
+        ):
+            finder = Finder(brotr=mock_brotr)
+            cursors = await finder._fetch_all_cursors()
+
+        assert "wss://good.com" in cursors
+        assert "wss://bad.com" not in cursors
+
+    async def test_invalid_seen_at_skipped_with_warning(self, mock_brotr: Brotr) -> None:
+        """Non-integer seen_at is skipped and a warning is logged."""
+        with patch(
+            "bigbrotr.services.finder.service.get_all_cursor_values",
+            new_callable=AsyncMock,
+            return_value={
+                "wss://good.com": {"seen_at": 100, "event_id": "cd" * 32},
+                "wss://bad.com": {"seen_at": "not-a-number", "event_id": "ab" * 32},
+            },
+        ):
+            finder = Finder(brotr=mock_brotr)
+            cursors = await finder._fetch_all_cursors()
+
+        assert "wss://good.com" in cursors
+        assert cursors["wss://good.com"] == (100, bytes.fromhex("cd" * 32))
+        assert "wss://bad.com" not in cursors

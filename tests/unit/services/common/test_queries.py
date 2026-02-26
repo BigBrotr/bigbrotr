@@ -765,7 +765,7 @@ class TestDeleteOrphanCursors:
         assert "DELETE FROM service_state" in sql
         assert "service_name = $1" in sql
         assert "state_type = $2" in sql
-        assert "NOT IN (SELECT url FROM relay)" in sql
+        assert "NOT EXISTS" in sql
         assert args[0][1] == ServiceName.FINDER
         assert args[0][2] == ServiceStateType.CURSOR
         assert result == 3

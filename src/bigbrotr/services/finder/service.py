@@ -346,7 +346,15 @@ class Finder(BaseService[FinderConfig]):
             seen_at = value.get("seen_at")
             event_id_hex = value.get("event_id")
             if seen_at is not None and event_id_hex is not None:
-                cursors[relay_url] = (int(seen_at), bytes.fromhex(str(event_id_hex)))
+                try:
+                    cursors[relay_url] = (int(seen_at), bytes.fromhex(str(event_id_hex)))
+                except (ValueError, TypeError):
+                    self._logger.warning(
+                        "invalid_cursor_data",
+                        relay=relay_url,
+                        seen_at=seen_at,
+                        event_id=event_id_hex,
+                    )
         return cursors
 
     async def _scan_relay_events(

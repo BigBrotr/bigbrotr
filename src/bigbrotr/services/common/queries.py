@@ -65,7 +65,7 @@ async def _fetch_relays(brotr: Brotr, query: str, *args: Any) -> list[Relay]:
             params = RelayDbParams(row["url"], row["network"], row["discovered_at"])
             relays.append(Relay.from_db_params(params))
         except (ValueError, TypeError) as e:
-            logger.debug("Skipping invalid relay URL %s: %s", row["url"], e)
+            logger.warning("Skipping invalid relay URL %s: %s", row["url"], e)
     return relays
 
 
@@ -89,7 +89,7 @@ async def _fetch_service_states(brotr: Brotr, query: str, *args: Any) -> list[Se
                 )
             )
         except (ValueError, TypeError) as e:
-            logger.debug("Skipping invalid service state %s: %s", row["state_key"], e)
+            logger.warning("Skipping invalid service state %s: %s", row["state_key"], e)
     return states
 
 
@@ -624,10 +624,10 @@ async def delete_orphan_cursors(brotr: Brotr, service_name: ServiceName) -> int:
     count: int = await brotr.fetchval(
         """
         WITH deleted AS (
-            DELETE FROM service_state
-            WHERE service_name = $1
-              AND state_type = $2
-              AND state_key NOT IN (SELECT url FROM relay)
+            DELETE FROM service_state ss
+            WHERE ss.service_name = $1
+              AND ss.state_type = $2
+              AND NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = ss.state_key)
             RETURNING 1
         )
         SELECT count(*)::int FROM deleted
