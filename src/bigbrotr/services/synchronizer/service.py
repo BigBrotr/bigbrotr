@@ -74,7 +74,7 @@ from bigbrotr.services.common.queries import (
     get_all_cursor_values,
 )
 
-from .configs import SynchronizerConfig
+from .configs import RelayOverride, SynchronizerConfig
 from .utils import SyncBatchState, SyncContext, SyncCycleCounters, sync_relay_events
 
 
@@ -272,11 +272,12 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             cursor_lock=asyncio.Lock(),
             cursor_flush_interval=self._config.concurrency.cursor_flush_interval,
         )
+        overrides_map: dict[str, RelayOverride] = {o.url: o for o in self._config.overrides}
 
         try:
             async with asyncio.TaskGroup() as tg:
                 for relay in relays:
-                    tg.create_task(self._sync_single_relay(relay, cursors, batch))
+                    tg.create_task(self._sync_single_relay(relay, cursors, batch, overrides_map))
         except ExceptionGroup as eg:
             for exc in eg.exceptions:
                 self._logger.error(
@@ -297,7 +298,11 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                 )
 
     async def _sync_single_relay(
-        self, relay: Relay, cursors: dict[str, int], batch: SyncBatchState
+        self,
+        relay: Relay,
+        cursors: dict[str, int],
+        batch: SyncBatchState,
+        overrides_map: dict[str, RelayOverride],
     ) -> None:
         """Sync events from a single relay with semaphore-bounded concurrency."""
         semaphore = self.network_semaphores.get(relay.network)
@@ -310,13 +315,12 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             request_timeout = network_type_config.timeout
             relay_timeout = self._config.timeouts.get_relay_timeout(relay.network)
 
-            for override in self._config.overrides:
-                if override.url == str(relay.url):
-                    if override.timeouts.relay is not None:
-                        relay_timeout = override.timeouts.relay
-                    if override.timeouts.request is not None:
-                        request_timeout = override.timeouts.request
-                    break
+            override = overrides_map.get(str(relay.url))
+            if override is not None:
+                if override.timeouts.relay is not None:
+                    relay_timeout = override.timeouts.relay
+                if override.timeouts.request is not None:
+                    request_timeout = override.timeouts.request
 
             start = self._get_start_time_from_cache(relay, cursors)
             end_time = int(time.time()) - self._config.time_range.lookback_seconds

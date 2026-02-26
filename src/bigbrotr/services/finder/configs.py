@@ -23,9 +23,6 @@ class ConcurrencyConfig(BaseModel):
             config that embeds this model.
     """
 
-    max_parallel_api: int = Field(
-        default=5, ge=1, le=20, description="Maximum concurrent API requests"
-    )
     max_parallel_events: int = Field(
         default=10, ge=1, le=50, description="Maximum concurrent relay event scans"
     )

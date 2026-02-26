@@ -56,28 +56,12 @@ class TestConcurrencyConfig:
     def test_default_values(self) -> None:
         """Test default concurrency configuration."""
         config = ConcurrencyConfig()
-        assert config.max_parallel_api == 5
         assert config.max_parallel_events == 10
 
     def test_custom_values(self) -> None:
         """Test custom concurrency configuration."""
-        config = ConcurrencyConfig(max_parallel_api=10, max_parallel_events=20)
-        assert config.max_parallel_api == 10
+        config = ConcurrencyConfig(max_parallel_events=20)
         assert config.max_parallel_events == 20
-
-    def test_max_parallel_api_bounds(self) -> None:
-        """Test max_parallel_api validation bounds."""
-        config_min = ConcurrencyConfig(max_parallel_api=1)
-        assert config_min.max_parallel_api == 1
-
-        config_max = ConcurrencyConfig(max_parallel_api=20)
-        assert config_max.max_parallel_api == 20
-
-        with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel_api=0)
-
-        with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel_api=21)
 
     def test_max_parallel_events_bounds(self) -> None:
         """Test max_parallel_events validation bounds."""
@@ -278,8 +262,8 @@ class TestFinderConfig:
 
     def test_concurrency_config(self) -> None:
         """Test concurrency configuration."""
-        config = FinderConfig(concurrency=ConcurrencyConfig(max_parallel_api=15))
-        assert config.concurrency.max_parallel_api == 15
+        config = FinderConfig(concurrency=ConcurrencyConfig(max_parallel_events=15))
+        assert config.concurrency.max_parallel_events == 15
 
 
 # ============================================================================
