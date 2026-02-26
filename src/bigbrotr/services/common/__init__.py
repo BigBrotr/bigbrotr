@@ -1,6 +1,6 @@
 """Shared infrastructure for all BigBrotr services.
 
-Provides the foundational building blocks used across all six pipeline
+Provides the foundational building blocks used across all six
 services: configuration models, mixins, and centralized SQL query functions.
 
 Attributes:

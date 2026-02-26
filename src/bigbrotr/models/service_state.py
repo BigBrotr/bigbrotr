@@ -14,7 +14,7 @@ See Also:
         [ServiceState][bigbrotr.models.service_state.ServiceState] via
         ``upsert_service_state()``, ``get_service_state()``, and
         ``delete_service_state()`` methods.
-    [bigbrotr.services][]: Pipeline services that persist and restore
+    [bigbrotr.services][]: Services that persist and restore
         processing cursors using these types.
 """
 
@@ -99,7 +99,7 @@ class ServiceState:
     from ``Brotr.get_service_state()``.
 
     Attributes:
-        service_name: Owning pipeline service (validated against
+        service_name: Owning service (validated against
             [ServiceName][bigbrotr.models.constants.ServiceName]).
         state_type: Discriminator (validated against
             [ServiceStateType][bigbrotr.models.service_state.ServiceStateType]).

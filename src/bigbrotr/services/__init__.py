@@ -1,16 +1,11 @@
-"""The service processing pipeline plus shared utilities.
+"""Six independent services plus shared utilities.
 
 Services are the top layer of the diamond DAG, depending on
 [bigbrotr.core][bigbrotr.core], [bigbrotr.nips][bigbrotr.nips],
 [bigbrotr.utils][bigbrotr.utils], and [bigbrotr.models][bigbrotr.models].
 Each service extends [BaseService][bigbrotr.core.base_service.BaseService]
-and implements ``async def run()`` for one cycle of work.
-
-```text
-Seeder (one-shot) -> Finder -> Validator -> Monitor -> Synchronizer
-                                                         |
-                                            Refresher (materialized views)
-```
+and implements ``async def run()`` for one cycle of work. All services
+communicate exclusively through the shared PostgreSQL database.
 
 Attributes:
     Seeder: One-shot bootstrapping of initial relay URLs from a seed file.

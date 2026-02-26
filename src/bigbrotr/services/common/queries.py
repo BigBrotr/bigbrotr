@@ -131,7 +131,7 @@ async def insert_relays(brotr: Brotr, relays: list[Relay]) -> int:
     (``ON CONFLICT DO NOTHING``).
 
     Called by [Seeder][bigbrotr.services.seeder.Seeder] when
-    ``to_validate=False`` to bypass the validation pipeline.
+    ``to_validate=False`` to bypass validation.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.

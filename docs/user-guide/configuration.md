@@ -65,7 +65,7 @@ deployments/
 | Variable | Required | Used By | Description |
 |----------|----------|---------|-------------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer | Admin user password for database initialization and PGBouncer auth |
-| `DB_WRITER_PASSWORD` | Yes | Pipeline services | Writer role password (seeder, finder, validator, monitor, synchronizer) |
+| `DB_WRITER_PASSWORD` | Yes | Writer services | Writer role password (seeder, finder, validator, monitor, synchronizer, refresher) |
 | `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, future API/DVM) |
 | `PRIVATE_KEY` | Monitor, optional for Synchronizer | Monitor, Synchronizer | Nostr private key (64-char hex or `nsec1...` bech32). Required for NIP-66 write tests and event publishing. Optional for Synchronizer NIP-42 authentication. |
 | `GRAFANA_PASSWORD` | Docker only | Grafana | Grafana admin password |
@@ -102,7 +102,7 @@ Environment="PRIVATE_KEY=your_hex_private_key"
 python -m bigbrotr <service> [options]
 
 positional arguments:
-  service                 seeder | finder | validator | monitor | synchronizer
+  service                 seeder | finder | validator | monitor | synchronizer | refresher
 
 options:
   --config PATH           Service config path (overrides default)
@@ -791,7 +791,7 @@ processing:
 
 ## Troubleshooting
 
-**"DB_WRITER_PASSWORD environment variable not set"** -- Set the environment variable or add it to your `.env` file. Pipeline services use `DB_WRITER_PASSWORD`, read-only services use `DB_READER_PASSWORD`.
+**"DB_WRITER_PASSWORD environment variable not set"** -- Set the environment variable or add it to your `.env` file. Writer services use `DB_WRITER_PASSWORD`, read-only services use `DB_READER_PASSWORD`.
 
 **"Connection refused"** -- Check `pool.database.host`. In Docker, use the service name (`pgbouncer` or `postgres`). Outside Docker, use `localhost`.
 
@@ -806,6 +806,6 @@ processing:
 ## Related Documentation
 
 - [Architecture](architecture.md) -- System architecture and module reference
-- [Service Pipeline](pipeline.md) -- Deep dive into the five-service pipeline
+- [Services](services.md) -- Deep dive into the six independent services
 - [Database](database.md) -- Database schema and stored procedures
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

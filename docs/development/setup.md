@@ -81,12 +81,13 @@ bigbrotr/
 |   +-- nips/                         # NIP-11 and NIP-66 protocol I/O
 |   |   +-- nip11/                    # Relay info document fetch/parse
 |   |   +-- nip66/                    # Monitoring: dns, geo, http, net, rtt, ssl
-|   +-- services/                     # Business logic (5 services)
+|   +-- services/                     # Business logic (6 services)
 |   |   +-- seeder/                   # Relay seed loading
 |   |   +-- finder/                   # Relay URL discovery
 |   |   +-- validator/                # Candidate validation
 |   |   +-- monitor/                  # Health check orchestration, publishing, tags
 |   |   +-- synchronizer/             # Event collection
+|   |   +-- refresher/                # Materialized view refresh
 |   |   +-- common/                   # Shared constants, configs, queries, mixins
 |   +-- utils/                        # DNS, keys, transport helpers
 +-- tests/

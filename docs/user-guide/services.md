@@ -1,22 +1,22 @@
-# Service Pipeline
+# Services
 
-Deep dive into BigBrotr's five-service pipeline: how relays are discovered, validated, monitored, and how events are archived.
+Deep dive into BigBrotr's six independent services: how relays are discovered, validated, monitored, how events are archived, and how analytics views are refreshed.
 
 ---
 
 ## Overview
 
-BigBrotr processes relay data through a sequential pipeline of five async services:
+BigBrotr uses six independent async services that share a PostgreSQL database. Each service runs as its own process and can be started, stopped, and scaled independently:
 
 --8<-- "docs/_snippets/pipeline.md"
 
 --8<-- "docs/_snippets/service-table.md"
 
-Each service runs independently as its own process, communicating exclusively through the shared PostgreSQL database. Services can be started, stopped, and scaled independently.
+Services communicate exclusively through the shared PostgreSQL database. There is no direct inter-service communication or dependency ordering.
 
 ---
 
-## Pipeline Data Flow
+## Service-Database Interactions
 
 The following diagram shows which database tables each service reads from and writes to:
 
@@ -28,6 +28,7 @@ flowchart TD
         VA["Validator"]
         MO["Monitor"]
         SY["Synchronizer"]
+        RE2["Refresher"]
     end
 
     subgraph Database
@@ -37,10 +38,12 @@ flowchart TD
         RM["relay_metadata<br/><small>time-series snapshots</small>"]
         EV["event<br/><small>Nostr events</small>"]
         ER["event_relay<br/><small>event-relay junction</small>"]
+        MV["materialized views<br/><small>11 analytics views</small>"]
     end
 
     SE -->|"write candidates"| SS
-    FI -->|"read events"| EV
+    SE -->|"write relays"| RE
+    FI -->|"read events"| ER
     FI -->|"write candidates"| SS
     VA -->|"read candidates"| SS
     VA -->|"promote valid"| RE
@@ -52,25 +55,28 @@ flowchart TD
     SY -->|"read/write cursors"| SS
     SY -->|"write events"| EV
     SY -->|"write junctions"| ER
+    RE2 -->|"refresh"| MV
 
     style SE fill:#7B1FA2,color:#fff,stroke:#4A148C
     style FI fill:#7B1FA2,color:#fff,stroke:#4A148C
     style VA fill:#7B1FA2,color:#fff,stroke:#4A148C
     style MO fill:#7B1FA2,color:#fff,stroke:#4A148C
     style SY fill:#7B1FA2,color:#fff,stroke:#4A148C
+    style RE2 fill:#7B1FA2,color:#fff,stroke:#4A148C
     style SS fill:#311B92,color:#fff,stroke:#1A237E
     style RE fill:#311B92,color:#fff,stroke:#1A237E
     style MD fill:#311B92,color:#fff,stroke:#1A237E
     style RM fill:#311B92,color:#fff,stroke:#1A237E
     style EV fill:#311B92,color:#fff,stroke:#1A237E
     style ER fill:#311B92,color:#fff,stroke:#1A237E
+    style MV fill:#311B92,color:#fff,stroke:#1A237E
 ```
 
 ---
 
 ## Seeder
 
-**Purpose**: Bootstrap the pipeline by loading relay URLs from a static seed file.
+**Purpose**: Bootstrap the system by loading relay URLs from a static seed file.
 
 **Mode**: One-shot (`--once` flag). Runs once and exits.
 
@@ -369,6 +375,36 @@ class EventBatch:
 
 ---
 
+## Refresher
+
+**Purpose**: Refresh materialized views that power analytics queries.
+
+**Mode**: Continuous (`run_forever`, default interval 1 hour)
+
+**Reads**: Base tables (indirectly, via `REFRESH MATERIALIZED VIEW CONCURRENTLY`)
+**Writes**: 11 materialized views
+
+### How It Works
+
+1. Iterate over the configured list of materialized views
+2. Refresh each view individually via its stored function (e.g., `relay_metadata_latest_refresh()`)
+3. Log per-view timing and success/failure
+4. A failure on one view does not prevent subsequent views from refreshing
+
+The Refresher calls views in dependency order: `relay_metadata_latest` first (because `relay_software_counts` and `supported_nip_counts` depend on it), then all remaining views.
+
+### Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `interval` | float | `3600.0` | Seconds between refresh cycles |
+| `views` | list[string] | all 11 views | Materialized views to refresh |
+
+!!! tip "API Reference"
+    See [`bigbrotr.services.refresher`](../reference/services/refresher/index.md) for the complete Refresher API.
+
+---
+
 ## Service Lifecycle
 
 All services share a common lifecycle managed by `BaseService`:
@@ -427,6 +463,7 @@ For complete configuration details including all fields, defaults, constraints, 
 | Validator | `processing.chunk_size`, `cleanup.max_failures` | Throughput vs resource usage |
 | Monitor | `processing.compute.*`, `discovery.enabled` | Which checks to run and publish |
 | Synchronizer | `concurrency.max_parallel`, `filter.kinds` | Archival throughput and scope |
+| Refresher | `views`, `interval` | Which views to refresh and how often |
 
 ---
 
