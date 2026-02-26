@@ -22,29 +22,59 @@
 
 ## What It Does
 
-BigBrotr runs a pipeline of async services that continuously map and monitor the Nostr relay ecosystem:
+BigBrotr runs 6 **independent** async services that continuously map and monitor the Nostr relay ecosystem. Each service runs on its own schedule, reads and writes a shared PostgreSQL database, and has no direct dependency on any other service.
 
 ```text
-Seeder ──> Finder ──> Validator ──> Monitor ──> Synchronizer
-(seed URLs)  (discover)  (test)    (health)     (archive events)
-                                                      |
-                                          Refresher (materialized views)
+                            ┌──────────────────────────────────────┐
+                            │         PostgreSQL Database          │
+                            │                                      │
+                            │  relay ── event_relay ── event       │
+                            │  service_state                       │
+                            │  metadata ── relay_metadata          │
+                            │  11 materialized views               │
+                            └──┬───┬───┬───┬───┬───┬───────────────┘
+                               │   │   │   │   │   │
+           ┌───────────────────┘   │   │   │   │   └─────────────────────┐
+           │         ┌─────────────┘   │   │   └──────────────┐          │
+           ▼         ▼                 ▼   ▼                  ▼          ▼
+      ┌─────────┐ ┌────────┐   ┌───────────┐ ┌───────┐ ┌──────────────┐ ┌─────────┐
+      │ Seeder  │ │ Finder │   │ Validator │ │Monitor│ │ Synchronizer │ │Refresher│
+      │(one-shot│ │        │   │           │ │       │ │              │ │         │
+      │  boot)  │ │discover│   │  test ws  │ │health │ │ archive evts │ │ refresh │
+      └────┬────┘ └───┬────┘   └─────┬─────┘ └───┬───┘ └──────┬───────┘ └────┬────┘
+           │          │               │           │            │              │
+           │          ▼               ▼           ▼            ▼              │
+           │     ┌─────────┐   ┌───────────┐ ┌────────┐  ┌─────────┐        │
+           ▼     │ APIs    │   │  Relays   │ │ Relays │  │ Relays  │        │
+      seed file  │(nostr.  │   │(WebSocket │ │(NIP-11,│  │(fetch   │    (no I/O)
+                 │ watch)  │   │ handshake)│ │ NIP-66)│  │ events) │
+                 └─────────┘   └───────────┘ └───┬────┘  └─────────┘
+                                                  │
+                                                  ▼
+                                          Nostr Network
+                                       (kind 10166/30166)
 ```
 
-1. **Seeder** loads relay URLs from a seed file (one-shot)
-2. **Finder** discovers new relays from stored events (NIP-65 relay lists, kind 2/3) and external APIs
-3. **Validator** tests WebSocket connectivity for each candidate, promoting valid relays
-4. **Monitor** performs NIP-11 info document fetches and NIP-66 health checks (RTT, SSL, DNS, GeoIP, ASN, HTTP headers), then publishes results as kind 10166/30166 Nostr events
-5. **Synchronizer** connects to all validated relays, subscribes to events, and archives them with per-relay cursor tracking for incremental sync
-6. **Refresher** periodically refreshes materialized views in dependency order, with per-view logging, timing, and error isolation
+### Services
 
-All services expose Prometheus metrics, run behind PGBouncer connection pooling, and support clearnet + Tor + I2P + Lokinet connectivity.
+| Service | Schedule | What it does | Reads | Writes | External I/O |
+|---------|----------|-------------|-------|--------|-------------|
+| **Seeder** | One-shot | Loads relay URLs from a seed file | -- | relay or service_state (candidates) | Seed file |
+| **Finder** | Every 5 min | Discovers relay URLs from event tag values and external APIs | relay, event_relay, service_state | service_state (candidates + cursors) | HTTP (nostr.watch APIs) |
+| **Validator** | Every 5 min | Tests candidates via WebSocket handshake, promotes valid relays | service_state (candidates) | relay, service_state | WebSocket to relays |
+| **Monitor** | Every 5 min | Runs 7 health checks per relay, publishes NIP-66 events | relay, service_state | metadata, relay_metadata, service_state | HTTP, WebSocket, DNS, SSL, GeoIP |
+| **Synchronizer** | Every 5 min | Connects to relays, fetches and archives signed events | relay, service_state | event, event_relay, service_state | WebSocket to relays |
+| **Refresher** | Every 60 min | Refreshes 11 materialized views in dependency order | (implicit via views) | 11 materialized views | None |
+
+Services are **loosely coupled through the database**: Seeder and Finder populate candidates, Validator promotes them to relays, Monitor and Synchronizer operate on relays, Refresher materializes analytics. But each runs independently -- stopping one does not break the others.
 
 ---
 
 ## Architecture
 
-Diamond DAG with strict import direction (top to bottom only):
+### Code Organization (Diamond DAG)
+
+Imports flow strictly downward:
 
 ```text
               services         src/bigbrotr/services/
@@ -54,11 +84,88 @@ Diamond DAG with strict import direction (top to bottom only):
               models           src/bigbrotr/models/
 ```
 
-- **models** -- Pure frozen dataclasses. Zero I/O, zero package dependencies, stdlib logging only.
-- **core** -- Pool (asyncpg), Brotr (DB facade), BaseService, Logger, Metrics, Exceptions.
-- **nips** -- NIP-11 relay info fetch/parse, NIP-66 health checks (RTT, SSL, DNS, Geo, Net, HTTP). Has I/O.
-- **utils** -- DNS resolution, Nostr key management, WebSocket/HTTP transport with SOCKS5 proxy.
-- **services** -- Business logic: Seeder, Finder, Validator, Monitor (+ Publisher + Tags), Synchronizer, Refresher.
+- **models** -- Pure frozen dataclasses (Relay, Event, Metadata, ServiceState). Zero I/O, stdlib logging only.
+- **core** -- Pool (asyncpg with retry), Brotr (DB facade), BaseService (lifecycle), Logger (structured kv/JSON), Metrics (Prometheus), YAML loader.
+- **nips** -- NIP-11 relay info fetch/parse, NIP-66 health checks (RTT, SSL, DNS, Geo, Net, HTTP). Never raises -- errors in `logs.success`.
+- **utils** -- DNS resolution, Nostr key management, WebSocket/HTTP transport, SSL fallback, SOCKS5 proxy support.
+- **services** -- 6 independent services + shared queries, configs, and mixins.
+
+### Database Schema
+
+```text
+┌─────────────────────┐         ┌──────────────────────────────────────┐
+│      relay          │         │              event                   │
+│─────────────────────│         │──────────────────────────────────────│
+│ url          PK     │◄──┐ ┌──►│ id             PK  (BYTEA, 32B)    │
+│ network      TEXT   │   │ │   │ pubkey         BYTEA (32B)          │
+│ discovered_at BIGINT│   │ │   │ created_at     BIGINT               │
+└─────────┬───────────┘   │ │   │ kind           INTEGER              │
+          │               │ │   │ tags           JSONB                 │
+          │               │ │   │ tagvalues      TEXT[] (GENERATED)    │
+          │               │ │   │ content        TEXT                  │
+          │               │ │   │ sig            BYTEA (64B)           │
+          │               │ │   └──────────────────────────────────────┘
+          │               │ │
+          │    ┌──────────┴─┴──────────┐
+          │    │     event_relay       │
+          │    │───────────────────────│
+          ├───►│ relay_url    FK ──► relay.url
+          │    │ event_id     FK ──► event.id
+          │    │ seen_at      BIGINT
+          │    │ PK(event_id, relay_url)
+          │    └───────────────────────┘
+          │
+          │    ┌───────────────────────┐
+          │    │    relay_metadata     │
+          │    │───────────────────────│
+          ├───►│ relay_url    FK ──► relay.url
+          │    │ metadata_id  FK ──┐
+          │    │ metadata_type FK ─┤► metadata(id, type)
+          │    │ generated_at BIGINT
+          │    │ PK(relay_url, generated_at, metadata_type)
+          │    └──────────┬────────────┘
+          │               │
+          │    ┌──────────┴────────────┐
+          │    │      metadata         │
+          │    │───────────────────────│
+          │    │ id       PK  (BYTEA, SHA-256)
+          │    │ type     PK  (TEXT, 7 types)
+          │    │ data     JSONB
+          │    └───────────────────────┘
+          │
+          │    ┌───────────────────────┐
+          │    │    service_state      │
+          │    │───────────────────────│
+          │    │ service_name PK (TEXT)│
+          │    │ state_type   PK (TEXT)│  candidate, cursor, checkpoint
+          │    │ state_key    PK (TEXT)│  typically relay URL
+          │    │ state_value  JSONB    │
+          │    │ updated_at   BIGINT   │
+          └    └───────────────────────┘
+```
+
+**Key relationships**:
+- `relay` is the central entity. Cascade deletes propagate to `event_relay` and `relay_metadata`.
+- `metadata` is content-addressed: SHA-256 hash of canonical JSON + type as composite PK. Same data = same hash.
+- `service_state` is a generic key-value store used by Finder (cursors), Validator (candidates), Monitor (checkpoints), Synchronizer (cursors).
+- `event.tagvalues` is a generated column (from `tags_to_tagvalues(tags)`) indexed with GIN for fast containment queries.
+
+### Service-Database Interaction Map
+
+```text
+                 relay    event   event_   meta-   relay_    service_  materialized
+                                  relay    data    metadata  state     views (11)
+  ─────────────┬────────┬───────┬────────┬───────┬─────────┬─────────┬────────────
+  Seeder       │  W(1)  │       │        │       │         │  W      │
+  Finder       │  R     │       │  R     │       │         │  R/W    │
+  Validator    │  W     │       │        │       │         │  R/W    │
+  Monitor      │  R     │       │        │  W    │  W      │  R/W    │
+  Synchronizer │  R     │  W    │  W     │       │         │  R/W    │
+  Refresher    │        │       │        │       │         │         │  W
+  ─────────────┴────────┴───────┴────────┴───────┴─────────┴─────────┴────────────
+
+  R = reads    W = writes    (1) = only when to_validate=False
+```
 
 ---
 
@@ -67,7 +174,7 @@ Diamond DAG with strict import direction (top to bottom only):
 ### Prerequisites
 
 - Docker and Docker Compose
-- (Optional) Python 3.11+ for local development
+- (Optional) Python 3.11+ and [uv](https://docs.astral.sh/uv/) for local development
 
 ### Deploy with Docker Compose
 
@@ -86,12 +193,13 @@ docker compose up -d
 docker compose logs -f seeder
 ```
 
-This starts PostgreSQL, PGBouncer, Tor proxy, all 6 services, Prometheus, and Grafana.
+This starts PostgreSQL 16, PGBouncer, Tor proxy, all 6 services, Prometheus, Alertmanager, and Grafana.
 
 | Endpoint | URL |
 |----------|-----|
 | Grafana | `http://localhost:3000` |
 | Prometheus | `http://localhost:9090` |
+| Alertmanager | `http://localhost:9093` |
 | PostgreSQL | `localhost:5432` |
 | PGBouncer | `localhost:6432` |
 
@@ -116,7 +224,7 @@ BigBrotr supports multiple deployment configurations from the same codebase via 
 
 ### BigBrotr (Full Archive)
 
-Stores complete Nostr events (id, pubkey, created_at, kind, tags, content, sig). 11 materialized views for analytics. Tor enabled. All 5 services + Prometheus + Grafana.
+Stores complete Nostr events (id, pubkey, created_at, kind, tags, content, sig). 11 materialized views for analytics. Tor enabled. All 6 services + Prometheus + Grafana.
 
 ```bash
 cd deployments/bigbrotr && docker compose up -d
@@ -150,16 +258,16 @@ PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 |-------|---------|
 | `relay` | Validated relay URLs with network type and discovery timestamp |
 | `event` | Nostr events (BYTEA ids/pubkeys/sigs for space efficiency) |
-| `event_relay` | Junction: which events were seen at which relays |
-| `metadata` | Content-addressed NIP-11/NIP-66 documents (SHA-256 dedup, `data` JSONB) |
-| `relay_metadata` | Time-series snapshots linking relays to metadata records (`metadata_type` column) |
+| `event_relay` | Junction: which events were seen at which relays (with `seen_at`) |
+| `metadata` | Content-addressed NIP-11/NIP-66 documents (SHA-256 dedup, composite PK `(id, type)`) |
+| `relay_metadata` | Time-series snapshots linking relays to metadata records |
 | `service_state` | Per-service operational data (candidates, cursors, checkpoints) |
 
 ### Stored Functions (25)
 
 - **1 utility**: `tags_to_tagvalues` (extracts single-char tag values for GIN indexing)
 - **10 CRUD**: `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `event_relay_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
-- **2 cleanup**: `orphan_event_delete`, `orphan_metadata_delete` (all batched)
+- **2 cleanup**: `orphan_event_delete`, `orphan_metadata_delete` (batched)
 - **12 refresh**: one per materialized view + `all_statistics_refresh`
 
 All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO NOTHING`.
@@ -183,18 +291,20 @@ Every service exposes `/metrics` on its configured port with four metric types:
 | `service_counter` | Counter | Cumulative totals (cycles_success, cycles_failed, errors by type) |
 | `cycle_duration_seconds` | Histogram | Cycle latency with 10 buckets (1s to 1h) |
 
-### Alert Rules (4)
+### Alert Rules (6)
 
 | Alert | Condition | Severity |
 |-------|-----------|----------|
 | ServiceDown | `up == 0` for 5m | critical |
 | HighFailureRate | error rate > 0.1/s for 5m | warning |
-| PoolExhausted | zero available connections for 2m | critical |
-| DatabaseSlow | p99 query latency > 5s for 5m | warning |
+| ConsecutiveFailures | 5+ consecutive cycle failures for 2m | critical |
+| SlowCycles | p99 cycle duration > 300s for 5m | warning |
+| DatabaseConnectionsHigh | > 80 active connections for 5m | warning |
+| CacheHitRatioLow | buffer cache hit ratio < 95% for 10m | warning |
 
 ### Grafana Dashboard
 
-Auto-provisioned dashboard with per-service panels: last cycle time, cycle duration, error counts (24h), consecutive failures. Validator has additional candidate progress panels.
+Auto-provisioned dashboard with per-service panels: cycle duration, error counts, consecutive failures, and service-specific progress metrics.
 
 ### Structured Logging
 
@@ -228,22 +338,22 @@ JSON mode available for cloud aggregation:
 | Kind | Direction | Purpose |
 |------|-----------|---------|
 | 0 | Published | Monitor profile metadata |
-| 2 | Consumed | Deprecated relay recommendation (content = URL) |
-| 3 | Consumed | Contact list (content = JSON with relay URLs as keys) |
-| 10002 | Consumed | NIP-65 relay list ("r" tags) |
-| 10166 | Published | Monitor announcement (capabilities, timeouts) |
-| 30166 | Published | Relay discovery (addressable, one per relay, full metadata tags) |
+| 2 | Consumed | Deprecated relay recommendation |
+| 3 | Consumed | Contact list (relay URLs from tag values) |
+| 10002 | Consumed | NIP-65 relay list (`r` tags) |
+| 10166 | Published | Monitor announcement (capabilities, networks, timeouts) |
+| 30166 | Published | Relay discovery (addressable, one per relay, health check tags) |
 
 ### NIP-66 Health Checks
 
-| Check | What It Measures |
-|-------|-----------------|
-| RTT | WebSocket open/read/write latency (ms) |
-| SSL | Certificate validity, expiry, issuer, cipher suite |
-| DNS | A/AAAA/CNAME/NS/PTR records, query time |
-| Geo | Country, city, coordinates, timezone, geohash (GeoLite2) |
-| Net | IP address, ASN, organization (GeoLite2 ASN) |
-| HTTP | Server header, X-Powered-By |
+| Check | What It Measures | Networks |
+|-------|-----------------|----------|
+| RTT | WebSocket open/read/write latency (ms), 3-phase with verification | All |
+| SSL | Certificate validity, expiry, issuer, SANs, cipher, fingerprint | Clearnet |
+| DNS | A/AAAA/CNAME/NS/PTR records, TTL | Clearnet |
+| Geo | Country, city, coordinates, timezone, geohash (GeoLite2 City) | Clearnet |
+| Net | IP address, ASN, organization, network ranges (GeoLite2 ASN) | Clearnet |
+| HTTP | Server header, X-Powered-By (from WebSocket handshake) | All |
 
 ---
 
@@ -255,21 +365,22 @@ JSON mode available for cloud aggregation:
 |----------|----------|-------------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin password |
 | `DB_WRITER_PASSWORD` | Yes | Writer role password (pipeline services) |
-| `DB_READER_PASSWORD` | Yes | Reader role password (read-only services) |
-| `PRIVATE_KEY` | For Monitor | Nostr private key (hex or nsec) for event publishing and RTT write tests |
-| `GRAFANA_PASSWORD` | No | Grafana admin password |
+| `DB_READER_PASSWORD` | Yes | Reader role password (read-only access) |
+| `PRIVATE_KEY` | For Monitor/Synchronizer | Nostr private key (hex or nsec) for event signing |
+| `GRAFANA_PASSWORD` | For Grafana | Grafana admin password |
 
 ### Configuration Files
 
 ```text
 deployments/bigbrotr/config/
-+-- brotr.yaml                  # Pool, batch size, timeouts
-+-- services/
-    +-- seeder.yaml             # Seed file path
-    +-- finder.yaml             # API sources, scan interval (default: 1h)
-    +-- validator.yaml          # Validation interval (8h), cleanup, networks
-    +-- monitor.yaml            # Check interval (1h), retry per check type, networks
-    +-- synchronizer.yaml       # Sync interval (15m), per-relay overrides, concurrency
+├── brotr.yaml                  # Pool, batch size, timeouts
+└── services/
+    ├── seeder.yaml             # Seed file path, validate mode
+    ├── finder.yaml             # API sources (JMESPath), event scanning, concurrency
+    ├── validator.yaml          # Networks, cleanup, processing chunk size
+    ├── monitor.yaml            # Health checks, retry per type, publishing, GeoIP
+    ├── synchronizer.yaml       # Networks, filter, time range, per-relay overrides
+    └── refresher.yaml          # View list, refresh interval
 ```
 
 All configs use Pydantic v2 validation with typed defaults and constraints.
@@ -290,14 +401,14 @@ pre-commit install
 ### Quality Checks
 
 ```bash
-make lint          # ruff check src/ tests/
-make format        # ruff format src/ tests/
-make typecheck     # mypy src/bigbrotr (strict mode)
-make test-unit        # pytest unit tests (2049 tests)
+make lint             # ruff check src/ tests/
+make format           # ruff format src/ tests/
+make typecheck        # mypy src/bigbrotr (strict mode)
+make test             # pytest unit tests (~2300 tests)
 make test-integration # pytest integration tests (requires Docker)
 make test-fast        # pytest -m "not slow"
 make coverage         # pytest --cov with HTML report
-make ci               # all checks: lint + format + typecheck + test-unit
+make ci               # all checks: lint + format-check + typecheck + test + sql-check + audit
 make docs             # build MkDocs documentation site
 make docs-serve       # serve docs locally with live reload
 make build            # build Python package (sdist + wheel)
@@ -309,7 +420,7 @@ make clean            # remove build artifacts and caches
 
 ### Test Suite
 
-- **2049 unit tests** + **8 integration tests** (testcontainers PostgreSQL)
+- ~2,300 unit tests + ~95 integration tests (testcontainers PostgreSQL)
 - `asyncio_mode = "auto"` -- no `@pytest.mark.asyncio` needed
 - Global timeout: 120s per test
 - Shared fixtures via `tests/fixtures/relays.py` (registered as pytest plugin)
@@ -319,7 +430,7 @@ make clean            # remove build artifacts and caches
 
 | Stage | Tool | Purpose |
 |-------|------|---------|
-| Pre-commit | ruff, mypy, yamllint, detect-secrets, markdownlint, hadolint, sqlfluff | Code quality gates |
+| Pre-commit | ruff, mypy, yamllint, detect-secrets, markdownlint, hadolint, sqlfluff, codespell | Code quality gates |
 | Unit Test | pytest (Python 3.11--3.14 matrix) | Unit tests + coverage |
 | Integration Test | pytest + testcontainers | PostgreSQL integration tests |
 | Build | Docker Buildx (matrix) | Multi-deployment image builds + Trivy scan |
@@ -334,69 +445,60 @@ make clean            # remove build artifacts and caches
 
 ```text
 bigbrotr/
-+-- src/bigbrotr/                    # Main package (namespace)
-|   +-- __main__.py                  # CLI entry point
-|   +-- core/                        # Foundation
-|   |   +-- pool.py                  # asyncpg connection pool with retry
-|   |   +-- brotr.py                 # High-level DB facade (stored procedures)
-|   |   +-- base_service.py          # Abstract service with run_forever loop
-|   |   +-- exceptions.py            # Exception hierarchy (10 classes)
-|   |   +-- metrics.py               # Prometheus metrics server
-|   |   +-- logger.py                # Structured key=value / JSON logging
-|   |   +-- yaml.py                  # YAML config loader
-|   +-- models/                      # Pure frozen dataclasses (zero I/O)
-|   |   +-- relay.py                 # URL validation, network detection
-|   |   +-- event.py                 # Nostr event wrapper
-|   |   +-- metadata.py              # Content-addressed metadata (SHA-256)
-|   |   +-- service_state.py         # ServiceState, ServiceStateType, ServiceStateDbParams
-|   |   +-- constants.py             # NetworkType, ServiceName, EventKind enums
-|   |   +-- event_relay.py           # Event-relay junction
-|   |   +-- relay_metadata.py        # Relay-metadata junction
-|   +-- nips/                        # NIP protocol implementations (I/O)
-|   |   +-- nip11/                   # Relay information document
-|   |   +-- nip66/                   # Health checks: rtt, ssl, dns, geo, net, http
-|   +-- utils/                       # DNS, keys, transport
-|   +-- services/                    # Business logic
-|       +-- seeder.py
-|       +-- finder.py
-|       +-- validator.py
-|       +-- monitor.py               # Health check orchestration
-|       +-- monitor_publisher.py     # Nostr event broadcasting
-|       +-- monitor_tags.py          # NIP-66 tag building
-|       +-- synchronizer.py
-|       +-- common/                  # Shared queries, configs, mixins
-+-- deployments/
-|   +-- Dockerfile                   # Single parametric (ARG DEPLOYMENT)
-|   +-- bigbrotr/                    # Full archive deployment
-|   |   +-- config/                  # YAML configs
-|   |   +-- postgres/init/           # SQL schema (10 files, 25 functions)
-|   |   +-- monitoring/              # Prometheus + Grafana provisioning
-|   |   +-- docker-compose.yaml
-|   +-- lilbrotr/                    # Lightweight deployment
-+-- tests/
-|   +-- fixtures/relays.py           # Shared relay fixtures
-|   +-- unit/                        # 2049 tests (mirrors src/ structure)
-|   +-- integration/                 # 8 tests (testcontainers PostgreSQL)
-+-- docs/                            # Architecture, Database, Deployment, Development, Configuration
-+-- Makefile                         # Development targets
-+-- pyproject.toml                   # All config: deps, ruff, mypy, pytest, coverage
-```
-
----
-
-## Exception Hierarchy
-
-```text
-BigBrotrError
-+-- ConfigurationError          # YAML, env vars, CLI
-+-- DatabaseError
-|   +-- ConnectionPoolError     # Transient (retry)
-|   +-- QueryError              # Permanent (don't retry)
-+-- ConnectivityError
-|   +-- RelayTimeoutError       # Connection/response timed out
-|   +-- RelaySSLError           # TLS/SSL failures
-+-- ProtocolError               # NIP parsing/validation
-+-- PublishingError             # Event broadcast failures
+├── src/bigbrotr/                    # Main package
+│   ├── __main__.py                  # CLI entry point (service registry)
+│   ├── core/                        # Infrastructure
+│   │   ├── pool.py                  # asyncpg connection pool with retry/backoff
+│   │   ├── brotr.py                 # DB facade (stored procedures, bulk inserts)
+│   │   ├── base_service.py          # Abstract service with run_forever loop
+│   │   ├── logger.py                # Structured key=value / JSON logging
+│   │   ├── metrics.py               # Prometheus metrics server
+│   │   └── yaml.py                  # YAML config loader
+│   ├── models/                      # Pure frozen dataclasses (zero I/O)
+│   │   ├── relay.py                 # URL validation (rfc3986), network detection
+│   │   ├── event.py                 # Nostr event wrapper (nostr_sdk.Event)
+│   │   ├── metadata.py              # Content-addressed metadata (SHA-256)
+│   │   ├── event_relay.py           # Event-relay junction (cascade insert)
+│   │   ├── relay_metadata.py        # Relay-metadata junction (cascade insert)
+│   │   ├── service_state.py         # Operational state persistence
+│   │   ├── constants.py             # NetworkType, ServiceName, EventKind enums
+│   │   └── _validation.py           # Shared validation and sanitization
+│   ├── nips/                        # NIP protocol implementations (I/O)
+│   │   ├── base.py                  # Base data, logs, metadata models
+│   │   ├── parsing.py               # Declarative field parsing (FieldSpec)
+│   │   ├── event_builders.py        # Kind 0/10166/30166 event construction
+│   │   ├── nip11/                   # Relay information document
+│   │   └── nip66/                   # Health checks: rtt, ssl, dns, geo, net, http
+│   ├── utils/                       # Network primitives
+│   │   ├── protocol.py              # Nostr client, relay connection, broadcasting
+│   │   ├── transport.py             # Insecure WebSocket transport, stderr filter
+│   │   ├── dns.py                   # Async hostname resolution (A/AAAA)
+│   │   ├── keys.py                  # Nostr key loading from environment
+│   │   ├── http.py                  # Bounded HTTP response reading
+│   │   └── parsing.py               # Tolerant model factory parsing
+│   └── services/                    # Business logic
+│       ├── seeder/                  # Seed file loading (one-shot)
+│       ├── finder/                  # Relay discovery (APIs + event scanning)
+│       ├── validator/               # WebSocket protocol validation
+│       ├── monitor/                 # Health check orchestration + publishing
+│       ├── synchronizer/            # Event collection (cursor-based)
+│       ├── refresher/               # Materialized view refresh
+│       └── common/                  # Shared queries, configs, mixins
+├── deployments/
+│   ├── Dockerfile                   # Single parametric (ARG DEPLOYMENT)
+│   ├── bigbrotr/                    # Full archive deployment
+│   │   ├── config/                  # YAML configs (brotr + 6 services)
+│   │   ├── postgres/init/           # SQL schema (10 files, 25 functions)
+│   │   ├── monitoring/              # Prometheus + Alertmanager + Grafana
+│   │   └── docker-compose.yaml      # 13 containers, 2 networks
+│   └── lilbrotr/                    # Lightweight deployment
+├── tests/
+│   ├── fixtures/relays.py           # Shared relay fixtures
+│   ├── unit/                        # ~2,300 tests (mirrors src/ structure)
+│   └── integration/                 # ~95 tests (testcontainers PostgreSQL)
+├── docs/                            # MkDocs Material documentation
+├── Makefile                         # Development targets
+└── pyproject.toml                   # All config: deps, ruff, mypy, pytest, coverage
 ```
 
 ---
@@ -410,17 +512,21 @@ BigBrotrError
 | postgres | `postgres:16-alpine` | Primary storage | 2 CPU, 2 GB |
 | pgbouncer | `edoburu/pgbouncer:v1.25.1-p0` | Transaction-mode connection pooling | 0.5 CPU, 256 MB |
 | tor | `osminogin/tor-simple:0.4.8.10` | SOCKS5 proxy for .onion relays | 0.5 CPU, 256 MB |
+| seeder | bigbrotr (parametric) | Relay bootstrapping (one-shot) | 0.5 CPU, 256 MB |
 | finder | bigbrotr (parametric) | Relay discovery | 1 CPU, 512 MB |
 | validator | bigbrotr (parametric) | Candidate validation | 1 CPU, 512 MB |
-| monitor | bigbrotr (parametric) | Health monitoring | 1 CPU, 512 MB |
+| monitor | bigbrotr (parametric) | Health monitoring + event publishing | 1 CPU, 512 MB |
 | synchronizer | bigbrotr (parametric) | Event archiving | 1 CPU, 512 MB |
+| refresher | bigbrotr (parametric) | Materialized view refresh | 0.25 CPU, 256 MB |
+| postgres-exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | PostgreSQL metrics | 0.25 CPU, 128 MB |
 | prometheus | `prom/prometheus:v2.51.0` | Metrics collection (30d retention) | 0.5 CPU, 512 MB |
+| alertmanager | `prom/alertmanager:v0.27.0` | Alert routing and grouping | 0.25 CPU, 128 MB |
 | grafana | `grafana/grafana:10.4.1` | Dashboards | 0.5 CPU, 512 MB |
 
 ### Networks
 
 - `data-network` -- postgres, pgbouncer, tor, all services
-- `monitoring-network` -- prometheus, grafana, all services (metrics scraping)
+- `monitoring-network` -- prometheus, grafana, alertmanager, postgres-exporter, all services
 
 ### Security
 
@@ -428,7 +534,7 @@ BigBrotrError
 - Non-root container execution (UID 1000)
 - `tini` as PID 1 for proper signal handling
 - SCRAM-SHA-256 authentication (PostgreSQL + PGBouncer)
-- Real healthchecks via `/metrics` endpoint (not fake PID checks)
+- Healthchecks via `pg_isready` and `/metrics` HTTP endpoint
 
 ---
 
@@ -438,15 +544,16 @@ BigBrotrError
 |----------|-------------|
 | Language | Python 3.11+ (fully typed, strict mypy) |
 | Database | PostgreSQL 16, asyncpg, PGBouncer |
-| Async | asyncio, aiohttp, aiomultiprocess |
-| Nostr | nostr-sdk (Rust FFI via PyO3/uniffi) |
+| Async | asyncio, aiohttp, aiohttp-socks |
+| Nostr | nostr-sdk (Rust FFI via UniFFI) |
 | Validation | Pydantic v2, rfc3986 |
-| Monitoring | Prometheus, Grafana, structured logging |
-| Networking | aiohttp-socks (SOCKS5), dnspython, geoip2, tldextract |
+| Monitoring | Prometheus, Grafana, Alertmanager, structured logging |
+| Networking | dnspython, geoip2, geohash2, tldextract, cryptography |
 | Testing | pytest, pytest-asyncio, pytest-cov, testcontainers |
-| Quality | ruff (lint+format), mypy (strict), pre-commit (21 hooks) |
+| Quality | ruff (lint+format), mypy (strict), pre-commit (15 hooks) |
 | CI/CD | GitHub Actions, uv-secure, Trivy, CodeQL, Dependabot |
 | Containers | Docker, Docker Compose, tini |
+| Build | uv (dependency management + build) |
 
 ---
 
