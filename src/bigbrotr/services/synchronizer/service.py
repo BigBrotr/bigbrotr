@@ -9,7 +9,7 @@ The synchronization workflow proceeds as follows:
    [fetch_all_relays][bigbrotr.services.common.queries.fetch_all_relays]
    (optionally filtered by metadata age).
 2. Load per-relay sync cursors from ``service_state`` via
-   [get_all_cursor_values][bigbrotr.services.common.queries.get_all_cursor_values].
+   [Brotr.get_service_state][bigbrotr.core.brotr.Brotr.get_service_state].
 3. Connect to each relay and fetch events since the last sync timestamp.
 4. Validate event signatures and timestamps before insertion.
 5. Update per-relay cursors for the next cycle.
@@ -69,9 +69,8 @@ from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import (
-    delete_orphan_cursors,
+    cleanup_stale_state,
     fetch_all_relays,
-    get_all_cursor_values,
 )
 from bigbrotr.services.common.types import EventRelayCursor
 
@@ -110,8 +109,8 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             that health-checks relays before they are synced.
         [Finder][bigbrotr.services.finder.Finder]: Downstream consumer
             that discovers relay URLs from the events collected here.
-        [get_all_cursor_values][bigbrotr.services.common.queries.get_all_cursor_values]:
-            Pre-fetches all per-relay cursor values.
+        [Brotr.get_service_state][bigbrotr.core.brotr.Brotr.get_service_state]:
+            Fetches per-relay cursor values.
     """
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.SYNCHRONIZER
@@ -174,12 +173,14 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             Number of relays that were processed.
         """
         try:
-            removed = await delete_orphan_cursors(self._brotr, self.SERVICE_NAME)
+            removed = await cleanup_stale_state(
+                self._brotr, self.SERVICE_NAME, ServiceStateType.CURSOR
+            )
             if removed:
-                self._logger.info("orphan_cursors_removed", count=removed)
+                self._logger.info("stale_cursors_removed", count=removed)
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.warning(
-                "orphan_cursor_cleanup_failed", error=str(e), error_type=type(e).__name__
+                "stale_cursor_cleanup_failed", error=str(e), error_type=type(e).__name__
             )
 
         relays = await self.fetch_relays()
@@ -229,19 +230,17 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         Returns:
             Dict mapping relay URL to
             [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor].
-
-        See Also:
-            [get_all_cursor_values][bigbrotr.services.common.queries.get_all_cursor_values]:
-                The SQL query executed by this method.
         """
         if not self._config.time_range.use_relay_state:
             return {}
 
-        raw = await get_all_cursor_values(self._brotr, self.SERVICE_NAME)
+        states = await self._brotr.get_service_state(self.SERVICE_NAME, ServiceStateType.CURSOR)
         return {
-            k: EventRelayCursor(relay_url=k, seen_at=v["last_synced_at"])
-            for k, v in raw.items()
-            if "last_synced_at" in v
+            s.state_key: EventRelayCursor(
+                relay_url=s.state_key, seen_at=s.state_value["last_synced_at"]
+            )
+            for s in states
+            if "last_synced_at" in s.state_value
         }
 
     def _merge_overrides(self, relays: list[Relay]) -> list[Relay]:

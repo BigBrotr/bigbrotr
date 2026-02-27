@@ -68,9 +68,6 @@ class Relay:
     def _compute_db_params(self) -> RelayDbParams: ...
     def to_db_params(self) -> RelayDbParams:
         return self._db_params  # cached, no recomputation
-
-    @classmethod
-    def from_db_params(cls, url: str, ...) -> Relay: ...
 ```
 
 Key characteristics:
@@ -78,7 +75,6 @@ Key characteristics:
 - `frozen=True` + `slots=True` on all models
 - `_compute_db_params()` runs once in `__post_init__`, cached in `_db_params`
 - `object.__setattr__` for setting fields in frozen `__post_init__`
-- `from_db_params()` classmethod for reconstruction from database rows
 - `to_db_params()` returns a typed NamedTuple matching stored procedure parameter order
 
 ### ServiceState
@@ -465,8 +461,7 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | `delete_stale_candidates(brotr)` | Remove candidates already in relay table |
 | `delete_exhausted_candidates(brotr, ...)` | Remove candidates exceeding max_failures |
 | `promote_candidates(brotr, relays)` | Move validated candidates to relay table |
-| `get_all_cursor_values(brotr, ...)` | Get cursor state values for all relays |
-| `delete_orphan_cursors(brotr, ...)` | Delete cursors for relays no longer in the relay table |
+| `cleanup_stale_state(brotr, ...)` | Delete state rows for relays no longer in the relay table |
 
 **Network Configuration** (`configs.py`):
 

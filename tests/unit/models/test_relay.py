@@ -1,4 +1,4 @@
-"""Unit tests for the Relay model, NetworkType enum, and RelayDbParams NamedTuple."""
+"""Unit tests for the Relay model and NetworkType enum."""
 
 from dataclasses import FrozenInstanceError
 from time import time
@@ -43,57 +43,6 @@ class TestNetworkTypeEnum:
         d = {NetworkType.CLEARNET: 1, NetworkType.TOR: 2}
         assert d[NetworkType.CLEARNET] == 1
         assert d["clearnet"] == 1
-
-
-# =============================================================================
-# RelayDbParams Tests
-# =============================================================================
-
-
-class TestRelayDbParams:
-    """Test RelayDbParams NamedTuple."""
-
-    def test_is_named_tuple(self):
-        """RelayDbParams is a NamedTuple with 3 fields."""
-        params = RelayDbParams(
-            url="wss://relay.example.com",
-            network="clearnet",
-            discovered_at=1234567890,
-        )
-        assert isinstance(params, tuple)
-        assert len(params) == 3
-
-    def test_field_access_by_name(self):
-        """Fields are accessible by name."""
-        params = RelayDbParams(
-            url="wss://test.relay:8080/path",
-            network="tor",
-            discovered_at=9999999999,
-        )
-        assert params.url == "wss://test.relay:8080/path"
-        assert params.network == "tor"
-        assert params.discovered_at == 9999999999
-
-    def test_field_access_by_index(self):
-        """Fields are accessible by index."""
-        params = RelayDbParams(
-            url="ws://abc.onion",
-            network="tor",
-            discovered_at=1234567890,
-        )
-        assert params[0] == "ws://abc.onion"
-        assert params[1] == "tor"
-        assert params[2] == 1234567890
-
-    def test_immutability(self):
-        """RelayDbParams is immutable (NamedTuple)."""
-        params = RelayDbParams(
-            url="wss://relay.example.com",
-            network="clearnet",
-            discovered_at=1234567890,
-        )
-        with pytest.raises(AttributeError):
-            params.url = "wss://other.relay"
 
 
 # =============================================================================
@@ -501,93 +450,6 @@ class TestToDbParams:
         params = r.to_db_params()
         assert isinstance(params.network, str)
         assert params.network == "clearnet"
-
-
-# =============================================================================
-# from_db_params Tests
-# =============================================================================
-
-
-class TestFromDbParams:
-    """Relay.from_db_params() deserialization."""
-
-    def test_simple_relay(self):
-        """Reconstructs simple relay."""
-        params = RelayDbParams("wss://relay.example.com", "clearnet", 1234567890)
-        r = Relay.from_db_params(params)
-        assert r.url == "wss://relay.example.com"
-        assert r.network == NetworkType.CLEARNET
-        assert r.discovered_at == 1234567890
-        assert r.host == "relay.example.com"
-        assert r.port is None
-        assert r.path is None
-        assert r.scheme == "wss"
-
-    def test_with_port(self):
-        """Reconstructs relay with port."""
-        params = RelayDbParams("wss://relay.example.com:8080", "clearnet", 1234567890)
-        r = Relay.from_db_params(params)
-        assert r.host == "relay.example.com"
-        assert r.port == 8080
-        assert r.path is None
-
-    def test_with_path(self):
-        """Reconstructs relay with path."""
-        params = RelayDbParams("wss://relay.example.com/nostr", "clearnet", 1234567890)
-        r = Relay.from_db_params(params)
-        assert r.host == "relay.example.com"
-        assert r.port is None
-        assert r.path == "/nostr"
-
-    def test_with_port_and_path(self):
-        """Reconstructs relay with both port and path."""
-        params = RelayDbParams("wss://relay.example.com:8080/nostr", "clearnet", 1234567890)
-        r = Relay.from_db_params(params)
-        assert r.host == "relay.example.com"
-        assert r.port == 8080
-        assert r.path == "/nostr"
-
-    def test_ipv6(self):
-        """Reconstructs IPv6 relay."""
-        params = RelayDbParams("wss://[2606:4700::1]:8080", "clearnet", 1234567890)
-        r = Relay.from_db_params(params)
-        assert r.host == "2606:4700::1"
-        assert r.port == 8080
-
-    def test_tor_network(self):
-        """Reconstructs Tor relay with ws:// scheme."""
-        params = RelayDbParams("ws://abc123.onion", "tor", 1234567890)
-        r = Relay.from_db_params(params)
-        assert r.network == NetworkType.TOR
-        assert r.scheme == "ws"
-
-    def test_network_param_ignored(self):
-        """Network param is ignored; network is recomputed from the URL."""
-        params = RelayDbParams("wss://relay.example.com", "tor", 1234567890)
-        r = Relay.from_db_params(params)
-        assert r.network == NetworkType.CLEARNET
-
-    def test_roundtrip(self):
-        """to_db_params -> from_db_params preserves data."""
-        original = Relay("wss://relay.example.com:8080/nostr", discovered_at=1234567890)
-        params = original.to_db_params()
-        reconstructed = Relay.from_db_params(params)
-        assert reconstructed.url == original.url
-        assert reconstructed.network == original.network
-        assert reconstructed.discovered_at == original.discovered_at
-        assert reconstructed.host == original.host
-        assert reconstructed.port == original.port
-        assert reconstructed.path == original.path
-        assert reconstructed.scheme == original.scheme
-
-    def test_roundtrip_tor(self):
-        """Roundtrip works for Tor relay."""
-        original = Relay("wss://abc123.onion", discovered_at=1234567890)
-        params = original.to_db_params()
-        reconstructed = Relay.from_db_params(params)
-        assert reconstructed.url == original.url
-        assert reconstructed.network == original.network
-        assert reconstructed.scheme == original.scheme
 
 
 # =============================================================================

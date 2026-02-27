@@ -78,7 +78,7 @@ class TimeRangeConfig(BaseModel):
     See Also:
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
             Parent config that embeds this model.
-        [get_all_cursor_values][bigbrotr.services.common.queries.get_all_cursor_values]:
+        [Brotr.get_service_state][bigbrotr.core.brotr.Brotr.get_service_state]:
             Fetches the per-relay cursor values used when
             ``use_relay_state`` is enabled.
     """

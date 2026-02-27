@@ -3,8 +3,7 @@ Immutable Nostr event wrapper with database serialization.
 
 Wraps ``nostr_sdk.Event`` in a frozen dataclass that transparently delegates
 attribute access to the underlying SDK object while adding database conversion
-via [to_db_params()][bigbrotr.models.event.Event.to_db_params] and
-[from_db_params()][bigbrotr.models.event.Event.from_db_params].
+via [to_db_params()][bigbrotr.models.event.Event.to_db_params].
 
 See Also:
     [bigbrotr.models.event_relay][]: Junction model linking an
@@ -42,8 +41,6 @@ class EventDbParams(NamedTuple):
 
     See Also:
         [Event][bigbrotr.models.event.Event]: The model that produces these parameters.
-        [Event.from_db_params()][bigbrotr.models.event.Event.from_db_params]: Reconstructs
-            an [Event][bigbrotr.models.event.Event] from these parameters.
         [EventRelayDbParams][bigbrotr.models.event_relay.EventRelayDbParams]: Extends
             these fields with relay and junction data for cascade inserts.
     """
@@ -183,39 +180,3 @@ class Event:
             content string.
         """
         return self._db_params
-
-    @classmethod
-    def from_db_params(cls, params: EventDbParams) -> Event:
-        """Reconstruct an [Event][bigbrotr.models.event.Event] from database parameters.
-
-        Converts the stored binary/integer fields back into a JSON
-        representation that ``nostr_sdk.Event.from_json()`` can parse.
-
-        Args:
-            params: Database row values previously produced by
-                [to_db_params()][bigbrotr.models.event.Event.to_db_params].
-
-        Returns:
-            A new [Event][bigbrotr.models.event.Event] wrapping the
-            reconstructed ``nostr_sdk.Event``.
-
-        Note:
-            The reconstructed event passes through ``__post_init__`` validation
-            again, including null-byte checks and DB parameter caching, ensuring
-            consistency regardless of the data source.
-        """
-        tags = json.loads(params.tags)
-        inner = NostrEvent.from_json(
-            json.dumps(
-                {
-                    "id": params.id.hex(),
-                    "pubkey": params.pubkey.hex(),
-                    "created_at": params.created_at,
-                    "kind": params.kind,
-                    "tags": tags,
-                    "content": params.content,
-                    "sig": params.sig.hex(),
-                }
-            )
-        )
-        return cls(inner)

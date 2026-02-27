@@ -65,9 +65,8 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.queries import (
-    delete_orphan_cursors,
+    cleanup_stale_state,
     fetch_all_relays,
-    get_all_cursor_values,
     insert_relays_as_candidates,
     scan_event_relay,
 )
@@ -175,12 +174,14 @@ class Finder(BaseService[FinderConfig]):
         relays_failed = 0
 
         try:
-            removed = await delete_orphan_cursors(self._brotr, self.SERVICE_NAME)
+            removed = await cleanup_stale_state(
+                self._brotr, self.SERVICE_NAME, ServiceStateType.CURSOR
+            )
             if removed:
-                self._logger.info("orphan_cursors_removed", count=removed)
+                self._logger.info("stale_cursors_removed", count=removed)
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.warning(
-                "orphan_cursor_cleanup_failed", error=str(e), error_type=type(e).__name__
+                "stale_cursor_cleanup_failed", error=str(e), error_type=type(e).__name__
             )
 
         try:
@@ -342,22 +343,22 @@ class Finder(BaseService[FinderConfig]):
         be rescanned from the beginning, which is safe because
         ``insert_relays_as_candidates`` is idempotent.
         """
-        raw = await get_all_cursor_values(self._brotr, self.SERVICE_NAME)
+        states = await self._brotr.get_service_state(self.SERVICE_NAME, ServiceStateType.CURSOR)
         cursors: dict[str, EventRelayCursor] = {}
-        for relay_url, value in raw.items():
-            seen_at = value.get("seen_at")
-            event_id_hex = value.get("event_id")
+        for s in states:
+            seen_at = s.state_value.get("seen_at")
+            event_id_hex = s.state_value.get("event_id")
             if seen_at is not None and event_id_hex is not None:
                 try:
-                    cursors[relay_url] = EventRelayCursor(
-                        relay_url=relay_url,
+                    cursors[s.state_key] = EventRelayCursor(
+                        relay_url=s.state_key,
                         seen_at=int(seen_at),
                         event_id=bytes.fromhex(str(event_id_hex)),
                     )
                 except (ValueError, TypeError):
                     self._logger.warning(
                         "invalid_cursor_data",
-                        relay=relay_url,
+                        relay=s.state_key,
                         seen_at=seen_at,
                         event_id=event_id_hex,
                     )

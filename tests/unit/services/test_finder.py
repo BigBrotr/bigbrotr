@@ -20,6 +20,8 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay
+from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.types import EventRelayCursor
 from bigbrotr.services.common.utils import parse_relay_url
 from bigbrotr.services.finder import (
@@ -609,11 +611,6 @@ class TestFinderFindFromEvents:
                 "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
             ) as mock_get_relays,
             patch(
-                "bigbrotr.services.finder.service.get_all_cursor_values",
-                new_callable=AsyncMock,
-                return_value={},
-            ),
-            patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
                 new_callable=AsyncMock,
             ) as mock_get_events,
@@ -651,11 +648,6 @@ class TestFinderFindFromEvents:
             patch(
                 "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
             ) as mock_get_relays,
-            patch(
-                "bigbrotr.services.finder.service.get_all_cursor_values",
-                new_callable=AsyncMock,
-                return_value={},
-            ),
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
                 new_callable=AsyncMock,
@@ -696,11 +688,6 @@ class TestFinderFindFromEvents:
                 "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
             ) as mock_get_relays,
             patch(
-                "bigbrotr.services.finder.service.get_all_cursor_values",
-                new_callable=AsyncMock,
-                return_value={},
-            ),
-            patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
                 new_callable=AsyncMock,
             ) as mock_get_events,
@@ -739,11 +726,6 @@ class TestFinderFindFromEvents:
                 "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
             ) as mock_get_relays,
             patch(
-                "bigbrotr.services.finder.service.get_all_cursor_values",
-                new_callable=AsyncMock,
-                return_value={},
-            ),
-            patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
                 new_callable=AsyncMock,
             ) as mock_get_events,
@@ -780,11 +762,6 @@ class TestFinderFindFromEvents:
                 "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
             ) as mock_get_relays,
             patch(
-                "bigbrotr.services.finder.service.get_all_cursor_values",
-                new_callable=AsyncMock,
-                return_value={},
-            ),
-            patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
                 new_callable=AsyncMock,
             ) as mock_get_events,
@@ -820,11 +797,6 @@ class TestFinderFindFromEvents:
             patch(
                 "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
             ) as mock_get_relays,
-            patch(
-                "bigbrotr.services.finder.service.get_all_cursor_values",
-                new_callable=AsyncMock,
-                return_value={},
-            ),
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
                 new_callable=AsyncMock,
@@ -873,11 +845,6 @@ class TestFinderFindFromEvents:
             patch(
                 "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
             ) as mock_get_relays,
-            patch(
-                "bigbrotr.services.finder.service.get_all_cursor_values",
-                new_callable=AsyncMock,
-                return_value={},
-            ),
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
                 new_callable=AsyncMock,
@@ -940,11 +907,6 @@ class TestFinderEventScanConcurrency:
                 ],
             ),
             patch(
-                "bigbrotr.services.finder.service.get_all_cursor_values",
-                new_callable=AsyncMock,
-                return_value={},
-            ),
-            patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
                 new_callable=AsyncMock,
                 side_effect=_events_side_effect,
@@ -993,11 +955,6 @@ class TestFinderEventScanConcurrency:
                 "bigbrotr.services.finder.service.fetch_all_relays",
                 new_callable=AsyncMock,
                 return_value=[Relay("wss://good.relay.com"), Relay("wss://failing.relay.com")],
-            ),
-            patch(
-                "bigbrotr.services.finder.service.get_all_cursor_values",
-                new_callable=AsyncMock,
-                return_value={},
             ),
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -1054,11 +1011,6 @@ class TestFinderEventScanConcurrency:
                 "bigbrotr.services.finder.service.fetch_all_relays",
                 new_callable=AsyncMock,
                 return_value=relays,
-            ),
-            patch(
-                "bigbrotr.services.finder.service.get_all_cursor_values",
-                new_callable=AsyncMock,
-                return_value={},
             ),
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -1151,11 +1103,6 @@ class TestFinderMetrics:
                 "bigbrotr.services.finder.service.fetch_all_relays",
                 new_callable=AsyncMock,
                 return_value=[Relay("wss://source.relay.com")],
-            ),
-            patch(
-                "bigbrotr.services.finder.service.get_all_cursor_values",
-                new_callable=AsyncMock,
-                return_value={},
             ),
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -1290,11 +1237,6 @@ class TestFinderMetrics:
                 return_value=[Relay("wss://good.relay.com"), Relay("wss://bad.relay.com")],
             ),
             patch(
-                "bigbrotr.services.finder.service.get_all_cursor_values",
-                new_callable=AsyncMock,
-                return_value={},
-            ),
-            patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
                 new_callable=AsyncMock,
                 side_effect=_failing_events,
@@ -1364,19 +1306,19 @@ class TestFinderPersistScanChunk:
 
 
 # ============================================================================
-# Finder Orphan Cursor Cleanup Tests
+# Finder Stale Cursor Cleanup Tests
 # ============================================================================
 
 
-class TestFinderOrphanCursorCleanup:
-    """Tests for orphan cursor cleanup in find_from_events()."""
+class TestFinderStaleCursorCleanup:
+    """Tests for stale cursor cleanup in find_from_events()."""
 
-    async def test_orphan_cursors_cleaned_before_scan(self, mock_brotr: Brotr) -> None:
-        """delete_orphan_cursors is called before relay fetch."""
+    async def test_stale_cursors_cleaned_before_scan(self, mock_brotr: Brotr) -> None:
+        """cleanup_stale_state is called before relay fetch."""
         call_order: list[str] = []
 
-        async def _mock_delete_orphan(*args: Any, **kwargs: Any) -> int:
-            call_order.append("delete_orphan_cursors")
+        async def _mock_delete_stale(*args: Any, **kwargs: Any) -> int:
+            call_order.append("cleanup_stale_state")
             return 3
 
         async def _mock_get_relays(*args: Any, **kwargs: Any) -> list[Relay]:
@@ -1385,9 +1327,9 @@ class TestFinderOrphanCursorCleanup:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.delete_orphan_cursors",
+                "bigbrotr.services.finder.service.cleanup_stale_state",
                 new_callable=AsyncMock,
-                side_effect=_mock_delete_orphan,
+                side_effect=_mock_delete_stale,
             ),
             patch(
                 "bigbrotr.services.finder.service.fetch_all_relays",
@@ -1398,13 +1340,13 @@ class TestFinderOrphanCursorCleanup:
             finder = Finder(brotr=mock_brotr)
             await finder.find_from_events()
 
-            assert call_order == ["delete_orphan_cursors", "fetch_all_relays"]
+            assert call_order == ["cleanup_stale_state", "fetch_all_relays"]
 
-    async def test_orphan_cursor_cleanup_failure_does_not_block(self, mock_brotr: Brotr) -> None:
-        """Orphan cursor cleanup DB error does not prevent event scanning."""
+    async def test_stale_cursor_cleanup_failure_does_not_block(self, mock_brotr: Brotr) -> None:
+        """Stale cursor cleanup DB error does not prevent event scanning."""
         with (
             patch(
-                "bigbrotr.services.finder.service.delete_orphan_cursors",
+                "bigbrotr.services.finder.service.cleanup_stale_state",
                 new_callable=AsyncMock,
                 side_effect=asyncpg.PostgresError("cleanup failed"),
             ),
@@ -1426,32 +1368,52 @@ class TestFinderFetchAllCursors:
 
     async def test_invalid_event_id_hex_skipped_with_warning(self, mock_brotr: Brotr) -> None:
         """Non-hex event_id is skipped and a warning is logged."""
-        with patch(
-            "bigbrotr.services.finder.service.get_all_cursor_values",
-            new_callable=AsyncMock,
-            return_value={
-                "wss://good.com": {"seen_at": 100, "event_id": "ab" * 32},
-                "wss://bad.com": {"seen_at": 200, "event_id": "not-hex"},
-            },
-        ):
-            finder = Finder(brotr=mock_brotr)
-            cursors = await finder._fetch_all_cursors()
+        mock_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.FINDER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="wss://good.com",
+                    state_value={"seen_at": 100, "event_id": "ab" * 32},
+                    updated_at=100,
+                ),
+                ServiceState(
+                    service_name=ServiceName.FINDER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="wss://bad.com",
+                    state_value={"seen_at": 200, "event_id": "not-hex"},
+                    updated_at=200,
+                ),
+            ]
+        )
+        finder = Finder(brotr=mock_brotr)
+        cursors = await finder._fetch_all_cursors()
 
         assert "wss://good.com" in cursors
         assert "wss://bad.com" not in cursors
 
     async def test_invalid_seen_at_skipped_with_warning(self, mock_brotr: Brotr) -> None:
         """Non-integer seen_at is skipped and a warning is logged."""
-        with patch(
-            "bigbrotr.services.finder.service.get_all_cursor_values",
-            new_callable=AsyncMock,
-            return_value={
-                "wss://good.com": {"seen_at": 100, "event_id": "cd" * 32},
-                "wss://bad.com": {"seen_at": "not-a-number", "event_id": "ab" * 32},
-            },
-        ):
-            finder = Finder(brotr=mock_brotr)
-            cursors = await finder._fetch_all_cursors()
+        mock_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.FINDER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="wss://good.com",
+                    state_value={"seen_at": 100, "event_id": "cd" * 32},
+                    updated_at=100,
+                ),
+                ServiceState(
+                    service_name=ServiceName.FINDER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="wss://bad.com",
+                    state_value={"seen_at": "not-a-number", "event_id": "ab" * 32},
+                    updated_at=200,
+                ),
+            ]
+        )
+        finder = Finder(brotr=mock_brotr)
+        cursors = await finder._fetch_all_cursors()
 
         assert "wss://good.com" in cursors
         assert cursors["wss://good.com"] == EventRelayCursor(

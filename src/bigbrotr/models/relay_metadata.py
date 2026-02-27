@@ -25,8 +25,8 @@ from time import time
 from typing import NamedTuple
 
 from ._validation import validate_instance, validate_timestamp
-from .metadata import Metadata, MetadataDbParams, MetadataType
-from .relay import Relay, RelayDbParams
+from .metadata import Metadata, MetadataType
+from .relay import Relay
 
 
 class RelayMetadataDbParams(NamedTuple):
@@ -162,43 +162,3 @@ class RelayMetadata:
             combining relay, metadata, and junction fields.
         """
         return self._db_params
-
-    @classmethod
-    def from_db_params(cls, params: RelayMetadataDbParams) -> RelayMetadata:
-        """Reconstruct a ``RelayMetadata`` from database parameters.
-
-        Args:
-            params: Database row values previously produced by
-                [to_db_params()][bigbrotr.models.relay_metadata.RelayMetadata.to_db_params].
-
-        Returns:
-            A new [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] instance.
-
-        Raises:
-            ValueError: If the metadata content hash does not match (integrity
-                check performed by
-                [Metadata.from_db_params()][bigbrotr.models.metadata.Metadata.from_db_params]).
-
-        Note:
-            Both the [Relay][bigbrotr.models.relay.Relay] and
-            [Metadata][bigbrotr.models.metadata.Metadata] are fully re-validated
-            during reconstruction. The relay URL is re-parsed and the metadata
-            hash is recomputed and verified against the stored value.
-        """
-        relay_params = RelayDbParams(
-            url=params.relay_url,
-            network=params.relay_network,
-            discovered_at=params.relay_discovered_at,
-        )
-        metadata_params = MetadataDbParams(
-            id=params.metadata_id,
-            data=params.metadata_data,
-            type=params.metadata_type,
-        )
-        relay = Relay.from_db_params(relay_params)
-        metadata = Metadata.from_db_params(metadata_params)
-        return cls(
-            relay=relay,
-            metadata=metadata,
-            generated_at=params.generated_at,
-        )

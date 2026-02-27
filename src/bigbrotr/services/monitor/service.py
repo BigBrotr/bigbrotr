@@ -89,7 +89,7 @@ from bigbrotr.services.common.mixins import (
     GeoReaderMixin,
     NetworkSemaphoresMixin,
 )
-from bigbrotr.services.common.queries import fetch_relays_to_monitor
+from bigbrotr.services.common.queries import cleanup_stale_state, fetch_relays_to_monitor
 from bigbrotr.utils.http import download_bounded_file
 from bigbrotr.utils.protocol import broadcast_events
 
@@ -302,6 +302,17 @@ class Monitor(
             self._logger.warning("no_networks_enabled")
             self._emit_progress_gauges()
             return self.chunk_progress.processed
+
+        try:
+            removed = await cleanup_stale_state(
+                self._brotr, self.SERVICE_NAME, ServiceStateType.MONITORING
+            )
+            if removed:
+                self._logger.info("stale_checkpoints_removed", count=removed)
+        except (asyncpg.PostgresError, OSError) as e:
+            self._logger.warning(
+                "stale_checkpoint_cleanup_failed", error=str(e), error_type=type(e).__name__
+            )
 
         relays = await self._fetch_relays(networks)
         self.chunk_progress.total = len(relays)

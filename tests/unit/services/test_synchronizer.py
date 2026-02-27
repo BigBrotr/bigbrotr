@@ -21,6 +21,7 @@ from bigbrotr.core.brotr import Brotr, BrotrConfig
 from bigbrotr.core.brotr import TimeoutsConfig as BrotrTimeoutsConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType, ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.configs import NetworksConfig, TorConfig
 from bigbrotr.services.common.types import EventRelayCursor
 from bigbrotr.services.synchronizer import (
@@ -426,45 +427,67 @@ class TestSynchronizerFetchCursors:
         result = await sync.fetch_cursors()
         assert result == {}
 
-    async def test_delegates_to_query_function(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Test delegates to get_all_cursor_values when relay_state enabled."""
+    async def test_delegates_to_get_service_state(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Calls brotr.get_service_state when relay_state enabled."""
         config = SynchronizerConfig(
             time_range=TimeRangeConfig(use_relay_state=True),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
-        with patch(
-            "bigbrotr.services.synchronizer.service.get_all_cursor_values",
-            new_callable=AsyncMock,
-            return_value={
-                "wss://r1.com": {"last_synced_at": 1000},
-                "wss://r2.com": {"last_synced_at": 2000},
-            },
-        ) as mock_query:
-            result = await sync.fetch_cursors()
+        mock_synchronizer_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.SYNCHRONIZER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="wss://r1.com",
+                    state_value={"last_synced_at": 1000},
+                    updated_at=1001,
+                ),
+                ServiceState(
+                    service_name=ServiceName.SYNCHRONIZER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="wss://r2.com",
+                    state_value={"last_synced_at": 2000},
+                    updated_at=2001,
+                ),
+            ]
+        )
+        result = await sync.fetch_cursors()
 
-        mock_query.assert_called_once_with(mock_synchronizer_brotr, ServiceName.SYNCHRONIZER)
+        mock_synchronizer_brotr.get_service_state.assert_awaited_once_with(
+            ServiceName.SYNCHRONIZER, ServiceStateType.CURSOR
+        )
         assert result == {
             "wss://r1.com": EventRelayCursor(relay_url="wss://r1.com", seen_at=1000),
             "wss://r2.com": EventRelayCursor(relay_url="wss://r2.com", seen_at=2000),
         }
 
     async def test_filters_cursors_with_missing_field(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Test cursors missing last_synced_at are filtered out."""
+        """Cursors missing last_synced_at are filtered out."""
         config = SynchronizerConfig(
             time_range=TimeRangeConfig(use_relay_state=True),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
-        with patch(
-            "bigbrotr.services.synchronizer.service.get_all_cursor_values",
-            new_callable=AsyncMock,
-            return_value={
-                "wss://r1.com": {"last_synced_at": 1000},
-                "wss://r2.com": {"stale_field": 999},
-            },
-        ):
-            result = await sync.fetch_cursors()
+        mock_synchronizer_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.SYNCHRONIZER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="wss://r1.com",
+                    state_value={"last_synced_at": 1000},
+                    updated_at=1001,
+                ),
+                ServiceState(
+                    service_name=ServiceName.SYNCHRONIZER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="wss://r2.com",
+                    state_value={"stale_field": 999},
+                    updated_at=1001,
+                ),
+            ]
+        )
+        result = await sync.fetch_cursors()
 
         assert result == {
             "wss://r1.com": EventRelayCursor(relay_url="wss://r1.com", seen_at=1000),
@@ -1152,21 +1175,21 @@ class TestSynchronizerNetworkFilter:
 
 
 # ============================================================================
-# Synchronizer Orphan Cursor Cleanup Tests
+# Synchronizer Stale Cursor Cleanup Tests
 # ============================================================================
 
 
-class TestSynchronizerOrphanCursorCleanup:
-    """Tests for orphan cursor cleanup in Synchronizer.synchronize()."""
+class TestSynchronizerStaleCursorCleanup:
+    """Tests for stale cursor cleanup in Synchronizer.synchronize()."""
 
-    async def test_orphan_cursors_cleaned_before_fetch_relays(
+    async def test_stale_cursors_cleaned_before_fetch_relays(
         self, mock_synchronizer_brotr: Brotr
     ) -> None:
-        """delete_orphan_cursors is called before relay fetching."""
+        """cleanup_stale_state is called before relay fetch."""
         call_order: list[str] = []
 
-        async def _mock_delete_orphan(*args: object, **kwargs: object) -> int:
-            call_order.append("delete_orphan_cursors")
+        async def _mock_delete_stale(*args: object, **kwargs: object) -> int:
+            call_order.append("cleanup_stale_state")
             return 2
 
         mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
@@ -1174,9 +1197,9 @@ class TestSynchronizerOrphanCursorCleanup:
         )
 
         with patch(
-            "bigbrotr.services.synchronizer.service.delete_orphan_cursors",
+            "bigbrotr.services.synchronizer.service.cleanup_stale_state",
             new_callable=AsyncMock,
-            side_effect=_mock_delete_orphan,
+            side_effect=_mock_delete_stale,
         ):
             sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
@@ -1190,19 +1213,19 @@ class TestSynchronizerOrphanCursorCleanup:
 
             await sync.synchronize()
 
-            assert call_order[0] == "delete_orphan_cursors"
+            assert call_order[0] == "cleanup_stale_state"
             assert "fetch_relays" in call_order
 
-    async def test_orphan_cursor_cleanup_failure_does_not_block(
+    async def test_stale_cursor_cleanup_failure_does_not_block(
         self, mock_synchronizer_brotr: Brotr
     ) -> None:
-        """Orphan cursor cleanup DB error does not prevent synchronization."""
+        """Stale cursor cleanup DB error does not prevent synchronization."""
         mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[]
         )
 
         with patch(
-            "bigbrotr.services.synchronizer.service.delete_orphan_cursors",
+            "bigbrotr.services.synchronizer.service.cleanup_stale_state",
             new_callable=AsyncMock,
             side_effect=asyncpg.PostgresError("cleanup failed"),
         ):

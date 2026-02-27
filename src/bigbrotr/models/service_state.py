@@ -180,22 +180,3 @@ class ServiceState:
             with fields in stored procedure column order.
         """
         return self._db_params
-
-    @classmethod
-    def from_db_params(cls, params: ServiceStateDbParams) -> ServiceState:
-        """Reconstruct a ``ServiceState`` from database parameters.
-
-        Args:
-            params: A [ServiceStateDbParams][bigbrotr.models.service_state.ServiceStateDbParams]
-                tuple (typically from a database query result).
-
-        Returns:
-            A new ``ServiceState`` instance with validated enum fields.
-        """
-        return cls(
-            service_name=params.service_name,
-            state_type=params.state_type,
-            state_key=params.state_key,
-            state_value=json.loads(params.state_value),
-            updated_at=params.updated_at,
-        )

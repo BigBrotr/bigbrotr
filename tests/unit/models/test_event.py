@@ -1,4 +1,4 @@
-"""Unit tests for the Event model and EventDbParams NamedTuple."""
+"""Unit tests for the Event model."""
 
 import json
 from dataclasses import FrozenInstanceError
@@ -85,81 +85,6 @@ def mock_nostr_event_empty_tags():
 def event(mock_nostr_event):
     """Create an Event instance wrapping a mock NostrEvent."""
     return Event(mock_nostr_event)
-
-
-# =============================================================================
-# EventDbParams Tests
-# =============================================================================
-
-
-class TestEventDbParams:
-    """Test EventDbParams NamedTuple."""
-
-    def test_is_named_tuple(self):
-        """EventDbParams is a NamedTuple with 7 fields."""
-        params = EventDbParams(
-            id=bytes.fromhex("a" * 64),
-            pubkey=bytes.fromhex("b" * 64),
-            created_at=1700000000,
-            kind=1,
-            tags='[["e", "c"]]',
-            content="Test",
-            sig=bytes.fromhex("e" * 128),
-        )
-        assert isinstance(params, tuple)
-        assert len(params) == 7
-
-    def test_field_access_by_name(self):
-        """Fields are accessible by name."""
-        params = EventDbParams(
-            id=b"\x00" * 32,
-            pubkey=b"\x01" * 32,
-            created_at=1234567890,
-            kind=1,
-            tags="[]",
-            content="Hello",
-            sig=b"\x02" * 64,
-        )
-        assert params.id == b"\x00" * 32
-        assert params.pubkey == b"\x01" * 32
-        assert params.created_at == 1234567890
-        assert params.kind == 1
-        assert params.tags == "[]"
-        assert params.content == "Hello"
-        assert params.sig == b"\x02" * 64
-
-    def test_field_access_by_index(self):
-        """Fields are accessible by index."""
-        params = EventDbParams(
-            id=b"\xaa" * 32,
-            pubkey=b"\xbb" * 32,
-            created_at=9999999999,
-            kind=7,
-            tags='[["t","test"]]',
-            content="Content",
-            sig=b"\xcc" * 64,
-        )
-        assert params[0] == b"\xaa" * 32
-        assert params[1] == b"\xbb" * 32
-        assert params[2] == 9999999999
-        assert params[3] == 7
-        assert params[4] == '[["t","test"]]'
-        assert params[5] == "Content"
-        assert params[6] == b"\xcc" * 64
-
-    def test_immutability(self):
-        """EventDbParams is immutable (NamedTuple)."""
-        params = EventDbParams(
-            id=b"\x00" * 32,
-            pubkey=b"\x01" * 32,
-            created_at=1234567890,
-            kind=1,
-            tags="[]",
-            content="Hello",
-            sig=b"\x02" * 64,
-        )
-        with pytest.raises(AttributeError):
-            params.id = b"\xff" * 32
 
 
 # =============================================================================
@@ -418,42 +343,6 @@ class TestToDbParams:
         event = Event(mock_nostr_event_empty_tags)
         result = event.to_db_params()
         assert result.kind == 0
-
-
-# =============================================================================
-# from_db_params Tests
-# =============================================================================
-
-
-class TestFromDbParams:
-    """Event.from_db_params() deserialization."""
-
-    def test_roundtrip_structure(self, event):
-        """to_db_params output can be used with from_db_params."""
-        params = event.to_db_params()
-
-        assert len(params) == 7
-        assert isinstance(params.id, bytes)
-        assert isinstance(params.pubkey, bytes)
-        assert isinstance(params.created_at, int)
-        assert isinstance(params.kind, int)
-        assert isinstance(params.tags, str)
-        assert isinstance(params.content, str)
-        assert isinstance(params.sig, bytes)
-
-    def test_roundtrip(self, event):
-        """to_db_params -> from_db_params preserves all fields."""
-        params = event.to_db_params()
-        reconstructed = Event.from_db_params(params)
-        reconstructed_params = reconstructed.to_db_params()
-
-        assert reconstructed_params.id == params.id
-        assert reconstructed_params.pubkey == params.pubkey
-        assert reconstructed_params.created_at == params.created_at
-        assert reconstructed_params.kind == params.kind
-        assert reconstructed_params.tags == params.tags
-        assert reconstructed_params.content == params.content
-        assert reconstructed_params.sig == params.sig
 
 
 # =============================================================================

@@ -163,7 +163,6 @@ A validated WebSocket endpoint on the Nostr network.
 - Overlay networks (Tor/I2P/Loki) use `ws://` (encryption handled by overlay).
 - Local/private IPs (27 IANA ranges) and invalid hostnames are rejected.
 - Query strings and fragments are rejected.
-- `from_db_params()` always re-parses the URL -- never trusts stored data.
 
 ### Event
 
@@ -195,7 +194,7 @@ Content-addressed metadata with SHA-256 hashing for deduplication.
 
 **Content addressing**: Same data always produces the same hash, regardless of key order. The `type` is NOT included in the hash but is part of the database composite PK `(id, type)`, enabling deduplication within each metadata type.
 
-**Integrity verification**: `from_db_params()` recomputes the hash and compares against the stored value. Hash mismatch raises `ValueError` (data corruption detected).
+**Integrity verification**: the constructor recomputes the content hash from the canonical JSON representation, enabling detection of silent data corruption when reconstructing from stored values.
 
 ### Junction Models
 
@@ -384,7 +383,7 @@ All services inherit from `BaseService[ConfigT]`, which provides:
 | Concurrency | Per-network semaphores, shuffled relay order |
 
 **Process**:
-1. Delete orphan cursors (relays no longer in database).
+1. Delete stale cursors (relays no longer in database).
 2. Fetch all relays, filter by enabled networks.
 3. Merge per-relay configuration overrides.
 4. Shuffle relay list (avoid thundering herd).

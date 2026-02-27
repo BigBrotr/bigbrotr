@@ -26,15 +26,14 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.queries import (
+    cleanup_stale_state,
     count_candidates,
     delete_exhausted_candidates,
-    delete_orphan_cursors,
     delete_stale_candidates,
     fetch_all_relays,
     fetch_candidates,
     fetch_relays_to_monitor,
     filter_new_relays,
-    get_all_cursor_values,
     insert_relays_as_candidates,
     promote_candidates,
     scan_event,
@@ -57,6 +56,7 @@ def mock_brotr() -> MagicMock:
     brotr.fetchval = AsyncMock(return_value=0)
     brotr.execute = AsyncMock(return_value="DELETE 0")
     brotr.upsert_service_state = AsyncMock()
+    brotr.get_service_state = AsyncMock(return_value=[])
     brotr.config.batch.max_size = 1000
 
     # Transaction context manager
@@ -123,7 +123,7 @@ class TestFetchAllRelays:
         assert "FROM relay" in sql
 
     async def test_returns_relay_objects(self, mock_brotr: MagicMock) -> None:
-        """Returns a list of Relay domain objects constructed via from_db_params."""
+        """Returns a list of Relay domain objects."""
         row = _make_dict_row(
             {"url": "wss://relay.example.com", "network": "clearnet", "discovered_at": 1700000000}
         )
@@ -236,7 +236,7 @@ class TestFetchRelaysToMonitor:
         assert args[0][4] == ServiceStateType.MONITORING
 
     async def test_returns_relay_objects(self, mock_brotr: MagicMock) -> None:
-        """Returns Relay domain objects constructed via from_db_params."""
+        """Returns Relay domain objects."""
         row = _make_dict_row(
             {"url": "wss://relay.example.com", "network": "clearnet", "discovered_at": 1700000000}
         )
@@ -724,73 +724,18 @@ class TestPromoteCandidates:
 
 
 # ============================================================================
-# TestGetAllCursorValues
+# TestDeleteStaleState
 # ============================================================================
 
 
-class TestGetAllCursorValues:
-    """Tests for get_all_cursor_values()."""
-
-    async def test_calls_fetch_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes service_name and ServiceStateType.CURSOR."""
-        await get_all_cursor_values(mock_brotr, service_name=ServiceName.FINDER)
-
-        mock_brotr.fetch.assert_awaited_once()
-        args = mock_brotr.fetch.call_args
-        sql = args[0][0]
-        assert "state_key" in sql
-        assert "state_value" in sql
-        assert "service_name = $1" in sql
-        assert "state_type = $2" in sql
-        assert args[0][1] == ServiceName.FINDER
-        assert args[0][2] == ServiceStateType.CURSOR
-
-    async def test_returns_dict_mapping(self, mock_brotr: MagicMock) -> None:
-        """Returns a dict mapping state_key to state_value dict."""
-        mock_brotr.fetch = AsyncMock(
-            return_value=[
-                _make_dict_row(
-                    {
-                        "state_key": "wss://r1.example.com",
-                        "state_value": {"seen_at": 1700000000, "event_id": "ab" * 32},
-                    }
-                ),
-                _make_dict_row(
-                    {
-                        "state_key": "wss://r2.example.com",
-                        "state_value": {"last_synced_at": 1700000100},
-                    }
-                ),
-            ]
-        )
-
-        result = await get_all_cursor_values(mock_brotr, ServiceName.FINDER)
-
-        assert result == {
-            "wss://r1.example.com": {"seen_at": 1700000000, "event_id": "ab" * 32},
-            "wss://r2.example.com": {"last_synced_at": 1700000100},
-        }
-
-    async def test_empty_result(self, mock_brotr: MagicMock) -> None:
-        """Returns an empty dict when no cursors exist."""
-        result = await get_all_cursor_values(mock_brotr, ServiceName.FINDER)
-
-        assert result == {}
-
-
-# ============================================================================
-# TestDeleteOrphanCursors
-# ============================================================================
-
-
-class TestDeleteOrphanCursors:
-    """Tests for delete_orphan_cursors()."""
+class TestDeleteStaleState:
+    """Tests for cleanup_stale_state()."""
 
     async def test_calls_fetchval_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes service_name and ServiceStateType.CURSOR."""
+        """Passes service_name and state_type to the DELETE query."""
         mock_brotr.fetchval = AsyncMock(return_value=3)
 
-        result = await delete_orphan_cursors(mock_brotr, service_name=ServiceName.FINDER)
+        result = await cleanup_stale_state(mock_brotr, ServiceName.FINDER, ServiceStateType.CURSOR)
 
         mock_brotr.fetchval.assert_awaited_once()
         args = mock_brotr.fetchval.call_args
@@ -804,19 +749,29 @@ class TestDeleteOrphanCursors:
         assert result == 3
 
     async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
-        """Returns 0 when no orphan cursors exist."""
+        """Returns 0 when no stale rows exist."""
         mock_brotr.fetchval = AsyncMock(return_value=0)
 
-        result = await delete_orphan_cursors(mock_brotr, ServiceName.SYNCHRONIZER)
+        result = await cleanup_stale_state(
+            mock_brotr, ServiceName.SYNCHRONIZER, ServiceStateType.CURSOR
+        )
 
         assert result == 0
 
-    async def test_works_for_synchronizer(self, mock_brotr: MagicMock) -> None:
-        """Works correctly with ServiceName.SYNCHRONIZER."""
-        mock_brotr.fetchval = AsyncMock(return_value=7)
+    async def test_works_for_monitoring(self, mock_brotr: MagicMock) -> None:
+        """Works correctly with MONITORING state type."""
+        mock_brotr.fetchval = AsyncMock(return_value=5)
 
-        result = await delete_orphan_cursors(mock_brotr, ServiceName.SYNCHRONIZER)
+        result = await cleanup_stale_state(
+            mock_brotr, ServiceName.MONITOR, ServiceStateType.MONITORING
+        )
 
         args = mock_brotr.fetchval.call_args
-        assert args[0][1] == ServiceName.SYNCHRONIZER
-        assert result == 7
+        assert args[0][1] == ServiceName.MONITOR
+        assert args[0][2] == ServiceStateType.MONITORING
+        assert result == 5
+
+    async def test_rejects_non_relay_keyed_type(self, mock_brotr: MagicMock) -> None:
+        """Raises ValueError for state types whose keys are not relay URLs."""
+        with pytest.raises(ValueError, match="relay-keyed"):
+            await cleanup_stale_state(mock_brotr, ServiceName.MONITOR, ServiceStateType.PUBLICATION)
