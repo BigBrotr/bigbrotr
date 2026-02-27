@@ -36,7 +36,7 @@ class EventsConfig(BaseModel):
     URL becomes a validation candidate.
 
     See Also:
-        [fetch_event_tagvalues][bigbrotr.services.common.queries.fetch_event_tagvalues]:
+        [scan_event_relay][bigbrotr.services.common.queries.scan_event_relay]:
             The SQL query driven by ``batch_size``.
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Parent
             config that embeds this model.

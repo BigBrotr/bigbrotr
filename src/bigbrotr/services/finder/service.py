@@ -67,9 +67,9 @@ from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.queries import (
     delete_orphan_cursors,
     fetch_all_relays,
-    fetch_event_tagvalues,
     get_all_cursor_values,
     insert_candidates,
+    scan_event_relay,
 )
 from bigbrotr.services.common.types import EventRelayCursor
 from bigbrotr.services.common.utils import parse_relay_url
@@ -378,20 +378,11 @@ class Finder(BaseService[FinderConfig]):
         """
         events_scanned = 0
         relays_found = 0
-
-        cursor = cursors.get(relay_url)
-        cursor_seen_at: int | None = cursor.seen_at if cursor else None
-        cursor_event_id: bytes | None = cursor.event_id if cursor else None
+        cursor = cursors.get(relay_url, EventRelayCursor(relay_url=relay_url))
 
         while self.is_running:
             try:
-                rows = await fetch_event_tagvalues(
-                    self._brotr,
-                    relay_url,
-                    cursor_seen_at,
-                    cursor_event_id,
-                    self._config.events.batch_size,
-                )
+                rows = await scan_event_relay(self._brotr, cursor, self._config.events.batch_size)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.warning(
                     "relay_event_query_failed",
@@ -407,12 +398,13 @@ class Finder(BaseService[FinderConfig]):
             relays = extract_relays_from_rows(rows)
             chunk_events = len(rows)
             last_row = rows[-1]
-            cursor_seen_at = last_row["seen_at"]
-            cursor_event_id = last_row["event_id"]
-
-            relays_found += await self._persist_scan_chunk(
-                relay_url, relays, cursor_seen_at, cursor_event_id
+            cursor = EventRelayCursor(
+                relay_url=relay_url,
+                seen_at=last_row["seen_at"],
+                event_id=last_row["event_id"],
             )
+
+            relays_found += await self._persist_scan_chunk(relays, cursor)
             events_scanned += chunk_events
 
             if chunk_events < self._config.events.batch_size:
@@ -420,9 +412,7 @@ class Finder(BaseService[FinderConfig]):
 
         return events_scanned, relays_found
 
-    async def _persist_scan_chunk(
-        self, relay_url: str, relays: dict[str, Relay], seen_at: int, event_id: bytes
-    ) -> int:
+    async def _persist_scan_chunk(self, relays: dict[str, Relay], cursor: EventRelayCursor) -> int:
         """Upsert discovered relay candidates and save the scan cursor."""
         found = 0
 
@@ -437,14 +427,22 @@ class Finder(BaseService[FinderConfig]):
                     count=len(relays),
                 )
 
+        seen_at = cursor.seen_at
+        event_id = cursor.event_id
+        if seen_at is None or event_id is None:
+            msg = "cursor must have seen_at and event_id set"
+            raise ValueError(msg)
         try:
             await self._brotr.upsert_service_state(
                 [
                     ServiceState(
                         service_name=self.SERVICE_NAME,
                         state_type=ServiceStateType.CURSOR,
-                        state_key=relay_url,
-                        state_value={"seen_at": seen_at, "event_id": event_id.hex()},
+                        state_key=cursor.relay_url,
+                        state_value={
+                            "seen_at": seen_at,
+                            "event_id": event_id.hex(),
+                        },
                         updated_at=int(time.time()),
                     )
                 ]
@@ -452,7 +450,7 @@ class Finder(BaseService[FinderConfig]):
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.error(
                 "cursor_update_failed",
-                relay=relay_url,
+                relay=cursor.relay_url,
                 error=str(e),
                 error_type=type(e).__name__,
             )

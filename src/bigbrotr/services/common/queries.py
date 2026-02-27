@@ -9,7 +9,7 @@ The 13 query functions are grouped into five categories:
 - **Relay queries**: ``fetch_all_relays``, ``filter_new_relays``,
   ``insert_relays``
 - **Monitoring queries**: ``fetch_relays_to_monitor``
-- **Event queries**: ``fetch_event_tagvalues``
+- **Event queries**: ``scan_event_relay``, ``scan_event``
 - **Candidate lifecycle**: ``insert_candidates``, ``count_candidates``,
   ``fetch_candidates``, ``delete_stale_candidates``,
   ``delete_exhausted_candidates``, ``promote_candidates``
@@ -39,7 +39,7 @@ from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.relay import Relay, RelayDbParams
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 
-from .types import Candidate
+from .types import Candidate, EventCursor, EventRelayCursor
 
 
 if TYPE_CHECKING:
@@ -252,43 +252,39 @@ async def fetch_relays_to_monitor(
 # =============================================================================
 
 
-async def fetch_event_tagvalues(
+async def scan_event_relay(
     brotr: Brotr,
-    relay_url: str,
-    cursor_seen_at: int | None,
-    cursor_event_id: bytes | None,
+    cursor: EventRelayCursor,
     limit: int,
 ) -> list[dict[str, Any]]:
-    """Fetch event tagvalues from a specific relay, cursor-paginated.
+    """Scan event-relay rows for a specific relay, cursor-paginated.
 
     Uses a composite cursor ``(seen_at, event_id)`` for deterministic
-    pagination that handles ties in ``seen_at``. When both cursor
-    components are ``None`` (new cursor), all events are returned.
+    pagination that handles ties in ``seen_at``. When the cursor has
+    ``seen_at=None`` (new cursor), scanning starts from the beginning.
 
     Called by [Finder][bigbrotr.services.finder.Finder] during per-relay
     event scanning.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        relay_url: Source relay to scan events from.
-        cursor_seen_at: ``seen_at`` from the last processed row, or
-            ``None`` to start from the beginning.
-        cursor_event_id: ``event_id`` (raw bytes) from the last processed
-            row, or ``None`` to start from the beginning.
-        limit: Maximum events per batch.
+        cursor: [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor]
+            with relay URL and pagination position.
+        limit: Maximum rows per batch.
 
     Returns:
-        List of dicts with keys: ``tagvalues`` (``list[str]``),
-        ``seen_at`` (``int``), ``event_id`` (``bytes``).
+        List of dicts with all event columns plus ``seen_at`` from the
+        ``event_relay`` junction.
 
     See Also:
         [get_all_cursor_values][bigbrotr.services.common.queries.get_all_cursor_values]:
-            Batch-fetches the per-relay cursor state used to supply
-            ``cursor_seen_at`` and ``cursor_event_id``.
+            Batch-fetches the per-relay cursor state.
+        [scan_event][bigbrotr.services.common.queries.scan_event]:
+            Analogous scan over the ``event`` table.
     """
     rows = await brotr.fetch(
         """
-        SELECT e.tagvalues, er.seen_at, e.id AS event_id
+        SELECT e.*, er.seen_at
         FROM event e
         INNER JOIN event_relay er ON e.id = er.event_id
         WHERE er.relay_url = $1
@@ -296,9 +292,48 @@ async def fetch_event_tagvalues(
         ORDER BY er.seen_at ASC, e.id ASC
         LIMIT $4
         """,
-        relay_url,
-        cursor_seen_at,
-        cursor_event_id,
+        cursor.relay_url,
+        cursor.seen_at,
+        cursor.event_id,
+        limit,
+    )
+    return [dict(row) for row in rows]
+
+
+async def scan_event(
+    brotr: Brotr,
+    cursor: EventCursor,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Scan event rows ordered by creation time, cursor-paginated.
+
+    Uses a composite cursor ``(created_at, event_id)`` for deterministic
+    pagination that handles ties in ``created_at``. When the cursor has
+    ``created_at=None`` (new cursor), scanning starts from the beginning.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        cursor: [EventCursor][bigbrotr.services.common.types.EventCursor]
+            with pagination position.
+        limit: Maximum rows per batch.
+
+    Returns:
+        List of dicts with all event columns.
+
+    See Also:
+        [scan_event_relay][bigbrotr.services.common.queries.scan_event_relay]:
+            Analogous scan over the ``event_relay`` junction.
+    """
+    rows = await brotr.fetch(
+        """
+        SELECT *
+        FROM event
+        WHERE ($1::bigint IS NULL OR (created_at, id) > ($1::bigint, $2::bytea))
+        ORDER BY created_at ASC, id ASC
+        LIMIT $3
+        """,
+        cursor.created_at,
+        cursor.event_id,
         limit,
     )
     return [dict(row) for row in rows]
@@ -528,7 +563,7 @@ async def delete_exhausted_candidates(
     return count
 
 
-async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
+async def promote_candidates(brotr: Brotr, candidates: list[Candidate]) -> int:
     """Insert relays and remove their candidate records.
 
     Called by [Validator][bigbrotr.services.validator.Validator] after
@@ -538,8 +573,9 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        relays: Validated [Relay][bigbrotr.models.relay.Relay] objects to
-            promote from candidates to the relays table.
+        candidates: Validated
+            [Candidate][bigbrotr.services.common.types.Candidate] objects
+            to promote from ``service_state`` to the relays table.
 
     Returns:
         Number of relays inserted (duplicates skipped via ``ON CONFLICT``).
@@ -550,14 +586,15 @@ async def promote_candidates(brotr: Brotr, relays: list[Relay]) -> int:
         [delete_stale_candidates][bigbrotr.services.common.queries.delete_stale_candidates]:
             Safety net that removes candidates already in the relay table.
     """
-    if not relays:
+    if not candidates:
         return 0
 
+    relays = [c.relay for c in candidates]
     inserted = await brotr.insert_relay(relays)
-    urls = [relay.url for relay in relays]
+    urls = [c.relay.url for c in candidates]
     await brotr.delete_service_state(
-        [ServiceName.VALIDATOR] * len(relays),
-        [ServiceStateType.CANDIDATE] * len(relays),
+        [ServiceName.VALIDATOR] * len(candidates),
+        [ServiceStateType.CANDIDATE] * len(candidates),
         urls,
     )
     return inserted

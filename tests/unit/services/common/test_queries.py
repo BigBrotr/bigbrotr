@@ -32,13 +32,15 @@ from bigbrotr.services.common.queries import (
     delete_stale_candidates,
     fetch_all_relays,
     fetch_candidates,
-    fetch_event_tagvalues,
     fetch_relays_to_monitor,
     filter_new_relays,
     get_all_cursor_values,
     insert_candidates,
     promote_candidates,
+    scan_event,
+    scan_event_relay,
 )
+from bigbrotr.services.common.types import Candidate, EventCursor, EventRelayCursor
 
 
 # ============================================================================
@@ -275,19 +277,18 @@ class TestFetchRelaysToMonitor:
 # ============================================================================
 
 
-class TestFetchEventTagvalues:
-    """Tests for fetch_event_tagvalues()."""
+class TestScanEventRelay:
+    """Tests for scan_event_relay()."""
 
-    async def test_calls_fetch_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes relay_url, cursor_seen_at, cursor_event_id, and limit."""
+    async def test_scan_with_cursor(self, mock_brotr: MagicMock) -> None:
+        """Passes cursor fields and limit to the SQL query."""
         event_id = b"\xab" * 32
-        await fetch_event_tagvalues(
-            mock_brotr,
+        cursor = EventRelayCursor(
             relay_url="wss://source.relay.com",
-            cursor_seen_at=1700000000,
-            cursor_event_id=event_id,
-            limit=500,
+            seen_at=1700000000,
+            event_id=event_id,
         )
+        await scan_event_relay(mock_brotr, cursor, limit=500)
 
         mock_brotr.fetch.assert_awaited_once()
         args = mock_brotr.fetch.call_args
@@ -303,42 +304,83 @@ class TestFetchEventTagvalues:
         assert args[0][3] == event_id
         assert args[0][4] == 500
 
-    async def test_null_cursor_passes_none(self, mock_brotr: MagicMock) -> None:
-        """Passes None for both cursor components when starting fresh."""
-        await fetch_event_tagvalues(
-            mock_brotr,
-            relay_url="wss://source.relay.com",
-            cursor_seen_at=None,
-            cursor_event_id=None,
-            limit=100,
-        )
+    async def test_scan_no_cursor(self, mock_brotr: MagicMock) -> None:
+        """Passes None for cursor fields when starting fresh."""
+        cursor = EventRelayCursor(relay_url="wss://source.relay.com")
+        await scan_event_relay(mock_brotr, cursor, limit=100)
 
         args = mock_brotr.fetch.call_args
+        assert args[0][1] == "wss://source.relay.com"
         assert args[0][2] is None
         assert args[0][3] is None
 
-    async def test_returns_list_of_event_dicts(self, mock_brotr: MagicMock) -> None:
-        """Returns event dicts with tagvalues, seen_at, and event_id."""
+    async def test_scan_returns_dicts(self, mock_brotr: MagicMock) -> None:
+        """Returns dicts with all event columns plus seen_at."""
         event_id = b"\xab" * 32
         row = _make_dict_row(
             {
+                "event_id": event_id,
+                "pubkey": b"\xcd" * 32,
+                "created_at": 1700000001,
+                "kind": 1,
+                "tags": "[]",
+                "content": "hello",
+                "sig": b"\xef" * 64,
                 "tagvalues": ["wss://relay.example.com", "a" * 64],
                 "seen_at": 1700000001,
-                "event_id": event_id,
             }
         )
         mock_brotr.fetch = AsyncMock(return_value=[row])
+        cursor = EventRelayCursor(relay_url="wss://source.relay.com")
 
-        result = await fetch_event_tagvalues(mock_brotr, "wss://source.relay.com", None, None, 100)
+        result = await scan_event_relay(mock_brotr, cursor, limit=100)
 
         assert len(result) == 1
         assert result[0]["tagvalues"] == ["wss://relay.example.com", "a" * 64]
         assert result[0]["seen_at"] == 1700000001
         assert result[0]["event_id"] == event_id
 
-    async def test_empty_result(self, mock_brotr: MagicMock) -> None:
+    async def test_scan_empty(self, mock_brotr: MagicMock) -> None:
         """Returns an empty list when no matching events exist."""
-        result = await fetch_event_tagvalues(mock_brotr, "wss://source.relay.com", None, None, 100)
+        cursor = EventRelayCursor(relay_url="wss://source.relay.com")
+        result = await scan_event_relay(mock_brotr, cursor, limit=100)
+
+        assert result == []
+
+
+class TestScanEvent:
+    """Tests for scan_event()."""
+
+    async def test_scan_with_cursor(self, mock_brotr: MagicMock) -> None:
+        """Passes cursor fields and limit to the SQL query."""
+        event_id = b"\xab" * 32
+        cursor = EventCursor(created_at=1700000000, event_id=event_id)
+        await scan_event(mock_brotr, cursor, limit=500)
+
+        mock_brotr.fetch.assert_awaited_once()
+        args = mock_brotr.fetch.call_args
+        sql = args[0][0]
+        assert "FROM event" in sql
+        assert "IS NULL OR (created_at, id) >" in sql
+        assert "id ASC" in sql
+        assert "LIMIT $3" in sql
+        assert args[0][1] == 1700000000
+        assert args[0][2] == event_id
+        assert args[0][3] == 500
+
+    async def test_scan_no_cursor(self, mock_brotr: MagicMock) -> None:
+        """Passes None for cursor fields when starting fresh."""
+        cursor = EventCursor()
+        await scan_event(mock_brotr, cursor, limit=100)
+
+        args = mock_brotr.fetch.call_args
+        assert args[0][1] is None
+        assert args[0][2] is None
+
+    async def test_scan_empty(self, mock_brotr: MagicMock) -> None:
+        """Returns an empty list when no matching events exist."""
+        cursor = EventCursor()
+        result = await scan_event(mock_brotr, cursor, limit=100)
 
         assert result == []
 
@@ -638,10 +680,11 @@ class TestPromoteCandidates:
     async def test_inserts_relays_and_deletes_candidates(self, mock_brotr: MagicMock) -> None:
         """Calls insert_relay then delete_service_state."""
         relay = _make_mock_relay("wss://promoted.example.com")
+        candidate = Candidate(relay=relay, data={"failures": 0})
         mock_brotr.insert_relay = AsyncMock(return_value=1)
         mock_brotr.delete_service_state = AsyncMock(return_value=1)
 
-        result = await promote_candidates(mock_brotr, [relay])
+        result = await promote_candidates(mock_brotr, [candidate])
 
         mock_brotr.insert_relay.assert_awaited_once_with([relay])
         mock_brotr.delete_service_state.assert_awaited_once_with(
@@ -651,7 +694,7 @@ class TestPromoteCandidates:
         )
         assert result == 1
 
-    async def test_empty_relay_list(self, mock_brotr: MagicMock) -> None:
+    async def test_empty_candidate_list(self, mock_brotr: MagicMock) -> None:
         """Returns 0 immediately for an empty list."""
         mock_brotr.insert_relay = AsyncMock()
 
@@ -660,18 +703,18 @@ class TestPromoteCandidates:
         mock_brotr.insert_relay.assert_not_awaited()
         assert result == 0
 
-    async def test_multiple_relays(self, mock_brotr: MagicMock) -> None:
+    async def test_multiple_candidates(self, mock_brotr: MagicMock) -> None:
         """Passes all relays to insert_relay and their URLs to delete_service_state."""
-        relays = [
-            _make_mock_relay("wss://r1.example.com"),
-            _make_mock_relay("wss://r2.example.com"),
+        candidates = [
+            Candidate(relay=_make_mock_relay("wss://r1.example.com"), data={"failures": 0}),
+            Candidate(relay=_make_mock_relay("wss://r2.example.com"), data={"failures": 1}),
         ]
         mock_brotr.insert_relay = AsyncMock(return_value=2)
         mock_brotr.delete_service_state = AsyncMock(return_value=2)
 
-        result = await promote_candidates(mock_brotr, relays)
+        result = await promote_candidates(mock_brotr, candidates)
 
-        mock_brotr.insert_relay.assert_awaited_once_with(relays)
+        mock_brotr.insert_relay.assert_awaited_once_with([candidates[0].relay, candidates[1].relay])
         mock_brotr.delete_service_state.assert_awaited_once_with(
             [ServiceName.VALIDATOR, ServiceName.VALIDATOR],
             [ServiceStateType.CANDIDATE, ServiceStateType.CANDIDATE],
