@@ -22,6 +22,7 @@ from bigbrotr.core.brotr import TimeoutsConfig as BrotrTimeoutsConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.services.common.configs import NetworksConfig, TorConfig
+from bigbrotr.services.common.types import EventRelayCursor
 from bigbrotr.services.synchronizer import (
     ConcurrencyConfig,
     FilterConfig,
@@ -443,7 +444,10 @@ class TestSynchronizerFetchCursors:
             result = await sync.fetch_cursors()
 
         mock_query.assert_called_once_with(mock_synchronizer_brotr, ServiceName.SYNCHRONIZER)
-        assert result == {"wss://r1.com": 1000, "wss://r2.com": 2000}
+        assert result == {
+            "wss://r1.com": EventRelayCursor(relay_url="wss://r1.com", seen_at=1000),
+            "wss://r2.com": EventRelayCursor(relay_url="wss://r2.com", seen_at=2000),
+        }
 
     async def test_filters_cursors_with_missing_field(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test cursors missing last_synced_at are filtered out."""
@@ -462,7 +466,9 @@ class TestSynchronizerFetchCursors:
         ):
             result = await sync.fetch_cursors()
 
-        assert result == {"wss://r1.com": 1000}
+        assert result == {
+            "wss://r1.com": EventRelayCursor(relay_url="wss://r1.com", seen_at=1000),
+        }
 
 
 # ============================================================================
@@ -483,7 +489,14 @@ class TestSynchronizerGetStartTimeFromCache:
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         relay = Relay("wss://relay.example.com")
 
-        result = sync._get_start_time_from_cache(relay, {"wss://relay.example.com": 1000})
+        result = sync._get_start_time_from_cache(
+            relay,
+            {
+                "wss://relay.example.com": EventRelayCursor(
+                    relay_url="wss://relay.example.com", seen_at=1000
+                )
+            },
+        )
         assert result == 42
 
     def test_returns_cursor_plus_one_when_found(self, mock_synchronizer_brotr: Brotr) -> None:
@@ -494,7 +507,14 @@ class TestSynchronizerGetStartTimeFromCache:
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         relay = Relay("wss://relay.example.com")
 
-        result = sync._get_start_time_from_cache(relay, {"wss://relay.example.com": 1000})
+        result = sync._get_start_time_from_cache(
+            relay,
+            {
+                "wss://relay.example.com": EventRelayCursor(
+                    relay_url="wss://relay.example.com", seen_at=1000
+                )
+            },
+        )
         assert result == 1001
 
     def test_returns_default_when_cursor_not_found(self, mock_synchronizer_brotr: Brotr) -> None:
@@ -505,7 +525,14 @@ class TestSynchronizerGetStartTimeFromCache:
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         relay = Relay("wss://other.relay.com")
 
-        result = sync._get_start_time_from_cache(relay, {"wss://relay.example.com": 1000})
+        result = sync._get_start_time_from_cache(
+            relay,
+            {
+                "wss://relay.example.com": EventRelayCursor(
+                    relay_url="wss://relay.example.com", seen_at=1000
+                )
+            },
+        )
         assert result == 500
 
     def test_returns_default_with_empty_cursors(self, mock_synchronizer_brotr: Brotr) -> None:
@@ -901,7 +928,11 @@ class TestSynchronizerSyncAllRelays:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
         sync.fetch_cursors = AsyncMock(  # type: ignore[method-assign]
-            return_value={"wss://relay.example.com": 100}
+            return_value={
+                "wss://relay.example.com": EventRelayCursor(
+                    relay_url="wss://relay.example.com", seen_at=100
+                ),
+            }
         )
 
         relay = Relay("wss://relay.example.com")

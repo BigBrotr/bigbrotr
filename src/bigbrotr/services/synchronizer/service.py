@@ -73,6 +73,7 @@ from bigbrotr.services.common.queries import (
     fetch_all_relays,
     get_all_cursor_values,
 )
+from bigbrotr.services.common.types import EventRelayCursor
 
 from .configs import RelayOverride, SynchronizerConfig
 from .utils import SyncBatchState, SyncContext, SyncCycleCounters, sync_relay_events
@@ -219,14 +220,15 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
         self._logger.debug("relays_fetched", count=len(relays))
         return relays
 
-    async def fetch_cursors(self) -> dict[str, int]:
+    async def fetch_cursors(self) -> dict[str, EventRelayCursor]:
         """Batch-fetch all relay sync cursors in a single query.
 
         Controlled by ``time_range.use_relay_state`` in
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig].
 
         Returns:
-            Dict mapping relay URL to ``last_synced_at`` timestamp.
+            Dict mapping relay URL to
+            [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor].
 
         See Also:
             [get_all_cursor_values][bigbrotr.services.common.queries.get_all_cursor_values]:
@@ -236,7 +238,11 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             return {}
 
         raw = await get_all_cursor_values(self._brotr, self.SERVICE_NAME)
-        return {k: v["last_synced_at"] for k, v in raw.items() if "last_synced_at" in v}
+        return {
+            k: EventRelayCursor(relay_url=k, seen_at=v["last_synced_at"])
+            for k, v in raw.items()
+            if "last_synced_at" in v
+        }
 
     def _merge_overrides(self, relays: list[Relay]) -> list[Relay]:
         """Merge configured relay overrides into the relay list.
@@ -300,7 +306,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
     async def _sync_single_relay(
         self,
         relay: Relay,
-        cursors: dict[str, int],
+        cursors: dict[str, EventRelayCursor],
         batch: SyncBatchState,
         overrides_map: dict[str, RelayOverride],
     ) -> None:
@@ -373,13 +379,13 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                 async with self._counters.lock:
                     self._counters.failed_relays += 1
 
-    def _get_start_time_from_cache(self, relay: Relay, cursors: dict[str, int]) -> int:
+    def _get_start_time_from_cache(self, relay: Relay, cursors: dict[str, EventRelayCursor]) -> int:
         """Look up the sync start timestamp from a pre-fetched cursor cache."""
         if not self._config.time_range.use_relay_state:
             return self._config.time_range.default_start
 
         cursor = cursors.get(relay.url)
-        if cursor is not None:
-            return cursor + 1
+        if cursor is not None and cursor.seen_at is not None:
+            return cursor.seen_at + 1
 
         return self._config.time_range.default_start

@@ -71,6 +71,7 @@ from bigbrotr.services.common.queries import (
     get_all_cursor_values,
     insert_candidates,
 )
+from bigbrotr.services.common.types import EventRelayCursor
 from bigbrotr.services.common.utils import parse_relay_url
 from bigbrotr.utils.http import read_bounded_json
 
@@ -331,23 +332,28 @@ class Finder(BaseService[FinderConfig]):
         self._logger.info("apis_completed", found=found, fetched=len(all_relays))
         return found
 
-    async def _fetch_all_cursors(self) -> dict[str, tuple[int, bytes]]:
+    async def _fetch_all_cursors(self) -> dict[str, EventRelayCursor]:
         """Fetch all event-scanning cursors in a single query.
 
-        Returns a dict mapping relay URL to ``(seen_at, event_id)``
-        tuples. Cursor rows with missing or incomplete fields (e.g.
-        legacy ``last_seen_at``-only records) are omitted -- their relay
-        will be rescanned from the beginning, which is safe because
+        Returns a dict mapping relay URL to
+        [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor].
+        Cursor rows with missing or incomplete fields (e.g. legacy
+        ``last_seen_at``-only records) are omitted -- their relay will
+        be rescanned from the beginning, which is safe because
         ``insert_candidates`` is idempotent.
         """
         raw = await get_all_cursor_values(self._brotr, self.SERVICE_NAME)
-        cursors: dict[str, tuple[int, bytes]] = {}
+        cursors: dict[str, EventRelayCursor] = {}
         for relay_url, value in raw.items():
             seen_at = value.get("seen_at")
             event_id_hex = value.get("event_id")
             if seen_at is not None and event_id_hex is not None:
                 try:
-                    cursors[relay_url] = (int(seen_at), bytes.fromhex(str(event_id_hex)))
+                    cursors[relay_url] = EventRelayCursor(
+                        relay_url=relay_url,
+                        seen_at=int(seen_at),
+                        event_id=bytes.fromhex(str(event_id_hex)),
+                    )
                 except (ValueError, TypeError):
                     self._logger.warning(
                         "invalid_cursor_data",
@@ -358,14 +364,14 @@ class Finder(BaseService[FinderConfig]):
         return cursors
 
     async def _scan_relay_events(
-        self, relay_url: str, cursors: dict[str, tuple[int, bytes]]
+        self, relay_url: str, cursors: dict[str, EventRelayCursor]
     ) -> tuple[int, int]:
         """Scan events from a single relay using composite cursor pagination.
 
         Args:
             relay_url: The relay URL to scan events from.
             cursors: Pre-fetched mapping of relay URL to
-                ``(seen_at, event_id)`` cursor tuple.
+                [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor].
 
         Returns:
             Tuple of (events_scanned, relays_found).
@@ -374,8 +380,8 @@ class Finder(BaseService[FinderConfig]):
         relays_found = 0
 
         cursor = cursors.get(relay_url)
-        cursor_seen_at: int | None = cursor[0] if cursor else None
-        cursor_event_id: bytes | None = cursor[1] if cursor else None
+        cursor_seen_at: int | None = cursor.seen_at if cursor else None
+        cursor_event_id: bytes | None = cursor.event_id if cursor else None
 
         while self.is_running:
             try:

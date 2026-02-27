@@ -20,6 +20,7 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay
+from bigbrotr.services.common.types import EventRelayCursor
 from bigbrotr.services.common.utils import parse_relay_url
 from bigbrotr.services.finder import (
     ApiConfig,
@@ -1446,5 +1447,9 @@ class TestFinderFetchAllCursors:
             cursors = await finder._fetch_all_cursors()
 
         assert "wss://good.com" in cursors
-        assert cursors["wss://good.com"] == (100, bytes.fromhex("cd" * 32))
+        assert cursors["wss://good.com"] == EventRelayCursor(
+            relay_url="wss://good.com",
+            seen_at=100,
+            event_id=bytes.fromhex("cd" * 32),
+        )
         assert "wss://bad.com" not in cursors
