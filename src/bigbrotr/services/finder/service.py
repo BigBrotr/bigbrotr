@@ -65,7 +65,7 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.queries import (
-    cleanup_stale_state,
+    cleanup_service_state,
     fetch_all_relays,
     insert_relays_as_candidates,
     scan_event_relay,
@@ -174,7 +174,7 @@ class Finder(BaseService[FinderConfig]):
         relays_failed = 0
 
         try:
-            removed = await cleanup_stale_state(
+            removed = await cleanup_service_state(
                 self._brotr, self.SERVICE_NAME, ServiceStateType.CURSOR
             )
             if removed:

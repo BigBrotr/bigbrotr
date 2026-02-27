@@ -458,10 +458,12 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | `insert_relays_as_candidates(brotr, relays)` | Insert new validation candidates (filters duplicates) |
 | `count_candidates(brotr, networks)` | Count pending candidates |
 | `fetch_candidates(brotr, ...)` | Fetch candidate batch for validation |
-| `delete_stale_candidates(brotr)` | Remove candidates already in relay table |
 | `delete_exhausted_candidates(brotr, ...)` | Remove candidates exceeding max_failures |
 | `promote_candidates(brotr, relays)` | Move validated candidates to relay table |
-| `cleanup_stale_state(brotr, ...)` | Delete state rows for relays no longer in the relay table |
+| `insert_event_relays(brotr, records)` | Batch-insert event-relay junction records |
+| `insert_relay_metadata(brotr, records)` | Batch-insert relay-metadata junction records |
+| `upsert_service_states(brotr, records)` | Batch-upsert service state records |
+| `cleanup_service_state(brotr, ...)` | Delete stale state (EXISTS for candidates, NOT EXISTS for cursors/monitoring) |
 
 **Network Configuration** (`configs.py`):
 

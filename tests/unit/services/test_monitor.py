@@ -984,7 +984,7 @@ class TestMonitorPersistResults:
     async def test_persist_results_empty(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test persisting empty results batch."""
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
-        mock_brotr.upsert_service_state = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
         config = MonitorConfig(
             processing=ProcessingConfig(
@@ -1003,7 +1003,7 @@ class TestMonitorPersistResults:
     async def test_persist_results_with_successful(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test persisting successful check results."""
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=2)  # type: ignore[method-assign]
-        mock_brotr.upsert_service_state = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
         config = MonitorConfig(
             processing=ProcessingConfig(
@@ -1031,7 +1031,7 @@ class TestMonitorPersistResults:
     async def test_persist_results_with_failed(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test persisting failed check results updates checkpoint."""
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
-        mock_brotr.upsert_service_state = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
         config = MonitorConfig(
             processing=ProcessingConfig(

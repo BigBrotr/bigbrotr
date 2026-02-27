@@ -181,7 +181,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["Validator.run()"] --> B["delete_stale_candidates()"]
+    A["Validator.run()"] --> B["cleanup_service_state(CANDIDATE)"]
     B --> C["delete_exhausted_candidates()"]
     C --> D["fetch_candidates()"]
     D --> E{Candidates?}

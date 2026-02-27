@@ -26,18 +26,22 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.queries import (
-    cleanup_stale_state,
+    _batched_insert,
+    cleanup_service_state,
     count_candidates,
     delete_exhausted_candidates,
-    delete_stale_candidates,
     fetch_all_relays,
     fetch_candidates,
     fetch_relays_to_monitor,
     filter_new_relays,
+    insert_event_relays,
+    insert_relay_metadata,
+    insert_relays,
     insert_relays_as_candidates,
     promote_candidates,
     scan_event,
     scan_event_relay,
+    upsert_service_states,
 )
 from bigbrotr.services.common.types import Candidate, EventCursor, EventRelayCursor
 
@@ -600,40 +604,6 @@ class TestFetchCandidates:
 
 
 # ============================================================================
-# TestDeleteStaleCandidates
-# ============================================================================
-
-
-class TestDeleteStaleCandidates:
-    """Tests for delete_stale_candidates()."""
-
-    async def test_calls_fetchval_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Calls fetchval with ServiceName.VALIDATOR and ServiceStateType.CANDIDATE."""
-        mock_brotr.fetchval = AsyncMock(return_value=5)
-
-        result = await delete_stale_candidates(mock_brotr)
-
-        mock_brotr.fetchval.assert_awaited_once()
-        args = mock_brotr.fetchval.call_args
-        sql = args[0][0]
-        assert "DELETE FROM service_state" in sql
-        assert "service_name = $1" in sql
-        assert "state_type = $2" in sql
-        assert "EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)" in sql
-        assert args[0][1] == ServiceName.VALIDATOR
-        assert args[0][2] == ServiceStateType.CANDIDATE
-        assert result == 5
-
-    async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
-        """Returns 0 when no rows are deleted."""
-        mock_brotr.fetchval = AsyncMock(return_value=0)
-
-        result = await delete_stale_candidates(mock_brotr)
-
-        assert result == 0
-
-
-# ============================================================================
 # TestDeleteExhaustedCandidates
 # ============================================================================
 
@@ -728,50 +698,207 @@ class TestPromoteCandidates:
 # ============================================================================
 
 
-class TestDeleteStaleState:
-    """Tests for cleanup_stale_state()."""
+class TestCleanupStaleState:
+    """Tests for cleanup_service_state()."""
 
-    async def test_calls_fetchval_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes service_name and state_type to the DELETE query."""
+    async def test_cursor_uses_not_exists(self, mock_brotr: MagicMock) -> None:
+        """CURSOR state uses NOT EXISTS (relay removed → state is stale)."""
         mock_brotr.fetchval = AsyncMock(return_value=3)
 
-        result = await cleanup_stale_state(mock_brotr, ServiceName.FINDER, ServiceStateType.CURSOR)
+        result = await cleanup_service_state(
+            mock_brotr, ServiceName.FINDER, ServiceStateType.CURSOR
+        )
 
         mock_brotr.fetchval.assert_awaited_once()
         args = mock_brotr.fetchval.call_args
         sql = args[0][0]
         assert "DELETE FROM service_state" in sql
-        assert "service_name = $1" in sql
-        assert "state_type = $2" in sql
         assert "NOT EXISTS" in sql
         assert args[0][1] == ServiceName.FINDER
         assert args[0][2] == ServiceStateType.CURSOR
         assert result == 3
 
+    async def test_monitoring_uses_not_exists(self, mock_brotr: MagicMock) -> None:
+        """MONITORING state uses NOT EXISTS (relay removed → state is stale)."""
+        mock_brotr.fetchval = AsyncMock(return_value=5)
+
+        result = await cleanup_service_state(
+            mock_brotr, ServiceName.MONITOR, ServiceStateType.MONITORING
+        )
+
+        args = mock_brotr.fetchval.call_args
+        sql = args[0][0]
+        assert "NOT EXISTS" in sql
+        assert args[0][1] == ServiceName.MONITOR
+        assert args[0][2] == ServiceStateType.MONITORING
+        assert result == 5
+
+    async def test_candidate_uses_exists(self, mock_brotr: MagicMock) -> None:
+        """CANDIDATE state uses EXISTS (relay promoted → candidate is stale)."""
+        mock_brotr.fetchval = AsyncMock(return_value=7)
+
+        result = await cleanup_service_state(
+            mock_brotr, ServiceName.VALIDATOR, ServiceStateType.CANDIDATE
+        )
+
+        args = mock_brotr.fetchval.call_args
+        sql = args[0][0]
+        assert "DELETE FROM service_state" in sql
+        assert "AND EXISTS" in sql
+        assert "NOT EXISTS" not in sql
+        assert args[0][1] == ServiceName.VALIDATOR
+        assert args[0][2] == ServiceStateType.CANDIDATE
+        assert result == 7
+
     async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
         """Returns 0 when no stale rows exist."""
         mock_brotr.fetchval = AsyncMock(return_value=0)
 
-        result = await cleanup_stale_state(
+        result = await cleanup_service_state(
             mock_brotr, ServiceName.SYNCHRONIZER, ServiceStateType.CURSOR
         )
 
         assert result == 0
 
-    async def test_works_for_monitoring(self, mock_brotr: MagicMock) -> None:
-        """Works correctly with MONITORING state type."""
-        mock_brotr.fetchval = AsyncMock(return_value=5)
-
-        result = await cleanup_stale_state(
-            mock_brotr, ServiceName.MONITOR, ServiceStateType.MONITORING
-        )
-
-        args = mock_brotr.fetchval.call_args
-        assert args[0][1] == ServiceName.MONITOR
-        assert args[0][2] == ServiceStateType.MONITORING
-        assert result == 5
-
     async def test_rejects_non_relay_keyed_type(self, mock_brotr: MagicMock) -> None:
         """Raises ValueError for state types whose keys are not relay URLs."""
         with pytest.raises(ValueError, match="relay-keyed"):
-            await cleanup_stale_state(mock_brotr, ServiceName.MONITOR, ServiceStateType.PUBLICATION)
+            await cleanup_service_state(
+                mock_brotr, ServiceName.MONITOR, ServiceStateType.PUBLICATION
+            )
+
+
+# ============================================================================
+# Batch insert helper
+# ============================================================================
+
+
+class TestBatchedInsert:
+    """Tests for _batched_insert() helper."""
+
+    async def test_empty_returns_zero(self, mock_brotr: MagicMock) -> None:
+        """Returns 0 without calling the method when records is empty."""
+        method = AsyncMock(return_value=5)
+        result = await _batched_insert(mock_brotr, [], method)
+        assert result == 0
+        method.assert_not_called()
+
+    async def test_under_limit_single_call(self, mock_brotr: MagicMock) -> None:
+        """Passes all records in one call when under batch limit."""
+        mock_brotr.config.batch.max_size = 100
+        method = AsyncMock(return_value=3)
+
+        result = await _batched_insert(mock_brotr, [1, 2, 3], method)
+
+        assert result == 3
+        method.assert_awaited_once_with([1, 2, 3])
+
+    async def test_over_limit_splits(self, mock_brotr: MagicMock) -> None:
+        """Splits records into multiple calls when exceeding batch limit."""
+        mock_brotr.config.batch.max_size = 2
+        method = AsyncMock(return_value=2)
+
+        result = await _batched_insert(mock_brotr, [1, 2, 3, 4, 5], method)
+
+        assert result == 6  # 2 + 2 + 2
+        assert method.await_count == 3
+        method.assert_any_await([1, 2])
+        method.assert_any_await([3, 4])
+        method.assert_any_await([5])
+
+    async def test_exact_multiple(self, mock_brotr: MagicMock) -> None:
+        """Handles exact multiples of batch size correctly."""
+        mock_brotr.config.batch.max_size = 2
+        method = AsyncMock(return_value=2)
+
+        result = await _batched_insert(mock_brotr, [1, 2, 3, 4], method)
+
+        assert result == 4
+        assert method.await_count == 2
+
+
+# ============================================================================
+# Batch insert wrappers
+# ============================================================================
+
+
+class TestInsertRelays:
+    """Tests for insert_relays() batch splitting."""
+
+    async def test_delegates_to_batched_insert(self, mock_brotr: MagicMock) -> None:
+        """Calls brotr.insert_relay via _batched_insert."""
+        mock_brotr.insert_relay = AsyncMock(return_value=2)
+        mock_brotr.config.batch.max_size = 1
+
+        relays = [Relay("wss://a.example.com"), Relay("wss://b.example.com")]
+        result = await insert_relays(mock_brotr, relays)
+
+        assert result == 4  # 2 + 2
+        assert mock_brotr.insert_relay.await_count == 2
+
+
+class TestInsertEventRelays:
+    """Tests for insert_event_relays() batch splitting."""
+
+    async def test_delegates_to_batched_insert(self, mock_brotr: MagicMock) -> None:
+        """Calls brotr.insert_event_relay via _batched_insert."""
+        mock_brotr.insert_event_relay = AsyncMock(return_value=3)
+
+        result = await insert_event_relays(mock_brotr, [MagicMock(), MagicMock(), MagicMock()])
+
+        assert result == 3
+        mock_brotr.insert_event_relay.assert_awaited_once()
+
+    async def test_empty_returns_zero(self, mock_brotr: MagicMock) -> None:
+        """Returns 0 for empty input."""
+        result = await insert_event_relays(mock_brotr, [])
+        assert result == 0
+
+
+class TestInsertRelayMetadata:
+    """Tests for insert_relay_metadata() batch splitting."""
+
+    async def test_delegates_to_batched_insert(self, mock_brotr: MagicMock) -> None:
+        """Calls brotr.insert_relay_metadata via _batched_insert."""
+        mock_brotr.insert_relay_metadata = AsyncMock(return_value=5)
+
+        result = await insert_relay_metadata(mock_brotr, [MagicMock(), MagicMock()])
+
+        assert result == 5
+        mock_brotr.insert_relay_metadata.assert_awaited_once()
+
+    async def test_splits_large_batch(self, mock_brotr: MagicMock) -> None:
+        """Splits records exceeding batch limit."""
+        mock_brotr.config.batch.max_size = 2
+        mock_brotr.insert_relay_metadata = AsyncMock(return_value=2)
+
+        records = [MagicMock() for _ in range(5)]
+        result = await insert_relay_metadata(mock_brotr, records)
+
+        assert result == 6  # 2 + 2 + 2
+        assert mock_brotr.insert_relay_metadata.await_count == 3
+
+
+class TestUpsertServiceStates:
+    """Tests for upsert_service_states() batch splitting."""
+
+    async def test_delegates_to_batched_insert(self, mock_brotr: MagicMock) -> None:
+        """Calls brotr.upsert_service_state via _batched_insert."""
+        mock_brotr.upsert_service_state = AsyncMock(return_value=2)
+
+        records = [MagicMock(), MagicMock()]
+        result = await upsert_service_states(mock_brotr, records)
+
+        assert result == 2
+        mock_brotr.upsert_service_state.assert_awaited_once()
+
+    async def test_splits_large_batch(self, mock_brotr: MagicMock) -> None:
+        """Splits records exceeding batch limit."""
+        mock_brotr.config.batch.max_size = 2
+        mock_brotr.upsert_service_state = AsyncMock(return_value=2)
+
+        records = [MagicMock() for _ in range(5)]
+        result = await upsert_service_states(mock_brotr, records)
+
+        assert result == 6  # 2 + 2 + 2
+        assert mock_brotr.upsert_service_state.await_count == 3

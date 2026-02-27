@@ -263,9 +263,7 @@ class TestValidatorRun:
 
         assert mock_validator_brotr._pool.fetchval.called
         calls = mock_validator_brotr._pool.fetchval.call_args_list
-        cleanup_called = any(
-            "EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)" in str(c) for c in calls
-        )
+        cleanup_called = any("AND EXISTS" in str(c) and "NOT EXISTS" not in str(c) for c in calls)
         assert cleanup_called
 
     async def test_run_validates_candidates(self, mock_validator_brotr: Brotr) -> None:
@@ -702,9 +700,13 @@ class TestCleanup:
         await validator.cleanup_stale()
 
         mock_validator_brotr._pool.fetchval.assert_called_once()
-        query = mock_validator_brotr._pool.fetchval.call_args[0][0]
+        call_args = mock_validator_brotr._pool.fetchval.call_args[0]
+        query = call_args[0]
         assert "DELETE FROM service_state" in query
-        assert "EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)" in query
+        assert "AND EXISTS" in query
+        assert "NOT EXISTS" not in query
+        assert call_args[1] == ServiceName.VALIDATOR
+        assert call_args[2] == ServiceStateType.CANDIDATE
 
     async def test_cleanup_exhausted_when_enabled(self, mock_validator_brotr: Brotr) -> None:
         """Test exhausted candidates are cleaned up when enabled."""

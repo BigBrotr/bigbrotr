@@ -61,11 +61,12 @@ from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import ChunkProgressMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import (
+    cleanup_service_state,
     count_candidates,
     delete_exhausted_candidates,
-    delete_stale_candidates,
     fetch_candidates,
     promote_candidates,
+    upsert_service_states,
 )
 from bigbrotr.utils.protocol import is_nostr_relay
 
@@ -191,10 +192,12 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             Number of stale candidates removed.
 
         See Also:
-            [delete_stale_candidates][bigbrotr.services.common.queries.delete_stale_candidates]:
+            [cleanup_service_state][bigbrotr.services.common.queries.cleanup_service_state]:
                 The SQL query executed by this method.
         """
-        count = await delete_stale_candidates(self._brotr)
+        count = await cleanup_service_state(
+            self._brotr, ServiceName.VALIDATOR, ServiceStateType.CANDIDATE
+        )
         if count > 0:
             self.inc_counter("total_stale_removed", count)
             self._logger.info("stale_removed", count=count)
@@ -375,7 +378,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
                 for c in invalid
             ]
             try:
-                await self._brotr.upsert_service_state(updates)
+                await upsert_service_states(self._brotr, updates)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("update_failed", count=len(invalid), error=str(e))
 

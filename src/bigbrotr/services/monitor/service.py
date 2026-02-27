@@ -89,7 +89,12 @@ from bigbrotr.services.common.mixins import (
     GeoReaderMixin,
     NetworkSemaphoresMixin,
 )
-from bigbrotr.services.common.queries import cleanup_stale_state, fetch_relays_to_monitor
+from bigbrotr.services.common.queries import (
+    cleanup_service_state,
+    fetch_relays_to_monitor,
+    insert_relay_metadata,
+    upsert_service_states,
+)
 from bigbrotr.utils.http import download_bounded_file
 from bigbrotr.utils.protocol import broadcast_events
 
@@ -304,7 +309,7 @@ class Monitor(
             return self.chunk_progress.processed
 
         try:
-            removed = await cleanup_stale_state(
+            removed = await cleanup_service_state(
                 self._brotr, self.SERVICE_NAME, ServiceStateType.MONITORING
             )
             if removed:
@@ -717,7 +722,7 @@ class Monitor(
             metadata = collect_metadata(successful, self._config.processing.store)
             if metadata:
                 try:
-                    count = await self._brotr.insert_relay_metadata(metadata)
+                    count = await insert_relay_metadata(self._brotr, metadata)
                     self._logger.debug("metadata_inserted", count=count)
                 except (asyncpg.PostgresError, OSError) as e:
                     self._logger.error("metadata_insert_failed", error=str(e), count=len(metadata))
@@ -736,7 +741,7 @@ class Monitor(
                 for relay in all_relays
             ]
             try:
-                await self._brotr.upsert_service_state(markers)
+                await upsert_service_states(self._brotr, markers)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("monitoring_save_failed", error=str(e))
 

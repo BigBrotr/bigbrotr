@@ -22,6 +22,7 @@ from nostr_sdk import (
 
 from bigbrotr.core.logger import format_kv_pairs
 from bigbrotr.models import Event, EventRelay
+from bigbrotr.services.common.queries import insert_event_relays
 from bigbrotr.utils.protocol import create_client
 
 
@@ -247,14 +248,7 @@ async def insert_batch(
         except (ValueError, TypeError, OverflowError) as e:
             _log("DEBUG", "event_parse_error", relay=relay.url, error=str(e))
 
-    total_inserted = 0
-
-    if event_relays:
-        batch_size = brotr.config.batch.max_size
-        for i in range(0, len(event_relays), batch_size):
-            inserted = await brotr.insert_event_relay(event_relays[i : i + batch_size])
-            total_inserted += inserted
-
+    total_inserted = await insert_event_relays(brotr, event_relays)
     return total_inserted, invalid_count
 
 

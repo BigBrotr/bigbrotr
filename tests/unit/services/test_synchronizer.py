@@ -1185,11 +1185,11 @@ class TestSynchronizerStaleCursorCleanup:
     async def test_stale_cursors_cleaned_before_fetch_relays(
         self, mock_synchronizer_brotr: Brotr
     ) -> None:
-        """cleanup_stale_state is called before relay fetch."""
+        """cleanup_service_state is called before relay fetch."""
         call_order: list[str] = []
 
         async def _mock_delete_stale(*args: object, **kwargs: object) -> int:
-            call_order.append("cleanup_stale_state")
+            call_order.append("cleanup_service_state")
             return 2
 
         mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
@@ -1197,7 +1197,7 @@ class TestSynchronizerStaleCursorCleanup:
         )
 
         with patch(
-            "bigbrotr.services.synchronizer.service.cleanup_stale_state",
+            "bigbrotr.services.synchronizer.service.cleanup_service_state",
             new_callable=AsyncMock,
             side_effect=_mock_delete_stale,
         ):
@@ -1213,7 +1213,7 @@ class TestSynchronizerStaleCursorCleanup:
 
             await sync.synchronize()
 
-            assert call_order[0] == "cleanup_stale_state"
+            assert call_order[0] == "cleanup_service_state"
             assert "fetch_relays" in call_order
 
     async def test_stale_cursor_cleanup_failure_does_not_block(
@@ -1225,7 +1225,7 @@ class TestSynchronizerStaleCursorCleanup:
         )
 
         with patch(
-            "bigbrotr.services.synchronizer.service.cleanup_stale_state",
+            "bigbrotr.services.synchronizer.service.cleanup_service_state",
             new_callable=AsyncMock,
             side_effect=asyncpg.PostgresError("cleanup failed"),
         ):

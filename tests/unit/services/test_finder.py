@@ -1314,11 +1314,11 @@ class TestFinderStaleCursorCleanup:
     """Tests for stale cursor cleanup in find_from_events()."""
 
     async def test_stale_cursors_cleaned_before_scan(self, mock_brotr: Brotr) -> None:
-        """cleanup_stale_state is called before relay fetch."""
+        """cleanup_service_state is called before relay fetch."""
         call_order: list[str] = []
 
         async def _mock_delete_stale(*args: Any, **kwargs: Any) -> int:
-            call_order.append("cleanup_stale_state")
+            call_order.append("cleanup_service_state")
             return 3
 
         async def _mock_get_relays(*args: Any, **kwargs: Any) -> list[Relay]:
@@ -1327,7 +1327,7 @@ class TestFinderStaleCursorCleanup:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.cleanup_stale_state",
+                "bigbrotr.services.finder.service.cleanup_service_state",
                 new_callable=AsyncMock,
                 side_effect=_mock_delete_stale,
             ),
@@ -1340,13 +1340,13 @@ class TestFinderStaleCursorCleanup:
             finder = Finder(brotr=mock_brotr)
             await finder.find_from_events()
 
-            assert call_order == ["cleanup_stale_state", "fetch_all_relays"]
+            assert call_order == ["cleanup_service_state", "fetch_all_relays"]
 
     async def test_stale_cursor_cleanup_failure_does_not_block(self, mock_brotr: Brotr) -> None:
         """Stale cursor cleanup DB error does not prevent event scanning."""
         with (
             patch(
-                "bigbrotr.services.finder.service.cleanup_stale_state",
+                "bigbrotr.services.finder.service.cleanup_service_state",
                 new_callable=AsyncMock,
                 side_effect=asyncpg.PostgresError("cleanup failed"),
             ),

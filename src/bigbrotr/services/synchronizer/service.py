@@ -69,8 +69,9 @@ from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import (
-    cleanup_stale_state,
+    cleanup_service_state,
     fetch_all_relays,
+    upsert_service_states,
 )
 from bigbrotr.services.common.types import EventRelayCursor
 
@@ -173,7 +174,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             Number of relays that were processed.
         """
         try:
-            removed = await cleanup_stale_state(
+            removed = await cleanup_service_state(
                 self._brotr, self.SERVICE_NAME, ServiceStateType.CURSOR
             )
             if removed:
@@ -294,7 +295,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
 
         if batch.cursor_updates:
             try:
-                await self._brotr.upsert_service_state(batch.cursor_updates)
+                await upsert_service_states(self._brotr, batch.cursor_updates)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
                     "cursor_batch_upsert_failed",
@@ -365,7 +366,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                         )
                     )
                     if len(batch.cursor_updates) >= batch.cursor_flush_interval:
-                        await self._brotr.upsert_service_state(batch.cursor_updates.copy())
+                        await upsert_service_states(self._brotr, batch.cursor_updates.copy())
                         batch.cursor_updates.clear()
 
             except (TimeoutError, OSError, asyncpg.PostgresError) as e:

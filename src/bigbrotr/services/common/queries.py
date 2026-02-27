@@ -4,15 +4,20 @@ All SQL queries used by services are centralized here.  Each function
 accepts a [Brotr][bigbrotr.core.brotr.Brotr] instance and returns typed
 results.  Services import from this module instead of writing inline SQL.
 
-The 13 query functions are grouped into four categories:
+Batch-insert wrappers split large inputs into chunks of
+``BatchConfig.max_size`` so that services never need to manage Brotr's
+batch limit directly.
+
+The 15 query functions are grouped into four categories:
 
 - **Relay queries**: ``fetch_all_relays``, ``fetch_relays_to_monitor``,
-  ``filter_new_relays``, ``insert_relays``
-- **Event queries**: ``scan_event_relay``, ``scan_event``
+  ``filter_new_relays``, ``insert_relays``, ``insert_relay_metadata``
+- **Event queries**: ``scan_event_relay``, ``scan_event``,
+  ``insert_event_relays``
 - **Candidate lifecycle**: ``insert_relays_as_candidates``,
-  ``count_candidates``, ``fetch_candidates``, ``promote_candidates``
-- **Cleanup**: ``delete_stale_candidates``,
-  ``delete_exhausted_candidates``, ``cleanup_stale_state``
+  ``count_candidates``, ``fetch_candidates``, ``promote_candidates``,
+  ``upsert_service_states``
+- **Cleanup**: ``delete_exhausted_candidates``, ``cleanup_service_state``
 
 Warning:
     All queries use the timeout from
@@ -32,7 +37,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.relay import Relay
@@ -42,7 +47,13 @@ from .types import Candidate, EventCursor, EventRelayCursor
 
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from bigbrotr.core.brotr import Brotr
+    from bigbrotr.models.event_relay import EventRelay
+    from bigbrotr.models.relay_metadata import RelayMetadata
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +102,22 @@ async def _fetch_service_states(brotr: Brotr, query: str, *args: Any) -> list[Se
         except (ValueError, TypeError) as e:
             logger.warning("Skipping invalid service state %s: %s", row["state_key"], e)
     return states
+
+
+async def _batched_insert(
+    brotr: Brotr,
+    records: list[_T],
+    method: Callable[[list[_T]], Awaitable[int]],
+) -> int:
+    """Split *records* into batches of ``brotr.config.batch.max_size`` and
+    call *method* on each chunk, returning the total count."""
+    if not records:
+        return 0
+    total = 0
+    batch_size = brotr.config.batch.max_size
+    for i in range(0, len(records), batch_size):
+        total += await method(records[i : i + batch_size])
+    return total
 
 
 # =============================================================================
@@ -230,14 +257,30 @@ async def insert_relays(brotr: Brotr, relays: list[Relay]) -> int:
         [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates]:
             Alternative that inserts as validation candidates instead.
     """
-    if not relays:
-        return 0
+    return await _batched_insert(brotr, relays, brotr.insert_relay)
 
-    inserted = 0
-    batch_size = brotr.config.batch.max_size
-    for i in range(0, len(relays), batch_size):
-        inserted += await brotr.insert_relay(relays[i : i + batch_size])
-    return inserted
+
+async def insert_relay_metadata(brotr: Brotr, records: list[RelayMetadata]) -> int:
+    """Batch-insert relay-metadata junction records.
+
+    Splits *records* into batches respecting
+    [BatchConfig.max_size][bigbrotr.core.brotr.BatchConfig] and delegates
+    each chunk to
+    [Brotr.insert_relay_metadata()][bigbrotr.core.brotr.Brotr.insert_relay_metadata]
+    (cascade mode).
+
+    Called by [Monitor][bigbrotr.services.monitor.Monitor] to persist
+    health-check metadata.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        records: [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+            instances to insert.
+
+    Returns:
+        Number of new relay-metadata records inserted.
+    """
+    return await _batched_insert(brotr, records, brotr.insert_relay_metadata)
 
 
 # =============================================================================
@@ -330,6 +373,30 @@ async def scan_event(
     return [dict(row) for row in rows]
 
 
+async def insert_event_relays(brotr: Brotr, records: list[EventRelay]) -> int:
+    """Batch-insert event-relay junction records.
+
+    Splits *records* into batches respecting
+    [BatchConfig.max_size][bigbrotr.core.brotr.BatchConfig] and delegates
+    each chunk to
+    [Brotr.insert_event_relay()][bigbrotr.core.brotr.Brotr.insert_event_relay]
+    (cascade mode).
+
+    Called by
+    [Synchronizer][bigbrotr.services.synchronizer.Synchronizer] to
+    persist ingested events.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        records: [EventRelay][bigbrotr.models.event_relay.EventRelay]
+            instances to insert.
+
+    Returns:
+        Number of new event-relay records inserted.
+    """
+    return await _batched_insert(brotr, records, brotr.insert_event_relay)
+
+
 # =============================================================================
 # Candidate lifecycle
 # =============================================================================
@@ -377,9 +444,7 @@ async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
         )
         for relay in new_relays
     ]
-    batch_size = brotr.config.batch.max_size
-    for i in range(0, len(records), batch_size):
-        await brotr.upsert_service_state(records[i : i + batch_size])
+    await _batched_insert(brotr, records, brotr.upsert_service_state)
     return len(records)
 
 
@@ -487,7 +552,7 @@ async def promote_candidates(brotr: Brotr, candidates: list[Candidate]) -> int:
     Called by [Validator][bigbrotr.services.validator.Validator] after
     successful WebSocket validation to move candidates into the ``relay``
     table. If the delete fails, orphaned candidates are cleaned up by
-    ``delete_stale_candidates`` at the next cycle.
+    ``cleanup_service_state`` at the next cycle.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
@@ -501,21 +566,47 @@ async def promote_candidates(brotr: Brotr, candidates: list[Candidate]) -> int:
     See Also:
         [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates]:
             The inverse operation that creates candidate records.
-        [delete_stale_candidates][bigbrotr.services.common.queries.delete_stale_candidates]:
+        [cleanup_service_state][bigbrotr.services.common.queries.cleanup_service_state]:
             Safety net that removes candidates already in the relay table.
     """
     if not candidates:
         return 0
 
     relays = [c.relay for c in candidates]
-    inserted = await brotr.insert_relay(relays)
-    urls = [c.relay.url for c in candidates]
-    await brotr.delete_service_state(
-        [ServiceName.VALIDATOR] * len(candidates),
-        [ServiceStateType.CANDIDATE] * len(candidates),
-        urls,
-    )
+    inserted = await _batched_insert(brotr, relays, brotr.insert_relay)
+
+    batch_size = brotr.config.batch.max_size
+    for i in range(0, len(candidates), batch_size):
+        chunk = candidates[i : i + batch_size]
+        await brotr.delete_service_state(
+            [ServiceName.VALIDATOR] * len(chunk),
+            [ServiceStateType.CANDIDATE] * len(chunk),
+            [c.relay.url for c in chunk],
+        )
     return inserted
+
+
+async def upsert_service_states(brotr: Brotr, records: list[ServiceState]) -> int:
+    """Batch-upsert service state records.
+
+    Splits *records* into batches respecting
+    [BatchConfig.max_size][bigbrotr.core.brotr.BatchConfig] and delegates
+    each chunk to
+    [Brotr.upsert_service_state()][bigbrotr.core.brotr.Brotr.upsert_service_state].
+
+    Services use this to persist operational state (cursors, monitoring
+    markers, candidate failure counters) without worrying about batch
+    size limits.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        records: [ServiceState][bigbrotr.models.service_state.ServiceState]
+            instances to upsert.
+
+    Returns:
+        Number of records upserted.
+    """
+    return await _batched_insert(brotr, records, brotr.upsert_service_state)
 
 
 # =============================================================================
@@ -523,8 +614,8 @@ async def promote_candidates(brotr: Brotr, candidates: list[Candidate]) -> int:
 # =============================================================================
 
 
-# State types whose state_key is a relay URL.  Used by cleanup_stale_state
-# to validate that the relay-based NOT EXISTS query is semantically correct.
+# State types whose state_key is a relay URL.  Used by cleanup_service_state
+# to validate that the relay-based existence query is semantically correct.
 _RELAY_KEYED_STATE_TYPES: frozenset[ServiceStateType] = frozenset(
     {
         ServiceStateType.CANDIDATE,
@@ -533,37 +624,10 @@ _RELAY_KEYED_STATE_TYPES: frozenset[ServiceStateType] = frozenset(
     }
 )
 
-
-async def delete_stale_candidates(brotr: Brotr) -> int:
-    """Remove candidates whose URLs already exist in the relays table.
-
-    Called by [Validator][bigbrotr.services.validator.Validator] during
-    cleanup at the start of each cycle. Stale candidates appear when a
-    relay was validated by another cycle, manually added, or re-discovered
-    by [Finder][bigbrotr.services.finder.Finder].
-
-    Returns:
-        Number of deleted rows.
-
-    See Also:
-        [delete_exhausted_candidates][bigbrotr.services.common.queries.delete_exhausted_candidates]:
-            Companion cleanup that removes permanently failing candidates.
-    """
-    count: int = await brotr.fetchval(
-        """
-        WITH deleted AS (
-            DELETE FROM service_state
-            WHERE service_name = $1
-              AND state_type = $2
-              AND EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)
-            RETURNING 1
-        )
-        SELECT count(*)::int FROM deleted
-        """,
-        ServiceName.VALIDATOR,
-        ServiceStateType.CANDIDATE,
-    )
-    return count
+# CANDIDATE staleness is inverted: a candidate is stale when its relay
+# EXISTS (already promoted).  All other relay-keyed types are stale when
+# the relay does NOT EXIST (relay was removed from the database).
+_EXISTS_STALE_TYPES: frozenset[ServiceStateType] = frozenset({ServiceStateType.CANDIDATE})
 
 
 async def delete_exhausted_candidates(
@@ -586,8 +650,8 @@ async def delete_exhausted_candidates(
         Number of deleted rows.
 
     See Also:
-        [delete_stale_candidates][bigbrotr.services.common.queries.delete_stale_candidates]:
-            Companion cleanup that removes already-promoted candidates.
+        [cleanup_service_state][bigbrotr.services.common.queries.cleanup_service_state]:
+            Companion cleanup that removes stale candidates and state records.
     """
     count: int = await brotr.fetchval(
         """
@@ -607,20 +671,22 @@ async def delete_exhausted_candidates(
     return count
 
 
-async def cleanup_stale_state(
+async def cleanup_service_state(
     brotr: Brotr,
     service_name: ServiceName,
     state_type: ServiceStateType,
 ) -> int:
-    """Remove state records whose relay no longer exists in the ``relay`` table.
+    """Remove stale state records based on relay existence.
 
-    Only valid for state types whose ``state_key`` is a relay URL
-    (``CANDIDATE``, ``CURSOR``, ``MONITORING``).  Raises ``ValueError``
-    for non-relay-keyed types like ``PUBLICATION``.
+    The staleness condition depends on *state_type*:
 
-    Used for cursor records ([Finder][bigbrotr.services.finder.Finder],
-    [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]) and
-    monitoring checkpoints ([Monitor][bigbrotr.services.monitor.Monitor]).
+    - **CANDIDATE**: stale when the relay *exists* (already promoted to
+      the ``relay`` table, so the candidate record is obsolete).
+    - **CURSOR**, **MONITORING**: stale when the relay does *not* exist
+      (the relay was removed, so the state record is orphaned).
+
+    Only valid for state types whose ``state_key`` is a relay URL.
+    Raises ``ValueError`` for non-relay-keyed types like ``PUBLICATION``.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
@@ -635,23 +701,35 @@ async def cleanup_stale_state(
     """
     if state_type not in _RELAY_KEYED_STATE_TYPES:
         raise ValueError(
-            f"cleanup_stale_state only supports relay-keyed state types "
+            f"cleanup_service_state only supports relay-keyed state types "
             f"({', '.join(t.value for t in sorted(_RELAY_KEYED_STATE_TYPES))}), "
             f"got {state_type.value!r}"
         )
 
-    count: int = await brotr.fetchval(
-        """
-        WITH deleted AS (
-            DELETE FROM service_state ss
-            WHERE ss.service_name = $1
-              AND ss.state_type = $2
-              AND NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = ss.state_key)
-            RETURNING 1
-        )
-        SELECT count(*)::int FROM deleted
-        """,
-        service_name,
-        state_type,
-    )
+    if state_type in _EXISTS_STALE_TYPES:
+        # CANDIDATE: stale when relay exists (already promoted)
+        query = """
+            WITH deleted AS (
+                DELETE FROM service_state ss
+                WHERE ss.service_name = $1
+                  AND ss.state_type = $2
+                  AND EXISTS (SELECT 1 FROM relay r WHERE r.url = ss.state_key)
+                RETURNING 1
+            )
+            SELECT count(*)::int FROM deleted
+            """
+    else:
+        # CURSOR, MONITORING: stale when relay does not exist (relay removed)
+        query = """
+            WITH deleted AS (
+                DELETE FROM service_state ss
+                WHERE ss.service_name = $1
+                  AND ss.state_type = $2
+                  AND NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = ss.state_key)
+                RETURNING 1
+            )
+            SELECT count(*)::int FROM deleted
+            """
+
+    count: int = await brotr.fetchval(query, service_name, state_type)
     return count
