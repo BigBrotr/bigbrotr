@@ -242,7 +242,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay].
 
         Args:
-            candidate: [Candidate][bigbrotr.services.validator.service.Candidate]
+            candidate: [Candidate][bigbrotr.services.common.types.Candidate]
                 to validate.
 
         Returns:
