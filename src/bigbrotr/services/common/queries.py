@@ -36,7 +36,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from bigbrotr.models.constants import NetworkType, ServiceName
-from bigbrotr.models.relay import Relay, RelayDbParams
+from bigbrotr.models.relay import Relay
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 
 from .types import Candidate, EventCursor, EventRelayCursor
@@ -64,8 +64,7 @@ async def _fetch_relays(brotr: Brotr, query: str, *args: Any) -> list[Relay]:
     relays: list[Relay] = []
     for row in rows:
         try:
-            params = RelayDbParams(row["url"], row["network"], row["discovered_at"])
-            relays.append(Relay.from_db_params(params))
+            relays.append(Relay(row["url"], row["discovered_at"]))
         except (ValueError, TypeError) as e:
             logger.warning("Skipping invalid relay URL %s: %s", row["url"], e)
     return relays
