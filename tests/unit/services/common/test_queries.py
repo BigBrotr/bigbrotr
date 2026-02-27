@@ -35,7 +35,7 @@ from bigbrotr.services.common.queries import (
     fetch_relays_to_monitor,
     filter_new_relays,
     get_all_cursor_values,
-    insert_candidates,
+    insert_relays_as_candidates,
     promote_candidates,
     scan_event,
     scan_event_relay,
@@ -391,7 +391,7 @@ class TestScanEvent:
 
 
 class TestInsertCandidates:
-    """Tests for insert_candidates()."""
+    """Tests for insert_relays_as_candidates()."""
 
     async def test_filters_then_upserts(self, mock_brotr: MagicMock) -> None:
         """Calls filter_new_relays internally, then upserts only new relays."""
@@ -400,7 +400,7 @@ class TestInsertCandidates:
             return_value=[_make_dict_row({"url": "wss://relay.example.com"})]
         )
 
-        result = await insert_candidates(mock_brotr, [relay])
+        result = await insert_relays_as_candidates(mock_brotr, [relay])
 
         # filter_new_relays called via brotr.fetch
         mock_brotr.fetch.assert_awaited_once()
@@ -435,7 +435,7 @@ class TestInsertCandidates:
             ]
         )
 
-        result = await insert_candidates(mock_brotr, relays)
+        result = await insert_relays_as_candidates(mock_brotr, relays)
 
         records = mock_brotr.upsert_service_state.call_args[0][0]
         assert len(records) == 2
@@ -448,14 +448,14 @@ class TestInsertCandidates:
         relay = _make_mock_relay()
         mock_brotr.fetch = AsyncMock(return_value=[])
 
-        result = await insert_candidates(mock_brotr, [relay])
+        result = await insert_relays_as_candidates(mock_brotr, [relay])
 
         mock_brotr.upsert_service_state.assert_not_awaited()
         assert result == 0
 
     async def test_empty_iterable(self, mock_brotr: MagicMock) -> None:
         """Does not call fetch or upsert_service_state when given an empty iterable."""
-        result = await insert_candidates(mock_brotr, [])
+        result = await insert_relays_as_candidates(mock_brotr, [])
 
         mock_brotr.fetch.assert_not_awaited()
         mock_brotr.upsert_service_state.assert_not_awaited()
@@ -477,7 +477,7 @@ class TestInsertCandidates:
             ]
         )
 
-        result = await insert_candidates(mock_brotr, relays)
+        result = await insert_relays_as_candidates(mock_brotr, relays)
 
         assert mock_brotr.upsert_service_state.await_count == 2  # 2 + 1
         assert result == 3

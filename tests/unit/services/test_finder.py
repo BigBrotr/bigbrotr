@@ -391,7 +391,7 @@ class TestFinderFindFromApi:
         with (
             patch("aiohttp.ClientSession") as mock_session_cls,
             patch(
-                "bigbrotr.services.finder.service.insert_candidates",
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
                 new_callable=AsyncMock,
                 return_value=2,
             ),
@@ -618,7 +618,8 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [Relay("wss://source.relay.com")]
@@ -660,7 +661,8 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [Relay("wss://source.relay.com")]
@@ -703,7 +705,8 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [Relay("wss://source.relay.com")]
@@ -745,7 +748,8 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [Relay("wss://source.relay.com")]
@@ -785,7 +789,8 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [Relay("wss://source.relay.com")]
@@ -825,7 +830,8 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [Relay("wss://source.relay.com")]
@@ -877,7 +883,8 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_get_events,
             patch(
-                "bigbrotr.services.finder.service.insert_candidates", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [Relay("wss://source.relay.com")]
@@ -943,7 +950,7 @@ class TestFinderEventScanConcurrency:
                 side_effect=_events_side_effect,
             ),
             patch(
-                "bigbrotr.services.finder.service.insert_candidates",
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
                 new_callable=AsyncMock,
                 return_value=1,
             ),
@@ -998,7 +1005,7 @@ class TestFinderEventScanConcurrency:
                 side_effect=_events_side_effect,
             ),
             patch(
-                "bigbrotr.services.finder.service.insert_candidates",
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
                 new_callable=AsyncMock,
                 return_value=1,
             ),
@@ -1156,7 +1163,7 @@ class TestFinderMetrics:
                 side_effect=[[mock_event], []],
             ),
             patch(
-                "bigbrotr.services.finder.service.insert_candidates",
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
                 new_callable=AsyncMock,
                 return_value=2,
             ),
@@ -1205,7 +1212,7 @@ class TestFinderMetrics:
         with (
             patch("aiohttp.ClientSession") as mock_session_cls,
             patch(
-                "bigbrotr.services.finder.service.insert_candidates",
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
                 new_callable=AsyncMock,
                 return_value=2,
             ),
@@ -1249,7 +1256,7 @@ class TestFinderMetrics:
         with (
             patch("aiohttp.ClientSession") as mock_session_cls,
             patch(
-                "bigbrotr.services.finder.service.insert_candidates",
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
                 new_callable=AsyncMock,
                 return_value=2,
             ),
@@ -1318,7 +1325,7 @@ class TestFinderPersistScanChunk:
         )
 
         with patch(
-            "bigbrotr.services.finder.service.insert_candidates",
+            "bigbrotr.services.finder.service.insert_relays_as_candidates",
             new_callable=AsyncMock,
             return_value=1,
         ):

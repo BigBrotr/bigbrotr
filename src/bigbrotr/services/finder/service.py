@@ -14,7 +14,7 @@ Discovers Nostr relay URLs from two sources:
 
 Discovered URLs are inserted as validation candidates for the
 [Validator][bigbrotr.services.validator.Validator] service via
-[insert_candidates][bigbrotr.services.common.queries.insert_candidates].
+[insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates].
 
 Note:
     Event scanning uses per-relay cursor-based pagination so that
@@ -68,7 +68,7 @@ from bigbrotr.services.common.queries import (
     delete_orphan_cursors,
     fetch_all_relays,
     get_all_cursor_values,
-    insert_candidates,
+    insert_relays_as_candidates,
     scan_event_relay,
 )
 from bigbrotr.services.common.types import EventRelayCursor
@@ -93,7 +93,7 @@ class Finder(BaseService[FinderConfig]):
     Discovers Nostr relay URLs from external APIs and stored database events,
     then inserts them as validation candidates for the
     [Validator][bigbrotr.services.validator.Validator] service via
-    [insert_candidates][bigbrotr.services.common.queries.insert_candidates].
+    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates].
 
     See Also:
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Configuration
@@ -317,10 +317,10 @@ class Finder(BaseService[FinderConfig]):
 
         if all_relays:
             try:
-                found = await insert_candidates(self._brotr, list(all_relays.values()))
+                found = await insert_relays_as_candidates(self._brotr, list(all_relays.values()))
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
-                    "insert_candidates_failed",
+                    "insert_relays_as_candidates_failed",
                     error=str(e),
                     error_type=type(e).__name__,
                     count=len(all_relays),
@@ -340,7 +340,7 @@ class Finder(BaseService[FinderConfig]):
         Cursor rows with missing or incomplete fields (e.g. legacy
         ``last_seen_at``-only records) are omitted -- their relay will
         be rescanned from the beginning, which is safe because
-        ``insert_candidates`` is idempotent.
+        ``insert_relays_as_candidates`` is idempotent.
         """
         raw = await get_all_cursor_values(self._brotr, self.SERVICE_NAME)
         cursors: dict[str, EventRelayCursor] = {}
@@ -418,10 +418,10 @@ class Finder(BaseService[FinderConfig]):
 
         if relays:
             try:
-                found = await insert_candidates(self._brotr, list(relays.values()))
+                found = await insert_relays_as_candidates(self._brotr, list(relays.values()))
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
-                    "insert_candidates_failed",
+                    "insert_relays_as_candidates_failed",
                     error=str(e),
                     error_type=type(e).__name__,
                     count=len(relays),

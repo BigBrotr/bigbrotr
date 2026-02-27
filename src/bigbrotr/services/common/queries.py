@@ -10,7 +10,7 @@ The 13 query functions are grouped into five categories:
   ``insert_relays``
 - **Monitoring queries**: ``fetch_relays_to_monitor``
 - **Event queries**: ``scan_event_relay``, ``scan_event``
-- **Candidate lifecycle**: ``insert_candidates``, ``count_candidates``,
+- **Candidate lifecycle**: ``insert_relays_as_candidates``, ``count_candidates``,
   ``fetch_candidates``, ``delete_stale_candidates``,
   ``delete_exhausted_candidates``, ``promote_candidates``
 - **Cursor queries**: ``get_all_cursor_values``, ``delete_orphan_cursors``
@@ -139,7 +139,7 @@ async def filter_new_relays(
         Relays whose URL is not yet known (not in relays, not in candidates).
 
     See Also:
-        [insert_candidates][bigbrotr.services.common.queries.insert_candidates]:
+        [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates]:
             Uses this function internally to skip known relays.
     """
     urls = [r.url for r in relays]
@@ -183,7 +183,7 @@ async def insert_relays(brotr: Brotr, relays: list[Relay]) -> int:
         Number of relays actually inserted.
 
     See Also:
-        [insert_candidates][bigbrotr.services.common.queries.insert_candidates]:
+        [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates]:
             Alternative that inserts as validation candidates instead.
     """
     if not relays:
@@ -344,7 +344,7 @@ async def scan_event(
 # =============================================================================
 
 
-async def insert_candidates(brotr: Brotr, relays: list[Relay]) -> int:
+async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
     """Insert new validation candidates, skipping known relays and duplicates.
 
     Filters out URLs that already exist in the ``relay`` table or as
@@ -581,7 +581,7 @@ async def promote_candidates(brotr: Brotr, candidates: list[Candidate]) -> int:
         Number of relays inserted (duplicates skipped via ``ON CONFLICT``).
 
     See Also:
-        [insert_candidates][bigbrotr.services.common.queries.insert_candidates]:
+        [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates]:
             The inverse operation that creates candidate records.
         [delete_stale_candidates][bigbrotr.services.common.queries.delete_stale_candidates]:
             Safety net that removes candidates already in the relay table.

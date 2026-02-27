@@ -457,8 +457,9 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | `filter_new_relay_urls(brotr, urls)` | URLs not yet in relay table |
 | `insert_relays(brotr, relays)` | Insert relays directly into relay table |
 | `fetch_relays_to_monitor(brotr, ...)` | Fetch relays due for monitoring |
-| `fetch_event_tagvalues(brotr, ...)` | Event tagvalues for relay URL extraction |
-| `insert_candidates(brotr, relays)` | Insert new validation candidates (filters duplicates) |
+| `scan_event_relay(brotr, cursor, limit)` | Scan event-relay rows for a specific relay |
+| `scan_event(brotr, cursor, limit)` | Scan event rows ordered by creation time |
+| `insert_relays_as_candidates(brotr, relays)` | Insert new validation candidates (filters duplicates) |
 | `count_candidates(brotr, networks)` | Count pending candidates |
 | `fetch_candidates(brotr, ...)` | Fetch candidate batch for validation |
 | `delete_stale_candidates(brotr)` | Remove candidates already in relay table |

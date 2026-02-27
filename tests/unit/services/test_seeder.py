@@ -595,7 +595,7 @@ class TestSeederErrorHandling:
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
         with patch(
-            "bigbrotr.services.seeder.service.insert_candidates",
+            "bigbrotr.services.seeder.service.insert_relays_as_candidates",
             new_callable=AsyncMock,
             side_effect=asyncpg.PostgresError("connection lost"),
         ):

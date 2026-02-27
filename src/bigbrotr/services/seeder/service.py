@@ -24,7 +24,7 @@ See Also:
         class providing ``run()`` and ``from_yaml()`` lifecycle.
     [Brotr][bigbrotr.core.brotr.Brotr]: Database facade used for relay
         insertion.
-    [insert_candidates][bigbrotr.services.common.queries.insert_candidates]:
+    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates]:
         Query used to insert seed URLs as validation candidates.
 
 Examples:
@@ -50,7 +50,7 @@ import asyncpg
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.queries import insert_candidates, insert_relays
+from bigbrotr.services.common.queries import insert_relays, insert_relays_as_candidates
 
 from .configs import SeederConfig
 from .utils import parse_seed_file
@@ -115,7 +115,7 @@ class Seeder(BaseService[SeederConfig]):
     async def _seed_as_candidates(self, relays: list[Relay]) -> int:
         """Insert relays as validation candidates in ``service_state``."""
         try:
-            count = await insert_candidates(self._brotr, relays)
+            count = await insert_relays_as_candidates(self._brotr, relays)
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.error(
                 "candidates_insert_failed",
