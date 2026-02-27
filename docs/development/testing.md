@@ -370,17 +370,6 @@ class TestRelay:
             Relay("wss://192.168.1.1", discovered_at=1700000000)
 ```
 
-### Roundtrip (`to_db_params` / `from_db_params`)
-
-```python
-def test_roundtrip(self) -> None:
-    original = Relay("wss://relay.example.com", discovered_at=1700000000)
-    params = original.to_db_params()
-    restored = Relay.from_db_params(*params)
-    assert restored.url == original.url
-    assert restored.network == original.network
-```
-
 ### Immutability
 
 ```python

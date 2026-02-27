@@ -1,4 +1,4 @@
-"""Unit tests for the EventRelay model and EventRelayDbParams NamedTuple."""
+"""Unit tests for the EventRelay model."""
 
 from dataclasses import FrozenInstanceError
 from time import time
@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from bigbrotr.models import Event, EventRelay, Relay
-from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.event import EventDbParams
 from bigbrotr.models.event_relay import EventRelayDbParams
 
@@ -43,105 +42,6 @@ def relay():
 def event_relay(mock_event, relay):
     """Create an EventRelay with explicit seen_at."""
     return EventRelay(mock_event, relay, seen_at=1234567891)
-
-
-# =============================================================================
-# EventRelayDbParams Tests
-# =============================================================================
-
-
-class TestEventRelayDbParams:
-    """Test EventRelayDbParams NamedTuple."""
-
-    def test_is_named_tuple(self):
-        """EventRelayDbParams is a NamedTuple with 11 fields."""
-        params = EventRelayDbParams(
-            event_id=b"\xaa" * 32,
-            pubkey=b"\xbb" * 32,
-            created_at=1234567890,
-            kind=1,
-            tags="[]",
-            content="Test",
-            sig=b"\xcc" * 64,
-            relay_url="wss://relay.example.com",
-            relay_network="clearnet",
-            relay_discovered_at=1234567890,
-            seen_at=1234567891,
-        )
-        assert isinstance(params, tuple)
-        assert len(params) == 11
-
-    def test_field_access_by_name(self):
-        """Fields are accessible by name."""
-        params = EventRelayDbParams(
-            event_id=b"\xaa" * 32,
-            pubkey=b"\xbb" * 32,
-            created_at=1234567890,
-            kind=1,
-            tags='[["t","test"]]',
-            content="Content",
-            sig=b"\xcc" * 64,
-            relay_url="wss://relay.example.com",
-            relay_network="clearnet",
-            relay_discovered_at=1000000000,
-            seen_at=2000000000,
-        )
-        assert params.event_id == b"\xaa" * 32
-        assert params.pubkey == b"\xbb" * 32
-        assert params.created_at == 1234567890
-        assert params.kind == 1
-        assert params.tags == '[["t","test"]]'
-        assert params.content == "Content"
-        assert params.sig == b"\xcc" * 64
-        assert params.relay_url == "wss://relay.example.com"
-        assert params.relay_network == "clearnet"
-        assert params.relay_discovered_at == 1000000000
-        assert params.seen_at == 2000000000
-
-    def test_field_access_by_index(self):
-        """Fields are accessible by index."""
-        params = EventRelayDbParams(
-            event_id=b"\x00" * 32,
-            pubkey=b"\x01" * 32,
-            created_at=1234567890,
-            kind=7,
-            tags="[]",
-            content="",
-            sig=b"\x02" * 64,
-            relay_url="wss://test.relay",
-            relay_network="tor",
-            relay_discovered_at=1111111111,
-            seen_at=2222222222,
-        )
-        assert params[0] == b"\x00" * 32
-        assert params[1] == b"\x01" * 32
-        assert params[2] == 1234567890
-        assert params[3] == 7
-        assert params[4] == "[]"
-        assert params[5] == ""
-        assert params[6] == b"\x02" * 64
-        assert params[7] == "wss://test.relay"
-        assert params[8] == "tor"
-        assert params[9] == 1111111111
-        assert params[10] == 2222222222
-
-    def test_immutability(self):
-        """EventRelayDbParams is immutable (NamedTuple)."""
-        params = EventRelayDbParams(
-            event_id=b"\xaa" * 32,
-            pubkey=b"\xbb" * 32,
-            created_at=1234567890,
-            kind=1,
-            tags="[]",
-            content="Test",
-            sig=b"\xcc" * 64,
-            relay_url="wss://relay.example.com",
-            relay_network="clearnet",
-            relay_discovered_at=1234567890,
-            seen_at=1234567891,
-        )
-        with pytest.raises(AttributeError):
-            params.seen_at = 9999999999
 
 
 # =============================================================================
@@ -267,89 +167,6 @@ class TestToDbParams:
         result = er.to_db_params()
         assert result.relay_url == "ws://abc123.onion"
         assert result.relay_network == "tor"
-
-
-# =============================================================================
-# from_db_params Tests
-# =============================================================================
-
-
-class TestFromDbParams:
-    """EventRelay.from_db_params() deserialization."""
-
-    def test_reconstructs_relay(self):
-        """from_db_params should reconstruct relay correctly."""
-        params = EventRelayDbParams(
-            event_id=b"\xaa" * 32,
-            pubkey=b"\xbb" * 32,
-            created_at=1234567890,
-            kind=1,
-            tags="[]",
-            content="test",
-            sig=b"\xcc" * 64,
-            relay_url="wss://relay.example.com",
-            relay_network="clearnet",
-            relay_discovered_at=1234567890,
-            seen_at=9999999999,
-        )
-        er = EventRelay.from_db_params(params)
-        assert er.relay.url == "wss://relay.example.com"
-        assert er.relay.network == NetworkType.CLEARNET
-        assert er.relay.discovered_at == 1234567890
-
-    def test_reconstructs_seen_at(self):
-        """from_db_params preserves seen_at timestamp."""
-        params = EventRelayDbParams(
-            event_id=b"\xaa" * 32,
-            pubkey=b"\xbb" * 32,
-            created_at=1234567890,
-            kind=1,
-            tags="[]",
-            content="test",
-            sig=b"\xcc" * 64,
-            relay_url="wss://relay.example.com",
-            relay_network="clearnet",
-            relay_discovered_at=1234567890,
-            seen_at=9999999999,
-        )
-        er = EventRelay.from_db_params(params)
-        assert er.seen_at == 9999999999
-
-    def test_with_tor_relay(self):
-        """from_db_params works with Tor relay."""
-        params = EventRelayDbParams(
-            event_id=b"\xaa" * 32,
-            pubkey=b"\xbb" * 32,
-            created_at=1234567890,
-            kind=1,
-            tags="[]",
-            content="test",
-            sig=b"\xcc" * 64,
-            relay_url="ws://abc123.onion",
-            relay_network="tor",
-            relay_discovered_at=1234567890,
-            seen_at=1234567891,
-        )
-        er = EventRelay.from_db_params(params)
-        assert er.relay.network == NetworkType.TOR
-        assert er.relay.scheme == "ws"
-
-    def test_to_db_params_structure(self, mock_event, relay):
-        """Verify to_db_params output structure matches from_db_params signature."""
-        er = EventRelay(mock_event, relay, seen_at=1234567890)
-        params = er.to_db_params()
-        assert len(params) == 11
-        assert isinstance(params.event_id, bytes)
-        assert isinstance(params.pubkey, bytes)
-        assert isinstance(params.created_at, int)
-        assert isinstance(params.kind, int)
-        assert isinstance(params.tags, str)
-        assert isinstance(params.content, str)
-        assert isinstance(params.sig, bytes)
-        assert isinstance(params.relay_url, str)
-        assert isinstance(params.relay_network, str)
-        assert isinstance(params.relay_discovered_at, int)
-        assert isinstance(params.seen_at, int)
 
 
 # =============================================================================

@@ -52,22 +52,21 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import asyncpg
 
 from bigbrotr.core.base_service import BaseService
-from bigbrotr.models import Relay
-from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import ChunkProgressMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import (
+    cleanup_service_state,
     count_candidates,
     delete_exhausted_candidates,
-    delete_stale_candidates,
-    fetch_candidate_chunk,
+    fetch_candidates,
     promote_candidates,
+    upsert_service_states,
 )
 from bigbrotr.utils.protocol import is_nostr_relay
 
@@ -78,34 +77,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from bigbrotr.core.brotr import Brotr
-
-
-@dataclass(frozen=True, slots=True)
-class Candidate:
-    """Relay candidate pending validation.
-
-    Wraps a [Relay][bigbrotr.models.relay.Relay] object with its
-    ``service_state`` metadata, providing convenient access to validation
-    state (e.g., failure count).
-
-    Attributes:
-        relay: [Relay][bigbrotr.models.relay.Relay] object with URL and
-            network information.
-        data: Metadata from the ``service_state`` table (``network``,
-            ``failures``, etc.).
-
-    See Also:
-        [fetch_candidate_chunk][bigbrotr.services.common.queries.fetch_candidate_chunk]:
-            Query that produces the rows from which candidates are built.
-    """
-
-    relay: Relay
-    data: dict[str, Any]
-
-    @property
-    def failures(self) -> int:
-        """Return the number of failed validation attempts for this candidate."""
-        return int(self.data.get("failures", 0))
+    from bigbrotr.services.common.types import Candidate
 
 
 class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
@@ -220,10 +192,12 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             Number of stale candidates removed.
 
         See Also:
-            [delete_stale_candidates][bigbrotr.services.common.queries.delete_stale_candidates]:
+            [cleanup_service_state][bigbrotr.services.common.queries.cleanup_service_state]:
                 The SQL query executed by this method.
         """
-        count = await delete_stale_candidates(self._brotr)
+        count = await cleanup_service_state(
+            self._brotr, ServiceName.VALIDATOR, ServiceStateType.CANDIDATE
+        )
         if count > 0:
             self.inc_counter("total_stale_removed", count)
             self._logger.info("stale_removed", count=count)
@@ -268,7 +242,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay].
 
         Args:
-            candidate: [Candidate][bigbrotr.services.validator.service.Candidate]
+            candidate: [Candidate][bigbrotr.services.common.types.Candidate]
                 to validate.
 
         Returns:
@@ -289,8 +263,8 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             except (TimeoutError, OSError):
                 return False
 
-    async def validate_chunks(self) -> AsyncIterator[tuple[list[Relay], list[Candidate]]]:
-        """Yield ``(valid_relays, invalid_candidates)`` for each processed chunk.
+    async def validate_chunks(self) -> AsyncIterator[tuple[list[Candidate], list[Candidate]]]:
+        """Yield ``(valid_candidates, invalid_candidates)`` for each processed chunk.
 
         Handles chunk fetching, budget calculation, and concurrent validation.
         Persistence is left to the caller. Networks, chunk size, and candidate
@@ -298,7 +272,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig].
 
         Yields:
-            Tuple of (valid Relay list, invalid Candidate list) per chunk.
+            Tuple of (valid Candidate list, invalid Candidate list) per chunk.
         """
         networks = self._config.networks.get_enabled_networks()
         chunk_size = self._config.processing.chunk_size
@@ -322,7 +296,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             processed += len(valid) + len(invalid)
             yield valid, invalid
 
-    async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Candidate]:
+    async def _fetch_chunk(self, networks: list[NetworkType], limit: int) -> list[Candidate]:
         """Fetch the next chunk of candidates ordered by priority.
 
         Prioritizes candidates with fewer failures (more likely to succeed),
@@ -330,32 +304,22 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         candidates updated before the cycle start to avoid reprocessing.
 
         Args:
-            networks: Enabled network type strings to fetch.
+            networks: Enabled network types to fetch.
             limit: Maximum candidates to return.
 
         Returns:
             List of Candidate objects, possibly empty if none remain.
         """
-        rows = await fetch_candidate_chunk(
+        return await fetch_candidates(
             self._brotr,
             networks,
             int(self.chunk_progress.started_at),
             limit,
         )
 
-        candidates = []
-        for row in rows:
-            try:
-                relay = Relay(row["state_key"])
-                candidates.append(Candidate(relay=relay, data=dict(row["state_value"])))
-            except (ValueError, TypeError) as e:
-                self._logger.warning("parse_failed", url=row["state_key"], error=str(e))
-
-        return candidates
-
     async def _validate_chunk(
         self, candidates: list[Candidate]
-    ) -> tuple[list[Relay], list[Candidate]]:
+    ) -> tuple[list[Candidate], list[Candidate]]:
         """Validate a chunk of candidates concurrently.
 
         Runs all validations via ``asyncio.gather`` with per-network semaphores.
@@ -365,12 +329,12 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             candidates: Candidates to validate.
 
         Returns:
-            Tuple of (valid_relays, invalid_candidates).
+            Tuple of (valid_candidates, invalid_candidates).
         """
         tasks = [self.validate_candidate(c) for c in candidates]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        valid: list[Relay] = []
+        valid: list[Candidate] = []
         invalid: list[Candidate] = []
 
         for candidate, result in zip(candidates, results, strict=True):
@@ -378,26 +342,26 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             if isinstance(result, asyncio.CancelledError):
                 raise result
             if result is True:
-                valid.append(candidate.relay)
+                valid.append(candidate)
             else:
                 invalid.append(candidate)
 
         return valid, invalid
 
-    async def _persist_results(self, valid: list[Relay], invalid: list[Candidate]) -> None:
+    async def _persist_results(self, valid: list[Candidate], invalid: list[Candidate]) -> None:
         """Persist validation results to the database.
 
         Invalid candidates have their failure counter incremented (as
         [ServiceState][bigbrotr.models.service_state.ServiceState]
-        updates) for prioritization in future cycles. Valid relays are
+        updates) for prioritization in future cycles. Valid candidates are
         atomically inserted into the relays table and their candidate
         records deleted via
         [promote_candidates][bigbrotr.services.common.queries.promote_candidates].
 
         Args:
-            valid: [Relay][bigbrotr.models.relay.Relay] objects that
-                passed validation.
-            invalid: [Candidate][bigbrotr.services.validator.service.Candidate]
+            valid: [Candidate][bigbrotr.services.common.types.Candidate]
+                objects that passed validation.
+            invalid: [Candidate][bigbrotr.services.common.types.Candidate]
                 objects that failed validation.
         """
         # Update failed candidates
@@ -414,16 +378,16 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
                 for c in invalid
             ]
             try:
-                await self._brotr.upsert_service_state(updates)
+                await upsert_service_states(self._brotr, updates)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("update_failed", count=len(invalid), error=str(e))
 
-        # Promote valid relays (atomic: insert + delete in one transaction)
+        # Promote valid candidates (atomic: insert + delete in one transaction)
         if valid:
             try:
                 await promote_candidates(self._brotr, valid)
-                for relay in valid:
-                    self._logger.info("promoted", url=relay.url, network=relay.network.value)
+                for c in valid:
+                    self._logger.info("promoted", url=c.relay.url, network=c.relay.network.value)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("promote_failed", count=len(valid), error=str(e))
 

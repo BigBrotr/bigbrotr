@@ -14,7 +14,7 @@ Discovers Nostr relay URLs from two sources:
 
 Discovered URLs are inserted as validation candidates for the
 [Validator][bigbrotr.services.validator.Validator] service via
-[insert_candidates][bigbrotr.services.common.queries.insert_candidates].
+[insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates].
 
 Note:
     Event scanning uses per-relay cursor-based pagination so that
@@ -22,7 +22,8 @@ Note:
     [Synchronizer][bigbrotr.services.synchronizer.Synchronizer] are
     eventually processed. Cursors are stored as
     [ServiceState][bigbrotr.models.service_state.ServiceState] records
-    with ``state_type='cursor'`` and ``state_value.last_seen_at``.
+    with ``state_type='cursor'`` and a composite ``(seen_at, event_id)``
+    cursor in ``state_value`` for deterministic resumption.
 
 See Also:
     [FinderConfig][bigbrotr.services.finder.FinderConfig]: Configuration
@@ -64,12 +65,12 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.queries import (
-    delete_orphan_cursors,
-    fetch_event_tagvalues,
-    get_all_relay_urls,
-    get_all_service_cursors,
-    insert_candidates,
+    cleanup_service_state,
+    fetch_all_relays,
+    insert_relays_as_candidates,
+    scan_event_relay,
 )
+from bigbrotr.services.common.types import EventRelayCursor
 from bigbrotr.services.common.utils import parse_relay_url
 from bigbrotr.utils.http import read_bounded_json
 
@@ -91,7 +92,7 @@ class Finder(BaseService[FinderConfig]):
     Discovers Nostr relay URLs from external APIs and stored database events,
     then inserts them as validation candidates for the
     [Validator][bigbrotr.services.validator.Validator] service via
-    [insert_candidates][bigbrotr.services.common.queries.insert_candidates].
+    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates].
 
     See Also:
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Configuration
@@ -173,20 +174,23 @@ class Finder(BaseService[FinderConfig]):
         relays_failed = 0
 
         try:
-            removed = await delete_orphan_cursors(self._brotr, self.SERVICE_NAME)
+            removed = await cleanup_service_state(
+                self._brotr, self.SERVICE_NAME, ServiceStateType.CURSOR
+            )
             if removed:
-                self._logger.info("orphan_cursors_removed", count=removed)
+                self._logger.info("stale_cursors_removed", count=removed)
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.warning(
-                "orphan_cursor_cleanup_failed", error=str(e), error_type=type(e).__name__
+                "stale_cursor_cleanup_failed", error=str(e), error_type=type(e).__name__
             )
 
         try:
-            relay_urls = await get_all_relay_urls(self._brotr)
+            all_relays = await fetch_all_relays(self._brotr)
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.warning("fetch_relays_failed", error=str(e), error_type=type(e).__name__)
             return 0
 
+        relay_urls = [r.url for r in all_relays]
         if not relay_urls:
             self._logger.debug("no_relays_to_scan")
             return 0
@@ -314,10 +318,10 @@ class Finder(BaseService[FinderConfig]):
 
         if all_relays:
             try:
-                found = await insert_candidates(self._brotr, all_relays.values())
+                found = await insert_relays_as_candidates(self._brotr, list(all_relays.values()))
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
-                    "insert_candidates_failed",
+                    "insert_relays_as_candidates_failed",
                     error=str(e),
                     error_type=type(e).__name__,
                     count=len(all_relays),
@@ -329,33 +333,57 @@ class Finder(BaseService[FinderConfig]):
         self._logger.info("apis_completed", found=found, fetched=len(all_relays))
         return found
 
-    async def _fetch_all_cursors(self) -> dict[str, int]:
-        """Fetch all event-scanning cursors in a single query."""
-        return await get_all_service_cursors(self._brotr, self.SERVICE_NAME, "last_seen_at")
+    async def _fetch_all_cursors(self) -> dict[str, EventRelayCursor]:
+        """Fetch all event-scanning cursors in a single query.
 
-    async def _scan_relay_events(self, relay_url: str, cursors: dict[str, int]) -> tuple[int, int]:
-        """Scan events from a single relay using cursor-based pagination.
+        Returns a dict mapping relay URL to
+        [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor].
+        Cursor rows with missing or incomplete fields (e.g. legacy
+        ``last_seen_at``-only records) are omitted -- their relay will
+        be rescanned from the beginning, which is safe because
+        ``insert_relays_as_candidates`` is idempotent.
+        """
+        states = await self._brotr.get_service_state(self.SERVICE_NAME, ServiceStateType.CURSOR)
+        cursors: dict[str, EventRelayCursor] = {}
+        for s in states:
+            seen_at = s.state_value.get("seen_at")
+            event_id_hex = s.state_value.get("event_id")
+            if seen_at is not None and event_id_hex is not None:
+                try:
+                    cursors[s.state_key] = EventRelayCursor(
+                        relay_url=s.state_key,
+                        seen_at=int(seen_at),
+                        event_id=bytes.fromhex(str(event_id_hex)),
+                    )
+                except (ValueError, TypeError):
+                    self._logger.warning(
+                        "invalid_cursor_data",
+                        relay=s.state_key,
+                        seen_at=seen_at,
+                        event_id=event_id_hex,
+                    )
+        return cursors
+
+    async def _scan_relay_events(
+        self, relay_url: str, cursors: dict[str, EventRelayCursor]
+    ) -> tuple[int, int]:
+        """Scan events from a single relay using composite cursor pagination.
 
         Args:
             relay_url: The relay URL to scan events from.
-            cursors: Pre-fetched mapping of relay URL to last_seen_at timestamp.
+            cursors: Pre-fetched mapping of relay URL to
+                [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor].
 
         Returns:
             Tuple of (events_scanned, relays_found).
         """
         events_scanned = 0
         relays_found = 0
-
-        last_seen_at = cursors.get(relay_url, 0)
+        cursor = cursors.get(relay_url, EventRelayCursor(relay_url=relay_url))
 
         while self.is_running:
             try:
-                rows = await fetch_event_tagvalues(
-                    self._brotr,
-                    relay_url,
-                    last_seen_at,
-                    self._config.events.batch_size,
-                )
+                rows = await scan_event_relay(self._brotr, cursor, self._config.events.batch_size)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.warning(
                     "relay_event_query_failed",
@@ -370,42 +398,52 @@ class Finder(BaseService[FinderConfig]):
 
             relays = extract_relays_from_rows(rows)
             chunk_events = len(rows)
-            last_seen_at_update = rows[-1]["seen_at"]
+            last_row = rows[-1]
+            cursor = EventRelayCursor(
+                relay_url=relay_url,
+                seen_at=last_row["seen_at"],
+                event_id=last_row["event_id"],
+            )
 
-            relays_found += await self._persist_scan_chunk(relay_url, relays, last_seen_at_update)
+            relays_found += await self._persist_scan_chunk(relays, cursor)
             events_scanned += chunk_events
-            last_seen_at = last_seen_at_update
 
             if chunk_events < self._config.events.batch_size:
                 break
 
         return events_scanned, relays_found
 
-    async def _persist_scan_chunk(
-        self, relay_url: str, relays: dict[str, Relay], last_seen_at: int
-    ) -> int:
+    async def _persist_scan_chunk(self, relays: dict[str, Relay], cursor: EventRelayCursor) -> int:
         """Upsert discovered relay candidates and save the scan cursor."""
         found = 0
 
         if relays:
             try:
-                found = await insert_candidates(self._brotr, relays.values())
+                found = await insert_relays_as_candidates(self._brotr, list(relays.values()))
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
-                    "insert_candidates_failed",
+                    "insert_relays_as_candidates_failed",
                     error=str(e),
                     error_type=type(e).__name__,
                     count=len(relays),
                 )
 
+        seen_at = cursor.seen_at
+        event_id = cursor.event_id
+        if seen_at is None or event_id is None:
+            msg = "cursor must have seen_at and event_id set"
+            raise ValueError(msg)
         try:
             await self._brotr.upsert_service_state(
                 [
                     ServiceState(
                         service_name=self.SERVICE_NAME,
                         state_type=ServiceStateType.CURSOR,
-                        state_key=relay_url,
-                        state_value={"last_seen_at": last_seen_at},
+                        state_key=cursor.relay_url,
+                        state_value={
+                            "seen_at": seen_at,
+                            "event_id": event_id.hex(),
+                        },
                         updated_at=int(time.time()),
                     )
                 ]
@@ -413,7 +451,7 @@ class Finder(BaseService[FinderConfig]):
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.error(
                 "cursor_update_failed",
-                relay=relay_url,
+                relay=cursor.relay_url,
                 error=str(e),
                 error_type=type(e).__name__,
             )

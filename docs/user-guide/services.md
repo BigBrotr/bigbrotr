@@ -87,7 +87,7 @@ flowchart TD
 
 1. Read the seed file (one URL per line, `#` comments skipped)
 2. Parse each URL into a `Relay` object (validates URL format, detects network type)
-3. Insert as candidates via `insert_candidates()` (default) or directly to the `relay` table
+3. Insert as candidates via `insert_relays_as_candidates()` (default) or directly to the `relay` table
 
 !!! tip
     Set `to_validate: false` in the Seeder config to skip validation and insert relays directly. This is useful when seeding with a trusted, pre-validated relay list.
@@ -133,7 +133,7 @@ flowchart TD
     G --> I
     H --> I
 
-    I --> J["insert_candidates()"]
+    I --> J["insert_relays_as_candidates()"]
 
     style A fill:#7B1FA2,color:#fff,stroke:#4A148C
     style J fill:#311B92,color:#fff,stroke:#1A237E
@@ -181,9 +181,9 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["Validator.run()"] --> B["delete_stale_candidates()"]
+    A["Validator.run()"] --> B["cleanup_service_state(CANDIDATE)"]
     B --> C["delete_exhausted_candidates()"]
-    C --> D["fetch_candidate_chunk()"]
+    C --> D["fetch_candidates()"]
     D --> E{Candidates?}
     E -->|No| F["Cycle complete"]
     E -->|Yes| G["Validate in parallel<br/><small>per-network semaphores</small>"]

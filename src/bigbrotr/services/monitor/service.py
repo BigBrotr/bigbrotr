@@ -27,7 +27,7 @@ Note:
     and broadcasting to [bigbrotr.utils.transport][bigbrotr.utils.transport]. The Monitor handles
     orchestration: when to publish, which data to extract from
     [CheckResult][bigbrotr.services.monitor.CheckResult], and lifecycle
-    management of publishing intervals via service state checkpoints.
+    management of publishing intervals via service state markers.
 
 See Also:
     [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]: Configuration
@@ -35,7 +35,7 @@ See Also:
     [BaseService][bigbrotr.core.base_service.BaseService]: Abstract base
         class providing ``run()``, ``run_forever()``, and ``from_yaml()``.
     [Brotr][bigbrotr.core.brotr.Brotr]: Database facade used for metadata
-        persistence and checkpoint management.
+        persistence and state management.
     [Validator][bigbrotr.services.validator.Validator]: Upstream service
         that promotes candidates to the ``relay`` table.
 
@@ -89,7 +89,12 @@ from bigbrotr.services.common.mixins import (
     GeoReaderMixin,
     NetworkSemaphoresMixin,
 )
-from bigbrotr.services.common.queries import count_relays_due_for_check, fetch_relays_due_for_check
+from bigbrotr.services.common.queries import (
+    cleanup_service_state,
+    fetch_relays_to_monitor,
+    insert_relay_metadata,
+    upsert_service_states,
+)
 from bigbrotr.utils.http import download_bounded_file
 from bigbrotr.utils.protocol import broadcast_events
 
@@ -298,99 +303,81 @@ class Monitor(
         """
         networks = self._config.networks.get_enabled_networks()
 
-        self.chunk_progress.total = await self._count_relays(networks)
+        if not networks:
+            self._logger.warning("no_networks_enabled")
+            self._emit_progress_gauges()
+            return self.chunk_progress.processed
+
+        try:
+            removed = await cleanup_service_state(
+                self._brotr, self.SERVICE_NAME, ServiceStateType.MONITORING
+            )
+            if removed:
+                self._logger.info("stale_checkpoints_removed", count=removed)
+        except (asyncpg.PostgresError, OSError) as e:
+            self._logger.warning(
+                "stale_checkpoint_cleanup_failed", error=str(e), error_type=type(e).__name__
+            )
+
+        relays = await self._fetch_relays(networks)
+        self.chunk_progress.total = len(relays)
         self._logger.info("relays_available", total=self.chunk_progress.total)
         self._emit_progress_gauges()
 
-        if not networks:
-            self._logger.warning("no_networks_enabled")
-        else:
-            async for successful, failed in self.check_chunks():
-                self.chunk_progress.record(succeeded=len(successful), failed=len(failed))
-                await self.publish_relay_discoveries(successful)
-                await self._persist_results(successful, failed)
-                self._emit_progress_gauges()
-                self._logger.info(
-                    "chunk_completed",
-                    chunk=self.chunk_progress.chunks,
-                    successful=len(successful),
-                    failed=len(failed),
-                    remaining=self.chunk_progress.remaining,
-                )
+        async for successful, failed in self.check_chunks(relays):
+            self.chunk_progress.record(succeeded=len(successful), failed=len(failed))
+            await self.publish_relay_discoveries(successful)
+            await self._persist_results(successful, failed)
+            self._emit_progress_gauges()
+            self._logger.info(
+                "chunk_completed",
+                chunk=self.chunk_progress.chunks,
+                successful=len(successful),
+                failed=len(failed),
+                remaining=self.chunk_progress.remaining,
+            )
 
         self._emit_progress_gauges()
         return self.chunk_progress.processed
 
     async def check_chunks(
         self,
+        relays: list[Relay],
     ) -> AsyncIterator[tuple[list[tuple[Relay, CheckResult]], list[Relay]]]:
         """Yield (successful, failed) for each processed chunk of relays.
 
-        Requires ``geo_readers.open()`` for full checks. Handles chunk
-        fetching, budget calculation, and concurrent health checks.
-        Persistence and publishing are left to the caller. Networks, chunk
-        size, and relay limit are read from
-        [MonitorConfig][bigbrotr.services.monitor.MonitorConfig].
+        Requires ``geo_readers.open()`` for full checks. Handles budget
+        calculation and concurrent health checks. Persistence and publishing
+        are left to the caller.
+
+        Args:
+            relays: Pre-fetched relays to process, already ordered by
+                least-recently-checked.
 
         Yields:
             Tuple of (successful relay-result pairs, failed relays) per chunk.
         """
-        networks = self._config.networks.get_enabled_networks()
         chunk_size = self._config.processing.chunk_size
         max_relays = self._config.processing.max_relays
-        processed = 0
 
-        while self.is_running:
-            if max_relays is not None:
-                budget = max_relays - processed
-                if budget <= 0:
-                    break
-                limit = min(chunk_size, budget)
-            else:
-                limit = chunk_size
+        if max_relays is not None:
+            relays = relays[:max_relays]
 
-            relays = await self._fetch_chunk(networks, limit)
-            if not relays:
+        for i in range(0, len(relays), chunk_size):
+            if not self.is_running:
                 break
-
-            successful, failed = await self._check_chunk(relays)
-            processed += len(successful) + len(failed)
+            chunk = relays[i : i + chunk_size]
+            successful, failed = await self._check_chunk(chunk)
             yield successful, failed
 
-    async def _count_relays(self, networks: list[str]) -> int:
-        """Count relays needing health checks for the given networks."""
-        threshold = int(self.chunk_progress.started_at) - self._config.discovery.interval
-        return await count_relays_due_for_check(
-            self._brotr,
-            self.SERVICE_NAME,
-            threshold,
-            networks,
-        )
-
-    async def _fetch_chunk(self, networks: list[str], limit: int) -> list[Relay]:
-        """Fetch the next chunk of relays ordered by least-recently-checked first.
+    async def _fetch_relays(self, networks: list[NetworkType]) -> list[Relay]:
+        """Fetch all relays due for monitoring.
 
         See Also:
-            ``fetch_relays_due_for_check``: The SQL query executed.
+            ``fetch_relays_to_monitor``: The SQL query executed.
         """
-        threshold = int(self.chunk_progress.started_at) - self._config.discovery.interval
-
-        rows = await fetch_relays_due_for_check(
-            self._brotr,
-            self.SERVICE_NAME,
-            threshold,
-            networks,
-            limit,
-        )
-
-        relays: list[Relay] = []
-        for row in rows:
-            try:
-                relays.append(Relay(row["url"], discovered_at=row["discovered_at"]))
-            except (ValueError, TypeError) as e:
-                self._logger.warning("parse_failed", url=row["url"], error=str(e))
-
-        return relays
+        monitored_before = int(self.chunk_progress.started_at) - self._config.discovery.interval
+        return await fetch_relays_to_monitor(self._brotr, monitored_before, networks)
 
     async def _check_chunk(
         self, relays: list[Relay]
@@ -521,7 +508,7 @@ class Monitor(
             "check_exhausted",
             operation=operation,
             relay=relay_url,
-            attempts=max_retries + 1,
+            total_attempts=max_retries + 1,
             reason=get_reason(result) if result else None,
         )
         return result
@@ -715,14 +702,14 @@ class Monitor(
         """Persist health check results to the database.
 
         Inserts [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
-        records for successful checks and saves checkpoint timestamps
+        records for successful checks and saves monitoring timestamps
         (as [ServiceState][bigbrotr.models.service_state.ServiceState]
-        records with ``state_type='checkpoint'``) for all checked relays
+        records with ``state_type='monitoring'``) for all checked relays
         (both successful and failed) to avoid re-checking within the
         same interval.
 
         Note:
-            Checkpoints are saved for *all* relays, including failed ones.
+            Monitoring markers are saved for *all* relays, including failed ones.
             This prevents the monitor from repeatedly retrying a relay
             that is temporarily down within the same discovery interval.
             The relay will be rechecked in the next cycle after the
@@ -735,28 +722,28 @@ class Monitor(
             metadata = collect_metadata(successful, self._config.processing.store)
             if metadata:
                 try:
-                    count = await self._brotr.insert_relay_metadata(metadata)
+                    count = await insert_relay_metadata(self._brotr, metadata)
                     self._logger.debug("metadata_inserted", count=count)
                 except (asyncpg.PostgresError, OSError) as e:
                     self._logger.error("metadata_insert_failed", error=str(e), count=len(metadata))
 
-        # Save checkpoints for all checked relays
+        # Save monitoring markers for all checked relays
         all_relays = [relay for relay, _ in successful] + failed
         if all_relays:
-            checkpoints: list[ServiceState] = [
+            markers: list[ServiceState] = [
                 ServiceState(
                     service_name=self.SERVICE_NAME,
-                    state_type=ServiceStateType.CHECKPOINT,
+                    state_type=ServiceStateType.MONITORING,
                     state_key=relay.url,
-                    state_value={"last_check_at": now},
+                    state_value={"monitored_at": now},
                     updated_at=now,
                 )
                 for relay in all_relays
             ]
             try:
-                await self._brotr.upsert_service_state(checkpoints)
+                await upsert_service_states(self._brotr, markers)
             except (asyncpg.PostgresError, OSError) as e:
-                self._logger.error("checkpoint_save_failed", error=str(e))
+                self._logger.error("monitoring_save_failed", error=str(e))
 
     def _emit_progress_gauges(self) -> None:
         """Emit Prometheus gauges for batch progress."""
@@ -786,10 +773,10 @@ class Monitor(
 
         results = await self._brotr.get_service_state(
             self.SERVICE_NAME,
-            ServiceStateType.CHECKPOINT,
+            ServiceStateType.PUBLICATION,
             state_key,
         )
-        last_ts = results[0].state_value.get("timestamp", 0) if results else 0
+        last_ts = results[0].state_value.get("published_at", 0) if results else 0
         if time.time() - last_ts < interval:
             return
 
@@ -809,9 +796,9 @@ class Monitor(
             [
                 ServiceState(
                     service_name=self.SERVICE_NAME,
-                    state_type=ServiceStateType.CHECKPOINT,
+                    state_type=ServiceStateType.PUBLICATION,
                     state_key=state_key,
-                    state_value={"timestamp": now},
+                    state_value={"published_at": now},
                     updated_at=now,
                 ),
             ]

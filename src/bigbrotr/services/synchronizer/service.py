@@ -6,10 +6,10 @@ Uses ``asyncio.TaskGroup`` with per-network semaphores for structured, bounded c
 The synchronization workflow proceeds as follows:
 
 1. Fetch relays from the database via
-   [get_all_relays][bigbrotr.services.common.queries.get_all_relays]
+   [fetch_all_relays][bigbrotr.services.common.queries.fetch_all_relays]
    (optionally filtered by metadata age).
 2. Load per-relay sync cursors from ``service_state`` via
-   [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors].
+   [Brotr.get_service_state][bigbrotr.core.brotr.Brotr.get_service_state].
 3. Connect to each relay and fetch events since the last sync timestamp.
 4. Validate event signatures and timestamps before insertion.
 5. Update per-relay cursors for the next cycle.
@@ -69,12 +69,13 @@ from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import (
-    delete_orphan_cursors,
-    get_all_relays,
-    get_all_service_cursors,
+    cleanup_service_state,
+    fetch_all_relays,
+    upsert_service_states,
 )
+from bigbrotr.services.common.types import EventRelayCursor
 
-from .configs import SynchronizerConfig
+from .configs import RelayOverride, SynchronizerConfig
 from .utils import SyncBatchState, SyncContext, SyncCycleCounters, sync_relay_events
 
 
@@ -109,8 +110,8 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             that health-checks relays before they are synced.
         [Finder][bigbrotr.services.finder.Finder]: Downstream consumer
             that discovers relay URLs from the events collected here.
-        [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors]:
-            Pre-fetches all per-relay cursor values.
+        [Brotr.get_service_state][bigbrotr.core.brotr.Brotr.get_service_state]:
+            Fetches per-relay cursor values.
     """
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.SYNCHRONIZER
@@ -173,12 +174,14 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             Number of relays that were processed.
         """
         try:
-            removed = await delete_orphan_cursors(self._brotr, self.SERVICE_NAME)
+            removed = await cleanup_service_state(
+                self._brotr, self.SERVICE_NAME, ServiceStateType.CURSOR
+            )
             if removed:
-                self._logger.info("orphan_cursors_removed", count=removed)
+                self._logger.info("stale_cursors_removed", count=removed)
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.warning(
-                "orphan_cursor_cleanup_failed", error=str(e), error_type=type(e).__name__
+                "stale_cursor_cleanup_failed", error=str(e), error_type=type(e).__name__
             )
 
         relays = await self.fetch_relays()
@@ -206,45 +209,40 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             List of relays to sync (filtered by enabled networks).
 
         See Also:
-            [get_all_relays][bigbrotr.services.common.queries.get_all_relays]:
+            [fetch_all_relays][bigbrotr.services.common.queries.fetch_all_relays]:
                 The SQL query executed by this method.
         """
         if not self._config.source.from_database:
             return []
 
-        rows = await get_all_relays(self._brotr)
-
+        all_relays = await fetch_all_relays(self._brotr)
         enabled = set(self._config.networks.get_enabled_networks())
-        relays: list[Relay] = []
-        for row in rows:
-            url_str = row["url"].strip()
-            try:
-                relay = Relay(url_str, discovered_at=row["discovered_at"])
-                if relay.network.value in enabled:
-                    relays.append(relay)
-            except (ValueError, TypeError) as e:
-                self._logger.debug("invalid_relay_url", url=url_str, error=str(e))
+        relays = [r for r in all_relays if r.network in enabled]
 
         self._logger.debug("relays_fetched", count=len(relays))
         return relays
 
-    async def fetch_cursors(self) -> dict[str, int]:
+    async def fetch_cursors(self) -> dict[str, EventRelayCursor]:
         """Batch-fetch all relay sync cursors in a single query.
 
         Controlled by ``time_range.use_relay_state`` in
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig].
 
         Returns:
-            Dict mapping relay URL to ``last_synced_at`` timestamp.
-
-        See Also:
-            [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors]:
-                The SQL query executed by this method.
+            Dict mapping relay URL to
+            [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor].
         """
         if not self._config.time_range.use_relay_state:
             return {}
 
-        return await get_all_service_cursors(self._brotr, self.SERVICE_NAME, "last_synced_at")
+        states = await self._brotr.get_service_state(self.SERVICE_NAME, ServiceStateType.CURSOR)
+        return {
+            s.state_key: EventRelayCursor(
+                relay_url=s.state_key, seen_at=s.state_value["last_synced_at"]
+            )
+            for s in states
+            if "last_synced_at" in s.state_value
+        }
 
     def _merge_overrides(self, relays: list[Relay]) -> list[Relay]:
         """Merge configured relay overrides into the relay list.
@@ -280,11 +278,12 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             cursor_lock=asyncio.Lock(),
             cursor_flush_interval=self._config.concurrency.cursor_flush_interval,
         )
+        overrides_map: dict[str, RelayOverride] = {o.url: o for o in self._config.overrides}
 
         try:
             async with asyncio.TaskGroup() as tg:
                 for relay in relays:
-                    tg.create_task(self._sync_single_relay(relay, cursors, batch))
+                    tg.create_task(self._sync_single_relay(relay, cursors, batch, overrides_map))
         except ExceptionGroup as eg:
             for exc in eg.exceptions:
                 self._logger.error(
@@ -296,7 +295,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
 
         if batch.cursor_updates:
             try:
-                await self._brotr.upsert_service_state(batch.cursor_updates)
+                await upsert_service_states(self._brotr, batch.cursor_updates)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
                     "cursor_batch_upsert_failed",
@@ -305,7 +304,11 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                 )
 
     async def _sync_single_relay(
-        self, relay: Relay, cursors: dict[str, int], batch: SyncBatchState
+        self,
+        relay: Relay,
+        cursors: dict[str, EventRelayCursor],
+        batch: SyncBatchState,
+        overrides_map: dict[str, RelayOverride],
     ) -> None:
         """Sync events from a single relay with semaphore-bounded concurrency."""
         semaphore = self.network_semaphores.get(relay.network)
@@ -318,13 +321,12 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             request_timeout = network_type_config.timeout
             relay_timeout = self._config.timeouts.get_relay_timeout(relay.network)
 
-            for override in self._config.overrides:
-                if override.url == str(relay.url):
-                    if override.timeouts.relay is not None:
-                        relay_timeout = override.timeouts.relay
-                    if override.timeouts.request is not None:
-                        request_timeout = override.timeouts.request
-                    break
+            override = overrides_map.get(str(relay.url))
+            if override is not None:
+                if override.timeouts.relay is not None:
+                    relay_timeout = override.timeouts.relay
+                if override.timeouts.request is not None:
+                    request_timeout = override.timeouts.request
 
             start = self._get_start_time_from_cache(relay, cursors)
             end_time = int(time.time()) - self._config.time_range.lookback_seconds
@@ -364,7 +366,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                         )
                     )
                     if len(batch.cursor_updates) >= batch.cursor_flush_interval:
-                        await self._brotr.upsert_service_state(batch.cursor_updates.copy())
+                        await upsert_service_states(self._brotr, batch.cursor_updates.copy())
                         batch.cursor_updates.clear()
 
             except (TimeoutError, OSError, asyncpg.PostgresError) as e:
@@ -377,13 +379,13 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                 async with self._counters.lock:
                     self._counters.failed_relays += 1
 
-    def _get_start_time_from_cache(self, relay: Relay, cursors: dict[str, int]) -> int:
+    def _get_start_time_from_cache(self, relay: Relay, cursors: dict[str, EventRelayCursor]) -> int:
         """Look up the sync start timestamp from a pre-fetched cursor cache."""
         if not self._config.time_range.use_relay_state:
             return self._config.time_range.default_start
 
         cursor = cursors.get(relay.url)
-        if cursor is not None:
-            return cursor + 1
+        if cursor is not None and cursor.seen_at is not None:
+            return cursor.seen_at + 1
 
         return self._config.time_range.default_start

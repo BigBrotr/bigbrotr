@@ -35,7 +35,7 @@ Comprehensive codebase hardening: 46 commits across 44 PRs. Finder refactored fr
 
 - **JMESPath API extraction** (#309): `ApiSourceConfig.jmespath` field enables configurable relay URL extraction from diverse JSON API response formats (`[*]`, `data.relays`, `[*].url`, `keys(@)`)
 - **`jmespath` dependency**: `jmespath>=1.0.0` (runtime) and `types-jmespath>=1.0.0` (dev type stubs)
-- **`delete_orphan_cursors` query**: Removes cursor records for relays no longer in the database, shared by Finder and Synchronizer (#309)
+- **`cleanup_stale_state` query**: Removes state records for relays no longer in the database, used by Finder, Synchronizer, and Monitor (#309)
 - **Finder metrics**: `relays_failed` gauge and `total_api_relays_found` counter (#309)
 - **Synchronizer network filtering**: `fetch_relays()` now filters by enabled networks, avoiding unnecessary relay loading (#309)
 - **NIP-11 shared session**: `Nip11.fetch_info()` accepts an optional shared `aiohttp.ClientSession` for connection pooling (#307)
@@ -80,7 +80,7 @@ Comprehensive codebase hardening: 46 commits across 44 PRs. Finder refactored fr
 ### Tests
 
 - Relaxed exact mock call count assertions in Event tests (#296)
-- Added 170+ new tests for Finder (JMESPath, orphan cursors, metrics), Synchronizer (network filter, orphan cursors), queries (`delete_orphan_cursors`, `fetch_event_tagvalues`), and transport
+- Added 170+ new tests for Finder (JMESPath, stale cursors, metrics), Synchronizer (network filter, stale cursors), queries (`cleanup_stale_state`, `fetch_event_tagvalues`), and transport
 
 ### Documentation
 

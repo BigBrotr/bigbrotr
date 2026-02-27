@@ -142,7 +142,6 @@ All models follow a strict immutable pattern:
 - Cache `to_db_params()` result in `__post_init__` via a `_db_params` field
 - Pattern: `_compute_db_params()` -> cached `_db_params` -> `to_db_params()` returns it
 - Use `object.__setattr__` in `__post_init__` (frozen workaround)
-- Provide `from_db_params()` classmethod for reconstruction from database rows
 
 Key type locations:
 
@@ -156,7 +155,7 @@ Design principles:
 
 - **Fail-fast validation**: invalid instances never escape the constructor
 - **Content-addressed deduplication**: Metadata hashed with SHA-256 (same data = same hash)
-- **Never trust stored data**: `from_db_params()` always re-validates and re-computes hashes
+- **Never trust stored data**: constructors re-validate all inputs and re-compute hashes
 
 ---
 

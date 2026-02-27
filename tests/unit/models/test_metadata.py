@@ -1,4 +1,4 @@
-"""Unit tests for the Metadata model, MetadataType enum, and MetadataDbParams NamedTuple."""
+"""Unit tests for the Metadata model and MetadataType enum."""
 
 import json
 from dataclasses import FrozenInstanceError
@@ -6,59 +6,6 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from bigbrotr.models.metadata import Metadata, MetadataDbParams, MetadataType
-
-
-# =============================================================================
-# MetadataDbParams Tests
-# =============================================================================
-
-
-class TestMetadataDbParams:
-    """Test MetadataDbParams NamedTuple."""
-
-    def test_is_named_tuple(self):
-        """MetadataDbParams is a NamedTuple with 3 fields."""
-        params = MetadataDbParams(
-            id=b"\x00" * 32,
-            type=MetadataType.NIP11_INFO,
-            data='{"key": "value"}',
-        )
-        assert isinstance(params, tuple)
-        assert len(params) == 3
-
-    def test_field_access_by_name(self):
-        """Fields are accessible by name."""
-        test_hash = b"\x01\x02\x03" + b"\x00" * 29
-        params = MetadataDbParams(
-            id=test_hash,
-            type=MetadataType.NIP66_RTT,
-            data='{"name": "test"}',
-        )
-        assert params.id == test_hash
-        assert params.type == MetadataType.NIP66_RTT
-        assert params.data == '{"name": "test"}'
-
-    def test_field_access_by_index(self):
-        """Fields are accessible by index."""
-        test_hash = b"\x00" * 32
-        params = MetadataDbParams(
-            id=test_hash,
-            type=MetadataType.NIP66_SSL,
-            data="[]",
-        )
-        assert params[0] == test_hash
-        assert params[1] == MetadataType.NIP66_SSL
-        assert params[2] == "[]"
-
-    def test_immutability(self):
-        """MetadataDbParams is immutable (NamedTuple)."""
-        params = MetadataDbParams(
-            id=b"\x00" * 32,
-            type=MetadataType.NIP11_INFO,
-            data="{}",
-        )
-        with pytest.raises(AttributeError):
-            params.data = '{"new": "data"}'
 
 
 # =============================================================================
@@ -224,67 +171,6 @@ class TestToDbParams:
 
 
 # =============================================================================
-# from_db_params Tests
-# =============================================================================
-
-
-class TestFromDbParams:
-    """Metadata.from_db_params() deserialization."""
-
-    def test_simple(self):
-        """Reconstructs simple metadata."""
-        hash_bytes = bytes.fromhex(
-            "7d9fd2051fc32b32feab10946fab6bb91426ab7e39aa5439289ed892864aa91d"  # pragma: allowlist secret
-        )
-        params = MetadataDbParams(
-            id=hash_bytes, type=MetadataType.NIP11_INFO, data='{"name": "test"}'
-        )
-        m = Metadata.from_db_params(params)
-        assert m.data == {"name": "test"}
-        assert m.type == MetadataType.NIP11_INFO
-
-    def test_nested(self):
-        """Reconstructs nested metadata."""
-        hash_bytes = bytes.fromhex(
-            "345cbac42064615b5c54e4b502193eb847ce94a9c62ad47a463fe43d99226e3c"  # pragma: allowlist secret
-        )
-        params = MetadataDbParams(
-            id=hash_bytes, type=MetadataType.NIP66_RTT, data='{"a": {"b": [1, 2, 3]}}'
-        )
-        m = Metadata.from_db_params(params)
-        assert m.data["a"]["b"] == (1, 2, 3)
-        assert m.type == MetadataType.NIP66_RTT
-
-    def test_empty(self):
-        """Reconstructs empty metadata."""
-        hash_bytes = bytes.fromhex(
-            "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"  # pragma: allowlist secret
-        )
-        params = MetadataDbParams(id=hash_bytes, type=MetadataType.NIP66_SSL, data="{}")
-        m = Metadata.from_db_params(params)
-        assert m.data == {}
-        assert m.type == MetadataType.NIP66_SSL
-
-    def test_roundtrip(self):
-        """to_db_params -> from_db_params preserves metadata."""
-        original = Metadata(type=MetadataType.NIP11_INFO, data={"name": "test", "value": 123})
-        params = original.to_db_params()
-        reconstructed = Metadata.from_db_params(params)
-        assert reconstructed.data == original.data
-        assert reconstructed.type == original.type
-
-    def test_roundtrip_nested(self):
-        """Roundtrip preserves nested structures."""
-        original = Metadata(
-            type=MetadataType.NIP66_GEO, data={"outer": {"inner": {"deep": [1, 2, 3]}}}
-        )
-        params = original.to_db_params()
-        reconstructed = Metadata.from_db_params(params)
-        assert reconstructed.data == original.data
-        assert reconstructed.type == original.type
-
-
-# =============================================================================
 # Equality Tests
 # =============================================================================
 
@@ -330,7 +216,7 @@ class TestEdgeCases:
         data = {"name": "World", "japanese": "Nostr"}
         m = Metadata(type=MetadataType.NIP11_INFO, data=data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params)
+        reconstructed = Metadata(type=params.type, data=json.loads(params.data))
         assert reconstructed.data == data
 
     def test_large_data(self):
@@ -338,7 +224,7 @@ class TestEdgeCases:
         data = {"items": list(range(10000))}
         m = Metadata(type=MetadataType.NIP11_INFO, data=data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params)
+        reconstructed = Metadata(type=params.type, data=json.loads(params.data))
         assert reconstructed.data == {"items": tuple(range(10000))}
 
     def test_special_json_characters(self):
@@ -346,7 +232,7 @@ class TestEdgeCases:
         data = {"text": 'Hello "World"\nNew line\ttab'}
         m = Metadata(type=MetadataType.NIP11_INFO, data=data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params)
+        reconstructed = Metadata(type=params.type, data=json.loads(params.data))
         assert reconstructed.data == data
 
     def test_null_values_filtered(self):
@@ -354,7 +240,7 @@ class TestEdgeCases:
         data = {"value": None, "nested": {"inner": None}, "real": "data"}
         m = Metadata(type=MetadataType.NIP11_INFO, data=data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params)
+        reconstructed = Metadata(type=params.type, data=json.loads(params.data))
         assert reconstructed.data == {"real": "data"}
         assert "value" not in reconstructed.data
         assert "nested" not in reconstructed.data
@@ -364,7 +250,7 @@ class TestEdgeCases:
         data = {"true": True, "false": False}
         m = Metadata(type=MetadataType.NIP11_INFO, data=data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params)
+        reconstructed = Metadata(type=params.type, data=json.loads(params.data))
         assert reconstructed.data == data
         assert reconstructed.data["true"] is True
         assert reconstructed.data["false"] is False
@@ -374,7 +260,7 @@ class TestEdgeCases:
         data = {"int": 9007199254740992, "float": 3.14159}
         m = Metadata(type=MetadataType.NIP11_INFO, data=data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params)
+        reconstructed = Metadata(type=params.type, data=json.loads(params.data))
         assert reconstructed.data["int"] == 9007199254740992
         assert abs(reconstructed.data["float"] - 3.14159) < 1e-10
 
@@ -383,7 +269,7 @@ class TestEdgeCases:
         data = {"l1": {"l2": {"l3": {"l4": {"l5": "deep"}}}}}
         m = Metadata(type=MetadataType.NIP11_INFO, data=data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params)
+        reconstructed = Metadata(type=params.type, data=json.loads(params.data))
         assert reconstructed.data == data
 
     def test_list_as_data_rejected(self):
@@ -401,7 +287,7 @@ class TestEdgeCases:
         data = {"empty": "", "nested": {"also_empty": ""}}
         m = Metadata(type=MetadataType.NIP11_INFO, data=data)
         params = m.to_db_params()
-        reconstructed = Metadata.from_db_params(params)
+        reconstructed = Metadata(type=params.type, data=json.loads(params.data))
         assert reconstructed.data["empty"] == ""
         assert reconstructed.data["nested"]["also_empty"] == ""
 

@@ -54,8 +54,10 @@ class ServiceStateType(StrEnum):
         CANDIDATE: A candidate URL discovered but not yet validated.
         CURSOR: A processing cursor marking the last-processed position
             in an ordered data source (e.g., event timestamp, relay index).
-        CHECKPOINT: A checkpoint marking a milestone in a long-running
-            operation (e.g., synchronization progress).
+        MONITORING: A per-relay marker recording when the last health
+            monitoring was performed.
+        PUBLICATION: A marker recording when a Nostr event (profile,
+            announcement) was last published.
 
     See Also:
         [ServiceState][bigbrotr.models.service_state.ServiceState]: The row
@@ -64,7 +66,8 @@ class ServiceStateType(StrEnum):
 
     CANDIDATE = "candidate"
     CURSOR = "cursor"
-    CHECKPOINT = "checkpoint"
+    MONITORING = "monitoring"
+    PUBLICATION = "publication"
 
 
 class ServiceStateDbParams(NamedTuple):
@@ -177,22 +180,3 @@ class ServiceState:
             with fields in stored procedure column order.
         """
         return self._db_params
-
-    @classmethod
-    def from_db_params(cls, params: ServiceStateDbParams) -> ServiceState:
-        """Reconstruct a ``ServiceState`` from database parameters.
-
-        Args:
-            params: A [ServiceStateDbParams][bigbrotr.models.service_state.ServiceStateDbParams]
-                tuple (typically from a database query result).
-
-        Returns:
-            A new ``ServiceState`` instance with validated enum fields.
-        """
-        return cls(
-            service_name=params.service_name,
-            state_type=params.state_type,
-            state_key=params.state_key,
-            state_value=json.loads(params.state_value),
-            updated_at=params.updated_at,
-        )

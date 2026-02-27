@@ -768,8 +768,8 @@ class Brotr:
     async def upsert_service_state(self, records: list[ServiceState]) -> int:
         """Atomically upsert service state records using bulk array parameters.
 
-        Services use this to persist operational state (cursors, checkpoints,
-        candidates) across restarts. Each record is identified by the
+        Services use this to persist operational state (cursors, monitoring
+        markers, publication markers, candidates) across restarts. Each record is identified by the
         composite key ``(service_name, state_type, state_key)``. Calls the
         ``service_state_upsert`` stored procedure.
 

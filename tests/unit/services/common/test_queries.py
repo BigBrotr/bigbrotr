@@ -22,25 +22,28 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from bigbrotr.models.constants import ServiceName
+from bigbrotr.models import Relay
+from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.queries import (
+    _batched_insert,
+    cleanup_service_state,
     count_candidates,
-    count_relays_due_for_check,
     delete_exhausted_candidates,
-    delete_orphan_cursors,
-    delete_stale_candidates,
-    fetch_candidate_chunk,
-    fetch_event_tagvalues,
-    fetch_relays_due_for_check,
-    filter_new_relay_urls,
-    get_all_relay_urls,
-    get_all_relays,
-    get_all_service_cursors,
-    insert_candidates,
+    fetch_all_relays,
+    fetch_candidates,
+    fetch_relays_to_monitor,
+    filter_new_relays,
+    insert_event_relays,
+    insert_relay_metadata,
+    insert_relays,
+    insert_relays_as_candidates,
     promote_candidates,
+    scan_event,
+    scan_event_relay,
+    upsert_service_states,
 )
-from bigbrotr.services.common.utils import parse_delete_result
+from bigbrotr.services.common.types import Candidate, EventCursor, EventRelayCursor
 
 
 # ============================================================================
@@ -57,6 +60,7 @@ def mock_brotr() -> MagicMock:
     brotr.fetchval = AsyncMock(return_value=0)
     brotr.execute = AsyncMock(return_value="DELETE 0")
     brotr.upsert_service_state = AsyncMock()
+    brotr.get_service_state = AsyncMock(return_value=[])
     brotr.config.batch.max_size = 1000
 
     # Transaction context manager
@@ -104,55 +108,16 @@ def _make_dict_row(data: dict[str, Any]) -> dict[str, Any]:
 
 
 # ============================================================================
-# TestGetAllRelayUrls
-# ============================================================================
-
-
-class TestGetAllRelayUrls:
-    """Tests for get_all_relay_urls()."""
-
-    async def test_calls_fetch(self, mock_brotr: MagicMock) -> None:
-        """Calls brotr.fetch with a SELECT ... FROM relay query."""
-        await get_all_relay_urls(mock_brotr)
-
-        mock_brotr.fetch.assert_awaited_once()
-        sql = mock_brotr.fetch.call_args[0][0]
-        assert "FROM relay" in sql
-        assert "ORDER BY url" in sql
-
-    async def test_returns_url_list(self, mock_brotr: MagicMock) -> None:
-        """Returns a list of URL strings extracted from rows."""
-        mock_brotr.fetch = AsyncMock(
-            return_value=[
-                _make_dict_row({"url": "wss://alpha.example.com"}),
-                _make_dict_row({"url": "wss://beta.example.com"}),
-            ]
-        )
-
-        result = await get_all_relay_urls(mock_brotr)
-
-        assert result == ["wss://alpha.example.com", "wss://beta.example.com"]
-
-    async def test_empty_result(self, mock_brotr: MagicMock) -> None:
-        """Returns an empty list when no relays exist."""
-        mock_brotr.fetch = AsyncMock(return_value=[])
-
-        result = await get_all_relay_urls(mock_brotr)
-
-        assert result == []
-
-
-# ============================================================================
 # TestGetAllRelays
 # ============================================================================
 
 
-class TestGetAllRelays:
-    """Tests for get_all_relays()."""
+class TestFetchAllRelays:
+    """Tests for fetch_all_relays()."""
 
     async def test_calls_fetch(self, mock_brotr: MagicMock) -> None:
         """Calls brotr.fetch with a query selecting url, network, discovered_at."""
-        await get_all_relays(mock_brotr)
+        await fetch_all_relays(mock_brotr)
 
         mock_brotr.fetch.assert_awaited_once()
         sql = mock_brotr.fetch.call_args[0][0]
@@ -161,22 +126,43 @@ class TestGetAllRelays:
         assert "discovered_at" in sql
         assert "FROM relay" in sql
 
-    async def test_returns_list_of_dicts(self, mock_brotr: MagicMock) -> None:
-        """Returns a list of dicts created via dict(row)."""
+    async def test_returns_relay_objects(self, mock_brotr: MagicMock) -> None:
+        """Returns a list of Relay domain objects."""
         row = _make_dict_row(
             {"url": "wss://relay.example.com", "network": "clearnet", "discovered_at": 1700000000}
         )
         mock_brotr.fetch = AsyncMock(return_value=[row])
 
-        result = await get_all_relays(mock_brotr)
+        result = await fetch_all_relays(mock_brotr)
 
         assert len(result) == 1
-        assert result[0]["url"] == "wss://relay.example.com"
-        assert result[0]["network"] == "clearnet"
+        assert result[0].url == "wss://relay.example.com"
+        assert result[0].network.value == "clearnet"
+
+    async def test_skips_invalid_urls(self, mock_brotr: MagicMock) -> None:
+        """Skips rows with invalid URLs instead of raising."""
+        rows = [
+            _make_dict_row(
+                {"url": "wss://valid.relay.com", "network": "clearnet", "discovered_at": 1700000000}
+            ),
+            _make_dict_row(
+                {"url": "not-a-valid-url", "network": "clearnet", "discovered_at": 1700000000}
+            ),
+            _make_dict_row(
+                {"url": "wss://also.valid.com", "network": "clearnet", "discovered_at": 1700000001}
+            ),
+        ]
+        mock_brotr.fetch = AsyncMock(return_value=rows)
+
+        result = await fetch_all_relays(mock_brotr)
+
+        assert len(result) == 2
+        assert result[0].url == "wss://valid.relay.com"
+        assert result[1].url == "wss://also.valid.com"
 
     async def test_empty_result(self, mock_brotr: MagicMock) -> None:
         """Returns an empty list when no relays exist."""
-        result = await get_all_relays(mock_brotr)
+        result = await fetch_all_relays(mock_brotr)
 
         assert result == []
 
@@ -186,14 +172,14 @@ class TestGetAllRelays:
 # ============================================================================
 
 
-class TestFilterNewRelayUrls:
-    """Tests for filter_new_relay_urls()."""
+class TestFilterNewRelays:
+    """Tests for filter_new_relays()."""
 
     async def test_calls_fetch_with_correct_params(self, mock_brotr: MagicMock) -> None:
         """Passes urls, ServiceName.VALIDATOR, and ServiceStateType.CANDIDATE."""
-        urls = ["wss://new1.example.com", "wss://new2.example.com"]
+        relays = [Relay("wss://new1.example.com"), Relay("wss://new2.example.com")]
 
-        await filter_new_relay_urls(mock_brotr, urls)
+        await filter_new_relays(mock_brotr, relays)
 
         mock_brotr.fetch.assert_awaited_once()
         args = mock_brotr.fetch.call_args
@@ -201,88 +187,44 @@ class TestFilterNewRelayUrls:
         assert "unnest($1::text[])" in sql
         assert "service_name = $2" in sql
         assert "state_type = $3" in sql
-        # Positional params
-        assert args[0][1] == urls
+        assert args[0][1] == ["wss://new1.example.com", "wss://new2.example.com"]
         assert args[0][2] == ServiceName.VALIDATOR
         assert args[0][3] == ServiceStateType.CANDIDATE
 
-    async def test_returns_filtered_urls(self, mock_brotr: MagicMock) -> None:
-        """Returns only URLs that are genuinely new."""
+    async def test_returns_filtered_relays(self, mock_brotr: MagicMock) -> None:
+        """Returns only relays whose URL is genuinely new."""
         mock_brotr.fetch = AsyncMock(
             return_value=[_make_dict_row({"url": "wss://new1.example.com"})]
         )
+        relays = [Relay("wss://new1.example.com"), Relay("wss://existing.example.com")]
 
-        result = await filter_new_relay_urls(
-            mock_brotr, ["wss://new1.example.com", "wss://existing.example.com"]
-        )
+        result = await filter_new_relays(mock_brotr, relays)
 
-        assert result == ["wss://new1.example.com"]
+        assert len(result) == 1
+        assert result[0].url == "wss://new1.example.com"
 
     async def test_empty_input(self, mock_brotr: MagicMock) -> None:
-        """Works correctly with an empty URL list."""
-        result = await filter_new_relay_urls(mock_brotr, [])
+        """Returns empty list without querying the database."""
+        result = await filter_new_relays(mock_brotr, [])
 
         assert result == []
+        mock_brotr.fetch.assert_not_awaited()
 
 
 # ============================================================================
-# TestCountRelaysDueForCheck
+# TestFetchRelaysToMonitor
 # ============================================================================
 
 
-class TestCountRelaysDueForCheck:
-    """Tests for count_relays_due_for_check()."""
-
-    async def test_calls_fetchrow_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes service_name, ServiceStateType.CHECKPOINT, networks, and threshold."""
-        mock_brotr.fetchrow = AsyncMock(return_value={"count": 42})
-
-        result = await count_relays_due_for_check(
-            mock_brotr,
-            service_name="monitor",
-            threshold=1700000000,
-            networks=["clearnet", "tor"],
-        )
-
-        mock_brotr.fetchrow.assert_awaited_once()
-        args = mock_brotr.fetchrow.call_args
-        sql = args[0][0]
-        assert "COUNT(*)" in sql
-        assert "FROM relay" in sql
-        assert "service_name = $1" in sql
-        assert "state_type = $2" in sql
-        # Positional params
-        assert args[0][1] == "monitor"
-        assert args[0][2] == ServiceStateType.CHECKPOINT
-        assert args[0][3] == ["clearnet", "tor"]
-        assert args[0][4] == 1700000000
-        assert result == 42
-
-    async def test_returns_zero_when_row_is_none(self, mock_brotr: MagicMock) -> None:
-        """Returns 0 when fetchrow returns None."""
-        mock_brotr.fetchrow = AsyncMock(return_value=None)
-
-        result = await count_relays_due_for_check(mock_brotr, "monitor", 1700000000, ["clearnet"])
-
-        assert result == 0
-
-
-# ============================================================================
-# TestFetchRelaysDueForCheck
-# ============================================================================
-
-
-class TestFetchRelaysDueForCheck:
-    """Tests for fetch_relays_due_for_check()."""
+class TestFetchRelaysToMonitor:
+    """Tests for fetch_relays_to_monitor()."""
 
     async def test_calls_fetch_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes service_name, ServiceStateType.CHECKPOINT, networks, threshold, limit."""
-        await fetch_relays_due_for_check(
+        """Passes networks, monitored_before, ServiceName.MONITOR, ServiceStateType.MONITORING."""
+        await fetch_relays_to_monitor(
             mock_brotr,
-            service_name="monitor",
-            threshold=1700000000,
-            networks=["clearnet"],
-            limit=100,
+            monitored_before=1700000000,
+            networks=[NetworkType.CLEARNET],
         )
 
         mock_brotr.fetch.assert_awaited_once()
@@ -290,33 +232,46 @@ class TestFetchRelaysDueForCheck:
         sql = args[0][0]
         assert "FROM relay r" in sql
         assert "LEFT JOIN service_state ss" in sql
-        assert "LIMIT $5" in sql
-        # Positional params
-        assert args[0][1] == "monitor"
-        assert args[0][2] == ServiceStateType.CHECKPOINT
-        assert args[0][3] == ["clearnet"]
-        assert args[0][4] == 1700000000
-        assert args[0][5] == 100
+        assert "service_name = $3" in sql
+        assert "state_type = $4" in sql
+        assert args[0][1] == [NetworkType.CLEARNET]
+        assert args[0][2] == 1700000000
+        assert args[0][3] == ServiceName.MONITOR
+        assert args[0][4] == ServiceStateType.MONITORING
 
-    async def test_returns_list_of_dicts(self, mock_brotr: MagicMock) -> None:
-        """Returns relay dicts with url, network, discovered_at."""
+    async def test_returns_relay_objects(self, mock_brotr: MagicMock) -> None:
+        """Returns Relay domain objects."""
         row = _make_dict_row(
             {"url": "wss://relay.example.com", "network": "clearnet", "discovered_at": 1700000000}
         )
         mock_brotr.fetch = AsyncMock(return_value=[row])
 
-        result = await fetch_relays_due_for_check(
-            mock_brotr, "monitor", 1700000000, ["clearnet"], 100
-        )
+        result = await fetch_relays_to_monitor(mock_brotr, 1700000000, [NetworkType.CLEARNET])
 
         assert len(result) == 1
-        assert result[0]["url"] == "wss://relay.example.com"
+        assert result[0].url == "wss://relay.example.com"
+        assert result[0].network.value == "clearnet"
+
+    async def test_skips_invalid_urls(self, mock_brotr: MagicMock) -> None:
+        """Skips rows with invalid URLs instead of raising."""
+        rows = [
+            _make_dict_row(
+                {"url": "wss://valid.relay.com", "network": "clearnet", "discovered_at": 1700000000}
+            ),
+            _make_dict_row(
+                {"url": "not-valid", "network": "clearnet", "discovered_at": 1700000000}
+            ),
+        ]
+        mock_brotr.fetch = AsyncMock(return_value=rows)
+
+        result = await fetch_relays_to_monitor(mock_brotr, 1700000000, [NetworkType.CLEARNET])
+
+        assert len(result) == 1
+        assert result[0].url == "wss://valid.relay.com"
 
     async def test_empty_result(self, mock_brotr: MagicMock) -> None:
         """Returns an empty list when no relays are due."""
-        result = await fetch_relays_due_for_check(
-            mock_brotr, "monitor", 1700000000, ["clearnet"], 100
-        )
+        result = await fetch_relays_to_monitor(mock_brotr, 1700000000, [NetworkType.CLEARNET])
 
         assert result == []
 
@@ -326,17 +281,18 @@ class TestFetchRelaysDueForCheck:
 # ============================================================================
 
 
-class TestFetchEventTagvalues:
-    """Tests for fetch_event_tagvalues()."""
+class TestScanEventRelay:
+    """Tests for scan_event_relay()."""
 
-    async def test_calls_fetch_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes relay_url, last_seen_at, and limit."""
-        await fetch_event_tagvalues(
-            mock_brotr,
+    async def test_scan_with_cursor(self, mock_brotr: MagicMock) -> None:
+        """Passes cursor fields and limit to the SQL query."""
+        event_id = b"\xab" * 32
+        cursor = EventRelayCursor(
             relay_url="wss://source.relay.com",
-            last_seen_at=1700000000,
-            limit=500,
+            seen_at=1700000000,
+            event_id=event_id,
         )
+        await scan_event_relay(mock_brotr, cursor, limit=500)
 
         mock_brotr.fetch.assert_awaited_once()
         args = mock_brotr.fetch.call_args
@@ -344,32 +300,91 @@ class TestFetchEventTagvalues:
         assert "FROM event e" in sql
         assert "event_relay er" in sql
         assert "relay_url = $1" in sql
-        assert "seen_at > $2" in sql
-        assert "LIMIT $3" in sql
-        # Positional params
+        assert "IS NULL OR (er.seen_at, e.id) >" in sql
+        assert "e.id ASC" in sql
+        assert "LIMIT $4" in sql
         assert args[0][1] == "wss://source.relay.com"
         assert args[0][2] == 1700000000
-        assert args[0][3] == 500
+        assert args[0][3] == event_id
+        assert args[0][4] == 500
 
-    async def test_returns_list_of_event_dicts(self, mock_brotr: MagicMock) -> None:
-        """Returns event dicts with tagvalues and seen_at."""
+    async def test_scan_no_cursor(self, mock_brotr: MagicMock) -> None:
+        """Passes None for cursor fields when starting fresh."""
+        cursor = EventRelayCursor(relay_url="wss://source.relay.com")
+        await scan_event_relay(mock_brotr, cursor, limit=100)
+
+        args = mock_brotr.fetch.call_args
+        assert args[0][1] == "wss://source.relay.com"
+        assert args[0][2] is None
+        assert args[0][3] is None
+
+    async def test_scan_returns_dicts(self, mock_brotr: MagicMock) -> None:
+        """Returns dicts with all event columns plus seen_at."""
+        event_id = b"\xab" * 32
         row = _make_dict_row(
             {
+                "event_id": event_id,
+                "pubkey": b"\xcd" * 32,
+                "created_at": 1700000001,
+                "kind": 1,
+                "tags": "[]",
+                "content": "hello",
+                "sig": b"\xef" * 64,
                 "tagvalues": ["wss://relay.example.com", "a" * 64],
                 "seen_at": 1700000001,
             }
         )
         mock_brotr.fetch = AsyncMock(return_value=[row])
+        cursor = EventRelayCursor(relay_url="wss://source.relay.com")
 
-        result = await fetch_event_tagvalues(mock_brotr, "wss://source.relay.com", 0, 100)
+        result = await scan_event_relay(mock_brotr, cursor, limit=100)
 
         assert len(result) == 1
         assert result[0]["tagvalues"] == ["wss://relay.example.com", "a" * 64]
         assert result[0]["seen_at"] == 1700000001
+        assert result[0]["event_id"] == event_id
 
-    async def test_empty_result(self, mock_brotr: MagicMock) -> None:
+    async def test_scan_empty(self, mock_brotr: MagicMock) -> None:
         """Returns an empty list when no matching events exist."""
-        result = await fetch_event_tagvalues(mock_brotr, "wss://source.relay.com", 0, 100)
+        cursor = EventRelayCursor(relay_url="wss://source.relay.com")
+        result = await scan_event_relay(mock_brotr, cursor, limit=100)
+
+        assert result == []
+
+
+class TestScanEvent:
+    """Tests for scan_event()."""
+
+    async def test_scan_with_cursor(self, mock_brotr: MagicMock) -> None:
+        """Passes cursor fields and limit to the SQL query."""
+        event_id = b"\xab" * 32
+        cursor = EventCursor(created_at=1700000000, event_id=event_id)
+        await scan_event(mock_brotr, cursor, limit=500)
+
+        mock_brotr.fetch.assert_awaited_once()
+        args = mock_brotr.fetch.call_args
+        sql = args[0][0]
+        assert "FROM event" in sql
+        assert "IS NULL OR (created_at, id) >" in sql
+        assert "id ASC" in sql
+        assert "LIMIT $3" in sql
+        assert args[0][1] == 1700000000
+        assert args[0][2] == event_id
+        assert args[0][3] == 500
+
+    async def test_scan_no_cursor(self, mock_brotr: MagicMock) -> None:
+        """Passes None for cursor fields when starting fresh."""
+        cursor = EventCursor()
+        await scan_event(mock_brotr, cursor, limit=100)
+
+        args = mock_brotr.fetch.call_args
+        assert args[0][1] is None
+        assert args[0][2] is None
+
+    async def test_scan_empty(self, mock_brotr: MagicMock) -> None:
+        """Returns an empty list when no matching events exist."""
+        cursor = EventCursor()
+        result = await scan_event(mock_brotr, cursor, limit=100)
 
         assert result == []
 
@@ -380,18 +395,18 @@ class TestFetchEventTagvalues:
 
 
 class TestInsertCandidates:
-    """Tests for insert_candidates()."""
+    """Tests for insert_relays_as_candidates()."""
 
     async def test_filters_then_upserts(self, mock_brotr: MagicMock) -> None:
-        """Calls filter_new_relay_urls internally, then upserts only new relays."""
+        """Calls filter_new_relays internally, then upserts only new relays."""
         relay = _make_mock_relay()
         mock_brotr.fetch = AsyncMock(
             return_value=[_make_dict_row({"url": "wss://relay.example.com"})]
         )
 
-        result = await insert_candidates(mock_brotr, [relay])
+        result = await insert_relays_as_candidates(mock_brotr, [relay])
 
-        # filter_new_relay_urls called via brotr.fetch
+        # filter_new_relays called via brotr.fetch
         mock_brotr.fetch.assert_awaited_once()
         sql = mock_brotr.fetch.call_args[0][0]
         assert "unnest($1::text[])" in sql
@@ -424,7 +439,7 @@ class TestInsertCandidates:
             ]
         )
 
-        result = await insert_candidates(mock_brotr, relays)
+        result = await insert_relays_as_candidates(mock_brotr, relays)
 
         records = mock_brotr.upsert_service_state.call_args[0][0]
         assert len(records) == 2
@@ -437,14 +452,14 @@ class TestInsertCandidates:
         relay = _make_mock_relay()
         mock_brotr.fetch = AsyncMock(return_value=[])
 
-        result = await insert_candidates(mock_brotr, [relay])
+        result = await insert_relays_as_candidates(mock_brotr, [relay])
 
         mock_brotr.upsert_service_state.assert_not_awaited()
         assert result == 0
 
     async def test_empty_iterable(self, mock_brotr: MagicMock) -> None:
         """Does not call fetch or upsert_service_state when given an empty iterable."""
-        result = await insert_candidates(mock_brotr, [])
+        result = await insert_relays_as_candidates(mock_brotr, [])
 
         mock_brotr.fetch.assert_not_awaited()
         mock_brotr.upsert_service_state.assert_not_awaited()
@@ -466,7 +481,7 @@ class TestInsertCandidates:
             ]
         )
 
-        result = await insert_candidates(mock_brotr, relays)
+        result = await insert_relays_as_candidates(mock_brotr, relays)
 
         assert mock_brotr.upsert_service_state.await_count == 2  # 2 + 1
         assert result == 3
@@ -484,7 +499,9 @@ class TestCountCandidates:
         """Passes ServiceName.VALIDATOR, ServiceStateType.CANDIDATE, and networks."""
         mock_brotr.fetchrow = AsyncMock(return_value={"count": 15})
 
-        result = await count_candidates(mock_brotr, networks=["clearnet", "tor"])
+        result = await count_candidates(
+            mock_brotr, networks=[NetworkType.CLEARNET, NetworkType.TOR]
+        )
 
         mock_brotr.fetchrow.assert_awaited_once()
         args = mock_brotr.fetchrow.call_args
@@ -495,40 +512,40 @@ class TestCountCandidates:
         assert "state_type = $2" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CANDIDATE
-        assert args[0][3] == ["clearnet", "tor"]
+        assert args[0][3] == [NetworkType.CLEARNET, NetworkType.TOR]
         assert result == 15
 
     async def test_returns_zero_when_row_is_none(self, mock_brotr: MagicMock) -> None:
         """Returns 0 when fetchrow returns None."""
         mock_brotr.fetchrow = AsyncMock(return_value=None)
 
-        result = await count_candidates(mock_brotr, ["clearnet"])
+        result = await count_candidates(mock_brotr, [NetworkType.CLEARNET])
 
         assert result == 0
 
 
 # ============================================================================
-# TestFetchCandidateChunk
+# TestFetchCandidates
 # ============================================================================
 
 
-class TestFetchCandidateChunk:
-    """Tests for fetch_candidate_chunk()."""
+class TestFetchCandidates:
+    """Tests for fetch_candidates()."""
 
     async def test_calls_fetch_with_correct_params(self, mock_brotr: MagicMock) -> None:
         """Passes ServiceName.VALIDATOR, ServiceStateType.CANDIDATE, networks, timestamp, limit."""
-        await fetch_candidate_chunk(
+        await fetch_candidates(
             mock_brotr,
-            networks=["clearnet"],
-            before_timestamp=1700000000,
+            networks=[NetworkType.CLEARNET],
+            updated_before=1700000000,
             limit=50,
         )
 
         mock_brotr.fetch.assert_awaited_once()
         args = mock_brotr.fetch.call_args
         sql = args[0][0]
+        assert "state_key, state_value" in sql
         assert "FROM service_state" in sql
-        assert "state_key" in sql
         assert "service_name = $1" in sql
         assert "state_type = $2" in sql
         assert "updated_at < $4" in sql
@@ -536,64 +553,54 @@ class TestFetchCandidateChunk:
         # Positional params
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CANDIDATE
-        assert args[0][3] == ["clearnet"]
+        assert args[0][3] == [NetworkType.CLEARNET]
         assert args[0][4] == 1700000000
         assert args[0][5] == 50
 
-    async def test_returns_list_of_dicts(self, mock_brotr: MagicMock) -> None:
-        """Returns candidate dicts with state_key and value."""
+    async def test_returns_candidate_objects(self, mock_brotr: MagicMock) -> None:
+        """Returns Candidate domain objects constructed from rows."""
         row = _make_dict_row(
             {
                 "state_key": "wss://relay.example.com",
-                "value": {"failures": 0, "network": "clearnet"},
+                "state_value": {"failures": 0, "network": "clearnet"},
             }
         )
         mock_brotr.fetch = AsyncMock(return_value=[row])
 
-        result = await fetch_candidate_chunk(mock_brotr, ["clearnet"], 1700000000, 50)
+        result = await fetch_candidates(mock_brotr, [NetworkType.CLEARNET], 1700000000, 50)
 
         assert len(result) == 1
-        assert result[0]["state_key"] == "wss://relay.example.com"
+        assert str(result[0].relay.url) == "wss://relay.example.com"
+        assert result[0].failures == 0
+
+    async def test_skips_invalid_urls(self, mock_brotr: MagicMock) -> None:
+        """Skips rows with invalid relay URLs."""
+        rows = [
+            _make_dict_row(
+                {
+                    "state_key": "wss://relay.example.com",
+                    "state_value": {"failures": 0, "network": "clearnet"},
+                }
+            ),
+            _make_dict_row(
+                {
+                    "state_key": "not-a-url",
+                    "state_value": {"failures": 0, "network": "clearnet"},
+                }
+            ),
+        ]
+        mock_brotr.fetch = AsyncMock(return_value=rows)
+
+        result = await fetch_candidates(mock_brotr, [NetworkType.CLEARNET], 1700000000, 50)
+
+        assert len(result) == 1
+        assert str(result[0].relay.url) == "wss://relay.example.com"
 
     async def test_empty_result(self, mock_brotr: MagicMock) -> None:
         """Returns an empty list when no candidates match."""
-        result = await fetch_candidate_chunk(mock_brotr, ["clearnet"], 1700000000, 50)
+        result = await fetch_candidates(mock_brotr, [NetworkType.CLEARNET], 1700000000, 50)
 
         assert result == []
-
-
-# ============================================================================
-# TestDeleteStaleCandidates
-# ============================================================================
-
-
-class TestDeleteStaleCandidates:
-    """Tests for delete_stale_candidates()."""
-
-    async def test_calls_execute_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Calls execute with ServiceName.VALIDATOR and ServiceStateType.CANDIDATE."""
-        mock_brotr.execute = AsyncMock(return_value="DELETE 5")
-
-        result = await delete_stale_candidates(mock_brotr)
-
-        mock_brotr.execute.assert_awaited_once()
-        args = mock_brotr.execute.call_args
-        sql = args[0][0]
-        assert "DELETE FROM service_state" in sql
-        assert "service_name = $1" in sql
-        assert "state_type = $2" in sql
-        assert "EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)" in sql
-        assert args[0][1] == ServiceName.VALIDATOR
-        assert args[0][2] == ServiceStateType.CANDIDATE
-        assert result == 5
-
-    async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
-        """Returns 0 when no rows are deleted."""
-        mock_brotr.execute = AsyncMock(return_value="DELETE 0")
-
-        result = await delete_stale_candidates(mock_brotr)
-
-        assert result == 0
 
 
 # ============================================================================
@@ -604,14 +611,14 @@ class TestDeleteStaleCandidates:
 class TestDeleteExhaustedCandidates:
     """Tests for delete_exhausted_candidates()."""
 
-    async def test_calls_execute_with_correct_params(self, mock_brotr: MagicMock) -> None:
+    async def test_calls_fetchval_with_correct_params(self, mock_brotr: MagicMock) -> None:
         """Passes ServiceName.VALIDATOR, ServiceStateType.CANDIDATE, and max_failures."""
-        mock_brotr.execute = AsyncMock(return_value="DELETE 3")
+        mock_brotr.fetchval = AsyncMock(return_value=3)
 
         result = await delete_exhausted_candidates(mock_brotr, max_failures=5)
 
-        mock_brotr.execute.assert_awaited_once()
-        args = mock_brotr.execute.call_args
+        mock_brotr.fetchval.assert_awaited_once()
+        args = mock_brotr.fetchval.call_args
         sql = args[0][0]
         assert "DELETE FROM service_state" in sql
         assert "service_name = $1" in sql
@@ -625,7 +632,7 @@ class TestDeleteExhaustedCandidates:
 
     async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
         """Returns 0 when no rows are deleted."""
-        mock_brotr.execute = AsyncMock(return_value="DELETE 0")
+        mock_brotr.fetchval = AsyncMock(return_value=0)
 
         result = await delete_exhausted_candidates(mock_brotr, max_failures=3)
 
@@ -640,218 +647,258 @@ class TestDeleteExhaustedCandidates:
 class TestPromoteCandidates:
     """Tests for promote_candidates()."""
 
-    async def test_uses_transaction(self, mock_brotr: MagicMock) -> None:
-        """Opens a transaction and calls conn.fetchval + conn.execute."""
-        relay = _make_mock_relay()
-        mock_conn = mock_brotr._mock_conn
-        mock_conn.fetchval = AsyncMock(return_value=1)
+    async def test_inserts_relays_and_deletes_candidates(self, mock_brotr: MagicMock) -> None:
+        """Calls insert_relay then delete_service_state."""
+        relay = _make_mock_relay("wss://promoted.example.com")
+        candidate = Candidate(relay=relay, data={"failures": 0})
+        mock_brotr.insert_relay = AsyncMock(return_value=1)
+        mock_brotr.delete_service_state = AsyncMock(return_value=1)
 
-        result = await promote_candidates(mock_brotr, [relay])
+        result = await promote_candidates(mock_brotr, [candidate])
 
-        mock_brotr.transaction.assert_called_once()
-        mock_conn.fetchval.assert_awaited_once()
-        mock_conn.execute.assert_awaited_once()
+        mock_brotr.insert_relay.assert_awaited_once_with([relay])
+        mock_brotr.delete_service_state.assert_awaited_once_with(
+            [ServiceName.VALIDATOR],
+            [ServiceStateType.CANDIDATE],
+            ["wss://promoted.example.com"],
+        )
         assert result == 1
 
-    async def test_inserts_relays_and_deletes_candidates(self, mock_brotr: MagicMock) -> None:
-        """Calls relay_insert then deletes matching candidate records."""
-        relay = _make_mock_relay("wss://promoted.example.com")
-        mock_conn = mock_brotr._mock_conn
-        mock_conn.fetchval = AsyncMock(return_value=1)
+    async def test_empty_candidate_list(self, mock_brotr: MagicMock) -> None:
+        """Returns 0 immediately for an empty list."""
+        mock_brotr.insert_relay = AsyncMock()
 
-        await promote_candidates(mock_brotr, [relay])
-
-        # Verify relay_insert call
-        fetchval_args = mock_conn.fetchval.call_args
-        assert "relay_insert" in fetchval_args[0][0]
-        assert fetchval_args[0][1] == ["wss://promoted.example.com"]
-
-        # Verify candidate deletion
-        execute_args = mock_conn.execute.call_args
-        delete_sql = execute_args[0][0]
-        assert "DELETE FROM service_state" in delete_sql
-        assert "service_name = $1" in delete_sql
-        assert "state_type = $2" in delete_sql
-        assert execute_args[0][1] == ServiceName.VALIDATOR
-        assert execute_args[0][2] == ServiceStateType.CANDIDATE
-
-    async def test_empty_relay_list(self, mock_brotr: MagicMock) -> None:
-        """Returns 0 immediately for an empty list without opening a transaction."""
         result = await promote_candidates(mock_brotr, [])
 
-        mock_brotr.transaction.assert_not_called()
+        mock_brotr.insert_relay.assert_not_awaited()
         assert result == 0
 
-    async def test_fetchval_returns_none(self, mock_brotr: MagicMock) -> None:
-        """Treats None from fetchval as 0 inserted."""
-        relay = _make_mock_relay()
-        mock_conn = mock_brotr._mock_conn
-        mock_conn.fetchval = AsyncMock(return_value=None)
-
-        result = await promote_candidates(mock_brotr, [relay])
-
-        assert result == 0
-
-    async def test_multiple_relays(self, mock_brotr: MagicMock) -> None:
-        """Transposes multiple relays into column arrays for relay_insert."""
-        relays = [
-            _make_mock_relay("wss://r1.example.com", "clearnet", 1700000001),
-            _make_mock_relay("wss://r2.example.com", "clearnet", 1700000002),
+    async def test_multiple_candidates(self, mock_brotr: MagicMock) -> None:
+        """Passes all relays to insert_relay and their URLs to delete_service_state."""
+        candidates = [
+            Candidate(relay=_make_mock_relay("wss://r1.example.com"), data={"failures": 0}),
+            Candidate(relay=_make_mock_relay("wss://r2.example.com"), data={"failures": 1}),
         ]
-        mock_conn = mock_brotr._mock_conn
-        mock_conn.fetchval = AsyncMock(return_value=2)
+        mock_brotr.insert_relay = AsyncMock(return_value=2)
+        mock_brotr.delete_service_state = AsyncMock(return_value=2)
 
-        result = await promote_candidates(mock_brotr, relays)
+        result = await promote_candidates(mock_brotr, candidates)
 
-        fetchval_args = mock_conn.fetchval.call_args
-        # Columns: urls, networks, discovered_ats
-        assert fetchval_args[0][1] == ["wss://r1.example.com", "wss://r2.example.com"]
-        assert fetchval_args[0][2] == ["clearnet", "clearnet"]
-        assert fetchval_args[0][3] == [1700000001, 1700000002]
+        mock_brotr.insert_relay.assert_awaited_once_with([candidates[0].relay, candidates[1].relay])
+        mock_brotr.delete_service_state.assert_awaited_once_with(
+            [ServiceName.VALIDATOR, ServiceName.VALIDATOR],
+            [ServiceStateType.CANDIDATE, ServiceStateType.CANDIDATE],
+            ["wss://r1.example.com", "wss://r2.example.com"],
+        )
         assert result == 2
 
 
 # ============================================================================
-# TestGetAllServiceCursors
+# TestDeleteStaleState
 # ============================================================================
 
 
-class TestGetAllServiceCursors:
-    """Tests for get_all_service_cursors()."""
+class TestCleanupStaleState:
+    """Tests for cleanup_service_state()."""
 
-    async def test_calls_fetch_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes cursor_field, service_name, and ServiceStateType.CURSOR."""
-        await get_all_service_cursors(mock_brotr, service_name="finder")
+    async def test_cursor_uses_not_exists(self, mock_brotr: MagicMock) -> None:
+        """CURSOR state uses NOT EXISTS (relay removed → state is stale)."""
+        mock_brotr.fetchval = AsyncMock(return_value=3)
 
-        mock_brotr.fetch.assert_awaited_once()
-        args = mock_brotr.fetch.call_args
-        sql = args[0][0]
-        assert "state_key" in sql
-        assert "value->>$1" in sql
-        assert "service_name = $2" in sql
-        assert "state_type = $3" in sql
-        assert args[0][1] == "last_synced_at"
-        assert args[0][2] == "finder"
-        assert args[0][3] == ServiceStateType.CURSOR
-
-    async def test_custom_cursor_field(self, mock_brotr: MagicMock) -> None:
-        """Uses a custom cursor field name when provided."""
-        await get_all_service_cursors(
-            mock_brotr, service_name="synchronizer", cursor_field="last_event_at"
+        result = await cleanup_service_state(
+            mock_brotr, ServiceName.FINDER, ServiceStateType.CURSOR
         )
 
-        args = mock_brotr.fetch.call_args
-        assert args[0][1] == "last_event_at"
-
-    async def test_returns_dict_mapping(self, mock_brotr: MagicMock) -> None:
-        """Returns a dict mapping state_key to cursor_value."""
-        mock_brotr.fetch = AsyncMock(
-            return_value=[
-                _make_dict_row({"state_key": "wss://r1.example.com", "cursor_value": 1700000000}),
-                _make_dict_row({"state_key": "wss://r2.example.com", "cursor_value": 1700000100}),
-            ]
-        )
-
-        result = await get_all_service_cursors(mock_brotr, "finder")
-
-        assert result == {
-            "wss://r1.example.com": 1700000000,
-            "wss://r2.example.com": 1700000100,
-        }
-
-    async def test_filters_none_cursor_values(self, mock_brotr: MagicMock) -> None:
-        """Skips rows where cursor_value is None."""
-        mock_brotr.fetch = AsyncMock(
-            return_value=[
-                _make_dict_row({"state_key": "wss://r1.example.com", "cursor_value": 1700000000}),
-                _make_dict_row({"state_key": "wss://r2.example.com", "cursor_value": None}),
-            ]
-        )
-
-        result = await get_all_service_cursors(mock_brotr, "finder")
-
-        assert result == {"wss://r1.example.com": 1700000000}
-        assert "wss://r2.example.com" not in result
-
-    async def test_empty_result(self, mock_brotr: MagicMock) -> None:
-        """Returns an empty dict when no cursors exist."""
-        result = await get_all_service_cursors(mock_brotr, "finder")
-
-        assert result == {}
-
-
-# ============================================================================
-# TestDeleteOrphanCursors
-# ============================================================================
-
-
-class TestDeleteOrphanCursors:
-    """Tests for delete_orphan_cursors()."""
-
-    async def test_calls_execute_with_correct_params(self, mock_brotr: MagicMock) -> None:
-        """Passes service_name and ServiceStateType.CURSOR."""
-        mock_brotr.execute = AsyncMock(return_value="DELETE 3")
-
-        result = await delete_orphan_cursors(mock_brotr, service_name=ServiceName.FINDER)
-
-        mock_brotr.execute.assert_awaited_once()
-        args = mock_brotr.execute.call_args
+        mock_brotr.fetchval.assert_awaited_once()
+        args = mock_brotr.fetchval.call_args
         sql = args[0][0]
         assert "DELETE FROM service_state" in sql
-        assert "service_name = $1" in sql
-        assert "state_type = $2" in sql
-        assert "NOT IN (SELECT url FROM relay)" in sql
+        assert "NOT EXISTS" in sql
         assert args[0][1] == ServiceName.FINDER
         assert args[0][2] == ServiceStateType.CURSOR
         assert result == 3
 
-    async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
-        """Returns 0 when no orphan cursors exist."""
-        mock_brotr.execute = AsyncMock(return_value="DELETE 0")
+    async def test_monitoring_uses_not_exists(self, mock_brotr: MagicMock) -> None:
+        """MONITORING state uses NOT EXISTS (relay removed → state is stale)."""
+        mock_brotr.fetchval = AsyncMock(return_value=5)
 
-        result = await delete_orphan_cursors(mock_brotr, ServiceName.SYNCHRONIZER)
+        result = await cleanup_service_state(
+            mock_brotr, ServiceName.MONITOR, ServiceStateType.MONITORING
+        )
+
+        args = mock_brotr.fetchval.call_args
+        sql = args[0][0]
+        assert "NOT EXISTS" in sql
+        assert args[0][1] == ServiceName.MONITOR
+        assert args[0][2] == ServiceStateType.MONITORING
+        assert result == 5
+
+    async def test_candidate_uses_exists(self, mock_brotr: MagicMock) -> None:
+        """CANDIDATE state uses EXISTS (relay promoted → candidate is stale)."""
+        mock_brotr.fetchval = AsyncMock(return_value=7)
+
+        result = await cleanup_service_state(
+            mock_brotr, ServiceName.VALIDATOR, ServiceStateType.CANDIDATE
+        )
+
+        args = mock_brotr.fetchval.call_args
+        sql = args[0][0]
+        assert "DELETE FROM service_state" in sql
+        assert "AND EXISTS" in sql
+        assert "NOT EXISTS" not in sql
+        assert args[0][1] == ServiceName.VALIDATOR
+        assert args[0][2] == ServiceStateType.CANDIDATE
+        assert result == 7
+
+    async def test_returns_zero_when_none_deleted(self, mock_brotr: MagicMock) -> None:
+        """Returns 0 when no stale rows exist."""
+        mock_brotr.fetchval = AsyncMock(return_value=0)
+
+        result = await cleanup_service_state(
+            mock_brotr, ServiceName.SYNCHRONIZER, ServiceStateType.CURSOR
+        )
 
         assert result == 0
 
-    async def test_works_for_synchronizer(self, mock_brotr: MagicMock) -> None:
-        """Works correctly with ServiceName.SYNCHRONIZER."""
-        mock_brotr.execute = AsyncMock(return_value="DELETE 7")
-
-        result = await delete_orphan_cursors(mock_brotr, ServiceName.SYNCHRONIZER)
-
-        args = mock_brotr.execute.call_args
-        assert args[0][1] == ServiceName.SYNCHRONIZER
-        assert result == 7
+    async def test_rejects_non_relay_keyed_type(self, mock_brotr: MagicMock) -> None:
+        """Raises ValueError for state types whose keys are not relay URLs."""
+        with pytest.raises(ValueError, match="relay-keyed"):
+            await cleanup_service_state(
+                mock_brotr, ServiceName.MONITOR, ServiceStateType.PUBLICATION
+            )
 
 
 # ============================================================================
-# TestParseDeleteResult
+# Batch insert helper
 # ============================================================================
 
 
-class TestParseDeleteResult:
-    """Tests for parse_delete_result() helper."""
+class TestBatchedInsert:
+    """Tests for _batched_insert() helper."""
 
-    def test_standard_delete(self) -> None:
-        assert parse_delete_result("DELETE 5") == 5
+    async def test_empty_returns_zero(self, mock_brotr: MagicMock) -> None:
+        """Returns 0 without calling the method when records is empty."""
+        method = AsyncMock(return_value=5)
+        result = await _batched_insert(mock_brotr, [], method)
+        assert result == 0
+        method.assert_not_called()
 
-    def test_zero_deleted(self) -> None:
-        assert parse_delete_result("DELETE 0") == 0
+    async def test_under_limit_single_call(self, mock_brotr: MagicMock) -> None:
+        """Passes all records in one call when under batch limit."""
+        mock_brotr.config.batch.max_size = 100
+        method = AsyncMock(return_value=3)
 
-    def test_large_count(self) -> None:
-        assert parse_delete_result("DELETE 99999") == 99999
+        result = await _batched_insert(mock_brotr, [1, 2, 3], method)
 
-    def test_none_returns_zero(self) -> None:
-        assert parse_delete_result(None) == 0
+        assert result == 3
+        method.assert_awaited_once_with([1, 2, 3])
 
-    def test_empty_string_returns_zero(self) -> None:
-        assert parse_delete_result("") == 0
+    async def test_over_limit_splits(self, mock_brotr: MagicMock) -> None:
+        """Splits records into multiple calls when exceeding batch limit."""
+        mock_brotr.config.batch.max_size = 2
+        method = AsyncMock(return_value=2)
 
-    def test_non_numeric_suffix_returns_zero(self) -> None:
-        assert parse_delete_result("DELETE abc") == 0
+        result = await _batched_insert(mock_brotr, [1, 2, 3, 4, 5], method)
 
-    def test_single_word_returns_zero(self) -> None:
-        assert parse_delete_result("DELETE") == 0
+        assert result == 6  # 2 + 2 + 2
+        assert method.await_count == 3
+        method.assert_any_await([1, 2])
+        method.assert_any_await([3, 4])
+        method.assert_any_await([5])
 
-    def test_unexpected_format_returns_zero(self) -> None:
-        assert parse_delete_result("SOMETHING ELSE") == 0
+    async def test_exact_multiple(self, mock_brotr: MagicMock) -> None:
+        """Handles exact multiples of batch size correctly."""
+        mock_brotr.config.batch.max_size = 2
+        method = AsyncMock(return_value=2)
+
+        result = await _batched_insert(mock_brotr, [1, 2, 3, 4], method)
+
+        assert result == 4
+        assert method.await_count == 2
+
+
+# ============================================================================
+# Batch insert wrappers
+# ============================================================================
+
+
+class TestInsertRelays:
+    """Tests for insert_relays() batch splitting."""
+
+    async def test_delegates_to_batched_insert(self, mock_brotr: MagicMock) -> None:
+        """Calls brotr.insert_relay via _batched_insert."""
+        mock_brotr.insert_relay = AsyncMock(return_value=2)
+        mock_brotr.config.batch.max_size = 1
+
+        relays = [Relay("wss://a.example.com"), Relay("wss://b.example.com")]
+        result = await insert_relays(mock_brotr, relays)
+
+        assert result == 4  # 2 + 2
+        assert mock_brotr.insert_relay.await_count == 2
+
+
+class TestInsertEventRelays:
+    """Tests for insert_event_relays() batch splitting."""
+
+    async def test_delegates_to_batched_insert(self, mock_brotr: MagicMock) -> None:
+        """Calls brotr.insert_event_relay via _batched_insert."""
+        mock_brotr.insert_event_relay = AsyncMock(return_value=3)
+
+        result = await insert_event_relays(mock_brotr, [MagicMock(), MagicMock(), MagicMock()])
+
+        assert result == 3
+        mock_brotr.insert_event_relay.assert_awaited_once()
+
+    async def test_empty_returns_zero(self, mock_brotr: MagicMock) -> None:
+        """Returns 0 for empty input."""
+        result = await insert_event_relays(mock_brotr, [])
+        assert result == 0
+
+
+class TestInsertRelayMetadata:
+    """Tests for insert_relay_metadata() batch splitting."""
+
+    async def test_delegates_to_batched_insert(self, mock_brotr: MagicMock) -> None:
+        """Calls brotr.insert_relay_metadata via _batched_insert."""
+        mock_brotr.insert_relay_metadata = AsyncMock(return_value=5)
+
+        result = await insert_relay_metadata(mock_brotr, [MagicMock(), MagicMock()])
+
+        assert result == 5
+        mock_brotr.insert_relay_metadata.assert_awaited_once()
+
+    async def test_splits_large_batch(self, mock_brotr: MagicMock) -> None:
+        """Splits records exceeding batch limit."""
+        mock_brotr.config.batch.max_size = 2
+        mock_brotr.insert_relay_metadata = AsyncMock(return_value=2)
+
+        records = [MagicMock() for _ in range(5)]
+        result = await insert_relay_metadata(mock_brotr, records)
+
+        assert result == 6  # 2 + 2 + 2
+        assert mock_brotr.insert_relay_metadata.await_count == 3
+
+
+class TestUpsertServiceStates:
+    """Tests for upsert_service_states() batch splitting."""
+
+    async def test_delegates_to_batched_insert(self, mock_brotr: MagicMock) -> None:
+        """Calls brotr.upsert_service_state via _batched_insert."""
+        mock_brotr.upsert_service_state = AsyncMock(return_value=2)
+
+        records = [MagicMock(), MagicMock()]
+        result = await upsert_service_states(mock_brotr, records)
+
+        assert result == 2
+        mock_brotr.upsert_service_state.assert_awaited_once()
+
+    async def test_splits_large_batch(self, mock_brotr: MagicMock) -> None:
+        """Splits records exceeding batch limit."""
+        mock_brotr.config.batch.max_size = 2
+        mock_brotr.upsert_service_state = AsyncMock(return_value=2)
+
+        records = [MagicMock() for _ in range(5)]
+        result = await upsert_service_states(mock_brotr, records)
+
+        assert result == 6  # 2 + 2 + 2
+        assert mock_brotr.upsert_service_state.await_count == 3

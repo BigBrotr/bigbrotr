@@ -848,15 +848,15 @@ class TestMonitorInit:
 # ============================================================================
 
 
-class TestMonitorFetchChunk:
-    """Tests for Monitor._fetch_chunk() method."""
+class TestMonitorFetchRelays:
+    """Tests for Monitor._fetch_relays() method."""
 
     @patch(
-        "bigbrotr.services.monitor.service.fetch_relays_due_for_check",
+        "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
         new_callable=AsyncMock,
         return_value=[],
     )
-    async def test_fetch_chunk_empty(
+    async def test_fetch_relays_empty(
         self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
     ) -> None:
         """Test fetching relays when none need checking."""
@@ -871,27 +871,19 @@ class TestMonitorFetchChunk:
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.chunk_progress.reset()
-        relays = await monitor._fetch_chunk(["clearnet"], 100)
+        relays = await monitor._fetch_relays([NetworkType.CLEARNET])
 
         assert relays == []
         mock_fetch.assert_awaited_once()
 
-    @patch("bigbrotr.services.monitor.service.fetch_relays_due_for_check", new_callable=AsyncMock)
-    async def test_fetch_chunk_with_results(
+    @patch("bigbrotr.services.monitor.service.fetch_relays_to_monitor", new_callable=AsyncMock)
+    async def test_fetch_relays_with_results(
         self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
     ) -> None:
         """Test fetching relays that need checking."""
         mock_fetch.return_value = [
-            {
-                "url": "wss://relay1.example.com",
-                "network": "clearnet",
-                "discovered_at": 1700000000,
-            },
-            {
-                "url": "wss://relay2.example.com",
-                "network": "clearnet",
-                "discovered_at": 1700000000,
-            },
+            Relay("wss://relay1.example.com"),
+            Relay("wss://relay2.example.com"),
         ]
 
         config = MonitorConfig(
@@ -905,69 +897,11 @@ class TestMonitorFetchChunk:
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.chunk_progress.reset()
-        relays = await monitor._fetch_chunk(["clearnet"], 100)
+        relays = await monitor._fetch_relays([NetworkType.CLEARNET])
 
         assert len(relays) == 2
-        assert "relay1.example.com" in str(relays[0].url)
-        assert "relay2.example.com" in str(relays[1].url)
-
-    @patch("bigbrotr.services.monitor.service.fetch_relays_due_for_check", new_callable=AsyncMock)
-    async def test_fetch_chunk_filters_invalid_urls(
-        self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
-    ) -> None:
-        """Test fetching relays filters invalid URLs."""
-        mock_fetch.return_value = [
-            {
-                "url": "wss://valid.relay.com",
-                "network": "clearnet",
-                "discovered_at": 1700000000,
-            },
-            {"url": "invalid-url", "network": "unknown", "discovered_at": 1700000000},
-        ]
-
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor.chunk_progress.reset()
-        relays = await monitor._fetch_chunk(["clearnet"], 100)
-
-        assert len(relays) == 1
-        assert "valid.relay.com" in str(relays[0].url)
-
-    @patch("bigbrotr.services.monitor.service.fetch_relays_due_for_check", new_callable=AsyncMock)
-    async def test_fetch_chunk_respects_limit(
-        self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
-    ) -> None:
-        """Test that fetch_chunk respects the limit parameter."""
-        mock_fetch.return_value = [
-            {
-                "url": "wss://relay1.example.com",
-                "network": "clearnet",
-                "discovered_at": 1700000000,
-            },
-        ]
-
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor.chunk_progress.reset()
-        await monitor._fetch_chunk(["clearnet"], 50)
-
-        assert mock_fetch.call_args[0][4] == 50  # limit is 5th positional arg
+        assert relays[0].url == "wss://relay1.example.com"
+        assert relays[1].url == "wss://relay2.example.com"
 
 
 # ============================================================================
@@ -979,18 +913,12 @@ class TestMonitorRun:
     """Tests for Monitor.run() method."""
 
     @patch(
-        "bigbrotr.services.monitor.service.fetch_relays_due_for_check",
+        "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
         new_callable=AsyncMock,
         return_value=[],
     )
-    @patch(
-        "bigbrotr.services.monitor.service.count_relays_due_for_check",
-        new_callable=AsyncMock,
-        return_value=0,
-    )
     async def test_run_no_relays(
         self,
-        mock_count: AsyncMock,
         mock_fetch: AsyncMock,
         mock_brotr: Brotr,
         tmp_path: Path,
@@ -1013,18 +941,12 @@ class TestMonitorRun:
         assert monitor.chunk_progress.processed == 0
 
     @patch(
-        "bigbrotr.services.monitor.service.fetch_relays_due_for_check",
+        "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
         new_callable=AsyncMock,
         return_value=[],
     )
-    @patch(
-        "bigbrotr.services.monitor.service.count_relays_due_for_check",
-        new_callable=AsyncMock,
-        return_value=0,
-    )
     async def test_run_resets_progress(
         self,
-        mock_count: AsyncMock,
         mock_fetch: AsyncMock,
         mock_brotr: Brotr,
         tmp_path: Path,
@@ -1062,7 +984,7 @@ class TestMonitorPersistResults:
     async def test_persist_results_empty(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test persisting empty results batch."""
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
-        mock_brotr.upsert_service_state = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
         config = MonitorConfig(
             processing=ProcessingConfig(
@@ -1081,7 +1003,7 @@ class TestMonitorPersistResults:
     async def test_persist_results_with_successful(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test persisting successful check results."""
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=2)  # type: ignore[method-assign]
-        mock_brotr.upsert_service_state = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
         config = MonitorConfig(
             processing=ProcessingConfig(
@@ -1109,7 +1031,7 @@ class TestMonitorPersistResults:
     async def test_persist_results_with_failed(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test persisting failed check results updates checkpoint."""
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
-        mock_brotr.upsert_service_state = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
         config = MonitorConfig(
             processing=ProcessingConfig(
@@ -1535,9 +1457,9 @@ class TestPublishAnnouncement:
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
+                    state_type=ServiceStateType.PUBLICATION,
                     state_key="last_announcement",
-                    state_value={"timestamp": now},
+                    state_value={"published_at": now},
                     updated_at=int(now),
                 )
             ]
@@ -1570,9 +1492,9 @@ class TestPublishAnnouncement:
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
+                    state_type=ServiceStateType.PUBLICATION,
                     state_key="last_announcement",
-                    state_value={"timestamp": old_timestamp},
+                    state_value={"published_at": old_timestamp},
                     updated_at=int(old_timestamp),
                 )
             ]
@@ -1654,9 +1576,9 @@ class TestPublishProfile:
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
+                    state_type=ServiceStateType.PUBLICATION,
                     state_key="last_profile",
-                    state_value={"timestamp": now},
+                    state_value={"published_at": now},
                     updated_at=int(now),
                 )
             ]
