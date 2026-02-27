@@ -39,6 +39,8 @@ from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.relay import Relay, RelayDbParams
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 
+from .types import Candidate
+
 
 if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
@@ -396,7 +398,7 @@ async def fetch_candidates(
     networks: list[NetworkType],
     updated_before: int,
     limit: int,
-) -> list[ServiceState]:
+) -> list[Candidate]:
     """Fetch candidates prioritized by fewest failures, then oldest.
 
     Only returns candidates whose ``updated_at`` is before
@@ -406,6 +408,9 @@ async def fetch_candidates(
     chunk-based processing. The ordering ensures candidates most likely
     to succeed (fewest prior failures) are validated first.
 
+    Rows whose ``state_key`` is not a valid relay URL are skipped
+    with a warning.
+
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         networks: Network types to include.
@@ -413,7 +418,7 @@ async def fetch_candidates(
         limit: Maximum candidates to return.
 
     Returns:
-        List of [ServiceState][bigbrotr.models.service_state.ServiceState]
+        List of [Candidate][bigbrotr.services.common.types.Candidate]
         instances.
 
     See Also:
@@ -423,10 +428,9 @@ async def fetch_candidates(
             Called after successful validation to move candidates to
             the ``relay`` table.
     """
-    return await _fetch_service_states(
-        brotr,
+    rows = await brotr.fetch(
         """
-        SELECT service_name, state_type, state_key, state_value, updated_at
+        SELECT state_key, state_value
         FROM service_state
         WHERE service_name = $1
           AND state_type = $2
@@ -442,6 +446,13 @@ async def fetch_candidates(
         updated_before,
         limit,
     )
+    candidates: list[Candidate] = []
+    for row in rows:
+        try:
+            candidates.append(Candidate(relay=Relay(row["state_key"]), data=row["state_value"]))
+        except (ValueError, TypeError) as e:
+            logger.warning("Skipping invalid candidate URL %s: %s", row["state_key"], e)
+    return candidates
 
 
 async def delete_stale_candidates(brotr: Brotr) -> int:

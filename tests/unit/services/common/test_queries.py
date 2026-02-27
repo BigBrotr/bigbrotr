@@ -498,7 +498,7 @@ class TestFetchCandidates:
         mock_brotr.fetch.assert_awaited_once()
         args = mock_brotr.fetch.call_args
         sql = args[0][0]
-        assert "service_name, state_type, state_key, state_value, updated_at" in sql
+        assert "state_key, state_value" in sql
         assert "FROM service_state" in sql
         assert "service_name = $1" in sql
         assert "state_type = $2" in sql
@@ -511,15 +511,12 @@ class TestFetchCandidates:
         assert args[0][4] == 1700000000
         assert args[0][5] == 50
 
-    async def test_returns_service_state_objects(self, mock_brotr: MagicMock) -> None:
-        """Returns ServiceState domain objects constructed from rows."""
+    async def test_returns_candidate_objects(self, mock_brotr: MagicMock) -> None:
+        """Returns Candidate domain objects constructed from rows."""
         row = _make_dict_row(
             {
-                "service_name": "validator",
-                "state_type": "candidate",
                 "state_key": "wss://relay.example.com",
                 "state_value": {"failures": 0, "network": "clearnet"},
-                "updated_at": 1700000000,
             }
         )
         mock_brotr.fetch = AsyncMock(return_value=[row])
@@ -527,29 +524,22 @@ class TestFetchCandidates:
         result = await fetch_candidates(mock_brotr, [NetworkType.CLEARNET], 1700000000, 50)
 
         assert len(result) == 1
-        assert result[0].state_key == "wss://relay.example.com"
-        assert result[0].service_name == ServiceName.VALIDATOR
-        assert result[0].state_type == ServiceStateType.CANDIDATE
+        assert str(result[0].relay.url) == "wss://relay.example.com"
+        assert result[0].failures == 0
 
-    async def test_skips_invalid_rows(self, mock_brotr: MagicMock) -> None:
-        """Skips rows that fail ServiceState construction."""
+    async def test_skips_invalid_urls(self, mock_brotr: MagicMock) -> None:
+        """Skips rows with invalid relay URLs."""
         rows = [
             _make_dict_row(
                 {
-                    "service_name": "validator",
-                    "state_type": "candidate",
                     "state_key": "wss://relay.example.com",
                     "state_value": {"failures": 0, "network": "clearnet"},
-                    "updated_at": 1700000000,
                 }
             ),
             _make_dict_row(
                 {
-                    "service_name": "validator",
-                    "state_type": "candidate",
-                    "state_key": "",
+                    "state_key": "not-a-url",
                     "state_value": {"failures": 0, "network": "clearnet"},
-                    "updated_at": 1700000000,
                 }
             ),
         ]
@@ -558,7 +548,7 @@ class TestFetchCandidates:
         result = await fetch_candidates(mock_brotr, [NetworkType.CLEARNET], 1700000000, 50)
 
         assert len(result) == 1
-        assert result[0].state_key == "wss://relay.example.com"
+        assert str(result[0].relay.url) == "wss://relay.example.com"
 
     async def test_empty_result(self, mock_brotr: MagicMock) -> None:
         """Returns an empty list when no candidates match."""

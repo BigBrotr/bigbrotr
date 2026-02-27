@@ -52,13 +52,11 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import asyncpg
 
 from bigbrotr.core.base_service import BaseService
-from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import ChunkProgressMixin, NetworkSemaphoresMixin
@@ -75,37 +73,11 @@ from .configs import ValidatorConfig
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping
+    from collections.abc import AsyncIterator
 
     from bigbrotr.core.brotr import Brotr
-
-
-@dataclass(frozen=True, slots=True)
-class Candidate:
-    """Relay candidate pending validation.
-
-    Wraps a [Relay][bigbrotr.models.relay.Relay] object with its
-    ``service_state`` metadata, providing convenient access to validation
-    state (e.g., failure count).
-
-    Attributes:
-        relay: [Relay][bigbrotr.models.relay.Relay] object with URL and
-            network information.
-        data: Metadata from the ``service_state`` table (``network``,
-            ``failures``, etc.).
-
-    See Also:
-        [fetch_candidates][bigbrotr.services.common.queries.fetch_candidates]:
-            Query that produces the rows from which candidates are built.
-    """
-
-    relay: Relay
-    data: Mapping[str, Any]
-
-    @property
-    def failures(self) -> int:
-        """Return the number of failed validation attempts for this candidate."""
-        return int(self.data.get("failures", 0))
+    from bigbrotr.models import Relay
+    from bigbrotr.services.common.types import Candidate
 
 
 class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
@@ -336,22 +308,12 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         Returns:
             List of Candidate objects, possibly empty if none remain.
         """
-        states = await fetch_candidates(
+        return await fetch_candidates(
             self._brotr,
             networks,
             int(self.chunk_progress.started_at),
             limit,
         )
-
-        candidates = []
-        for state in states:
-            try:
-                relay = Relay(state.state_key)
-                candidates.append(Candidate(relay=relay, data=state.state_value))
-            except (ValueError, TypeError) as e:
-                self._logger.warning("parse_failed", url=state.state_key, error=str(e))
-
-        return candidates
 
     async def _validate_chunk(
         self, candidates: list[Candidate]
