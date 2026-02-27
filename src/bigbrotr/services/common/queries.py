@@ -394,13 +394,13 @@ async def count_candidates(
 async def fetch_candidates(
     brotr: Brotr,
     networks: list[NetworkType],
-    before_timestamp: int,
+    updated_before: int,
     limit: int,
 ) -> list[ServiceState]:
     """Fetch candidates prioritized by fewest failures, then oldest.
 
-    Only returns candidates updated before ``before_timestamp`` to avoid
-    reprocessing within the same cycle.
+    Only returns candidates whose ``updated_at`` is before
+    ``updated_before`` to avoid reprocessing within the same cycle.
 
     Called by [Validator][bigbrotr.services.validator.Validator] during
     chunk-based processing. The ordering ensures candidates most likely
@@ -409,7 +409,7 @@ async def fetch_candidates(
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         networks: Network types to include.
-        before_timestamp: Exclude candidates updated after this time.
+        updated_before: Exclude candidates updated after this Unix timestamp.
         limit: Maximum candidates to return.
 
     Returns:
@@ -439,7 +439,7 @@ async def fetch_candidates(
         ServiceName.VALIDATOR,
         ServiceStateType.CANDIDATE,
         networks,
-        before_timestamp,
+        updated_before,
         limit,
     )
 

@@ -491,7 +491,7 @@ class TestFetchCandidates:
         await fetch_candidates(
             mock_brotr,
             networks=[NetworkType.CLEARNET],
-            before_timestamp=1700000000,
+            updated_before=1700000000,
             limit=50,
         )
 
