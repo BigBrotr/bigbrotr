@@ -229,8 +229,7 @@ class TestTagvaluesComputed:
             bytes.fromhex("07" * 32),
         )
         assert row is not None
-        # array_agg returns NULL when there are no rows
-        assert row["tagvalues"] is None
+        assert row["tagvalues"] == []
 
     async def test_utility_function_directly(self, brotr: Brotr):
         tags_json = json.dumps([["e", "abc"], ["p", "def"], ["relay", "skip"]])
