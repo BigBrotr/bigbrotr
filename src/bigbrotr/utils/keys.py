@@ -86,9 +86,9 @@ class KeysConfig(BaseModel):
 
     The ``keys`` field is populated automatically during validation from
     the environment variable named by ``keys_env``. Used by
-    [Validator][bigbrotr.services.validator.Validator],
-    [Monitor][bigbrotr.services.monitor.Monitor], and
-    [Synchronizer][bigbrotr.services.synchronizer.Synchronizer] services.
+    [Monitor][bigbrotr.services.monitor.Monitor],
+    [Synchronizer][bigbrotr.services.synchronizer.Synchronizer], and
+    [Dvm][bigbrotr.services.dvm.Dvm] services.
 
     Attributes:
         keys_env: Environment variable name for the private key.

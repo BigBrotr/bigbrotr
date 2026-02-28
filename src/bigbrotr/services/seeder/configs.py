@@ -37,7 +37,7 @@ class SeederConfig(BaseServiceConfig):
         [Seeder][bigbrotr.services.seeder.Seeder]: The service class
             that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``log_level`` fields.
+            Base class providing ``interval`` and ``metrics`` fields.
     """
 
     seed: SeedConfig = Field(default_factory=SeedConfig)
