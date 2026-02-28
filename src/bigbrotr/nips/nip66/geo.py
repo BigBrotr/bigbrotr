@@ -197,6 +197,7 @@ class Nip66GeoMetadata(BaseNipMetadata):
         Args:
             relay: Clearnet relay to geolocate.
             city_reader: Open GeoLite2-City database reader.
+            geohash_precision: Geohash character length (default 9).
 
         Returns:
             An ``Nip66GeoMetadata`` instance with location data and logs.

@@ -226,7 +226,7 @@ class Catalog:
             Paginated query result.
 
         Raises:
-            ValueError: If the table, column, or operator is invalid.
+            CatalogError: If the table, column, or operator is invalid.
         """
         schema = self._get_schema(table)
         limit = min(max(limit, 1), max_page_size)
@@ -307,7 +307,7 @@ class Catalog:
             Row as a dict, or None if not found.
 
         Raises:
-            ValueError: If the table has no primary key or values are missing.
+            CatalogError: If the table has no primary key or values are missing.
         """
         schema = self._get_schema(table)
         if not schema.primary_key:

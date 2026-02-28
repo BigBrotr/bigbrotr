@@ -22,6 +22,8 @@ metrics:
 networks:
   clearnet:
     max_tasks: 20                  # Reduced concurrency (default: 50)
+  # Note: tor/i2p/loki settings only take effect when the corresponding
+  # proxy containers are enabled in docker-compose.yaml.
   tor:
     max_tasks: 5                   # Reduced concurrency (default: 10)
   i2p:

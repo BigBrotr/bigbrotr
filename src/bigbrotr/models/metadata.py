@@ -37,7 +37,7 @@ from ._validation import deep_freeze, sanitize_data, validate_instance, validate
 
 
 class MetadataType(StrEnum):
-    """Metadata type identifiers stored in the ``metadata.type`` column.
+    """Metadata type identifiers stored in the ``metadata.metadata_type`` column.
 
     Each value corresponds to a specific data source or monitoring test
     performed by the [Monitor][bigbrotr.services.monitor.Monitor] service.

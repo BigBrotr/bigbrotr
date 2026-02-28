@@ -349,7 +349,7 @@ class Api(BaseService[ApiConfig]):
                     )
                 except TimeoutError:
                     return JSONResponse({"error": "Query timeout"}, status_code=504)
-                except ValueError as e:
+                except (ValueError, CatalogError) as e:
                     return JSONResponse({"error": str(e)}, status_code=400)
 
                 if row is None:

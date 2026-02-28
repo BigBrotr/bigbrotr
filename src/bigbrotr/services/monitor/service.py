@@ -24,7 +24,7 @@ Health checks include:
 
 Note:
     Event building is delegated to [bigbrotr.nips.event_builders][bigbrotr.nips.event_builders]
-    and broadcasting to [bigbrotr.utils.transport][bigbrotr.utils.transport]. The Monitor handles
+    and broadcasting to [bigbrotr.utils.protocol][bigbrotr.utils.protocol]. The Monitor handles
     orchestration: when to publish, which data to extract from
     [CheckResult][bigbrotr.services.monitor.CheckResult], and lifecycle
     management of publishing intervals via service state markers.
@@ -130,7 +130,7 @@ class CheckResult(NamedTuple):
         nip66_geo: Geolocation data (country, city, coordinates, timezone, geohash).
         nip66_net: Network information (IP address, ASN, organization).
         nip66_dns: DNS resolution data (IPs, CNAME, nameservers, reverse DNS).
-        nip66_http: HTTP metadata (status code, headers, redirect chain).
+        nip66_http: HTTP metadata (server software and framework headers).
 
     See Also:
         [MetadataFlags][bigbrotr.services.monitor.MetadataFlags]: Boolean
@@ -184,7 +184,7 @@ class Monitor(
     and Lokinet (via SOCKS5 proxy).
 
     Event building is delegated to [bigbrotr.nips.event_builders][bigbrotr.nips.event_builders]
-    and broadcasting to [bigbrotr.utils.transport][bigbrotr.utils.transport].
+    and broadcasting to [bigbrotr.utils.protocol][bigbrotr.utils.protocol].
 
     See Also:
         [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]:

@@ -84,6 +84,10 @@ LilBrotr uses different ports from BigBrotr to allow running both simultaneously
 | Validator metrics | 8002 | 9002 |
 | Monitor metrics | 8003 | 9003 |
 | Synchronizer metrics | 8004 | 9004 |
+| Refresher metrics | 8005 | 9005 |
+| Api HTTP | 8080 | 8081 |
+| Api metrics | 8006 | 9006 |
+| Dvm metrics | 8007 | 9007 |
 | Prometheus | 9090 | 9091 |
 | Grafana | 3000 | 3001 |
 
@@ -210,10 +214,10 @@ docker-compose logs -f synchronizer       # Single service
 docker-compose exec postgres psql -U admin -d lilbrotr
 
 # Check relay count
-docker-compose exec postgres psql -U admin -d lilbrotr -c "SELECT COUNT(*) FROM relays"
+docker-compose exec postgres psql -U admin -d lilbrotr -c "SELECT COUNT(*) FROM relay"
 
 # Check event count
-docker-compose exec postgres psql -U admin -d lilbrotr -c "SELECT COUNT(*) FROM events"
+docker-compose exec postgres psql -U admin -d lilbrotr -c "SELECT COUNT(*) FROM event"
 
 # Reset database (WARNING: deletes all data)
 docker-compose down && rm -rf data/postgres && docker-compose up -d
