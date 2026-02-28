@@ -272,7 +272,7 @@ class Catalog:
             params.extend([limit, offset])
             rows = await brotr.fetch(data_query, *params)
         except asyncpg.DataError as e:
-            raise ValueError(f"Invalid filter value: {e}") from e
+            raise ValueError("Invalid filter value") from e
 
         return QueryResult(
             rows=[dict(row) for row in rows],
@@ -329,7 +329,7 @@ class Catalog:
         try:
             row = await brotr.fetchrow(query, *params)
         except asyncpg.DataError as e:
-            raise ValueError(f"Invalid parameter value: {e}") from e
+            raise ValueError("Invalid parameter value") from e
 
         return dict(row) if row else None
 

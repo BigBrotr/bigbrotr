@@ -313,10 +313,7 @@ class Api(BaseService[ApiConfig]):
             except TimeoutError:
                 return JSONResponse({"error": "Query timeout"}, status_code=504)
             except ValueError as e:
-                msg = str(e)
-                if "asyncpg" in msg.lower() or "::" in msg:
-                    msg = "Invalid filter value"
-                return JSONResponse({"error": msg}, status_code=400)
+                return JSONResponse({"error": str(e)}, status_code=400)
 
             return JSONResponse(
                 {
