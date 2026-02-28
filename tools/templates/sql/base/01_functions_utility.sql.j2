@@ -25,10 +25,12 @@
  * Example:
  *   Input:  [["e", "abc123"], ["p", "def456"], ["relay", "wss://..."]]
  *   Output: ARRAY['abc123', 'def456']
+ *   Input:  [] (empty array)
+ *   Output: '{}' (empty TEXT array, never NULL for non-NULL input)
  */
 CREATE OR REPLACE FUNCTION tags_to_tagvalues(JSONB)
 RETURNS TEXT []
 LANGUAGE SQL
 IMMUTABLE
 RETURNS NULL ON NULL INPUT
-AS 'SELECT array_agg(t->>1) FROM (SELECT jsonb_array_elements($1) AS t)s WHERE length(t->>0) = 1;';
+AS 'SELECT COALESCE(array_agg(t->>1), ''{}''::TEXT[]) FROM (SELECT jsonb_array_elements($1) AS t)s WHERE length(t->>0) = 1;';
