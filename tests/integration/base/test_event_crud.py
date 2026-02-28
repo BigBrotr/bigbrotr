@@ -216,7 +216,7 @@ class TestTagvaluesComputed:
             bytes.fromhex("06" * 32),
         )
         assert row is not None
-        assert sorted(row["tagvalues"]) == ["abc123", "def456"]
+        assert sorted(row["tagvalues"]) == ["e:abc123", "p:def456"]
 
     async def test_empty_tags(self, brotr: Brotr):
         mock = make_mock_event(event_id="07" * 32, tags=[], sig="ee" * 64)
@@ -234,4 +234,4 @@ class TestTagvaluesComputed:
     async def test_utility_function_directly(self, brotr: Brotr):
         tags_json = json.dumps([["e", "abc"], ["p", "def"], ["relay", "skip"]])
         result = await brotr.fetchval("SELECT tags_to_tagvalues($1::jsonb)", tags_json)
-        assert sorted(result) == ["abc", "def"]
+        assert sorted(result) == ["e:abc", "p:def"]

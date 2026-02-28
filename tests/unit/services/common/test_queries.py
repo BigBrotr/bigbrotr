@@ -330,7 +330,7 @@ class TestScanEventRelay:
                 "tags": "[]",
                 "content": "hello",
                 "sig": b"\xef" * 64,
-                "tagvalues": ["wss://relay.example.com", "a" * 64],
+                "tagvalues": ["r:wss://relay.example.com", "e:" + "a" * 64],
                 "seen_at": 1700000001,
             }
         )
@@ -340,7 +340,7 @@ class TestScanEventRelay:
         result = await scan_event_relay(mock_brotr, cursor, limit=100)
 
         assert len(result) == 1
-        assert result[0]["tagvalues"] == ["wss://relay.example.com", "a" * 64]
+        assert result[0]["tagvalues"] == ["r:wss://relay.example.com", "e:" + "a" * 64]
         assert result[0]["seen_at"] == 1700000001
         assert result[0]["event_id"] == event_id
 

@@ -84,7 +84,7 @@ class TestLightweightEventInsert:
             bytes.fromhex("ac" * 32),
         )
         assert row is not None
-        assert sorted(row["tagvalues"]) == ["abc123", "def456"]
+        assert sorted(row["tagvalues"]) == ["e:abc123", "p:def456"]
 
     async def test_empty_tags_tagvalues_empty(self, brotr: Brotr):
         mock = make_mock_event(event_id="ad" * 32, tags=[], sig="ee" * 64)
@@ -121,7 +121,7 @@ class TestLightweightEventInsert:
             bytes.fromhex("ae" * 32),
         )
         assert row is not None
-        assert row["tagvalues"] == ["val1"]
+        assert row["tagvalues"] == ["e:val1"]
 
     async def test_batch_insert(self, brotr: Brotr):
         events = [Event(make_mock_event(event_id=f"{i:064x}", sig="ee" * 64)) for i in range(5)]
@@ -142,4 +142,4 @@ class TestLightweightEventInsert:
     async def test_utility_function_available(self, brotr: Brotr):
         tags_json = json.dumps([["e", "abc"], ["p", "def"], ["relay", "skip"]])
         result = await brotr.fetchval("SELECT tags_to_tagvalues($1::jsonb)", tags_json)
-        assert sorted(result) == ["abc", "def"]
+        assert sorted(result) == ["e:abc", "p:def"]

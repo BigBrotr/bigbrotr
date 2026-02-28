@@ -97,12 +97,12 @@ class TestExtractRelaysFromRows:
     """Tests for extract_relays_from_rows function."""
 
     def test_extracts_valid_relay_urls(self) -> None:
-        """Test relay URL extraction from tagvalues."""
+        """Test relay URL extraction from key-prefixed tagvalues."""
         rows = [
             {
                 "tagvalues": [
-                    "wss://relay1.example.com",
-                    "wss://relay2.example.com",
+                    "r:wss://relay1.example.com",
+                    "r:wss://relay2.example.com",
                 ],
                 "seen_at": 1700000000,
             }
@@ -120,11 +120,11 @@ class TestExtractRelaysFromRows:
         rows = [
             {
                 "tagvalues": [
-                    "a" * 64,  # hex event ID
-                    "b" * 64,  # hex pubkey
-                    "bitcoin",  # hashtag
-                    "nostr",  # hashtag
-                    "wss://valid.relay.com",
+                    "e:" + "a" * 64,  # hex event ID
+                    "p:" + "b" * 64,  # hex pubkey
+                    "t:bitcoin",  # hashtag
+                    "t:nostr",  # hashtag
+                    "r:wss://valid.relay.com",
                 ],
                 "seen_at": 1700000000,
             }
@@ -166,9 +166,9 @@ class TestExtractRelaysFromRows:
         rows = [
             {
                 "tagvalues": [
-                    "not-a-valid-url",
-                    "http://wrong-scheme.com",
-                    "",
+                    "r:not-a-valid-url",
+                    "r:http://wrong-scheme.com",
+                    "t:",
                 ],
                 "seen_at": 1700000000,
             }
@@ -182,8 +182,8 @@ class TestExtractRelaysFromRows:
         rows = [
             {
                 "tagvalues": [
-                    "wss://relay.example.com",
-                    "wss://relay.example.com",
+                    "r:wss://relay.example.com",
+                    "r:wss://relay.example.com",
                 ],
                 "seen_at": 1700000000,
             }
@@ -195,8 +195,8 @@ class TestExtractRelaysFromRows:
     def test_deduplication_across_rows(self) -> None:
         """Test duplicate relay URLs across rows are deduplicated."""
         rows = [
-            {"tagvalues": ["wss://relay.example.com"], "seen_at": 1700000000},
-            {"tagvalues": ["wss://relay.example.com"], "seen_at": 1700000001},
+            {"tagvalues": ["r:wss://relay.example.com"], "seen_at": 1700000000},
+            {"tagvalues": ["r:wss://relay.example.com"], "seen_at": 1700000001},
         ]
 
         relays = extract_relays_from_rows(rows)
@@ -206,11 +206,11 @@ class TestExtractRelaysFromRows:
         """Test batch with mixed valid relay URLs and non-URL values."""
         rows = [
             {
-                "tagvalues": ["wss://good.relay.com", "a" * 64],
+                "tagvalues": ["r:wss://good.relay.com", "e:" + "a" * 64],
                 "seen_at": 1700000000,
             },
             {
-                "tagvalues": ["bitcoin", "wss://another.relay.com"],
+                "tagvalues": ["t:bitcoin", "r:wss://another.relay.com"],
                 "seen_at": 1700000001,
             },
             {
@@ -230,7 +230,7 @@ class TestExtractRelaysFromRows:
         """Test that ws:// relay URLs are also accepted."""
         rows = [
             {
-                "tagvalues": ["ws://clearnet.relay.com"],
+                "tagvalues": ["r:ws://clearnet.relay.com"],
                 "seen_at": 1700000000,
             }
         ]
