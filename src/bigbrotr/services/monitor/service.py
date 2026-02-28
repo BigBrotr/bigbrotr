@@ -765,7 +765,7 @@ class Monitor(
         state_key: str,
         builder: EventBuilder,
         event_name: str,
-        timeout: float = 30.0,  # noqa: ASYNC109
+        timeout: float,  # noqa: ASYNC109
     ) -> None:
         """Publish an event if enabled, relays configured, and interval elapsed."""
         if not enabled or not relays:
@@ -875,11 +875,12 @@ class Monitor(
 
     def _build_kind_10166(self) -> EventBuilder:
         """Build Kind 10166 monitor announcement event per NIP-66."""
-        timeout_ms = int(self._config.networks.clearnet.timeout * 1000)
         include = self._config.discovery.include
         enabled_networks = [
             network for network in NetworkType if self._config.networks.is_enabled(network)
         ]
+        first_network = enabled_networks[0] if enabled_networks else NetworkType.CLEARNET
+        timeout_ms = int(self._config.networks.get(first_network).timeout * 1000)
         return build_monitor_announcement(
             interval=int(self._config.interval),
             timeout_ms=timeout_ms,
