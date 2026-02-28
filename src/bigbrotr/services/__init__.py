@@ -1,4 +1,4 @@
-"""Six independent services plus shared utilities.
+"""Eight independent services plus shared utilities.
 
 Services are the top layer of the diamond DAG, depending on
 [bigbrotr.core][bigbrotr.core], [bigbrotr.nips][bigbrotr.nips],
@@ -19,6 +19,10 @@ Attributes:
         pagination with per-relay state tracking.
     Refresher: Periodic materialized view refresh in dependency order.
         Provides per-view logging, timing, and error isolation.
+    Api: REST API for read-only database access via FastAPI with
+        auto-generated paginated endpoints.
+    Dvm: NIP-90 Data Vending Machine exposing database queries via
+        the Nostr protocol with per-table pricing.
 
 Note:
     All services follow the same lifecycle pattern: instantiate with a
@@ -46,6 +50,14 @@ Examples:
     ```
 """
 
+from .api import (
+    Api,
+    ApiConfig,
+)
+from .dvm import (
+    Dvm,
+    DvmConfig,
+)
 from .finder import (
     Finder,
     FinderConfig,
@@ -73,6 +85,10 @@ from .validator import (
 
 
 __all__ = [
+    "Api",
+    "ApiConfig",
+    "Dvm",
+    "DvmConfig",
     "Finder",
     "FinderConfig",
     "Monitor",
