@@ -1,7 +1,13 @@
+# =============================================================================
+# DVM Service Configuration (BigBrotr)
+# =============================================================================
+# Nostr Data Vending Machine for querying relay and event data via NIP-90.
+# Only values that differ from defaults are specified here.
+# =============================================================================
+
 pool:
   user: bigbrotr_reader
   password_env: DB_READER_PASSWORD
-  min_size: 1
   max_size: 3
 
 interval: 60.0
@@ -9,9 +15,6 @@ relays:
   - "wss://relay.damus.io"
   - "wss://nos.lol"
   - "wss://relay.nostr.band"
-kind: 5050
-max_page_size: 1000
-announce: true
 
 tables:
   service_state:
