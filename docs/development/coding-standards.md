@@ -216,7 +216,7 @@ graph TD
 | **core** | models | Pool, Brotr, BaseService, Logger, Metrics, YAML |
 | **utils** | models | DNS resolution, keys, transport helpers |
 | **nips** | models, utils, core | NIP-11 and NIP-66 protocol I/O |
-| **services** | core, nips, utils, models | Business logic (all 6 services) |
+| **services** | core, nips, utils, models | Business logic (all 8 services) |
 
 ### Adding a New Service
 

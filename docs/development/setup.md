@@ -81,7 +81,7 @@ bigbrotr/
 |   +-- nips/                         # NIP-11 and NIP-66 protocol I/O
 |   |   +-- nip11/                    # Relay info document fetch/parse
 |   |   +-- nip66/                    # Monitoring: dns, geo, http, net, rtt, ssl
-|   +-- services/                     # Business logic (6 services)
+|   +-- services/                     # Business logic (8 services)
 |   |   +-- seeder/                   # Relay seed loading
 |   |   +-- finder/                   # Relay URL discovery
 |   |   +-- validator/                # Candidate validation

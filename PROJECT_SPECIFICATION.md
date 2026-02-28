@@ -8,7 +8,7 @@ BigBrotr is a production-grade, fully asynchronous Python system that continuous
 2. **How healthy are they?**
 3. **What events are they publishing?**
 
-The system runs 6 independent services deployed via Docker Compose, backed by PostgreSQL 16, with full Prometheus/Grafana observability. It supports clearnet (TLS), Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay networks.
+The system runs 8 independent services deployed via Docker Compose, backed by PostgreSQL 16, with full Prometheus/Grafana observability. It supports clearnet (TLS), Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay networks.
 
 ---
 
@@ -81,43 +81,44 @@ The codebase follows a strict **diamond-shaped Directed Acyclic Graph** for impo
 
 | Package | Responsibility | I/O | LOC |
 |---------|---------------|------|-----|
-| `models` | Frozen dataclasses (Relay, Event, Metadata, ServiceState) with fail-fast validation | None | ~1,200 |
-| `core` | Connection pool, DB facade, service base class, structured logging, Prometheus metrics | Database | ~2,600 |
-| `nips` | NIP-11 relay info fetch/parse, NIP-66 health checks (6 types) | HTTP, DNS, SSL, WebSocket | ~3,500 |
-| `utils` | WebSocket transport, DNS resolution, Nostr key management, bounded HTTP reads | Network | ~1,200 |
-| `services` | 6 services + shared queries/mixins/configs | Orchestration | ~5,500 |
+| `models` | Frozen dataclasses (Relay, Event, Metadata, ServiceState) with fail-fast validation | None | ~1,400 |
+| `core` | Connection pool, DB facade, service base class, structured logging, Prometheus metrics | Database | ~2,800 |
+| `nips` | NIP-11 relay info fetch/parse, NIP-66 health checks (6 types) | HTTP, DNS, SSL, WebSocket | ~4,200 |
+| `utils` | WebSocket transport, DNS resolution, Nostr key management, bounded HTTP reads | Network | ~1,300 |
+| `services` | 8 services + shared queries/mixins/configs | Orchestration | ~6,900 |
 
 ### Independent Services, Shared Database
 
-All 6 services are **independent processes** with no direct service-to-service dependencies. They communicate exclusively through the shared PostgreSQL database. Stopping one service does not break the others.
+All 8 services are **independent processes** with no direct service-to-service dependencies. They communicate exclusively through the shared PostgreSQL database. Stopping one service does not break the others.
 
 ```
-                        ┌────────────────────────────────────────┐
-                        │         PostgreSQL Database             │
-                        │                                        │
-                        │  relay ─── event_relay ─── event       │
-                        │  service_state (candidates/cursors)    │
-                        │  metadata ─── relay_metadata           │
-                        │  11 materialized views                 │
-                        └──┬───┬───┬───┬───┬───┬────────────────┘
-                           │   │   │   │   │   │
-        ┌──────────────────┘   │   │   │   │   └──────────────────┐
-        │        ┌─────────────┘   │   │   └──────────────┐       │
-        ▼        ▼                 ▼   ▼                  ▼       ▼
-   ┌────────┐ ┌───────┐    ┌──────────┐ ┌───────┐ ┌────────────┐ ┌─────────┐
-   │ Seeder │ │Finder │    │Validator │ │Monitor│ │Synchronizer│ │Refresher│
-   │        │ │       │    │          │ │       │ │            │ │         │
-   │  boot  │ │discov.│    │ test ws  │ │health │ │archive evts│ │ refresh │
-   └───┬────┘ └──┬────┘    └────┬─────┘ └──┬────┘ └─────┬──────┘ └────┬────┘
-       │         │              │           │            │             │
-       ▼         ▼              ▼           ▼            ▼             │
-   seed file    APIs         Relays      Relays       Relays       (no I/O)
-              (HTTP)       (WebSocket)  (NIP-11,     (fetch
-                                         NIP-66)     events)
-                                           │
-                                           ▼
-                                    Nostr Network
-                                 (kind 10166/30166)
+                  ┌──────────────────────────────────────────────────────┐
+                  │               PostgreSQL Database                    │
+                  │                                                      │
+                  │  relay ─── event_relay ─── event                     │
+                  │  service_state (candidates/cursors)                  │
+                  │  metadata ─── relay_metadata                        │
+                  │  11 materialized views                              │
+                  └──┬───┬───┬───┬───┬───┬───┬───┬─────────────────────┘
+                     │   │   │   │   │   │   │   │
+  ┌──────────────────┘   │   │   │   │   │   │   └─────────────────────┐
+  │        ┌─────────────┘   │   │   │   │   └──────────────┐         │
+  │        │     ┌───────────┘   │   │   └──────────┐       │         │
+  ▼        ▼     ▼               ▼   ▼              ▼       ▼         ▼
+┌──────┐ ┌──────┐ ┌─────────┐ ┌───────┐ ┌────────────┐ ┌─────────┐ ┌───┐ ┌───┐
+│Seeder│ │Finder│ │Validator│ │Monitor│ │Synchronizer│ │Refresher│ │Api│ │Dvm│
+│      │ │      │ │         │ │       │ │            │ │         │ │   │ │   │
+│ boot │ │disc. │ │ test ws │ │health │ │archive evts│ │ refresh │ │REST│ │NIP│
+└──┬───┘ └──┬───┘ └───┬─────┘ └──┬────┘ └─────┬──────┘ └────┬────┘ └─┬─┘ └─┬─┘
+   │        │         │          │             │             │        │     │
+   ▼        ▼         ▼          ▼             ▼             │        ▼     ▼
+seed file  APIs     Relays    Relays        Relays        (no I/O)  HTTP  Nostr
+         (HTTP)   (WebSocket) (NIP-11,     (fetch                        Network
+                               NIP-66)     events)                     (kind 5050
+                                 │                                      /6050)
+                                 ▼
+                          Nostr Network
+                       (kind 10166/30166)
 ```
 
 ### Service-Database Interaction Map
@@ -132,6 +133,8 @@ Validator    │   W    │      │       │      │         │   R/W   │
 Monitor      │   R    │      │       │  W   │    W    │   R/W   │
 Synchronizer │   R    │  W   │   W   │      │         │   R/W   │
 Refresher    │        │      │       │      │         │         │     W
+Api          │   R    │  R   │   R   │  R   │    R    │         │     R
+Dvm          │   R    │  R   │   R   │  R   │    R    │         │     R
 ─────────────┴────────┴──────┴───────┴──────┴─────────┴─────────┴────────────
 
 R = reads    W = writes    (1) = only when to_validate=False
@@ -213,8 +216,8 @@ Generic key-value persistence for operational state between service restarts.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `service_name` | `ServiceName` | Service identifier (6 values) |
-| `state_type` | `ServiceStateType` | CANDIDATE, CURSOR, or CHECKPOINT |
+| `service_name` | `ServiceName` | Service identifier (8 values) |
+| `state_type` | `ServiceStateType` | CANDIDATE, CURSOR, MONITORING, or PUBLICATION |
 | `state_key` | `str` | Application-defined key (e.g., relay URL) |
 | `state_value` | `Mapping[str, Any]` | Deep-frozen JSON dict |
 | `updated_at` | `int` | Unix timestamp |
@@ -223,17 +226,17 @@ Generic key-value persistence for operational state between service restarts.
 - **Finder**: Cursors tracking last-seen event timestamp per relay.
 - **Validator**: Candidate records with failure counters.
 - **Synchronizer**: Per-relay sync cursors (`last_synced_at`).
-- **Monitor**: Health check scheduling checkpoints.
+- **Monitor**: Health check monitoring state and publication tracking.
 
 ### Enumerations
 
 | Enum | Values | Purpose |
 |------|--------|---------|
 | `NetworkType` | CLEARNET, TOR, I2P, LOKI, LOCAL, UNKNOWN | Relay network classification |
-| `ServiceName` | SEEDER, FINDER, VALIDATOR, MONITOR, SYNCHRONIZER, REFRESHER | Service identifiers |
+| `ServiceName` | SEEDER, FINDER, VALIDATOR, MONITOR, SYNCHRONIZER, REFRESHER, API, DVM | Service identifiers |
 | `EventKind` | SET_METADATA(0), RECOMMEND_RELAY(2), CONTACTS(3), RELAY_LIST(10002), NIP66_TEST(22456), MONITOR_ANNOUNCEMENT(10166), RELAY_DISCOVERY(30166) | Well-known Nostr event kinds |
 | `MetadataType` | NIP11_INFO, NIP66_RTT, NIP66_SSL, NIP66_GEO, NIP66_NET, NIP66_DNS, NIP66_HTTP | Health check result types |
-| `ServiceStateType` | CANDIDATE, CURSOR, CHECKPOINT | Service state discriminator |
+| `ServiceStateType` | CANDIDATE, CURSOR, MONITORING, PUBLICATION | Service state discriminator |
 
 ---
 
@@ -241,26 +244,26 @@ Generic key-value persistence for operational state between service restarts.
 
 ### Overview
 
-Six **independent** services run on their own schedules. They share the PostgreSQL database but have no direct dependencies on each other. Stopping or restarting any service does not affect the others.
+Eight **independent** services run on their own schedules. They share the PostgreSQL database but have no direct dependencies on each other. Stopping or restarting any service does not affect the others.
 
 ```
-┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  ┌──────────┐
-│  Seeder  │  │  Finder  │  │Validator │  │ Monitor  │  │Synchronizer  │  │ Refresher│
-│ (boot)   │  │ (5 min)  │  │ (5 min)  │  │ (5 min)  │  │  (5 min)     │  │ (60 min) │
-│          │  │          │  │          │  │          │  │              │  │          │
-│ W: cand. │  │ R: relay │  │ R: cand. │  │ R: relay │  │ R: relay     │  │ W: views │
-│ W: relay │  │ R: evts  │  │ W: relay │  │ W: meta  │  │ W: events    │  │          │
-│          │  │ W: cand. │  │ W: cand. │  │ W: ckpt  │  │ W: cursors   │  │          │
-│          │  │ W: curs. │  │          │  │          │  │              │  │          │
-└──────────┘  └──────────┘  └──────────┘  └──────────┘  └──────────────┘  └──────────┘
-     │             │              │             │               │
-     ▼             ▼              ▼             ▼               ▼
-  seed file    HTTP APIs      WebSocket    HTTP/WS/DNS/     WebSocket
-                                           SSL/GeoIP +
+┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  ┌──────────┐  ┌─────┐  ┌─────┐
+│  Seeder  │  │  Finder  │  │Validator │  │ Monitor  │  │Synchronizer  │  │ Refresher│  │ Api │  │ Dvm │
+│ (boot)   │  │ (5 min)  │  │ (5 min)  │  │ (5 min)  │  │  (5 min)     │  │ (60 min) │  │     │  │     │
+│          │  │          │  │          │  │          │  │              │  │          │  │     │  │     │
+│ W: cand. │  │ R: relay │  │ R: cand. │  │ R: relay │  │ R: relay     │  │ W: views │  │R: * │  │R: * │
+│ W: relay │  │ R: evts  │  │ W: relay │  │ W: meta  │  │ W: events    │  │          │  │     │  │     │
+│          │  │ W: cand. │  │ W: cand. │  │ W: mons. │  │ W: cursors   │  │          │  │     │  │     │
+│          │  │ W: curs. │  │          │  │ W: pubs. │  │              │  │          │  │     │  │     │
+└──────────┘  └──────────┘  └──────────┘  └──────────┘  └──────────────┘  └──────────┘  └─────┘  └─────┘
+     │             │              │             │               │                          │        │
+     ▼             ▼              ▼             ▼               ▼                          ▼        ▼
+  seed file    HTTP APIs      WebSocket    HTTP/WS/DNS/     WebSocket                    HTTP    Nostr
+                                           SSL/GeoIP +                                          Network
                                            Nostr publish
 ```
 
-**Loose coupling via database**: Seeder and Finder populate candidates in `service_state`. Validator reads candidates and promotes valid ones to `relay`. Monitor and Synchronizer read `relay` to know which relays to check or sync. Refresher materializes views from all accumulated data. But each service runs its own loop, on its own schedule, independently.
+**Loose coupling via database**: Seeder and Finder populate candidates in `service_state`. Validator reads candidates and promotes valid ones to `relay`. Monitor and Synchronizer read `relay` to know which relays to check or sync. Refresher materializes views from all accumulated data. Api and Dvm provide read-only access to all accumulated data. But each service runs its own loop, on its own schedule, independently.
 
 All services inherit from `BaseService[ConfigT]`, which provides:
 - Configurable run cycle intervals
@@ -415,6 +418,38 @@ All services inherit from `BaseService[ConfigT]`, which provides:
 3. `relay_software_counts`, `supported_nip_counts` (depend on `relay_metadata_latest`)
 
 Individual view failures do not block subsequent views.
+
+#### 7. Api
+
+**Purpose**: Provide read-only HTTP access to all tables, views, and materialized views.
+
+| Property | Value |
+|----------|-------|
+| Execution | Continuous (HTTP server) |
+| Input | HTTP requests |
+| Output | JSON responses |
+| Framework | FastAPI |
+
+**Process**:
+1. Auto-generates paginated endpoints via Catalog schema introspection.
+2. Enforces per-table access control via `TablePolicy`.
+3. All queries are read-only against the shared PostgreSQL database.
+
+#### 8. Dvm
+
+**Purpose**: NIP-90 Data Vending Machine service for on-demand data queries via Nostr.
+
+| Property | Value |
+|----------|-------|
+| Execution | Continuous (WebSocket listener) |
+| Input | Kind 5050 job request events from Nostr relays |
+| Output | Kind 6050 result events published to Nostr relays |
+
+**Process**:
+1. Listens for kind 5050 job requests on configured Nostr relays.
+2. Executes read-only queries via the shared Catalog.
+3. Publishes kind 6050 result events back to the Nostr network.
+4. Enforces per-table pricing via `DvmTablePolicy`.
 
 ---
 
@@ -581,7 +616,7 @@ All materialized views have unique indexes (required for `REFRESH MATERIALIZED V
 
 ### Docker Compose Stack
 
-13 containers on 2 bridge networks:
+15 containers on 2 bridge networks:
 
 | Container | Image | CPU | RAM | Purpose |
 |-----------|-------|-----|-----|---------|
@@ -594,12 +629,14 @@ All materialized views have unique indexes (required for `REFRESH MATERIALIZED V
 | Monitor | bigbrotr (custom) | 1 | 512M | Health checks + event publishing |
 | Synchronizer | bigbrotr (custom) | 1 | 512M | Event collection |
 | Refresher | bigbrotr (custom) | 0.25 | 256M | Materialized view refresh |
+| Api | bigbrotr (custom) | 0.5 | 256M | REST API (read-only) |
+| Dvm | bigbrotr (custom) | 0.5 | 256M | NIP-90 Data Vending Machine |
 | postgres-exporter | prometheuscommunity | 0.25 | 128M | PostgreSQL metrics for Prometheus |
 | Prometheus | prom/prometheus:v2.51.0 | 0.5 | 512M | Time-series metrics database (30-day retention) |
 | Alertmanager | prom/alertmanager:v0.27.0 | 0.25 | 128M | Alert routing and grouping |
 | Grafana | grafana/grafana:10.4.1 | 0.5 | 512M | Dashboards and visualization |
 
-**Total resources**: ~8.75 CPUs, ~6.4 GB RAM
+**Total resources**: ~9.75 CPUs, ~6.9 GB RAM
 
 **Networks**:
 - `bigbrotr-data-network`: PostgreSQL, PGBouncer, Tor, services
@@ -938,13 +975,13 @@ Both share the same Dockerfile, service codebase, and CLI. The difference is ent
 
 | Metric | Value |
 |--------|-------|
-| Python source LOC | ~14,000 |
-| Test LOC | ~15,000 |
+| Python source LOC | ~17,000 |
+| Test LOC | ~35,000 |
 | SQL LOC | ~1,500 |
-| Total files | ~150 |
-| Dependencies (runtime) | 16 |
+| Total files | ~200 |
+| Dependencies (runtime) | 17 |
 | Dependencies (dev) | 18 |
-| Docker containers | 13 |
+| Docker containers | 15 |
 | Database tables | 6 |
 | Stored procedures | 25 |
 | Materialized views | 11 |

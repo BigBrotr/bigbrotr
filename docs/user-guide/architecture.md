@@ -213,7 +213,7 @@ class BrotrConfig(BaseModel):
 
 ### BaseService (`base_service.py`)
 
-Abstract base class for all six services. Generic over configuration type.
+Abstract base class for all eight services. Generic over configuration type.
 
 ```python
 class BaseService(ABC, Generic[ConfigT]):
@@ -415,7 +415,7 @@ flowchart TD
 
 ### Service Architecture Pattern
 
-All six services follow the same pattern:
+All eight services follow the same pattern:
 
 ```python
 class MyService(BaseService[MyServiceConfig]):
