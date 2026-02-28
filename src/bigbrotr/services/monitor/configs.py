@@ -12,7 +12,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, Field, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
@@ -69,6 +76,15 @@ class RetryConfig(BaseModel):
     initial_delay: float = Field(default=1.0, ge=0.1, le=10.0)
     max_delay: float = Field(default=10.0, ge=1.0, le=60.0)
     jitter: float = Field(default=0.5, ge=0.0, le=2.0)
+
+    @field_validator("max_delay")
+    @classmethod
+    def validate_max_delay(cls, v: float, info: ValidationInfo) -> float:
+        """Ensure max_delay >= initial_delay."""
+        initial_delay = info.data.get("initial_delay", 1.0)
+        if v < initial_delay:
+            raise ValueError(f"max_delay ({v}) must be >= initial_delay ({initial_delay})")
+        return v
 
 
 class RetriesConfig(BaseModel):
@@ -130,8 +146,8 @@ class GeoConfig(BaseModel):
             NIP-66 check that reads the ASN database.
     """
 
-    city_database_path: str = Field(default="static/GeoLite2-City.mmdb")
-    asn_database_path: str = Field(default="static/GeoLite2-ASN.mmdb")
+    city_database_path: str = Field(default="static/GeoLite2-City.mmdb", min_length=1)
+    asn_database_path: str = Field(default="static/GeoLite2-ASN.mmdb", min_length=1)
     city_download_url: str = Field(
         default="https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb"
     )
@@ -164,7 +180,7 @@ class PublishingConfig(BaseModel):
         list[Relay],
         BeforeValidator(lambda v: safe_parse(v, Relay)),
     ] = Field(default_factory=list)
-    timeout: float = Field(default=30.0, gt=0, description="Broadcast timeout in seconds")
+    timeout: float = Field(default=30.0, ge=0.1, description="Broadcast timeout in seconds")
 
 
 class DiscoveryConfig(BaseModel):
@@ -176,7 +192,7 @@ class DiscoveryConfig(BaseModel):
     """
 
     enabled: bool = Field(default=True)
-    interval: int = Field(default=3600, ge=60)
+    interval: float = Field(default=3600.0, ge=60.0)
     include: MetadataFlags = Field(default_factory=MetadataFlags)
     relays: Annotated[
         list[Relay] | None,
@@ -193,7 +209,7 @@ class AnnouncementConfig(BaseModel):
     """
 
     enabled: bool = Field(default=True)
-    interval: int = Field(default=86_400, ge=60)
+    interval: float = Field(default=86_400.0, ge=60.0)
     relays: Annotated[
         list[Relay] | None,
         BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
@@ -209,7 +225,7 @@ class ProfileConfig(BaseModel):
     """
 
     enabled: bool = Field(default=False)
-    interval: int = Field(default=86_400, ge=60)
+    interval: float = Field(default=86_400.0, ge=60.0)
     relays: Annotated[
         list[Relay] | None,
         BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),

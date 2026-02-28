@@ -376,7 +376,7 @@ class Monitor(
         See Also:
             ``fetch_relays_to_monitor``: The SQL query executed.
         """
-        monitored_before = int(self.chunk_progress.started_at) - self._config.discovery.interval
+        monitored_before = int(self.chunk_progress.started_at - self._config.discovery.interval)
         return await fetch_relays_to_monitor(self._brotr, monitored_before, networks)
 
     async def _check_chunk(
@@ -761,7 +761,7 @@ class Monitor(
         *,
         enabled: bool,
         relays: list[Relay],
-        interval: int,
+        interval: float,
         state_key: str,
         builder: EventBuilder,
         event_name: str,

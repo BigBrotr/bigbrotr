@@ -150,8 +150,8 @@ class TestApiSourceConfig:
 
     def test_timeout_bounds(self) -> None:
         """Test timeout validation bounds."""
-        # Min bound
-        config_min = ApiSourceConfig(url="https://api.com", timeout=0.1)
+        # Min bound (connect_timeout must not exceed timeout)
+        config_min = ApiSourceConfig(url="https://api.com", timeout=0.1, connect_timeout=0.1)
         assert config_min.timeout == 0.1
 
         # Max bound
@@ -171,6 +171,16 @@ class TestApiSourceConfig:
                 url="https://api.example.com",
                 jmespath="[*",
             )
+
+    def test_connect_timeout_exceeds_timeout_rejected(self) -> None:
+        """Test that connect_timeout > timeout is rejected."""
+        with pytest.raises(ValueError, match=r"connect_timeout.*must not exceed.*timeout"):
+            ApiSourceConfig(url="https://api.com", timeout=10.0, connect_timeout=30.0)
+
+    def test_connect_timeout_equals_timeout_accepted(self) -> None:
+        """Test that connect_timeout == timeout is accepted."""
+        config = ApiSourceConfig(url="https://api.com", timeout=10.0, connect_timeout=10.0)
+        assert config.connect_timeout == 10.0
 
 
 # ============================================================================

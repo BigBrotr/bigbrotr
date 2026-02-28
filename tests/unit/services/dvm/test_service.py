@@ -163,6 +163,16 @@ class TestDvmConfig:
         config = DvmConfig(relays=["wss://relay.example.com"], interval=120.0)
         assert config.interval == 120.0
 
+    def test_invalid_relay_url_rejected(self) -> None:
+        """Test that invalid relay URLs are rejected."""
+        with pytest.raises(ValueError, match="Invalid relay URL"):
+            DvmConfig(relays=["not_a_url"])
+
+    def test_valid_relay_urls_accepted(self) -> None:
+        """Test that valid WebSocket relay URLs are accepted."""
+        config = DvmConfig(relays=["wss://relay.damus.io", "wss://nos.lol"])
+        assert len(config.relays) == 2
+
 
 # ============================================================================
 # Dvm Service Tests
