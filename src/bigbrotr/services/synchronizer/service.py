@@ -236,13 +236,18 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
             return {}
 
         states = await self._brotr.get_service_state(self.SERVICE_NAME, ServiceStateType.CURSOR)
-        return {
-            s.state_key: EventRelayCursor(
-                relay_url=s.state_key, seen_at=s.state_value["last_synced_at"]
-            )
-            for s in states
-            if "last_synced_at" in s.state_value
-        }
+        cursors: dict[str, EventRelayCursor] = {}
+        for s in states:
+            if "last_synced_at" not in s.state_value:
+                continue
+            try:
+                cursors[s.state_key] = EventRelayCursor(
+                    relay_url=s.state_key,
+                    seen_at=int(s.state_value["last_synced_at"]),
+                )
+            except (ValueError, TypeError):
+                self._logger.warning("invalid_cursor_data", relay=s.state_key)
+        return cursors
 
     def _merge_overrides(self, relays: list[Relay]) -> list[Relay]:
         """Merge configured relay overrides into the relay list.

@@ -15,6 +15,7 @@ from nostr_sdk import (
     Alphabet,
     Filter,
     Kind,
+    NostrSdkError,
     RelayUrl,
     SingleLetterTag,
     Timestamp,
@@ -362,7 +363,7 @@ async def sync_relay_events(
             )
 
         await client.disconnect()
-    except (TimeoutError, OSError) as e:
+    except (TimeoutError, OSError, NostrSdkError) as e:
         _log("WARNING", "sync_relay_error", relay=relay.url, error=str(e))
     finally:
         # nostr-sdk client.shutdown() can raise arbitrary errors from the
