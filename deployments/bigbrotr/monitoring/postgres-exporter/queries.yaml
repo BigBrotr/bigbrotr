@@ -36,7 +36,7 @@ bigbrotr_relay_by_network:
   metrics:
     - network:
         usage: "LABEL"
-        description: "Network type (clearnet, tor, i2p, loki, local)"
+        description: "Network type (clearnet, tor, i2p, loki)"
     - count:
         usage: "GAUGE"
         description: "Number of relays per network type"
