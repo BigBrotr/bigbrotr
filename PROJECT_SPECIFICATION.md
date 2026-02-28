@@ -557,7 +557,7 @@ relay                    (url PK, network, discovered_at)
 
 #### Key Design Decisions
 
-- **Computed column**: `event.tagvalues` is a `TEXT[] NOT NULL` column computed at insert time by `event_insert()` via `tags_to_tagvalues(tags)`, extracting values from single-character tag keys. Indexed with GIN for efficient containment queries.
+- **Computed column**: `event.tagvalues` is a `TEXT[] NOT NULL` column computed at insert time by `event_insert()` via `tags_to_tagvalues(tags)`, extracting key-prefixed values from single-character tag keys (e.g., `ARRAY['e:abc123', 'p:def456']`). Indexed with GIN for efficient containment queries that discriminate between tag types.
 - **Content addressing**: Metadata uses SHA-256 hash + type as composite PK. Hash computed in Python for deterministic cross-platform behavior.
 - **Cascade functions**: `event_relay_insert_cascade` and `relay_metadata_insert_cascade` atomically insert across 3 tables in a single stored procedure call.
 - **Bulk array parameters**: All insert functions accept parallel arrays and use `UNNEST` for single-roundtrip bulk inserts.

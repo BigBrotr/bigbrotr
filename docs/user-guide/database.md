@@ -212,13 +212,13 @@ All foreign keys use `ON DELETE CASCADE`:
 
 ### tags_to_tagvalues(JSONB) -> TEXT[]
 
-Extracts values from single-character tag keys in a Nostr event tags array.
+Extracts key-prefixed values from single-character tag keys in a Nostr event tags array. Each value is prefixed with its tag key and a colon separator, enabling GIN queries that discriminate between tag types.
 
 ```sql
 LANGUAGE SQL IMMUTABLE RETURNS NULL ON NULL INPUT SECURITY INVOKER
 ```
 
-**Example**: `[["e", "abc"], ["p", "def"], ["relay", "wss://..."]]` -> `ARRAY['abc', 'def']`
+**Example**: `[["e", "abc"], ["p", "def"], ["relay", "wss://..."]]` -> `ARRAY['e:abc', 'p:def']`
 
 Tags with multi-character keys (like `relay`) are excluded.
 
