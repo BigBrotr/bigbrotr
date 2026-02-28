@@ -62,9 +62,10 @@ ON event_relay USING btree (relay_url, seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_generated_at
 ON relay_metadata USING btree (generated_at DESC);
 
--- Content-addressed lookups: WHERE metadata_id = ?
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id
-ON relay_metadata USING btree (metadata_id);
+-- Compound FK lookups: WHERE metadata_id = ? AND metadata_type = ?
+-- Also used by orphan_metadata_delete() to verify references
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id_type
+ON relay_metadata USING btree (metadata_id, metadata_type);
 
 -- Latest metadata per relay and type:
 -- WHERE relay_url = ? AND metadata_type = ? ORDER BY generated_at DESC LIMIT 1
