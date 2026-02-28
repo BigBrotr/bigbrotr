@@ -1,8 +1,8 @@
 """Integration tests for LilBrotr lightweight event storage.
 
-LilBrotr's event_insert discards tags, content, and sig, storing only
-id, pubkey, created_at, kind, and computed tagvalues. These tests verify
-the lightweight storage behavior and tagvalues computation at insert time.
+LilBrotr's event_insert stores NULL for tags, content, and sig while
+computing tagvalues at insert time. These tests verify the lightweight
+NULL-storage behavior and tagvalues computation.
 """
 
 from __future__ import annotations
