@@ -41,10 +41,10 @@ def extract_urls_from_response(data: Any, expression: str = "[*]") -> list[str]:
 def extract_relays_from_rows(rows: list[dict[str, Any]]) -> dict[str, Relay]:
     """Extract and deduplicate relay URLs from event tagvalues.
 
-    Parses every value in each row's ``tagvalues`` array via
-    ``parse_relay_url``. Values that parse as valid relay URLs become
-    candidates; all others (hex IDs, pubkeys, hashtags, etc.) are
-    silently discarded.
+    Each tagvalue is stored with a key prefix (``"r:wss://relay.com"``).
+    This function strips the prefix via :meth:`str.partition` (splitting
+    only on the first ``:``, so ``wss://`` in the URL is preserved) and
+    passes the raw value to ``parse_relay_url``.
 
     Args:
         rows: Event rows with ``tagvalues`` key (from
@@ -61,7 +61,8 @@ def extract_relays_from_rows(rows: list[dict[str, Any]]) -> dict[str, Relay]:
         if not tagvalues:
             continue
         for val in tagvalues:
-            validated = parse_relay_url(val)
+            _, _, raw_val = val.partition(":")
+            validated = parse_relay_url(raw_val)
             if validated:
                 relays[validated.url] = validated
 
