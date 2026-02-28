@@ -271,7 +271,7 @@ PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 
 ### Stored Functions (25)
 
-- **1 utility**: `tags_to_tagvalues` (extracts single-char tag values for GIN indexing)
+- **1 utility**: `tags_to_tagvalues` (extracts key-prefixed single-char tag values for GIN indexing)
 - **10 CRUD**: `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `event_relay_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
 - **2 cleanup**: `orphan_event_delete`, `orphan_metadata_delete` (batched)
 - **12 refresh**: one per materialized view + `all_statistics_refresh`

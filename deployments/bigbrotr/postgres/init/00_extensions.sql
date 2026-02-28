@@ -9,7 +9,7 @@
 
 -- Enables GIN index support for btree-comparable types (TEXT[], INTEGER[], etc.).
 -- Required for the idx_event_tagvalues GIN index, which powers fast
--- array containment queries (WHERE tagvalues @> ARRAY['value']) on the event table.
+-- array containment queries (WHERE tagvalues @> ARRAY['e:<hex-id>']) on the event table.
 CREATE EXTENSION IF NOT EXISTS btree_gin;
 
 -- Tracks cumulative execution statistics for all SQL statements.
