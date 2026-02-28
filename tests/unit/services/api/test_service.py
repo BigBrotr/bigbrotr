@@ -19,6 +19,7 @@ from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.api.service import Api, ApiConfig
 from bigbrotr.services.common.catalog import (
     Catalog,
+    CatalogError,
     ColumnSchema,
     QueryResult,
     TablePolicy,
@@ -231,7 +232,7 @@ class TestApiEndpoints:
             api_service._catalog,
             "query",
             new_callable=AsyncMock,
-            side_effect=ValueError("Unknown column: bad"),
+            side_effect=CatalogError("Unknown column: bad"),
         ):
             resp = test_client.get("/api/v1/relay?bad=value")
         assert resp.status_code == 400
@@ -274,7 +275,7 @@ class TestApiEndpoints:
             api_service._catalog,
             "query",
             new_callable=AsyncMock,
-            side_effect=ValueError("Unknown column: _table"),
+            side_effect=CatalogError("Unknown column: _table"),
         ):
             resp = test_client.get("/api/v1/relay?_table=service_state")
         # _table is treated as a filter column (unknown), not as a route override
@@ -320,12 +321,12 @@ class TestApiFallbackHandler:
         test_client: TestClient,
         api_service: Api,
     ) -> None:
-        """asyncpg.DataError is converted to ValueError by Catalog, yielding 400."""
+        """asyncpg.DataError is converted to CatalogError by Catalog, yielding 400."""
         with patch.object(
             api_service._catalog,
             "query",
             new_callable=AsyncMock,
-            side_effect=ValueError("Invalid filter value: invalid input syntax for type bigint"),
+            side_effect=CatalogError("Invalid filter value"),
         ):
             resp = test_client.get("/api/v1/relay?discovered_at=>=:abc")
 

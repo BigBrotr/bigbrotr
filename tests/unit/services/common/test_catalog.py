@@ -17,6 +17,7 @@ import pytest
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.services.common.catalog import (
     Catalog,
+    CatalogError,
     ColumnSchema,
     DvmTablePolicy,
     QueryResult,
@@ -394,7 +395,7 @@ class TestCatalogQuery:
     async def test_query_unknown_table(
         self, populated_catalog: Catalog, catalog_brotr: Brotr
     ) -> None:
-        with pytest.raises(ValueError, match="Unknown table"):
+        with pytest.raises(CatalogError, match="Unknown table"):
             await populated_catalog.query(catalog_brotr, "nonexistent", limit=10, offset=0)
 
     async def test_query_limit_clamped(
@@ -503,7 +504,7 @@ class TestCatalogQuery:
     async def test_query_with_invalid_filter_column(
         self, populated_catalog: Catalog, catalog_brotr: Brotr
     ) -> None:
-        with pytest.raises(ValueError, match="Unknown column"):
+        with pytest.raises(CatalogError, match="Unknown column"):
             await populated_catalog.query(
                 catalog_brotr,
                 "relay",
@@ -530,7 +531,7 @@ class TestCatalogQuery:
     async def test_query_with_invalid_sort_column(
         self, populated_catalog: Catalog, catalog_brotr: Brotr
     ) -> None:
-        with pytest.raises(ValueError, match="Unknown sort column"):
+        with pytest.raises(CatalogError, match="Unknown sort column"):
             await populated_catalog.query(
                 catalog_brotr,
                 "relay",
@@ -584,13 +585,13 @@ class TestCatalogGetByPk:
             primary_key=(),
             is_view=True,
         )
-        with pytest.raises(ValueError, match="no primary key"):
+        with pytest.raises(CatalogError, match="no primary key"):
             await populated_catalog.get_by_pk(catalog_brotr, "relay_stats", {"url": "x"})
 
     async def test_get_by_pk_missing_column(
         self, populated_catalog: Catalog, catalog_brotr: Brotr
     ) -> None:
-        with pytest.raises(ValueError, match="Missing primary key column"):
+        with pytest.raises(CatalogError, match="Missing primary key column"):
             await populated_catalog.get_by_pk(catalog_brotr, "relay", {})
 
     async def test_get_by_pk_bytea(self, populated_catalog: Catalog, catalog_brotr: Brotr) -> None:
@@ -671,7 +672,7 @@ class TestSortParsing:
         assert direction == "ASC"
 
     def test_invalid_direction(self) -> None:
-        with pytest.raises(ValueError, match="Invalid sort direction"):
+        with pytest.raises(CatalogError, match="Invalid sort direction"):
             Catalog._parse_sort("name:invalid")
 
 
@@ -796,7 +797,7 @@ class TestByteaFilter:
         populated_catalog: Catalog,
         catalog_brotr: Brotr,
     ) -> None:
-        with pytest.raises(ValueError, match="Invalid hex value for column id"):
+        with pytest.raises(CatalogError, match="Invalid hex value for column id"):
             await populated_catalog.query(
                 catalog_brotr,
                 "event",
@@ -810,7 +811,7 @@ class TestByteaFilter:
         populated_catalog: Catalog,
         catalog_brotr: Brotr,
     ) -> None:
-        with pytest.raises(ValueError, match="Invalid hex value for column id"):
+        with pytest.raises(CatalogError, match="Invalid hex value for column id"):
             await populated_catalog.get_by_pk(
                 catalog_brotr,
                 "event",
@@ -824,7 +825,7 @@ class TestByteaFilter:
 
 
 class TestDataErrorConversion:
-    """Tests that asyncpg.DataError is converted to ValueError."""
+    """Tests that asyncpg.DataError is converted to CatalogError."""
 
     async def test_query_data_error_becomes_value_error(
         self,
@@ -835,7 +836,7 @@ class TestDataErrorConversion:
             side_effect=asyncpg.DataError("invalid input syntax for type bigint"),
         )
 
-        with pytest.raises(ValueError, match="Invalid filter value"):
+        with pytest.raises(CatalogError, match="Invalid filter value"):
             await populated_catalog.query(
                 catalog_brotr,
                 "relay",
@@ -854,7 +855,7 @@ class TestDataErrorConversion:
             side_effect=asyncpg.DataError("invalid input syntax"),
         )
 
-        with pytest.raises(ValueError, match="Invalid filter value"):
+        with pytest.raises(CatalogError, match="Invalid filter value"):
             await populated_catalog.query(
                 catalog_brotr,
                 "relay",
@@ -872,7 +873,7 @@ class TestDataErrorConversion:
             side_effect=asyncpg.DataError("invalid input syntax for type bytea"),
         )
 
-        with pytest.raises(ValueError, match="Invalid parameter value"):
+        with pytest.raises(CatalogError, match="Invalid parameter value"):
             await populated_catalog.get_by_pk(
                 catalog_brotr,
                 "relay",

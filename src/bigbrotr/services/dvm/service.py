@@ -39,7 +39,7 @@ from pydantic import Field
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import Catalog, DvmTablePolicy, QueryResult
+from bigbrotr.services.common.catalog import Catalog, CatalogError, DvmTablePolicy, QueryResult
 from bigbrotr.utils.keys import KeysConfig
 from bigbrotr.utils.protocol import create_client
 
@@ -201,7 +201,7 @@ class Dvm(BaseService[DvmConfig]):
 
         try:
             await self._handle_job(event_id, customer_pubkey, params, table, counters)
-        except (ValueError, OSError, TimeoutError) as e:
+        except (CatalogError, OSError, TimeoutError) as e:
             with contextlib.suppress(OSError, TimeoutError):
                 await self._publish_error(event_id, customer_pubkey, str(e))
             counters.failed += 1

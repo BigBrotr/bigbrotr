@@ -31,7 +31,7 @@ from pydantic import Field, model_validator
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import Catalog, TablePolicy
+from bigbrotr.services.common.catalog import Catalog, CatalogError, TablePolicy
 
 
 if TYPE_CHECKING:
@@ -312,7 +312,7 @@ class Api(BaseService[ApiConfig]):
                 )
             except TimeoutError:
                 return JSONResponse({"error": "Query timeout"}, status_code=504)
-            except ValueError as e:
+            except CatalogError as e:
                 return JSONResponse({"error": str(e)}, status_code=400)
 
             return JSONResponse(

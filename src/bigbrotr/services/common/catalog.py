@@ -35,6 +35,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+class CatalogError(Exception):
+    """Client-safe error raised by Catalog operations.
+
+    Messages are always controlled literals or validated identifiers —
+    never raw database error details.
+    """
+
+
 # Allowed filter operators (whitelist)
 _FILTER_OPERATORS: frozenset[str] = frozenset({"=", ">", "<", ">=", "<=", "ILIKE"})
 
@@ -237,7 +246,7 @@ class Catalog:
         if filters:
             for col, raw_value in filters.items():
                 if col not in col_names:
-                    raise ValueError(f"Unknown column: {col}")
+                    raise CatalogError(f"Unknown column: {col}")
                 op, value = self._parse_filter(raw_value)
                 cast = self._param_cast(col_types[col])
                 where_clauses.append(f"{col} {op} ${param_idx}{cast}")
@@ -245,7 +254,7 @@ class Catalog:
                     try:
                         params.append(bytes.fromhex(value))
                     except ValueError as e:
-                        raise ValueError(f"Invalid hex value for column {col}: {value}") from e
+                        raise CatalogError(f"Invalid hex value for column {col}: {value}") from e
                 else:
                     params.append(value)
                 param_idx += 1
@@ -257,7 +266,7 @@ class Catalog:
         if sort:
             order_col, order_dir = self._parse_sort(sort)
             if order_col not in col_names:
-                raise ValueError(f"Unknown sort column: {order_col}")
+                raise CatalogError(f"Unknown sort column: {order_col}")
             order_sql = f" ORDER BY {order_col} {order_dir}"
 
         # Count query + data query (wrapped to convert DB type errors to ValueError)
@@ -272,7 +281,7 @@ class Catalog:
             params.extend([limit, offset])
             rows = await brotr.fetch(data_query, *params)
         except asyncpg.DataError as e:
-            raise ValueError("Invalid filter value") from e
+            raise CatalogError("Invalid filter value") from e
 
         return QueryResult(
             rows=[dict(row) for row in rows],
@@ -302,7 +311,7 @@ class Catalog:
         """
         schema = self._get_schema(table)
         if not schema.primary_key:
-            raise ValueError(f"Table {table} has no primary key")
+            raise CatalogError(f"Table {table} has no primary key")
 
         col_types = {c.name: c.pg_type for c in schema.columns}
         select_cols = self._build_select_columns(schema.columns)
@@ -311,7 +320,7 @@ class Catalog:
         params: list[Any] = []
         for i, pk_col in enumerate(schema.primary_key, 1):
             if pk_col not in pk_values:
-                raise ValueError(f"Missing primary key column: {pk_col}")
+                raise CatalogError(f"Missing primary key column: {pk_col}")
             cast = self._param_cast(col_types[pk_col])
             where_parts.append(f"{pk_col} = ${i}{cast}")
             value = pk_values[pk_col]
@@ -319,7 +328,7 @@ class Catalog:
                 try:
                     params.append(bytes.fromhex(value))
                 except ValueError as e:
-                    raise ValueError(f"Invalid hex value for column {pk_col}: {value}") from e
+                    raise CatalogError(f"Invalid hex value for column {pk_col}: {value}") from e
             else:
                 params.append(value)
 
@@ -329,7 +338,7 @@ class Catalog:
         try:
             row = await brotr.fetchrow(query, *params)
         except asyncpg.DataError as e:
-            raise ValueError("Invalid parameter value") from e
+            raise CatalogError("Invalid parameter value") from e
 
         return dict(row) if row else None
 
@@ -340,7 +349,7 @@ class Catalog:
     def _get_schema(self, table: str) -> TableSchema:
         """Look up and validate a table name against discovered schema."""
         if table not in self._tables:
-            raise ValueError(f"Unknown table: {table}")
+            raise CatalogError(f"Unknown table: {table}")
         return self._tables[table]
 
     @staticmethod
@@ -377,7 +386,7 @@ class Catalog:
             col, direction = sort.rsplit(":", 1)
             direction = direction.upper()
             if direction not in ("ASC", "DESC"):
-                raise ValueError(f"Invalid sort direction: {direction}")
+                raise CatalogError(f"Invalid sort direction: {direction}")
             return col, direction
         return sort, "ASC"
 
