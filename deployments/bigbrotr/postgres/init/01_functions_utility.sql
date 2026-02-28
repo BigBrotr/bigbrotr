@@ -2,7 +2,7 @@
  * Brotr - 01_functions_utility.sql
  *
  * Utility functions that must be created before tables, because they are
- * referenced by generated columns in the event table.
+ * called by CRUD functions in 03_functions_crud.sql.
  *
  * Dependencies: 00_extensions.sql
  */
@@ -15,8 +15,8 @@
  * "t", etc.). Multi-character keys like "relay" are excluded because they
  * are non-standard for filtering purposes.
  *
- * Used by the event.tagvalues generated column to enable efficient GIN
- * index lookups (WHERE tagvalues @> ARRAY['<hex-id>']).
+ * Called by event_insert() to compute tagvalues at insert time. The result
+ * is indexed with GIN for efficient lookups (WHERE tagvalues @> ARRAY['<hex-id>']).
  *
  * Example:
  *   Input:  [["e", "abc123"], ["p", "def456"], ["relay", "wss://..."]]

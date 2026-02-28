@@ -6,7 +6,7 @@
  * The event table is the primary customization point: only the id column
  * is mandatory. All other tables have fixed structures.
  *
- * Dependencies: 01_functions_utility.sql (tags_to_tagvalues for generated column)
+ * Dependencies: None (tags_to_tagvalues is used by CRUD functions, not table definitions)
  * Customization: event table columns (see storage modes in events_table block)
 {% endblock %}
  */
@@ -54,7 +54,7 @@ COMMENT ON COLUMN relay.discovered_at IS 'Unix timestamp when first discovered a
 --     );
 --
 --   Full (complete event reconstruction, used below):
---     Includes all NIP-01 fields with auto-computed tagvalues.
+--     Includes all NIP-01 fields with tagvalues computed at insert time.
 
 CREATE TABLE IF NOT EXISTS event (
     id BYTEA PRIMARY KEY,
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS event (
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
     tags JSONB NOT NULL,
-    tagvalues TEXT [] GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED,
+    tagvalues TEXT [] NOT NULL,    -- Computed at insert time by event_insert()
     content TEXT NOT NULL,
     sig BYTEA NOT NULL
 );
@@ -73,7 +73,7 @@ COMMENT ON COLUMN event.pubkey IS 'Author public key (32 bytes, stored as bytea 
 COMMENT ON COLUMN event.created_at IS 'Unix timestamp of event creation';
 COMMENT ON COLUMN event.kind IS 'Event kind per NIP-01 (0=metadata, 1=text note, 3=contacts, etc.)';
 COMMENT ON COLUMN event.tags IS 'JSONB array of [key, value, ...] tag arrays per NIP-01';
-COMMENT ON COLUMN event.tagvalues IS 'Auto-computed array of single-char tag values for GIN indexing';
+COMMENT ON COLUMN event.tagvalues IS 'Single-char tag values computed at insert time by event_insert() for GIN indexing';
 COMMENT ON COLUMN event.content IS 'Event content (plaintext or encrypted depending on kind)';
 COMMENT ON COLUMN event.sig IS 'Schnorr signature (64 bytes, stored as bytea from hex)';
 {% endblock %}
