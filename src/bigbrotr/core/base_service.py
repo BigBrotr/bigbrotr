@@ -62,11 +62,12 @@ class BaseServiceConfig(BaseModel):
     interval: float = Field(
         default=300.0,
         ge=60.0,
-        description="Seconds between run cycles",
+        description="Target seconds between cycle starts (fixed-schedule)",
     )
     max_consecutive_failures: int = Field(
         default=5,
         ge=0,
+        le=100,
         description="Stop after this many consecutive errors (0 = unlimited)",
     )
     metrics: MetricsConfig = Field(
@@ -199,8 +200,11 @@ class BaseService(ABC, Generic[ConfigT]):
         """Run the service in an infinite loop with interval-based cycling.
 
         Repeatedly calls
-        [run()][bigbrotr.core.base_service.BaseService.run], sleeping for
-        ``config.interval`` seconds between cycles. Exits when shutdown
+        [run()][bigbrotr.core.base_service.BaseService.run] on a
+        fixed-schedule cadence: the next cycle starts ``config.interval``
+        seconds after the previous one started, subtracting the elapsed
+        cycle duration. If a cycle takes longer than the interval, the
+        next cycle starts immediately with zero wait. Exits when shutdown
         is requested via
         [request_shutdown()][bigbrotr.core.base_service.BaseService.request_shutdown]
         or when the consecutive failure limit
@@ -262,7 +266,7 @@ class BaseService(ABC, Generic[ConfigT]):
                 self.set_gauge("consecutive_failures", 0)
 
                 consecutive_failures = 0
-                self._logger.info("cycle_completed", next_cycle_s=interval)
+                self._logger.info("cycle_completed", duration_s=duration)
 
             except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
                 raise  # Always propagate shutdown signals
@@ -291,7 +295,9 @@ class BaseService(ABC, Generic[ConfigT]):
                     )
                     break
 
-            if await self.wait(interval):
+            elapsed = time.monotonic() - cycle_start
+            remaining = max(0.0, interval - elapsed)
+            if await self.wait(remaining):
                 break
 
         self._logger.info("run_forever_stopped")
