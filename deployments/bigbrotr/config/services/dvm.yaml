@@ -1,16 +1,22 @@
-# DVM Service Configuration (Planned)
-#
-# This service is planned for future implementation.
-# It will implement NIP-90 Data Vending Machine functionality
-# for providing relay discovery and analysis services.
-#
-# When implemented, uncomment and configure:
-#
-# enabled: false
-# kinds:
-#   - 5300  # Relay discovery request
-#   - 5301  # Relay health check request
-# relays:
-#   - "wss://relay.damus.io"
-#   - "wss://nos.lol"
-# keys: {}  # Loaded from PRIVATE_KEY env
+pool:
+  user: bigbrotr_reader
+  password_env: DB_READER_PASSWORD
+  min_size: 1
+  max_size: 3
+
+interval: 60.0
+relays:
+  - "wss://relay.damus.io"
+  - "wss://nos.lol"
+  - "wss://relay.nostr.band"
+kind: 5050
+max_page_size: 1000
+announce: true
+
+tables:
+  service_state:
+    enabled: false
+
+metrics:
+  enabled: true
+  host: "0.0.0.0"

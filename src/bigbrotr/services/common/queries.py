@@ -80,30 +80,6 @@ async def _fetch_relays(brotr: Brotr, query: str, *args: Any) -> list[Relay]:
     return relays
 
 
-async def _fetch_service_states(brotr: Brotr, query: str, *args: Any) -> list[ServiceState]:
-    """Execute *query* via ``brotr.fetch`` and construct ServiceState objects.
-
-    Shared implementation for service_state fetch queries.  Rows that fail
-    ``ServiceState`` construction are silently skipped.
-    """
-    rows = await brotr.fetch(query, *args)
-    states: list[ServiceState] = []
-    for row in rows:
-        try:
-            states.append(
-                ServiceState(
-                    service_name=row["service_name"],
-                    state_type=row["state_type"],
-                    state_key=row["state_key"],
-                    state_value=row["state_value"],
-                    updated_at=row["updated_at"],
-                )
-            )
-        except (ValueError, TypeError) as e:
-            logger.warning("Skipping invalid service state %s: %s", row["state_key"], e)
-    return states
-
-
 async def _batched_insert(
     brotr: Brotr,
     records: list[_T],
@@ -318,7 +294,8 @@ async def scan_event_relay(
     """
     rows = await brotr.fetch(
         """
-        SELECT e.*, er.seen_at
+        SELECT e.id AS event_id, e.pubkey, e.created_at, e.kind,
+               e.tags, e.tagvalues, e.content, e.sig, er.seen_at
         FROM event e
         INNER JOIN event_relay er ON e.id = er.event_id
         WHERE er.relay_url = $1

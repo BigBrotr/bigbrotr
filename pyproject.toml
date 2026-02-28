@@ -56,6 +56,8 @@ dependencies = [
     "tldextract>=5.1.0",
     "typing-extensions>=4.9.0",
     "cryptography>=46.0.5",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
 ]
 
 [dependency-groups]
@@ -215,6 +217,9 @@ module = [
     "prometheus_client.*",
     "tldextract.*",
     "cryptography.*",
+    "uvicorn.*",
+    "fastapi.*",
+    "starlette.*",
 ]
 ignore_missing_imports = true
 

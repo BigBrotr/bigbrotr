@@ -65,7 +65,7 @@ class NetworkType(StrEnum):
 class ServiceName(StrEnum):
     """Canonical service identifiers used in logging, metrics, and persistence.
 
-    Each member corresponds to one of the six services. The string
+    Each member corresponds to one of the eight services. The string
     values are used as the ``service_name`` column in the ``service_state``
     table and as the ``service`` label in Prometheus metrics.
 
@@ -82,6 +82,10 @@ class ServiceName(StrEnum):
             ([Synchronizer][bigbrotr.services.synchronizer.Synchronizer]).
         REFRESHER: Periodic materialized view refresh service
             ([Refresher][bigbrotr.services.refresher.Refresher]).
+        API: REST API for read-only database access
+            ([Api][bigbrotr.services.api.Api]).
+        DVM: NIP-90 Data Vending Machine service
+            ([Dvm][bigbrotr.services.dvm.Dvm]).
 
     See Also:
         [BaseService][bigbrotr.core.base_service.BaseService]: Abstract
@@ -96,6 +100,8 @@ class ServiceName(StrEnum):
     MONITOR = "monitor"
     SYNCHRONIZER = "synchronizer"
     REFRESHER = "refresher"
+    API = "api"
+    DVM = "dvm"
 
 
 class EventKind(IntEnum):

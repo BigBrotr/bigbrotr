@@ -34,6 +34,9 @@ lilbrotr_overview:
 lilbrotr_relay_by_network:
   query: "SELECT network, COUNT(*)::float AS count FROM relay GROUP BY network"
   metrics:
+    - network:
+        usage: "LABEL"
+        description: "Network type (clearnet, tor, i2p, loki, local)"
     - count:
         usage: "GAUGE"
         description: "Number of relays per network type"
@@ -45,6 +48,9 @@ lilbrotr_table_sizes:
     FROM pg_catalog.pg_statio_user_tables
     ORDER BY pg_total_relation_size(relid) DESC
   metrics:
+    - table_name:
+        usage: "LABEL"
+        description: "Table name"
     - total_bytes:
         usage: "GAUGE"
         description: "Total size of table including indexes (bytes)"
