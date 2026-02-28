@@ -32,7 +32,7 @@ See Also:
     [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay]: WebSocket
         probe function used for validation.
     [promote_candidates][bigbrotr.services.common.queries.promote_candidates]:
-        Atomic insert+delete query for promotion.
+        Insert+delete for promotion (with cleanup safety net).
 
 Examples:
     ```python
@@ -338,10 +338,16 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         invalid: list[Candidate] = []
 
         for candidate, result in zip(candidates, results, strict=True):
-            # gather(return_exceptions=True) captures CancelledError as a result
             if isinstance(result, asyncio.CancelledError):
                 raise result
-            if result is True:
+            if isinstance(result, BaseException):
+                self._logger.warning(
+                    "validate_unexpected_error",
+                    url=candidate.relay.url,
+                    error=str(result),
+                )
+                invalid.append(candidate)
+            elif result is True:
                 valid.append(candidate)
             else:
                 invalid.append(candidate)
@@ -354,7 +360,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         Invalid candidates have their failure counter incremented (as
         [ServiceState][bigbrotr.models.service_state.ServiceState]
         updates) for prioritization in future cycles. Valid candidates are
-        atomically inserted into the relays table and their candidate
+        inserted into the relays table and their candidate
         records deleted via
         [promote_candidates][bigbrotr.services.common.queries.promote_candidates].
 
