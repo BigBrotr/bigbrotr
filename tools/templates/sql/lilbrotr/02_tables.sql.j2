@@ -2,41 +2,43 @@
 {% block header_comment %}
  * LilBrotr - 02_tables.sql
  *
- * Core database tables for lightweight Nostr relay archiving. LilBrotr
- * stores only essential event metadata (id, pubkey, created_at, kind) plus
- * computed tagvalues. The tags, content, and sig columns are omitted,
- * yielding approximately 60% disk savings compared to BigBrotr's full schema.
+ * Core database tables for lightweight Nostr relay archiving. The event
+ * table has the same columns as BigBrotr for schema compatibility, but
+ * tags, content, and sig are nullable and always stored as NULL, yielding
+ * approximately 60% disk savings. Tagvalues is computed at insert time.
  *
  * Dependencies: None (tags_to_tagvalues is used by CRUD functions, not table definitions)
 {% endblock %}
 {% block events_table %}
 -- ==========================================================================
--- event: Lightweight Nostr event storage (no tags/content/sig)
+-- event: Lightweight Nostr event storage
 -- ==========================================================================
--- Stores essential event metadata only. Binary fields (id, pubkey) use
--- BYTEA for 50% space savings vs hex CHAR(64). The tagvalues column is
--- computed at insert time by event_insert() using tags_to_tagvalues(),
--- then the original tags JSONB is discarded.
---
--- Omitted columns (compared to BigBrotr):
---   tags      JSONB  -- Full tag array (not stored)
---   content   TEXT   -- Event content (not stored)
---   sig       BYTEA  -- Schnorr signature (not stored)
+-- Same columns as BigBrotr for schema compatibility. Binary fields (id,
+-- pubkey) use BYTEA for 50% space savings vs hex CHAR(64). The tags,
+-- content, and sig columns are nullable and always NULL (not populated by
+-- event_insert()). Tagvalues is computed at insert time from the incoming
+-- tags parameter via tags_to_tagvalues().
 
 CREATE TABLE IF NOT EXISTS event (
     id BYTEA PRIMARY KEY,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
-    tagvalues TEXT []              -- Computed at insert time, not a generated column
+    tags JSONB,                   -- Present for schema compatibility, always NULL
+    tagvalues TEXT [] NOT NULL,   -- Computed at insert time by event_insert()
+    content TEXT,                  -- Present for schema compatibility, always NULL
+    sig BYTEA                     -- Present for schema compatibility, always NULL
 );
 
-COMMENT ON TABLE event IS 'Lightweight Nostr events (tagvalues only, no tags/content/sig)';
+COMMENT ON TABLE event IS 'Lightweight Nostr events (tags/content/sig nullable, always NULL)';
 COMMENT ON COLUMN event.id IS 'SHA-256 event hash (32 bytes, stored as bytea from hex)';
 COMMENT ON COLUMN event.pubkey IS 'Author public key (32 bytes, stored as bytea from hex)';
 COMMENT ON COLUMN event.created_at IS 'Unix timestamp of event creation';
 COMMENT ON COLUMN event.kind IS 'Event kind per NIP-01 (0=metadata, 1=text note, 3=contacts, etc.)';
-COMMENT ON COLUMN event.tagvalues IS 'Tag values computed at insert time for GIN indexing';
+COMMENT ON COLUMN event.tags IS 'JSONB tag array (nullable, always NULL in LilBrotr)';
+COMMENT ON COLUMN event.tagvalues IS 'Single-char tag values computed at insert time by event_insert() for GIN indexing';
+COMMENT ON COLUMN event.content IS 'Event content (nullable, always NULL in LilBrotr)';
+COMMENT ON COLUMN event.sig IS 'Schnorr signature (nullable, always NULL in LilBrotr)';
 {% endblock %}
 {% block relay_metadata_check_types_comment %}
 -- check types (validated in application layer by MetadataType enum).

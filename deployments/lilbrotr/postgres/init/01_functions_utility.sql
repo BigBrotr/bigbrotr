@@ -1,9 +1,8 @@
 /*
  * LilBrotr - 01_functions_utility.sql
  *
- * Utility functions for tag value extraction. Unlike BigBrotr, LilBrotr
- * does not use a generated column; instead, event_insert() calls this
- * function at insert time and stores the result in the tagvalues column.
+ * Utility functions that must be created before tables, because they are
+ * called by CRUD functions in 03_functions_crud.sql.
  *
  * Dependencies: 00_extensions.sql
  */
@@ -16,8 +15,8 @@
  * "t", etc.). Multi-character keys like "relay" are excluded because they
  * are non-standard for filtering purposes.
  *
- * Called by event_insert() to compute tagvalues at insert time, since
- * LilBrotr does not store the full tags JSONB column.
+ * Called by event_insert() to compute tagvalues at insert time. The result
+ * is indexed with GIN for efficient lookups (WHERE tagvalues @> ARRAY['<hex-id>']).
  *
  * Example:
  *   Input:  [["e", "abc123"], ["p", "def456"], ["relay", "wss://..."]]
