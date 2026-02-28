@@ -546,7 +546,7 @@ relay                    (url PK, network, discovered_at)
     │
     ├── event_relay      (event_id FK, relay_url FK, seen_at) ── PK(event_id, relay_url)
     │       │
-    │       └── event    (id PK, pubkey, created_at, kind, tags, tagvalues GENERATED, content, sig)
+    │       └── event    (id PK, pubkey, created_at, kind, tags, tagvalues NOT NULL, content, sig)
     │
     ├── relay_metadata   (relay_url FK, metadata_id FK, metadata_type FK, generated_at) ── PK(relay_url, generated_at, metadata_type)
     │       │
@@ -557,7 +557,7 @@ relay                    (url PK, network, discovered_at)
 
 #### Key Design Decisions
 
-- **Generated column**: `event.tagvalues` is a `TEXT[]` column generated from `tags_to_tagvalues(tags)`, extracting values from single-character tag keys. Indexed with GIN for efficient containment queries.
+- **Computed column**: `event.tagvalues` is a `TEXT[] NOT NULL` column computed at insert time by `event_insert()` via `tags_to_tagvalues(tags)`, extracting values from single-character tag keys. Indexed with GIN for efficient containment queries.
 - **Content addressing**: Metadata uses SHA-256 hash + type as composite PK. Hash computed in Python for deterministic cross-platform behavior.
 - **Cascade functions**: `event_relay_insert_cascade` and `relay_metadata_insert_cascade` atomically insert across 3 tables in a single stored procedure call.
 - **Bulk array parameters**: All insert functions accept parallel arrays and use `UNNEST` for single-roundtrip bulk inserts.
@@ -963,7 +963,7 @@ The primary deployment with complete event storage and 11 materialized views.
 
 A minimal deployment optimized for reduced disk usage (~60% savings).
 
-- **Event storage**: Metadata-only (omits tags, content, sig).
+- **Event storage**: All 8 columns present but tags, content, sig are nullable and always NULL.
 - **Materialized views**: None (reduces refresh overhead).
 - **Use case**: Relay health monitoring without event archiving.
 

@@ -104,7 +104,7 @@ Imports flow strictly downward:
 │ discovered_at BIGINT│   │ │   │ created_at     BIGINT               │
 └─────────┬───────────┘   │ │   │ kind           INTEGER              │
           │               │ │   │ tags           JSONB                 │
-          │               │ │   │ tagvalues      TEXT[] (GENERATED)    │
+          │               │ │   │ tagvalues      TEXT[] NOT NULL        │
           │               │ │   │ content        TEXT                  │
           │               │ │   │ sig            BYTEA (64B)           │
           │               │ │   └──────────────────────────────────────┘
@@ -152,7 +152,7 @@ Imports flow strictly downward:
 - `relay` is the central entity. Cascade deletes propagate to `event_relay` and `relay_metadata`.
 - `metadata` is content-addressed: SHA-256 hash of canonical JSON + type as composite PK. Same data = same hash.
 - `service_state` is a generic key-value store used by Finder (cursors), Validator (candidates), Monitor (checkpoints), Synchronizer (cursors).
-- `event.tagvalues` is a generated column (from `tags_to_tagvalues(tags)`) indexed with GIN for fast containment queries.
+- `event.tagvalues` is computed at insert time by `event_insert()` (from `tags_to_tagvalues(tags)`) and indexed with GIN for fast containment queries.
 
 ### Service-Database Interaction Map
 
@@ -238,7 +238,7 @@ cd deployments/bigbrotr && docker compose up -d
 
 ### LilBrotr (Lightweight)
 
-Stores event metadata only (id, pubkey, created_at, kind, tagvalues). Omits tags JSON, content, and sig for approximately 60% disk savings. Same eight services and all 11 materialized views.
+Stores all 8 event columns but keeps tags, content, and sig as NULL for approximately 60% disk savings. Same eight services and all 11 materialized views.
 
 ```bash
 cd deployments/lilbrotr && docker compose up -d
