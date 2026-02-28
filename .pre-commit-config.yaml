@@ -87,9 +87,11 @@ repos:
           - asyncpg>=0.29.0
           - cryptography>=46.0.5
           - dnspython>=2.5.0
+          - fastapi>=0.115.0
           - geoip2>=4.8.0
           - geohash2>=1.1
           - nostr-sdk>=0.37.0
+          - uvicorn>=0.34.0
           - prometheus-client>=0.21.0
           - PyYAML>=6.0.1
           - rfc3986>=2.0.0
