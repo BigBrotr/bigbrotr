@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.4.0] - 2026-02-28
+
+Minor release: two new services (Api and Dvm) bring read-only HTTP and Nostr interfaces to the database, backed by a shared schema-driven Catalog query builder. Major refactoring of service queries and state types consolidates raw-dict handling into typed domain objects.
+
+### DEPLOYMENT CHANGES
+
+- **New services**: Api (port 8080) and Dvm containers added to both `bigbrotr` and `lilbrotr` docker-compose stacks. Requires updated `.env` with `NOSTR_NSEC` for Dvm
+- **New dependencies**: `fastapi>=0.115`, `uvicorn>=0.34`, `nostr-sdk>=0.39` added to `pyproject.toml`
+- **Service configs**: New `config/services/api.yaml` and `config/services/dvm.yaml` in both deployments
+- **Prometheus**: Scrape targets added for Api (`:8090/metrics`) and Dvm (`:8091/metrics`)
+- **State type migration**: `CHECKPOINT` state type split into `MONITORING` and `PUBLICATION`. Existing `service_state` rows with `state_type = 'CHECKPOINT'` must be migrated or deleted before deploying
+
+### Added
+
+- **Api REST service** (#315): FastAPI-based read-only HTTP server with auto-generated paginated endpoints for all tables, views, and materialized views. Per-table access control via `TablePolicy`, configurable CORS, request statistics logging, and Prometheus metrics
+- **Dvm NIP-90 service** (#315): Data Vending Machine listening for kind 5050 job requests on configured Nostr relays, executing read-only queries via the Catalog, and publishing kind 6050 result events. Per-table pricing via `DvmTablePolicy` with bid/payment-required mechanism
+- **Catalog query builder** (#315): Schema introspection engine discovering tables, views, and materialized views at runtime. Builds parameterized queries with whitelist-by-construction validation. Shared by Api and Dvm services
+- **`CatalogError`** (#315): Client-safe exception preventing internal database error details from leaking to API/DVM consumers
+- **`Candidate` dataclass** (#314): Typed domain object in `services/common/types.py` replacing raw dicts in the validation pipeline
+- **`EventRelayCursor` and `EventCursor`** (#314): Cursor dataclasses with invariant enforcement for deterministic pagination in Finder and Synchronizer
+- **`scan_event_relay` and `scan_event` queries** (#314): Cursor-typed query functions replacing `fetch_event_tagvalues`
+- **Batch-safe query wrappers** (#314): `insert_relay_metadata`, `insert_event_relays`, `upsert_service_states` with automatic chunk splitting
+
+### Refactored
+
+- **Service state types** (#314): Split `CHECKPOINT` into `MONITORING` (health check markers) and `PUBLICATION` (event publish markers) for explicit, independently queryable semantics
+- **Query functions return domain objects** (#314): `fetch_all_relays`, `fetch_candidates`, `fetch_relays_to_monitor` now return typed objects (`Relay`, `Candidate`, `ServiceState`) instead of raw dicts
+- **Removed `from_db_params`** (#314): Eliminated from all 6 models (Relay, Event, Metadata, ServiceState, EventRelay, RelayMetadata). Consolidated `models_from_db_params` + `models_from_dict` into `safe_parse` utility
+- **Centralized batch splitting** (#314): Services pass arbitrarily large lists to query wrappers; chunk management moved into `queries.py` via `_batched_insert` helper
+- **Finder cursor** (#314): Replaced single-field `seen_at` cursor with composite `(seen_at, event_id)` for deterministic pagination when multiple rows share the same timestamp
+- **Query renames** (#314): `get_all_relays` -> `fetch_all_relays`, `filter_new_relay_urls` -> `filter_new_relays`, `fetch_candidate_chunk` -> `fetch_candidates`, `insert_candidates` -> `insert_relays_as_candidates`, `cleanup_stale_state` -> `cleanup_service_state`
+- **`get_enabled_networks()`** (#314): Returns `NetworkType` directly, eliminating manual casts at 4 call sites
+
+### Fixed
+
+- **Api `get_row` error handling**: Catch `CatalogError` alongside `ValueError` in the single-row lookup handler. Previously, invalid primary key values returned 500 instead of 400
+- **Catalog error sanitization** (#315): asyncpg error messages sanitized at the Catalog layer; `CatalogError` wraps internal exceptions to prevent leaking database internals
+- **`promote_candidates` docstring** (#315): Corrected parameter documentation and added error logging
+- **`_publish_if_due` dead timeout** (#315): Removed unused default timeout parameter
+- **Synchronizer cursor validation** (#315): `NostrSdkError` caught and cursor parsing hardened against corrupt data
+- **Brotr facade access** (#315): Replaced direct pool access with facade method
+- **LilBrotr postgres-exporter** (#315): Added missing `LABEL` definitions
+- **Monitor retry YAML key** (#315): Renamed to match Pydantic field name
+- **`scan_event_relay` columns** (#315): Explicit column enumeration replacing `SELECT *`
+- **`conftest` mock fixture**: Corrected stale `procedure` key to `cleanup` in `mock_brotr` TimeoutsConfig
+- **Seeder error handling** (#314): Added try/except around DB calls that previously had no graceful error handling
+- **Synchronizer silent failures** (#314): Replaced `contextlib.suppress(Exception)` with explicit try/except that logs at DEBUG level
+- **Monitor log field** (#314): Renamed `attempts` -> `total_attempts` for consistency with retry-related log conventions
+- **`delete_orphan_cursors`** (#314): Changed from `NOT IN` to `NOT EXISTS` for better PostgreSQL performance with large result sets
+
+### Documentation
+
+- **8-service architecture**: Updated all service counts (6 -> 8), architecture diagrams, service tables, and interaction maps across README, PROJECT_SPECIFICATION, CLAUDE.md, guides, and MkDocs
+- **Source docstrings**: Fixed cross-references (`utils.transport` -> `utils.protocol`), exception types (`ValueError` -> `CatalogError`), field references (`log_level` -> `metrics`), consumer lists, and column names across 11 source files
+- **Deployment configs**: LilBrotr composite index upgrade, missing metrics port variables, singular table names in README, proxy container clarification, postgres-exporter network enum cleanup, bigbrotr role verification in `99_verify.sql`
+- **Removed `aiomultiprocess`**: Dead runtime dependency never imported in source code
+
+---
+
 ## [5.3.1] - 2026-02-26
 
 Patch release: one bug fix and comprehensive documentation overhaul. Architecture terminology corrected across all documentation, README rewritten, project specification added.
@@ -35,7 +94,7 @@ Comprehensive codebase hardening: 46 commits across 44 PRs. Finder refactored fr
 
 - **JMESPath API extraction** (#309): `ApiSourceConfig.jmespath` field enables configurable relay URL extraction from diverse JSON API response formats (`[*]`, `data.relays`, `[*].url`, `keys(@)`)
 - **`jmespath` dependency**: `jmespath>=1.0.0` (runtime) and `types-jmespath>=1.0.0` (dev type stubs)
-- **`delete_orphan_cursors` query**: Removes cursor records for relays no longer in the database, shared by Finder and Synchronizer (#309)
+- **`cleanup_stale_state` query**: Removes state records for relays no longer in the database, used by Finder, Synchronizer, and Monitor (#309)
 - **Finder metrics**: `relays_failed` gauge and `total_api_relays_found` counter (#309)
 - **Synchronizer network filtering**: `fetch_relays()` now filters by enabled networks, avoiding unnecessary relay loading (#309)
 - **NIP-11 shared session**: `Nip11.fetch_info()` accepts an optional shared `aiohttp.ClientSession` for connection pooling (#307)
@@ -80,7 +139,7 @@ Comprehensive codebase hardening: 46 commits across 44 PRs. Finder refactored fr
 ### Tests
 
 - Relaxed exact mock call count assertions in Event tests (#296)
-- Added 170+ new tests for Finder (JMESPath, orphan cursors, metrics), Synchronizer (network filter, orphan cursors), queries (`delete_orphan_cursors`, `fetch_event_tagvalues`), and transport
+- Added 170+ new tests for Finder (JMESPath, stale cursors, metrics), Synchronizer (network filter, stale cursors), queries (`cleanup_stale_state`, `fetch_event_tagvalues`), and transport
 
 ### Documentation
 

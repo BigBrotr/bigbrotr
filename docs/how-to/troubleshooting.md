@@ -196,7 +196,7 @@ processing:
 
 Both use the same services and codebase. The only difference is the SQL schema.
 
-### Do I need to run all six services?
+### Do I need to run all eight services?
 
 No. The only required services are:
 

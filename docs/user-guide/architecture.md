@@ -35,7 +35,7 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 | `EventRelay` | `event_relay.py` | Event-relay junction with `seen_at` timestamp |
 | `Metadata` | `metadata.py` | Content-addressed metadata: SHA-256 hash over canonical JSON |
 | `RelayMetadata` | `relay_metadata.py` | Relay-metadata junction with `metadata_type` and `generated_at` |
-| `ServiceState` | `service_state.py` | Per-service operational state (candidates, cursors, checkpoints) |
+| `ServiceState` | `service_state.py` | Per-service operational state (candidates, cursors, monitoring, publications) |
 
 ### Enumerations
 
@@ -43,7 +43,7 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 |------|------|--------|
 | `NetworkType` | `constants.py` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
 | `MetadataType` | `metadata.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
-| `ServiceStateType` | `service_state.py` | `candidate`, `cursor`, `checkpoint` |
+| `ServiceStateType` | `service_state.py` | `candidate`, `cursor`, `monitoring`, `publication` |
 | `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer` |
 | `EventKind` | `constants.py` | `SET_METADATA=0`, `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
 
@@ -68,9 +68,6 @@ class Relay:
     def _compute_db_params(self) -> RelayDbParams: ...
     def to_db_params(self) -> RelayDbParams:
         return self._db_params  # cached, no recomputation
-
-    @classmethod
-    def from_db_params(cls, url: str, ...) -> Relay: ...
 ```
 
 Key characteristics:
@@ -78,7 +75,6 @@ Key characteristics:
 - `frozen=True` + `slots=True` on all models
 - `_compute_db_params()` runs once in `__post_init__`, cached in `_db_params`
 - `object.__setattr__` for setting fields in frozen `__post_init__`
-- `from_db_params()` classmethod for reconstruction from database rows
 - `to_db_params()` returns a typed NamedTuple matching stored procedure parameter order
 
 ### ServiceState
@@ -217,7 +213,7 @@ class BrotrConfig(BaseModel):
 
 ### BaseService (`base_service.py`)
 
-Abstract base class for all six services. Generic over configuration type.
+Abstract base class for all eight services. Generic over configuration type.
 
 ```python
 class BaseService(ABC, Generic[ConfigT]):
@@ -419,7 +415,7 @@ flowchart TD
 
 ### Service Architecture Pattern
 
-All six services follow the same pattern:
+All eight services follow the same pattern:
 
 ```python
 class MyService(BaseService[MyServiceConfig]):
@@ -453,20 +449,21 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | Function | Purpose |
 |----------|---------|
 | `get_all_relay_urls(brotr)` | All relay URLs |
-| `get_all_relays(brotr)` | All relays with network + discovered_at |
+| `fetch_all_relays(brotr)` | All relays with network + discovered_at |
 | `filter_new_relay_urls(brotr, urls)` | URLs not yet in relay table |
 | `insert_relays(brotr, relays)` | Insert relays directly into relay table |
-| `count_relays_due_for_check(brotr, ...)` | Count relays needing health check |
-| `fetch_relays_due_for_check(brotr, ...)` | Fetch relays needing health check |
-| `fetch_event_tagvalues(brotr, ...)` | Event tagvalues for relay URL extraction |
-| `insert_candidates(brotr, relays)` | Insert new validation candidates (filters duplicates) |
+| `fetch_relays_to_monitor(brotr, ...)` | Fetch relays due for monitoring |
+| `scan_event_relay(brotr, cursor, limit)` | Scan event-relay rows for a specific relay |
+| `scan_event(brotr, cursor, limit)` | Scan event rows ordered by creation time |
+| `insert_relays_as_candidates(brotr, relays)` | Insert new validation candidates (filters duplicates) |
 | `count_candidates(brotr, networks)` | Count pending candidates |
-| `fetch_candidate_chunk(brotr, ...)` | Fetch candidate batch for validation |
-| `delete_stale_candidates(brotr)` | Remove candidates already in relay table |
+| `fetch_candidates(brotr, ...)` | Fetch candidate batch for validation |
 | `delete_exhausted_candidates(brotr, ...)` | Remove candidates exceeding max_failures |
 | `promote_candidates(brotr, relays)` | Move validated candidates to relay table |
-| `get_all_service_cursors(brotr, ...)` | Get sync cursors for all relays |
-| `delete_orphan_cursors(brotr, ...)` | Delete cursors for relays no longer in the relay table |
+| `insert_event_relays(brotr, records)` | Batch-insert event-relay junction records |
+| `insert_relay_metadata(brotr, records)` | Batch-insert relay-metadata junction records |
+| `upsert_service_states(brotr, records)` | Batch-upsert service state records |
+| `cleanup_service_state(brotr, ...)` | Delete stale state (EXISTS for candidates, NOT EXISTS for cursors/monitoring) |
 
 **Network Configuration** (`configs.py`):
 

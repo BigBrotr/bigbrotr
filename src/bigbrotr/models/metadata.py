@@ -37,7 +37,7 @@ from ._validation import deep_freeze, sanitize_data, validate_instance, validate
 
 
 class MetadataType(StrEnum):
-    """Metadata type identifiers stored in the ``metadata.type`` column.
+    """Metadata type identifiers stored in the ``metadata.metadata_type`` column.
 
     Each value corresponds to a specific data source or monitoring test
     performed by the [Monitor][bigbrotr.services.monitor.Monitor] service.
@@ -83,9 +83,6 @@ class MetadataDbParams(NamedTuple):
     See Also:
         [Metadata][bigbrotr.models.metadata.Metadata]: The model that produces these
             parameters.
-        [Metadata.from_db_params()][bigbrotr.models.metadata.Metadata.from_db_params]:
-            Reconstructs a [Metadata][bigbrotr.models.metadata.Metadata] instance from
-            these parameters with integrity verification.
     """
 
     id: bytes
@@ -244,39 +241,3 @@ class Metadata:
             and the metadata type.
         """
         return self._db_params
-
-    @classmethod
-    def from_db_params(cls, params: MetadataDbParams) -> Metadata:
-        """Reconstruct a ``Metadata`` instance from database parameters.
-
-        Re-parses the stored JSON and verifies that the recomputed hash
-        matches the stored ``id`` to detect data corruption.
-
-        Args:
-            params: Database row values previously produced by
-                [to_db_params()][bigbrotr.models.metadata.Metadata.to_db_params].
-
-        Returns:
-            A new [Metadata][bigbrotr.models.metadata.Metadata] instance.
-
-        Raises:
-            ValueError: If the recomputed hash does not match ``params.id``,
-                indicating data corruption in the database.
-
-        Note:
-            Unlike [Relay.from_db_params()][bigbrotr.models.relay.Relay.from_db_params],
-            this method performs an explicit integrity check by comparing the
-            recomputed SHA-256 hash against the stored ``id``. This catches
-            silent data corruption that could otherwise propagate through the
-            system.
-        """
-        value_dict = json.loads(params.data)
-        instance = cls(type=params.type, data=value_dict)
-
-        if instance._content_hash != params.id:
-            raise ValueError(
-                f"Hash mismatch: computed {instance._content_hash.hex()}, "
-                f"expected {params.id.hex()}"
-            )
-
-        return instance

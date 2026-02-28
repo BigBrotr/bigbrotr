@@ -46,8 +46,6 @@ class RelayDbParams(NamedTuple):
 
     See Also:
         [Relay][bigbrotr.models.relay.Relay]: The model that produces these parameters.
-        [Relay.from_db_params()][bigbrotr.models.relay.Relay.from_db_params]: Reconstructs
-            a [Relay][bigbrotr.models.relay.Relay] from these parameters.
     """
 
     url: str
@@ -98,12 +96,6 @@ class Relay:
         ```
 
     Note:
-        [from_db_params()][bigbrotr.models.relay.Relay.from_db_params] always
-        re-parses the URL through ``__post_init__``, re-detecting the network type
-        rather than trusting the stored ``network`` value. This is by design for
-        safety -- it guarantees that a Relay instance is always fully validated,
-        even when reconstructed from the database.
-
         Computed fields are set via ``object.__setattr__`` in ``__post_init__``
         because the dataclass is frozen. This is the standard workaround and is
         safe because it runs during ``__init__`` before the instance is exposed.
@@ -357,25 +349,3 @@ class Relay:
             normalized URL, network name, and discovery timestamp.
         """
         return self._db_params
-
-    @classmethod
-    def from_db_params(cls, params: RelayDbParams) -> Relay:
-        """Reconstruct a [Relay][bigbrotr.models.relay.Relay] from database parameters.
-
-        The URL is re-parsed and re-validated through ``__post_init__``; the
-        ``network`` field in *params* is **not** used directly because it is
-        recomputed from the URL.
-
-        Args:
-            params: Database row values previously produced by
-                [to_db_params()][bigbrotr.models.relay.Relay.to_db_params].
-
-        Returns:
-            A new [Relay][bigbrotr.models.relay.Relay] instance.
-
-        Note:
-            The re-parsing behavior is intentional -- it guarantees that every
-            Relay instance is fully validated regardless of origin, at the cost
-            of a small overhead on reconstruction.
-        """
-        return cls(params.url, params.discovered_at)

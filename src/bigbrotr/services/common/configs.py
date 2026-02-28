@@ -209,10 +209,12 @@ class NetworksConfig(BaseModel):
         """
         return self.get(network).enabled
 
-    def get_enabled_networks(self) -> list[str]:
-        """Get a list of all enabled network type names.
+    def get_enabled_networks(self) -> list[NetworkType]:
+        """Get a list of all enabled network types.
 
         Returns:
-            Names of enabled networks (order matches field definition).
+            Enabled networks as NetworkType values (order matches field definition).
         """
-        return [name for name in type(self).model_fields if getattr(self, name).enabled]
+        return [
+            NetworkType(name) for name in type(self).model_fields if getattr(self, name).enabled
+        ]

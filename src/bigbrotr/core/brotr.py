@@ -613,8 +613,8 @@ class Brotr:
                 from [BatchConfig][bigbrotr.core.brotr.BatchConfig].
 
         Note:
-            The ``metadata`` table has columns ``id``, ``type``, and
-            ``data`` with composite PK ``(id, type)``.
+            The ``metadata`` table has columns ``id``, ``metadata_type``, and
+            ``data`` with composite PK ``(id, metadata_type)``.
             The SHA-256 hash is computed over the canonical JSON representation
             in the [Metadata][bigbrotr.models.metadata.Metadata] model's
             ``__post_init__`` method.
@@ -768,8 +768,8 @@ class Brotr:
     async def upsert_service_state(self, records: list[ServiceState]) -> int:
         """Atomically upsert service state records using bulk array parameters.
 
-        Services use this to persist operational state (cursors, checkpoints,
-        candidates) across restarts. Each record is identified by the
+        Services use this to persist operational state (cursors, monitoring
+        markers, publication markers, candidates) across restarts. Each record is identified by the
         composite key ``(service_name, state_type, state_key)``. Calls the
         ``service_state_upsert`` stored procedure.
 
@@ -835,12 +835,11 @@ class Brotr:
             [delete_service_state()][bigbrotr.core.brotr.Brotr.delete_service_state]:
                 Remove state records.
         """
-        rows = await self._pool.fetch(
+        rows = await self.fetch(
             "SELECT * FROM service_state_get($1, $2, $3)",
             service_name,
             state_type,
             key,
-            timeout=self._config.timeouts.query,
         )
 
         return [

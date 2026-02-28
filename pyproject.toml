@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "bigbrotr"
-version = "5.3.1"
+version = "5.4.0"
 description = "A modular Nostr data archiving and monitoring system"
 readme = "README.md"
 license = { text = "MIT" }
@@ -42,7 +42,6 @@ classifiers = [
 dependencies = [
     "aiohttp>=3.9.0",
     "aiohttp-socks>=0.9.0",
-    "aiomultiprocess>=0.9.1",
     "asyncpg>=0.29.0",
     "dnspython>=2.5.0",
     "geoip2>=4.8.0",
@@ -56,6 +55,8 @@ dependencies = [
     "tldextract>=5.1.0",
     "typing-extensions>=4.9.0",
     "cryptography>=46.0.5",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
 ]
 
 [dependency-groups]
@@ -215,6 +216,9 @@ module = [
     "prometheus_client.*",
     "tldextract.*",
     "cryptography.*",
+    "uvicorn.*",
+    "fastapi.*",
+    "starlette.*",
 ]
 ignore_missing_imports = true
 

@@ -78,7 +78,7 @@ class TimeRangeConfig(BaseModel):
     See Also:
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
             Parent config that embeds this model.
-        [get_all_service_cursors][bigbrotr.services.common.queries.get_all_service_cursors]:
+        [Brotr.get_service_state][bigbrotr.core.brotr.Brotr.get_service_state]:
             Fetches the per-relay cursor values used when
             ``use_relay_state`` is enabled.
     """
@@ -150,7 +150,7 @@ class SourceConfig(BaseModel):
     See Also:
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
             Parent config that embeds this model.
-        [get_all_relays][bigbrotr.services.common.queries.get_all_relays]:
+        [fetch_all_relays][bigbrotr.services.common.queries.fetch_all_relays]:
             Query used when ``from_database`` is ``True``.
     """
 
@@ -178,7 +178,7 @@ class SynchronizerConfig(BaseServiceConfig):
         [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]: The
             service class that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``log_level`` fields.
+            Base class providing ``interval`` and ``metrics`` fields.
         [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
             Per-network timeout and proxy settings.
         [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key management

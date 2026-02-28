@@ -17,7 +17,7 @@ metrics:
   host: "0.0.0.0"                  # Bind to all interfaces for Docker access
 
 processing:
-  retry:
+  retries:
     nip11_info:
       max_attempts: 3               # Retry failed NIP-11 info document fetches
     nip66_rtt:

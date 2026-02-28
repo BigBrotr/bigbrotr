@@ -48,7 +48,7 @@ def extract_relays_from_rows(rows: list[dict[str, Any]]) -> dict[str, Relay]:
 
     Args:
         rows: Event rows with ``tagvalues`` key (from
-            ``fetch_event_tagvalues``).
+            ``scan_event_relay``).
 
     Returns:
         Mapping of normalized relay URL to

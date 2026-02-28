@@ -23,9 +23,6 @@ class ConcurrencyConfig(BaseModel):
             config that embeds this model.
     """
 
-    max_parallel_api: int = Field(
-        default=5, ge=1, le=20, description="Maximum concurrent API requests"
-    )
     max_parallel_events: int = Field(
         default=10, ge=1, le=50, description="Maximum concurrent relay event scans"
     )
@@ -39,7 +36,7 @@ class EventsConfig(BaseModel):
     URL becomes a validation candidate.
 
     See Also:
-        [fetch_event_tagvalues][bigbrotr.services.common.queries.fetch_event_tagvalues]:
+        [scan_event_relay][bigbrotr.services.common.queries.scan_event_relay]:
             The SQL query driven by ``batch_size``.
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Parent
             config that embeds this model.
@@ -135,7 +132,7 @@ class FinderConfig(BaseServiceConfig):
         [Finder][bigbrotr.services.finder.Finder]: The service class
             that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``log_level`` fields.
+            Base class providing ``interval`` and ``metrics`` fields.
     """
 
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)

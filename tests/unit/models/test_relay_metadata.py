@@ -1,4 +1,4 @@
-"""Unit tests for the RelayMetadata model and RelayMetadataDbParams NamedTuple."""
+"""Unit tests for the RelayMetadata model."""
 
 import json
 from dataclasses import FrozenInstanceError
@@ -7,7 +7,6 @@ from time import time
 import pytest
 
 from bigbrotr.models import Relay, RelayMetadata
-from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.metadata import Metadata, MetadataType
 from bigbrotr.models.relay_metadata import RelayMetadataDbParams
 
@@ -76,83 +75,6 @@ class TestMetadataTypeEnum:
         d = {MetadataType.NIP11_INFO: 1, MetadataType.NIP66_RTT: 2}
         assert d[MetadataType.NIP11_INFO] == 1
         assert d["nip11_info"] == 1
-
-
-# =============================================================================
-# RelayMetadataDbParams Tests
-# =============================================================================
-
-
-class TestRelayMetadataDbParams:
-    """Test RelayMetadataDbParams NamedTuple."""
-
-    def test_is_named_tuple(self):
-        """RelayMetadataDbParams is a NamedTuple with 7 fields."""
-        params = RelayMetadataDbParams(
-            relay_url="wss://relay.example.com",
-            relay_network="clearnet",
-            relay_discovered_at=1234567890,
-            metadata_id=b"\x00" * 32,
-            metadata_type="nip11_info",
-            metadata_data='{"key": "value"}',
-            generated_at=1234567891,
-        )
-        assert isinstance(params, tuple)
-        assert len(params) == 7
-
-    def test_field_access_by_name(self):
-        """Fields are accessible by name."""
-        test_hash = b"\x01\x02\x03" + b"\x00" * 29
-        params = RelayMetadataDbParams(
-            relay_url="wss://relay.test:8080",
-            relay_network="tor",
-            relay_discovered_at=1000000000,
-            metadata_id=test_hash,
-            metadata_type="nip66_rtt",
-            metadata_data='{"name": "test"}',
-            generated_at=2000000000,
-        )
-        assert params.relay_url == "wss://relay.test:8080"
-        assert params.relay_network == "tor"
-        assert params.relay_discovered_at == 1000000000
-        assert params.metadata_id == test_hash
-        assert params.metadata_type == "nip66_rtt"
-        assert params.metadata_data == '{"name": "test"}'
-        assert params.generated_at == 2000000000
-
-    def test_field_access_by_index(self):
-        """Fields are accessible by index."""
-        test_hash = b"\x00" * 32
-        params = RelayMetadataDbParams(
-            relay_url="ws://abc.onion",
-            relay_network="tor",
-            relay_discovered_at=1111111111,
-            metadata_id=test_hash,
-            metadata_type="nip66_ssl",
-            metadata_data="{}",
-            generated_at=2222222222,
-        )
-        assert params[0] == "ws://abc.onion"
-        assert params[1] == "tor"
-        assert params[2] == 1111111111
-        assert params[3] == test_hash
-        assert params[4] == "nip66_ssl"
-        assert params[5] == "{}"
-        assert params[6] == 2222222222
-
-    def test_immutability(self):
-        """RelayMetadataDbParams is immutable (NamedTuple)."""
-        params = RelayMetadataDbParams(
-            relay_url="wss://relay.example.com",
-            relay_network="clearnet",
-            relay_discovered_at=1234567890,
-            metadata_id=b"\x00" * 32,
-            metadata_type="nip11_info",
-            metadata_data="{}",
-            generated_at=1234567891,
-        )
-        with pytest.raises(AttributeError):
-            params.generated_at = 9999999999
 
 
 # =============================================================================
@@ -288,77 +210,6 @@ class TestToDbParams:
         result = rm.to_db_params()
         assert result.relay_url == "ws://relay.i2p"
         assert result.relay_network == "i2p"
-
-
-# =============================================================================
-# from_db_params Tests
-# =============================================================================
-
-
-class TestFromDbParams:
-    """RelayMetadata.from_db_params() deserialization."""
-
-    def test_simple(self):
-        """Reconstructs RelayMetadata from db params."""
-        hash_bytes = bytes.fromhex(
-            "fc3a123bb54a65eb81ea264de3811bae8a86f092df2f1f99d1fd1a5817c395b3"  # pragma: allowlist secret
-        )
-        params = RelayMetadataDbParams(
-            relay_url="wss://relay.example.com",
-            relay_network="clearnet",
-            relay_discovered_at=1234567890,
-            metadata_id=hash_bytes,
-            metadata_type=MetadataType.NIP11_INFO,
-            metadata_data='{"name": "Test"}',
-            generated_at=9999999999,
-        )
-        rm = RelayMetadata.from_db_params(params)
-        assert rm.relay.url == "wss://relay.example.com"
-        assert rm.relay.network == NetworkType.CLEARNET
-        assert rm.relay.discovered_at == 1234567890
-        assert rm.metadata.data == {"name": "Test"}
-        assert rm.metadata.type == MetadataType.NIP11_INFO
-        assert rm.generated_at == 9999999999
-
-    def test_with_tor_relay(self):
-        """Reconstructs with Tor relay."""
-        hash_bytes = bytes.fromhex(
-            "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"  # pragma: allowlist secret
-        )
-        params = RelayMetadataDbParams(
-            relay_url="ws://abc123.onion",
-            relay_network="tor",
-            relay_discovered_at=1234567890,
-            metadata_id=hash_bytes,
-            metadata_type=MetadataType.NIP66_RTT,
-            metadata_data="{}",
-            generated_at=1234567891,
-        )
-        rm = RelayMetadata.from_db_params(params)
-        assert rm.relay.network == NetworkType.TOR
-        assert rm.relay.scheme == "ws"
-
-    def test_roundtrip(self, relay):
-        """to_db_params -> from_db_params preserves data."""
-        metadata = Metadata(type=MetadataType.NIP66_RTT, data={"rtt": 100})
-        original = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
-        params = original.to_db_params()
-        reconstructed = RelayMetadata.from_db_params(params)
-        assert reconstructed.relay.url == original.relay.url
-        assert reconstructed.relay.network == original.relay.network
-        assert reconstructed.relay.discovered_at == original.relay.discovered_at
-        assert reconstructed.metadata.data == original.metadata.data
-        assert reconstructed.metadata.type == original.metadata.type
-        assert reconstructed.generated_at == original.generated_at
-
-    def test_roundtrip_all_metadata_types(self, relay):
-        """Roundtrip works for all metadata types."""
-        for mtype in MetadataType:
-            metadata = Metadata(type=mtype, data={"test": "data"})
-            original = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
-            params = original.to_db_params()
-            reconstructed = RelayMetadata.from_db_params(params)
-            assert reconstructed.metadata.type == mtype
 
 
 # =============================================================================

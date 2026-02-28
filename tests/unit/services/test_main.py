@@ -90,7 +90,16 @@ class TestServiceRegistry:
 
     def test_all_services_registered(self) -> None:
         """Test all expected services are in registry."""
-        expected = {"seeder", "finder", "validator", "monitor", "synchronizer", "refresher"}
+        expected = {
+            "seeder",
+            "finder",
+            "validator",
+            "monitor",
+            "synchronizer",
+            "refresher",
+            "api",
+            "dvm",
+        }
         assert set(SERVICE_REGISTRY.keys()) == expected
 
     def test_service_config_paths(self) -> None:
@@ -102,6 +111,8 @@ class TestServiceRegistry:
     def test_service_classes_are_importable(self) -> None:
         """Test all service classes are valid."""
         from bigbrotr.services import (
+            Api,
+            Dvm,
             Finder,
             Monitor,
             Refresher,
@@ -117,6 +128,8 @@ class TestServiceRegistry:
             "monitor": Monitor,
             "refresher": Refresher,
             "synchronizer": Synchronizer,
+            "api": Api,
+            "dvm": Dvm,
         }
 
         for name, (service_class, _) in SERVICE_REGISTRY.items():
@@ -971,6 +984,8 @@ pool:
     def test_registry_classes_match_imports(self) -> None:
         """Test SERVICE_REGISTRY has correct classes for all services."""
         from bigbrotr.services import (
+            Api,
+            Dvm,
             Finder,
             Monitor,
             Refresher,
@@ -986,6 +1001,8 @@ pool:
             "monitor": Monitor,
             "refresher": Refresher,
             "synchronizer": Synchronizer,
+            "api": Api,
+            "dvm": Dvm,
         }
 
         for service_name, (service_class, _) in SERVICE_REGISTRY.items():

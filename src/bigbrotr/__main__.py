@@ -26,6 +26,8 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.core.logger import Logger, StructuredFormatter
 from bigbrotr.core.yaml import load_yaml
 from bigbrotr.models.constants import ServiceName
+from bigbrotr.services.api import Api
+from bigbrotr.services.dvm import Dvm
 from bigbrotr.services.finder import Finder
 from bigbrotr.services.monitor import Monitor
 from bigbrotr.services.refresher import Refresher
@@ -54,6 +56,8 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
     ServiceName.SYNCHRONIZER: ServiceEntry(
         Synchronizer, CONFIG_BASE / "services" / "synchronizer.yaml"
     ),
+    ServiceName.API: ServiceEntry(Api, CONFIG_BASE / "services" / "api.yaml"),
+    ServiceName.DVM: ServiceEntry(Dvm, CONFIG_BASE / "services" / "dvm.yaml"),
 }
 
 logger = Logger("cli")

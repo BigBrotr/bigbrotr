@@ -24,7 +24,7 @@ See Also:
         class providing ``run()`` and ``from_yaml()`` lifecycle.
     [Brotr][bigbrotr.core.brotr.Brotr]: Database facade used for relay
         insertion.
-    [insert_candidates][bigbrotr.services.common.queries.insert_candidates]:
+    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates]:
         Query used to insert seed URLs as validation candidates.
 
 Examples:
@@ -46,9 +46,11 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
+import asyncpg
+
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.queries import insert_candidates, insert_relays
+from bigbrotr.services.common.queries import insert_relays, insert_relays_as_candidates
 
 from .configs import SeederConfig
 from .utils import parse_seed_file
@@ -112,12 +114,30 @@ class Seeder(BaseService[SeederConfig]):
 
     async def _seed_as_candidates(self, relays: list[Relay]) -> int:
         """Insert relays as validation candidates in ``service_state``."""
-        count = await insert_candidates(self._brotr, relays)
+        try:
+            count = await insert_relays_as_candidates(self._brotr, relays)
+        except (asyncpg.PostgresError, OSError) as e:
+            self._logger.error(
+                "candidates_insert_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                total=len(relays),
+            )
+            return 0
         self._logger.info("candidates_inserted", total=len(relays), inserted=count)
         return count
 
     async def _seed_as_relays(self, relays: list[Relay]) -> int:
         """Insert relays directly into the relays table."""
-        count = await insert_relays(self._brotr, relays)
+        try:
+            count = await insert_relays(self._brotr, relays)
+        except (asyncpg.PostgresError, OSError) as e:
+            self._logger.error(
+                "relays_insert_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                total=len(relays),
+            )
+            return 0
         self._logger.info("relays_inserted", total=len(relays), inserted=count)
         return count

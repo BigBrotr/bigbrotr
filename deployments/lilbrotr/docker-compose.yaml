@@ -542,6 +542,112 @@ services:
         max-file: "3"
 
   # --------------------------------------------------------------------------
+  # LilBrotr API Service
+  # --------------------------------------------------------------------------
+  api:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: lilbrotr
+    container_name: lilbrotr-api
+    restart: unless-stopped
+
+    environment:
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD}
+
+    volumes:
+      - ./config:/app/config:ro
+
+    ports:
+      - "127.0.0.1:8081:8080"                              # HTTP API
+      - "127.0.0.1:${API_METRICS_PORT:-9006}:8000"         # Prometheus metrics
+
+    networks:
+      - lilbrotr-data-network
+      - lilbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "api"]
+
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # LilBrotr DVM Service
+  # --------------------------------------------------------------------------
+  dvm:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: lilbrotr
+    container_name: lilbrotr-dvm
+    restart: unless-stopped
+
+    environment:
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD}
+      PRIVATE_KEY: ${PRIVATE_KEY}
+
+    volumes:
+      - ./config:/app/config:ro
+
+    ports:
+      - "127.0.0.1:${DVM_METRICS_PORT:-9007}:8000"         # Prometheus metrics
+
+    networks:
+      - lilbrotr-data-network
+      - lilbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "dvm"]
+
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
   # PostgreSQL Exporter (Database Metrics)
   # --------------------------------------------------------------------------
   postgres-exporter:
@@ -565,6 +671,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9187/metrics || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
     deploy:
       resources:
@@ -632,6 +745,7 @@ services:
 
     volumes:
       - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
 
     ports:
       - "127.0.0.1:9094:9093"
@@ -713,6 +827,8 @@ services:
 volumes:
   prometheus-data:
     name: lilbrotr-prometheus-data
+  alertmanager-data:
+    name: lilbrotr-alertmanager-data
   grafana-data:
     name: lilbrotr-grafana-data
 # Uncomment when enabling I2P or Lokinet:

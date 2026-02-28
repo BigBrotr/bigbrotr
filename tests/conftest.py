@@ -168,8 +168,8 @@ def brotr_config_dict() -> dict[str, Any]:
         },
         "timeouts": {
             "query": 30.0,
-            "procedure": 60.0,
             "batch": 90.0,
+            "cleanup": 60.0,
         },
     }
 

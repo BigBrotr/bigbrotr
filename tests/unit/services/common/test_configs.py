@@ -522,7 +522,7 @@ class TestNetworksConfigGetEnabledNetworks:
         """Test default config has only clearnet enabled."""
         config = NetworksConfig()
         enabled = config.get_enabled_networks()
-        assert enabled == ["clearnet"]
+        assert enabled == [NetworkType.CLEARNET]
 
     def test_multiple_enabled(self) -> None:
         """Test multiple enabled networks are returned."""
@@ -533,7 +533,7 @@ class TestNetworksConfigGetEnabledNetworks:
             loki=LokiConfig(enabled=False),
         )
         enabled = config.get_enabled_networks()
-        assert enabled == ["clearnet", "tor", "i2p"]
+        assert enabled == [NetworkType.CLEARNET, NetworkType.TOR, NetworkType.I2P]
 
     def test_all_enabled(self) -> None:
         """Test all enabled networks are returned."""
@@ -544,7 +544,7 @@ class TestNetworksConfigGetEnabledNetworks:
             loki=LokiConfig(enabled=True),
         )
         enabled = config.get_enabled_networks()
-        assert enabled == ["clearnet", "tor", "i2p", "loki"]
+        assert enabled == [NetworkType.CLEARNET, NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI]
 
     def test_none_enabled(self) -> None:
         """Test empty list when no networks enabled."""
@@ -566,7 +566,7 @@ class TestNetworksConfigGetEnabledNetworks:
             loki=LokiConfig(enabled=True),
         )
         enabled = config.get_enabled_networks()
-        assert enabled == ["clearnet", "tor", "i2p", "loki"]
+        assert enabled == [NetworkType.CLEARNET, NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI]
 
 
 # =============================================================================

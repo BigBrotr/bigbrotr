@@ -24,8 +24,8 @@ from time import time
 from typing import NamedTuple
 
 from ._validation import validate_instance, validate_timestamp
-from .event import Event, EventDbParams
-from .relay import Relay, RelayDbParams
+from .event import Event
+from .relay import Relay
 
 
 class EventRelayDbParams(NamedTuple):
@@ -158,44 +158,3 @@ class EventRelay:
             combining event, relay, and junction fields.
         """
         return self._db_params
-
-    @classmethod
-    def from_db_params(cls, params: EventRelayDbParams) -> EventRelay:
-        """Reconstruct an ``EventRelay`` from database parameters.
-
-        Splits the flat parameter tuple back into separate
-        [Event][bigbrotr.models.event.Event] and
-        [Relay][bigbrotr.models.relay.Relay] instances via their respective
-        [from_db_params()][bigbrotr.models.event.Event.from_db_params] methods.
-
-        Args:
-            params: Database row values previously produced by
-                [to_db_params()][bigbrotr.models.event_relay.EventRelay.to_db_params].
-
-        Returns:
-            A new [EventRelay][bigbrotr.models.event_relay.EventRelay] instance.
-
-        Note:
-            Both the [Event][bigbrotr.models.event.Event] and
-            [Relay][bigbrotr.models.relay.Relay] are fully re-validated during
-            reconstruction. See
-            [Relay.from_db_params()][bigbrotr.models.relay.Relay.from_db_params]
-            for details on the re-parsing behavior.
-        """
-        event_params = EventDbParams(
-            id=params.event_id,
-            pubkey=params.pubkey,
-            created_at=params.created_at,
-            kind=params.kind,
-            tags=params.tags,
-            content=params.content,
-            sig=params.sig,
-        )
-        relay_params = RelayDbParams(
-            url=params.relay_url,
-            network=params.relay_network,
-            discovered_at=params.relay_discovered_at,
-        )
-        event = Event.from_db_params(event_params)
-        relay = Relay.from_db_params(relay_params)
-        return cls(event, relay, params.seen_at)

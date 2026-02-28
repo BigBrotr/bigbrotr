@@ -1,4 +1,4 @@
-"""Unit tests for the ServiceState model, ServiceStateType enum, and ServiceStateDbParams."""
+"""Unit tests for the ServiceState model and ServiceStateType enum."""
 
 from dataclasses import FrozenInstanceError
 from enum import StrEnum
@@ -18,65 +18,23 @@ class TestServiceStateType:
     """Test ServiceStateType StrEnum."""
 
     def test_members(self):
-        assert len(ServiceStateType) == 3
+        assert len(ServiceStateType) == 4
         assert set(ServiceStateType) == {
             ServiceStateType.CANDIDATE,
             ServiceStateType.CURSOR,
-            ServiceStateType.CHECKPOINT,
+            ServiceStateType.MONITORING,
+            ServiceStateType.PUBLICATION,
         }
 
     def test_values(self):
         assert ServiceStateType.CANDIDATE == "candidate"
         assert ServiceStateType.CURSOR == "cursor"
-        assert ServiceStateType.CHECKPOINT == "checkpoint"
+        assert ServiceStateType.MONITORING == "monitoring"
+        assert ServiceStateType.PUBLICATION == "publication"
 
     def test_is_str_enum(self):
         assert issubclass(ServiceStateType, StrEnum)
         assert isinstance(ServiceStateType.CANDIDATE, StrEnum)
-
-
-# =============================================================================
-# ServiceStateDbParams Tests
-# =============================================================================
-
-
-class TestServiceStateDbParams:
-    """Test ServiceStateDbParams NamedTuple."""
-
-    def test_field_count(self):
-        params = ServiceStateDbParams(
-            service_name=ServiceName.FINDER,
-            state_type=ServiceStateType.CURSOR,
-            state_key="wss://relay.damus.io",
-            state_value={"last_seen": 1700000000},
-            updated_at=1700000001,
-        )
-        assert len(params) == 5
-
-    def test_field_order(self):
-        params = ServiceStateDbParams(
-            service_name=ServiceName.MONITOR,
-            state_type=ServiceStateType.CHECKPOINT,
-            state_key="batch_42",
-            state_value={"progress": 0.75},
-            updated_at=1700000500,
-        )
-        assert params[0] == ServiceName.MONITOR
-        assert params[1] == ServiceStateType.CHECKPOINT
-        assert params[2] == "batch_42"
-        assert params[3] == {"progress": 0.75}
-        assert params[4] == 1700000500
-
-    def test_is_named_tuple(self):
-        params = ServiceStateDbParams(
-            service_name=ServiceName.SEEDER,
-            state_type=ServiceStateType.CANDIDATE,
-            state_key="wss://example.com",
-            state_value={},
-            updated_at=0,
-        )
-        assert isinstance(params, tuple)
-        assert hasattr(params, "_fields")
 
 
 # =============================================================================
@@ -137,7 +95,7 @@ class TestServiceStateConstruction:
     def test_frozen(self):
         state = ServiceState(
             service_name=ServiceName.MONITOR,
-            state_type=ServiceStateType.CHECKPOINT,
+            state_type=ServiceStateType.MONITORING,
             state_key="batch_1",
             state_value={"done": True},
             updated_at=1700000000,
@@ -189,45 +147,6 @@ class TestServiceStateToDbParams:
             updated_at=1700000000,
         )
         assert state.to_db_params() is state.to_db_params()
-
-
-# =============================================================================
-# from_db_params Tests
-# =============================================================================
-
-
-class TestServiceStateFromDbParams:
-    """ServiceState.from_db_params() reconstruction."""
-
-    def test_roundtrip(self):
-        original = ServiceState(
-            service_name=ServiceName.SYNCHRONIZER,
-            state_type=ServiceStateType.CHECKPOINT,
-            state_key="wss://relay.damus.io",
-            state_value={"cursor": 1700000000, "page": 5},
-            updated_at=1700000001,
-        )
-        params = original.to_db_params()
-        reconstructed = ServiceState.from_db_params(params)
-        assert reconstructed.service_name is original.service_name
-        assert reconstructed.state_type is original.state_type
-        assert reconstructed.state_key == original.state_key
-        assert reconstructed.state_value == original.state_value
-        assert reconstructed.updated_at == original.updated_at
-
-    def test_from_raw_strings(self):
-        params = ServiceStateDbParams(
-            service_name="monitor",  # type: ignore[arg-type]
-            state_type="checkpoint",  # type: ignore[arg-type]
-            state_key="health_batch",
-            state_value='{"completed": 100}',
-            updated_at=1700000500,
-        )
-        state = ServiceState.from_db_params(params)
-        assert state.service_name is ServiceName.MONITOR
-        assert state.state_type is ServiceStateType.CHECKPOINT
-        assert isinstance(state.service_name, ServiceName)
-        assert isinstance(state.state_type, ServiceStateType)
 
 
 # =============================================================================

@@ -18,7 +18,7 @@ from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.services.common.configs import NetworksConfig
 from bigbrotr.utils.keys import KeysConfig
-from bigbrotr.utils.parsing import models_from_db_params
+from bigbrotr.utils.parsing import safe_parse
 
 
 class MetadataFlags(BaseModel):
@@ -162,7 +162,7 @@ class PublishingConfig(BaseModel):
 
     relays: Annotated[
         list[Relay],
-        BeforeValidator(lambda v: models_from_db_params(v, Relay)),
+        BeforeValidator(lambda v: safe_parse(v, Relay)),
     ] = Field(default_factory=list)
     timeout: float = Field(default=30.0, gt=0, description="Broadcast timeout in seconds")
 
@@ -180,7 +180,7 @@ class DiscoveryConfig(BaseModel):
     include: MetadataFlags = Field(default_factory=MetadataFlags)
     relays: Annotated[
         list[Relay] | None,
-        BeforeValidator(lambda v: models_from_db_params(v, Relay) if v is not None else None),
+        BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
     ] = Field(default=None)
 
 
@@ -196,7 +196,7 @@ class AnnouncementConfig(BaseModel):
     interval: int = Field(default=86_400, ge=60)
     relays: Annotated[
         list[Relay] | None,
-        BeforeValidator(lambda v: models_from_db_params(v, Relay) if v is not None else None),
+        BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
     ] = Field(default=None)
 
 
@@ -212,7 +212,7 @@ class ProfileConfig(BaseModel):
     interval: int = Field(default=86_400, ge=60)
     relays: Annotated[
         list[Relay] | None,
-        BeforeValidator(lambda v: models_from_db_params(v, Relay) if v is not None else None),
+        BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
     ] = Field(default=None)
     name: str | None = Field(default=None)
     about: str | None = Field(default=None)
@@ -240,7 +240,7 @@ class MonitorConfig(BaseServiceConfig):
         [Monitor][bigbrotr.services.monitor.Monitor]: The service class
             that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``log_level`` fields.
+            Base class providing ``interval`` and ``metrics`` fields.
         [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key
             management for event signing.
     """

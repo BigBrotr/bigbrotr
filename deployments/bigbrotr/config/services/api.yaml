@@ -1,15 +1,19 @@
-# API Service Configuration (Planned)
-#
-# This service is planned for future implementation.
-# It will provide a REST/GraphQL API for querying relay data.
-#
-# When implemented, uncomment and configure:
-#
-# host: "0.0.0.0"
-# port: 8080
-# cors:
-#   enabled: true
-#   origins: ["*"]
-# rate_limit:
-#   enabled: true
-#   requests_per_minute: 60
+pool:
+  user: bigbrotr_reader
+  password_env: DB_READER_PASSWORD
+  min_size: 2
+  max_size: 5
+
+interval: 60.0
+host: "0.0.0.0"
+port: 8080
+max_page_size: 1000
+default_page_size: 100
+
+tables:
+  service_state:
+    enabled: false
+
+metrics:
+  enabled: true
+  host: "0.0.0.0"

@@ -558,7 +558,7 @@ class TestUpsertServiceState:
             ),
             ServiceState(
                 service_name=ServiceName.MONITOR,
-                state_type=ServiceStateType.CHECKPOINT,
+                state_type=ServiceStateType.MONITORING,
                 state_key="key3",
                 state_value={"status": "ok"},
                 updated_at=1700000000,
@@ -622,7 +622,7 @@ class TestDeleteServiceState:
         mock_pool._mock_connection.fetchval = AsyncMock(return_value=3)  # type: ignore[attr-defined]
         result = await mock_brotr.delete_service_state(
             [ServiceName.FINDER, ServiceName.FINDER, ServiceName.MONITOR],
-            [ServiceStateType.CURSOR, ServiceStateType.CURSOR, ServiceStateType.CHECKPOINT],
+            [ServiceStateType.CURSOR, ServiceStateType.CURSOR, ServiceStateType.PUBLICATION],
             ["key1", "key2", "key3"],
         )
         assert result == 3
