@@ -83,8 +83,9 @@ COMMENT ON FUNCTION relay_insert(TEXT [], TEXT [], BIGINT []) IS
  *         AS t(id, pubkey, created_at, kind, tags)
  *
  *   Full table (all columns, used below):
- *     INSERT INTO event (id, pubkey, created_at, kind, tags, content, sig)
- *     SELECT * FROM unnest(p_event_ids, p_pubkeys, ...)
+ *     INSERT INTO event (id, pubkey, created_at, kind, tags, tagvalues, content, sig)
+ *     SELECT id, pubkey, created_at, kind, tags, tags_to_tagvalues(tags), content, sig
+ *     FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags, ...)
  *
  * Returns: Number of newly inserted rows
  */
@@ -103,8 +104,9 @@ AS $$
 DECLARE
     v_row_count INTEGER;
 BEGIN
-    INSERT INTO event (id, pubkey, created_at, kind, tags, content, sig)
-    SELECT * FROM unnest(
+    INSERT INTO event (id, pubkey, created_at, kind, tags, tagvalues, content, sig)
+    SELECT id, pubkey, created_at, kind, tags, tags_to_tagvalues(tags), content, sig
+    FROM unnest(
         p_event_ids,
         p_pubkeys,
         p_created_ats,
@@ -121,7 +123,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION event_insert(BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA []) IS
-'Bulk insert events, returns number of rows inserted';
+'Bulk insert events with tagvalues computed at insert time, returns number of rows inserted';
 
 
 /*

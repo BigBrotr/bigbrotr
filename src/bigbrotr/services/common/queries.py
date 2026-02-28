@@ -288,11 +288,6 @@ async def scan_event_relay(
         List of dicts with all event columns plus ``seen_at`` from the
         ``event_relay`` junction.
 
-    Note:
-        The query references ``tags``, ``content``, and ``sig`` columns that
-        are absent from the lilbrotr lightweight schema. Callers in lilbrotr
-        deployments must disable event scanning (``events.enabled: false``).
-
     See Also:
         [scan_event][bigbrotr.services.common.queries.scan_event]:
             Analogous scan over the ``event`` table.

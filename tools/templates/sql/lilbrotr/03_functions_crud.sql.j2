@@ -14,8 +14,8 @@
  *     relay_metadata_insert_cascade -> relay + metadata + relay_metadata
  *
  * LilBrotr difference: event_insert() accepts the same parameters as
- * BigBrotr for interface compatibility, but computes tagvalues from tags
- * and discards tags, content, and sig (not stored in this schema).
+ * BigBrotr for interface compatibility, but stores NULL for tags, content,
+ * and sig. Tagvalues is computed at insert time from the incoming tags.
  *
  * Dependencies: 02_tables.sql
 {% endblock %}
@@ -23,18 +23,18 @@
  * event_insert(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[]) -> INTEGER
  *
  * Bulk-inserts Nostr events in lightweight mode. Accepts the same parameter
- * signature as BigBrotr for interface compatibility, but only stores id,
- * pubkey, created_at, kind, and tagvalues (computed from tags). The tags,
- * content_values, and sigs arrays are accepted but not persisted.
+ * signature as BigBrotr for interface compatibility, but stores NULL for
+ * tags, content, and sig. Tagvalues is computed at insert time from the
+ * incoming tags parameter via tags_to_tagvalues().
  *
  * Parameters:
  *   p_event_ids        - Array of 32-byte event hashes
  *   p_pubkeys          - Array of 32-byte author public keys
  *   p_created_ats      - Array of Unix creation timestamps
  *   p_kinds            - Array of NIP-01 event kinds
- *   p_tags             - Array of JSONB tag arrays (used to compute tagvalues, not stored)
- *   p_content_values   - Array of event content strings (accepted but not stored)
- *   p_sigs             - Array of 64-byte Schnorr signatures (accepted but not stored)
+ *   p_tags             - Array of JSONB tag arrays (used to compute tagvalues, stored as NULL)
+ *   p_content_values   - Array of event content strings (accepted but stored as NULL)
+ *   p_sigs             - Array of 64-byte Schnorr signatures (accepted but stored as NULL)
  *
  * Returns: Number of newly inserted rows
 {% endblock %}
@@ -43,12 +43,12 @@
     p_pubkeys BYTEA [],
     p_created_ats BIGINT [],
     p_kinds INTEGER [],
-    p_tags JSONB [],           -- Used to compute tagvalues, NOT stored
-    p_content_values TEXT [],  -- Accepted but NOT stored
-    p_sigs BYTEA []            -- Accepted but NOT stored
+    p_tags JSONB [],           -- Used to compute tagvalues, stored as NULL
+    p_content_values TEXT [],  -- Accepted but stored as NULL
+    p_sigs BYTEA []            -- Accepted but stored as NULL
 {% endblock %}
 {% block events_insert_body %}
-    -- Store only essential fields; compute tagvalues from tags, discard the rest
+    -- Store essential fields + compute tagvalues; tags/content/sig remain NULL
     INSERT INTO event (id, pubkey, created_at, kind, tagvalues)
     SELECT id, pubkey, created_at, kind, tags_to_tagvalues(tags)
     FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags)
@@ -56,7 +56,7 @@
     ON CONFLICT (id) DO NOTHING;
 {% endblock %}
 {% block events_insert_description %}
-'Bulk insert events (lightweight: computes tagvalues, discards tags/content/sig)';
+'Bulk insert events (lightweight: computes tagvalues, stores NULL for tags/content/sig)';
 {% endblock %}
 {% block events_relays_insert_cascade %}
 /*
@@ -64,7 +64,7 @@
  *
  * Atomically inserts relays, events, and their junction records in a single
  * transaction. Delegates to relay_insert() and event_insert() internally,
- * so the lightweight storage behavior of event_insert() applies here too.
+ * so the lightweight NULL-storage behavior of event_insert() applies here.
  *
  * Parameters: Arrays of event fields + relay fields + seen_at timestamps
  * Returns: Number of junction rows inserted in event_relay
@@ -74,9 +74,9 @@ CREATE OR REPLACE FUNCTION event_relay_insert_cascade(
     p_pubkeys BYTEA [],
     p_created_ats BIGINT [],
     p_kinds INTEGER [],
-    p_tags JSONB [],           -- Used to compute tagvalues, NOT stored
-    p_content_values TEXT [],  -- Accepted but NOT stored
-    p_sigs BYTEA [],           -- Accepted but NOT stored
+    p_tags JSONB [],           -- Used to compute tagvalues, stored as NULL
+    p_content_values TEXT [],  -- Accepted but stored as NULL
+    p_sigs BYTEA [],           -- Accepted but stored as NULL
     p_relay_urls TEXT [],
     p_relay_networks TEXT [],
     p_relay_discovered_ats BIGINT [],
@@ -91,7 +91,7 @@ BEGIN
     -- Ensure relay records exist before inserting junction rows
     PERFORM relay_insert(p_relay_urls, p_relay_networks, p_relay_discovered_ats);
 
-    -- Ensure event records exist (lightweight: computes tagvalues, discards rest)
+    -- Ensure event records exist (lightweight: computes tagvalues, NULL for rest)
     PERFORM event_insert(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags, p_content_values, p_sigs);
 
     -- Insert junction records, deduplicating within the batch via DISTINCT ON
@@ -109,7 +109,7 @@ COMMENT ON FUNCTION event_relay_insert_cascade(
     BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA [],
     TEXT [], TEXT [], BIGINT [], BIGINT []
 ) IS
-'Atomically insert events with relays and junctions (lightweight), returns junction row count';
+'Atomically insert events with relays and junctions (lightweight: NULL for tags/content/sig), returns junction row count';
 {% endblock %}
 {% block service_data_functions %}
 -- ==========================================================================
