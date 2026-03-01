@@ -63,10 +63,11 @@ class MetricsConfig(BaseModel):
     port: int = Field(default=8000, ge=1024, le=65535, description="Metrics HTTP port")
     host: str = Field(
         default="127.0.0.1",
+        min_length=1,
         description="Metrics HTTP bind address. Use 0.0.0.0 in containers "
         "(relies on Docker network isolation for access control)",
     )
-    path: str = Field(default="/metrics", description="Metrics endpoint path")
+    path: str = Field(default="/metrics", min_length=1, description="Metrics endpoint path")
 
 
 # Static service metadata (set once at startup)

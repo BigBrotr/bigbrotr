@@ -152,8 +152,8 @@ class LimitsConfig(BaseModel):
             embeds this model.
     """
 
-    min_size: int = Field(default=2, ge=1, le=100, description="Minimum connections")
-    max_size: int = Field(default=20, ge=1, le=200, description="Maximum connections")
+    min_size: int = Field(default=1, ge=1, le=100, description="Minimum connections")
+    max_size: int = Field(default=5, ge=1, le=200, description="Maximum connections")
     max_queries: int = Field(default=50_000, ge=100, description="Queries before recycling")
     max_inactive_connection_lifetime: float = Field(
         default=300.0, ge=0.0, description="Idle timeout (seconds)"
@@ -163,7 +163,7 @@ class LimitsConfig(BaseModel):
     @classmethod
     def validate_max_size(cls, v: int, info: ValidationInfo) -> int:
         """Ensure max_size >= min_size."""
-        min_size = info.data.get("min_size", 2)
+        min_size = info.data.get("min_size", 1)
         if v < min_size:
             raise ValueError(f"max_size ({v}) must be >= min_size ({min_size})")
         return v
@@ -240,8 +240,8 @@ class ServerSettingsConfig(BaseModel):
             embeds this model.
     """
 
-    application_name: str = Field(default="bigbrotr", description="Application name")
-    timezone: str = Field(default="UTC", description="Timezone")
+    application_name: str = Field(default="bigbrotr", min_length=1, description="Application name")
+    timezone: str = Field(default="UTC", min_length=1, description="Timezone")
     statement_timeout: int = Field(
         default=0,
         ge=0,

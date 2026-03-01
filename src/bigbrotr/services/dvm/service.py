@@ -35,9 +35,10 @@ from nostr_sdk import (
     Tag,
     Timestamp,
 )
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
+from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.catalog import Catalog, CatalogError, DvmTablePolicy, QueryResult
 from bigbrotr.utils.keys import KeysConfig
@@ -74,6 +75,18 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
 
     relays: list[str] = Field(min_length=1)
     kind: int = Field(default=5050, ge=5000, le=5999)
+
+    @field_validator("relays")
+    @classmethod
+    def validate_relay_urls(cls, v: list[str]) -> list[str]:
+        """Validate that all relay URLs are valid WebSocket URLs."""
+        for url in v:
+            try:
+                Relay(url)
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Invalid relay URL '{url}': {e}") from e
+        return v
+
     max_page_size: int = Field(default=1000, ge=1, le=10000)
     tables: dict[str, DvmTablePolicy] = Field(default_factory=dict)
     announce: bool = Field(default=True)

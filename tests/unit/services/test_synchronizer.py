@@ -260,6 +260,51 @@ class TestSourceConfig:
 
 
 # ============================================================================
+# RelayOverrideTimeouts Tests
+# ============================================================================
+
+
+class TestRelayOverrideTimeouts:
+    """Tests for RelayOverrideTimeouts Pydantic model."""
+
+    def test_defaults(self) -> None:
+        """Test default values are None."""
+        config = RelayOverrideTimeouts()
+        assert config.request is None
+        assert config.relay is None
+
+    def test_valid_values(self) -> None:
+        """Test valid timeout values."""
+        config = RelayOverrideTimeouts(request=0.1, relay=60.0)
+        assert config.request == 0.1
+        assert config.relay == 60.0
+
+    def test_zero_timeout_rejected(self) -> None:
+        """Test that zero timeout is rejected."""
+        with pytest.raises(ValueError):
+            RelayOverrideTimeouts(request=0.0)
+
+    def test_negative_timeout_rejected(self) -> None:
+        """Test that negative timeout is rejected."""
+        with pytest.raises(ValueError):
+            RelayOverrideTimeouts(relay=-1.0)
+
+
+class TestRelayOverride:
+    """Tests for RelayOverride Pydantic model."""
+
+    def test_valid(self) -> None:
+        """Test valid relay override."""
+        config = RelayOverride(url="wss://relay.example.com")
+        assert config.url == "wss://relay.example.com"
+
+    def test_empty_url_rejected(self) -> None:
+        """Test that empty URL is rejected."""
+        with pytest.raises(ValueError):
+            RelayOverride(url="")
+
+
+# ============================================================================
 # SynchronizerConfig Tests
 # ============================================================================
 

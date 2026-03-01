@@ -111,6 +111,14 @@ class TestBaseServiceConfig:
         with pytest.raises(ValidationError):
             BaseServiceConfig(max_consecutive_failures=-1)
 
+    def test_max_consecutive_failures_upper_bound(self) -> None:
+        """Test that max_consecutive_failures has an upper bound of 100."""
+        config = BaseServiceConfig(max_consecutive_failures=100)
+        assert config.max_consecutive_failures == 100
+
+        with pytest.raises(ValidationError):
+            BaseServiceConfig(max_consecutive_failures=101)
+
 
 class TestConcreteServiceConfig:
     """Tests for custom service configuration extending BaseServiceConfig."""
@@ -488,7 +496,7 @@ class TestRunForever:
         assert cycles == 5
 
     async def test_reads_interval_from_config(self, mock_brotr: Brotr) -> None:
-        """Test run_forever() uses interval from config."""
+        """Test run_forever() uses interval from config (fixed-schedule)."""
         config = ConcreteServiceConfig(interval=120.0)
         service = ConcreteService(brotr=mock_brotr, config=config)
         recorded_interval: float | None = None
@@ -502,7 +510,10 @@ class TestRunForever:
             async with service:
                 await service.run_forever()
 
-        assert recorded_interval == 120.0
+        assert recorded_interval is not None
+        # Fixed-schedule: wait = interval - elapsed. Cycle is near-instant,
+        # so remaining should be very close to the configured interval.
+        assert recorded_interval == pytest.approx(120.0, abs=1.0)
 
     async def test_propagates_cancelled_error(self, mock_brotr: Brotr) -> None:
         """Test run_forever() propagates asyncio.CancelledError."""

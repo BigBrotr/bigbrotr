@@ -11,7 +11,6 @@ pool:
   user: bigbrotr_writer
   password_env: DB_WRITER_PASSWORD
   min_size: 2
-  max_size: 5
 
 metrics:
   enabled: true

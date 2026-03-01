@@ -142,6 +142,11 @@ class TestApiConfig:
         config = ApiConfig(default_page_size=100, max_page_size=100)
         assert config.default_page_size == 100
 
+    def test_empty_host_rejected(self) -> None:
+        """Test that empty host string is rejected."""
+        with pytest.raises(ValueError):
+            ApiConfig(host="")
+
 
 # ============================================================================
 # Api Service Tests

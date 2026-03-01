@@ -8,5 +8,4 @@
 pool:
   user: lilbrotr_writer
   password_env: DB_WRITER_PASSWORD
-  min_size: 1
   max_size: 2

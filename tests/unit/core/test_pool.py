@@ -148,8 +148,8 @@ class TestLimitsConfig:
         """Test default configuration values."""
         config = LimitsConfig()
 
-        assert config.min_size == 2
-        assert config.max_size == 20
+        assert config.min_size == 1
+        assert config.max_size == 5
         assert config.max_queries == 50000
         assert config.max_inactive_connection_lifetime == 300.0
 
@@ -328,6 +328,16 @@ class TestServerSettingsConfig:
         config = ServerSettingsConfig(statement_timeout=0)
         assert config.statement_timeout == 0
 
+    def test_empty_application_name_rejected(self) -> None:
+        """Test that empty application_name is rejected."""
+        with pytest.raises(ValidationError):
+            ServerSettingsConfig(application_name="")
+
+    def test_empty_timezone_rejected(self) -> None:
+        """Test that empty timezone is rejected."""
+        with pytest.raises(ValidationError):
+            ServerSettingsConfig(timezone="")
+
 
 class TestPoolConfig:
     """Tests for PoolConfig composite model."""
@@ -338,7 +348,7 @@ class TestPoolConfig:
         config = PoolConfig()
 
         assert config.database.host == "localhost"
-        assert config.limits.min_size == 2
+        assert config.limits.min_size == 1
         assert config.timeouts.acquisition == 10.0
         assert config.retry.max_attempts == 3
         assert config.server_settings.application_name == "bigbrotr"

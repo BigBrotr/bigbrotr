@@ -23,7 +23,9 @@ class SeedConfig(BaseModel):
             config that embeds this model.
     """
 
-    file_path: str = Field(default="static/seed_relays.txt", description="Seed file path")
+    file_path: str = Field(
+        default="static/seed_relays.txt", min_length=1, description="Seed file path"
+    )
     to_validate: bool = Field(
         default=True,
         description="If True, add as candidates. If False, insert directly into relays.",

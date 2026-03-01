@@ -56,7 +56,7 @@ class ApiConfig(BaseServiceConfig):
         request_timeout: HTTP request timeout in seconds.
     """
 
-    host: str = Field(default="0.0.0.0", description="HTTP bind address")  # noqa: S104
+    host: str = Field(default="0.0.0.0", min_length=1, description="HTTP bind address")  # noqa: S104
     port: int = Field(default=8080, ge=1, le=65535, description="HTTP port")
     max_page_size: int = Field(default=1000, ge=1, le=10000)
     default_page_size: int = Field(default=100, ge=1, le=10000)
