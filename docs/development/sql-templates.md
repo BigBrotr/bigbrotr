@@ -8,8 +8,8 @@ from shared Jinja2 templates.
 ## Overview
 
 BigBrotr uses Jinja2 templates to generate PostgreSQL init scripts for each deployment
-variant (bigbrotr, lilbrotr, brotr). A base set of templates defines the minimal shared
-schema; each deployment extends the base via Jinja2 block overrides to add
+variant (bigbrotr, lilbrotr). A base set of templates defines the shared schema; each
+deployment can extend the base via Jinja2 block overrides to customize
 deployment-specific objects without duplicating the shared structure.
 
 ---
@@ -61,21 +61,18 @@ Base templates define named blocks with `extra_*` extension points. Deployment-s
 templates extend the base and override only the blocks they need to customize:
 
 ```jinja2
-{# lilbrotr/02_tables.sql.j2 #}
+{# lilbrotr/02_tables.sql.j2 -- only overrides events_table block #}
 {% extends "base/02_tables.sql.j2" %}
-
-{% block header_comment %}
- * LilBrotr - 02_tables.sql
- * Lightweight schema: events store only essential fields.
-{% endblock %}
-
 {% block events_table %}
 CREATE TABLE IF NOT EXISTS event (
     id BYTEA PRIMARY KEY,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
-    tagvalues TEXT []
+    tags JSONB,
+    tagvalues TEXT [] NOT NULL,
+    content TEXT,
+    sig BYTEA
 );
 {% endblock %}
 ```
@@ -84,16 +81,17 @@ Blocks not overridden are inherited from the base template unchanged.
 
 ### Extension Points
 
-Base templates provide `extra_*` blocks that are empty by default. Deployments fill
-these blocks to add objects beyond the minimal schema:
+Base templates provide `extra_*` blocks for extension. The 10 statistics/analytics
+matviews and their refresh functions are defined in the base templates and inherited
+by all deployments:
 
-| Block | Used by | Content |
-|-------|---------|---------|
-| `extra_cleanup_functions` | (none yet) | Additional cleanup functions |
-| `extra_materialized_views` | bigbrotr | 10 statistics/analytics matviews |
-| `extra_refresh_functions` | bigbrotr | 10 stat refresh + `all_statistics_refresh()` |
-| `extra_matview_indexes` | bigbrotr | Indexes for statistics matviews |
-| `views` | (none yet) | Regular SQL views |
+| Block | Defined in | Content |
+|-------|------------|---------|
+| `extra_cleanup_functions` | base (empty) | Additional cleanup functions |
+| `extra_materialized_views` | base | 10 statistics/analytics matviews |
+| `extra_refresh_functions` | base | 10 stat refresh + `all_statistics_refresh()` |
+| `extra_matview_indexes` | base | Indexes for statistics matviews |
+| `views` | base (empty) | Regular SQL views |
 
 All deployments generate the same 10 SQL files. The `OVERRIDES` dict in
 `generate_sql.py` is empty for all deployments (no skip, no rename).

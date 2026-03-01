@@ -1,12 +1,12 @@
 /*
- * LilBrotr - 02_tables.sql
+ * Brotr - 02_tables.sql
  *
- * Core database tables for lightweight Nostr relay archiving. The event
- * table has the same columns as BigBrotr for schema compatibility, but
- * tags, content, and sig are nullable and always stored as NULL, yielding
- * approximately 60% disk savings. Tagvalues is computed at insert time.
+ * Core database tables for Nostr relay archiving and monitoring.
+ * The event table is the primary customization point: only the id column
+ * is mandatory. All other tables have fixed structures.
  *
  * Dependencies: None (tags_to_tagvalues is used by CRUD functions, not table definitions)
+ * Customization: event table columns (see storage modes in events_table block)
  */
 
 
@@ -30,34 +30,32 @@ COMMENT ON COLUMN relay.discovered_at IS 'Unix timestamp when first discovered a
 
 
 -- ==========================================================================
--- event: Lightweight Nostr event storage
+-- event: Nostr event storage (lightweight)
 -- ==========================================================================
--- Same columns as BigBrotr for schema compatibility. Binary fields (id,
--- pubkey) use BYTEA for 50% space savings vs hex CHAR(64). The tags,
--- content, and sig columns are nullable and always NULL (not populated by
--- event_insert()). Tagvalues is computed at insert time from the incoming
--- tags parameter via tags_to_tagvalues().
+-- Same columns as the full schema but tags, content, and sig are nullable
+-- and always NULL (not populated by event_insert()), yielding ~60% disk
+-- savings. Tagvalues is computed at insert time via tags_to_tagvalues().
 
 CREATE TABLE IF NOT EXISTS event (
     id BYTEA PRIMARY KEY,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
-    tags JSONB,                   -- Present for schema compatibility, always NULL
-    tagvalues TEXT [] NOT NULL,   -- Computed at insert time by event_insert()
-    content TEXT,                  -- Present for schema compatibility, always NULL
-    sig BYTEA                     -- Present for schema compatibility, always NULL
+    tags JSONB,
+    tagvalues TEXT [] NOT NULL,
+    content TEXT,
+    sig BYTEA
 );
 
-COMMENT ON TABLE event IS 'Lightweight Nostr events (tags/content/sig nullable, always NULL)';
+COMMENT ON TABLE event IS 'Nostr events (tags/content/sig nullable, always NULL)';
 COMMENT ON COLUMN event.id IS 'SHA-256 event hash (32 bytes, stored as bytea from hex)';
 COMMENT ON COLUMN event.pubkey IS 'Author public key (32 bytes, stored as bytea from hex)';
 COMMENT ON COLUMN event.created_at IS 'Unix timestamp of event creation';
 COMMENT ON COLUMN event.kind IS 'Event kind per NIP-01 (0=metadata, 1=text note, 3=contacts, etc.)';
-COMMENT ON COLUMN event.tags IS 'JSONB tag array (nullable, always NULL in LilBrotr)';
+COMMENT ON COLUMN event.tags IS 'JSONB tag array (nullable, always NULL)';
 COMMENT ON COLUMN event.tagvalues IS 'Single-char tag values computed at insert time by event_insert() for GIN indexing';
-COMMENT ON COLUMN event.content IS 'Event content (nullable, always NULL in LilBrotr)';
-COMMENT ON COLUMN event.sig IS 'Schnorr signature (nullable, always NULL in LilBrotr)';
+COMMENT ON COLUMN event.content IS 'Event content (nullable, always NULL)';
+COMMENT ON COLUMN event.sig IS 'Schnorr signature (nullable, always NULL)';
 
 
 -- ==========================================================================
@@ -110,7 +108,8 @@ COMMENT ON COLUMN metadata.data IS 'Complete JSON document (NIP-11 relay info or
 -- Links relays to metadata documents over time, creating a history of health
 -- check results. Each row represents one metadata snapshot for one relay at
 -- one point in time. The metadata_type column distinguishes between different
--- check types (validated in application layer by MetadataType enum).
+-- check types: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net,
+-- nip66_dns, nip66_http.
 
 CREATE TABLE IF NOT EXISTS relay_metadata (
     relay_url TEXT NOT NULL,

@@ -3,16 +3,16 @@
 LilBrotr is a **lightweight** BigBrotr implementation optimized for reduced disk usage and resource consumption.
 It has all 8 event columns but keeps `tags`, `content`, and `sig` as nullable columns that are always NULL (~60% disk savings).
 
-## Key Differences from BigBrotr
+## Difference from BigBrotr
+
+The **only functional difference** is the event table schema:
 
 | Feature | BigBrotr | LilBrotr |
 |---------|----------|----------|
 | Event storage | Full (all columns NOT NULL) | All 8 columns (tags/content/sig nullable, always NULL) |
 | Disk usage | ~100% | ~40% |
-| Tor support | Enabled by default | Disabled by default |
-| I2P/Lokinet | Available | Disabled |
-| Concurrency | High | Reduced |
-| Event scanning | Enabled | Disabled (tags/content/sig are NULL) |
+
+All service configurations, network support (Tor, I2P, Lokinet), concurrency settings, and materialized views are identical between the two deployments.
 
 ## Quick Start
 
@@ -21,7 +21,7 @@ cd deployments/lilbrotr
 
 # 1. Configure environment
 cp .env.example .env
-nano .env  # Set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD and PRIVATE_KEY
+nano .env  # Set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD and NOSTR_PRIVATE_KEY
 
 # 2. Start services
 docker-compose up -d
@@ -107,7 +107,7 @@ SYNCHRONIZER_METRICS_PORT=9004
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin password |
 | `DB_WRITER_PASSWORD` | Yes | Writer role password (services) |
 | `DB_READER_PASSWORD` | Yes | Reader role password (read-only services) |
-| `PRIVATE_KEY` | Yes | Nostr private key (hex, 64 chars) |
+| `NOSTR_PRIVATE_KEY` | Yes | Nostr private key (hex, 64 chars) |
 | `GRAFANA_PASSWORD` | No | Grafana admin password (default: admin) |
 | `FINDER_METRICS_PORT` | No | Finder Prometheus port (default: 9001) |
 | `VALIDATOR_METRICS_PORT` | No | Validator Prometheus port (default: 9002) |
@@ -122,12 +122,10 @@ SYNCHRONIZER_METRICS_PORT=9004
 
 ### Finder
 - Discovers relay URLs from external APIs (nostr.watch)
-- Event scanning **disabled** (tags/content are NULL in database)
 - Runs every hour
 
 ### Validator
-- Validates candidate relay URLs (clearnet only by default)
-- Tor/I2P/Lokinet disabled by default
+- Validates candidate relay URLs
 - Runs every 8 hours
 
 ### Monitor
@@ -139,37 +137,6 @@ SYNCHRONIZER_METRICS_PORT=9004
 - Fetches events from readable relays
 - Stores lightweight event data (tags/content/sig are NULL)
 - Runs every 15 minutes
-
-## Enabling Tor Support
-
-To enable Tor relay support:
-
-1. **Uncomment Tor service** in `docker-compose.yaml`:
-   ```yaml
-   tor:
-     image: osminogin/tor-simple:0.4.8.10
-     container_name: lilbrotr-tor
-     # ... rest of config
-   ```
-
-2. **Uncomment Tor dependencies** in validator/monitor/synchronizer services:
-   ```yaml
-   depends_on:
-     tor:
-       condition: service_healthy
-   ```
-
-3. **Enable Tor in service configs** (`config/*.yaml`):
-   ```yaml
-   networks:
-     tor:
-       enabled: true
-   ```
-
-4. **Restart services**:
-   ```bash
-   docker-compose down && docker-compose up -d
-   ```
 
 ## Database Schema
 
@@ -239,7 +206,7 @@ docker-compose down && rm -rf data/postgres && docker-compose up -d
 - Verify API endpoints are reachable
 
 ### Monitor fails to publish NIP-66 events
-- Ensure `PRIVATE_KEY` is set in `.env`
+- Ensure `NOSTR_PRIVATE_KEY` is set in `.env`
 - Check Monitor logs for connection errors
 
 ### Synchronizer not fetching events

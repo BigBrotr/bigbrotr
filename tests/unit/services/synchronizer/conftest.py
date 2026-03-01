@@ -16,8 +16,8 @@ VALID_HEX_KEY = (
 
 @pytest.fixture(autouse=True)
 def set_private_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Set PRIVATE_KEY environment variable for all synchronizer tests."""
-    monkeypatch.setenv("PRIVATE_KEY", VALID_HEX_KEY)
+    """Set NOSTR_PRIVATE_KEY environment variable for all synchronizer tests."""
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY", VALID_HEX_KEY)
 
 
 @pytest.fixture

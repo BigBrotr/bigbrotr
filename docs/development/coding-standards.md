@@ -161,7 +161,7 @@ Design principles:
 
 ## Error Handling
 
-The project uses Python built-in and library exceptions (e.g., `ConnectionError`, `asyncio.TimeoutError`, `asyncpg.PostgresError`, `OSError`). There is no custom exception hierarchy.
+The project uses Python built-in and library exceptions (e.g., `ConnectionError`, `asyncio.TimeoutError`, `asyncpg.PostgresError`, `OSError`). The only custom exception is `CatalogError` in `services/common/catalog.py`, raised to prevent leaking database internals to API/DVM clients.
 
 | Scenario | Exception | Retry? |
 |----------|-----------|--------|

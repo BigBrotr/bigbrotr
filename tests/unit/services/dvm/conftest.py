@@ -25,8 +25,8 @@ VALID_HEX_KEY = (
 
 @pytest.fixture(autouse=True)
 def _set_private_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Set PRIVATE_KEY environment variable for all DVM tests."""
-    monkeypatch.setenv("PRIVATE_KEY", VALID_HEX_KEY)
+    """Set NOSTR_PRIVATE_KEY environment variable for all DVM tests."""
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY", VALID_HEX_KEY)
 
 
 @pytest.fixture

@@ -44,7 +44,7 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 | `NetworkType` | `constants.py` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
 | `MetadataType` | `metadata.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
 | `ServiceStateType` | `service_state.py` | `candidate`, `cursor`, `monitoring`, `publication` |
-| `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer` |
+| `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `api`, `dvm` |
 | `EventKind` | `constants.py` | `SET_METADATA=0`, `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
 
 ### Model Patterns
@@ -570,7 +570,7 @@ flowchart LR
     style PG fill:#1B5E20,color:#fff,stroke:#0D3B0F
 ```
 
-Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: a **writer pool** for services and a **reader pool** for read-only consumers (postgres-exporter, future API/DVM).
+Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: a **writer pool** for services and a **reader pool** for read-only consumers (postgres-exporter, Api, Dvm).
 
 ### Per-Network Semaphores
 
@@ -657,6 +657,8 @@ flowchart TD
     C --> G["monitor.yaml"]
     C --> H["synchronizer.yaml"]
     C --> I["refresher.yaml"]
+    C --> J["api.yaml"]
+    C --> K["dvm.yaml"]
 
     style A fill:#7B1FA2,color:#fff,stroke:#4A148C
     style B fill:#512DA8,color:#fff,stroke:#311B92
@@ -673,7 +675,7 @@ All configuration uses Pydantic v2 models with:
 - Typed fields with defaults and constraints (`Field(ge=1, le=65535)`)
 - Nested models (e.g., `MonitorConfig.networks.clearnet.timeout`)
 - `model_validator` for cross-field validation (e.g., Monitor keys at config load time)
-- Environment variable injection for secrets (`DB_WRITER_PASSWORD`, `DB_READER_PASSWORD`, `PRIVATE_KEY`)
+- Environment variable injection for secrets (`DB_WRITER_PASSWORD`, `DB_READER_PASSWORD`, `DB_REFRESHER_PASSWORD`, `NOSTR_PRIVATE_KEY`)
 
 ### Environment Variables
 
@@ -681,8 +683,9 @@ All configuration uses Pydantic v2 models with:
 |----------|----------|---------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer auth |
 | `DB_WRITER_PASSWORD` | Yes | Writer services (via per-service pool overrides) |
-| `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, future API/DVM) |
-| `PRIVATE_KEY` | For Monitor | Monitor (Nostr event signing, RTT write tests) |
+| `DB_REFRESHER_PASSWORD` | Yes | Refresher (matview ownership for REFRESH CONCURRENTLY) |
+| `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, Api, Dvm) |
+| `NOSTR_PRIVATE_KEY` | For Monitor | Monitor (Nostr event signing, RTT write tests) |
 | `GRAFANA_PASSWORD` | No | Grafana (admin password) |
 
 ---

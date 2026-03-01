@@ -1,16 +1,15 @@
 /*
- * LilBrotr - 00_extensions.sql
+ * Brotr - 00_extensions.sql
  *
- * PostgreSQL extensions required for LilBrotr functionality.
- * LilBrotr is a lightweight implementation where tags, content, and sig
- * columns are nullable and always NULL for reduced disk usage (~60% savings).
+ * PostgreSQL extensions required by the Brotr schema.
+ * This script runs first during database initialization.
  *
  * Dependencies: None
  */
 
 -- Enables GIN index support for btree-comparable types (TEXT[], INTEGER[], etc.).
--- Used for the idx_event_tagvalues GIN index, which supports array containment
--- queries on the tagvalues column (computed at insert time in LilBrotr).
+-- Required for the idx_event_tagvalues GIN index, which powers fast
+-- array containment queries (WHERE tagvalues @> ARRAY['e:<hex-id>']) on the event table.
 CREATE EXTENSION IF NOT EXISTS btree_gin;
 
 -- Tracks cumulative execution statistics for all SQL statements.

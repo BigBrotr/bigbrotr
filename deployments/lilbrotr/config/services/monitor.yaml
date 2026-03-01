@@ -1,10 +1,9 @@
 # =============================================================================
 # Monitor Service Configuration (LilBrotr)
 # =============================================================================
+# Performs NIP-11 and NIP-66 health checks on validated relays.
 # Only values that differ from defaults are specified here.
 # See brotr/config/services/monitor.yaml for all options and documentation.
-#
-# Note: Lighter configuration for reduced resource usage (clearnet only).
 # =============================================================================
 
 pool:
@@ -12,23 +11,29 @@ pool:
   password_env: DB_WRITER_PASSWORD
   max_size: 3
 
-interval: 3600.0                   # 1 hour (default: 300.0)
-
 metrics:
-  enabled: true                    # Enable metrics (default: false)
-  host: "0.0.0.0"                  # Bind to all interfaces for Docker (default: 127.0.0.1)
+  enabled: true
+  host: "0.0.0.0"                  # Bind to all interfaces for Docker access
+
+processing:
+  retries:
+    nip11_info:
+      max_attempts: 3               # Retry failed NIP-11 info document fetches
+    nip66_rtt:
+      max_attempts: 2               # Retry failed round-trip time measurements
+    nip66_ssl:
+      max_attempts: 2               # Retry failed SSL certificate checks
+    nip66_dns:
+      max_attempts: 2               # Retry failed DNS resolution measurements
+    nip66_geo:
+      max_attempts: 1               # Retry failed geolocation lookups
+    nip66_net:
+      max_attempts: 1               # Retry failed ASN/network lookups
+    nip66_http:
+      max_attempts: 2               # Retry failed HTTP status checks
 
 networks:
   clearnet:
-    max_tasks: 20                  # Reduced concurrency (default: 50)
-  # Note: tor/i2p/loki settings only take effect when the corresponding
-  # proxy containers are enabled in docker-compose.yaml.
+    max_tasks: 100                 # Double the default for faster health checks
   tor:
-    max_tasks: 5                   # Reduced concurrency (default: 10)
-  i2p:
-    max_tasks: 3                   # Reduced concurrency (default: 5)
-  loki:
-    max_tasks: 3                   # Reduced concurrency (default: 5)
-
-processing:
-  chunk_size: 20                   # Reduced batch size (default: 100)
+    enabled: true                  # Monitor Tor (.onion) relays

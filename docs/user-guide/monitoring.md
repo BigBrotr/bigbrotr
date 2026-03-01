@@ -19,6 +19,9 @@ flowchart LR
         V["Validator<br/><small>:8002</small>"]
         M["Monitor<br/><small>:8003</small>"]
         S["Synchronizer<br/><small>:8004</small>"]
+        R["Refresher<br/><small>:8005</small>"]
+        A["Api<br/><small>:8006</small>"]
+        D["Dvm<br/><small>:8007</small>"]
     end
 
     P["Prometheus<br/><small>:9090</small>"]
@@ -28,6 +31,9 @@ flowchart LR
     V -->|"/metrics"| P
     M -->|"/metrics"| P
     S -->|"/metrics"| P
+    R -->|"/metrics"| P
+    A -->|"/metrics"| P
+    D -->|"/metrics"| P
     P -->|"datasource"| G
 
     style P fill:#E65100,color:#fff,stroke:#BF360C
@@ -384,10 +390,7 @@ Docker Compose is configured with JSON file logging and size limits:
 | Service | Max Log Size |
 |---------|-------------|
 | Seeder | 10 MB |
-| Finder | 50 MB |
-| Validator | 50 MB |
-| Monitor | 50 MB |
-| Synchronizer | 100 MB |
+| All other services | 50 MB |
 
 ---
 
@@ -397,7 +400,7 @@ Docker Compose is configured with JSON file logging and size limits:
 
 ```promql
 # Are all services up?
-up{job=~"finder|validator|monitor|synchronizer"}
+up{job=~"finder|validator|monitor|synchronizer|refresher|api|dvm"}
 
 # Time since last successful cycle per service
 time() - service_gauge{name="last_cycle_timestamp"}

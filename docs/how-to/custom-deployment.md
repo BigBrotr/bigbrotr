@@ -69,6 +69,9 @@ Service files to customize:
 - `validator.yaml` -- validation interval, network settings
 - `monitor.yaml` -- health check settings, publishing relays
 - `synchronizer.yaml` -- sync interval, concurrency, event filters
+- `refresher.yaml` -- materialized view refresh interval and view list
+- `api.yaml` -- REST API host, port, table access policies
+- `dvm.yaml` -- Nostr relays, table policies, NIP-90 kind
 
 !!! tip
     See the [Configuration](../user-guide/configuration.md) reference for all available fields and their defaults.
@@ -99,7 +102,7 @@ wss://nos.lol
 
 ```bash
 cp .env.example .env
-# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD, DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
 chmod 600 .env
 ```
 
