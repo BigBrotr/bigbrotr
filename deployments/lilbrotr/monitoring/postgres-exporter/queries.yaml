@@ -54,3 +54,14 @@ lilbrotr_table_sizes:
     - total_bytes:
         usage: "GAUGE"
         description: "Total size of table including indexes (bytes)"
+
+lilbrotr_candidates:
+  query: |
+    SELECT COUNT(*)::float AS queue_depth
+    FROM service_state
+    WHERE service_name = 'validator'
+      AND state_type = 'candidate'
+  metrics:
+    - queue_depth:
+        usage: "GAUGE"
+        description: "Total candidates in validation queue"
