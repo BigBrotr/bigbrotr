@@ -19,8 +19,8 @@ Minor release: two new services (Api and Dvm) bring read-only HTTP and Nostr int
 
 ### Added
 
-- **Api REST service** (#315): FastAPI-based read-only HTTP server with auto-generated paginated endpoints for all tables, views, and materialized views. Per-table access control via `TablePolicy`, configurable CORS, request statistics logging, and Prometheus metrics
-- **Dvm NIP-90 service** (#315): Data Vending Machine listening for kind 5050 job requests on configured Nostr relays, executing read-only queries via the Catalog, and publishing kind 6050 result events. Per-table pricing via `DvmTablePolicy` with bid/payment-required mechanism
+- **Api REST service** (#315): FastAPI-based read-only HTTP server with auto-generated paginated endpoints for all tables, views, and materialized views. Per-table access control via `TableConfig`, configurable CORS, request statistics logging, and Prometheus metrics
+- **Dvm NIP-90 service** (#315): Data Vending Machine listening for kind 5050 job requests on configured Nostr relays, executing read-only queries via the Catalog, and publishing kind 6050 result events. Per-table pricing via `TableConfig` with bid/payment-required mechanism
 - **Catalog query builder** (#315): Schema introspection engine discovering tables, views, and materialized views at runtime. Builds parameterized queries with whitelist-by-construction validation. Shared by Api and Dvm services
 - **`CatalogError`** (#315): Client-safe exception preventing internal database error details from leaking to API/DVM consumers
 - **`Candidate` dataclass** (#314): Typed domain object in `services/common/types.py` replacing raw dicts in the validation pipeline

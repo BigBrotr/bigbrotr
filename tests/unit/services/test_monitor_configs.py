@@ -133,6 +133,16 @@ class TestRetryConfig:
         with pytest.raises(ValueError):
             RetryConfig(max_attempts=11)
 
+    def test_max_delay_less_than_initial_rejected(self) -> None:
+        """Test that max_delay < initial_delay is rejected."""
+        with pytest.raises(ValueError, match="max_delay"):
+            RetryConfig(initial_delay=5.0, max_delay=2.0)
+
+    def test_max_delay_equals_initial_accepted(self) -> None:
+        """Test that max_delay == initial_delay is accepted."""
+        config = RetryConfig(initial_delay=5.0, max_delay=5.0)
+        assert config.max_delay == 5.0
+
 
 # ============================================================================
 # RetriesConfig Tests
@@ -187,6 +197,16 @@ class TestGeoConfig:
         """Test max_age_days can be None (never stale)."""
         config = GeoConfig(max_age_days=None)
         assert config.max_age_days is None
+
+    def test_empty_city_path_rejected(self) -> None:
+        """Test that empty city_database_path is rejected."""
+        with pytest.raises(ValueError):
+            GeoConfig(city_database_path="")
+
+    def test_empty_asn_path_rejected(self) -> None:
+        """Test that empty asn_database_path is rejected."""
+        with pytest.raises(ValueError):
+            GeoConfig(asn_database_path="")
 
 
 # ============================================================================

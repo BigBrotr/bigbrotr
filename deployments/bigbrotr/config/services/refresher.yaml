@@ -6,12 +6,9 @@
 # =============================================================================
 
 pool:
-  user: bigbrotr_writer
-  password_env: DB_WRITER_PASSWORD
-  min_size: 1
+  user: bigbrotr_refresher
+  password_env: DB_REFRESHER_PASSWORD
   max_size: 2
-
-interval: 3600                          # 1 hour between refresh cycles
 
 metrics:
   enabled: true

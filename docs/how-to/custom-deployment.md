@@ -6,7 +6,7 @@ Create a new deployment from the `bigbrotr` base with custom configuration, sche
 
 ## Overview
 
-BigBrotr ships with two deployments: `bigbrotr` (full event archive) and `lilbrotr` (lightweight, omits tags/content/sig). To create your own, copy `bigbrotr` and customize. Each deployment is a self-contained directory with configuration, SQL schema, Docker Compose, and monitoring files.
+BigBrotr ships with two deployments: `bigbrotr` (full event archive) and `lilbrotr` (lightweight, tags/content/sig present but NULL). To create your own, copy `bigbrotr` and customize. Each deployment is a self-contained directory with configuration, SQL schema, Docker Compose, and monitoring files.
 
 ## Step 1: Copy the Template
 
@@ -83,7 +83,7 @@ Edit `postgres/init/02_tables.sql` to select which schema to use:
 
 === "LilBrotr (lightweight)"
 
-    Use the lightweight event table that stores only `id`, `pubkey`, `created_at`, `kind`, and `tagvalues`. This omits tags JSON, content, and signatures for approximately 60% disk savings. All 11 materialized views are still available.
+    Use the lightweight event table with all 8 columns where `tags`, `content`, and `sig` are nullable and always NULL. This provides approximately 60% disk savings since NULL values do not occupy storage. All 11 materialized views are still available.
 
 ## Step 6: Set Up the Seed File
 

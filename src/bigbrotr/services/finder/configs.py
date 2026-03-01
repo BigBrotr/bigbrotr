@@ -10,7 +10,7 @@ See Also:
 from __future__ import annotations
 
 import jmespath
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 
@@ -81,6 +81,14 @@ class ApiSourceConfig(BaseModel):
         default="[*]",
         description="JMESPath expression to extract URL strings from the JSON response",
     )
+
+    @model_validator(mode="after")
+    def _validate_connect_timeout(self) -> ApiSourceConfig:
+        if self.connect_timeout > self.timeout:
+            raise ValueError(
+                f"connect_timeout ({self.connect_timeout}) must not exceed timeout ({self.timeout})"
+            )
+        return self
 
     @field_validator("jmespath")
     @classmethod

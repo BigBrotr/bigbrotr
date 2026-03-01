@@ -163,11 +163,20 @@ class RelayOverrideTimeouts(BaseModel):
     request: float | None = None
     relay: float | None = None
 
+    @field_validator("request", "relay", mode="after")
+    @classmethod
+    def validate_timeout(cls, v: float | None) -> float | None:
+        """Validate timeout: None (use default) or >= 0.1 seconds."""
+        min_timeout = 0.1
+        if v is not None and v < min_timeout:
+            raise ValueError(f"Timeout must be None or >= {min_timeout} seconds")
+        return v
+
 
 class RelayOverride(BaseModel):
     """Per-relay configuration overrides (e.g., for high-traffic relays)."""
 
-    url: str
+    url: str = Field(min_length=1)
     timeouts: RelayOverrideTimeouts = Field(default_factory=RelayOverrideTimeouts)
 
 

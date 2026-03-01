@@ -1,8 +1,8 @@
 """Integration tests for LilBrotr lightweight event storage.
 
-LilBrotr's event_insert discards tags, content, and sig, storing only
-id, pubkey, created_at, kind, and computed tagvalues. These tests verify
-the lightweight storage behavior and tagvalues computation at insert time.
+LilBrotr's event_insert stores NULL for tags, content, and sig while
+computing tagvalues at insert time. These tests verify the lightweight
+NULL-storage behavior and tagvalues computation.
 """
 
 from __future__ import annotations
@@ -52,19 +52,18 @@ class TestLightweightEventInsert:
         assert row["created_at"] == 1700000000
         assert row["kind"] == 1
 
-    async def test_tags_content_sig_not_stored(self, brotr: Brotr):
+    async def test_tags_content_sig_null(self, brotr: Brotr):
         mock = make_mock_event(event_id="ab" * 32, sig="ee" * 64)
         await brotr.insert_event([Event(mock)])
 
-        columns = await brotr.fetch(
-            "SELECT column_name FROM information_schema.columns"
-            " WHERE table_name = 'event' ORDER BY ordinal_position"
+        row = await brotr.fetchrow(
+            "SELECT tags, content, sig FROM event WHERE id = $1",
+            bytes.fromhex("ab" * 32),
         )
-        col_names = {row["column_name"] for row in columns}
-        assert "tags" not in col_names
-        assert "content" not in col_names
-        assert "sig" not in col_names
-        assert "tagvalues" in col_names
+        assert row is not None
+        assert row["tags"] is None
+        assert row["content"] is None
+        assert row["sig"] is None
 
     async def test_tagvalues_computed_at_insert(self, brotr: Brotr):
         mock = make_mock_event(
@@ -85,9 +84,9 @@ class TestLightweightEventInsert:
             bytes.fromhex("ac" * 32),
         )
         assert row is not None
-        assert sorted(row["tagvalues"]) == ["abc123", "def456"]
+        assert sorted(row["tagvalues"]) == ["e:abc123", "p:def456"]
 
-    async def test_empty_tags_tagvalues_null(self, brotr: Brotr):
+    async def test_empty_tags_tagvalues_empty(self, brotr: Brotr):
         mock = make_mock_event(event_id="ad" * 32, tags=[], sig="ee" * 64)
         relay = Relay("wss://empty-tags.example.com", discovered_at=1700000000)
         er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
@@ -98,7 +97,7 @@ class TestLightweightEventInsert:
             bytes.fromhex("ad" * 32),
         )
         assert row is not None
-        assert row["tagvalues"] is None
+        assert row["tagvalues"] == []
 
     async def test_cascade_stores_lightweight(self, brotr: Brotr):
         relay = Relay("wss://cascade-lw.example.com", discovered_at=1700000000)
@@ -122,7 +121,7 @@ class TestLightweightEventInsert:
             bytes.fromhex("ae" * 32),
         )
         assert row is not None
-        assert row["tagvalues"] == ["val1"]
+        assert row["tagvalues"] == ["e:val1"]
 
     async def test_batch_insert(self, brotr: Brotr):
         events = [Event(make_mock_event(event_id=f"{i:064x}", sig="ee" * 64)) for i in range(5)]
@@ -143,4 +142,4 @@ class TestLightweightEventInsert:
     async def test_utility_function_available(self, brotr: Brotr):
         tags_json = json.dumps([["e", "abc"], ["p", "def"], ["relay", "skip"]])
         result = await brotr.fetchval("SELECT tags_to_tagvalues($1::jsonb)", tags_json)
-        assert sorted(result) == ["abc", "def"]
+        assert sorted(result) == ["e:abc", "p:def"]

@@ -22,9 +22,9 @@ from bigbrotr.services.common.catalog import (
     CatalogError,
     ColumnSchema,
     QueryResult,
-    TablePolicy,
     TableSchema,
 )
+from bigbrotr.services.common.configs import TableConfig
 
 
 # ============================================================================
@@ -41,7 +41,10 @@ def api_config() -> ApiConfig:
         port=9999,
         max_page_size=100,
         default_page_size=10,
-        tables={"service_state": TablePolicy(enabled=False)},
+        tables={
+            "relay": TableConfig(enabled=True),
+            "relay_stats": TableConfig(enabled=True),
+        },
     )
 
 
@@ -115,11 +118,11 @@ class TestApiConfig:
             host="127.0.0.1",
             port=9000,
             max_page_size=500,
-            tables={"event": TablePolicy(enabled=False)},
+            tables={"event": TableConfig(enabled=True)},
         )
         assert config.port == 9000
         assert config.max_page_size == 500
-        assert config.tables["event"].enabled is False
+        assert config.tables["event"].enabled is True
 
     def test_inherits_base_service_config(self) -> None:
         config = ApiConfig(interval=120.0)
@@ -142,6 +145,11 @@ class TestApiConfig:
         config = ApiConfig(default_page_size=100, max_page_size=100)
         assert config.default_page_size == 100
 
+    def test_empty_host_rejected(self) -> None:
+        """Test that empty host string is rejected."""
+        with pytest.raises(ValueError):
+            ApiConfig(host="")
+
 
 # ============================================================================
 # Api Service Tests
@@ -159,13 +167,13 @@ class TestApi:
         assert api_service._requests_failed == 0
         assert api_service._server_task is None
 
-    def test_is_table_enabled_default(self, api_service: Api) -> None:
+    def test_is_table_enabled_explicit(self, api_service: Api) -> None:
         assert api_service._is_table_enabled("relay") is True
 
-    def test_is_table_enabled_disabled(self, api_service: Api) -> None:
+    def test_is_table_enabled_not_in_config(self, api_service: Api) -> None:
         assert api_service._is_table_enabled("service_state") is False
 
-    def test_is_table_enabled_not_in_policy(self, api_service: Api) -> None:
+    def test_is_table_enabled_in_config(self, api_service: Api) -> None:
         assert api_service._is_table_enabled("relay_stats") is True
 
 

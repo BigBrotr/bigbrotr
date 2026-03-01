@@ -1,18 +1,50 @@
+# =============================================================================
+# API Service Configuration (LilBrotr)
+# =============================================================================
+# Read-only HTTP API for querying relay and event data.
+# Only values that differ from defaults are specified here.
+# =============================================================================
+
 pool:
   user: lilbrotr_reader
   password_env: DB_READER_PASSWORD
   min_size: 2
-  max_size: 5
 
 interval: 60.0
-host: "0.0.0.0"
-port: 8080
-max_page_size: 1000
-default_page_size: 100
 
 tables:
-  service_state:
-    enabled: false
+  relay:
+    enabled: true
+  event:
+    enabled: true
+  event_relay:
+    enabled: true
+  metadata:
+    enabled: true
+  relay_metadata:
+    enabled: true
+  relay_metadata_latest:
+    enabled: true
+  event_stats:
+    enabled: true
+  relay_stats:
+    enabled: true
+  kind_counts:
+    enabled: true
+  kind_counts_by_relay:
+    enabled: true
+  pubkey_counts:
+    enabled: true
+  pubkey_counts_by_relay:
+    enabled: true
+  network_stats:
+    enabled: true
+  relay_software_counts:
+    enabled: true
+  supported_nip_counts:
+    enabled: true
+  event_daily_counts:
+    enabled: true
 
 metrics:
   enabled: true

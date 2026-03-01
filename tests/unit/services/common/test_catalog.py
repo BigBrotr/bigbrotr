@@ -1,7 +1,7 @@
 """Unit tests for services.common.catalog module.
 
 Tests:
-- TablePolicy and DvmTablePolicy Pydantic models
+- TableConfig Pydantic model
 - ColumnSchema, TableSchema, QueryResult dataclasses
 - Catalog schema discovery
 - Catalog query builder
@@ -19,11 +19,10 @@ from bigbrotr.services.common.catalog import (
     Catalog,
     CatalogError,
     ColumnSchema,
-    DvmTablePolicy,
     QueryResult,
-    TablePolicy,
     TableSchema,
 )
+from bigbrotr.services.common.configs import TableConfig
 
 
 # ============================================================================
@@ -86,46 +85,39 @@ def populated_catalog(sample_table: TableSchema, sample_bytea_table: TableSchema
 
 
 # ============================================================================
-# TablePolicy Tests
+# TableConfig Tests
 # ============================================================================
 
 
-class TestTablePolicy:
-    """Tests for TablePolicy Pydantic model."""
+class TestTableConfig:
+    """Tests for TableConfig Pydantic model."""
 
-    def test_default_enabled(self) -> None:
-        policy = TablePolicy()
-        assert policy.enabled is True
+    def test_default_disabled(self) -> None:
+        config = TableConfig()
+        assert config.enabled is False
+        assert config.price == 0
 
-    def test_disabled(self) -> None:
-        policy = TablePolicy(enabled=False)
-        assert policy.enabled is False
+    def test_enabled(self) -> None:
+        config = TableConfig(enabled=True)
+        assert config.enabled is True
 
     def test_from_dict(self) -> None:
-        policy = TablePolicy.model_validate({"enabled": False})
-        assert policy.enabled is False
-
-
-class TestDvmTablePolicy:
-    """Tests for DvmTablePolicy Pydantic model."""
-
-    def test_default_values(self) -> None:
-        policy = DvmTablePolicy()
-        assert policy.enabled is True
-        assert policy.price == 0
+        config = TableConfig.model_validate({"enabled": True})
+        assert config.enabled is True
 
     def test_with_price(self) -> None:
-        policy = DvmTablePolicy(price=5000)
-        assert policy.price == 5000
+        config = TableConfig(enabled=True, price=5000)
+        assert config.price == 5000
+        assert config.enabled is True
 
     def test_negative_price_rejected(self) -> None:
         with pytest.raises(ValueError):
-            DvmTablePolicy(price=-1)
+            TableConfig(price=-1)
 
-    def test_inherits_enabled(self) -> None:
-        policy = DvmTablePolicy(enabled=False, price=100)
-        assert policy.enabled is False
-        assert policy.price == 100
+    def test_disabled_with_price(self) -> None:
+        config = TableConfig(enabled=False, price=100)
+        assert config.enabled is False
+        assert config.price == 100
 
 
 # ============================================================================

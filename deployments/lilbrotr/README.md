@@ -1,18 +1,18 @@
 # LilBrotr - Lightweight BigBrotr Implementation
 
 LilBrotr is a **lightweight** BigBrotr implementation optimized for reduced disk usage and resource consumption.
-It stores essential event metadata while omitting heavy fields like `tags`, `content`, and `sig` (~60% disk savings).
+It has all 8 event columns but keeps `tags`, `content`, and `sig` as nullable columns that are always NULL (~60% disk savings).
 
 ## Key Differences from BigBrotr
 
 | Feature | BigBrotr | LilBrotr |
 |---------|----------|----------|
-| Event storage | Full (tags, content, sig) | Lightweight (id, pubkey, created_at, kind) |
+| Event storage | Full (all columns NOT NULL) | All 8 columns (tags/content/sig nullable, always NULL) |
 | Disk usage | ~100% | ~40% |
 | Tor support | Enabled by default | Disabled by default |
 | I2P/Lokinet | Available | Disabled |
 | Concurrency | High | Reduced |
-| Event scanning | Enabled | Disabled (no tags/content) |
+| Event scanning | Enabled | Disabled (tags/content/sig are NULL) |
 
 ## Quick Start
 
@@ -122,7 +122,7 @@ SYNCHRONIZER_METRICS_PORT=9004
 
 ### Finder
 - Discovers relay URLs from external APIs (nostr.watch)
-- Event scanning **disabled** (no tags/content in database)
+- Event scanning **disabled** (tags/content are NULL in database)
 - Runs every hour
 
 ### Validator
@@ -137,7 +137,7 @@ SYNCHRONIZER_METRICS_PORT=9004
 
 ### Synchronizer
 - Fetches events from readable relays
-- Stores lightweight event data (no tags/content/sig)
+- Stores lightweight event data (tags/content/sig are NULL)
 - Runs every 15 minutes
 
 ## Enabling Tor Support
@@ -173,19 +173,24 @@ To enable Tor relay support:
 
 ## Database Schema
 
-LilBrotr uses a lightweight events table:
+LilBrotr uses a lightweight event table with all 8 columns where tags, content, and sig are nullable and always NULL:
 
 ```sql
-CREATE TABLE events (
+CREATE TABLE event (
     id BYTEA PRIMARY KEY,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
-    kind INTEGER NOT NULL
+    kind INTEGER NOT NULL,
+    tags JSONB,
+    tagvalues TEXT[] NOT NULL,
+    content TEXT,
+    sig BYTEA
 );
--- Note: tags, tagvalues, content, sig columns are OMITTED
+-- Note: tags, content, sig are nullable and always NULL
+-- tagvalues is computed at insert time by event_insert()
 ```
 
-This reduces disk usage by ~60% compared to full event storage.
+This reduces disk usage by ~60% compared to full event storage since NULL values do not occupy storage.
 
 ## Monitoring
 

@@ -19,7 +19,7 @@ Two schema variants exist:
 | Variant | Event Storage | Materialized Views | Disk Usage |
 |---------|--------------|-------------------|------------|
 | **BigBrotr** | Full NIP-01 (id, pubkey, created_at, kind, tags, content, sig) | 11 views | 100% |
-| **LilBrotr** | Metadata only (id, pubkey, created_at, kind, tagvalues) | 11 views | ~40% |
+| **LilBrotr** | All 8 columns (tags, content, sig nullable and always NULL) | 11 views | ~40% |
 
 ---
 
@@ -111,16 +111,16 @@ Complete NIP-01 event storage with all fields preserved.
 | `created_at` | BIGINT | NOT NULL | Unix creation timestamp |
 | `kind` | INTEGER | NOT NULL | NIP-01 event kind (0-65535) |
 | `tags` | JSONB | NOT NULL | Tag array `[["e", "..."], ["p", "..."]]` |
-| `tagvalues` | TEXT[] | GENERATED ALWAYS AS `tags_to_tagvalues(tags)` STORED | Single-char tag values for GIN indexing |
+| `tagvalues` | TEXT[] | NOT NULL | Single-char tag values for GIN indexing, computed at insert time |
 | `content` | TEXT | NOT NULL | Event content |
 | `sig` | BYTEA | NOT NULL | Schnorr signature (64 bytes) |
 
 !!! note
-    The `tagvalues` column is a **generated stored column**, automatically computed from `tags` via the `tags_to_tagvalues()` function.
+    The `tagvalues` column is computed at insert time by `event_insert()` via the `tags_to_tagvalues()` function.
 
 ### event (LilBrotr)
 
-Lightweight variant storing only essential metadata.
+Lightweight variant with all 8 columns but tags, content, and sig are nullable and always NULL.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
@@ -128,10 +128,13 @@ Lightweight variant storing only essential metadata.
 | `pubkey` | BYTEA | NOT NULL | Author public key (32 bytes) |
 | `created_at` | BIGINT | NOT NULL | Unix creation timestamp |
 | `kind` | INTEGER | NOT NULL | NIP-01 event kind |
-| `tagvalues` | TEXT[] | Regular column | Computed at insert time by `event_insert()`, not a generated column |
+| `tags` | JSONB | Nullable, always NULL | Not stored in lightweight mode |
+| `tagvalues` | TEXT[] | NOT NULL | Computed at insert time by `event_insert()` |
+| `content` | TEXT | Nullable, always NULL | Not stored in lightweight mode |
+| `sig` | BYTEA | Nullable, always NULL | Not stored in lightweight mode |
 
 !!! note
-    In LilBrotr, `tagvalues` is a **regular column** computed by `event_insert()` from the `tags` parameter, which is then discarded along with `content` and `sig`.
+    In LilBrotr, `tags`, `content`, and `sig` columns exist but are always NULL. The `tagvalues` column is computed by `event_insert()` from the `tags` parameter, which is then discarded. NULL values do not occupy storage, providing approximately 60% disk savings.
 
 ### event_relay
 
@@ -209,13 +212,13 @@ All foreign keys use `ON DELETE CASCADE`:
 
 ### tags_to_tagvalues(JSONB) -> TEXT[]
 
-Extracts values from single-character tag keys in a Nostr event tags array.
+Extracts key-prefixed values from single-character tag keys in a Nostr event tags array. Each value is prefixed with its tag key and a colon separator, enabling GIN queries that discriminate between tag types.
 
 ```sql
 LANGUAGE SQL IMMUTABLE RETURNS NULL ON NULL INPUT SECURITY INVOKER
 ```
 
-**Example**: `[["e", "abc"], ["p", "def"], ["relay", "wss://..."]]` -> `ARRAY['abc', 'def']`
+**Example**: `[["e", "abc"], ["p", "def"], ["relay", "wss://..."]]` -> `ARRAY['e:abc', 'p:def']`
 
 Tags with multi-character keys (like `relay`) are excluded.
 
@@ -697,7 +700,7 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 
 ## Deployment-Specific Schemas
 
-**BigBrotr** (full archive): stores tags JSONB, generated tagvalues, content TEXT.
+**BigBrotr** (full archive): stores all 8 columns. Tagvalues computed at insert time by `event_insert()`.
 
 ```sql
 CREATE TABLE event (
@@ -706,13 +709,13 @@ CREATE TABLE event (
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
     tags JSONB NOT NULL,
-    tagvalues TEXT[] GENERATED ALWAYS AS (tags_to_tagvalues(tags)) STORED,
+    tagvalues TEXT[] NOT NULL,
     content TEXT NOT NULL,
     sig BYTEA NOT NULL
 );
 ```
 
-**LilBrotr** (lightweight): omits tags, content, sig for ~60% disk savings. Tagvalues is a regular column computed at insert time.
+**LilBrotr** (lightweight): all 8 columns present but tags, content, sig are nullable and always NULL for ~60% disk savings. Tagvalues computed at insert time by `event_insert()`.
 
 ```sql
 CREATE TABLE event (
@@ -720,7 +723,10 @@ CREATE TABLE event (
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
-    tagvalues TEXT[]
+    tags JSONB,
+    tagvalues TEXT[] NOT NULL,
+    content TEXT,
+    sig BYTEA
 );
 ```
 

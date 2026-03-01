@@ -87,6 +87,11 @@ class TestSeedConfig:
         config_false = SeedConfig(to_validate=False)
         assert config_false.to_validate is False
 
+    def test_empty_file_path_rejected(self) -> None:
+        """Test that empty file_path is rejected."""
+        with pytest.raises(ValueError):
+            SeedConfig(file_path="")
+
 
 # ============================================================================
 # SeederConfig Tests

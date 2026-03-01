@@ -167,9 +167,9 @@ LEFT JOIN event_agg AS ea ON r.url = ea.relay_url
 -- LATERAL join: compute average RTT from the 10 most recent measurements
 LEFT JOIN LATERAL (
     SELECT
-        ROUND(AVG((m.data ->> 'rtt_open')::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
-        ROUND(AVG((m.data ->> 'rtt_read')::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
-        ROUND(AVG((m.data ->> 'rtt_write')::INTEGER)::NUMERIC, 2) AS avg_rtt_write
+        ROUND(AVG((m.data -> 'data' ->> 'rtt_open')::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
+        ROUND(AVG((m.data -> 'data' ->> 'rtt_read')::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
+        ROUND(AVG((m.data -> 'data' ->> 'rtt_write')::INTEGER)::NUMERIC, 2) AS avg_rtt_write
     FROM (
         SELECT
             rm.metadata_id,
@@ -185,9 +185,9 @@ LEFT JOIN LATERAL (
 -- LATERAL join: latest NIP-11 relay info
 LEFT JOIN LATERAL (
     SELECT
-        m.data ->> 'name' AS name,
-        m.data ->> 'software' AS software,
-        m.data ->> 'version' AS version
+        m.data -> 'data' ->> 'name' AS name,
+        m.data -> 'data' ->> 'software' AS software,
+        m.data -> 'data' ->> 'version' AS version
     FROM relay_metadata AS rm
     INNER JOIN metadata AS m ON rm.metadata_id = m.id AND rm.metadata_type = m.metadata_type
     WHERE rm.relay_url = r.url AND rm.metadata_type = 'nip11_info'
@@ -342,13 +342,13 @@ COMMENT ON MATERIALIZED VIEW network_stats IS
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS relay_software_counts AS
 SELECT
-    data ->> 'software' AS software,
-    COALESCE(data ->> 'version', 'unknown') AS version,
+    data -> 'data' ->> 'software' AS software,
+    COALESCE(data -> 'data' ->> 'version', 'unknown') AS version,
     COUNT(*) AS relay_count
 FROM relay_metadata_latest
 WHERE metadata_type = 'nip11_info'
-    AND data ->> 'software' IS NOT NULL
-GROUP BY data ->> 'software', COALESCE(data ->> 'version', 'unknown')
+    AND data -> 'data' ->> 'software' IS NOT NULL
+GROUP BY data -> 'data' ->> 'software', COALESCE(data -> 'data' ->> 'version', 'unknown')
 ORDER BY relay_count DESC;
 
 COMMENT ON MATERIALIZED VIEW relay_software_counts IS
@@ -369,10 +369,10 @@ SELECT
     nip_text::INTEGER AS nip,
     COUNT(*) AS relay_count
 FROM relay_metadata_latest
-CROSS JOIN LATERAL jsonb_array_elements_text(data -> 'supported_nips') AS nip_text
+CROSS JOIN LATERAL jsonb_array_elements_text(data -> 'data' -> 'supported_nips') AS nip_text
 WHERE metadata_type = 'nip11_info'
-    AND data ? 'supported_nips'
-    AND jsonb_typeof(data -> 'supported_nips') = 'array'
+    AND data -> 'data' ? 'supported_nips'
+    AND jsonb_typeof(data -> 'data' -> 'supported_nips') = 'array'
     AND nip_text ~ '^\d+$'
 GROUP BY nip_text::INTEGER
 ORDER BY relay_count DESC;

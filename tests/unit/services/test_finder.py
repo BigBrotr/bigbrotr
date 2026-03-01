@@ -150,8 +150,8 @@ class TestApiSourceConfig:
 
     def test_timeout_bounds(self) -> None:
         """Test timeout validation bounds."""
-        # Min bound
-        config_min = ApiSourceConfig(url="https://api.com", timeout=0.1)
+        # Min bound (connect_timeout must not exceed timeout)
+        config_min = ApiSourceConfig(url="https://api.com", timeout=0.1, connect_timeout=0.1)
         assert config_min.timeout == 0.1
 
         # Max bound
@@ -171,6 +171,16 @@ class TestApiSourceConfig:
                 url="https://api.example.com",
                 jmespath="[*",
             )
+
+    def test_connect_timeout_exceeds_timeout_rejected(self) -> None:
+        """Test that connect_timeout > timeout is rejected."""
+        with pytest.raises(ValueError, match=r"connect_timeout.*must not exceed.*timeout"):
+            ApiSourceConfig(url="https://api.com", timeout=10.0, connect_timeout=30.0)
+
+    def test_connect_timeout_equals_timeout_accepted(self) -> None:
+        """Test that connect_timeout == timeout is accepted."""
+        config = ApiSourceConfig(url="https://api.com", timeout=10.0, connect_timeout=10.0)
+        assert config.connect_timeout == 10.0
 
 
 # ============================================================================
@@ -601,7 +611,7 @@ class TestFinderFindFromEvents:
     async def test_valid_relay_urls_extracted_from_tagvalues(self, mock_brotr: Brotr) -> None:
         """Valid relay URLs extracted from event tagvalues."""
         mock_event = {
-            "tagvalues": ["wss://relay.example.com"],
+            "tagvalues": ["r:wss://relay.example.com"],
             "seen_at": 1700000001,
             "event_id": b"\xab" * 32,
         }
@@ -639,7 +649,7 @@ class TestFinderFindFromEvents:
     async def test_multiple_relay_urls_extracted(self, mock_brotr: Brotr) -> None:
         """Multiple relay URLs extracted from event tagvalues."""
         mock_event = {
-            "tagvalues": ["wss://relay1.example.com", "wss://relay2.example.com"],
+            "tagvalues": ["r:wss://relay1.example.com", "r:wss://relay2.example.com"],
             "seen_at": 1700000001,
             "event_id": b"\xab" * 32,
         }
@@ -678,7 +688,7 @@ class TestFinderFindFromEvents:
     async def test_non_url_tagvalues_filtered_out(self, mock_brotr: Brotr) -> None:
         """Non-URL tagvalues (hex IDs, hashtags) are filtered out."""
         mock_event = {
-            "tagvalues": ["wss://rtag-relay.com", "a" * 64, "bitcoin"],
+            "tagvalues": ["r:wss://rtag-relay.com", "e:" + "a" * 64, "t:bitcoin"],
             "seen_at": 1700000001,
             "event_id": b"\xab" * 32,
         }
@@ -716,7 +726,7 @@ class TestFinderFindFromEvents:
     async def test_invalid_malformed_urls_filtered_out(self, mock_brotr: Brotr) -> None:
         """Invalid/malformed URLs filtered out."""
         mock_event = {
-            "tagvalues": ["not-a-valid-url", "http://wrong-scheme.com", "also-not-valid"],
+            "tagvalues": ["r:not-a-valid-url", "r:http://wrong-scheme.com", "r:also-not-valid"],
             "seen_at": 1700000001,
             "event_id": b"\xab" * 32,
         }
@@ -749,9 +759,9 @@ class TestFinderFindFromEvents:
         """Duplicate URLs deduplicated."""
         mock_event = {
             "tagvalues": [
-                "wss://duplicate.relay.com",
-                "wss://duplicate.relay.com",
-                "wss://duplicate.relay.com",
+                "r:wss://duplicate.relay.com",
+                "r:wss://duplicate.relay.com",
+                "r:wss://duplicate.relay.com",
             ],
             "seen_at": 1700000001,
             "event_id": b"\xab" * 32,
@@ -788,7 +798,7 @@ class TestFinderFindFromEvents:
     async def test_cursor_position_updated_after_scan(self, mock_brotr: Brotr) -> None:
         """Cursor position updated after scan."""
         mock_event = {
-            "tagvalues": ["wss://relay.example.com"],
+            "tagvalues": ["r:wss://relay.example.com"],
             "seen_at": 1700000200,
             "event_id": b"\xab" * 32,
         }
@@ -836,7 +846,7 @@ class TestFinderFindFromEvents:
     async def test_network_type_detected_clearnet_vs_tor(self, mock_brotr: Brotr) -> None:
         """Network type correctly detected (clearnet vs tor)."""
         mock_event = {
-            "tagvalues": ["wss://clearnet.relay.com", "ws://tortest.onion"],
+            "tagvalues": ["r:wss://clearnet.relay.com", "r:ws://tortest.onion"],
             "seen_at": 1700000001,
             "event_id": b"\xab" * 32,
         }
@@ -877,7 +887,7 @@ class TestFinderEventScanConcurrency:
     async def test_multiple_relays_scanned_concurrently(self, mock_brotr: Brotr) -> None:
         """Multiple relays are scanned via TaskGroup, not sequentially."""
         mock_event = {
-            "tagvalues": ["wss://found.relay.com"],
+            "tagvalues": ["r:wss://found.relay.com"],
             "seen_at": 1700000001,
             "event_id": b"\xab" * 32,
         }
@@ -934,7 +944,7 @@ class TestFinderEventScanConcurrency:
     async def test_task_failure_does_not_block_others(self, mock_brotr: Brotr) -> None:
         """A DB error in one relay scan does not prevent other relays from completing."""
         mock_event = {
-            "tagvalues": ["wss://found.relay.com"],
+            "tagvalues": ["r:wss://found.relay.com"],
             "seen_at": 1700000001,
             "event_id": b"\xab" * 32,
         }
@@ -1093,7 +1103,7 @@ class TestFinderMetrics:
     async def test_find_from_events_emits_gauges_and_counters(self, mock_brotr: Brotr) -> None:
         """Test find_from_events emits gauges and counters for scanned events."""
         mock_event = {
-            "tagvalues": ["wss://relay1.example.com", "wss://relay2.example.com"],
+            "tagvalues": ["r:wss://relay1.example.com", "r:wss://relay2.example.com"],
             "seen_at": 1700000001,
             "event_id": b"\xab" * 32,
         }

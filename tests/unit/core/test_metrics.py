@@ -106,6 +106,16 @@ class TestMetricsConfigPaths:
         config = MetricsConfig()
         assert config.path == "/metrics"
 
+    def test_empty_host_rejected(self) -> None:
+        """Test that empty host string is rejected."""
+        with pytest.raises(ValidationError):
+            MetricsConfig(host="")
+
+    def test_empty_path_rejected(self) -> None:
+        """Test that empty path string is rejected."""
+        with pytest.raises(ValidationError):
+            MetricsConfig(path="")
+
     def test_custom_path(self) -> None:
         """Test custom metrics path."""
         config = MetricsConfig(path="/prometheus/metrics")

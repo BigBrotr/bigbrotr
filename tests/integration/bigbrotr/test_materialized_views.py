@@ -53,9 +53,15 @@ async def _insert_nip11_metadata(
     data: dict,
     generated_at: int = 1700000001,
 ) -> None:
-    """Insert NIP-11 info metadata for a relay."""
+    """Insert NIP-11 info metadata for a relay.
+
+    Wraps ``data`` in the production envelope structure produced by
+    ``Nip11InfoMetadata.to_dict()`` so that materialized views using
+    ``data -> 'data' ->> 'field'`` paths resolve correctly.
+    """
     relay = Relay(relay_url, discovered_at=1700000000)
-    metadata = Metadata(type=MetadataType.NIP11_INFO, data=data)
+    envelope = {"data": data, "logs": {"success": True}}
+    metadata = Metadata(type=MetadataType.NIP11_INFO, data=envelope)
     rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
     await brotr.insert_relay_metadata([rm], cascade=True)
 

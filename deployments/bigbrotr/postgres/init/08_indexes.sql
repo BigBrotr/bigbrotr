@@ -35,7 +35,7 @@ ON event USING btree (pubkey, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_event_pubkey_kind_created_at
 ON event USING btree (pubkey, kind, created_at DESC);
 
--- Tag value containment: WHERE tagvalues @> ARRAY['<value>']
+-- Tag value containment: WHERE tagvalues @> ARRAY['e:<hex-id>']
 -- Requires the btree_gin extension for GIN support on text arrays
 CREATE INDEX IF NOT EXISTS idx_event_tagvalues
 ON event USING gin (tagvalues);

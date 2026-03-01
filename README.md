@@ -104,7 +104,7 @@ Imports flow strictly downward:
 │ discovered_at BIGINT│   │ │   │ created_at     BIGINT               │
 └─────────┬───────────┘   │ │   │ kind           INTEGER              │
           │               │ │   │ tags           JSONB                 │
-          │               │ │   │ tagvalues      TEXT[] (GENERATED)    │
+          │               │ │   │ tagvalues      TEXT[] NOT NULL        │
           │               │ │   │ content        TEXT                  │
           │               │ │   │ sig            BYTEA (64B)           │
           │               │ │   └──────────────────────────────────────┘
@@ -152,7 +152,7 @@ Imports flow strictly downward:
 - `relay` is the central entity. Cascade deletes propagate to `event_relay` and `relay_metadata`.
 - `metadata` is content-addressed: SHA-256 hash of canonical JSON + type as composite PK. Same data = same hash.
 - `service_state` is a generic key-value store used by Finder (cursors), Validator (candidates), Monitor (checkpoints), Synchronizer (cursors).
-- `event.tagvalues` is a generated column (from `tags_to_tagvalues(tags)`) indexed with GIN for fast containment queries.
+- `event.tagvalues` is computed at insert time by `event_insert()` (from `tags_to_tagvalues(tags)`) and indexed with GIN for fast containment queries.
 
 ### Service-Database Interaction Map
 
@@ -238,7 +238,7 @@ cd deployments/bigbrotr && docker compose up -d
 
 ### LilBrotr (Lightweight)
 
-Stores event metadata only (id, pubkey, created_at, kind, tagvalues). Omits tags JSON, content, and sig for approximately 60% disk savings. Same eight services and all 11 materialized views.
+Stores all 8 event columns but keeps tags, content, and sig as NULL for approximately 60% disk savings. Same eight services and all 11 materialized views.
 
 ```bash
 cd deployments/lilbrotr && docker compose up -d
@@ -271,7 +271,7 @@ PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 
 ### Stored Functions (25)
 
-- **1 utility**: `tags_to_tagvalues` (extracts single-char tag values for GIN indexing)
+- **1 utility**: `tags_to_tagvalues` (extracts key-prefixed single-char tag values for GIN indexing)
 - **10 CRUD**: `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `event_relay_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
 - **2 cleanup**: `orphan_event_delete`, `orphan_metadata_delete` (batched)
 - **12 refresh**: one per materialized view + `all_statistics_refresh`

@@ -192,7 +192,7 @@ processing:
 
 **BigBrotr** stores complete Nostr events including `tags` (JSON), `content`, and `sig`. It provides 11 materialized views for analytics and uses more disk space.
 
-**LilBrotr** stores only event metadata: `id`, `pubkey`, `created_at`, `kind`, and `tagvalues` (extracted single-char tag values). It omits tags JSON, content, and signatures, resulting in approximately 60% disk savings. All 11 materialized views are available in both variants.
+**LilBrotr** has all 8 event columns but keeps `tags`, `content`, and `sig` as NULL (they are nullable columns that are never populated). The `tagvalues` column is computed at insert time. Since NULL values do not occupy storage, this results in approximately 60% disk savings. All 11 materialized views are available in both variants.
 
 Both use the same services and codebase. The only difference is the SQL schema.
 

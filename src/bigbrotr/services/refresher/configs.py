@@ -65,4 +65,9 @@ class RefresherConfig(BaseServiceConfig):
             Base class providing ``interval`` and ``metrics`` fields.
     """
 
+    interval: float = Field(
+        default=3600.0,
+        ge=60.0,
+        description="Target seconds between refresh cycle starts (fixed-schedule)",
+    )
     refresh: RefreshConfig = Field(default_factory=RefreshConfig)
