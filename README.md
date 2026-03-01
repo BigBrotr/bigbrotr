@@ -220,7 +220,7 @@ BigBrotr supports multiple deployment configurations from the same codebase via 
 
 ### BigBrotr (Full Archive)
 
-Stores complete Nostr events (id, pubkey, created_at, kind, tags, content, sig). 11 materialized views for analytics. Tor enabled. All 8 services + Prometheus + Grafana.
+Stores complete Nostr events (id, pubkey, created_at, kind, tags, content, sig).
 
 ```bash
 cd deployments/bigbrotr && docker compose up -d
@@ -228,7 +228,7 @@ cd deployments/bigbrotr && docker compose up -d
 
 ### LilBrotr (Lightweight)
 
-Stores all 8 event columns but keeps tags, content, and sig as NULL for approximately 60% disk savings. Same eight services and all 11 materialized views.
+Stores all 8 event columns but keeps tags, content, and sig as NULL for approximately 60% disk savings.
 
 ```bash
 cd deployments/lilbrotr && docker compose up -d
