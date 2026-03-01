@@ -186,7 +186,7 @@ class Nip66HttpMetadata(BaseNipMetadata):
                 logger.debug("http_no_data relay=%s", relay.url)
         except (OSError, TimeoutError, aiohttp.ClientError) as e:
             logs["reason"] = str(e) or type(e).__name__
-            logger.debug("http_error relay=%s error=%s", relay.url, str(e))
+            logger.debug("http_error relay=%s error=%s", relay.url, logs["reason"])
 
         return cls(
             data=Nip66HttpData.model_validate(Nip66HttpData.parse(data)),

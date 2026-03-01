@@ -9,6 +9,7 @@ Tests:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -313,3 +314,16 @@ class TestNip66DnsMetadataDnsAsync:
         assert result.data.dns_ips == ["8.8.8.8", "8.8.4.4"]
         assert result.data.dns_ips_v6 == ["2001:4860:4860::8888"]
         assert result.data.dns_cname == "dns.google"
+
+    async def test_outer_timeout(self, relay: Relay) -> None:
+        """Outer timeout fires when thread hangs indefinitely."""
+
+        async def _hang(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            await asyncio.sleep(999)
+            return {}
+
+        with patch("bigbrotr.nips.nip66.dns.asyncio.to_thread", side_effect=_hang):
+            result = await Nip66DnsMetadata.execute(relay, 0.1)
+
+        assert result.logs.success is False
+        assert result.logs.reason == "TimeoutError"

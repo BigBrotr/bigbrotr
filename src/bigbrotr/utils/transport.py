@@ -27,7 +27,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import ssl
 import sys
@@ -186,12 +185,14 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
 
     async def close_connection(self) -> None:
         """Close the WebSocket and session with timeouts to prevent hanging."""
-        # aiohttp/websockets can raise ClientError, ServerDisconnectedError, etc.
-        # during close — broad suppression is intentional for cleanup teardown.
-        with contextlib.suppress(Exception):
+        try:
             await asyncio.wait_for(self._ws.close(), timeout=self._close_timeout)
-        with contextlib.suppress(Exception):
+        except Exception as e:
+            logger.debug("ws_close_error error=%s", e)
+        try:
             await asyncio.wait_for(self._session.close(), timeout=self._close_timeout)
+        except Exception as e:
+            logger.debug("session_close_error error=%s", e)
 
 
 class InsecureWebSocketTransport(CustomWebSocketTransport):
