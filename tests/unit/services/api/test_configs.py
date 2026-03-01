@@ -1,4 +1,4 @@
-"""Unit tests for services.api.service module -- configuration.
+"""Unit tests for services.api.configs module.
 
 Tests:
 - ApiConfig defaults and validation
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from bigbrotr.services.api.service import ApiConfig
+from bigbrotr.services.api.configs import ApiConfig
 from bigbrotr.services.common.configs import TableConfig
 
 

@@ -2,10 +2,11 @@
 
 See Also:
     [Api][bigbrotr.services.api.service.Api]: The service class.
-    [ApiConfig][bigbrotr.services.api.service.ApiConfig]: Service configuration.
+    [ApiConfig][bigbrotr.services.api.configs.ApiConfig]: Service configuration.
 """
 
-from .service import Api, ApiConfig
+from .configs import ApiConfig
+from .service import Api
 
 
 __all__ = ["Api", "ApiConfig"]

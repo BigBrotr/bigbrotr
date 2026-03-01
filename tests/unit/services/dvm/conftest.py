@@ -13,7 +13,8 @@ from bigbrotr.services.common.catalog import (
     TableSchema,
 )
 from bigbrotr.services.common.configs import TableConfig
-from bigbrotr.services.dvm.service import Dvm, DvmConfig
+from bigbrotr.services.dvm.configs import DvmConfig
+from bigbrotr.services.dvm.service import Dvm
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
