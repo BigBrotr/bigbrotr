@@ -324,21 +324,23 @@ JSON mode available for cloud aggregation:
 | NIP | Usage |
 |-----|-------|
 | **NIP-01** | Event model, relay communication |
-| **NIP-02** | Contact list relay discovery (kind 3) |
 | **NIP-11** | Relay information document fetch and parse |
-| **NIP-65** | Relay list metadata (kind 10002) |
-| **NIP-66** | Relay monitoring and discovery (kinds 10166, 30166) |
+| **NIP-42** | Relay authentication (Synchronizer auth, Validator detection) |
+| **NIP-66** | Relay monitoring and discovery (kinds 10166, 22456, 30166) |
+| **NIP-89** | Handler information (DVM announcement, kind 31990) |
+| **NIP-90** | Data Vending Machine (DVM job requests/results, kinds 5050/6050) |
 
 ### Event Kinds
 
 | Kind | Direction | Purpose |
 |------|-----------|---------|
 | 0 | Published | Monitor profile metadata |
-| 2 | Consumed | Deprecated relay recommendation |
-| 3 | Consumed | Contact list (relay URLs from tag values) |
-| 10002 | Consumed | NIP-65 relay list (`r` tags) |
+| 5050 | Consumed | NIP-90 DVM job request |
+| 6050 | Published | NIP-90 DVM job result |
 | 10166 | Published | Monitor announcement (capabilities, networks, timeouts) |
+| 22456 | Published | NIP-66 ephemeral relay test |
 | 30166 | Published | Relay discovery (addressable, one per relay, health check tags) |
+| 31990 | Published | NIP-89 handler information (DVM announcement) |
 
 ### NIP-66 Health Checks
 
@@ -602,5 +604,8 @@ MIT -- see [LICENSE](LICENSE).
 - [Changelog](CHANGELOG.md)
 - [Nostr Protocol](https://nostr.com)
 - [NIP-11: Relay Information Document](https://github.com/nostr-protocol/nips/blob/master/11.md)
+- [NIP-42: Authentication of Clients to Relays](https://github.com/nostr-protocol/nips/blob/master/42.md)
 - [NIP-66: Relay Discovery and Monitoring](https://github.com/nostr-protocol/nips/blob/master/66.md)
+- [NIP-89: Recommended Application Handlers](https://github.com/nostr-protocol/nips/blob/master/89.md)
+- [NIP-90: Data Vending Machines](https://github.com/nostr-protocol/nips/blob/master/90.md)
 - [NIPs Repository](https://github.com/nostr-protocol/nips)
