@@ -247,8 +247,8 @@ class TestValidateBatchSize:
     def test_valid_batch_size(self, mock_brotr: Brotr) -> None:
         """Test validation passes for valid batch size."""
         batch = [{"id": i} for i in range(100)]
-        mock_brotr._validate_batch_size(batch, "test_operation")
-        # Should not raise
+        result = mock_brotr._validate_batch_size(batch, "test_operation")
+        assert result is None
 
     def test_exceeds_maximum_raises(self, mock_brotr: Brotr) -> None:
         """Test validation raises ValueError when batch exceeds maximum."""
@@ -261,13 +261,13 @@ class TestValidateBatchSize:
         """Test validation passes when batch equals maximum."""
         # Default max is 1000
         batch = [{"id": i} for i in range(1000)]
-        mock_brotr._validate_batch_size(batch, "test_operation")
-        # Should not raise
+        result = mock_brotr._validate_batch_size(batch, "test_operation")
+        assert result is None
 
     def test_empty_batch_is_valid(self, mock_brotr: Brotr) -> None:
         """Test validation passes for empty batch."""
-        mock_brotr._validate_batch_size([], "test_operation")
-        # Should not raise
+        result = mock_brotr._validate_batch_size([], "test_operation")
+        assert result is None
 
 
 class TestTransposeToColumns:
@@ -340,6 +340,8 @@ class TestCallProcedure:
                 if "Invalid procedure name" in str(e):
                     pytest.fail(f"Valid name '{name}' was rejected")
 
+        assert mock_brotr._pool._mock_connection.fetchval.call_count == len(valid_names)  # type: ignore[attr-defined]
+
     async def test_invalid_procedure_names(self, mock_brotr: Brotr) -> None:
         """Test that invalid SQL identifiers are rejected."""
         invalid_names = [
@@ -372,11 +374,13 @@ class TestCallProcedure:
 
     async def test_with_arguments(self, mock_brotr: Brotr) -> None:
         """Test procedure call with arguments."""
-        await mock_brotr._call_procedure("test_proc", "arg1", 123, True, fetch_result=True)
+        result = await mock_brotr._call_procedure("test_proc", "arg1", 123, True, fetch_result=True)
+        assert result == 1
 
     async def test_with_timeout(self, mock_brotr: Brotr) -> None:
         """Test procedure call with custom timeout."""
-        await mock_brotr._call_procedure("test_proc", fetch_result=True, timeout=30.0)
+        result = await mock_brotr._call_procedure("test_proc", fetch_result=True, timeout=30.0)
+        assert result == 1
 
 
 # ============================================================================
@@ -593,13 +597,17 @@ class TestGetServiceState:
 
     async def test_with_specific_key(self, mock_brotr: Brotr) -> None:
         """Test getting specific key."""
-        await mock_brotr.get_service_state(
+        result = await mock_brotr.get_service_state(
             ServiceName.FINDER, ServiceStateType.CURSOR, key="specific_key"
         )
+        assert isinstance(result, list)
 
     async def test_without_key(self, mock_brotr: Brotr) -> None:
         """Test getting all records without specific key."""
-        await mock_brotr.get_service_state(ServiceName.FINDER, ServiceStateType.CURSOR, key=None)
+        result = await mock_brotr.get_service_state(
+            ServiceName.FINDER, ServiceStateType.CURSOR, key=None
+        )
+        assert isinstance(result, list)
 
 
 class TestDeleteServiceState:

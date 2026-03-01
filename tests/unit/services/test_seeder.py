@@ -210,7 +210,8 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path="nonexistent/file.txt"))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder.seed()
+        result = await seeder.seed()
+        assert result == 0
 
     async def test_seed_success_as_candidates(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
@@ -263,7 +264,9 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder.seed()
+        result = await seeder.seed()
+        assert result == 1
+        mock_seeder_brotr.upsert_service_state.assert_called_once()
 
     async def test_seed_skips_invalid_urls(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test seeding skips invalid relay URLs."""
@@ -278,7 +281,8 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder.seed()
+        result = await seeder.seed()
+        assert result == 1
 
     async def test_seed_empty_file(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test seeding with empty file."""
@@ -288,7 +292,8 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder.seed()
+        result = await seeder.seed()
+        assert result == 0
 
     async def test_seed_all_exist(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test seeding when all relays already exist."""
@@ -302,7 +307,8 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder.seed()
+        result = await seeder.seed()
+        assert result == 0
 
 
 # ============================================================================
@@ -528,7 +534,9 @@ class TestSeederRun:
         config = SeederConfig(seed=SeedConfig(file_path="nonexistent.txt"))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder.run()
+        with patch.object(seeder._logger, "info") as mock_log:
+            await seeder.run()
+            mock_log.assert_any_call("cycle_completed", inserted=0)
 
     async def test_run_success(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test run completes successfully."""
@@ -544,6 +552,8 @@ class TestSeederRun:
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
         await seeder.run()
+
+        mock_seeder_brotr.upsert_service_state.assert_called()
 
     async def test_run_logs_cycle_completion(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
