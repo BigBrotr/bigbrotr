@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.5.0] - 2026-03-01
+
+Hardening release: security fixes, configuration constraints, code quality improvements, and deployment changes across all services.
+
+### DEPLOYMENT CHANGES
+
+- **New `refresher` database role** with least-privilege access (SELECT + matview ownership only), replacing the writer role previously used by the Refresher service. Requires new `DB_REFRESHER_PASSWORD` env variable and updated PGBouncer/Docker Compose config (#323)
+- **Default-closed table access**: tables now default to `enabled: false` in `TableConfig` — only tables explicitly listed with `enabled: true` in service YAML configs are served by API and DVM. Existing deployments must add explicit `enabled: true` entries for each exposed table (#327)
+
+### Fixed
+
+- Fix 12 JSONB path errors in materialized views (`relay_stats`, `relay_software_counts`, `supported_nip_counts`) that referenced top-level keys instead of the nested `data` envelope, producing NULL columns (#323)
+- Prevent stack-trace exposure in API error responses: `ValueError` exceptions in `get_row` handler now return generic message instead of `str(e)` (#329)
+
+### Changed
+
+- **Config constraints hardened** across all 8 services: `min_length=1` on non-empty strings, `ge=0.1` on timeouts, cross-field validators (`max_delay >= initial_delay`, `connect_timeout <= timeout`), relay URL validation on DVM, `le=100` upper bound on `max_consecutive_failures` (#319)
+- **Fixed-schedule cycling**: `run_forever()` now starts the next cycle `interval` seconds after the previous started (subtracting elapsed time), preventing drift accumulation (#319)
+- **Core defaults tuned**: pool `min_size=1` / `max_size=5` for lighter footprint; refresher interval raised to 3600s (#319)
+- Unified `TablePolicy` and `DvmTablePolicy` into single `TableConfig` model with `price` support for both services (#327)
+- Regex validation on refresher view names (`^[a-z_][a-z0-9_]*$`) to prevent SQL injection (#328)
+- Upper bounds on monitor config fields: publishing timeout `le=300`, discovery/announcement/profile intervals `le=604800` (#328)
+- Explicit column list in `scan_event` query replacing `SELECT *` (#328)
+- Aligned `insert_metadata` to `_transpose_to_columns` pattern used by all other insert methods (#328)
+- Added `asyncio.wait_for` timeout on DNS `asyncio.to_thread` call (#328)
+- Replaced all `contextlib.suppress(Exception)` with `try/except` + log DEBUG across cleanup paths (dvm, protocol, transport, rtt) (#328)
+- Standardised `logs["reason"]` assignment and log output across NIP-66 modules (ssl, http, geo, dns) (#328)
+- Added `CatalogError.client_message` attribute for controlled access to client-safe error strings (#329)
+
 ## [5.4.0] - 2026-02-28
 
 Minor release: two new services (Api and Dvm) bring read-only HTTP and Nostr interfaces to the database, backed by a shared schema-driven Catalog query builder. Major refactoring of service queries and state types consolidates raw-dict handling into typed domain objects.
