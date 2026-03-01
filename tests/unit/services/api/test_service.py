@@ -2,7 +2,6 @@
 
 Tests:
 - Api service initialization
-- Api._is_table_enabled policy checks
 - Api._build_app route registration
 - FastAPI endpoints via TestClient
 - Run cycle metrics and server task monitoring
@@ -37,15 +36,6 @@ class TestApi:
         assert api_service._requests_total == 0
         assert api_service._requests_failed == 0
         assert api_service._server_task is None
-
-    def test_is_table_enabled_explicit(self, api_service: Api) -> None:
-        assert api_service._is_table_enabled("relay") is True
-
-    def test_is_table_enabled_not_in_config(self, api_service: Api) -> None:
-        assert api_service._is_table_enabled("service_state") is False
-
-    def test_is_table_enabled_in_config(self, api_service: Api) -> None:
-        assert api_service._is_table_enabled("relay_stats") is True
 
 
 # ============================================================================

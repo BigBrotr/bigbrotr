@@ -748,13 +748,6 @@ class Monitor(
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("monitoring_save_failed", error=str(e))
 
-    def _emit_progress_gauges(self) -> None:
-        """Emit Prometheus gauges for batch progress."""
-        self.set_gauge("total", self.chunk_progress.total)
-        self.set_gauge("processed", self.chunk_progress.processed)
-        self.set_gauge("success", self.chunk_progress.succeeded)
-        self.set_gauge("failure", self.chunk_progress.failed)
-
     def _get_publish_relays(self, section_relays: list[Relay] | None) -> list[Relay]:
         """Get relays for event publishing, falling back to the global publishing relays."""
         return section_relays if section_relays is not None else self._config.publishing.relays

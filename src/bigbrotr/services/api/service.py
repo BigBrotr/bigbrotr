@@ -27,12 +27,13 @@ import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import Field, model_validator
 
-from bigbrotr.core.base_service import BaseService, BaseServiceConfig
+from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import Catalog, CatalogError
-from bigbrotr.services.common.configs import TableConfig  # noqa: TC001 (Pydantic runtime)
+from bigbrotr.services.common.catalog import CatalogError
+from bigbrotr.services.common.mixins import CatalogAccessMixin
+
+from .configs import ApiConfig
 
 
 if TYPE_CHECKING:
@@ -43,40 +44,7 @@ if TYPE_CHECKING:
 _HTTP_ERROR_THRESHOLD = 400
 
 
-class ApiConfig(BaseServiceConfig):
-    """Configuration for the API service.
-
-    Attributes:
-        host: Bind address for the HTTP server.
-        port: Port for the HTTP server.
-        max_page_size: Hard ceiling on the ``limit`` query parameter.
-        default_page_size: Default ``limit`` when not specified.
-        tables: Per-table access policies.  Tables not listed here
-            default to disabled.
-        cors_origins: Allowed CORS origins.  Empty list disables CORS.
-        request_timeout: HTTP request timeout in seconds.
-    """
-
-    host: str = Field(default="0.0.0.0", min_length=1, description="HTTP bind address")  # noqa: S104
-    port: int = Field(default=8080, ge=1, le=65535, description="HTTP port")
-    max_page_size: int = Field(default=1000, ge=1, le=10000)
-    default_page_size: int = Field(default=100, ge=1, le=10000)
-    tables: dict[str, TableConfig] = Field(default_factory=dict)
-    cors_origins: list[str] = Field(default_factory=list)
-    request_timeout: float = Field(default=30.0, ge=1.0, le=300.0)
-
-    @model_validator(mode="after")
-    def _validate_page_sizes(self) -> ApiConfig:
-        if self.default_page_size > self.max_page_size:
-            msg = (
-                f"default_page_size ({self.default_page_size}) "
-                f"must not exceed max_page_size ({self.max_page_size})"
-            )
-            raise ValueError(msg)
-        return self
-
-
-class Api(BaseService[ApiConfig]):
+class Api(CatalogAccessMixin, BaseService[ApiConfig]):
     """REST API service exposing the BigBrotr database read-only.
 
     Lifecycle:
@@ -92,21 +60,13 @@ class Api(BaseService[ApiConfig]):
     CONFIG_CLASS: ClassVar[type[ApiConfig]] = ApiConfig
 
     def __init__(self, brotr: Brotr, config: ApiConfig | None = None) -> None:
-        super().__init__(brotr, config)
-        self._catalog = Catalog()
+        super().__init__(brotr=brotr, config=config)
         self._server_task: asyncio.Task[None] | None = None
         self._requests_total = 0
         self._requests_failed = 0
 
     async def __aenter__(self) -> Api:
         await super().__aenter__()
-
-        await self._catalog.discover(self._brotr)
-        self._logger.info(
-            "schema_discovered",
-            tables=sum(1 for t in self._catalog.tables.values() if not t.is_view),
-            views=sum(1 for t in self._catalog.tables.values() if t.is_view),
-        )
 
         app = self._build_app()
         endpoint_count = sum(1 for name in self._catalog.tables if self._is_table_enabled(name))
@@ -158,13 +118,6 @@ class Api(BaseService[ApiConfig]):
         self.inc_counter("requests_total", total)
         self.inc_counter("requests_failed", failed)
         self.set_gauge("tables_exposed", tables_exposed)
-
-    def _is_table_enabled(self, name: str) -> bool:
-        """Check whether a table is enabled per policy (default: disabled)."""
-        policy = self._config.tables.get(name)
-        if policy is None:
-            return False
-        return policy.enabled
 
     def _build_app(self) -> FastAPI:
         """Construct the FastAPI application with auto-generated routes."""

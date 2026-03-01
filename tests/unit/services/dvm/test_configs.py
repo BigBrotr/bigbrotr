@@ -1,4 +1,4 @@
-"""Unit tests for services.dvm.service module — configuration.
+"""Unit tests for services.dvm.configs module.
 
 Tests:
 - DvmConfig defaults and validation
@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from bigbrotr.services.common.configs import TableConfig
-from bigbrotr.services.dvm.service import DvmConfig
+from bigbrotr.services.dvm.configs import DvmConfig
 
 
 class TestDvmConfig:

@@ -6,7 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.services.api.service import Api, ApiConfig
+from bigbrotr.services.api.configs import ApiConfig
+from bigbrotr.services.api.service import Api
 from bigbrotr.services.common.catalog import (
     Catalog,
     ColumnSchema,
