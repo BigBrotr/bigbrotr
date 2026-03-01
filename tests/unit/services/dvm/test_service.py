@@ -573,3 +573,41 @@ class TestDvmRun:
 
         # Should have been cleared (10_001 >= _MAX_PROCESSED_IDS)
         assert len(dvm_service._processed_ids) == 0
+
+
+# ============================================================================
+# Metrics Tests
+# ============================================================================
+
+
+class TestDvmMetrics:
+    """Tests for Dvm Prometheus counter emissions."""
+
+    async def test_report_metrics_emits_total_jobs_received(self, dvm_service: Dvm) -> None:
+        """Cumulative total_jobs_received counter emitted after cycle with events."""
+        mock_client = MagicMock()
+        mock_client.send_event_builder = AsyncMock()
+
+        event = _make_mock_event(tags=[["param", "table", "relay"], ["param", "limit", "5"]])
+        events_obj = MagicMock()
+        events_obj.to_vec.return_value = [event]
+        mock_client.fetch_events = AsyncMock(return_value=events_obj)
+        dvm_service._client = mock_client
+
+        mock_result = QueryResult(
+            rows=[{"url": "wss://x", "network": "clearnet"}],
+            total=1,
+            limit=5,
+            offset=0,
+        )
+
+        with (
+            patch.object(
+                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+            ),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter") as mock_counter,
+        ):
+            await dvm_service.run()
+
+        mock_counter.assert_any_call("total_jobs_received", 1)

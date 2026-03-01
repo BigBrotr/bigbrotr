@@ -1123,6 +1123,8 @@ class _MonitorStub:
         self._keys = keys
         self._logger = MagicMock()
         self._brotr = brotr or AsyncMock()
+        self.inc_counter = MagicMock()
+        self.set_gauge = MagicMock()
 
     # Publishing methods bound from Monitor
     _publish_if_due = Monitor._publish_if_due
@@ -1977,3 +1979,108 @@ class TestEndToEndTagGeneration:
         relay = Relay("wss://relay.example.com")
         builder = stub._build_kind_30166(relay, result)
         assert builder is not None
+
+
+# ============================================================================
+# Metrics Tests
+# ============================================================================
+
+
+class TestMonitorMetrics:
+    """Tests for Monitor Prometheus counter emissions."""
+
+    async def test_monitor_emits_check_counters(self, mock_brotr: Brotr) -> None:
+        """Check succeeded/failed counters emitted after each chunk."""
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                enabled=False,
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        relay1 = Relay("wss://ok.example.com")
+        relay2 = Relay("wss://fail.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
+        successful = [(relay1, result)]
+        failed_relays = [relay2]
+
+        async def fake_check_chunks(relays):  # type: ignore[no-untyped-def]
+            yield successful, failed_relays
+
+        with (
+            patch.object(monitor, "inc_counter") as mock_counter,
+            patch.object(monitor, "_fetch_relays", new_callable=AsyncMock, return_value=[relay1]),
+            patch.object(monitor, "check_chunks", side_effect=fake_check_chunks),
+            patch.object(monitor, "publish_relay_discoveries", new_callable=AsyncMock),
+            patch.object(monitor, "_persist_results", new_callable=AsyncMock),
+            patch(
+                "bigbrotr.services.monitor.service.cleanup_service_state",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+        ):
+            await monitor.monitor()
+
+        mock_counter.assert_any_call("total_checks_succeeded", 1)
+        mock_counter.assert_any_call("total_checks_failed", 1)
+
+    async def test_persist_results_emits_metadata_counter(self, mock_brotr: Brotr) -> None:
+        """Metadata stored counter emitted after successful insert."""
+        mock_brotr.insert_relay_metadata = AsyncMock(return_value=3)  # type: ignore[method-assign]
+        mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
+
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+        successful = [(relay, result)]
+
+        with patch.object(monitor, "inc_counter") as mock_counter:
+            await monitor._persist_results(successful, [])
+
+        mock_counter.assert_any_call("total_metadata_stored", 3)
+
+    async def test_publish_discoveries_emits_counter(self, mock_brotr: Brotr) -> None:
+        """Events published counter emitted after successful broadcast."""
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                enabled=True,
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+                relays=["wss://disc.relay.com"],
+            ),
+            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+
+        with (
+            patch.object(monitor, "inc_counter") as mock_counter,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            await monitor.publish_relay_discoveries([(relay, result)])
+
+        mock_counter.assert_any_call("total_events_published", 1)

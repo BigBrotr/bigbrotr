@@ -859,3 +859,36 @@ class TestValidatorIntegration:
 
         assert tor_call[1] == "socks5://tor:9050"
         assert tor_call[2] == 30.0
+
+
+# ============================================================================
+# Metrics Tests
+# ============================================================================
+
+
+class TestValidatorMetrics:
+    """Tests for Validator Prometheus counter emissions."""
+
+    async def test_promoted_counter_emitted(self, mock_validator_brotr: Brotr) -> None:
+        """Promoting valid candidates emits total_promoted counter."""
+        mock_validator_brotr._pool.fetch = AsyncMock(
+            side_effect=[
+                [make_candidate_row("wss://valid1.com"), make_candidate_row("wss://valid2.com")],
+                [],
+            ]
+        )
+        mock_validator_brotr.insert_relay = AsyncMock(return_value=2)
+
+        validator = Validator(brotr=mock_validator_brotr)
+
+        with (
+            patch(
+                "bigbrotr.services.validator.service.is_nostr_relay",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(validator, "inc_counter") as mock_counter,
+        ):
+            await validator.run()
+
+        mock_counter.assert_any_call("total_promoted", 2)

@@ -1138,6 +1138,8 @@ class TestFinderMetrics:
             finder.set_gauge.assert_any_call("relays_processed", 1)
             finder.inc_counter.assert_any_call("total_events_scanned", 1)
             finder.inc_counter.assert_any_call("total_relays_found", 2)
+            finder.inc_counter.assert_any_call("total_relays_processed", 1)
+            finder.inc_counter.assert_any_call("total_relays_failed", 0)
 
     async def test_find_from_events_disabled_no_metrics(self, mock_brotr: Brotr) -> None:
         """Test find_from_events emits no metrics when events disabled."""
