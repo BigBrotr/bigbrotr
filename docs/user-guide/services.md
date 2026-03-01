@@ -295,7 +295,7 @@ class CheckResult(NamedTuple):
 | `networks` | NetworkConfig | -- | Per-network timeouts and concurrency |
 
 !!! warning
-    The Monitor requires the `PRIVATE_KEY` environment variable for signing published Nostr events and performing NIP-66 write tests.
+    The Monitor requires the `NOSTR_PRIVATE_KEY` environment variable for signing published Nostr events and performing NIP-66 write tests.
 
 !!! tip "API Reference"
     See [`bigbrotr.services.monitor`](../reference/services/monitor/index.md) for the complete Monitor API.
@@ -474,7 +474,7 @@ The Dvm supports per-table pricing via `TableConfig.price`. When a job's bid is 
 | `fetch_timeout` | float | `30.0` | Timeout for relay event fetching |
 
 !!! note "Nostr Keys"
-    The Dvm requires a `PRIVATE_KEY` environment variable (secp256k1 hex). See [KeysConfig](../reference/utils/keys.md) for details.
+    The Dvm requires a `NOSTR_PRIVATE_KEY` environment variable (secp256k1 hex). See [KeysConfig](../reference/utils/keys.md) for details.
 
 !!! tip "API Reference"
     See [`bigbrotr.services.dvm`](../reference/services/dvm/index.md) for the complete Dvm service API.

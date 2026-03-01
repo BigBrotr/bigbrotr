@@ -1,5 +1,5 @@
 /*
- * LilBrotr - 03_functions_crud.sql
+ * Brotr - 03_functions_crud.sql
  *
  * CRUD stored functions for bulk data operations. Organized in two levels:
  *
@@ -12,11 +12,12 @@
  *     event_relay_insert_cascade  -> relay + event + event_relay
  *     relay_metadata_insert_cascade -> relay + metadata + relay_metadata
  *
- * LilBrotr difference: event_insert() accepts the same parameters as
- * BigBrotr for interface compatibility, but stores NULL for tags, content,
- * and sig. Tagvalues is computed at insert time from the incoming tags.
+ * IMPORTANT: Function signatures are fixed and called by src/bigbrotr/core/brotr.py.
+ * All parameters must be accepted even if not stored. To customize event
+ * storage, modify only the INSERT statement inside event_insert().
  *
  * Dependencies: 02_tables.sql
+ * Customization: event_insert() INSERT statement (see events_insert_comment block)
  */
 
 
@@ -65,19 +66,26 @@ COMMENT ON FUNCTION relay_insert(TEXT [], TEXT [], BIGINT []) IS
 /*
  * event_insert(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[]) -> INTEGER
  *
- * Bulk-inserts Nostr events in lightweight mode. Accepts the same parameter
- * signature as BigBrotr for interface compatibility, but stores NULL for
- * tags, content, and sig. Tagvalues is computed at insert time from the
- * incoming tags parameter via tags_to_tagvalues().
+ * Bulk-inserts Nostr events. The function signature is fixed for interface
+ * compatibility, but the INSERT statement should be customized to match
+ * your event table schema.
  *
- * Parameters:
- *   p_event_ids        - Array of 32-byte event hashes
- *   p_pubkeys          - Array of 32-byte author public keys
- *   p_created_ats      - Array of Unix creation timestamps
- *   p_kinds            - Array of NIP-01 event kinds
- *   p_tags             - Array of JSONB tag arrays (used to compute tagvalues, stored as NULL)
- *   p_content_values   - Array of event content strings (accepted but stored as NULL)
- *   p_sigs             - Array of 64-byte Schnorr signatures (accepted but stored as NULL)
+ * Customization examples:
+ *
+ *   Minimal table (only id):
+ *     INSERT INTO event (id)
+ *     SELECT id FROM unnest(p_event_ids) AS t(id)
+ *
+ *   Lightweight table (id, pubkey, created_at, kind, tagvalues):
+ *     INSERT INTO event (id, pubkey, created_at, kind, tagvalues)
+ *     SELECT id, pubkey, created_at, kind, tags_to_tagvalues(tags)
+ *     FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags)
+ *         AS t(id, pubkey, created_at, kind, tags)
+ *
+ *   Full table (all columns, used below):
+ *     INSERT INTO event (id, pubkey, created_at, kind, tags, tagvalues, content, sig)
+ *     SELECT id, pubkey, created_at, kind, tags, tags_to_tagvalues(tags), content, sig
+ *     FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags, ...)
  *
  * Returns: Number of newly inserted rows
  */
@@ -86,9 +94,9 @@ CREATE OR REPLACE FUNCTION event_insert(
     p_pubkeys BYTEA [],
     p_created_ats BIGINT [],
     p_kinds INTEGER [],
-    p_tags JSONB [],           -- Used to compute tagvalues, stored as NULL
-    p_content_values TEXT [],  -- Accepted but stored as NULL
-    p_sigs BYTEA []            -- Accepted but stored as NULL
+    p_tags JSONB [],
+    p_content_values TEXT [],
+    p_sigs BYTEA []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -109,7 +117,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION event_insert(BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA []) IS
-'Bulk insert events (lightweight: computes tagvalues, stores NULL for tags/content/sig)';
+'Bulk insert events with tagvalues computed at insert time, returns number of rows inserted';
 
 
 /*
@@ -247,7 +255,7 @@ COMMENT ON FUNCTION relay_metadata_insert(TEXT [], BYTEA [], TEXT [], BIGINT [])
  *
  * Atomically inserts relays, events, and their junction records in a single
  * transaction. Delegates to relay_insert() and event_insert() internally,
- * so the lightweight NULL-storage behavior of event_insert() applies here.
+ * so customizations to those base functions automatically apply here.
  *
  * Parameters: Arrays of event fields + relay fields + seen_at timestamps
  * Returns: Number of junction rows inserted in event_relay
@@ -257,9 +265,9 @@ CREATE OR REPLACE FUNCTION event_relay_insert_cascade(
     p_pubkeys BYTEA [],
     p_created_ats BIGINT [],
     p_kinds INTEGER [],
-    p_tags JSONB [],           -- Used to compute tagvalues, stored as NULL
-    p_content_values TEXT [],  -- Accepted but stored as NULL
-    p_sigs BYTEA [],           -- Accepted but stored as NULL
+    p_tags JSONB [],
+    p_content_values TEXT [],
+    p_sigs BYTEA [],
     p_relay_urls TEXT [],
     p_relay_networks TEXT [],
     p_relay_discovered_ats BIGINT [],
@@ -274,7 +282,7 @@ BEGIN
     -- Ensure relay records exist before inserting junction rows
     PERFORM relay_insert(p_relay_urls, p_relay_networks, p_relay_discovered_ats);
 
-    -- Ensure event records exist (lightweight: computes tagvalues, NULL for rest)
+    -- Ensure event records exist (customize event_insert, not this function)
     PERFORM event_insert(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags, p_content_values, p_sigs);
 
     -- Insert junction records, deduplicating within the batch via DISTINCT ON
@@ -292,7 +300,7 @@ COMMENT ON FUNCTION event_relay_insert_cascade(
     BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA [],
     TEXT [], TEXT [], BIGINT [], BIGINT []
 ) IS
-'Atomically insert events with relays and junctions (lightweight: NULL for tags/content/sig), returns junction row count';
+'Atomically insert events with relays and junctions, returns junction row count';
 
 
 /*
@@ -356,6 +364,13 @@ COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT [], TEXT [], BIGINT [], B
  * the same (service_name, state_type, state_key) already exists, its
  * state_value and timestamp are fully replaced. DISTINCT ON deduplicates
  * within the batch.
+ *
+ * Parameters:
+ *   p_service_names   - Array of service identifiers
+ *   p_state_types     - Array of state categories
+ *   p_state_keys      - Array of unique keys within each service+type
+ *   p_state_values    - Array of JSONB values
+ *   p_updated_ats     - Array of Unix update timestamps
  */
 CREATE OR REPLACE FUNCTION service_state_upsert(
     p_service_names TEXT [],
@@ -395,6 +410,13 @@ COMMENT ON FUNCTION service_state_upsert(TEXT [], TEXT [], TEXT [], JSONB [], BI
  * Retrieves service state records. When p_state_key is provided, returns the
  * single matching record. When NULL, returns all records for the given
  * service and state type, ordered by update timestamp ascending.
+ *
+ * Parameters:
+ *   p_service_name  - Service identifier
+ *   p_state_type    - State category
+ *   p_state_key     - Specific key to retrieve (NULL for all records)
+ *
+ * Returns: Table of (state_key TEXT, state_value JSONB, updated_at BIGINT)
  */
 CREATE OR REPLACE FUNCTION service_state_get(
     p_service_name TEXT,
@@ -435,6 +457,11 @@ COMMENT ON FUNCTION service_state_get IS
  * service_state_delete(TEXT[], TEXT[], TEXT[]) -> INTEGER
  *
  * Bulk-deletes service state records matching the given composite keys.
+ *
+ * Parameters:
+ *   p_service_names  - Array of service identifiers
+ *   p_state_types    - Array of state categories
+ *   p_state_keys     - Array of unique keys
  *
  * Returns: Number of rows deleted
  */

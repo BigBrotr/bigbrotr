@@ -1,5 +1,5 @@
 /*
- * LilBrotr - 08_indexes.sql
+ * Brotr - 08_indexes.sql
  *
  * Performance indexes for tables and materialized views. Organized by
  * target object. Every materialized view requires a UNIQUE index for

@@ -31,12 +31,13 @@ Edit `.env` and set the required secrets:
 
 ```bash
 # Required -- database passwords
-DB_ADMIN_PASSWORD=your_admin_password      # openssl rand -base64 32
-DB_WRITER_PASSWORD=your_writer_password    # openssl rand -base64 32
-DB_READER_PASSWORD=your_reader_password    # openssl rand -base64 32
+DB_ADMIN_PASSWORD=your_admin_password          # openssl rand -base64 32
+DB_WRITER_PASSWORD=your_writer_password        # openssl rand -base64 32
+DB_READER_PASSWORD=your_reader_password        # openssl rand -base64 32
+DB_REFRESHER_PASSWORD=your_refresher_password  # openssl rand -base64 32
 
 # Required -- application secrets
-PRIVATE_KEY=your_hex_private_key           # openssl rand -hex 32
+NOSTR_PRIVATE_KEY=your_hex_private_key           # openssl rand -hex 32
 GRAFANA_PASSWORD=your_grafana_password     # openssl rand -base64 16
 
 # Optional -- metrics port overrides (host ports, all map to container port 8000)

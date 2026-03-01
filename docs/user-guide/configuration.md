@@ -20,7 +20,7 @@ flowchart TD
     A["CLI invocation<br/><small>python -m bigbrotr &lt;service&gt;</small>"] --> B["Brotr.from_yaml<br/><small>config/brotr.yaml</small>"]
     B --> C["Service.from_yaml<br/><small>config/services/&lt;service&gt;.yaml</small>"]
     C --> D["Pydantic validation<br/><small>field constraints, cross-field checks</small>"]
-    D --> E["Environment variable resolution<br/><small>DB_ADMIN_PASSWORD, PRIVATE_KEY</small>"]
+    D --> E["Environment variable resolution<br/><small>DB_ADMIN_PASSWORD, NOSTR_PRIVATE_KEY</small>"]
     E --> F["Service starts<br/><small>validated configuration</small>"]
 
     style A fill:#7B1FA2,color:#fff,stroke:#4A148C
@@ -41,11 +41,10 @@ deployments/
 |       +-- validator.yaml
 |       +-- monitor.yaml
 |       +-- synchronizer.yaml
+|       +-- refresher.yaml
+|       +-- api.yaml
+|       +-- dvm.yaml
 +-- lilbrotr/config/
-|   +-- brotr.yaml
-|   +-- services/
-|       +-- synchronizer.yaml
-+-- brotr/config/                  <-- fully documented defaults
     +-- brotr.yaml
     +-- services/
         +-- seeder.yaml
@@ -53,6 +52,9 @@ deployments/
         +-- validator.yaml
         +-- monitor.yaml
         +-- synchronizer.yaml
+        +-- refresher.yaml
+        +-- api.yaml
+        +-- dvm.yaml
 ```
 
 !!! tip
@@ -65,9 +67,10 @@ deployments/
 | Variable | Required | Used By | Description |
 |----------|----------|---------|-------------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer | Admin user password for database initialization and PGBouncer auth |
-| `DB_WRITER_PASSWORD` | Yes | Writer services | Writer role password (seeder, finder, validator, monitor, synchronizer, refresher) |
-| `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, future API/DVM) |
-| `PRIVATE_KEY` | Monitor, optional for Synchronizer | Monitor, Synchronizer | Nostr private key (64-char hex or `nsec1...` bech32). Required for NIP-66 write tests and event publishing. Optional for Synchronizer NIP-42 authentication. |
+| `DB_WRITER_PASSWORD` | Yes | Writer services | Writer role password (seeder, finder, validator, monitor, synchronizer) |
+| `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, Api, Dvm) |
+| `DB_REFRESHER_PASSWORD` | Yes | Refresher | Refresher role password (matview ownership for REFRESH CONCURRENTLY) |
+| `NOSTR_PRIVATE_KEY` | Monitor, optional for Synchronizer | Monitor, Synchronizer | Nostr private key (64-char hex or `nsec1...` bech32). Required for NIP-66 write tests and event publishing. Optional for Synchronizer NIP-42 authentication. |
 | `GRAFANA_PASSWORD` | Docker only | Grafana | Grafana admin password |
 
 ### Setting Environment Variables
@@ -76,14 +79,14 @@ deployments/
 
 ```bash
 cp deployments/bigbrotr/.env.example deployments/bigbrotr/.env
-# Edit and set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit and set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD, DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
 ```
 
 **Shell**:
 
 ```bash
 export DB_WRITER_PASSWORD=your_writer_password
-export PRIVATE_KEY=your_hex_private_key
+export NOSTR_PRIVATE_KEY=your_hex_private_key
 ```
 
 **Systemd**:
@@ -91,7 +94,7 @@ export PRIVATE_KEY=your_hex_private_key
 ```ini
 [Service]
 Environment="DB_WRITER_PASSWORD=your_writer_password"
-Environment="PRIVATE_KEY=your_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY=your_hex_private_key"
 ```
 
 ---
@@ -102,7 +105,7 @@ Environment="PRIVATE_KEY=your_hex_private_key"
 python -m bigbrotr <service> [options]
 
 positional arguments:
-  service                 seeder | finder | validator | monitor | synchronizer | refresher
+  service                 seeder | finder | validator | monitor | synchronizer | refresher | api | dvm
 
 options:
   --config PATH           Service config path (overrides default)
@@ -271,6 +274,9 @@ If no `pool:` section is present, the service uses the brotr.yaml defaults.
 | Validator | writer | 1 | 3 | WebSocket testing + promotion |
 | Monitor | writer | 1 | 3 | Health checks + metadata persistence |
 | Synchronizer | writer | 2 | 5 | Highest throughput service |
+| Refresher | refresher | 1 | 3 | Materialized view refresh (needs REFRESH CONCURRENTLY) |
+| Api | reader | 1 | 3 | Read-only REST API queries |
+| Dvm | reader | 1 | 3 | Read-only Nostr DVM queries |
 
 ---
 
@@ -456,7 +462,7 @@ metrics:
   enabled: true
   port: 8003
 
-keys: {}                                     # Loaded from PRIVATE_KEY env var
+keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY env var
 
 networks:
   clearnet:
@@ -603,7 +609,7 @@ metrics:
   enabled: true
   port: 8004
 
-keys: {}                                     # Loaded from PRIVATE_KEY env var (for NIP-42)
+keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY env var (for NIP-42)
 
 networks:
   clearnet:
@@ -791,7 +797,7 @@ processing:
 
 ## Troubleshooting
 
-**"DB_WRITER_PASSWORD environment variable not set"** -- Set the environment variable or add it to your `.env` file. Writer services use `DB_WRITER_PASSWORD`, read-only services use `DB_READER_PASSWORD`.
+**"DB_WRITER_PASSWORD environment variable not set"** -- Set the environment variable or add it to your `.env` file. Writer services use `DB_WRITER_PASSWORD`, the refresher uses `DB_REFRESHER_PASSWORD`, read-only services use `DB_READER_PASSWORD`.
 
 **"Connection refused"** -- Check `pool.database.host`. In Docker, use the service name (`pgbouncer` or `postgres`). Outside Docker, use `localhost`.
 
