@@ -1,13 +1,15 @@
 #!/bin/bash
 # Grant permissions to application roles.
-# Writer: full DML + EXECUTE on all tables/functions.
-# Reader: SELECT-only access for API, DVM, and monitoring.
+# Writer:    full DML + EXECUTE on data tables/functions.
+# Reader:    SELECT-only access for API, DVM, and monitoring.
+# Refresher: SELECT on base tables + ownership of materialized views.
 # Uses ALTER DEFAULT PRIVILEGES so future objects inherit the same grants.
 
 set -euo pipefail
 
 WRITER_ROLE="${POSTGRES_DB}_writer"
 READER_ROLE="${POSTGRES_DB}_reader"
+REFRESHER_ROLE="${POSTGRES_DB}_refresher"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     -- Writer: full DML + function execution
@@ -30,8 +32,31 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
         GRANT EXECUTE ON FUNCTIONS TO ${READER_ROLE};
 
+    -- Refresher: SELECT on base tables + EXECUTE on refresh functions
+    -- Ownership of materialized views is required for REFRESH CONCURRENTLY
+    GRANT USAGE ON SCHEMA public TO ${REFRESHER_ROLE};
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${REFRESHER_ROLE};
+    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${REFRESHER_ROLE};
+
+    ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
+        GRANT SELECT ON TABLES TO ${REFRESHER_ROLE};
+    ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
+        GRANT EXECUTE ON FUNCTIONS TO ${REFRESHER_ROLE};
+
+    ALTER MATERIALIZED VIEW relay_metadata_latest OWNER TO ${REFRESHER_ROLE};
+    ALTER MATERIALIZED VIEW event_stats OWNER TO ${REFRESHER_ROLE};
+    ALTER MATERIALIZED VIEW relay_stats OWNER TO ${REFRESHER_ROLE};
+    ALTER MATERIALIZED VIEW kind_counts OWNER TO ${REFRESHER_ROLE};
+    ALTER MATERIALIZED VIEW kind_counts_by_relay OWNER TO ${REFRESHER_ROLE};
+    ALTER MATERIALIZED VIEW pubkey_counts OWNER TO ${REFRESHER_ROLE};
+    ALTER MATERIALIZED VIEW pubkey_counts_by_relay OWNER TO ${REFRESHER_ROLE};
+    ALTER MATERIALIZED VIEW network_stats OWNER TO ${REFRESHER_ROLE};
+    ALTER MATERIALIZED VIEW event_daily_counts OWNER TO ${REFRESHER_ROLE};
+    ALTER MATERIALIZED VIEW relay_software_counts OWNER TO ${REFRESHER_ROLE};
+    ALTER MATERIALIZED VIEW supported_nip_counts OWNER TO ${REFRESHER_ROLE};
+
     -- Monitoring: pg_monitor grants read access to system statistics (WAL, replication)
     GRANT pg_monitor TO ${READER_ROLE};
 
-    DO \$\$ BEGIN RAISE NOTICE 'Grants applied: % (writer), % (reader)', '${WRITER_ROLE}', '${READER_ROLE}'; END \$\$;
+    DO \$\$ BEGIN RAISE NOTICE 'Grants applied: % (writer), % (reader), % (refresher)', '${WRITER_ROLE}', '${READER_ROLE}', '${REFRESHER_ROLE}'; END \$\$;
 EOSQL

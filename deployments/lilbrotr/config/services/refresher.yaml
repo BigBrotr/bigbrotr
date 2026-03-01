@@ -6,8 +6,8 @@
 # =============================================================================
 
 pool:
-  user: lilbrotr_writer
-  password_env: DB_WRITER_PASSWORD
+  user: lilbrotr_refresher
+  password_env: DB_REFRESHER_PASSWORD
   max_size: 2
 
 metrics:
