@@ -25,25 +25,25 @@
 BigBrotr runs 8 **independent** async services that continuously map and monitor the Nostr relay ecosystem. Each service runs on its own schedule, reads and writes a shared PostgreSQL database, and has no direct dependency on any other service.
 
 ```text
-                    ┌───────────────────────────────────────────────┐
-                    │              PostgreSQL Database               │
-                    │                                               │
-                    │  relay ─── event_relay ─── event              │
-                    │  metadata ─── relay_metadata                  │
-                    │  service_state     11 materialized views      │
-                    └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬───┘
+                    ┌──────────────────────────────────────────────────────┐
+                    │                    PostgreSQL Database               │
+                    │                                                      │
+                    │         relay ─── event_relay ─── event              │
+                    │         metadata ─── relay_metadata                  │
+                    │         service_state     11 materialized views      │
+                    └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬──┘
                        │      │      │      │      │      │      │      │
                        ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
                     Seeder Finder Valid. Monitor Sync. Refresh. Api    Dvm
                        │      │      │      │      │      │      │      │
                        ▼      ▼      ▼      ▼      ▼      │      ▼      ▼
                     seed   HTTP   Relays Relays  Relays (no I/O) HTTP  Nostr
-                    file   APIs   (WS)  (NIP-11, (fetch         clients
-                                         NIP-66)  events)          │
-                                           │                       ▼
-                                           ▼                  Nostr Network
-                                      Nostr Network           (kind 5050/
-                                    (kind 10166/30166)          6050)
+                    file   APIs   (WS)  (NIP-11, (fetch               clients
+                                         NIP-66)  events)               │
+                                           │                            ▼
+                                           ▼                       Nostr Network
+                                      Nostr Network               (kind 5050/6050)
+                                    (kind 10166/30166)
 ```
 
 ### Services
@@ -89,50 +89,50 @@ Imports flow strictly downward:
 ┌─────────────────────┐         ┌──────────────────────────────────────┐
 │      relay          │         │              event                   │
 │─────────────────────│         │──────────────────────────────────────│
-│ url          PK     │◄──┐ ┌──►│ id             PK  (BYTEA, 32B)    │
-│ network      TEXT   │   │ │   │ pubkey         BYTEA (32B)          │
-│ discovered_at BIGINT│   │ │   │ created_at     BIGINT               │
-└─────────┬───────────┘   │ │   │ kind           INTEGER              │
+│ url          PK     │◄──┐ ┌──►│ id             PK  (BYTEA, 32B)      │
+│ network      TEXT   │   │ │   │ pubkey         BYTEA (32B)           │
+│ discovered_at BIGINT│   │ │   │ created_at     BIGINT                │
+└─────────┬───────────┘   │ │   │ kind           INTEGER               │
           │               │ │   │ tags           JSONB                 │
-          │               │ │   │ tagvalues      TEXT[] NOT NULL        │
+          │               │ │   │ tagvalues      TEXT[]                │
           │               │ │   │ content        TEXT                  │
           │               │ │   │ sig            BYTEA (64B)           │
           │               │ │   └──────────────────────────────────────┘
           │               │ │
-          │    ┌──────────┴─┴──────────┐
-          │    │     event_relay       │
-          │    │───────────────────────│
-          ├───►│ relay_url    FK ──► relay.url
-          │    │ event_id     FK ──► event.id
-          │    │ seen_at      BIGINT
-          │    │ PK(event_id, relay_url)
-          │    └───────────────────────┘
+          │    ┌──────────┴─┴──────────────────┐
+          │    │          event_relay          │
+          │    │───────────────────────────────│
+          ├───►│ relay_url    FK ──► relay.url |
+          │    │ event_id     FK ──► event.id  |
+          │    │ seen_at      BIGINT           |
+          │    │ PK(event_id, relay_url)       |
+          │    └───────────────────────────────┘
           │
-          │    ┌───────────────────────┐
-          │    │    relay_metadata     │
-          │    │───────────────────────│
-          └───►│ relay_url    FK ──► relay.url
-               │ metadata_id  FK ──┐
-               │ metadata_type FK ─┤► metadata(id, type)
-               │ generated_at BIGINT
-               │ PK(relay_url, generated_at, metadata_type)
-               └──────────┬────────────┘
+          │    ┌───────────────────────────────────────────────┐
+          │    │                   relay_metadata              │
+          │    │───────────────────────────────────────────────│
+          └───►│ relay_url    FK ──► relay.url                 |
+               │ metadata_id  FK ──► metadata.id               |
+               │ metadata_type FK ──► metadata.type            |
+               │ generated_at BIGINT                           |
+               │ PK(relay_url, generated_at, metadata_type)    |
+               └──────────┬────────────────────────────────────┘
                           │
-               ┌──────────┴────────────┐
-               │      metadata         │
-               │───────────────────────│
-               │ id       PK  (BYTEA, SHA-256)
-               │ type     PK  (TEXT, 7 types)
-               │ data     JSONB
-               └───────────────────────┘
+               ┌──────────┴────────────────────┐
+               │          metadata             │
+               │───────────────────────────────│
+               │ id       PK  (BYTEA, SHA-256) |
+               │ type     PK  (TEXT, 7 types)  |
+               │ data     JSONB                |
+               └───────────────────────────────┘
 
 
                ┌───────────────────────┐
                │    service_state      │
                │───────────────────────│
-               │ service_name PK (TEXT)│  candidate, cursor, checkpoint
+               │ service_name PK (TEXT)│
                │ state_type   PK (TEXT)│
-               │ state_key    PK (TEXT)│  typically relay URL
+               │ state_key    PK (TEXT)│
                │ state_value  JSONB    │
                │ updated_at   BIGINT   │
                └───────────────────────┘
