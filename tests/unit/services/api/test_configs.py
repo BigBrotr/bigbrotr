@@ -60,3 +60,26 @@ class TestApiConfig:
         """Test that empty host string is rejected."""
         with pytest.raises(ValueError):
             ApiConfig(host="")
+
+
+class TestApiConfigRoutePrefix:
+    """Tests for route_prefix field validation and normalization."""
+
+    def test_default(self) -> None:
+        assert ApiConfig().route_prefix == "/v1"
+
+    def test_custom(self) -> None:
+        assert ApiConfig(route_prefix="/api/v1").route_prefix == "/api/v1"
+
+    def test_trailing_slash_stripped(self) -> None:
+        assert ApiConfig(route_prefix="/v1/").route_prefix == "/v1"
+
+    def test_leading_slash_added(self) -> None:
+        assert ApiConfig(route_prefix="v1").route_prefix == "/v1"
+
+    def test_both_slashes_normalized(self) -> None:
+        assert ApiConfig(route_prefix="api/v2/").route_prefix == "/api/v2"
+
+    def test_slash_only_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"route_prefix must not be empty"):
+            ApiConfig(route_prefix="/")
