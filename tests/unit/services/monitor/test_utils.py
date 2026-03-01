@@ -1,5 +1,4 @@
-"""
-Unit tests for services.monitor.utils module.
+"""Unit tests for services.monitor.utils module.
 
 Tests:
 - get_success: extract success status from metadata result logs
