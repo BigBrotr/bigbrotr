@@ -40,7 +40,15 @@ class CatalogError(Exception):
 
     Messages are always controlled literals or validated identifiers —
     never raw database error details.
+
+    The :attr:`client_message` attribute provides the sanitised string
+    intended for HTTP/Nostr responses, avoiding ``str(exception)`` which
+    static analysers flag as potential stack-trace exposure.
     """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.client_message: str = message
 
 
 # Allowed filter operators (whitelist)
