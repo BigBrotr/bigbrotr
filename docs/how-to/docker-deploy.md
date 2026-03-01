@@ -114,19 +114,6 @@ Each deployment creates two Docker bridge networks:
 
 PostgreSQL is only on the data network. Grafana is only on the monitoring network. Application services bridge both networks.
 
-## Resource Limits
-
-| Service | Restart Policy | CPU | Memory | Log Max |
-|---------|---------------|-----|--------|---------|
-| Seeder | `no` (one-shot) | 0.5 | 256 MB | 10 MB |
-| Finder | `unless-stopped` | 1 | 512 MB | 50 MB |
-| Validator | `unless-stopped` | 1 | 512 MB | 50 MB |
-| Monitor | `unless-stopped` | 1 | 512 MB | 50 MB |
-| Synchronizer | `unless-stopped` | 1 | 512 MB | 100 MB |
-| Refresher | `unless-stopped` | 0.25 | 256 MB | 50 MB |
-| Api | `unless-stopped` | 0.5 | 256 MB | 50 MB |
-| Dvm | `unless-stopped` | 0.5 | 256 MB | 50 MB |
-
 ## Docker Commands Quick Reference
 
 ```bash

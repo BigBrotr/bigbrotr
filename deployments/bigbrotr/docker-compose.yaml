@@ -50,11 +50,6 @@ services:
       retries: 5
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
 
     logging:
       driver: "json-file"
@@ -102,11 +97,6 @@ services:
       retries: 3
       start_period: 20s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -135,11 +125,6 @@ services:
       retries: 3
       start_period: 60s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -249,11 +234,6 @@ services:
     healthcheck:
       disable: true
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -301,11 +281,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -360,11 +335,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -420,11 +390,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -479,11 +444,6 @@ services:
       retries: 3
       start_period: 60s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -531,11 +491,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -584,11 +539,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -637,11 +587,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -681,11 +626,6 @@ services:
       retries: 3
       start_period: 10s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
 
     logging:
       driver: "json-file"
@@ -724,11 +664,6 @@ services:
       timeout: 5s
       retries: 3
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -764,11 +699,6 @@ services:
       timeout: 5s
       retries: 3
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
 
     logging:
       driver: "json-file"
@@ -809,11 +739,6 @@ services:
       timeout: 5s
       retries: 3
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
 
     logging:
       driver: "json-file"

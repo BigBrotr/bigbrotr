@@ -1,10 +1,10 @@
 # =============================================================================
 # Synchronizer Service Configuration (LilBrotr)
 # =============================================================================
+# Fetches Nostr events from relays and stores them with relay associations.
+# Uses asyncio.TaskGroup with semaphore-bounded concurrency.
 # Only values that differ from defaults are specified here.
 # See brotr/config/services/synchronizer.yaml for all options and documentation.
-#
-# Note: Lighter configuration for reduced resource usage (clearnet only).
 # =============================================================================
 
 pool:
@@ -12,18 +12,18 @@ pool:
   password_env: DB_WRITER_PASSWORD
   min_size: 2
 
-interval: 900.0                    # 15 minutes (default: 300.0)
-
 metrics:
-  enabled: true                    # Enable metrics (default: false)
-  host: "0.0.0.0"                  # Bind to all interfaces for Docker (default: 127.0.0.1)
+  enabled: true
+  host: "0.0.0.0"                  # Bind to all interfaces for Docker access
 
 networks:
   clearnet:
-    max_tasks: 5                   # Reduced concurrency (default: 50)
+    max_tasks: 100                 # Double the default for faster sync
   tor:
-    max_tasks: 3                   # Reduced concurrency (default: 10)
-  i2p:
-    max_tasks: 2                   # Reduced concurrency (default: 5)
-  loki:
-    max_tasks: 2                   # Reduced concurrency (default: 5)
+    enabled: true                  # Sync from Tor (.onion) relays
+
+overrides:
+  - url: "wss://relay.damus.io"
+    timeouts:
+      request: 60.0                # Extended request timeout for high-volume relay
+      relay: 7200.0                # Allow up to 2 hours per sync session
