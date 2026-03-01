@@ -71,6 +71,7 @@ class Refresher(BaseService[RefresherConfig]):
 
         refreshed = 0
         failed = 0
+        cycle_start = time.monotonic()
 
         for view in views:
             try:
@@ -85,4 +86,7 @@ class Refresher(BaseService[RefresherConfig]):
 
         self.set_gauge("views_refreshed", refreshed)
         self.set_gauge("views_failed", failed)
+        self.inc_counter("total_views_refreshed", refreshed)
+        self.inc_counter("total_views_failed", failed)
+        self.set_gauge("total_refresh_duration", round(time.monotonic() - cycle_start, 2))
         self._logger.info("cycle_completed", refreshed=refreshed, failed=failed)
