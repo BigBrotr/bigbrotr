@@ -87,26 +87,6 @@ class TestMetadataFlags:
         assert flags.nip66_dns is False
         assert flags.nip66_http is False
 
-    def test_default_all_true(self) -> None:
-        """Test all flags default to True."""
-        flags = MetadataFlags()
-
-        assert flags.nip11_info is True
-        assert flags.nip66_rtt is True
-        assert flags.nip66_ssl is True
-        assert flags.nip66_geo is True
-        assert flags.nip66_net is True
-        assert flags.nip66_dns is True
-        assert flags.nip66_http is True
-
-    def test_custom_values(self) -> None:
-        """Test custom flag values."""
-        flags = MetadataFlags(nip66_geo=False, nip66_net=False)
-
-        assert flags.nip11_info is True
-        assert flags.nip66_geo is False
-        assert flags.nip66_net is False
-
     def test_get_missing_from_no_missing(self) -> None:
         """Test get_missing_from returns empty when superset covers all."""
         subset = MetadataFlags(nip66_geo=True, nip66_net=True)
@@ -263,6 +243,8 @@ class TestGeoConfig:
         assert config.city_database_path == "static/GeoLite2-City.mmdb"
         assert config.asn_database_path == "static/GeoLite2-ASN.mmdb"
         assert config.max_age_days == 30
+        assert config.max_download_size == 100_000_000
+        assert config.geohash_precision == 9
 
     def test_custom_paths(self) -> None:
         """Test custom database paths with max_age_days override."""
@@ -283,26 +265,6 @@ class TestGeoConfig:
 
         config2 = GeoConfig(max_age_days=365)
         assert config2.max_age_days == 365
-
-    def test_defaults_extended(self) -> None:
-        """Test default GeoConfig values including download size and precision."""
-        config = GeoConfig()
-
-        assert config.city_database_path == "static/GeoLite2-City.mmdb"
-        assert config.asn_database_path == "static/GeoLite2-ASN.mmdb"
-        assert config.max_age_days == 30
-        assert config.max_download_size == 100_000_000
-        assert config.geohash_precision == 9
-
-    def test_custom_database_paths(self) -> None:
-        """Test custom database paths without max_age_days override."""
-        config = GeoConfig(
-            city_database_path="/custom/city.mmdb",
-            asn_database_path="/custom/asn.mmdb",
-        )
-
-        assert config.city_database_path == "/custom/city.mmdb"
-        assert config.asn_database_path == "/custom/asn.mmdb"
 
     def test_max_age_none(self) -> None:
         """Test max_age_days can be None (never stale)."""

@@ -122,6 +122,62 @@ class TestChunkProgressMixinComposition:
 
 
 # =============================================================================
+# Helper: fake base class with set_gauge for _emit_progress_gauges tests
+# =============================================================================
+
+
+class _FakeGaugeBase:
+    """Stand-in for BaseService providing set_gauge as a MagicMock."""
+
+    def __init__(self, **kwargs: object) -> None:
+        self.set_gauge = MagicMock()
+
+
+class _TestChunkService(ChunkProgressMixin, _FakeGaugeBase):
+    """Concrete class combining ChunkProgressMixin with gauge support."""
+
+
+class TestEmitProgressGauges:
+    """Tests for ChunkProgressMixin._emit_progress_gauges."""
+
+    def test_emits_all_four_gauges(self) -> None:
+        svc = _TestChunkService()
+        svc.chunk_progress.total = 100
+        svc.chunk_progress.record(succeeded=30, failed=5)
+
+        svc._emit_progress_gauges()
+
+        svc.set_gauge.assert_any_call("total", 100)
+        svc.set_gauge.assert_any_call("processed", 35)
+        svc.set_gauge.assert_any_call("success", 30)
+        svc.set_gauge.assert_any_call("failure", 5)
+        assert svc.set_gauge.call_count == 4
+
+    def test_emits_zeros_on_fresh_progress(self) -> None:
+        svc = _TestChunkService()
+
+        svc._emit_progress_gauges()
+
+        svc.set_gauge.assert_any_call("total", 0)
+        svc.set_gauge.assert_any_call("processed", 0)
+        svc.set_gauge.assert_any_call("success", 0)
+        svc.set_gauge.assert_any_call("failure", 0)
+
+    def test_emits_after_multiple_chunks(self) -> None:
+        svc = _TestChunkService()
+        svc.chunk_progress.total = 200
+        svc.chunk_progress.record(succeeded=50, failed=10)
+        svc.chunk_progress.record(succeeded=40, failed=5)
+
+        svc._emit_progress_gauges()
+
+        svc.set_gauge.assert_any_call("total", 200)
+        svc.set_gauge.assert_any_call("processed", 105)
+        svc.set_gauge.assert_any_call("success", 90)
+        svc.set_gauge.assert_any_call("failure", 15)
+
+
+# =============================================================================
 # NetworkSemaphores Tests
 # =============================================================================
 

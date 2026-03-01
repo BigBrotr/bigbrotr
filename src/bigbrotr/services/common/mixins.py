@@ -126,6 +126,13 @@ class ChunkProgressMixin:
         super().__init__(**kwargs)
         self.chunk_progress = ChunkProgress()
 
+    def _emit_progress_gauges(self) -> None:
+        """Emit Prometheus gauges for batch progress."""
+        self.set_gauge("total", self.chunk_progress.total)  # type: ignore[attr-defined]
+        self.set_gauge("processed", self.chunk_progress.processed)  # type: ignore[attr-defined]
+        self.set_gauge("success", self.chunk_progress.succeeded)  # type: ignore[attr-defined]
+        self.set_gauge("failure", self.chunk_progress.failed)  # type: ignore[attr-defined]
+
 
 #: Network types that support concurrent relay connections.
 OPERATIONAL_NETWORKS: tuple[NetworkType, ...] = (
