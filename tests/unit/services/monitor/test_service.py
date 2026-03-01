@@ -849,24 +849,24 @@ class TestPublishAnnouncement:
                 )
             ]
         )
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_create:
+        with patch(
+            "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
+        ) as mock_broadcast:
             await stub.publish_announcement()
-            mock_create.assert_not_called()
+            mock_broadcast.assert_not_awaited()
 
     async def test_publish_announcement_no_prior_state(self, stub: _MonitorStub) -> None:
         """Test successful announcement publish when no prior state exists."""
         stub._brotr.get_service_state = AsyncMock(return_value=[])
-        mock_client = AsyncMock()
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
+            return_value=1,
+        ) as mock_broadcast:
             await stub.publish_announcement()
 
-        mock_client.send_event_builder.assert_awaited_once()
-        mock_client.shutdown.assert_awaited_once()
+        mock_broadcast.assert_awaited_once()
         stub._brotr.upsert_service_state.assert_awaited_once()
         stub._logger.info.assert_called_with("publish_completed", event="announcement", relays=1)
 
@@ -884,16 +884,15 @@ class TestPublishAnnouncement:
                 )
             ]
         )
-        mock_client = AsyncMock()
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
+            return_value=1,
+        ) as mock_broadcast:
             await stub.publish_announcement()
 
-        mock_client.send_event_builder.assert_awaited_once()
+        mock_broadcast.assert_awaited_once()
         stub._brotr.upsert_service_state.assert_awaited_once()
 
     async def test_publish_announcement_broadcast_failure(self, stub: _MonitorStub) -> None:
@@ -901,9 +900,9 @@ class TestPublishAnnouncement:
         stub._brotr.get_service_state = AsyncMock(return_value=[])
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            side_effect=TimeoutError("connect timeout"),
+            return_value=0,
         ):
             await stub.publish_announcement()
 
@@ -968,23 +967,24 @@ class TestPublishProfile:
                 )
             ]
         )
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_create:
+        with patch(
+            "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
+        ) as mock_broadcast:
             await stub.publish_profile()
-            mock_create.assert_not_called()
+            mock_broadcast.assert_not_awaited()
 
     async def test_publish_profile_successful(self, stub: _MonitorStub) -> None:
         """Test successful profile publish when interval has elapsed."""
         stub._brotr.get_service_state = AsyncMock(return_value=[])
-        mock_client = AsyncMock()
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
+            return_value=1,
+        ) as mock_broadcast:
             await stub.publish_profile()
 
-        mock_client.send_event_builder.assert_awaited_once()
+        mock_broadcast.assert_awaited_once()
         stub._brotr.upsert_service_state.assert_awaited_once()
         stub._logger.info.assert_called_with("publish_completed", event="profile", relays=1)
 
@@ -993,9 +993,9 @@ class TestPublishProfile:
         stub._brotr.get_service_state = AsyncMock(return_value=[])
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            side_effect=OSError("connection refused"),
+            return_value=0,
         ):
             await stub.publish_profile()
 
@@ -1030,9 +1030,11 @@ class TestPublishRelayDiscoveries:
         relay = Relay("wss://relay.example.com")
         result = _make_check_result()
 
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_create:
+        with patch(
+            "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
+        ) as mock_broadcast:
             await harness.publish_relay_discoveries([(relay, result)])
-            mock_create.assert_not_called()
+            mock_broadcast.assert_not_awaited()
 
     async def test_publish_discoveries_when_no_relays(self, test_keys: Keys) -> None:
         """Test that discoveries returns when no relays configured."""
@@ -1053,24 +1055,25 @@ class TestPublishRelayDiscoveries:
         relay = Relay("wss://relay.example.com")
         result = _make_check_result()
 
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_create:
+        with patch(
+            "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
+        ) as mock_broadcast:
             await harness.publish_relay_discoveries([(relay, result)])
-            mock_create.assert_not_called()
+            mock_broadcast.assert_not_awaited()
 
     async def test_publish_discoveries_successful(self, stub: _MonitorStub) -> None:
         """Test successful relay discovery publishing."""
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11=_make_nip11_meta(name="Test Relay"))
-        mock_client = AsyncMock()
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
+            return_value=1,
+        ) as mock_broadcast:
             await stub.publish_relay_discoveries([(relay, result)])
 
-        mock_client.send_event_builder.assert_awaited_once()
+        mock_broadcast.assert_awaited_once()
         stub._logger.debug.assert_any_call("discoveries_published", count=1)
 
     async def test_publish_discoveries_build_failure_for_individual(
@@ -1081,8 +1084,6 @@ class TestPublishRelayDiscoveries:
         relay2 = Relay("wss://relay2.example.com")
         result1 = _make_check_result()
         result2 = _make_check_result(nip11=_make_nip11_meta(name="Test"))
-
-        mock_client = AsyncMock()
 
         # Patch _build_kind_30166 to raise on the first relay only
         original_build = Monitor._build_kind_30166
@@ -1098,14 +1099,13 @@ class TestPublishRelayDiscoveries:
         stub._build_kind_30166 = lambda r, res: _patched_build(stub, r, res)  # type: ignore[assignment]
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
+            return_value=1,
+        ) as mock_broadcast:
             await stub.publish_relay_discoveries([(relay1, result1), (relay2, result2)])
 
-        # One builder should have succeeded
-        mock_client.send_event_builder.assert_awaited_once()
+        mock_broadcast.assert_awaited_once()
         stub._logger.debug.assert_any_call(
             "build_30166_failed", url=relay1.url, error="build failed for relay1"
         )
@@ -1116,9 +1116,9 @@ class TestPublishRelayDiscoveries:
         result = _make_check_result()
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            side_effect=TimeoutError("broadcast timeout"),
+            return_value=0,
         ):
             await stub.publish_relay_discoveries([(relay, result)])
 
