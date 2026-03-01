@@ -4,7 +4,7 @@ Listens for kind 5050 job requests on configured relays, executes
 read-only queries via the shared
 [Catalog][bigbrotr.services.common.catalog.Catalog], and publishes
 results as kind 6050 events.  Per-table pricing via
-[DvmTablePolicy][bigbrotr.services.common.catalog.DvmTablePolicy]
+[TableConfig][bigbrotr.services.common.configs.TableConfig]
 enables the NIP-90 bid/payment-required mechanism.
 
 Each ``run()`` cycle polls for new job requests using ``fetch_events()``
@@ -40,7 +40,8 @@ from pydantic import Field, field_validator
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import Catalog, CatalogError, DvmTablePolicy, QueryResult
+from bigbrotr.services.common.catalog import Catalog, CatalogError, QueryResult
+from bigbrotr.services.common.configs import TableConfig  # noqa: TC001 (Pydantic runtime)
 from bigbrotr.utils.keys import KeysConfig
 from bigbrotr.utils.protocol import create_client
 
@@ -68,7 +69,7 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
         relays: Relay URLs to listen on and publish to.
         kind: NIP-90 request event kind (result = kind + 1000).
         max_page_size: Hard ceiling on query limit.
-        tables: Per-table DVM policies (enable/disable, pricing).
+        tables: Per-table policies (enable/disable, pricing).
         announce: Whether to publish a NIP-89 handler announcement at startup.
         fetch_timeout: Timeout in seconds for relay event fetching.
     """
@@ -88,7 +89,7 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
         return v
 
     max_page_size: int = Field(default=1000, ge=1, le=10000)
-    tables: dict[str, DvmTablePolicy] = Field(default_factory=dict)
+    tables: dict[str, TableConfig] = Field(default_factory=dict)
     announce: bool = Field(default=True)
     fetch_timeout: float = Field(default=30.0, ge=1.0, le=300.0)
 
@@ -323,7 +324,7 @@ class Dvm(BaseService[DvmConfig]):
             return False
         policy = self._config.tables.get(name)
         if policy is None:
-            return True
+            return False
         return policy.enabled
 
     def _get_table_price(self, name: str) -> int:

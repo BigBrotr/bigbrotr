@@ -27,7 +27,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import asyncpg
-from pydantic import BaseModel, Field
 
 
 if TYPE_CHECKING:
@@ -75,32 +74,6 @@ _CAST_TYPES: dict[str, str] = {
 
 # Max offset to prevent deep pagination abuse
 _MAX_OFFSET = 100_000
-
-# ---------------------------------------------------------------------------
-# Policy models
-# ---------------------------------------------------------------------------
-
-
-class TablePolicy(BaseModel):
-    """Access policy for a single table or view.
-
-    Attributes:
-        enabled: Whether this table is exposed.  Disabled tables return
-            404 in the API and error feedback in the DVM.
-    """
-
-    enabled: bool = True
-
-
-class DvmTablePolicy(TablePolicy):
-    """DVM-specific policy with per-table pricing.
-
-    Attributes:
-        price: Price in millisats.  ``0`` means free (no payment required).
-    """
-
-    price: int = Field(default=0, ge=0)
-
 
 # ---------------------------------------------------------------------------
 # Schema dataclasses

@@ -49,6 +49,23 @@ from bigbrotr.models.constants import NetworkType
 logger = logging.getLogger(__name__)
 
 
+class TableConfig(BaseModel):
+    """Per-table access and pricing policy for API and DVM services.
+
+    Tables default to disabled (not exposed).  Only tables explicitly
+    listed with ``enabled: true`` in the service YAML config are served.
+
+    Attributes:
+        enabled: Whether this table is exposed.  Disabled tables return
+            404 in the API and error feedback in the DVM.
+        price: Price in millisats.  ``0`` means free (no payment required).
+            Used by the DVM service for NIP-90 bid/payment-required.
+    """
+
+    enabled: bool = False
+    price: int = Field(default=0, ge=0)
+
+
 class ClearnetConfig(BaseModel):
     """Configuration for clearnet (standard internet) relays.
 

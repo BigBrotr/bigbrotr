@@ -2,7 +2,7 @@
 
 Auto-generates paginated endpoints for all discovered tables, views, and
 materialized views.  Per-table access control via
-[TablePolicy][bigbrotr.services.common.catalog.TablePolicy] allows
+[TableConfig][bigbrotr.services.common.configs.TableConfig] allows
 disabling individual endpoints.
 
 The HTTP server runs as a background ``asyncio.Task`` alongside the
@@ -31,7 +31,8 @@ from pydantic import Field, model_validator
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import Catalog, CatalogError, TablePolicy
+from bigbrotr.services.common.catalog import Catalog, CatalogError
+from bigbrotr.services.common.configs import TableConfig  # noqa: TC001 (Pydantic runtime)
 
 
 if TYPE_CHECKING:
@@ -51,7 +52,7 @@ class ApiConfig(BaseServiceConfig):
         max_page_size: Hard ceiling on the ``limit`` query parameter.
         default_page_size: Default ``limit`` when not specified.
         tables: Per-table access policies.  Tables not listed here
-            default to enabled.
+            default to disabled.
         cors_origins: Allowed CORS origins.  Empty list disables CORS.
         request_timeout: HTTP request timeout in seconds.
     """
@@ -60,7 +61,7 @@ class ApiConfig(BaseServiceConfig):
     port: int = Field(default=8080, ge=1, le=65535, description="HTTP port")
     max_page_size: int = Field(default=1000, ge=1, le=10000)
     default_page_size: int = Field(default=100, ge=1, le=10000)
-    tables: dict[str, TablePolicy] = Field(default_factory=dict)
+    tables: dict[str, TableConfig] = Field(default_factory=dict)
     cors_origins: list[str] = Field(default_factory=list)
     request_timeout: float = Field(default=30.0, ge=1.0, le=300.0)
 
@@ -159,10 +160,10 @@ class Api(BaseService[ApiConfig]):
         self.set_gauge("tables_exposed", tables_exposed)
 
     def _is_table_enabled(self, name: str) -> bool:
-        """Check whether a table is enabled per policy (default: enabled)."""
+        """Check whether a table is enabled per policy (default: disabled)."""
         policy = self._config.tables.get(name)
         if policy is None:
-            return True
+            return False
         return policy.enabled
 
     def _build_app(self) -> FastAPI:

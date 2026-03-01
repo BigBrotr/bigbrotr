@@ -18,10 +18,10 @@ from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.catalog import (
     Catalog,
     ColumnSchema,
-    DvmTablePolicy,
     QueryResult,
     TableSchema,
 )
+from bigbrotr.services.common.configs import TableConfig
 from bigbrotr.services.dvm.service import Dvm, DvmConfig
 
 
@@ -51,8 +51,8 @@ def dvm_config() -> DvmConfig:
         kind=5050,
         max_page_size=100,
         tables={
-            "service_state": DvmTablePolicy(enabled=False),
-            "premium_data": DvmTablePolicy(price=5000),
+            "relay": TableConfig(enabled=True),
+            "premium_data": TableConfig(enabled=True, price=5000),
         },
     )
 
@@ -155,9 +155,10 @@ class TestDvmConfig:
     def test_custom_tables(self) -> None:
         config = DvmConfig(
             relays=["wss://relay.example.com"],
-            tables={"relay": DvmTablePolicy(price=1000)},
+            tables={"relay": TableConfig(enabled=True, price=1000)},
         )
         assert config.tables["relay"].price == 1000
+        assert config.tables["relay"].enabled is True
 
     def test_inherits_base_service_config(self) -> None:
         config = DvmConfig(relays=["wss://relay.example.com"], interval=120.0)
@@ -196,13 +197,13 @@ class TestDvm:
 # ============================================================================
 
 
-class TestDvmTablePolicy:
+class TestDvmTableAccessPolicy:
     """Tests for Dvm._is_table_enabled and _get_table_price."""
 
-    def test_enabled_by_default(self, dvm_service: Dvm) -> None:
+    def test_enabled_in_config(self, dvm_service: Dvm) -> None:
         assert dvm_service._is_table_enabled("relay") is True
 
-    def test_disabled_in_policy(self, dvm_service: Dvm) -> None:
+    def test_not_in_config_disabled(self, dvm_service: Dvm) -> None:
         assert dvm_service._is_table_enabled("service_state") is False
 
     def test_unknown_table_disabled(self, dvm_service: Dvm) -> None:

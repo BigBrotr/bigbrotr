@@ -432,7 +432,7 @@ Individual view failures do not block subsequent views.
 
 **Process**:
 1. Auto-generates paginated endpoints via Catalog schema introspection.
-2. Enforces per-table access control via `TablePolicy`.
+2. Enforces per-table access control via `TableConfig`.
 3. All queries are read-only against the shared PostgreSQL database.
 
 #### 8. Dvm
@@ -449,7 +449,7 @@ Individual view failures do not block subsequent views.
 1. Listens for kind 5050 job requests on configured Nostr relays.
 2. Executes read-only queries via the shared Catalog.
 3. Publishes kind 6050 result events back to the Nostr network.
-4. Enforces per-table pricing via `DvmTablePolicy`.
+4. Enforces per-table pricing via `TableConfig`.
 
 ---
 
