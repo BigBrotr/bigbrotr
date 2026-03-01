@@ -23,6 +23,7 @@ See Also:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -75,6 +76,9 @@ _CAST_TYPES: dict[str, str] = {
 
 # Max offset to prevent deep pagination abuse
 _MAX_OFFSET = 100_000
+
+# Valid SQL identifier pattern (matches Brotr._VALID_PROCEDURE_NAME)
+_VALID_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 # ---------------------------------------------------------------------------
 # Policy models
@@ -168,6 +172,12 @@ class Catalog:
         """
         base_table_names, view_names = await self._discover_table_and_view_names(brotr)
         matview_names = await self._discover_matview_names(brotr)
+
+        # Filter out PostgreSQL system objects and invalid identifiers
+        base_table_names = self._filter_names(base_table_names)
+        view_names = self._filter_names(view_names)
+        matview_names = self._filter_names(matview_names)
+
         all_names = base_table_names | view_names | matview_names
 
         if not all_names:
@@ -400,6 +410,20 @@ class Catalog:
         if pg_type in _CAST_TYPES:
             return _CAST_TYPES[pg_type]
         return ""
+
+    @staticmethod
+    def _filter_names(names: set[str]) -> set[str]:
+        """Remove system objects and names that fail identifier validation."""
+        filtered: set[str] = set()
+        for name in names:
+            if name.startswith("pg_"):
+                logger.debug("catalog_skip_system_object name=%s", name)
+                continue
+            if not _VALID_IDENTIFIER.match(name):
+                logger.warning("catalog_skip_invalid_identifier name=%r", name)
+                continue
+            filtered.add(name)
+        return filtered
 
     # -------------------------------------------------------------------
     # Discovery queries

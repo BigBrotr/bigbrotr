@@ -188,6 +188,32 @@ class TestQueryResult:
 # ============================================================================
 
 
+class TestFilterNames:
+    """Tests for Catalog._filter_names()."""
+
+    def test_filters_pg_prefix(self) -> None:
+        names = {"relay", "pg_stat_statements", "event", "pg_stat_statements_info"}
+        result = Catalog._filter_names(names)
+        assert result == {"relay", "event"}
+
+    def test_filters_invalid_identifiers(self) -> None:
+        names = {"relay", "123bad", "UPPER_CASE", "valid_name"}
+        result = Catalog._filter_names(names)
+        assert result == {"relay", "valid_name"}
+
+    def test_keeps_valid_names(self) -> None:
+        names = {"relay", "event_relay", "relay_metadata_latest", "kind_counts_by_relay"}
+        result = Catalog._filter_names(names)
+        assert result == names
+
+    def test_empty_set(self) -> None:
+        assert Catalog._filter_names(set()) == set()
+
+    def test_all_filtered(self) -> None:
+        names = {"pg_stat_activity", "pg_stat_statements"}
+        assert Catalog._filter_names(names) == set()
+
+
 class TestCatalogDiscover:
     """Tests for Catalog.discover()."""
 
@@ -267,6 +293,58 @@ class TestCatalogDiscover:
 
         await catalog.discover(catalog_brotr)
         assert catalog.tables == {}
+
+    async def test_discover_filters_pg_prefix(self, catalog_brotr: Brotr) -> None:
+        """System views with pg_ prefix are excluded from discovery."""
+        catalog = Catalog()
+
+        def _attr_getter(obj: MagicMock, key: str) -> object:
+            return getattr(obj, key)
+
+        table_rows = [
+            MagicMock(table_name="relay", table_type="BASE TABLE"),
+        ]
+        for row in table_rows:
+            row.__getitem__ = _attr_getter
+
+        # pg_stat_statements discovered as a VIEW in public schema
+        view_rows_with_pg = [
+            MagicMock(table_name="pg_stat_statements", table_type="VIEW"),
+            MagicMock(table_name="pg_stat_statements_info", table_type="VIEW"),
+        ]
+        all_table_rows = table_rows + view_rows_with_pg
+        for row in all_table_rows:
+            row.__getitem__ = _attr_getter
+
+        col_rows = [
+            MagicMock(table_name="relay", column_name="url", data_type="text", is_nullable=False),
+        ]
+        for row in col_rows:
+            row.__getitem__ = _attr_getter
+
+        pk_rows = [MagicMock(table_name="relay", column_name="url", pos=1)]
+        for row in pk_rows:
+            row.__getitem__ = _attr_getter
+
+        async def mock_fetch(query: str, *args: object, **kwargs: object) -> list[MagicMock]:
+            if "information_schema.tables" in query:
+                return all_table_rows
+            if "pg_matviews" in query:
+                return []
+            if "pg_attribute" in query:
+                return col_rows
+            if "pg_constraint" in query:
+                return pk_rows
+            if "pg_index" in query:
+                return []
+            return []
+
+        catalog_brotr.fetch = AsyncMock(side_effect=mock_fetch)  # type: ignore[method-assign]
+        await catalog.discover(catalog_brotr)
+
+        assert "relay" in catalog.tables
+        assert "pg_stat_statements" not in catalog.tables
+        assert "pg_stat_statements_info" not in catalog.tables
 
     async def test_discover_matview_columns_included(self, catalog_brotr: Brotr) -> None:
         """Matview columns are discovered via pg_attribute (not information_schema)."""

@@ -19,6 +19,10 @@ relays:
 tables:
   service_state:
     enabled: false
+  pg_stat_statements:
+    enabled: false
+  pg_stat_statements_info:
+    enabled: false
 
 metrics:
   enabled: true
