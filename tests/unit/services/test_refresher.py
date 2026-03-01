@@ -398,3 +398,50 @@ class TestRefresherMetrics:
             gauge_calls = {call[0][0]: call[0][1] for call in mock_gauge.call_args_list}
             assert gauge_calls["views_refreshed"] == 2
             assert gauge_calls["views_failed"] == 1
+
+    async def test_inc_counter_refreshed(self, mock_refresher_brotr: Brotr) -> None:
+        """Cumulative total_views_refreshed counter emitted after run."""
+        config = RefresherConfig(
+            refresh=RefreshConfig(views=["event_stats", "relay_stats"]),
+        )
+        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
+
+        with patch.object(refresher, "inc_counter") as mock_counter:
+            await refresher.run()
+
+        mock_counter.assert_any_call("total_views_refreshed", 2)
+
+    async def test_inc_counter_failed(self, mock_refresher_brotr: Brotr) -> None:
+        """Cumulative total_views_failed counter emitted after run with failures."""
+        mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
+            side_effect=asyncpg.PostgresError("error")
+        )
+
+        config = RefresherConfig(
+            refresh=RefreshConfig(views=["event_stats"]),
+        )
+        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
+
+        with patch.object(refresher, "inc_counter") as mock_counter:
+            await refresher.run()
+
+        mock_counter.assert_any_call("total_views_failed", 1)
+
+    async def test_set_gauge_duration(self, mock_refresher_brotr: Brotr) -> None:
+        """Total refresh duration gauge emitted with deterministic timing."""
+        config = RefresherConfig(
+            refresh=RefreshConfig(views=["event_stats", "relay_stats"]),
+        )
+        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
+
+        # 6 calls: cycle_start, view1_start, view1_end, view2_start, view2_end, cycle_end
+        with (
+            patch.object(refresher, "set_gauge") as mock_gauge,
+            patch(
+                "bigbrotr.services.refresher.service.time.monotonic",
+                side_effect=[100.0, 100.5, 101.0, 101.0, 102.0, 102.5],
+            ),
+        ):
+            await refresher.run()
+
+        mock_gauge.assert_any_call("total_refresh_duration", 2.5)

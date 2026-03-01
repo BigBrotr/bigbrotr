@@ -302,6 +302,7 @@ class Dvm(BaseService[DvmConfig]):
     def _report_metrics(self, counters: _JobCounters) -> None:
         """Update Prometheus metrics and log cycle stats."""
         self.set_gauge("jobs_received", counters.received)
+        self.inc_counter("total_jobs_received", counters.received)
         self.inc_counter("jobs_processed", counters.processed)
         self.inc_counter("jobs_failed", counters.failed)
         self.inc_counter("jobs_payment_required", counters.payment_required)

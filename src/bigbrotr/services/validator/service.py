@@ -394,6 +394,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
                 await promote_candidates(self._brotr, valid)
                 for c in valid:
                     self._logger.info("promoted", url=c.relay.url, network=c.relay.network.value)
+                self.inc_counter("total_promoted", len(valid))
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("promote_failed", count=len(valid), error=str(e))
 

@@ -359,6 +359,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
 
                 self.inc_counter("total_events_synced", events_synced)
                 self.inc_counter("total_events_invalid", invalid_events)
+                self.inc_counter("total_relays_synced")
 
                 async with batch.cursor_lock:
                     batch.cursor_updates.append(
@@ -383,6 +384,7 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                 )
                 async with self._counters.lock:
                     self._counters.failed_relays += 1
+                self.inc_counter("total_relays_failed")
 
     def _get_start_time_from_cache(self, relay: Relay, cursors: dict[str, EventRelayCursor]) -> int:
         """Look up the sync start timestamp from a pre-fetched cursor cache."""

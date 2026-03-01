@@ -1100,6 +1100,44 @@ class TestSynchronizerMetrics:
                 "total_events_invalid",
             )
 
+    async def test_sync_single_relay_emits_relays_synced_counter(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Successful relay sync emits total_relays_synced counter."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
+        sync.inc_counter = MagicMock()  # type: ignore[method-assign]
+
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            return_value=(5, 0),
+        ):
+            await sync._sync_all_relays([relay])
+
+        sync.inc_counter.assert_any_call("total_relays_synced")
+
+    async def test_sync_failed_relay_emits_relays_failed_counter(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Failed relay sync emits total_relays_failed counter."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
+        sync.inc_counter = MagicMock()  # type: ignore[method-assign]
+
+        relay = Relay("wss://failing.relay.com")
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("timeout"),
+        ):
+            await sync._sync_all_relays([relay])
+
+        sync.inc_counter.assert_any_call("total_relays_failed")
+
     async def test_synchronize_returns_relay_count(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test synchronize() returns the number of relays processed."""
         mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
