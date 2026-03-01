@@ -148,8 +148,10 @@ class Dvm(BaseService[DvmConfig]):
         _exc_tb: TracebackType | None,
     ) -> None:
         if self._client is not None:
-            with contextlib.suppress(Exception):
+            try:
                 await self._client.shutdown()
+            except Exception as e:
+                self._logger.debug("client_shutdown_error", error=str(e))
             self._client = None
             self._logger.info("client_disconnected")
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)

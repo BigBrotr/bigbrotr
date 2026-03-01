@@ -337,7 +337,7 @@ async def scan_event(
     """
     rows = await brotr.fetch(
         """
-        SELECT *
+        SELECT id, pubkey, created_at, kind, tags, tagvalues, content, sig
         FROM event
         WHERE ($1::bigint IS NULL OR (created_at, id) > ($1::bigint, $2::bytea))
         ORDER BY created_at ASC, id ASC
@@ -630,6 +630,8 @@ async def delete_exhausted_candidates(
         [cleanup_service_state][bigbrotr.services.common.queries.cleanup_service_state]:
             Companion cleanup that removes stale candidates and state records.
     """
+    # Direct DELETE (not via stored procedure) — cleanup query, already
+    # centralised and parameterised; a procedure adds no benefit here.
     count: int = await brotr.fetchval(
         """
         WITH deleted AS (
@@ -683,6 +685,8 @@ async def cleanup_service_state(
             f"got {state_type.value!r}"
         )
 
+    # Direct DELETE (not via stored procedure) — cleanup query, already
+    # centralised and parameterised; a procedure adds no benefit here.
     if state_type in _EXISTS_STALE_TYPES:
         # CANDIDATE: stale when relay exists (already promoted)
         query = """

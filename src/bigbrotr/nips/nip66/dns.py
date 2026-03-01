@@ -184,16 +184,19 @@ class Nip66DnsMetadata(BaseNipMetadata):
 
         try:
             logger.debug("dns_resolving host=%s", relay.host)
-            data = await asyncio.to_thread(cls._dns, relay.host, timeout)
+            data = await asyncio.wait_for(
+                asyncio.to_thread(cls._dns, relay.host, timeout),
+                timeout=timeout,
+            )
             if data:
                 logs["success"] = True
                 logger.debug("dns_completed relay=%s ips=%s", relay.url, data.get("dns_ips"))
             else:
                 logs["reason"] = "no DNS records found"
                 logger.debug("dns_no_data relay=%s", relay.url)
-        except (OSError, dns.exception.DNSException) as e:
+        except (TimeoutError, OSError, dns.exception.DNSException) as e:
             logs["reason"] = str(e) or type(e).__name__
-            logger.debug("dns_error relay=%s error=%s", relay.url, str(e))
+            logger.debug("dns_error relay=%s error=%s", relay.url, logs["reason"])
 
         return cls(
             data=Nip66DnsData.model_validate(Nip66DnsData.parse(data)),

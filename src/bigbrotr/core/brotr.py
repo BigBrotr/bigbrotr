@@ -629,15 +629,11 @@ class Brotr:
         self._validate_batch_size(records, "insert_metadata")
 
         params = [metadata.to_db_params() for metadata in records]
-        ids = [p.id for p in params]
-        types = [p.type for p in params]
-        values = [p.data for p in params]
+        columns = self._transpose_to_columns(params)
 
         inserted: int = await self._call_procedure(
             "metadata_insert",
-            ids,
-            types,
-            values,
+            *columns,
             fetch_result=True,
             timeout=self._config.timeouts.batch,
         )

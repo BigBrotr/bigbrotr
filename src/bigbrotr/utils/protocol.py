@@ -375,8 +375,10 @@ async def broadcast_events(
         except (OSError, TimeoutError) as e:
             logger.warning("broadcast_send_failed relay=%s error=%s", relay.url, e)
         finally:
-            with contextlib.suppress(Exception):
+            try:
                 await client.shutdown()
+            except Exception as e:
+                logger.debug("client_shutdown_error relay=%s error=%s", relay.url, e)
 
     return success
 
@@ -450,6 +452,7 @@ async def is_nostr_relay(
 
         finally:
             if client is not None:
-                # nostr-sdk Rust FFI can raise arbitrary exception types during disconnect.
-                with contextlib.suppress(Exception):
+                try:
                     await asyncio.wait_for(client.disconnect(), timeout=timeout)
+                except Exception as e:
+                    logger.debug("client_disconnect_error error=%s", e)

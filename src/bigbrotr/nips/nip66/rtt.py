@@ -36,7 +36,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from datetime import timedelta
 from time import perf_counter
@@ -367,6 +366,7 @@ class Nip66RttMetadata(BaseNipMetadata):
     @staticmethod
     async def _cleanup(client: Client) -> None:
         """Disconnect the client, suppressing any errors."""
-        # nostr-sdk Rust FFI can raise arbitrary exception types during disconnect.
-        with contextlib.suppress(Exception):
+        try:
             await client.disconnect()
+        except Exception as e:
+            logger.debug("client_disconnect_error error=%s", e)
