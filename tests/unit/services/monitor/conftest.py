@@ -42,8 +42,8 @@ FIXED_TIME = 1_700_000_000.0
 
 @pytest.fixture(autouse=True)
 def set_private_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Set PRIVATE_KEY environment variable for all monitor tests."""
-    monkeypatch.setenv("PRIVATE_KEY", VALID_HEX_KEY)
+    """Set NOSTR_PRIVATE_KEY environment variable for all monitor tests."""
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY", VALID_HEX_KEY)
 
 
 # ============================================================================

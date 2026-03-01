@@ -28,8 +28,8 @@ Examples:
     ```python
     import os
 
-    os.environ["PRIVATE_KEY"] = "nsec1..."  # pragma: allowlist secret
-    keys = load_keys_from_env("PRIVATE_KEY")
+    os.environ["NOSTR_PRIVATE_KEY"] = "nsec1..."  # pragma: allowlist secret
+    keys = load_keys_from_env("NOSTR_PRIVATE_KEY")
     print(keys.public_key().to_bech32())
     ```
 """
@@ -43,7 +43,7 @@ from nostr_sdk import Keys
 from pydantic import BaseModel, Field, model_validator
 
 
-ENV_PRIVATE_KEY = "PRIVATE_KEY"  # pragma: allowlist secret  # Default env var name
+ENV_PRIVATE_KEY = "NOSTR_PRIVATE_KEY"  # pragma: allowlist secret  # Default env var name
 
 
 def load_keys_from_env(env_var: str) -> Keys:

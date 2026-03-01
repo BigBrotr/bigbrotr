@@ -881,7 +881,7 @@ All configuration uses Pydantic v2 models with:
 ### Credential Management
 
 - Database passwords loaded from environment variables (never in config files).
-- Nostr private keys loaded from `PRIVATE_KEY` environment variable.
+- Nostr private keys loaded from `NOSTR_PRIVATE_KEY` environment variable.
 - PGBouncer userlist generated dynamically from environment at container start.
 - `detect-secrets` pre-commit hook prevents accidental credential commits.
 
@@ -961,13 +961,13 @@ The primary deployment with complete event storage and 11 materialized views.
 
 ### lilbrotr (Lightweight)
 
-A minimal deployment optimized for reduced disk usage (~60% savings).
+A deployment optimized for reduced disk usage (~60% savings).
 
 - **Event storage**: All 8 columns present but tags, content, sig are nullable and always NULL.
-- **Materialized views**: None (reduces refresh overhead).
-- **Use case**: Relay health monitoring without event archiving.
+- **Materialized views**: All 11 analytics views (identical to bigbrotr).
+- **Use case**: Relay monitoring with lightweight event archiving (no tags/content/sig).
 
-Both share the same Dockerfile, service codebase, and CLI. The difference is entirely in SQL schema and configuration.
+Both share the same Dockerfile, service codebase, CLI, and service configurations. The only functional difference is the event table schema (nullable tags/content/sig columns) and the corresponding `event_insert()` stored procedure.
 
 ---
 
