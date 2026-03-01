@@ -760,6 +760,6 @@ CREATE TABLE event (
 ## Related Documentation
 
 - [Architecture](architecture.md) -- System architecture and module reference
-- [Services](services.md) -- Deep dive into the six independent services
+- [Services](services.md) -- Deep dive into the eight independent services
 - [Configuration](configuration.md) -- YAML configuration reference
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

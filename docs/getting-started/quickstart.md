@@ -152,7 +152,7 @@ SELECT key, state_type, count(*) FROM service_state GROUP BY key, state_type;
 
 ## What Just Happened?
 
-You ran three of BigBrotr's six independent services:
+You ran three of BigBrotr's eight independent services:
 
 --8<-- "docs/_snippets/pipeline.md"
 
