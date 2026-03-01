@@ -234,12 +234,9 @@ class Finder(BaseService[FinderConfig]):
             else:
                 relays_failed += 1
 
-        self.set_gauge("events_scanned", total_events_scanned)
-        self.set_gauge("relays_found", total_relays_found)
-        self.set_gauge("relays_processed", relays_processed)
-        self.set_gauge("relays_failed", relays_failed)
-        self.inc_counter("total_events_scanned", total_events_scanned)
-        self.inc_counter("total_relays_found", total_relays_found)
+        self._emit_events_metrics(
+            total_events_scanned, total_relays_found, relays_processed, relays_failed
+        )
 
         self._logger.info(
             "events_completed",
@@ -249,6 +246,23 @@ class Finder(BaseService[FinderConfig]):
             relays_failed=relays_failed,
         )
         return total_relays_found
+
+    def _emit_events_metrics(
+        self,
+        events_scanned: int,
+        relays_found: int,
+        relays_processed: int,
+        relays_failed: int,
+    ) -> None:
+        """Emit Prometheus gauges and counters for event scanning."""
+        self.set_gauge("events_scanned", events_scanned)
+        self.set_gauge("relays_found", relays_found)
+        self.set_gauge("relays_processed", relays_processed)
+        self.set_gauge("relays_failed", relays_failed)
+        self.inc_counter("total_events_scanned", events_scanned)
+        self.inc_counter("total_relays_found", relays_found)
+        self.inc_counter("total_relays_processed", relays_processed)
+        self.inc_counter("total_relays_failed", relays_failed)
 
     async def discover_from_apis(self) -> AsyncIterator[tuple[str, dict[str, Relay]]]:
         """Yield ``(source_url, discovered_relays)`` from each enabled API source.
