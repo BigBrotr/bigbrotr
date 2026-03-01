@@ -268,7 +268,7 @@ PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 
 All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO NOTHING`.
 
-### Materialized Views (11, BigBrotr Only)
+### Materialized Views (11)
 
 `relay_metadata_latest`, `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay`, `network_stats`, `relay_software_counts`, `supported_nip_counts`, `event_daily_counts` -- all support `REFRESH CONCURRENTLY` via unique indexes.
 
@@ -360,9 +360,9 @@ JSON mode available for cloud aggregation:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin password |
-| `DB_WRITER_PASSWORD` | Yes | Writer role password (all eight services) |
+| `DB_WRITER_PASSWORD` | Yes | Writer role password (Seeder, Finder, Validator, Monitor, Synchronizer) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher role password (matview ownership) |
-| `DB_READER_PASSWORD` | Yes | Reader role password (read-only access) |
+| `DB_READER_PASSWORD` | Yes | Reader role password (Api, Dvm, postgres-exporter) |
 | `NOSTR_PRIVATE_KEY` | For Monitor, Validator, Synchronizer, Dvm | Nostr private key (hex or nsec) for event signing and NIP-42 auth |
 | `GRAFANA_PASSWORD` | For Grafana | Grafana admin password |
 
@@ -419,7 +419,7 @@ make clean            # remove build artifacts and caches
 
 ### Test Suite
 
-- ~2,400 unit tests + ~94 integration tests (testcontainers PostgreSQL)
+- ~2,500 unit tests + ~94 integration tests (testcontainers PostgreSQL)
 - `asyncio_mode = "auto"` -- no `@pytest.mark.asyncio` needed
 - Global timeout: 120s per test
 - Shared fixtures via `tests/fixtures/relays.py` (registered as pytest plugin)
@@ -495,7 +495,7 @@ bigbrotr/
 │   └── lilbrotr/                    # Lightweight deployment
 ├── tests/
 │   ├── fixtures/relays.py           # Shared relay fixtures
-│   ├── unit/                        # ~2,400 tests (mirrors src/ structure)
+│   ├── unit/                        # ~2,500 tests (mirrors src/ structure)
 │   └── integration/                 # ~94 tests (testcontainers PostgreSQL)
 ├── docs/                            # MkDocs Material documentation
 ├── Makefile                         # Development targets
@@ -508,23 +508,23 @@ bigbrotr/
 
 ### Container Stack
 
-| Container | Image | Purpose | Resources |
-|-----------|-------|---------|-----------|
-| postgres | `postgres:16-alpine` | Primary storage | 2 CPU, 2 GB |
-| pgbouncer | `edoburu/pgbouncer:v1.25.1-p0` | Transaction-mode connection pooling | 0.5 CPU, 256 MB |
-| tor | `osminogin/tor-simple:0.4.8.10` | SOCKS5 proxy for .onion relays | 0.5 CPU, 256 MB |
-| seeder | bigbrotr (parametric) | Relay bootstrapping (one-shot) | 0.5 CPU, 256 MB |
-| finder | bigbrotr (parametric) | Relay discovery | 1 CPU, 512 MB |
-| validator | bigbrotr (parametric) | Candidate validation | 1 CPU, 512 MB |
-| monitor | bigbrotr (parametric) | Health monitoring + event publishing | 1 CPU, 512 MB |
-| synchronizer | bigbrotr (parametric) | Event archiving | 1 CPU, 512 MB |
-| refresher | bigbrotr (parametric) | Materialized view refresh | 0.25 CPU, 256 MB |
-| api | bigbrotr (parametric) | REST API (FastAPI) | 0.5 CPU, 256 MB |
-| dvm | bigbrotr (parametric) | NIP-90 Data Vending Machine | 0.5 CPU, 256 MB |
-| postgres-exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | PostgreSQL metrics | 0.25 CPU, 128 MB |
-| prometheus | `prom/prometheus:v2.51.0` | Metrics collection (30d retention) | 0.5 CPU, 512 MB |
-| alertmanager | `prom/alertmanager:v0.27.0` | Alert routing and grouping | 0.25 CPU, 128 MB |
-| grafana | `grafana/grafana:10.4.1` | Dashboards | 0.5 CPU, 512 MB |
+| Container | Image | Purpose |
+|-----------|-------|---------|
+| postgres | `postgres:16-alpine` | Primary storage |
+| pgbouncer | `edoburu/pgbouncer:v1.25.1-p0` | Transaction-mode connection pooling |
+| tor | `osminogin/tor-simple:0.4.8.10` | SOCKS5 proxy for .onion relays |
+| seeder | bigbrotr (parametric) | Relay bootstrapping (one-shot) |
+| finder | bigbrotr (parametric) | Relay discovery |
+| validator | bigbrotr (parametric) | Candidate validation |
+| monitor | bigbrotr (parametric) | Health monitoring + event publishing |
+| synchronizer | bigbrotr (parametric) | Event archiving |
+| refresher | bigbrotr (parametric) | Materialized view refresh |
+| api | bigbrotr (parametric) | REST API (FastAPI) |
+| dvm | bigbrotr (parametric) | NIP-90 Data Vending Machine |
+| postgres-exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | PostgreSQL metrics |
+| prometheus | `prom/prometheus:v2.51.0` | Metrics collection (30d retention) |
+| alertmanager | `prom/alertmanager:v0.27.0` | Alert routing and grouping |
+| grafana | `grafana/grafana:10.4.1` | Dashboards |
 
 ### Networks
 

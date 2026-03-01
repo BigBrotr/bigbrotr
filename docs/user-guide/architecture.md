@@ -709,7 +709,7 @@ tests/
 ├── conftest.py                  # Root: mock_pool, mock_brotr, mock_connection, sample_*
 ├── fixtures/
 │   └── relays.py                # Shared relay fixtures (registered as pytest plugin)
-├── unit/                        # ~2400 tests, mirrors src/ structure
+├── unit/                        # ~2500 tests, mirrors src/ structure
 │   ├── core/                    # test_pool.py, test_brotr.py, test_base_service.py, ...
 │   ├── models/                  # test_relay.py, test_event.py, test_metadata.py, ...
 │   ├── nips/                    # nip11/, nip66/

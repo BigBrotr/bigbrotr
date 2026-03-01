@@ -279,7 +279,7 @@ wheels = [
 
 [[package]]
 name = "bigbrotr"
-version = "5.5.0"
+version = "5.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -297,7 +297,6 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rfc3986" },
     { name = "tldextract" },
-    { name = "typing-extensions" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -350,7 +349,6 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "rfc3986", specifier = ">=2.0.0" },
     { name = "tldextract", specifier = ">=5.1.0" },
-    { name = "typing-extensions", specifier = ">=4.9.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0" },
 ]
 
