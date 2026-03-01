@@ -14,7 +14,7 @@ Every BigBrotr service exposes a `/metrics` endpoint in Prometheus exposition fo
 |--------|------|-------------|
 | `service_info` | Info | Static service metadata (name, version) |
 | `service_gauge` | Gauge | Point-in-time state (consecutive_failures, last_cycle_timestamp, progress) |
-| `service_counter` | Counter | Cumulative totals (cycles_success, cycles_failed, errors by type) |
+| `service_counter_total` | Counter | Cumulative totals (cycles_success, cycles_failed, errors by type) |
 | `cycle_duration_seconds` | Histogram | Cycle latency with 10 buckets (1s to 1h) |
 
 ## 1. Start the Monitoring Stack
@@ -46,39 +46,51 @@ If you already run Prometheus, add scrape targets for each service:
 scrape_configs:
   - job_name: bigbrotr-finder
     static_configs:
-      - targets: ["finder:8001"]
+      - targets: ["finder:8000"]
   - job_name: bigbrotr-validator
     static_configs:
-      - targets: ["validator:8002"]
+      - targets: ["validator:8000"]
   - job_name: bigbrotr-monitor
     static_configs:
-      - targets: ["monitor:8003"]
+      - targets: ["monitor:8000"]
   - job_name: bigbrotr-synchronizer
     static_configs:
-      - targets: ["synchronizer:8004"]
+      - targets: ["synchronizer:8000"]
+  - job_name: bigbrotr-refresher
+    static_configs:
+      - targets: ["refresher:8000"]
+  - job_name: bigbrotr-api
+    static_configs:
+      - targets: ["api:8000"]
+  - job_name: bigbrotr-dvm
+    static_configs:
+      - targets: ["dvm:8000"]
 ```
 
 ## 2. Enable Service Metrics
 
-Each service must have metrics enabled in its YAML config. Set `metrics.enabled: true` and assign a unique port:
+Each service must have metrics enabled in its YAML config. Set `metrics.enabled: true`:
 
 ```yaml
 # config/services/finder.yaml
 metrics:
   enabled: true
-  port: 8001
+  port: 8000
   host: "0.0.0.0"
   path: "/metrics"
 ```
 
-Default metric ports by service:
+All services use port 8000 by default:
 
 | Service | Port |
 |---------|------|
-| Finder | 8001 |
-| Validator | 8002 |
-| Monitor | 8003 |
-| Synchronizer | 8004 |
+| Finder | 8000 |
+| Validator | 8000 |
+| Monitor | 8000 |
+| Synchronizer | 8000 |
+| Refresher | 8000 |
+| Api | 8000 |
+| Dvm | 8000 |
 
 ## 3. Configure Prometheus Targets
 
@@ -109,19 +121,22 @@ To add a custom dashboard:
 
 ## 5. Set Up Alerting Rules
 
-BigBrotr includes four alerting rules in `monitoring/prometheus/rules/alerts.yml`:
+BigBrotr includes seven alerting rules in `monitoring/prometheus/rules/alerts.yml`:
 
 | Alert | Expression | Duration | Severity |
 |-------|-----------|----------|----------|
 | **ServiceDown** | `up == 0` | 5 minutes | critical |
-| **HighFailureRate** | `rate(bigbrotr_errors_total[5m]) > 0.1` | 5 minutes | warning |
-| **PoolExhausted** | `bigbrotr_pool_available_connections == 0` | 2 minutes | critical |
-| **DatabaseSlow** | `histogram_quantile(0.99, rate(bigbrotr_query_duration_seconds_bucket[5m])) > 5` | 5 minutes | warning |
+| **HighFailureRate** | `sum by (service) (rate(service_counter_total{name=~"errors_.*"}[5m])) > 0.1` | 5 minutes | warning |
+| **ConsecutiveFailures** | `service_gauge{name="consecutive_failures"} >= 5` | 2 minutes | critical |
+| **SlowCycles** | `histogram_quantile(0.99, rate(cycle_duration_seconds_bucket[5m])) > 300` | 5 minutes | warning |
+| **DatabaseConnectionsHigh** | `sum(pg_stat_activity_count{datname="bigbrotr"}) > 80` | 5 minutes | warning |
+| **CacheHitRatioLow** | `pg_stat_database_blks_hit{datname="bigbrotr"} / (...) < 0.95` | 10 minutes | warning |
+| **RefresherViewsFailing** | `service_gauge{service="refresher", name="views_failed"} > 0` | 10 minutes | warning |
 
 ### Verify alerts are loaded
 
 1. Open `http://localhost:9090/alerts`
-2. All four rules should appear under the `bigbrotr` group
+2. All seven rules should appear under the `bigbrotr` group
 3. Rules in **inactive** state means no alerts are currently firing
 
 ### Configure alert notifications
@@ -145,17 +160,17 @@ Useful PromQL queries for custom panels:
 
 ```promql
 # Successful cycles per hour (by service)
-increase(bigbrotr_service_counter{counter="cycles_success"}[1h])
+increase(service_counter_total{name="cycles_success"}[1h])
 
 # Average cycle duration (last 5 minutes)
-rate(bigbrotr_cycle_duration_seconds_sum[5m])
-  / rate(bigbrotr_cycle_duration_seconds_count[5m])
+rate(cycle_duration_seconds_sum[5m])
+  / rate(cycle_duration_seconds_count[5m])
 
 # Current consecutive failures
-bigbrotr_service_gauge{gauge="consecutive_failures"}
+service_gauge{name="consecutive_failures"}
 
 # Error rate by type
-rate(bigbrotr_service_counter{counter=~"errors_.*"}[5m])
+rate(service_counter_total{name=~"errors_.*"}[5m])
 ```
 
 !!! tip

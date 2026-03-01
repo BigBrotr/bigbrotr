@@ -117,10 +117,13 @@ endpoints should show a green `UP` state:
 
 | Target | Endpoint |
 |--------|----------|
-| Finder | `finder:8001/metrics` |
-| Validator | `validator:8002/metrics` |
-| Monitor | `monitor:8003/metrics` |
-| Synchronizer | `synchronizer:8004/metrics` |
+| Finder | `finder:8000/metrics` |
+| Validator | `validator:8000/metrics` |
+| Monitor | `monitor:8000/metrics` |
+| Synchronizer | `synchronizer:8000/metrics` |
+| Refresher | `refresher:8000/metrics` |
+| Api | `api:8000/metrics` |
+| Dvm | `dvm:8000/metrics` |
 
 !!! tip
     If a target shows as `DOWN`, check the service logs:
@@ -201,6 +204,10 @@ All ports bind to `127.0.0.1` (localhost only) by default:
 | Validator Metrics | 8002 |
 | Monitor Metrics | 8003 |
 | Synchronizer Metrics | 8004 |
+| Refresher Metrics | 8005 |
+| Api HTTP | 8080 |
+| Api Metrics | 8006 |
+| Dvm Metrics | 8007 |
 
 ## Next Steps
 

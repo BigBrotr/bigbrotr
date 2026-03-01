@@ -441,8 +441,9 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | Module | Purpose |
 |--------|---------|
 | `queries.py` | 15 domain SQL query functions |
-| `mixins.py` | `ChunkProgress`, `NetworkSemaphores`, `GeoReaders` + cooperative-inheritance mixins |
-| `configs.py` | Per-network Pydantic config models |
+| `mixins.py` | `ChunkProgress`, `NetworkSemaphores`, `GeoReaders`, `CatalogAccess` + cooperative-inheritance mixins |
+| `catalog.py` | Schema-driven `Catalog` for table discovery (Api, Dvm) and `CatalogError` |
+| `configs.py` | Per-network and per-table Pydantic config models |
 
 **Domain Query Functions** (15 total in `queries.py`):
 
@@ -608,11 +609,12 @@ service = Monitor(brotr=mock_brotr)
 
 ### Mixins for Cross-Cutting Concerns
 
-Monitor uses multiple mixins to compose behavior:
+Services use mixins from `services/common/mixins.py` to compose shared behavior:
 
-- `ChunkProgressMixin` -- chunk processing tracking (from `services/common/mixins.py`)
-- `NetworkSemaphoresMixin` -- per-network concurrency (from `services/common/mixins.py`)
-- `GeoReaderMixin` -- GeoIP database lifecycle (from `services/common/mixins.py`)
+- `ChunkProgressMixin` -- chunk processing tracking (Validator, Monitor)
+- `NetworkSemaphoresMixin` -- per-network concurrency (Validator, Monitor, Synchronizer)
+- `GeoReaderMixin` -- GeoIP database lifecycle (Monitor)
+- `CatalogAccessMixin` -- schema-driven table catalog (Api, Dvm)
 
 ### Content-Addressed Deduplication
 
@@ -694,7 +696,7 @@ tests/
 ├── conftest.py                  # Root: mock_pool, mock_brotr, mock_connection, sample_*
 ├── fixtures/
 │   └── relays.py                # Shared relay fixtures (registered as pytest plugin)
-├── unit/                        # ~2300 tests, mirrors src/ structure
+├── unit/                        # ~2400 tests, mirrors src/ structure
 │   ├── core/                    # test_pool.py, test_brotr.py, test_base_service.py, ...
 │   ├── models/                  # test_relay.py, test_event.py, test_metadata.py, ...
 │   ├── nips/                    # nip11/, nip66/
@@ -721,7 +723,7 @@ tests/
 
 ## Related Documentation
 
-- [Services](services.md) -- Deep dive into the six independent services and data flow
+- [Services](services.md) -- Deep dive into the eight independent services and data flow
 - [Configuration](configuration.md) -- Complete YAML configuration reference
 - [Database](database.md) -- PostgreSQL schema, stored functions, and indexes
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards
