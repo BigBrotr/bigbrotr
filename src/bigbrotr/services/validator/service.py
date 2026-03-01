@@ -394,12 +394,6 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
                 await promote_candidates(self._brotr, valid)
                 for c in valid:
                     self._logger.info("promoted", url=c.relay.url, network=c.relay.network.value)
+                self.inc_counter("total_promoted", len(valid))
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("promote_failed", count=len(valid), error=str(e))
-
-    def _emit_progress_gauges(self) -> None:
-        """Emit Prometheus gauges for batch progress."""
-        self.set_gauge("total", self.chunk_progress.total)
-        self.set_gauge("processed", self.chunk_progress.processed)
-        self.set_gauge("success", self.chunk_progress.succeeded)
-        self.set_gauge("failure", self.chunk_progress.failed)

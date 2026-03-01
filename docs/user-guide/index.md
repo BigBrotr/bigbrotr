@@ -9,7 +9,7 @@ In-depth reference documentation for BigBrotr's architecture, services, configur
 | Page | Description |
 |------|-------------|
 | [Architecture](architecture.md) | Diamond DAG layer structure, design patterns, concurrency model, and testing architecture |
-| [Services](services.md) | Deep dive into the six independent services: Seeder, Finder, Validator, Monitor, Synchronizer, Refresher |
+| [Services](services.md) | Deep dive into the eight independent services: Seeder, Finder, Validator, Monitor, Synchronizer, Refresher, Api, Dvm |
 | [Configuration](configuration.md) | Complete YAML configuration reference with Pydantic validation and examples |
 | [Database](database.md) | PostgreSQL schema, stored functions, materialized views, and indexes |
 | [Monitoring](monitoring.md) | Prometheus metrics, alerting rules, Grafana dashboards, and structured logging |

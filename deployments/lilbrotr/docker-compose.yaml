@@ -2,13 +2,13 @@
 # LilBrotr Docker Compose Configuration
 # ============================================================================
 # Description: Lightweight containerized deployment for LilBrotr
-# Components: PostgreSQL, PGBouncer (clearnet only by default)
-# Note: LilBrotr stores lightweight events (omits tags/content/sig columns, ~60% disk savings)
+# Components: PostgreSQL, PGBouncer, Tor, I2P (disabled), Lokinet (disabled)
+# Note: LilBrotr stores lightweight events (tags/content/sig nullable, always NULL, ~60% disk savings)
 # Usage: docker-compose up -d
 #
-# To enable Tor/I2P/Lokinet support:
-#   1. Uncomment the tor/i2p/lokinet service definition
-#   2. Uncomment the corresponding volume (if needed)
+# To enable I2P/Lokinet support:
+#   1. Uncomment the i2p/lokinet service definition
+#   2. Uncomment the corresponding volume in the volumes section
 #   3. Uncomment the depends_on entries in validator/monitor/synchronizer
 #   4. Enable the network in config/*.yaml (set enabled: true)
 # ============================================================================
@@ -50,16 +50,11 @@ services:
       retries: 5
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
 
     logging:
       driver: "json-file"
       options:
-        max-size: "100m"
+        max-size: "50m"
         max-file: "5"
 
     command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
@@ -102,11 +97,6 @@ services:
       retries: 3
       start_period: 20s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -115,37 +105,31 @@ services:
         max-file: "3"
 
   # --------------------------------------------------------------------------
-  # Tor Proxy (SOCKS5) - .onion relay support [DISABLED]
+  # Tor Proxy (SOCKS5) - .onion relay support
   # --------------------------------------------------------------------------
-  # tor:
-  #   image: osminogin/tor-simple:0.4.8.10
-  #   container_name: lilbrotr-tor
-  #   restart: unless-stopped
-  #
-  #   ports:
-  #     - "127.0.0.1:9051:9050"
-  #
-  #   networks:
-  #     - lilbrotr-data-network
-  #
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 || exit 1"]
-  #     interval: 30s
-  #     timeout: 5s
-  #     retries: 3
-  #     start_period: 60s
-  #
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: '0.5'
-  #         memory: 256M
-  #
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "50m"
-  #       max-file: "3"
+  tor:
+    image: osminogin/tor-simple:0.4.8.10
+    container_name: lilbrotr-tor
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:9051:9050"
+
+    networks:
+      - lilbrotr-data-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
 
   # --------------------------------------------------------------------------
   # I2P Proxy (SOCKS5) - .i2p relay support [DISABLED]
@@ -249,11 +233,6 @@ services:
     healthcheck:
       disable: true
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -301,11 +280,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -327,7 +301,7 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      PRIVATE_KEY: ${PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
 
     volumes:
       - ./config:/app/config:ro
@@ -342,8 +316,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      # tor:
-      #   condition: service_healthy
+      tor:
+        condition: service_healthy
       # i2p:
       #   condition: service_healthy
       # lokinet:
@@ -360,11 +334,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -386,7 +355,7 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      PRIVATE_KEY: ${PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
 
     volumes:
       - ./config:/app/config:ro
@@ -402,8 +371,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      # tor:
-      #   condition: service_healthy
+      tor:
+        condition: service_healthy
       # i2p:
       #   condition: service_healthy
       # lokinet:
@@ -420,11 +389,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -446,7 +410,7 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      PRIVATE_KEY: ${PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
 
     volumes:
       - ./config:/app/config:ro
@@ -461,8 +425,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      # tor:
-      #   condition: service_healthy
+      tor:
+        condition: service_healthy
       # i2p:
       #   condition: service_healthy
       # lokinet:
@@ -479,11 +443,6 @@ services:
       retries: 3
       start_period: 60s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -531,11 +490,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -584,11 +538,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -610,7 +559,7 @@ services:
 
     environment:
       DB_READER_PASSWORD: ${DB_READER_PASSWORD}
-      PRIVATE_KEY: ${PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
 
     volumes:
       - ./config:/app/config:ro
@@ -637,11 +586,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -681,11 +625,6 @@ services:
       retries: 3
       start_period: 10s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
 
     logging:
       driver: "json-file"
@@ -725,11 +664,6 @@ services:
       retries: 3
       start_period: 10s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -765,11 +699,6 @@ services:
       timeout: 5s
       retries: 3
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
 
     logging:
       driver: "json-file"
@@ -791,8 +720,8 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
 
     volumes:
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
 
     ports:
       - "127.0.0.1:3001:3000"
@@ -811,11 +740,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -833,11 +757,11 @@ volumes:
     name: lilbrotr-alertmanager-data
   grafana-data:
     name: lilbrotr-grafana-data
-# Uncomment when enabling I2P or Lokinet:
-#   i2p-data:
-#     name: lilbrotr-i2p-data
-#   lokinet-data:
-#     name: lilbrotr-lokinet-data
+  # Uncomment when enabling I2P or Lokinet:
+  # i2p-data:
+  #   name: lilbrotr-i2p-data
+  # lokinet-data:
+  #   name: lilbrotr-lokinet-data
 
 # ----------------------------------------------------------------------------
 # Networks
@@ -855,7 +779,7 @@ networks:
 # ============================================================================
 #
 # 1. Setup:
-#    cp .env.example .env && nano .env  # Set DB_ADMIN_PASSWORD, PRIVATE_KEY
+#    cp .env.example .env && nano .env  # Set all DB passwords, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
 #
 # 2. Start:
 #    docker-compose up -d

@@ -107,3 +107,19 @@ groups:
           description: >-
             PostgreSQL buffer cache hit ratio is {{ $value | printf "%.1f" }}%,
             below the 95% threshold. Consider increasing shared_buffers.
+
+      # --------------------------------------------------------------------
+      # RefresherViewsFailing: Materialized view refreshes failing
+      # --------------------------------------------------------------------
+      - alert: RefresherViewsFailing
+        expr: >-
+          service_gauge{service="refresher", name="views_failed"} > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Refresher has {{ $value }} failing views"
+          description: >-
+            The refresher service has had {{ $value }} view refresh failures
+            for more than 10 minutes. Check database health and view
+            definitions.

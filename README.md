@@ -25,35 +25,25 @@
 BigBrotr runs 8 **independent** async services that continuously map and monitor the Nostr relay ecosystem. Each service runs on its own schedule, reads and writes a shared PostgreSQL database, and has no direct dependency on any other service.
 
 ```text
-                       ┌──────────────────────────────────────────────┐
-                       │            PostgreSQL Database               │
-                       │                                              │
-                       │  relay ── event_relay ── event               │
-                       │  service_state                               │
-                       │  metadata ── relay_metadata                  │
-                       │  11 materialized views                       │
-                       └──┬───┬───┬───┬───┬───┬───┬───┬──────────────┘
-                          │   │   │   │   │   │   │   │
-      ┌───────────────────┘   │   │   │   │   │   │   └──────────────────┐
-      │       ┌───────────────┘   │   │   │   │   └──────────────┐       │
-      │       │       ┌───────────┘   │   │   └──────────┐       │       │
-      ▼       ▼       ▼              ▼   ▼               ▼       ▼       ▼
- ┌────────┐┌──────┐┌─────────┐┌───────┐┌────────────┐┌────────┐┌───┐┌─────┐
- │ Seeder ││Finder││Validator││Monitor││Synchronizer││Refresh.││Api││ Dvm │
- │one-shot││      ││         ││       ││            ││        ││   ││     │
- │  boot  ││disco.││ test ws ││health ││archive evts││refresh ││REST││NIP90│
- └───┬────┘└──┬───┘└────┬────┘└───┬───┘└─────┬──────┘└───┬────┘└─┬─┘└──┬──┘
-     │        │         │         │           │           │       │     │
-     │        ▼         ▼         ▼           ▼           │       ▼     ▼
-     │   ┌─────────┐┌───────┐ ┌────────┐ ┌─────────┐    │   HTTP   Nostr
-     ▼   │  APIs   ││Relays │ │ Relays │ │ Relays  │    │  clients clients
-seed file│ (nostr. ││(WS    │ │(NIP-11,│ │ (fetch  │ (no I/O)
-         │  watch) ││ shake)│ │ NIP-66)│ │ events) │
-         └─────────┘└───────┘ └───┬────┘ └─────────┘
-                                   │
-                                   ▼
-                           Nostr Network
-                        (kind 10166/30166)
+                    ┌──────────────────────────────────────────────────────┐
+                    │                    PostgreSQL Database               │
+                    │                                                      │
+                    │         relay ─── event_relay ─── event              │
+                    │         metadata ─── relay_metadata                  │
+                    │         service_state     11 materialized views      │
+                    └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬──┘
+                       │      │      │      │      │      │      │      │
+                       ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
+                    Seeder Finder Valid. Monitor Sync. Refresh. Api    Dvm
+                       │      │      │      │      │      │      │      │
+                       ▼      ▼      ▼      ▼      ▼      │      ▼      ▼
+                    seed   HTTP   Relays Relays  Relays (no I/O) HTTP  Nostr
+                    file   APIs   (WS)  (NIP-11, (fetch               clients
+                                         NIP-66)  events)               │
+                                           │                            ▼
+                                           ▼                       Nostr Network
+                                      Nostr Network               (kind 5050/6050)
+                                    (kind 10166/30166)
 ```
 
 ### Services
@@ -99,50 +89,50 @@ Imports flow strictly downward:
 ┌─────────────────────┐         ┌──────────────────────────────────────┐
 │      relay          │         │              event                   │
 │─────────────────────│         │──────────────────────────────────────│
-│ url          PK     │◄──┐ ┌──►│ id             PK  (BYTEA, 32B)    │
-│ network      TEXT   │   │ │   │ pubkey         BYTEA (32B)          │
-│ discovered_at BIGINT│   │ │   │ created_at     BIGINT               │
-└─────────┬───────────┘   │ │   │ kind           INTEGER              │
+│ url          PK     │◄──┐ ┌──►│ id             PK  (BYTEA, 32B)      │
+│ network      TEXT   │   │ │   │ pubkey         BYTEA (32B)           │
+│ discovered_at BIGINT│   │ │   │ created_at     BIGINT                │
+└─────────┬───────────┘   │ │   │ kind           INTEGER               │
           │               │ │   │ tags           JSONB                 │
-          │               │ │   │ tagvalues      TEXT[] NOT NULL        │
+          │               │ │   │ tagvalues      TEXT[]                │
           │               │ │   │ content        TEXT                  │
           │               │ │   │ sig            BYTEA (64B)           │
           │               │ │   └──────────────────────────────────────┘
           │               │ │
-          │    ┌──────────┴─┴──────────┐
-          │    │     event_relay       │
-          │    │───────────────────────│
-          ├───►│ relay_url    FK ──► relay.url
-          │    │ event_id     FK ──► event.id
-          │    │ seen_at      BIGINT
-          │    │ PK(event_id, relay_url)
-          │    └───────────────────────┘
+          │    ┌──────────┴─┴──────────────────┐
+          │    │          event_relay          │
+          │    │───────────────────────────────│
+          ├───►│ relay_url    FK ──► relay.url |
+          │    │ event_id     FK ──► event.id  |
+          │    │ seen_at      BIGINT           |
+          │    │ PK(event_id, relay_url)       |
+          │    └───────────────────────────────┘
           │
-          │    ┌───────────────────────┐
-          │    │    relay_metadata     │
-          │    │───────────────────────│
-          ├───►│ relay_url    FK ──► relay.url
-          │    │ metadata_id  FK ──┐
-          │    │ metadata_type FK ─┤► metadata(id, type)
-          │    │ generated_at BIGINT
-          │    │ PK(relay_url, generated_at, metadata_type)
-               └──────────┬────────────┘
+          │    ┌───────────────────────────────────────────────┐
+          │    │                   relay_metadata              │
+          │    │───────────────────────────────────────────────│
+          └───►│ relay_url    FK ──► relay.url                 |
+               │ metadata_id  FK ──► metadata.id               |
+               │ metadata_type FK ──► metadata.type            |
+               │ generated_at BIGINT                           |
+               │ PK(relay_url, generated_at, metadata_type)    |
+               └──────────┬────────────────────────────────────┘
                           │
-               ┌──────────┴────────────┐
-               │      metadata         │
-               │───────────────────────│
-               │ id       PK  (BYTEA, SHA-256)
-               │ type     PK  (TEXT, 7 types)
-               │ data     JSONB
-               └───────────────────────┘
+               ┌──────────┴────────────────────┐
+               │          metadata             │
+               │───────────────────────────────│
+               │ id       PK  (BYTEA, SHA-256) |
+               │ type     PK  (TEXT, 7 types)  |
+               │ data     JSONB                |
+               └───────────────────────────────┘
 
 
                ┌───────────────────────┐
                │    service_state      │
                │───────────────────────│
-               │ service_name PK (TEXT)│  candidate, cursor, checkpoint
+               │ service_name PK (TEXT)│
                │ state_type   PK (TEXT)│
-               │ state_key    PK (TEXT)│  typically relay URL
+               │ state_key    PK (TEXT)│
                │ state_value  JSONB    │
                │ updated_at   BIGINT   │
                └───────────────────────┘
@@ -190,7 +180,7 @@ cd bigbrotr/deployments/bigbrotr
 
 # Configure secrets
 cp .env.example .env
-# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_READER_PASSWORD, PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD, DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
 
 # Start everything
 docker compose up -d
@@ -278,7 +268,7 @@ PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 
 All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO NOTHING`.
 
-### Materialized Views (11, BigBrotr Only)
+### Materialized Views (11)
 
 `relay_metadata_latest`, `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay`, `network_stats`, `relay_software_counts`, `supported_nip_counts`, `event_daily_counts` -- all support `REFRESH CONCURRENTLY` via unique indexes.
 
@@ -370,9 +360,10 @@ JSON mode available for cloud aggregation:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin password |
-| `DB_WRITER_PASSWORD` | Yes | Writer role password (all eight services) |
-| `DB_READER_PASSWORD` | Yes | Reader role password (read-only access) |
-| `PRIVATE_KEY` | For Monitor, Synchronizer, Validator, Dvm | Nostr private key (hex or nsec) for event signing |
+| `DB_WRITER_PASSWORD` | Yes | Writer role password (Seeder, Finder, Validator, Monitor, Synchronizer) |
+| `DB_REFRESHER_PASSWORD` | Yes | Refresher role password (matview ownership) |
+| `DB_READER_PASSWORD` | Yes | Reader role password (Api, Dvm, postgres-exporter) |
+| `NOSTR_PRIVATE_KEY` | For Monitor, Validator, Synchronizer, Dvm | Nostr private key (hex or nsec) for event signing and NIP-42 auth |
 | `GRAFANA_PASSWORD` | For Grafana | Grafana admin password |
 
 ### Configuration Files
@@ -428,7 +419,7 @@ make clean            # remove build artifacts and caches
 
 ### Test Suite
 
-- ~2,400 unit tests + ~94 integration tests (testcontainers PostgreSQL)
+- ~2,500 unit tests + ~94 integration tests (testcontainers PostgreSQL)
 - `asyncio_mode = "auto"` -- no `@pytest.mark.asyncio` needed
 - Global timeout: 120s per test
 - Shared fixtures via `tests/fixtures/relays.py` (registered as pytest plugin)
@@ -504,7 +495,7 @@ bigbrotr/
 │   └── lilbrotr/                    # Lightweight deployment
 ├── tests/
 │   ├── fixtures/relays.py           # Shared relay fixtures
-│   ├── unit/                        # ~2,400 tests (mirrors src/ structure)
+│   ├── unit/                        # ~2,500 tests (mirrors src/ structure)
 │   └── integration/                 # ~94 tests (testcontainers PostgreSQL)
 ├── docs/                            # MkDocs Material documentation
 ├── Makefile                         # Development targets
@@ -517,23 +508,23 @@ bigbrotr/
 
 ### Container Stack
 
-| Container | Image | Purpose | Resources |
-|-----------|-------|---------|-----------|
-| postgres | `postgres:16-alpine` | Primary storage | 2 CPU, 2 GB |
-| pgbouncer | `edoburu/pgbouncer:v1.25.1-p0` | Transaction-mode connection pooling | 0.5 CPU, 256 MB |
-| tor | `osminogin/tor-simple:0.4.8.10` | SOCKS5 proxy for .onion relays | 0.5 CPU, 256 MB |
-| seeder | bigbrotr (parametric) | Relay bootstrapping (one-shot) | 0.5 CPU, 256 MB |
-| finder | bigbrotr (parametric) | Relay discovery | 1 CPU, 512 MB |
-| validator | bigbrotr (parametric) | Candidate validation | 1 CPU, 512 MB |
-| monitor | bigbrotr (parametric) | Health monitoring + event publishing | 1 CPU, 512 MB |
-| synchronizer | bigbrotr (parametric) | Event archiving | 1 CPU, 512 MB |
-| refresher | bigbrotr (parametric) | Materialized view refresh | 0.25 CPU, 256 MB |
-| api | bigbrotr (parametric) | REST API (FastAPI) | 0.5 CPU, 256 MB |
-| dvm | bigbrotr (parametric) | NIP-90 Data Vending Machine | 0.5 CPU, 256 MB |
-| postgres-exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | PostgreSQL metrics | 0.25 CPU, 128 MB |
-| prometheus | `prom/prometheus:v2.51.0` | Metrics collection (30d retention) | 0.5 CPU, 512 MB |
-| alertmanager | `prom/alertmanager:v0.27.0` | Alert routing and grouping | 0.25 CPU, 128 MB |
-| grafana | `grafana/grafana:10.4.1` | Dashboards | 0.5 CPU, 512 MB |
+| Container | Image | Purpose |
+|-----------|-------|---------|
+| postgres | `postgres:16-alpine` | Primary storage |
+| pgbouncer | `edoburu/pgbouncer:v1.25.1-p0` | Transaction-mode connection pooling |
+| tor | `osminogin/tor-simple:0.4.8.10` | SOCKS5 proxy for .onion relays |
+| seeder | bigbrotr (parametric) | Relay bootstrapping (one-shot) |
+| finder | bigbrotr (parametric) | Relay discovery |
+| validator | bigbrotr (parametric) | Candidate validation |
+| monitor | bigbrotr (parametric) | Health monitoring + event publishing |
+| synchronizer | bigbrotr (parametric) | Event archiving |
+| refresher | bigbrotr (parametric) | Materialized view refresh |
+| api | bigbrotr (parametric) | REST API (FastAPI) |
+| dvm | bigbrotr (parametric) | NIP-90 Data Vending Machine |
+| postgres-exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | PostgreSQL metrics |
+| prometheus | `prom/prometheus:v2.51.0` | Metrics collection (30d retention) |
+| alertmanager | `prom/alertmanager:v0.27.0` | Alert routing and grouping |
+| grafana | `grafana/grafana:10.4.1` | Dashboards |
 
 ### Networks
 

@@ -1,5 +1,5 @@
 /*
- * LilBrotr - 04_functions_cleanup.sql
+ * Brotr - 04_functions_cleanup.sql
  *
  * Cleanup functions that remove orphaned records to maintain data integrity.
  * These should be run periodically or after bulk deletions from parent tables.

@@ -50,16 +50,11 @@ services:
       retries: 5
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
 
     logging:
       driver: "json-file"
       options:
-        max-size: "100m"
+        max-size: "50m"
         max-file: "5"
 
     command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
@@ -102,11 +97,6 @@ services:
       retries: 3
       start_period: 20s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -134,12 +124,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
-
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -249,11 +233,6 @@ services:
     healthcheck:
       disable: true
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -301,11 +280,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -327,7 +301,7 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      PRIVATE_KEY: ${PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
 
     volumes:
       - ./config:/app/config:ro
@@ -360,11 +334,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -386,7 +355,7 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      PRIVATE_KEY: ${PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
 
     volumes:
       - ./config:/app/config:ro
@@ -420,11 +389,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -446,7 +410,7 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      PRIVATE_KEY: ${PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
 
     volumes:
       - ./config:/app/config:ro
@@ -479,16 +443,11 @@ services:
       retries: 3
       start_period: 60s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
     logging:
       driver: "json-file"
       options:
-        max-size: "100m"
+        max-size: "50m"
         max-file: "5"
 
   # --------------------------------------------------------------------------
@@ -531,11 +490,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -584,11 +538,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -610,7 +559,7 @@ services:
 
     environment:
       DB_READER_PASSWORD: ${DB_READER_PASSWORD}
-      PRIVATE_KEY: ${PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
 
     volumes:
       - ./config:/app/config:ro
@@ -637,11 +586,6 @@ services:
       retries: 3
       start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
 
     logging:
       driver: "json-file"
@@ -681,11 +625,6 @@ services:
       retries: 3
       start_period: 10s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
 
     logging:
       driver: "json-file"
@@ -721,14 +660,10 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
+      start_period: 10s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -764,11 +699,6 @@ services:
       timeout: 5s
       retries: 3
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
 
     logging:
       driver: "json-file"
@@ -806,14 +736,10 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
+      start_period: 30s
 
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
 
     logging:
       driver: "json-file"
@@ -853,7 +779,7 @@ networks:
 # ============================================================================
 #
 # 1. Setup:
-#    cp .env.example .env && nano .env  # Set all DB passwords, PRIVATE_KEY, GRAFANA_PASSWORD
+#    cp .env.example .env && nano .env  # Set all DB passwords, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
 #
 # 2. Start:
 #    docker-compose up -d

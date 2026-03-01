@@ -326,6 +326,8 @@ class Monitor(
 
         async for successful, failed in self.check_chunks(relays):
             self.chunk_progress.record(succeeded=len(successful), failed=len(failed))
+            self.inc_counter("total_checks_succeeded", len(successful))
+            self.inc_counter("total_checks_failed", len(failed))
             await self.publish_relay_discoveries(successful)
             await self._persist_results(successful, failed)
             self._emit_progress_gauges()
@@ -724,6 +726,7 @@ class Monitor(
                 try:
                     count = await insert_relay_metadata(self._brotr, metadata)
                     self._logger.debug("metadata_inserted", count=count)
+                    self.inc_counter("total_metadata_stored", count)
                 except (asyncpg.PostgresError, OSError) as e:
                     self._logger.error("metadata_insert_failed", error=str(e), count=len(metadata))
 
@@ -744,13 +747,6 @@ class Monitor(
                 await upsert_service_states(self._brotr, markers)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("monitoring_save_failed", error=str(e))
-
-    def _emit_progress_gauges(self) -> None:
-        """Emit Prometheus gauges for batch progress."""
-        self.set_gauge("total", self.chunk_progress.total)
-        self.set_gauge("processed", self.chunk_progress.processed)
-        self.set_gauge("success", self.chunk_progress.succeeded)
-        self.set_gauge("failure", self.chunk_progress.failed)
 
     def _get_publish_relays(self, section_relays: list[Relay] | None) -> list[Relay]:
         """Get relays for event publishing, falling back to the global publishing relays."""
@@ -853,6 +849,7 @@ class Monitor(
             )
             if sent:
                 self._logger.debug("discoveries_published", count=len(builders))
+                self.inc_counter("total_events_published", len(builders))
             else:
                 self._logger.warning(
                     "discoveries_broadcast_failed",

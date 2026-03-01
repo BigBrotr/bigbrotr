@@ -37,7 +37,7 @@ def setup_logging() -> None:
 def mock_private_key(monkeypatch: pytest.MonkeyPatch) -> str:
     """Set up a mock private key in environment."""
     key = "0" * 64
-    monkeypatch.setenv("PRIVATE_KEY", key)
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY", key)
     return key
 
 

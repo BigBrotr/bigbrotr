@@ -1,11 +1,9 @@
 # =============================================================================
 # Finder Service Configuration (LilBrotr)
 # =============================================================================
+# Discovers new relay URLs from stored events and external APIs.
 # Only values that differ from defaults are specified here.
 # See brotr/config/services/finder.yaml for all options and documentation.
-#
-# Note: Event scanning is disabled because LilBrotr does not store
-# tags/tagvalues/content columns which are required for event scanning.
 # =============================================================================
 
 pool:
@@ -13,11 +11,6 @@ pool:
   password_env: DB_WRITER_PASSWORD
   max_size: 3
 
-interval: 3600.0                   # 1 hour (default: 300.0)
-
 metrics:
-  enabled: true                    # Enable metrics (default: false)
-  host: "0.0.0.0"                  # Bind to all interfaces for Docker (default: 127.0.0.1)
-
-events:
-  enabled: false                   # Disabled - LilBrotr lacks tags/content columns
+  enabled: true
+  host: "0.0.0.0"                  # Bind to all interfaces for Docker access

@@ -49,7 +49,7 @@ class TestEnvPrivateKeyConstant:
 
     def test_constant_value(self) -> None:
         """Test the constant has the expected value."""
-        assert ENV_PRIVATE_KEY == "PRIVATE_KEY"  # pragma: allowlist secret
+        assert ENV_PRIVATE_KEY == "NOSTR_PRIVATE_KEY"  # pragma: allowlist secret
 
     def test_constant_is_string(self) -> None:
         """Test the constant is a string."""
@@ -67,17 +67,17 @@ class TestLoadKeysFromEnvMissingVar:
     def test_raises_when_env_var_not_set(self) -> None:
         """Test that ValueError is raised when env var is not set."""
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("PRIVATE_KEY", None)
+            os.environ.pop("NOSTR_PRIVATE_KEY", None)
             with pytest.raises(ValueError) as exc_info:
-                load_keys_from_env("PRIVATE_KEY")
-            assert "PRIVATE_KEY environment variable is required" in str(exc_info.value)
+                load_keys_from_env("NOSTR_PRIVATE_KEY")
+            assert "NOSTR_PRIVATE_KEY environment variable is required" in str(exc_info.value)
 
     def test_raises_when_env_var_is_empty(self) -> None:
         """Test that ValueError is raised when env var is empty string."""
-        with patch.dict(os.environ, {"PRIVATE_KEY": ""}):  # pragma: allowlist secret
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": ""}):  # pragma: allowlist secret
             with pytest.raises(ValueError) as exc_info:
-                load_keys_from_env("PRIVATE_KEY")
-            assert "PRIVATE_KEY environment variable is required" in str(exc_info.value)
+                load_keys_from_env("NOSTR_PRIVATE_KEY")
+            assert "NOSTR_PRIVATE_KEY environment variable is required" in str(exc_info.value)
 
     def test_error_message_includes_generation_hint(self) -> None:
         """Test that error message includes hint for generating keys."""
@@ -93,27 +93,27 @@ class TestLoadKeysFromEnvHexKey:
 
     def test_valid_hex_key_returns_keys(self) -> None:
         """Test that valid 64-char hex key returns Keys object."""
-        with patch.dict(os.environ, {"PRIVATE_KEY": VALID_HEX_KEY}):
-            result = load_keys_from_env("PRIVATE_KEY")
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_HEX_KEY}):
+            result = load_keys_from_env("NOSTR_PRIVATE_KEY")
         assert isinstance(result, Keys)
 
     def test_hex_key_has_correct_secret_key(self) -> None:
         """Test that returned Keys has the correct secret key."""
-        with patch.dict(os.environ, {"PRIVATE_KEY": VALID_HEX_KEY}):
-            keys = load_keys_from_env("PRIVATE_KEY")
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_HEX_KEY}):
+            keys = load_keys_from_env("NOSTR_PRIVATE_KEY")
         assert keys.secret_key().to_hex() == VALID_HEX_KEY
 
     def test_hex_key_derives_public_key(self) -> None:
         """Test that public key is correctly derived from hex private key."""
-        with patch.dict(os.environ, {"PRIVATE_KEY": VALID_HEX_KEY}):
-            keys = load_keys_from_env("PRIVATE_KEY")
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_HEX_KEY}):
+            keys = load_keys_from_env("NOSTR_PRIVATE_KEY")
         assert keys.public_key() is not None
         assert len(keys.public_key().to_hex()) == 64
 
     def test_hex_key_public_key_format(self) -> None:
         """Test that public key can be converted to bech32."""
-        with patch.dict(os.environ, {"PRIVATE_KEY": VALID_HEX_KEY}):
-            keys = load_keys_from_env("PRIVATE_KEY")
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_HEX_KEY}):
+            keys = load_keys_from_env("NOSTR_PRIVATE_KEY")
         bech32 = keys.public_key().to_bech32()
         assert bech32.startswith("npub1")
 
@@ -123,21 +123,21 @@ class TestLoadKeysFromEnvNsecKey:
 
     def test_valid_nsec_key_returns_keys(self) -> None:
         """Test that valid nsec1 key returns Keys object."""
-        with patch.dict(os.environ, {"PRIVATE_KEY": VALID_NSEC_KEY}):
-            result = load_keys_from_env("PRIVATE_KEY")
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_NSEC_KEY}):
+            result = load_keys_from_env("NOSTR_PRIVATE_KEY")
         assert isinstance(result, Keys)
 
     def test_nsec_key_has_public_key(self) -> None:
         """Test that Keys from nsec has valid public key."""
-        with patch.dict(os.environ, {"PRIVATE_KEY": VALID_NSEC_KEY}):
-            keys = load_keys_from_env("PRIVATE_KEY")
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_NSEC_KEY}):
+            keys = load_keys_from_env("NOSTR_PRIVATE_KEY")
         assert keys.public_key() is not None
         assert len(keys.public_key().to_hex()) == 64
 
     def test_nsec_key_can_export_to_hex(self) -> None:
         """Test that nsec key can be exported to hex format."""
-        with patch.dict(os.environ, {"PRIVATE_KEY": VALID_NSEC_KEY}):
-            keys = load_keys_from_env("PRIVATE_KEY")
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_NSEC_KEY}):
+            keys = load_keys_from_env("NOSTR_PRIVATE_KEY")
         hex_key = keys.secret_key().to_hex()
         assert len(hex_key) == 64
         int(hex_key, 16)  # Verify it is valid hex
@@ -150,18 +150,18 @@ class TestLoadKeysFromEnvInvalidKeys:
     def test_invalid_key_raises_error(self, invalid_key: str) -> None:
         """Test that invalid keys raise an exception."""
         with (
-            patch.dict(os.environ, {"PRIVATE_KEY": invalid_key}),  # pragma: allowlist secret
+            patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": invalid_key}),  # pragma: allowlist secret
             pytest.raises(BaseException),  # noqa: B017 - nostr_sdk raises various exceptions
         ):
-            load_keys_from_env("PRIVATE_KEY")
+            load_keys_from_env("NOSTR_PRIVATE_KEY")
 
     def test_whitespace_key_raises_error(self) -> None:
         """Test that whitespace-only key raises an error."""
         with (
-            patch.dict(os.environ, {"PRIVATE_KEY": "   "}),  # pragma: allowlist secret
+            patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": "   "}),  # pragma: allowlist secret
             pytest.raises(BaseException),  # noqa: B017 - nostr_sdk raises various exceptions
         ):
-            load_keys_from_env("PRIVATE_KEY")
+            load_keys_from_env("NOSTR_PRIVATE_KEY")
 
 
 class TestLoadKeysFromEnvCustomEnvVar:
@@ -188,17 +188,17 @@ class TestLoadKeysFromEnvCustomEnvVar:
 
 
 class TestKeysConfigEnvironmentLoading:
-    """Tests for KeysConfig automatic loading from PRIVATE_KEY environment."""
+    """Tests for KeysConfig automatic loading from NOSTR_PRIVATE_KEY environment."""
 
     def test_raises_when_env_not_set(self) -> None:
-        """Test that exception is raised when PRIVATE_KEY is not set."""
+        """Test that exception is raised when NOSTR_PRIVATE_KEY is not set."""
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop(ENV_PRIVATE_KEY, None)
             with pytest.raises(Exception):  # noqa: B017
                 KeysConfig()
 
     def test_raises_when_env_empty(self) -> None:
-        """Test that exception is raised when PRIVATE_KEY is empty."""
+        """Test that exception is raised when NOSTR_PRIVATE_KEY is empty."""
         with (
             patch.dict(os.environ, {ENV_PRIVATE_KEY: ""}),
             pytest.raises(Exception),  # noqa: B017

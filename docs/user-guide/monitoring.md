@@ -19,6 +19,9 @@ flowchart LR
         V["Validator<br/><small>:8002</small>"]
         M["Monitor<br/><small>:8003</small>"]
         S["Synchronizer<br/><small>:8004</small>"]
+        R["Refresher<br/><small>:8005</small>"]
+        A["Api<br/><small>:8006</small>"]
+        D["Dvm<br/><small>:8007</small>"]
     end
 
     P["Prometheus<br/><small>:9090</small>"]
@@ -28,6 +31,9 @@ flowchart LR
     V -->|"/metrics"| P
     M -->|"/metrics"| P
     S -->|"/metrics"| P
+    R -->|"/metrics"| P
+    A -->|"/metrics"| P
+    D -->|"/metrics"| P
     P -->|"datasource"| G
 
     style P fill:#E65100,color:#fff,stroke:#BF360C
@@ -123,22 +129,42 @@ global:
 scrape_configs:
   - job_name: "finder"
     static_configs:
-      - targets: ["finder:8001"]
+      - targets: ["finder:8000"]
     scrape_interval: 30s
 
   - job_name: "validator"
     static_configs:
-      - targets: ["validator:8002"]
+      - targets: ["validator:8000"]
     scrape_interval: 30s
 
   - job_name: "monitor"
     static_configs:
-      - targets: ["monitor:8003"]
+      - targets: ["monitor:8000"]
     scrape_interval: 30s
 
   - job_name: "synchronizer"
     static_configs:
-      - targets: ["synchronizer:8004"]
+      - targets: ["synchronizer:8000"]
+    scrape_interval: 30s
+
+  - job_name: "refresher"
+    static_configs:
+      - targets: ["refresher:8000"]
+    scrape_interval: 30s
+
+  - job_name: "api"
+    static_configs:
+      - targets: ["api:8000"]
+    scrape_interval: 30s
+
+  - job_name: "dvm"
+    static_configs:
+      - targets: ["dvm:8000"]
+    scrape_interval: 30s
+
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
     scrape_interval: 30s
 
   - job_name: "prometheus"
@@ -154,7 +180,7 @@ Prometheus is configured with 30-day data retention. Data is persisted to a name
 
 ## Alerting Rules
 
-Six alerting rules are defined in `deployments/bigbrotr/monitoring/prometheus/rules/alerts.yml`:
+Seven alerting rules are defined in `deployments/bigbrotr/monitoring/prometheus/rules/alerts.yml`:
 
 ### ServiceDown
 
@@ -172,7 +198,10 @@ Fires when a service's `/metrics` endpoint is unreachable for more than 5 minute
 
 ```yaml
 alert: HighFailureRate
-expr: rate(bigbrotr_errors_total[5m]) > 0.1
+expr: >-
+  sum by (service) (
+    rate(service_counter_total{name=~"errors_.*"}[5m])
+  ) > 0.1
 for: 5m
 labels:
   severity: warning
@@ -180,26 +209,14 @@ labels:
 
 Fires when the error rate exceeds 0.1 errors/second over a 5-minute window. This may indicate connectivity issues, database problems, or relay protocol changes.
 
-### PoolExhausted
-
-```yaml
-alert: PoolExhausted
-expr: bigbrotr_pool_available_connections == 0 and bigbrotr_pool_max_connections > 0
-for: 2m
-labels:
-  severity: critical
-```
-
-Fires when the database connection pool has zero available connections for more than 2 minutes. Queries will queue or timeout. Resolution: increase `pool.limits.max_size` in `brotr.yaml`.
-
 ### ConsecutiveFailures
 
 ```yaml
 alert: ConsecutiveFailures
 expr: service_gauge{name="consecutive_failures"} >= 5
-for: 1m
+for: 2m
 labels:
-  severity: warning
+  severity: critical
 ```
 
 Fires when a service has accumulated 5 or more consecutive failures. This typically means the service is about to auto-stop (default `max_consecutive_failures: 5`).
@@ -208,7 +225,10 @@ Fires when a service has accumulated 5 or more consecutive failures. This typica
 
 ```yaml
 alert: SlowCycles
-expr: histogram_quantile(0.99, rate(cycle_duration_seconds_bucket[5m])) > 300
+expr: >-
+  histogram_quantile(0.99,
+    rate(cycle_duration_seconds_bucket[5m])
+  ) > 300
 for: 5m
 labels:
   severity: warning
@@ -220,7 +240,7 @@ Fires when the p99 cycle duration exceeds 5 minutes. This may indicate network c
 
 ```yaml
 alert: DatabaseConnectionsHigh
-expr: pg_stat_activity_count > 80
+expr: sum(pg_stat_activity_count{datname="bigbrotr"}) > 80
 for: 5m
 labels:
   severity: warning
@@ -232,7 +252,10 @@ Fires when the total PostgreSQL connection count exceeds 80. Check pool sizing a
 
 ```yaml
 alert: CacheHitRatioLow
-expr: pg_stat_database_blks_hit / (pg_stat_database_blks_hit + pg_stat_database_blks_read) < 0.95
+expr: >-
+  pg_stat_database_blks_hit{datname="bigbrotr"}
+  / (pg_stat_database_blks_hit{datname="bigbrotr"}
+     + pg_stat_database_blks_read{datname="bigbrotr"}) < 0.95
 for: 10m
 labels:
   severity: warning
@@ -240,16 +263,29 @@ labels:
 
 Fires when the PostgreSQL buffer cache hit ratio drops below 95%. This may indicate insufficient `shared_buffers` or dataset growth exceeding available memory.
 
+### RefresherViewsFailing
+
+```yaml
+alert: RefresherViewsFailing
+expr: service_gauge{service="refresher", name="views_failed"} > 0
+for: 10m
+labels:
+  severity: warning
+```
+
+Fires when the Refresher service has failing materialized view refreshes for more than 10 minutes. Check database health and view definitions.
+
 ### Alert Summary
 
 | Alert | Condition | Duration | Severity |
 |-------|-----------|----------|----------|
 | ServiceDown | `up == 0` | 5 min | critical |
 | HighFailureRate | Error rate > 0.1/s | 5 min | warning |
-| ConsecutiveFailures | Consecutive failures >= 5 | 1 min | warning |
+| ConsecutiveFailures | Consecutive failures >= 5 | 2 min | critical |
 | SlowCycles | p99 cycle duration > 300s | 5 min | warning |
 | DatabaseConnectionsHigh | PG connections > 80 | 5 min | warning |
 | CacheHitRatioLow | Buffer cache hit < 95% | 10 min | warning |
+| RefresherViewsFailing | Failing view refreshes > 0 | 10 min | warning |
 
 ---
 
@@ -259,13 +295,13 @@ Grafana is auto-provisioned with a Prometheus datasource and a BigBrotr dashboar
 
 ### Dashboard Panels
 
-Each service (Finder, Validator, Monitor, Synchronizer) has a row with:
+Each service has a row with:
 
 | Panel | Visualization | Query |
 |-------|--------------|-------|
 | Last Cycle | Stat (single value) | `time() - service_gauge{service="<name>", name="last_cycle_timestamp"}` |
 | Cycle Duration | Histogram | `cycle_duration_seconds{service="<name>"}` |
-| Error Count (24h) | Stat | `increase(service_counter{service="<name>", name="errors"}[24h])` |
+| Error Count (24h) | Stat | `increase(service_counter_total{service="<name>", name=~"errors_.*"}[24h])` |
 | Consecutive Failures | Stat | `service_gauge{service="<name>", name="consecutive_failures"}` |
 
 ### Thresholds
@@ -354,10 +390,7 @@ Docker Compose is configured with JSON file logging and size limits:
 | Service | Max Log Size |
 |---------|-------------|
 | Seeder | 10 MB |
-| Finder | 50 MB |
-| Validator | 50 MB |
-| Monitor | 50 MB |
-| Synchronizer | 100 MB |
+| All other services | 50 MB |
 
 ---
 
@@ -367,7 +400,7 @@ Docker Compose is configured with JSON file logging and size limits:
 
 ```promql
 # Are all services up?
-up{job=~"finder|validator|monitor|synchronizer"}
+up{job=~"finder|validator|monitor|synchronizer|refresher|api|dvm"}
 
 # Time since last successful cycle per service
 time() - service_gauge{name="last_cycle_timestamp"}
@@ -404,6 +437,6 @@ increase(service_counter{name="errors"}[24h])
 ## Related Documentation
 
 - [Architecture](architecture.md) -- System architecture and module reference
-- [Services](services.md) -- Deep dive into the six independent services
+- [Services](services.md) -- Deep dive into the eight independent services
 - [Configuration](configuration.md) -- YAML configuration reference (MetricsConfig details)
 - [Database](database.md) -- PostgreSQL schema and stored functions

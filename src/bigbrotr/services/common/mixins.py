@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 from bigbrotr.models.constants import NetworkType
 
@@ -26,7 +26,8 @@ from bigbrotr.models.constants import NetworkType
 if TYPE_CHECKING:
     import geoip2.database
 
-    from .configs import NetworksConfig
+    from .catalog import Catalog
+    from .configs import NetworksConfig, TableConfig
 
 
 @dataclass(slots=True)
@@ -124,6 +125,13 @@ class ChunkProgressMixin:
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.chunk_progress = ChunkProgress()
+
+    def _emit_progress_gauges(self) -> None:
+        """Emit Prometheus gauges for batch progress."""
+        self.set_gauge("total", self.chunk_progress.total)  # type: ignore[attr-defined]
+        self.set_gauge("processed", self.chunk_progress.processed)  # type: ignore[attr-defined]
+        self.set_gauge("success", self.chunk_progress.succeeded)  # type: ignore[attr-defined]
+        self.set_gauge("failure", self.chunk_progress.failed)  # type: ignore[attr-defined]
 
 
 #: Network types that support concurrent relay connections.
@@ -259,3 +267,48 @@ class GeoReaderMixin:
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.geo_readers = GeoReaders()
+
+
+class CatalogAccessMixin:
+    """Mixin providing schema catalog initialization and discovery.
+
+    Creates a [Catalog][bigbrotr.services.common.catalog.Catalog] instance
+    during ``__init__`` and discovers the database schema during
+    ``__aenter__``. Also provides a ``_is_table_enabled()`` helper that
+    checks table access policy from the service config.
+
+    Services must compose this mixin with
+    [BaseService][bigbrotr.core.base_service.BaseService] (which provides
+    ``_brotr``, ``_logger``, and ``_config``).
+
+    See Also:
+        [Api][bigbrotr.services.api.Api],
+        [Dvm][bigbrotr.services.dvm.Dvm]: Services that compose this mixin.
+        [Catalog][bigbrotr.services.common.catalog.Catalog]: Schema
+            introspection and query execution.
+    """
+
+    _catalog: Catalog
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        from .catalog import Catalog  # noqa: PLC0415
+
+        self._catalog = Catalog()
+
+    async def __aenter__(self) -> Self:
+        await super().__aenter__()  # type: ignore[misc]
+        await self._catalog.discover(self._brotr)  # type: ignore[attr-defined]
+        self._logger.info(  # type: ignore[attr-defined]
+            "schema_discovered",
+            tables=sum(1 for t in self._catalog.tables.values() if not t.is_view),
+            views=sum(1 for t in self._catalog.tables.values() if t.is_view),
+        )
+        return self
+
+    def _is_table_enabled(self, name: str) -> bool:
+        """Check whether a table is enabled per access policy (default: disabled)."""
+        policy: TableConfig | None = self._config.tables.get(name)  # type: ignore[attr-defined]
+        if policy is None:
+            return False
+        return policy.enabled

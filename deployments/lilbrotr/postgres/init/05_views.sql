@@ -1,5 +1,5 @@
 /*
- * LilBrotr - 05_views.sql
+ * Brotr - 05_views.sql
  *
  * Regular (non-materialized) views for real-time query abstractions.
  * Add views here when real-time data access is needed without the

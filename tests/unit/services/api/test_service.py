@@ -1,11 +1,10 @@
-"""Unit tests for services.api.service module.
+"""Unit tests for services.api.service module -- service logic.
 
 Tests:
-- ApiConfig defaults and validation
 - Api service initialization
-- Api._is_table_enabled policy checks
 - Api._build_app route registration
 - FastAPI endpoints via TestClient
+- Run cycle metrics and server task monitoring
 """
 
 import asyncio
@@ -14,141 +13,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from bigbrotr.core.brotr import Brotr
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.api.service import Api, ApiConfig
+from bigbrotr.services.api.service import Api
 from bigbrotr.services.common.catalog import (
-    Catalog,
     CatalogError,
-    ColumnSchema,
     QueryResult,
-    TableSchema,
 )
-from bigbrotr.services.common.configs import TableConfig
-
-
-# ============================================================================
-# Fixtures
-# ============================================================================
-
-
-@pytest.fixture
-def api_config() -> ApiConfig:
-    """Minimal API config for testing."""
-    return ApiConfig(
-        interval=60.0,
-        host="127.0.0.1",
-        port=9999,
-        max_page_size=100,
-        default_page_size=10,
-        tables={
-            "relay": TableConfig(enabled=True),
-            "relay_stats": TableConfig(enabled=True),
-        },
-    )
-
-
-@pytest.fixture
-def sample_catalog() -> Catalog:
-    """Catalog pre-populated with test tables."""
-    catalog = Catalog()
-    catalog._tables = {
-        "relay": TableSchema(
-            name="relay",
-            columns=(
-                ColumnSchema(name="url", pg_type="text", nullable=False),
-                ColumnSchema(name="network", pg_type="text", nullable=False),
-            ),
-            primary_key=("url",),
-            is_view=False,
-        ),
-        "relay_stats": TableSchema(
-            name="relay_stats",
-            columns=(
-                ColumnSchema(name="url", pg_type="text", nullable=False),
-                ColumnSchema(name="event_count", pg_type="bigint", nullable=False),
-            ),
-            primary_key=(),
-            is_view=True,
-        ),
-        "service_state": TableSchema(
-            name="service_state",
-            columns=(ColumnSchema(name="service_name", pg_type="text", nullable=False),),
-            primary_key=("service_name",),
-            is_view=False,
-        ),
-    }
-    return catalog
-
-
-@pytest.fixture
-def api_service(mock_brotr: Brotr, api_config: ApiConfig, sample_catalog: Catalog) -> Api:
-    """Api service with mocked catalog."""
-    service = Api(brotr=mock_brotr, config=api_config)
-    service._catalog = sample_catalog
-    return service
-
-
-@pytest.fixture
-def test_client(api_service: Api) -> TestClient:
-    """FastAPI TestClient from the Api service."""
-    app = api_service._build_app()
-    return TestClient(app)
-
-
-# ============================================================================
-# ApiConfig Tests
-# ============================================================================
-
-
-class TestApiConfig:
-    """Tests for ApiConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        config = ApiConfig()
-        assert config.host == "0.0.0.0"
-        assert config.port == 8080
-        assert config.max_page_size == 1000
-        assert config.default_page_size == 100
-        assert config.tables == {}
-        assert config.cors_origins == []
-
-    def test_custom_values(self) -> None:
-        config = ApiConfig(
-            host="127.0.0.1",
-            port=9000,
-            max_page_size=500,
-            tables={"event": TableConfig(enabled=True)},
-        )
-        assert config.port == 9000
-        assert config.max_page_size == 500
-        assert config.tables["event"].enabled is True
-
-    def test_inherits_base_service_config(self) -> None:
-        config = ApiConfig(interval=120.0)
-        assert config.interval == 120.0
-        assert config.max_consecutive_failures == 5
-
-    def test_request_timeout_default(self) -> None:
-        config = ApiConfig()
-        assert config.request_timeout == 30.0
-
-    def test_request_timeout_custom(self) -> None:
-        config = ApiConfig(request_timeout=60.0)
-        assert config.request_timeout == 60.0
-
-    def test_default_page_size_exceeds_max_rejected(self) -> None:
-        with pytest.raises(ValueError, match=r"default_page_size.*must not exceed.*max_page_size"):
-            ApiConfig(default_page_size=500, max_page_size=100)
-
-    def test_default_page_size_equals_max_accepted(self) -> None:
-        config = ApiConfig(default_page_size=100, max_page_size=100)
-        assert config.default_page_size == 100
-
-    def test_empty_host_rejected(self) -> None:
-        """Test that empty host string is rejected."""
-        with pytest.raises(ValueError):
-            ApiConfig(host="")
 
 
 # ============================================================================
@@ -166,15 +36,6 @@ class TestApi:
         assert api_service._requests_total == 0
         assert api_service._requests_failed == 0
         assert api_service._server_task is None
-
-    def test_is_table_enabled_explicit(self, api_service: Api) -> None:
-        assert api_service._is_table_enabled("relay") is True
-
-    def test_is_table_enabled_not_in_config(self, api_service: Api) -> None:
-        assert api_service._is_table_enabled("service_state") is False
-
-    def test_is_table_enabled_in_config(self, api_service: Api) -> None:
-        assert api_service._is_table_enabled("relay_stats") is True
 
 
 # ============================================================================
@@ -301,7 +162,7 @@ class TestApiEndpoints:
 
 
 # ============================================================================
-# Run Cycle Tests
+# Fallback Handler Tests
 # ============================================================================
 
 
@@ -342,6 +203,11 @@ class TestApiFallbackHandler:
         assert "Invalid filter value" in resp.json()["error"]
 
 
+# ============================================================================
+# Timeout Tests
+# ============================================================================
+
+
 class TestApiEndpointTimeouts:
     """Tests for per-route query timeouts."""
 
@@ -368,6 +234,11 @@ class TestApiEndpointTimeouts:
             resp = test_client.get("/api/v1/relay/wss://example.com")
         assert resp.status_code == 504
         assert "timeout" in resp.json()["error"].lower()
+
+
+# ============================================================================
+# Run Cycle Tests
+# ============================================================================
 
 
 class TestApiRun:

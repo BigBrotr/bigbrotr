@@ -1,44 +1,34 @@
-"""Unit tests for services.monitor module.
+"""Unit tests for services.monitor.service module.
 
 Tests:
-- Configuration models (MetadataFlags, ProcessingConfig, GeoConfig, etc.)
-- Monitor service initialization
-- Relay selection logic
-- Metadata batch insertion
-- NIP-66 data classes
-- Publishing and event builder orchestration (Kind 0, 10166, 30166)
+- Nip11 / Nip66 dataclass construction and metadata tuple conversion
+- RelayMetadata creation and DB params
+- Monitor initialization and configuration
+- Monitor fetch relays, run cycle
+- Monitor persist results
+- Network configuration
+- Publishing relay getters
+- Publishing: announcement, profile, relay discoveries
+- Event builders: Kind 0, 10166, 30166
+- End-to-end tag generation
+- Metrics counter emissions
 """
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
-from nostr_sdk import Keys
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay, RelayMetadata
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.nips.nip11 import Nip11
-from bigbrotr.nips.nip11.data import Nip11InfoData, Nip11InfoDataLimitation
-from bigbrotr.nips.nip11.info import Nip11InfoMetadata
-from bigbrotr.nips.nip11.logs import Nip11InfoLogs
-from bigbrotr.nips.nip66 import Nip66, Nip66RttMetadata, Nip66SslMetadata
-from bigbrotr.nips.nip66.data import Nip66RttData, Nip66SslData
-from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs, Nip66SslLogs
+from bigbrotr.nips.nip11.data import Nip11InfoDataLimitation
 from bigbrotr.services.common.configs import ClearnetConfig, NetworksConfig, TorConfig
 from bigbrotr.services.monitor import (
     AnnouncementConfig,
     CheckResult,
     DiscoveryConfig,
-    GeoConfig,
     MetadataFlags,
     Monitor,
     MonitorConfig,
@@ -46,462 +36,27 @@ from bigbrotr.services.monitor import (
     ProfileConfig,
     PublishingConfig,
 )
-
-
-# Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
-VALID_HEX_KEY = (
-    "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
+from tests.unit.services.monitor.conftest import (
+    FIXED_TIME,
+    _create_nip11,
+    _create_nip66,
+    _make_check_result,
+    _make_config,
+    _make_nip11_meta,
+    _make_rtt_meta,
+    _make_ssl_meta,
+    _MonitorStub,
 )
 
 
-# ============================================================================
-# Fixtures
-# ============================================================================
+if TYPE_CHECKING:
+    from pathlib import Path
 
-
-@pytest.fixture(autouse=True)
-def set_private_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Set PRIVATE_KEY environment variable for all monitor tests."""
-    monkeypatch.setenv("PRIVATE_KEY", VALID_HEX_KEY)
+    from nostr_sdk import Keys
 
 
 # ============================================================================
-# MetadataFlags Tests
-# ============================================================================
-
-
-class TestMetadataFlags:
-    """Tests for MetadataFlags Pydantic model."""
-
-    def test_default_values(self) -> None:
-        """Test all flags enabled by default."""
-        flags = MetadataFlags()
-
-        assert flags.nip11_info is True
-        assert flags.nip66_rtt is True
-        assert flags.nip66_ssl is True
-        assert flags.nip66_geo is True
-        assert flags.nip66_net is True
-        assert flags.nip66_dns is True
-        assert flags.nip66_http is True
-
-    def test_disable_flags(self) -> None:
-        """Test disabling specific flags."""
-        flags = MetadataFlags(nip66_geo=False, nip66_net=False)
-
-        assert flags.nip66_geo is False
-        assert flags.nip66_net is False
-        assert flags.nip66_rtt is True
-
-    def test_all_flags_disabled(self) -> None:
-        """Test disabling all flags."""
-        flags = MetadataFlags(
-            nip11_info=False,
-            nip66_rtt=False,
-            nip66_ssl=False,
-            nip66_geo=False,
-            nip66_net=False,
-            nip66_dns=False,
-            nip66_http=False,
-        )
-
-        assert flags.nip11_info is False
-        assert flags.nip66_rtt is False
-        assert flags.nip66_ssl is False
-        assert flags.nip66_geo is False
-        assert flags.nip66_net is False
-        assert flags.nip66_dns is False
-        assert flags.nip66_http is False
-
-
-# ============================================================================
-# ProcessingConfig Tests
-# ============================================================================
-
-
-class TestProcessingConfig:
-    """Tests for ProcessingConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        """Test default processing config."""
-        config = ProcessingConfig()
-
-        assert config.chunk_size == 100
-        assert config.nip11_info_max_size == 1048576
-        assert config.compute.nip11_info is True
-        assert config.store.nip11_info is True
-
-    def test_custom_values(self) -> None:
-        """Test custom processing config."""
-        config = ProcessingConfig(
-            chunk_size=50,
-            compute=MetadataFlags(nip66_geo=False),
-            store=MetadataFlags(nip66_geo=False),
-        )
-
-        assert config.chunk_size == 50
-        assert config.compute.nip66_geo is False
-        assert config.store.nip66_geo is False
-
-    def test_chunk_size_bounds(self) -> None:
-        """Test chunk_size validation bounds."""
-        # Valid values
-        config_min = ProcessingConfig(chunk_size=10)
-        assert config_min.chunk_size == 10
-
-        config_max = ProcessingConfig(chunk_size=1000)
-        assert config_max.chunk_size == 1000
-
-    def test_nip11_info_max_size_custom(self) -> None:
-        """Test custom NIP-11 info max size."""
-        config = ProcessingConfig(nip11_info_max_size=2097152)  # 2MB
-        assert config.nip11_info_max_size == 2097152
-
-
-# ============================================================================
-# GeoConfig Tests
-# ============================================================================
-
-
-class TestGeoConfig:
-    """Tests for GeoConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        """Test default geo config."""
-        config = GeoConfig()
-
-        assert config.city_database_path == "static/GeoLite2-City.mmdb"
-        assert config.asn_database_path == "static/GeoLite2-ASN.mmdb"
-        assert config.max_age_days == 30
-
-    def test_custom_paths(self) -> None:
-        """Test custom database paths."""
-        config = GeoConfig(
-            city_database_path="/custom/path/city.mmdb",
-            asn_database_path="/custom/path/asn.mmdb",
-            max_age_days=7,
-        )
-
-        assert config.city_database_path == "/custom/path/city.mmdb"
-        assert config.asn_database_path == "/custom/path/asn.mmdb"
-        assert config.max_age_days == 7
-
-    def test_max_age_days_validation(self) -> None:
-        """Test max_age_days can be set to various values."""
-        config = GeoConfig(max_age_days=1)
-        assert config.max_age_days == 1
-
-        config2 = GeoConfig(max_age_days=365)
-        assert config2.max_age_days == 365
-
-
-# ============================================================================
-# PublishingConfig Tests
-# ============================================================================
-
-
-class TestPublishingConfig:
-    """Tests for PublishingConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        """Test default publishing config."""
-        config = PublishingConfig()
-
-        assert config.relays == []
-
-    def test_custom_values(self) -> None:
-        """Test custom publishing config."""
-        config = PublishingConfig(relays=["wss://relay1.com", "wss://relay2.com"])
-
-        assert len(config.relays) == 2
-        assert config.relays[0].url == "wss://relay1.com"
-        assert config.relays[1].url == "wss://relay2.com"
-
-    def test_single_relay(self) -> None:
-        """Test publishing config with single relay."""
-        config = PublishingConfig(relays=["wss://single.relay.com"])
-        assert len(config.relays) == 1
-
-
-# ============================================================================
-# DiscoveryConfig Tests
-# ============================================================================
-
-
-class TestDiscoveryConfig:
-    """Tests for DiscoveryConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        """Test default discovery config."""
-        config = DiscoveryConfig()
-
-        assert config.enabled is True
-        assert config.interval == 3600
-        assert config.include.nip11_info is True
-        assert config.relays is None
-
-    def test_custom_values(self) -> None:
-        """Test custom discovery config."""
-        config = DiscoveryConfig(
-            enabled=False,
-            interval=7200,
-            include=MetadataFlags(nip66_http=False),
-            relays=["wss://relay1.com"],
-        )
-
-        assert config.enabled is False
-        assert config.interval == 7200
-        assert config.include.nip66_http is False
-        assert len(config.relays) == 1
-
-    def test_interval_validation(self) -> None:
-        """Test interval can be set to various values."""
-        config = DiscoveryConfig(interval=60)
-        assert config.interval == 60
-
-        config2 = DiscoveryConfig(interval=86400)
-        assert config2.interval == 86400
-
-
-# ============================================================================
-# AnnouncementConfig Tests
-# ============================================================================
-
-
-class TestAnnouncementConfig:
-    """Tests for AnnouncementConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        """Test default announcement config."""
-        config = AnnouncementConfig()
-
-        assert config.enabled is True
-        assert config.interval == 86400
-        assert config.relays is None
-
-    def test_custom_values(self) -> None:
-        """Test custom announcement config."""
-        config = AnnouncementConfig(
-            enabled=False,
-            interval=3600,
-            relays=["wss://relay.com"],
-        )
-
-        assert config.enabled is False
-        assert config.interval == 3600
-        assert len(config.relays) == 1
-
-
-# ============================================================================
-# ProfileConfig Tests
-# ============================================================================
-
-
-class TestProfileConfig:
-    """Tests for ProfileConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        """Test default profile config."""
-        config = ProfileConfig()
-
-        assert config.enabled is False
-        assert config.interval == 86400
-        assert config.relays is None
-
-    def test_custom_values(self) -> None:
-        """Test custom profile config."""
-        config = ProfileConfig(
-            enabled=True,
-            interval=43200,
-            relays=["wss://profile.relay.com"],
-        )
-
-        assert config.enabled is True
-        assert config.interval == 43200
-        assert len(config.relays) == 1
-
-
-# ============================================================================
-# MonitorConfig Tests
-# ============================================================================
-
-
-class TestMonitorConfig:
-    """Tests for MonitorConfig Pydantic model."""
-
-    def test_default_values_with_geo_disabled(self, tmp_path: Path) -> None:
-        """Test default configuration with geo/net disabled (no database needed)."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
-
-        assert config.networks.clearnet.enabled is True
-        assert config.networks.tor.enabled is False
-        assert config.processing.compute.nip66_geo is False
-        assert config.processing.compute.nip66_net is False
-
-    def test_store_requires_compute_validation(self, tmp_path: Path) -> None:
-        """Test that storing requires computing."""
-        with pytest.raises(ValueError, match="Cannot store metadata that is not computed"):
-            MonitorConfig(
-                processing=ProcessingConfig(
-                    compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                    store=MetadataFlags(
-                        nip66_geo=True, nip66_net=False
-                    ),  # geo store without compute
-                ),
-                discovery=DiscoveryConfig(
-                    include=MetadataFlags(nip66_geo=False, nip66_net=False),
-                ),
-            )
-
-    def test_networks_config(self) -> None:
-        """Test networks configuration."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            networks=NetworksConfig(
-                clearnet=ClearnetConfig(timeout=5.0),
-                tor=TorConfig(enabled=True, timeout=30.0),
-            ),
-        )
-
-        assert config.networks.clearnet.timeout == 5.0
-        assert config.networks.tor.enabled is True
-        assert config.networks.tor.timeout == 30.0
-
-    def test_interval_config(self) -> None:
-        """Test interval configuration from base service config."""
-        config = MonitorConfig(
-            interval=600.0,
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
-
-        assert config.interval == 600.0
-
-
-# ============================================================================
-# Helper Functions for Test Data Creation
-# ============================================================================
-
-
-def _create_nip11(relay: Relay, data: dict | None = None, generated_at: int = 1700000001) -> Nip11:
-    """Create a Nip11 instance with proper Nip11InfoMetadata structure."""
-    from bigbrotr.nips.nip11 import Nip11InfoData, Nip11InfoLogs, Nip11InfoMetadata
-
-    if data is None:
-        data = {}
-    info_data = Nip11InfoData.model_validate(Nip11InfoData.parse(data))
-    info_logs = Nip11InfoLogs(success=True)
-    info_metadata = Nip11InfoMetadata(data=info_data, logs=info_logs)
-    return Nip11(relay=relay, info=info_metadata, generated_at=generated_at)
-
-
-def _create_nip66(
-    relay: Relay,
-    rtt_data: dict | None = None,
-    ssl_data: dict | None = None,
-    geo_data: dict | None = None,
-    net_data: dict | None = None,
-    dns_data: dict | None = None,
-    http_data: dict | None = None,
-    generated_at: int = 1700000001,
-) -> Nip66:
-    """Create a Nip66 instance with proper metadata types."""
-    from bigbrotr.nips.nip66 import (
-        Nip66DnsData,
-        Nip66DnsLogs,
-        Nip66DnsMetadata,
-        Nip66GeoData,
-        Nip66GeoLogs,
-        Nip66GeoMetadata,
-        Nip66HttpData,
-        Nip66HttpLogs,
-        Nip66HttpMetadata,
-        Nip66NetData,
-        Nip66NetLogs,
-        Nip66NetMetadata,
-        Nip66RttData,
-        Nip66RttMetadata,
-        Nip66RttMultiPhaseLogs,
-        Nip66SslData,
-        Nip66SslLogs,
-        Nip66SslMetadata,
-    )
-
-    rtt_metadata = None
-    if rtt_data is not None:
-        rtt_metadata = Nip66RttMetadata(
-            data=Nip66RttData.model_validate(Nip66RttData.parse(rtt_data)),
-            logs=Nip66RttMultiPhaseLogs(open_success=True),
-        )
-
-    ssl_metadata = None
-    if ssl_data is not None:
-        ssl_metadata = Nip66SslMetadata(
-            data=Nip66SslData.model_validate(Nip66SslData.parse(ssl_data)),
-            logs=Nip66SslLogs(success=True),
-        )
-
-    geo_metadata = None
-    if geo_data is not None:
-        geo_metadata = Nip66GeoMetadata(
-            data=Nip66GeoData.model_validate(Nip66GeoData.parse(geo_data)),
-            logs=Nip66GeoLogs(success=True),
-        )
-
-    net_metadata = None
-    if net_data is not None:
-        net_metadata = Nip66NetMetadata(
-            data=Nip66NetData.model_validate(Nip66NetData.parse(net_data)),
-            logs=Nip66NetLogs(success=True),
-        )
-
-    dns_metadata = None
-    if dns_data is not None:
-        dns_metadata = Nip66DnsMetadata(
-            data=Nip66DnsData.model_validate(Nip66DnsData.parse(dns_data)),
-            logs=Nip66DnsLogs(success=True),
-        )
-
-    http_metadata = None
-    if http_data is not None:
-        http_metadata = Nip66HttpMetadata(
-            data=Nip66HttpData.model_validate(Nip66HttpData.parse(http_data)),
-            logs=Nip66HttpLogs(success=True),
-        )
-
-    return Nip66(
-        relay=relay,
-        rtt=rtt_metadata,
-        ssl=ssl_metadata,
-        geo=geo_metadata,
-        net=net_metadata,
-        dns=dns_metadata,
-        http=http_metadata,
-        generated_at=generated_at,
-    )
-
-
-# ============================================================================
-# NIP-66 Data Classes Tests
+# NIP-11 Tests
 # ============================================================================
 
 
@@ -550,6 +105,11 @@ class TestNip11:
         )
 
         assert nip11.info.data.name == "Test Relay"
+
+
+# ============================================================================
+# NIP-66 Tests
+# ============================================================================
 
 
 class TestNip66:
@@ -745,6 +305,11 @@ class TestNip66:
         assert nip66.rtt.logs.open_success is True
 
 
+# ============================================================================
+# RelayMetadata Tests
+# ============================================================================
+
+
 class TestRelayMetadataType:
     """Tests for RelayMetadata dataclass."""
 
@@ -804,15 +369,7 @@ class TestMonitorInit:
 
     def test_init_with_defaults(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test initialization with defaults (geo/net disabled)."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
+        config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
 
         assert monitor._brotr is mock_brotr
@@ -820,16 +377,7 @@ class TestMonitorInit:
 
     def test_init_with_custom_config(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         """Test initialization with custom config."""
-        config = MonitorConfig(
-            networks=NetworksConfig(tor=TorConfig(enabled=False)),
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
+        config = _make_config(networks=NetworksConfig(tor=TorConfig(enabled=False)))
         monitor = Monitor(brotr=mock_brotr, config=config)
 
         assert monitor.config.networks.tor.enabled is False
@@ -860,15 +408,7 @@ class TestMonitorFetchRelays:
         self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
     ) -> None:
         """Test fetching relays when none need checking."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
+        config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.chunk_progress.reset()
         relays = await monitor._fetch_relays([NetworkType.CLEARNET])
@@ -886,15 +426,7 @@ class TestMonitorFetchRelays:
             Relay("wss://relay2.example.com"),
         ]
 
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
+        config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.chunk_progress.reset()
         relays = await monitor._fetch_relays([NetworkType.CLEARNET])
@@ -926,15 +458,7 @@ class TestMonitorRun:
         """Test run cycle with no relays to check."""
         mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
+        config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         await monitor.run()
 
@@ -954,15 +478,7 @@ class TestMonitorRun:
         """Test run cycle resets progress at start."""
         mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
+        config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.chunk_progress.succeeded = 10
         monitor.chunk_progress.failed = 5
@@ -974,7 +490,7 @@ class TestMonitorRun:
 
 
 # ============================================================================
-# Monitor Insert Metadata Tests
+# Monitor Persist Results Tests
 # ============================================================================
 
 
@@ -986,15 +502,7 @@ class TestMonitorPersistResults:
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
         mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
+        config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         await monitor._persist_results([], [])
 
@@ -1005,15 +513,7 @@ class TestMonitorPersistResults:
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=2)  # type: ignore[method-assign]
         mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
+        config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
 
         relay1 = Relay("wss://relay1.example.com")
@@ -1033,15 +533,7 @@ class TestMonitorPersistResults:
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
         mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
+        config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
 
         relay1 = Relay("wss://failed1.example.com")
@@ -1065,29 +557,14 @@ class TestMonitorNetworkConfiguration:
 
     def test_enabled_networks_default(self, mock_brotr: Brotr) -> None:
         """Test default enabled networks via config.networks."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
+        config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         enabled = monitor._config.networks.get_enabled_networks()
         assert "clearnet" in enabled
 
     def test_enabled_networks_with_tor(self, mock_brotr: Brotr) -> None:
         """Test enabled networks with Tor enabled via config.networks."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
+        config = _make_config(
             networks=NetworksConfig(
                 clearnet=ClearnetConfig(enabled=True),
                 tor=TorConfig(enabled=True),
@@ -1097,185 +574,6 @@ class TestMonitorNetworkConfiguration:
         enabled = monitor._config.networks.get_enabled_networks()
         assert "clearnet" in enabled
         assert "tor" in enabled
-
-
-# ============================================================================
-# Publishing Test Harness
-# ============================================================================
-
-
-class _MonitorStub:
-    """Lightweight harness providing the attributes Monitor methods expect.
-
-    Binds Monitor's publishing/builder methods as class attributes so they
-    can be invoked on this stub without the full BaseService initialization.
-    """
-
-    SERVICE_NAME = ServiceName.MONITOR
-
-    def __init__(
-        self,
-        config: MonitorConfig,
-        keys: Keys,
-        brotr: AsyncMock | None = None,
-    ) -> None:
-        self._config = config
-        self._keys = keys
-        self._logger = MagicMock()
-        self._brotr = brotr or AsyncMock()
-
-    # Publishing methods bound from Monitor
-    _publish_if_due = Monitor._publish_if_due
-    publish_announcement = Monitor.publish_announcement
-    publish_profile = Monitor.publish_profile
-    publish_relay_discoveries = Monitor.publish_relay_discoveries
-    _get_publish_relays = Monitor._get_publish_relays
-
-    # Event builder methods bound from Monitor
-    _build_kind_0 = Monitor._build_kind_0
-    _build_kind_10166 = Monitor._build_kind_10166
-    _build_kind_30166 = Monitor._build_kind_30166
-
-
-# ============================================================================
-# Publishing Fixtures
-# ============================================================================
-
-
-@pytest.fixture
-def test_keys() -> Keys:
-    """Return Keys parsed from the valid hex test key."""
-    return Keys.parse(VALID_HEX_KEY)
-
-
-@pytest.fixture
-def all_flags_config() -> MonitorConfig:
-    """MonitorConfig with all metadata flags enabled and geo/net disabled to avoid DB checks."""
-    return MonitorConfig(
-        interval=3600.0,
-        processing=ProcessingConfig(
-            compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-            store=MetadataFlags(nip66_geo=False, nip66_net=False),
-        ),
-        discovery=DiscoveryConfig(
-            enabled=True,
-            include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            relays=["wss://disc.relay.com"],
-        ),
-        announcement=AnnouncementConfig(
-            enabled=True,
-            interval=86400,
-            relays=["wss://ann.relay.com"],
-        ),
-        profile=ProfileConfig(
-            enabled=True,
-            interval=86400,
-            relays=["wss://profile.relay.com"],
-            name="BigBrotr",
-            about="A monitor",
-            picture="https://example.com/pic.png",
-            nip05="monitor@example.com",
-            website="https://example.com",
-            banner="https://example.com/banner.png",
-            lud16="monitor@ln.example.com",
-        ),
-        publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
-        networks=NetworksConfig(clearnet=ClearnetConfig(timeout=10.0)),
-    )
-
-
-@pytest.fixture
-def stub(all_flags_config: MonitorConfig, test_keys: Keys) -> _MonitorStub:
-    """Return a _MonitorStub with all flags enabled."""
-    return _MonitorStub(all_flags_config, test_keys)
-
-
-# ============================================================================
-# Publishing Helper Functions
-# ============================================================================
-
-
-def _make_nip11_meta(
-    *,
-    name: str | None = None,
-    supported_nips: list[int] | None = None,
-    tags: list[str] | None = None,
-    language_tags: list[str] | None = None,
-    limitation: Nip11InfoDataLimitation | None = None,
-    success: bool = True,
-) -> Nip11InfoMetadata:
-    """Build a Nip11InfoMetadata with common test parameters."""
-    return Nip11InfoMetadata(
-        data=Nip11InfoData(
-            name=name,
-            supported_nips=supported_nips,
-            tags=tags,
-            language_tags=language_tags,
-            limitation=limitation or Nip11InfoDataLimitation(),
-        ),
-        logs=Nip11InfoLogs(success=success)
-        if success
-        else Nip11InfoLogs(
-            success=False,
-            reason="test failure",
-        ),
-    )
-
-
-def _make_rtt_meta(
-    *,
-    rtt_open: int | None = None,
-    rtt_read: int | None = None,
-    rtt_write: int | None = None,
-    open_success: bool = True,
-    write_success: bool | None = None,
-    write_reason: str | None = None,
-) -> Nip66RttMetadata:
-    """Build a Nip66RttMetadata with common test parameters."""
-    return Nip66RttMetadata(
-        data=Nip66RttData(rtt_open=rtt_open, rtt_read=rtt_read, rtt_write=rtt_write),
-        logs=Nip66RttMultiPhaseLogs(
-            open_success=open_success,
-            open_reason=None if open_success else "connection failed",
-            write_success=write_success,
-            write_reason=write_reason,
-        ),
-    )
-
-
-def _make_ssl_meta(
-    *,
-    ssl_valid: bool | None = None,
-    ssl_expires: int | None = None,
-    ssl_issuer: str | None = None,
-    success: bool = True,
-) -> Nip66SslMetadata:
-    """Build a Nip66SslMetadata with common test parameters."""
-    return Nip66SslMetadata(
-        data=Nip66SslData(ssl_valid=ssl_valid, ssl_expires=ssl_expires, ssl_issuer=ssl_issuer),
-        logs=Nip66SslLogs(success=success)
-        if success
-        else Nip66SslLogs(
-            success=False,
-            reason="test failure",
-        ),
-    )
-
-
-def _make_check_result(
-    *,
-    generated_at: int = 1700000000,
-    nip11: Nip11InfoMetadata | None = None,
-    nip66_rtt: Nip66RttMetadata | None = None,
-    nip66_ssl: Nip66SslMetadata | None = None,
-) -> CheckResult:
-    """Build a CheckResult with optional typed metadata fields."""
-    return CheckResult(
-        generated_at=generated_at,
-        nip11=nip11,
-        nip66_rtt=nip66_rtt,
-        nip66_ssl=nip66_ssl,
-    )
 
 
 # ============================================================================
@@ -1294,14 +592,7 @@ class TestGetPublishRelays:
 
     def test_get_publish_relays_discovery_falls_back_to_publishing(self, test_keys: Keys) -> None:
         """Test _get_publish_relays falls back to publishing.relays when discovery relays unset."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
+        config = _make_config(
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
         harness = _MonitorStub(config, test_keys)
@@ -1311,11 +602,7 @@ class TestGetPublishRelays:
 
     def test_get_publish_relays_discovery_empty_list_no_fallback(self, test_keys: Keys) -> None:
         """Test _get_publish_relays returns empty list when discovery relays explicitly []."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
+        config = _make_config(
             discovery=DiscoveryConfig(
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
                 relays=[],
@@ -1336,14 +623,7 @@ class TestGetPublishRelays:
         self, test_keys: Keys
     ) -> None:
         """Test _get_publish_relays falls back to publishing.relays when announcement relays unset."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
+        config = _make_config(
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
         harness = _MonitorStub(config, test_keys)
@@ -1353,14 +633,7 @@ class TestGetPublishRelays:
 
     def test_get_publish_relays_announcement_empty_list_no_fallback(self, test_keys: Keys) -> None:
         """Test _get_publish_relays returns empty list when announcement relays explicitly []."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
+        config = _make_config(
             announcement=AnnouncementConfig(relays=[]),
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
@@ -1376,14 +649,7 @@ class TestGetPublishRelays:
 
     def test_get_publish_relays_profile_falls_back_to_publishing(self, test_keys: Keys) -> None:
         """Test _get_publish_relays falls back to publishing.relays when profile relays unset."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
+        config = _make_config(
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
         harness = _MonitorStub(config, test_keys)
@@ -1393,14 +659,7 @@ class TestGetPublishRelays:
 
     def test_get_publish_relays_profile_empty_list_no_fallback(self, test_keys: Keys) -> None:
         """Test _get_publish_relays returns empty list when profile relays explicitly []."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
+        config = _make_config(
             profile=ProfileConfig(relays=[]),
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
@@ -1419,30 +678,14 @@ class TestPublishAnnouncement:
 
     async def test_publish_announcement_when_disabled(self, test_keys: Keys) -> None:
         """Test that publish_announcement returns immediately when disabled."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            announcement=AnnouncementConfig(enabled=False),
-        )
+        config = _make_config(announcement=AnnouncementConfig(enabled=False))
         harness = _MonitorStub(config, test_keys)
         await harness.publish_announcement()
         harness._brotr.get_service_state.assert_not_awaited()
 
     async def test_publish_announcement_when_no_relays(self, test_keys: Keys) -> None:
         """Test that publish_announcement returns when no relays configured."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
+        config = _make_config(
             announcement=AnnouncementConfig(enabled=True, relays=[]),
             publishing=PublishingConfig(relays=[]),
         )
@@ -1452,42 +695,45 @@ class TestPublishAnnouncement:
 
     async def test_publish_announcement_interval_not_elapsed(self, stub: _MonitorStub) -> None:
         """Test that announcement is skipped when interval has not elapsed."""
-        now = time.time()
         stub._brotr.get_service_state = AsyncMock(
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
                     state_type=ServiceStateType.PUBLICATION,
                     state_key="last_announcement",
-                    state_value={"published_at": now},
-                    updated_at=int(now),
+                    state_value={"published_at": FIXED_TIME},
+                    updated_at=int(FIXED_TIME),
                 )
             ]
         )
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_create:
+        with (
+            patch("bigbrotr.services.monitor.service.time") as mock_time,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
+            ) as mock_broadcast,
+        ):
+            mock_time.time.return_value = FIXED_TIME
             await stub.publish_announcement()
-            mock_create.assert_not_called()
+            mock_broadcast.assert_not_awaited()
 
     async def test_publish_announcement_no_prior_state(self, stub: _MonitorStub) -> None:
         """Test successful announcement publish when no prior state exists."""
         stub._brotr.get_service_state = AsyncMock(return_value=[])
-        mock_client = AsyncMock()
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
+            return_value=1,
+        ) as mock_broadcast:
             await stub.publish_announcement()
 
-        mock_client.send_event_builder.assert_awaited_once()
-        mock_client.shutdown.assert_awaited_once()
+        mock_broadcast.assert_awaited_once()
         stub._brotr.upsert_service_state.assert_awaited_once()
         stub._logger.info.assert_called_with("publish_completed", event="announcement", relays=1)
 
     async def test_publish_announcement_interval_elapsed(self, stub: _MonitorStub) -> None:
         """Test successful announcement publish when interval has elapsed."""
-        old_timestamp = time.time() - 100000  # well past the 86400 interval
+        old_timestamp = FIXED_TIME - 100_000  # well past the 86400 interval
         stub._brotr.get_service_state = AsyncMock(
             return_value=[
                 ServiceState(
@@ -1499,16 +745,19 @@ class TestPublishAnnouncement:
                 )
             ]
         )
-        mock_client = AsyncMock()
 
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            return_value=mock_client,
+        with (
+            patch("bigbrotr.services.monitor.service.time") as mock_time,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_broadcast,
         ):
+            mock_time.time.return_value = FIXED_TIME
             await stub.publish_announcement()
 
-        mock_client.send_event_builder.assert_awaited_once()
+        mock_broadcast.assert_awaited_once()
         stub._brotr.upsert_service_state.assert_awaited_once()
 
     async def test_publish_announcement_broadcast_failure(self, stub: _MonitorStub) -> None:
@@ -1516,9 +765,9 @@ class TestPublishAnnouncement:
         stub._brotr.get_service_state = AsyncMock(return_value=[])
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            side_effect=TimeoutError("connect timeout"),
+            return_value=0,
         ):
             await stub.publish_announcement()
 
@@ -1538,30 +787,14 @@ class TestPublishProfile:
 
     async def test_publish_profile_when_disabled(self, test_keys: Keys) -> None:
         """Test that publish_profile returns immediately when disabled."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            profile=ProfileConfig(enabled=False),
-        )
+        config = _make_config(profile=ProfileConfig(enabled=False))
         harness = _MonitorStub(config, test_keys)
         await harness.publish_profile()
         harness._brotr.get_service_state.assert_not_awaited()
 
     async def test_publish_profile_when_no_relays(self, test_keys: Keys) -> None:
         """Test that publish_profile returns when no relays configured."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
+        config = _make_config(
             profile=ProfileConfig(enabled=True, relays=[]),
             publishing=PublishingConfig(relays=[]),
         )
@@ -1571,35 +804,39 @@ class TestPublishProfile:
 
     async def test_publish_profile_interval_not_elapsed(self, stub: _MonitorStub) -> None:
         """Test that profile is skipped when interval has not elapsed."""
-        now = time.time()
         stub._brotr.get_service_state = AsyncMock(
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
                     state_type=ServiceStateType.PUBLICATION,
                     state_key="last_profile",
-                    state_value={"published_at": now},
-                    updated_at=int(now),
+                    state_value={"published_at": FIXED_TIME},
+                    updated_at=int(FIXED_TIME),
                 )
             ]
         )
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_create:
+        with (
+            patch("bigbrotr.services.monitor.service.time") as mock_time,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
+            ) as mock_broadcast,
+        ):
+            mock_time.time.return_value = FIXED_TIME
             await stub.publish_profile()
-            mock_create.assert_not_called()
+            mock_broadcast.assert_not_awaited()
 
     async def test_publish_profile_successful(self, stub: _MonitorStub) -> None:
         """Test successful profile publish when interval has elapsed."""
         stub._brotr.get_service_state = AsyncMock(return_value=[])
-        mock_client = AsyncMock()
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
+            return_value=1,
+        ) as mock_broadcast:
             await stub.publish_profile()
 
-        mock_client.send_event_builder.assert_awaited_once()
+        mock_broadcast.assert_awaited_once()
         stub._brotr.upsert_service_state.assert_awaited_once()
         stub._logger.info.assert_called_with("publish_completed", event="profile", relays=1)
 
@@ -1608,9 +845,9 @@ class TestPublishProfile:
         stub._brotr.get_service_state = AsyncMock(return_value=[])
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            side_effect=OSError("connection refused"),
+            return_value=0,
         ):
             await stub.publish_profile()
 
@@ -1630,11 +867,7 @@ class TestPublishRelayDiscoveries:
 
     async def test_publish_discoveries_when_disabled(self, test_keys: Keys) -> None:
         """Test that discoveries returns immediately when disabled."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
+        config = _make_config(
             discovery=DiscoveryConfig(
                 enabled=False,
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1645,17 +878,15 @@ class TestPublishRelayDiscoveries:
         relay = Relay("wss://relay.example.com")
         result = _make_check_result()
 
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_create:
+        with patch(
+            "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
+        ) as mock_broadcast:
             await harness.publish_relay_discoveries([(relay, result)])
-            mock_create.assert_not_called()
+            mock_broadcast.assert_not_awaited()
 
     async def test_publish_discoveries_when_no_relays(self, test_keys: Keys) -> None:
         """Test that discoveries returns when no relays configured."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
+        config = _make_config(
             discovery=DiscoveryConfig(
                 enabled=True,
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -1668,24 +899,25 @@ class TestPublishRelayDiscoveries:
         relay = Relay("wss://relay.example.com")
         result = _make_check_result()
 
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_create:
+        with patch(
+            "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
+        ) as mock_broadcast:
             await harness.publish_relay_discoveries([(relay, result)])
-            mock_create.assert_not_called()
+            mock_broadcast.assert_not_awaited()
 
     async def test_publish_discoveries_successful(self, stub: _MonitorStub) -> None:
         """Test successful relay discovery publishing."""
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11=_make_nip11_meta(name="Test Relay"))
-        mock_client = AsyncMock()
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
+            return_value=1,
+        ) as mock_broadcast:
             await stub.publish_relay_discoveries([(relay, result)])
 
-        mock_client.send_event_builder.assert_awaited_once()
+        mock_broadcast.assert_awaited_once()
         stub._logger.debug.assert_any_call("discoveries_published", count=1)
 
     async def test_publish_discoveries_build_failure_for_individual(
@@ -1696,8 +928,6 @@ class TestPublishRelayDiscoveries:
         relay2 = Relay("wss://relay2.example.com")
         result1 = _make_check_result()
         result2 = _make_check_result(nip11=_make_nip11_meta(name="Test"))
-
-        mock_client = AsyncMock()
 
         # Patch _build_kind_30166 to raise on the first relay only
         original_build = Monitor._build_kind_30166
@@ -1713,14 +943,13 @@ class TestPublishRelayDiscoveries:
         stub._build_kind_30166 = lambda r, res: _patched_build(stub, r, res)  # type: ignore[assignment]
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
+            return_value=1,
+        ) as mock_broadcast:
             await stub.publish_relay_discoveries([(relay1, result1), (relay2, result2)])
 
-        # One builder should have succeeded
-        mock_client.send_event_builder.assert_awaited_once()
+        mock_broadcast.assert_awaited_once()
         stub._logger.debug.assert_any_call(
             "build_30166_failed", url=relay1.url, error="build failed for relay1"
         )
@@ -1731,9 +960,9 @@ class TestPublishRelayDiscoveries:
         result = _make_check_result()
 
         with patch(
-            "bigbrotr.utils.protocol.connect_relay",
+            "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
-            side_effect=TimeoutError("broadcast timeout"),
+            return_value=0,
         ):
             await stub.publish_relay_discoveries([(relay, result)])
 
@@ -1756,14 +985,7 @@ class TestBuildKind0:
 
     def test_build_kind_0_minimal_fields(self, test_keys: Keys) -> None:
         """Test Kind 0 builder with only name field set."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
+        config = _make_config(
             profile=ProfileConfig(
                 enabled=True,
                 name="MinimalMonitor",
@@ -1775,16 +997,7 @@ class TestBuildKind0:
 
     def test_build_kind_0_no_fields(self, test_keys: Keys) -> None:
         """Test Kind 0 builder with no profile fields set."""
-        config = MonitorConfig(
-            processing=ProcessingConfig(
-                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
-                store=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-            profile=ProfileConfig(enabled=True),
-        )
+        config = _make_config(profile=ProfileConfig(enabled=True))
         harness = _MonitorStub(config, test_keys)
         builder = harness._build_kind_0()
         assert builder is not None
@@ -1977,3 +1190,92 @@ class TestEndToEndTagGeneration:
         relay = Relay("wss://relay.example.com")
         builder = stub._build_kind_30166(relay, result)
         assert builder is not None
+
+
+# ============================================================================
+# Metrics Tests
+# ============================================================================
+
+
+class TestMonitorMetrics:
+    """Tests for Monitor Prometheus counter emissions."""
+
+    async def test_monitor_emits_check_counters(self, mock_brotr: Brotr) -> None:
+        """Check succeeded/failed counters emitted after each chunk."""
+        config = _make_config(
+            discovery=DiscoveryConfig(
+                enabled=False,
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        relay1 = Relay("wss://ok.example.com")
+        relay2 = Relay("wss://fail.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
+        successful = [(relay1, result)]
+        failed_relays = [relay2]
+
+        async def fake_check_chunks(relays):  # type: ignore[no-untyped-def]
+            yield successful, failed_relays
+
+        with (
+            patch.object(monitor, "inc_counter") as mock_counter,
+            patch.object(monitor, "_fetch_relays", new_callable=AsyncMock, return_value=[relay1]),
+            patch.object(monitor, "check_chunks", side_effect=fake_check_chunks),
+            patch.object(monitor, "publish_relay_discoveries", new_callable=AsyncMock),
+            patch.object(monitor, "_persist_results", new_callable=AsyncMock),
+            patch(
+                "bigbrotr.services.monitor.service.cleanup_service_state",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+        ):
+            await monitor.monitor()
+
+        mock_counter.assert_any_call("total_checks_succeeded", 1)
+        mock_counter.assert_any_call("total_checks_failed", 1)
+
+    async def test_persist_results_emits_metadata_counter(self, mock_brotr: Brotr) -> None:
+        """Metadata stored counter emitted after successful insert."""
+        mock_brotr.insert_relay_metadata = AsyncMock(return_value=3)  # type: ignore[method-assign]
+        mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
+
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+        successful = [(relay, result)]
+
+        with patch.object(monitor, "inc_counter") as mock_counter:
+            await monitor._persist_results(successful, [])
+
+        mock_counter.assert_any_call("total_metadata_stored", 3)
+
+    async def test_publish_discoveries_emits_counter(self, mock_brotr: Brotr) -> None:
+        """Events published counter emitted after successful broadcast."""
+        config = _make_config(
+            discovery=DiscoveryConfig(
+                enabled=True,
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+                relays=["wss://disc.relay.com"],
+            ),
+            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+
+        with (
+            patch.object(monitor, "inc_counter") as mock_counter,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            await monitor.publish_relay_discoveries([(relay, result)])
+
+        mock_counter.assert_any_call("total_events_published", 1)

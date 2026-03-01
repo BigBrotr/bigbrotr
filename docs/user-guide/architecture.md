@@ -44,7 +44,7 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 | `NetworkType` | `constants.py` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
 | `MetadataType` | `metadata.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
 | `ServiceStateType` | `service_state.py` | `candidate`, `cursor`, `monitoring`, `publication` |
-| `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer` |
+| `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `api`, `dvm` |
 | `EventKind` | `constants.py` | `SET_METADATA=0`, `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
 
 ### Model Patterns
@@ -441,8 +441,9 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | Module | Purpose |
 |--------|---------|
 | `queries.py` | 15 domain SQL query functions |
-| `mixins.py` | `ChunkProgress`, `NetworkSemaphores`, `GeoReaders` + cooperative-inheritance mixins |
-| `configs.py` | Per-network Pydantic config models |
+| `mixins.py` | `ChunkProgress`, `NetworkSemaphores`, `GeoReaders`, `CatalogAccess` + cooperative-inheritance mixins |
+| `catalog.py` | Schema-driven `Catalog` for table discovery (Api, Dvm) and `CatalogError` |
+| `configs.py` | Per-network and per-table Pydantic config models |
 
 **Domain Query Functions** (15 total in `queries.py`):
 
@@ -541,13 +542,19 @@ flowchart LR
         RE["Refresher"]
     end
 
+    subgraph "Reader Services"
+        API["Api"]
+        DVM["Dvm"]
+    end
+
     subgraph "Per-Service asyncpg Pool"
-        APW["Writer Pool<br/><small>per-service sizing</small>"]
+        APW["asyncpg Pool<br/><small>per-service sizing</small>"]
+        APR["asyncpg Pool<br/><small>per-service sizing</small>"]
     end
 
     subgraph PGBouncer
-        PBW["Writer pool<br/><small>pool_size=10</small>"]
-        PBR["Reader pool<br/><small>pool_size=8</small>"]
+        PBW["bigbrotr<br/><small>pool_size=10</small>"]
+        PBR["bigbrotr_readonly<br/><small>pool_size=8</small>"]
     end
 
     subgraph PostgreSQL
@@ -559,17 +566,21 @@ flowchart LR
     MO --> APW
     SY --> APW
     RE --> APW
+    API --> APR
+    DVM --> APR
     APW --> PBW
+    APR --> PBR
     PBW --> PG
     PBR --> PG
 
     style APW fill:#512DA8,color:#fff,stroke:#311B92
+    style APR fill:#512DA8,color:#fff,stroke:#311B92
     style PBW fill:#1565C0,color:#fff,stroke:#0D47A1
     style PBR fill:#1565C0,color:#fff,stroke:#0D47A1
     style PG fill:#1B5E20,color:#fff,stroke:#0D3B0F
 ```
 
-Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: a **writer pool** for services and a **reader pool** for read-only consumers (postgres-exporter, future API/DVM).
+Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: **bigbrotr** (pool_size=10) for writer services (including Refresher, which uses its own DB role with materialized view ownership), and **bigbrotr_readonly** (pool_size=8) for read-only consumers (Api, Dvm, postgres-exporter).
 
 ### Per-Network Semaphores
 
@@ -608,11 +619,12 @@ service = Monitor(brotr=mock_brotr)
 
 ### Mixins for Cross-Cutting Concerns
 
-Monitor uses multiple mixins to compose behavior:
+Services use mixins from `services/common/mixins.py` to compose shared behavior:
 
-- `ChunkProgressMixin` -- chunk processing tracking (from `services/common/mixins.py`)
-- `NetworkSemaphoresMixin` -- per-network concurrency (from `services/common/mixins.py`)
-- `GeoReaderMixin` -- GeoIP database lifecycle (from `services/common/mixins.py`)
+- `ChunkProgressMixin` -- chunk processing tracking (Validator, Monitor)
+- `NetworkSemaphoresMixin` -- per-network concurrency (Validator, Monitor, Synchronizer)
+- `GeoReaderMixin` -- GeoIP database lifecycle (Monitor)
+- `CatalogAccessMixin` -- schema-driven table catalog (Api, Dvm)
 
 ### Content-Addressed Deduplication
 
@@ -655,6 +667,8 @@ flowchart TD
     C --> G["monitor.yaml"]
     C --> H["synchronizer.yaml"]
     C --> I["refresher.yaml"]
+    C --> J["api.yaml"]
+    C --> K["dvm.yaml"]
 
     style A fill:#7B1FA2,color:#fff,stroke:#4A148C
     style B fill:#512DA8,color:#fff,stroke:#311B92
@@ -671,7 +685,7 @@ All configuration uses Pydantic v2 models with:
 - Typed fields with defaults and constraints (`Field(ge=1, le=65535)`)
 - Nested models (e.g., `MonitorConfig.networks.clearnet.timeout`)
 - `model_validator` for cross-field validation (e.g., Monitor keys at config load time)
-- Environment variable injection for secrets (`DB_WRITER_PASSWORD`, `DB_READER_PASSWORD`, `PRIVATE_KEY`)
+- Environment variable injection for secrets (`DB_WRITER_PASSWORD`, `DB_READER_PASSWORD`, `DB_REFRESHER_PASSWORD`, `NOSTR_PRIVATE_KEY`)
 
 ### Environment Variables
 
@@ -679,8 +693,9 @@ All configuration uses Pydantic v2 models with:
 |----------|----------|---------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer auth |
 | `DB_WRITER_PASSWORD` | Yes | Writer services (via per-service pool overrides) |
-| `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, future API/DVM) |
-| `PRIVATE_KEY` | For Monitor | Monitor (Nostr event signing, RTT write tests) |
+| `DB_REFRESHER_PASSWORD` | Yes | Refresher (matview ownership for REFRESH CONCURRENTLY) |
+| `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, Api, Dvm) |
+| `NOSTR_PRIVATE_KEY` | For Monitor | Monitor (Nostr event signing, RTT write tests) |
 | `GRAFANA_PASSWORD` | No | Grafana (admin password) |
 
 ---
@@ -694,7 +709,7 @@ tests/
 ├── conftest.py                  # Root: mock_pool, mock_brotr, mock_connection, sample_*
 ├── fixtures/
 │   └── relays.py                # Shared relay fixtures (registered as pytest plugin)
-├── unit/                        # ~2300 tests, mirrors src/ structure
+├── unit/                        # ~2500 tests, mirrors src/ structure
 │   ├── core/                    # test_pool.py, test_brotr.py, test_base_service.py, ...
 │   ├── models/                  # test_relay.py, test_event.py, test_metadata.py, ...
 │   ├── nips/                    # nip11/, nip66/
@@ -721,7 +736,7 @@ tests/
 
 ## Related Documentation
 
-- [Services](services.md) -- Deep dive into the six independent services and data flow
+- [Services](services.md) -- Deep dive into the eight independent services and data flow
 - [Configuration](configuration.md) -- Complete YAML configuration reference
 - [Database](database.md) -- PostgreSQL schema, stored functions, and indexes
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

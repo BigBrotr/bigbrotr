@@ -195,12 +195,12 @@ async def filter_new_relays(
 
     rows = await brotr.fetch(
         """
-        SELECT url FROM unnest($1::text[]) AS url
-        WHERE NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = url)
+        SELECT t.url FROM unnest($1::text[]) AS t(url)
+        WHERE NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = t.url)
           AND NOT EXISTS (
               SELECT 1 FROM service_state ss
               WHERE ss.service_name = $2 AND ss.state_type = $3
-                AND ss.state_key = url
+                AND ss.state_key = t.url
           )
         """,
         urls,

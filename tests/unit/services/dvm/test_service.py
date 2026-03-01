@@ -1,183 +1,20 @@
-"""Unit tests for services.dvm.service module.
+"""Unit tests for services.dvm.service module — service logic.
 
 Tests:
-- DvmConfig defaults and validation
 - Dvm service initialization
 - Dvm._is_table_enabled and _get_table_price policy checks
 - Dvm._parse_job_params event tag parsing
 - Dvm._parse_query_filters filter string parsing
 - Dvm.run() cycle (mocked Nostr client)
+- Dvm Prometheus counter emissions
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-from bigbrotr.core.brotr import Brotr
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import (
-    Catalog,
-    ColumnSchema,
-    QueryResult,
-    TableSchema,
-)
-from bigbrotr.services.common.configs import TableConfig
-from bigbrotr.services.dvm.service import Dvm, DvmConfig
-
-
-# Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
-VALID_HEX_KEY = (
-    "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
-)
-
-
-# ============================================================================
-# Fixtures
-# ============================================================================
-
-
-@pytest.fixture(autouse=True)
-def _set_private_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Set PRIVATE_KEY environment variable for all DVM tests."""
-    monkeypatch.setenv("PRIVATE_KEY", VALID_HEX_KEY)
-
-
-@pytest.fixture
-def dvm_config() -> DvmConfig:
-    """Minimal DVM config for testing."""
-    return DvmConfig(
-        interval=60.0,
-        relays=["wss://relay.example.com"],
-        kind=5050,
-        max_page_size=100,
-        tables={
-            "relay": TableConfig(enabled=True),
-            "premium_data": TableConfig(enabled=True, price=5000),
-        },
-    )
-
-
-@pytest.fixture
-def sample_dvm_catalog() -> Catalog:
-    """Catalog pre-populated for DVM tests."""
-    catalog = Catalog()
-    catalog._tables = {
-        "relay": TableSchema(
-            name="relay",
-            columns=(
-                ColumnSchema(name="url", pg_type="text", nullable=False),
-                ColumnSchema(name="network", pg_type="text", nullable=False),
-            ),
-            primary_key=("url",),
-            is_view=False,
-        ),
-        "service_state": TableSchema(
-            name="service_state",
-            columns=(ColumnSchema(name="service_name", pg_type="text", nullable=False),),
-            primary_key=("service_name",),
-            is_view=False,
-        ),
-        "premium_data": TableSchema(
-            name="premium_data",
-            columns=(ColumnSchema(name="id", pg_type="integer", nullable=False),),
-            primary_key=("id",),
-            is_view=False,
-        ),
-    }
-    return catalog
-
-
-@pytest.fixture
-def dvm_service(mock_brotr: Brotr, dvm_config: DvmConfig, sample_dvm_catalog: Catalog) -> Dvm:
-    """Dvm service with mocked catalog and client."""
-    service = Dvm(brotr=mock_brotr, config=dvm_config)
-    service._catalog = sample_dvm_catalog
-    return service
-
-
-def _make_mock_event(
-    event_id: str = "abc123",
-    author_hex: str = "author_pubkey_hex",
-    tags: list[list[str]] | None = None,
-) -> MagicMock:
-    """Create a mock Nostr event for testing."""
-    event = MagicMock()
-    event.id.return_value.to_hex.return_value = event_id
-    event.author.return_value.to_hex.return_value = author_hex
-
-    if tags is None:
-        tags = [
-            ["param", "table", "relay"],
-            ["param", "limit", "10"],
-        ]
-
-    mock_tags = []
-    for tag_values in tags:
-        mock_tag = MagicMock()
-        mock_tag.as_vec.return_value = tag_values
-        mock_tags.append(mock_tag)
-
-    tag_list = MagicMock()
-    tag_list.to_vec.return_value = mock_tags
-    event.tags.return_value = tag_list
-
-    return event
-
-
-# ============================================================================
-# DvmConfig Tests
-# ============================================================================
-
-
-class TestDvmConfig:
-    """Tests for DvmConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        config = DvmConfig(relays=["wss://relay.example.com"])
-        assert config.kind == 5050
-        assert config.max_page_size == 1000
-        assert config.announce is True
-        assert config.tables == {}
-        assert config.fetch_timeout == 30.0
-
-    def test_custom_fetch_timeout(self) -> None:
-        config = DvmConfig(relays=["wss://relay.example.com"], fetch_timeout=60.0)
-        assert config.fetch_timeout == 60.0
-
-    def test_requires_relays(self) -> None:
-        with pytest.raises(ValueError):
-            DvmConfig(relays=[])
-
-    def test_kind_range(self) -> None:
-        with pytest.raises(ValueError):
-            DvmConfig(relays=["wss://x"], kind=4000)
-
-    def test_custom_tables(self) -> None:
-        config = DvmConfig(
-            relays=["wss://relay.example.com"],
-            tables={"relay": TableConfig(enabled=True, price=1000)},
-        )
-        assert config.tables["relay"].price == 1000
-        assert config.tables["relay"].enabled is True
-
-    def test_inherits_base_service_config(self) -> None:
-        config = DvmConfig(relays=["wss://relay.example.com"], interval=120.0)
-        assert config.interval == 120.0
-
-    def test_invalid_relay_url_rejected(self) -> None:
-        """Test that invalid relay URLs are rejected."""
-        with pytest.raises(ValueError, match="Invalid relay URL"):
-            DvmConfig(relays=["not_a_url"])
-
-    def test_valid_relay_urls_accepted(self) -> None:
-        """Test that valid WebSocket relay URLs are accepted."""
-        config = DvmConfig(relays=["wss://relay.damus.io", "wss://nos.lol"])
-        assert len(config.relays) == 2
-
-
-# ============================================================================
-# Dvm Service Tests
-# ============================================================================
+from bigbrotr.services.common.catalog import QueryResult
+from bigbrotr.services.dvm.service import Dvm
+from tests.unit.services.dvm.conftest import _make_mock_event
 
 
 class TestDvm:
@@ -190,11 +27,6 @@ class TestDvm:
         assert dvm_service._client is None
         assert dvm_service._last_fetch_ts == 0
         assert dvm_service._processed_ids == set()
-
-
-# ============================================================================
-# Table Policy Tests
-# ============================================================================
 
 
 class TestDvmTableAccessPolicy:
@@ -214,11 +46,6 @@ class TestDvmTableAccessPolicy:
 
     def test_paid_price(self, dvm_service: Dvm) -> None:
         assert dvm_service._get_table_price("premium_data") == 5000
-
-
-# ============================================================================
-# Event Parsing Tests
-# ============================================================================
 
 
 class TestParseJobParams:
@@ -294,11 +121,6 @@ class TestParseQueryFilters:
     def test_no_equals(self) -> None:
         result = Dvm._parse_query_filters("invalid")
         assert result is None
-
-
-# ============================================================================
-# Run Cycle Tests
-# ============================================================================
 
 
 class TestDvmRun:
@@ -573,3 +395,36 @@ class TestDvmRun:
 
         # Should have been cleared (10_001 >= _MAX_PROCESSED_IDS)
         assert len(dvm_service._processed_ids) == 0
+
+
+class TestDvmMetrics:
+    """Tests for Dvm Prometheus counter emissions."""
+
+    async def test_report_metrics_emits_total_jobs_received(self, dvm_service: Dvm) -> None:
+        """Cumulative total_jobs_received counter emitted after cycle with events."""
+        mock_client = MagicMock()
+        mock_client.send_event_builder = AsyncMock()
+
+        event = _make_mock_event(tags=[["param", "table", "relay"], ["param", "limit", "5"]])
+        events_obj = MagicMock()
+        events_obj.to_vec.return_value = [event]
+        mock_client.fetch_events = AsyncMock(return_value=events_obj)
+        dvm_service._client = mock_client
+
+        mock_result = QueryResult(
+            rows=[{"url": "wss://x", "network": "clearnet"}],
+            total=1,
+            limit=5,
+            offset=0,
+        )
+
+        with (
+            patch.object(
+                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+            ),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter") as mock_counter,
+        ):
+            await dvm_service.run()
+
+        mock_counter.assert_any_call("total_jobs_received", 1)

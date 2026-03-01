@@ -87,13 +87,13 @@ Stop all services that write to the database before restoring:
 === "Docker"
 
     ```bash
-    docker compose stop finder validator monitor synchronizer
+    docker compose stop finder validator monitor synchronizer refresher api dvm
     ```
 
 === "Systemd"
 
     ```bash
-    sudo systemctl stop bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer
+    sudo systemctl stop bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer bigbrotr-refresher bigbrotr-api bigbrotr-dvm
     ```
 
 ### Restore the database
@@ -129,13 +129,13 @@ This calls the stored function that refreshes all 11 materialized views concurre
 === "Docker"
 
     ```bash
-    docker compose start finder validator monitor synchronizer
+    docker compose start finder validator monitor synchronizer refresher api dvm
     ```
 
 === "Systemd"
 
     ```bash
-    sudo systemctl start bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer
+    sudo systemctl start bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer bigbrotr-refresher bigbrotr-api bigbrotr-dvm
     ```
 
 ## 5. Off-site Backup (Optional)

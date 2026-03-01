@@ -92,33 +92,25 @@ The codebase follows a strict **diamond-shaped Directed Acyclic Graph** for impo
 All 8 services are **independent processes** with no direct service-to-service dependencies. They communicate exclusively through the shared PostgreSQL database. Stopping one service does not break the others.
 
 ```
-                  ┌──────────────────────────────────────────────────────┐
-                  │               PostgreSQL Database                    │
-                  │                                                      │
-                  │  relay ─── event_relay ─── event                     │
-                  │  service_state (candidates/cursors)                  │
-                  │  metadata ─── relay_metadata                        │
-                  │  11 materialized views                              │
-                  └──┬───┬───┬───┬───┬───┬───┬───┬─────────────────────┘
-                     │   │   │   │   │   │   │   │
-  ┌──────────────────┘   │   │   │   │   │   │   └─────────────────────┐
-  │        ┌─────────────┘   │   │   │   │   └──────────────┐         │
-  │        │     ┌───────────┘   │   │   └──────────┐       │         │
-  ▼        ▼     ▼               ▼   ▼              ▼       ▼         ▼
-┌──────┐ ┌──────┐ ┌─────────┐ ┌───────┐ ┌────────────┐ ┌─────────┐ ┌───┐ ┌───┐
-│Seeder│ │Finder│ │Validator│ │Monitor│ │Synchronizer│ │Refresher│ │Api│ │Dvm│
-│      │ │      │ │         │ │       │ │            │ │         │ │   │ │   │
-│ boot │ │disc. │ │ test ws │ │health │ │archive evts│ │ refresh │ │REST│ │NIP│
-└──┬───┘ └──┬───┘ └───┬─────┘ └──┬────┘ └─────┬──────┘ └────┬────┘ └─┬─┘ └─┬─┘
-   │        │         │          │             │             │        │     │
-   ▼        ▼         ▼          ▼             ▼             │        ▼     ▼
-seed file  APIs     Relays    Relays        Relays        (no I/O)  HTTP  Nostr
-         (HTTP)   (WebSocket) (NIP-11,     (fetch                        Network
-                               NIP-66)     events)                     (kind 5050
-                                 │                                      /6050)
-                                 ▼
-                          Nostr Network
-                       (kind 10166/30166)
+                    ┌───────────────────────────────────────────────┐
+                    │              PostgreSQL Database               │
+                    │                                               │
+                    │  relay ─── event_relay ─── event              │
+                    │  metadata ─── relay_metadata                  │
+                    │  service_state     11 materialized views      │
+                    └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬───┘
+                       │      │      │      │      │      │      │      │
+                       ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
+                    Seeder Finder Valid. Monitor Sync. Refresh. Api    Dvm
+                       │      │      │      │      │      │      │      │
+                       ▼      ▼      ▼      ▼      ▼      │      ▼      ▼
+                    seed   HTTP   Relays Relays  Relays (no I/O) HTTP  Nostr
+                    file   APIs   (WS)  (NIP-11, (fetch         clients
+                                         NIP-66)  events)          │
+                                           │                       ▼
+                                           ▼                  Nostr Network
+                                      Nostr Network           (kind 5050/
+                                    (kind 10166/30166)          6050)
 ```
 
 ### Service-Database Interaction Map
@@ -608,6 +600,7 @@ All materialized views have unique indexes (required for `REFRESH MATERIALIZED V
 | Role | Permissions |
 |------|------------|
 | `bigbrotr_writer` | SELECT, INSERT, UPDATE, DELETE on all tables + EXECUTE on all functions |
+| `bigbrotr_refresher` | SELECT on all tables + EXECUTE on all functions + ownership of materialized views |
 | `bigbrotr_reader` | SELECT on all tables + EXECUTE on all functions + `pg_monitor` |
 
 ---
@@ -618,25 +611,23 @@ All materialized views have unique indexes (required for `REFRESH MATERIALIZED V
 
 15 containers on 2 bridge networks:
 
-| Container | Image | CPU | RAM | Purpose |
-|-----------|-------|-----|-----|---------|
-| PostgreSQL 16 | postgres:16-alpine | 2 | 2G | Primary database |
-| PGBouncer | edoburu/pgbouncer:v1.25.1 | 0.5 | 256M | Connection pooler (transaction mode) |
-| Tor | osminogin/tor-simple:0.4.8.10 | 0.5 | 256M | SOCKS5 proxy for .onion relays |
-| Seeder | bigbrotr (custom) | 0.5 | 256M | One-shot relay bootstrapping |
-| Finder | bigbrotr (custom) | 1 | 512M | Continuous relay discovery |
-| Validator | bigbrotr (custom) | 1 | 512M | WebSocket protocol validation |
-| Monitor | bigbrotr (custom) | 1 | 512M | Health checks + event publishing |
-| Synchronizer | bigbrotr (custom) | 1 | 512M | Event collection |
-| Refresher | bigbrotr (custom) | 0.25 | 256M | Materialized view refresh |
-| Api | bigbrotr (custom) | 0.5 | 256M | REST API (read-only) |
-| Dvm | bigbrotr (custom) | 0.5 | 256M | NIP-90 Data Vending Machine |
-| postgres-exporter | prometheuscommunity | 0.25 | 128M | PostgreSQL metrics for Prometheus |
-| Prometheus | prom/prometheus:v2.51.0 | 0.5 | 512M | Time-series metrics database (30-day retention) |
-| Alertmanager | prom/alertmanager:v0.27.0 | 0.25 | 128M | Alert routing and grouping |
-| Grafana | grafana/grafana:10.4.1 | 0.5 | 512M | Dashboards and visualization |
-
-**Total resources**: ~9.75 CPUs, ~6.9 GB RAM
+| Container | Image | Purpose |
+|-----------|-------|---------|
+| PostgreSQL 16 | postgres:16-alpine | Primary database |
+| PGBouncer | edoburu/pgbouncer:v1.25.1 | Connection pooler (transaction mode) |
+| Tor | osminogin/tor-simple:0.4.8.10 | SOCKS5 proxy for .onion relays |
+| Seeder | bigbrotr (custom) | One-shot relay bootstrapping |
+| Finder | bigbrotr (custom) | Continuous relay discovery |
+| Validator | bigbrotr (custom) | WebSocket protocol validation |
+| Monitor | bigbrotr (custom) | Health checks + event publishing |
+| Synchronizer | bigbrotr (custom) | Event collection |
+| Refresher | bigbrotr (custom) | Materialized view refresh |
+| Api | bigbrotr (custom) | REST API (read-only) |
+| Dvm | bigbrotr (custom) | NIP-90 Data Vending Machine |
+| postgres-exporter | prometheuscommunity | PostgreSQL metrics for Prometheus |
+| Prometheus | prom/prometheus:v2.51.0 | Time-series metrics database (30-day retention) |
+| Alertmanager | prom/alertmanager:v0.27.0 | Alert routing and grouping |
+| Grafana | grafana/grafana:10.4.1 | Dashboards and visualization |
 
 **Networks**:
 - `bigbrotr-data-network`: PostgreSQL, PGBouncer, Tor, services
@@ -732,7 +723,7 @@ JSON output mode available for machine parsing:
 
 | Category | Count | Description |
 |----------|-------|-------------|
-| Unit tests | ~2,400 | Isolated logic tests with mocked I/O |
+| Unit tests | ~2,500 | Isolated logic tests with mocked I/O |
 | Integration tests | ~90 | Real PostgreSQL via testcontainers |
 | Total | ~2,490 | Full suite |
 
@@ -881,7 +872,7 @@ All configuration uses Pydantic v2 models with:
 ### Credential Management
 
 - Database passwords loaded from environment variables (never in config files).
-- Nostr private keys loaded from `PRIVATE_KEY` environment variable.
+- Nostr private keys loaded from `NOSTR_PRIVATE_KEY` environment variable.
 - PGBouncer userlist generated dynamically from environment at container start.
 - `detect-secrets` pre-commit hook prevents accidental credential commits.
 
@@ -961,13 +952,13 @@ The primary deployment with complete event storage and 11 materialized views.
 
 ### lilbrotr (Lightweight)
 
-A minimal deployment optimized for reduced disk usage (~60% savings).
+A deployment optimized for reduced disk usage (~60% savings).
 
 - **Event storage**: All 8 columns present but tags, content, sig are nullable and always NULL.
-- **Materialized views**: None (reduces refresh overhead).
-- **Use case**: Relay health monitoring without event archiving.
+- **Materialized views**: All 11 analytics views (identical to bigbrotr).
+- **Use case**: Relay monitoring with lightweight event archiving (no tags/content/sig).
 
-Both share the same Dockerfile, service codebase, and CLI. The difference is entirely in SQL schema and configuration.
+Both share the same Dockerfile, service codebase, CLI, and service configurations. The only functional difference is the event table schema (nullable tags/content/sig columns) and the corresponding `event_insert()` stored procedure.
 
 ---
 
@@ -985,7 +976,7 @@ Both share the same Dockerfile, service codebase, and CLI. The difference is ent
 | Database tables | 6 |
 | Stored procedures | 25 |
 | Materialized views | 11 |
-| Unit tests | ~2,400 |
+| Unit tests | ~2,500 |
 | Integration tests | ~90 |
 | CI/CD pipelines | 4 |
 | Pre-commit hooks | 15 |

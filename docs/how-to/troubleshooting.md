@@ -31,13 +31,13 @@ Solutions for common issues and frequently asked questions about BigBrotr.
 
 **Solution**:
 
-Writer services (seeder, finder, validator, monitor, synchronizer, refresher) use `DB_WRITER_PASSWORD`. Read-only services use `DB_READER_PASSWORD`. Set the appropriate variable:
+Writer services (seeder, finder, validator, monitor, synchronizer) use `DB_WRITER_PASSWORD`. The refresher uses `DB_REFRESHER_PASSWORD`. Read-only services (api, dvm) use `DB_READER_PASSWORD`. Set the appropriate variable:
 
 1. Set the environment variable:
 
     === "Docker"
 
-        Add `DB_WRITER_PASSWORD` and `DB_READER_PASSWORD` to your `.env` file and verify with:
+        Add `DB_WRITER_PASSWORD`, `DB_REFRESHER_PASSWORD`, and `DB_READER_PASSWORD` to your `.env` file and verify with:
 
         ```bash
         docker compose config | grep DB_WRITER_PASSWORD
@@ -226,7 +226,7 @@ Disk usage depends on the number of relays monitored and events archived:
 
 ### What happens when a service crashes?
 
-All long-running services (`finder`, `validator`, `monitor`, `synchronizer`, `refresher`) have `restart: unless-stopped` in Docker Compose. When a service crashes:
+All long-running services (`finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `api`, `dvm`) have `restart: unless-stopped` in Docker Compose. When a service crashes:
 
 1. Docker restarts the container automatically after `RestartSec` (10s default).
 2. The service picks up where it left off using cursor state stored in the `service_state` table.

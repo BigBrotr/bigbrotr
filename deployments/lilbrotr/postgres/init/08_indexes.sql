@@ -1,5 +1,5 @@
 /*
- * LilBrotr - 08_indexes.sql
+ * Brotr - 08_indexes.sql
  *
  * Performance indexes for tables and materialized views. Organized by
  * target object. Every materialized view requires a UNIQUE index for
@@ -25,9 +25,15 @@ ON event USING btree (kind);
 CREATE INDEX IF NOT EXISTS idx_event_kind_created_at
 ON event USING btree (kind, created_at DESC);
 
--- Author lookup: WHERE pubkey = ?
-CREATE INDEX IF NOT EXISTS idx_event_pubkey
-ON event USING btree (pubkey);
+-- Author timeline: WHERE pubkey = ? ORDER BY created_at DESC
+-- Also covers pubkey-only lookups via leftmost prefix
+CREATE INDEX IF NOT EXISTS idx_event_pubkey_created_at
+ON event USING btree (pubkey, created_at DESC);
+
+-- Author + kind + timeline: WHERE pubkey = ? AND kind = ? ORDER BY created_at DESC
+-- Supports queries like "all text notes by this author, newest first"
+CREATE INDEX IF NOT EXISTS idx_event_pubkey_kind_created_at
+ON event USING btree (pubkey, kind, created_at DESC);
 
 -- Tag value containment: WHERE tagvalues @> ARRAY['e:<hex-id>']
 -- Requires the btree_gin extension for GIN support on text arrays
@@ -74,8 +80,9 @@ ON relay_metadata USING btree (generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id_type
 ON relay_metadata USING btree (metadata_id, metadata_type);
 
--- Latest metadata per relay and type:
--- WHERE relay_url = ? AND metadata_type = ? ORDER BY generated_at DESC LIMIT 1
+-- Latest metadata per relay and type (powers relay_metadata_latest view):
+-- WHERE relay_url = ? AND metadata_type = ? ORDER BY generated_at DESC
+-- Also covers (relay_url) and (relay_url, metadata_type) via leftmost prefix
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url_metadata_type_generated_at
 ON relay_metadata USING btree (relay_url, metadata_type, generated_at DESC);
 

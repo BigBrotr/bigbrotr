@@ -26,14 +26,16 @@ Generate secure values for each required secret:
 DB_ADMIN_PASSWORD=$(openssl rand -base64 32)
 DB_WRITER_PASSWORD=$(openssl rand -base64 32)
 DB_READER_PASSWORD=$(openssl rand -base64 32)
-PRIVATE_KEY=$(openssl rand -hex 32)
+DB_REFRESHER_PASSWORD=$(openssl rand -base64 32)
+NOSTR_PRIVATE_KEY=$(openssl rand -hex 32)
 GRAFANA_PASSWORD=$(openssl rand -base64 16)
 
 cat > .env << EOF
 DB_ADMIN_PASSWORD=${DB_ADMIN_PASSWORD}
 DB_WRITER_PASSWORD=${DB_WRITER_PASSWORD}
 DB_READER_PASSWORD=${DB_READER_PASSWORD}
-PRIVATE_KEY=${PRIVATE_KEY}
+DB_REFRESHER_PASSWORD=${DB_REFRESHER_PASSWORD}
+NOSTR_PRIVATE_KEY=${NOSTR_PRIVATE_KEY}
 GRAFANA_PASSWORD=${GRAFANA_PASSWORD}
 EOF
 ```
@@ -117,10 +119,13 @@ endpoints should show a green `UP` state:
 
 | Target | Endpoint |
 |--------|----------|
-| Finder | `finder:8001/metrics` |
-| Validator | `validator:8002/metrics` |
-| Monitor | `monitor:8003/metrics` |
-| Synchronizer | `synchronizer:8004/metrics` |
+| Finder | `finder:8000/metrics` |
+| Validator | `validator:8000/metrics` |
+| Monitor | `monitor:8000/metrics` |
+| Synchronizer | `synchronizer:8000/metrics` |
+| Refresher | `refresher:8000/metrics` |
+| Api | `api:8000/metrics` |
+| Dvm | `dvm:8000/metrics` |
 
 !!! tip
     If a target shows as `DOWN`, check the service logs:
@@ -201,6 +206,10 @@ All ports bind to `127.0.0.1` (localhost only) by default:
 | Validator Metrics | 8002 |
 | Monitor Metrics | 8003 |
 | Synchronizer Metrics | 8004 |
+| Refresher Metrics | 8005 |
+| Api HTTP | 8080 |
+| Api Metrics | 8006 |
+| Dvm Metrics | 8007 |
 
 ## Next Steps
 

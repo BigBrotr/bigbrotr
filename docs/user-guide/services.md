@@ -1,12 +1,12 @@
 # Services
 
-Deep dive into BigBrotr's six independent services: how relays are discovered, validated, monitored, how events are archived, and how analytics views are refreshed.
+Deep dive into BigBrotr's eight independent services: how relays are discovered, validated, monitored, how events are archived, how analytics views are refreshed, and how data is exposed via REST API and Nostr.
 
 ---
 
 ## Overview
 
-BigBrotr uses six independent async services that share a PostgreSQL database. Each service runs as its own process and can be started, stopped, and scaled independently:
+BigBrotr uses eight independent async services that share a PostgreSQL database. Each service runs as its own process and can be started, stopped, and scaled independently:
 
 --8<-- "docs/_snippets/pipeline.md"
 
@@ -295,7 +295,7 @@ class CheckResult(NamedTuple):
 | `networks` | NetworkConfig | -- | Per-network timeouts and concurrency |
 
 !!! warning
-    The Monitor requires the `PRIVATE_KEY` environment variable for signing published Nostr events and performing NIP-66 write tests.
+    The Monitor requires the `NOSTR_PRIVATE_KEY` environment variable for signing published Nostr events and performing NIP-66 write tests.
 
 !!! tip "API Reference"
     See [`bigbrotr.services.monitor`](../reference/services/monitor/index.md) for the complete Monitor API.
@@ -405,6 +405,82 @@ The Refresher calls views in dependency order: `relay_metadata_latest` first (be
 
 ---
 
+## Api
+
+**Purpose**: Expose the BigBrotr database as a read-only REST API via FastAPI.
+
+**Mode**: Continuous (HTTP server runs alongside the `run_forever` cycle)
+
+**Reads**: All tables, views, and materialized views (via Catalog)
+**Writes**: -- (read-only; emits Prometheus metrics)
+
+### How It Works
+
+1. On startup (`__aenter__`), discover the database schema via the shared Catalog
+2. Build a FastAPI application with auto-generated routes for each enabled table
+3. Register list endpoints (`GET /api/v1/{table}`) with pagination (`limit`, `offset`, `sort`, filters)
+4. Register detail endpoints (`GET /api/v1/{table}/{pk}`) for tables with a primary key
+5. Start uvicorn as a background asyncio task
+6. Each `run()` cycle logs request statistics (total, failed) and updates Prometheus gauges
+
+Endpoints also include `/health` (readiness check) and `/api/v1/schema` (schema introspection).
+
+### Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `host` | string | `0.0.0.0` | HTTP bind address |
+| `port` | int | `8080` | HTTP listen port |
+| `max_page_size` | int | `1000` | Hard ceiling on the `limit` query parameter |
+| `default_page_size` | int | `100` | Default `limit` when not specified |
+| `tables` | dict | `{}` | Per-table access policies (`enabled`, `price`) |
+| `cors_origins` | list | `[]` | Allowed CORS origins (empty disables CORS) |
+| `request_timeout` | float | `30.0` | Timeout in seconds for each database query |
+
+!!! tip "API Reference"
+    See [`bigbrotr.services.api`](../reference/services/api/index.md) for the complete Api service API.
+
+---
+
+## Dvm
+
+**Purpose**: Serve database queries over the Nostr protocol as a NIP-90 Data Vending Machine.
+
+**Mode**: Continuous (`run_forever`, default interval 60 seconds)
+
+**Reads**: All tables, views, and materialized views (via Catalog)
+**Writes**: -- (publishes Nostr events: kind 6050 results, kind 7000 feedback)
+
+### How It Works
+
+1. On startup (`__aenter__`), connect to configured relays and discover the database schema
+2. Optionally publish a NIP-89 handler announcement (kind 31990) advertising available tables
+3. Each `run()` cycle fetches new kind 5050 job request events using a `since` timestamp filter
+4. Parse job parameters from event tags: `table`, `limit`, `offset`, `sort`, `filter`, `columns`
+5. Execute the query via the shared Catalog (same engine as the Api service)
+6. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
+
+The Dvm supports per-table pricing via `TableConfig.price`. When a job's bid is below the required price, a payment-required feedback event is published instead of the query result.
+
+### Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `relays` | list[string] | -- (required) | Relay URLs to listen on and publish to |
+| `kind` | int | `5050` | NIP-90 request event kind (result = kind + 1000) |
+| `max_page_size` | int | `1000` | Hard ceiling on query limit |
+| `tables` | dict | `{}` | Per-table policies: `enabled` (bool), `price` (int, millisats) |
+| `announce` | bool | `true` | Publish NIP-89 handler announcement at startup |
+| `fetch_timeout` | float | `30.0` | Timeout for relay event fetching |
+
+!!! note "Nostr Keys"
+    The Dvm requires a `NOSTR_PRIVATE_KEY` environment variable (secp256k1 hex). See [KeysConfig](../reference/utils/keys.md) for details.
+
+!!! tip "API Reference"
+    See [`bigbrotr.services.dvm`](../reference/services/dvm/index.md) for the complete Dvm service API.
+
+---
+
 ## Service Lifecycle
 
 All services share a common lifecycle managed by `BaseService`:
@@ -464,6 +540,8 @@ For complete configuration details including all fields, defaults, constraints, 
 | Monitor | `processing.compute.*`, `discovery.enabled` | Which checks to run and publish |
 | Synchronizer | `concurrency.max_parallel`, `filter.kinds` | Archival throughput and scope |
 | Refresher | `views`, `interval` | Which views to refresh and how often |
+| Api | `tables`, `max_page_size`, `cors_origins` | Which tables to expose and pagination limits |
+| Dvm | `relays`, `tables`, `kind` | Which relays to listen on and tables to serve |
 
 ---
 

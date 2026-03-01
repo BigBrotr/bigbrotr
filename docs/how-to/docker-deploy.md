@@ -31,19 +31,23 @@ Edit `.env` and set the required secrets:
 
 ```bash
 # Required -- database passwords
-DB_ADMIN_PASSWORD=your_admin_password      # openssl rand -base64 32
-DB_WRITER_PASSWORD=your_writer_password    # openssl rand -base64 32
-DB_READER_PASSWORD=your_reader_password    # openssl rand -base64 32
+DB_ADMIN_PASSWORD=your_admin_password          # openssl rand -base64 32
+DB_WRITER_PASSWORD=your_writer_password        # openssl rand -base64 32
+DB_READER_PASSWORD=your_reader_password        # openssl rand -base64 32
+DB_REFRESHER_PASSWORD=your_refresher_password  # openssl rand -base64 32
 
 # Required -- application secrets
-PRIVATE_KEY=your_hex_private_key           # openssl rand -hex 32
+NOSTR_PRIVATE_KEY=your_hex_private_key           # openssl rand -hex 32
 GRAFANA_PASSWORD=your_grafana_password     # openssl rand -base64 16
 
-# Optional -- metrics port overrides
+# Optional -- metrics port overrides (host ports, all map to container port 8000)
 FINDER_METRICS_PORT=8001
 VALIDATOR_METRICS_PORT=8002
 MONITOR_METRICS_PORT=8003
 SYNCHRONIZER_METRICS_PORT=8004
+REFRESHER_METRICS_PORT=8005
+API_METRICS_PORT=8006
+DVM_METRICS_PORT=8007
 ```
 
 !!! danger "Protect your `.env` file"
@@ -55,7 +59,7 @@ SYNCHRONIZER_METRICS_PORT=8004
 docker compose up -d
 ```
 
-This starts all containers: PostgreSQL, PGBouncer, Tor, Seeder, Finder, Validator, Monitor, Synchronizer, Prometheus, and Grafana.
+This starts all containers: PostgreSQL, PGBouncer, Tor, Seeder, Finder, Validator, Monitor, Synchronizer, Refresher, Api, Dvm, Prometheus, Alertmanager, and Grafana.
 
 ### 4. Verify deployment
 
@@ -67,7 +71,7 @@ docker compose ps
 docker compose logs -f seeder
 
 # Follow service logs
-docker compose logs -f finder validator monitor synchronizer
+docker compose logs -f finder validator monitor synchronizer refresher api dvm
 ```
 
 !!! tip
@@ -82,11 +86,19 @@ graph TD
     Prometheus -->|scrapes /metrics| Validator["Validator :8002"]
     Prometheus -->|scrapes /metrics| Monitor["Monitor :8003"]
     Prometheus -->|scrapes /metrics| Synchronizer["Synchronizer :8004"]
+    Prometheus -->|scrapes /metrics| Refresher["Refresher :8005"]
+    Prometheus -->|scrapes /metrics| Api["Api :8006"]
+    Prometheus -->|scrapes /metrics| Dvm["Dvm :8007"]
+    Prometheus -->|scrapes /metrics| PGExporter["PG Exporter :9187"]
     Finder --> PGBouncer["PGBouncer :6432"]
     Validator --> PGBouncer
     Monitor --> PGBouncer
     Synchronizer --> PGBouncer
+    Refresher --> PGBouncer
+    Api --> PGBouncer
+    Dvm --> PGBouncer
     PGBouncer --> PostgreSQL["PostgreSQL :5432"]
+    PGExporter --> PostgreSQL
     Validator --> Tor["Tor :9050"]
     Monitor --> Tor
     Synchronizer --> Tor
@@ -102,16 +114,6 @@ Each deployment creates two Docker bridge networks:
 | **monitoring-network** | Prometheus, Grafana, all services | Metrics scraping and dashboards |
 
 PostgreSQL is only on the data network. Grafana is only on the monitoring network. Application services bridge both networks.
-
-## Resource Limits
-
-| Service | Restart Policy | CPU | Memory | Log Max |
-|---------|---------------|-----|--------|---------|
-| Seeder | `no` (one-shot) | 0.5 | 256 MB | 10 MB |
-| Finder | `unless-stopped` | 1 | 512 MB | 50 MB |
-| Validator | `unless-stopped` | 1 | 512 MB | 50 MB |
-| Monitor | `unless-stopped` | 1 | 512 MB | 50 MB |
-| Synchronizer | `unless-stopped` | 1 | 512 MB | 100 MB |
 
 ## Docker Commands Quick Reference
 
@@ -152,6 +154,10 @@ All ports bind to `127.0.0.1` (localhost only).
 | Validator Metrics | 8002 | 9002 |
 | Monitor Metrics | 8003 | 9003 |
 | Synchronizer Metrics | 8004 | 9004 |
+| Refresher Metrics | 8005 | 9005 |
+| Api HTTP | 8080 | 8081 |
+| Api Metrics | 8006 | 9006 |
+| Dvm Metrics | 8007 | 9007 |
 | Prometheus | 9090 | 9091 |
 | Grafana | 3000 | 3001 |
 

@@ -84,7 +84,7 @@ erDiagram
 | Extension | Purpose | BigBrotr | LilBrotr |
 |-----------|---------|----------|----------|
 | `btree_gin` | GIN index support for `TEXT[]` containment queries | Yes | Yes |
-| `pg_stat_statements` | Query execution statistics tracking | Yes | No |
+| `pg_stat_statements` | Query execution statistics tracking | Yes | Yes |
 
 ---
 
@@ -644,21 +644,7 @@ All materialized views require at least one unique index for `REFRESH CONCURRENT
 
 ### LilBrotr Table Indexes
 
-LilBrotr has a simpler table index set optimized for its lightweight event schema. Materialized view indexes are identical to BigBrotr (see above).
-
-| Index | Table | Columns | Type |
-|-------|-------|---------|------|
-| `idx_event_created_at` | event | `created_at DESC` | BTREE |
-| `idx_event_kind` | event | `kind` | BTREE |
-| `idx_event_kind_created_at` | event | `kind, created_at DESC` | BTREE |
-| `idx_event_pubkey` | event | `pubkey` | BTREE |
-| `idx_event_tagvalues` | event | `tagvalues` | GIN |
-| `idx_event_relay_relay_url` | event_relay | `relay_url` | BTREE |
-| `idx_event_relay_event_id` | event_relay | `event_id` | BTREE |
-| `idx_relay_metadata_generated_at` | relay_metadata | `generated_at DESC` | BTREE |
-| `idx_relay_metadata_metadata_id` | relay_metadata | `metadata_id` | BTREE |
-| `idx_relay_metadata_relay_url_metadata_type_generated_at` | relay_metadata | `relay_url, metadata_type, generated_at DESC` | BTREE |
-| `idx_service_state_candidate_network` | service_state | `state_value ->> 'network'` (partial) | BTREE |
+LilBrotr uses the same table and materialized view indexes as BigBrotr (see above). The only schema difference is the event table column nullability.
 
 ---
 
@@ -674,7 +660,7 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 | `01_functions_utility.sql` | `tags_to_tagvalues()` |
 | `02_tables.sql` | 6 tables with full event schema |
 | `03_functions_crud.sql` | 10 CRUD + 2 cascade functions |
-| `04_functions_cleanup.sql` | 3 cleanup functions |
+| `04_functions_cleanup.sql` | 2 cleanup functions |
 | `05_views.sql` | Regular views (reserved) |
 | `06_materialized_views.sql` | 11 materialized views |
 | `07_functions_refresh.sql` | 12 refresh functions |
@@ -760,6 +746,6 @@ CREATE TABLE event (
 ## Related Documentation
 
 - [Architecture](architecture.md) -- System architecture and module reference
-- [Services](services.md) -- Deep dive into the six independent services
+- [Services](services.md) -- Deep dive into the eight independent services
 - [Configuration](configuration.md) -- YAML configuration reference
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

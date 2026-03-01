@@ -4,21 +4,27 @@ build-backend = "uv_build"
 
 [project]
 name = "bigbrotr"
-version = "5.5.0"
-description = "A modular Nostr data archiving and monitoring system"
+version = "5.6.0"
+description = "Nostr network observatory: relay discovery, health monitoring, event archiving, and data access"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [{ name = "BigBrotr Contributors" }]
 keywords = [
     "nostr",
+    "relay",
+    "discovery",
+    "health-check",
     "archiving",
     "monitoring",
-    "postgresql",
-    "async",
-    "relay",
     "nip-11",
     "nip-66",
+    "nip-90",
+    "postgresql",
+    "async",
+    "rest-api",
+    "websocket",
+    "docker",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -53,7 +59,6 @@ dependencies = [
     "PyYAML>=6.0.1",
     "rfc3986>=2.0.0",
     "tldextract>=5.1.0",
-    "typing-extensions>=4.9.0",
     "cryptography>=46.0.5",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
@@ -92,9 +97,9 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/BigBrotr/bigbrotr"
+Homepage = "https://bigbrotr.com"
 Repository = "https://github.com/BigBrotr/bigbrotr"
-Documentation = "https://bigbrotr.github.io/bigbrotr/"
+Documentation = "https://docs.bigbrotr.com"
 Issues = "https://github.com/BigBrotr/bigbrotr/issues"
 Changelog = "https://github.com/BigBrotr/bigbrotr/blob/main/CHANGELOG.md"
 
@@ -208,7 +213,6 @@ strict = true
 module = [
     "nostr_sdk.*",
     "aiohttp_socks.*",
-    "aiomultiprocess.*",
     "rfc3986.*",
     "geohash2.*",
     "geoip2.*",

@@ -1,5 +1,5 @@
 /*
- * LilBrotr - 07_functions_refresh.sql
+ * Brotr - 07_functions_refresh.sql
  *
  * Refresh functions for materialized views. Each function wraps
  * REFRESH MATERIALIZED VIEW CONCURRENTLY, which rebuilds the view data
