@@ -5,16 +5,20 @@ Tests:
 - ChunkProgressMixin - Mixin that provides a progress attribute via __init__
 - NetworkSemaphores - Per-network concurrency semaphore container
 - NetworkSemaphoresMixin - Mixin that provides a network_semaphores attribute via __init__
+- CatalogAccessMixin - Mixin for schema catalog lifecycle and table access policy
 """
 
 import asyncio
 import time
-from unittest.mock import MagicMock, patch
+from typing import Self
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from bigbrotr.models.constants import NetworkType
+from bigbrotr.services.common.catalog import Catalog
 from bigbrotr.services.common.mixins import (
+    CatalogAccessMixin,
     ChunkProgress,
     ChunkProgressMixin,
     NetworkSemaphores,
@@ -652,3 +656,99 @@ class TestChunkProgressTypicalUsage:
         assert success_rate == pytest.approx(93.75)
         assert progress_pct == 80.0
         assert progress.remaining == 20
+
+
+# =============================================================================
+# Helper: fake base class for CatalogAccessMixin tests
+# =============================================================================
+
+
+class _FakeCatalogBase:
+    """Minimal stand-in for BaseService with _brotr, _logger, _config."""
+
+    def __init__(self, **kwargs: object) -> None:
+        self._brotr = MagicMock()
+        self._logger = MagicMock()
+        self._config = MagicMock()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+
+class _TestCatalogService(CatalogAccessMixin, _FakeCatalogBase):
+    """Concrete class combining CatalogAccessMixin with the fake base."""
+
+
+# =============================================================================
+# CatalogAccessMixin Tests
+# =============================================================================
+
+
+class TestCatalogAccessMixinInit:
+    """Tests for CatalogAccessMixin automatic __init__."""
+
+    def test_init_creates_catalog_instance(self) -> None:
+        svc = _TestCatalogService()
+        assert isinstance(svc._catalog, Catalog)
+
+    def test_catalog_has_no_tables_before_discovery(self) -> None:
+        svc = _TestCatalogService()
+        assert svc._catalog.tables == {}
+
+
+class TestCatalogAccessMixinAenter:
+    """Tests for CatalogAccessMixin.__aenter__ lifecycle."""
+
+    async def test_aenter_calls_discover_with_brotr(self) -> None:
+        svc = _TestCatalogService()
+        svc._catalog = MagicMock()
+        svc._catalog.discover = AsyncMock()
+        svc._catalog.tables = {}
+
+        await svc.__aenter__()
+
+        svc._catalog.discover.assert_awaited_once_with(svc._brotr)
+
+    async def test_aenter_logs_schema_discovered(self) -> None:
+        svc = _TestCatalogService()
+        svc._catalog = MagicMock()
+        svc._catalog.discover = AsyncMock()
+
+        table_mock = MagicMock(is_view=False)
+        view_mock = MagicMock(is_view=True)
+        svc._catalog.tables.values.return_value = [table_mock, table_mock, view_mock]
+
+        await svc.__aenter__()
+
+        svc._logger.info.assert_called_with("schema_discovered", tables=2, views=1)
+
+
+class TestCatalogAccessMixinIsTableEnabled:
+    """Tests for CatalogAccessMixin._is_table_enabled()."""
+
+    def test_returns_false_when_table_not_in_config(self) -> None:
+        svc = _TestCatalogService()
+        svc._config.tables = {}
+
+        assert svc._is_table_enabled("relay") is False
+
+    def test_returns_false_when_table_disabled(self) -> None:
+        svc = _TestCatalogService()
+        policy = MagicMock(enabled=False)
+        svc._config.tables = {"relay": policy}
+
+        assert svc._is_table_enabled("relay") is False
+
+    def test_returns_true_when_table_enabled(self) -> None:
+        svc = _TestCatalogService()
+        policy = MagicMock(enabled=True)
+        svc._config.tables = {"relay": policy}
+
+        assert svc._is_table_enabled("relay") is True
+
+    def test_returns_false_for_unknown_table(self) -> None:
+        svc = _TestCatalogService()
+        policy = MagicMock(enabled=True)
+        svc._config.tables = {"relay": policy}
+
+        assert svc._is_table_enabled("nonexistent") is False

@@ -40,8 +40,9 @@ from pydantic import Field, field_validator
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import Catalog, CatalogError, QueryResult
+from bigbrotr.services.common.catalog import CatalogError, QueryResult
 from bigbrotr.services.common.configs import TableConfig  # noqa: TC001 (Pydantic runtime)
+from bigbrotr.services.common.mixins import CatalogAccessMixin
 from bigbrotr.utils.keys import KeysConfig
 from bigbrotr.utils.protocol import create_client
 
@@ -94,7 +95,7 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
     fetch_timeout: float = Field(default=30.0, ge=1.0, le=300.0)
 
 
-class Dvm(BaseService[DvmConfig]):
+class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     """NIP-90 Data Vending Machine for BigBrotr database queries.
 
     Lifecycle:
@@ -108,21 +109,13 @@ class Dvm(BaseService[DvmConfig]):
     CONFIG_CLASS: ClassVar[type[DvmConfig]] = DvmConfig
 
     def __init__(self, brotr: Brotr, config: DvmConfig | None = None) -> None:
-        super().__init__(brotr, config)
-        self._catalog = Catalog()
+        super().__init__(brotr=brotr, config=config)
         self._client: Client | None = None
         self._last_fetch_ts: int = 0
         self._processed_ids: set[str] = set()
 
     async def __aenter__(self) -> Dvm:
         await super().__aenter__()
-
-        await self._catalog.discover(self._brotr)
-        self._logger.info(
-            "schema_discovered",
-            tables=sum(1 for t in self._catalog.tables.values() if not t.is_view),
-            views=sum(1 for t in self._catalog.tables.values() if t.is_view),
-        )
 
         client = await create_client(keys=self._config.keys)
         self._client = client
@@ -325,10 +318,7 @@ class Dvm(BaseService[DvmConfig]):
     def _is_table_enabled(self, name: str) -> bool:
         if name not in self._catalog.tables:
             return False
-        policy = self._config.tables.get(name)
-        if policy is None:
-            return False
-        return policy.enabled
+        return super()._is_table_enabled(name)
 
     def _get_table_price(self, name: str) -> int:
         policy = self._config.tables.get(name)

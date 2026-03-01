@@ -31,8 +31,9 @@ from pydantic import Field, model_validator
 
 from bigbrotr.core.base_service import BaseService, BaseServiceConfig
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import Catalog, CatalogError
+from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.configs import TableConfig  # noqa: TC001 (Pydantic runtime)
+from bigbrotr.services.common.mixins import CatalogAccessMixin
 
 
 if TYPE_CHECKING:
@@ -76,7 +77,7 @@ class ApiConfig(BaseServiceConfig):
         return self
 
 
-class Api(BaseService[ApiConfig]):
+class Api(CatalogAccessMixin, BaseService[ApiConfig]):
     """REST API service exposing the BigBrotr database read-only.
 
     Lifecycle:
@@ -92,21 +93,13 @@ class Api(BaseService[ApiConfig]):
     CONFIG_CLASS: ClassVar[type[ApiConfig]] = ApiConfig
 
     def __init__(self, brotr: Brotr, config: ApiConfig | None = None) -> None:
-        super().__init__(brotr, config)
-        self._catalog = Catalog()
+        super().__init__(brotr=brotr, config=config)
         self._server_task: asyncio.Task[None] | None = None
         self._requests_total = 0
         self._requests_failed = 0
 
     async def __aenter__(self) -> Api:
         await super().__aenter__()
-
-        await self._catalog.discover(self._brotr)
-        self._logger.info(
-            "schema_discovered",
-            tables=sum(1 for t in self._catalog.tables.values() if not t.is_view),
-            views=sum(1 for t in self._catalog.tables.values() if t.is_view),
-        )
 
         app = self._build_app()
         endpoint_count = sum(1 for name in self._catalog.tables if self._is_table_enabled(name))
@@ -158,13 +151,6 @@ class Api(BaseService[ApiConfig]):
         self.inc_counter("requests_total", total)
         self.inc_counter("requests_failed", failed)
         self.set_gauge("tables_exposed", tables_exposed)
-
-    def _is_table_enabled(self, name: str) -> bool:
-        """Check whether a table is enabled per policy (default: disabled)."""
-        policy = self._config.tables.get(name)
-        if policy is None:
-            return False
-        return policy.enabled
 
     def _build_app(self) -> FastAPI:
         """Construct the FastAPI application with auto-generated routes."""
