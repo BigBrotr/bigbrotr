@@ -80,6 +80,16 @@ class TestRefreshConfig:
         with pytest.raises(ValueError, match="views list must not be empty"):
             RefreshConfig(views=[])
 
+    def test_valid_view_names_accepted(self) -> None:
+        """Test valid SQL identifier view names pass validation."""
+        config = RefreshConfig(views=["relay_stats", "event_daily_counts"])
+        assert config.views == ["relay_stats", "event_daily_counts"]
+
+    def test_invalid_view_names_rejected(self) -> None:
+        """Test invalid view names raise validation error."""
+        with pytest.raises(ValueError, match="invalid view names"):
+            RefreshConfig(views=["relay-stats", "INVALID", "DROP TABLE"])
+
     def test_default_views_is_independent_copy(self) -> None:
         """Test each config gets an independent copy of DEFAULT_VIEWS."""
         config1 = RefreshConfig()

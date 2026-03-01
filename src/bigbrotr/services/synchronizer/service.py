@@ -245,8 +245,8 @@ class Synchronizer(NetworkSemaphoresMixin, BaseService[SynchronizerConfig]):
                     relay_url=s.state_key,
                     seen_at=int(s.state_value["last_synced_at"]),
                 )
-            except (ValueError, TypeError):
-                self._logger.warning("invalid_cursor_data", relay=s.state_key)
+            except (ValueError, TypeError) as e:
+                self._logger.warning("invalid_cursor_data", relay=s.state_key, error=str(e))
         return cursors
 
     def _merge_overrides(self, relays: list[Relay]) -> list[Relay]:

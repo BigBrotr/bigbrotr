@@ -314,7 +314,7 @@ class Api(BaseService[ApiConfig]):
             except TimeoutError:
                 return JSONResponse({"error": "Query timeout"}, status_code=504)
             except CatalogError as e:
-                return JSONResponse({"error": str(e)}, status_code=400)
+                return JSONResponse({"error": e.client_message}, status_code=400)
 
             return JSONResponse(
                 {
@@ -350,8 +350,13 @@ class Api(BaseService[ApiConfig]):
                     )
                 except TimeoutError:
                     return JSONResponse({"error": "Query timeout"}, status_code=504)
-                except (ValueError, CatalogError) as e:
-                    return JSONResponse({"error": str(e)}, status_code=400)
+                except ValueError:
+                    return JSONResponse(
+                        {"error": "Invalid request parameters"},
+                        status_code=400,
+                    )
+                except CatalogError as e:
+                    return JSONResponse({"error": e.client_message}, status_code=400)
 
                 if row is None:
                     return JSONResponse({"error": "not found"}, status_code=404)

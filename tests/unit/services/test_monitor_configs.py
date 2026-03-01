@@ -14,10 +14,14 @@ from unittest.mock import patch
 import pytest
 
 from bigbrotr.services.monitor.configs import (
+    AnnouncementConfig,
+    DiscoveryConfig,
     GeoConfig,
     MetadataFlags,
     MonitorConfig,
     ProcessingConfig,
+    ProfileConfig,
+    PublishingConfig,
     RetriesConfig,
     RetryConfig,
 )
@@ -337,3 +341,44 @@ class TestMonitorConfigValidatePublishRequiresCompute:
             ),
         )
         assert config.discovery.enabled is False
+
+
+# ============================================================================
+# Upper bound validation tests
+# ============================================================================
+
+
+class TestPublishingConfig:
+    """Tests for PublishingConfig field constraints."""
+
+    def test_timeout_upper_bound_rejected(self) -> None:
+        """Timeout above 300s is rejected."""
+        with pytest.raises(ValueError):
+            PublishingConfig(timeout=301.0)
+
+
+class TestDiscoveryConfig:
+    """Tests for DiscoveryConfig field constraints."""
+
+    def test_interval_upper_bound_rejected(self) -> None:
+        """Interval above 7 days is rejected."""
+        with pytest.raises(ValueError):
+            DiscoveryConfig(interval=604801.0)
+
+
+class TestAnnouncementConfig:
+    """Tests for AnnouncementConfig field constraints."""
+
+    def test_interval_upper_bound_rejected(self) -> None:
+        """Interval above 7 days is rejected."""
+        with pytest.raises(ValueError):
+            AnnouncementConfig(interval=604801.0)
+
+
+class TestProfileConfig:
+    """Tests for ProfileConfig field constraints."""
+
+    def test_interval_upper_bound_rejected(self) -> None:
+        """Interval above 7 days is rejected."""
+        with pytest.raises(ValueError):
+            ProfileConfig(interval=604801.0)

@@ -180,7 +180,9 @@ class PublishingConfig(BaseModel):
         list[Relay],
         BeforeValidator(lambda v: safe_parse(v, Relay)),
     ] = Field(default_factory=list)
-    timeout: float = Field(default=30.0, ge=0.1, description="Broadcast timeout in seconds")
+    timeout: float = Field(
+        default=30.0, ge=0.1, le=300.0, description="Broadcast timeout in seconds"
+    )
 
 
 class DiscoveryConfig(BaseModel):
@@ -192,7 +194,7 @@ class DiscoveryConfig(BaseModel):
     """
 
     enabled: bool = Field(default=True)
-    interval: float = Field(default=3600.0, ge=60.0)
+    interval: float = Field(default=3600.0, ge=60.0, le=604800.0)
     include: MetadataFlags = Field(default_factory=MetadataFlags)
     relays: Annotated[
         list[Relay] | None,
@@ -209,7 +211,7 @@ class AnnouncementConfig(BaseModel):
     """
 
     enabled: bool = Field(default=True)
-    interval: float = Field(default=86_400.0, ge=60.0)
+    interval: float = Field(default=86_400.0, ge=60.0, le=604800.0)
     relays: Annotated[
         list[Relay] | None,
         BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
@@ -225,7 +227,7 @@ class ProfileConfig(BaseModel):
     """
 
     enabled: bool = Field(default=False)
-    interval: float = Field(default=86_400.0, ge=60.0)
+    interval: float = Field(default=86_400.0, ge=60.0, le=604800.0)
     relays: Annotated[
         list[Relay] | None,
         BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),

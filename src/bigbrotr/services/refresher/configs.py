@@ -10,10 +10,14 @@ See Also:
 
 from __future__ import annotations
 
+import re
+
 from pydantic import BaseModel, Field, field_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 
+
+_VIEW_NAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 #: Default view refresh order respecting 3-level dependency chain:
 #: Level 1 — relay_metadata_latest (base dependency)
@@ -52,6 +56,11 @@ class RefreshConfig(BaseModel):
     def views_not_empty(cls, v: list[str]) -> list[str]:
         if not v:
             raise ValueError("views list must not be empty")
+        invalid = [name for name in v if not _VIEW_NAME_PATTERN.match(name)]
+        if invalid:
+            raise ValueError(
+                f"invalid view names (must match [a-z_][a-z0-9_]*): {', '.join(invalid)}"
+            )
         return v
 
 

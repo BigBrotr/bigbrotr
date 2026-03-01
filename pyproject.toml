@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "bigbrotr"
-version = "5.4.0"
+version = "5.5.0"
 description = "A modular Nostr data archiving and monitoring system"
 readme = "README.md"
 license = { text = "MIT" }

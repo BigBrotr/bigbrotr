@@ -277,7 +277,7 @@ class Nip66SslMetadata(BaseNipMetadata):
                 logger.debug("ssl_no_data relay=%s", relay.url)
         except OSError as e:
             logs["reason"] = str(e) or type(e).__name__
-            logger.debug("ssl_error relay=%s error=%s", relay.url, str(e))
+            logger.debug("ssl_error relay=%s error=%s", relay.url, logs["reason"])
 
         return cls(
             data=Nip66SslData.model_validate(Nip66SslData.parse(data)),
