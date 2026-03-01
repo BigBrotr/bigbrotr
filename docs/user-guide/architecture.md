@@ -542,13 +542,19 @@ flowchart LR
         RE["Refresher"]
     end
 
+    subgraph "Reader Services"
+        API["Api"]
+        DVM["Dvm"]
+    end
+
     subgraph "Per-Service asyncpg Pool"
-        APW["Writer Pool<br/><small>per-service sizing</small>"]
+        APW["asyncpg Pool<br/><small>per-service sizing</small>"]
+        APR["asyncpg Pool<br/><small>per-service sizing</small>"]
     end
 
     subgraph PGBouncer
-        PBW["Writer pool<br/><small>pool_size=10</small>"]
-        PBR["Reader pool<br/><small>pool_size=8</small>"]
+        PBW["bigbrotr<br/><small>pool_size=10</small>"]
+        PBR["bigbrotr_readonly<br/><small>pool_size=8</small>"]
     end
 
     subgraph PostgreSQL
@@ -560,17 +566,21 @@ flowchart LR
     MO --> APW
     SY --> APW
     RE --> APW
+    API --> APR
+    DVM --> APR
     APW --> PBW
+    APR --> PBR
     PBW --> PG
     PBR --> PG
 
     style APW fill:#512DA8,color:#fff,stroke:#311B92
+    style APR fill:#512DA8,color:#fff,stroke:#311B92
     style PBW fill:#1565C0,color:#fff,stroke:#0D47A1
     style PBR fill:#1565C0,color:#fff,stroke:#0D47A1
     style PG fill:#1B5E20,color:#fff,stroke:#0D3B0F
 ```
 
-Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: a **writer pool** for services and a **reader pool** for read-only consumers (postgres-exporter, Api, Dvm).
+Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: **bigbrotr** (pool_size=10) for writer services (including Refresher, which uses its own DB role with materialized view ownership), and **bigbrotr_readonly** (pool_size=8) for read-only consumers (Api, Dvm, postgres-exporter).
 
 ### Per-Network Semaphores
 

@@ -92,33 +92,25 @@ The codebase follows a strict **diamond-shaped Directed Acyclic Graph** for impo
 All 8 services are **independent processes** with no direct service-to-service dependencies. They communicate exclusively through the shared PostgreSQL database. Stopping one service does not break the others.
 
 ```
-                  ┌──────────────────────────────────────────────────────┐
-                  │               PostgreSQL Database                    │
-                  │                                                      │
-                  │  relay ─── event_relay ─── event                     │
-                  │  service_state (candidates/cursors)                  │
-                  │  metadata ─── relay_metadata                        │
-                  │  11 materialized views                              │
-                  └──┬───┬───┬───┬───┬───┬───┬───┬─────────────────────┘
-                     │   │   │   │   │   │   │   │
-  ┌──────────────────┘   │   │   │   │   │   │   └─────────────────────┐
-  │        ┌─────────────┘   │   │   │   │   └──────────────┐         │
-  │        │     ┌───────────┘   │   │   └──────────┐       │         │
-  ▼        ▼     ▼               ▼   ▼              ▼       ▼         ▼
-┌──────┐ ┌──────┐ ┌─────────┐ ┌───────┐ ┌────────────┐ ┌─────────┐ ┌───┐ ┌───┐
-│Seeder│ │Finder│ │Validator│ │Monitor│ │Synchronizer│ │Refresher│ │Api│ │Dvm│
-│      │ │      │ │         │ │       │ │            │ │         │ │   │ │   │
-│ boot │ │disc. │ │ test ws │ │health │ │archive evts│ │ refresh │ │REST│ │NIP│
-└──┬───┘ └──┬───┘ └───┬─────┘ └──┬────┘ └─────┬──────┘ └────┬────┘ └─┬─┘ └─┬─┘
-   │        │         │          │             │             │        │     │
-   ▼        ▼         ▼          ▼             ▼             │        ▼     ▼
-seed file  APIs     Relays    Relays        Relays        (no I/O)  HTTP  Nostr
-         (HTTP)   (WebSocket) (NIP-11,     (fetch                        Network
-                               NIP-66)     events)                     (kind 5050
-                                 │                                      /6050)
-                                 ▼
-                          Nostr Network
-                       (kind 10166/30166)
+                    ┌───────────────────────────────────────────────┐
+                    │              PostgreSQL Database               │
+                    │                                               │
+                    │  relay ─── event_relay ─── event              │
+                    │  metadata ─── relay_metadata                  │
+                    │  service_state     11 materialized views      │
+                    └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬───┘
+                       │      │      │      │      │      │      │      │
+                       ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
+                    Seeder Finder Valid. Monitor Sync. Refresh. Api    Dvm
+                       │      │      │      │      │      │      │      │
+                       ▼      ▼      ▼      ▼      ▼      │      ▼      ▼
+                    seed   HTTP   Relays Relays  Relays (no I/O) HTTP  Nostr
+                    file   APIs   (WS)  (NIP-11, (fetch         clients
+                                         NIP-66)  events)          │
+                                           │                       ▼
+                                           ▼                  Nostr Network
+                                      Nostr Network           (kind 5050/
+                                    (kind 10166/30166)          6050)
 ```
 
 ### Service-Database Interaction Map

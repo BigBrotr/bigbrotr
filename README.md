@@ -25,35 +25,25 @@
 BigBrotr runs 8 **independent** async services that continuously map and monitor the Nostr relay ecosystem. Each service runs on its own schedule, reads and writes a shared PostgreSQL database, and has no direct dependency on any other service.
 
 ```text
-                       ┌──────────────────────────────────────────────┐
-                       │            PostgreSQL Database               │
-                       │                                              │
-                       │  relay ── event_relay ── event               │
-                       │  service_state                               │
-                       │  metadata ── relay_metadata                  │
-                       │  11 materialized views                       │
-                       └──┬───┬───┬───┬───┬───┬───┬───┬──────────────┘
-                          │   │   │   │   │   │   │   │
-      ┌───────────────────┘   │   │   │   │   │   │   └──────────────────┐
-      │       ┌───────────────┘   │   │   │   │   └──────────────┐       │
-      │       │       ┌───────────┘   │   │   └──────────┐       │       │
-      ▼       ▼       ▼              ▼   ▼               ▼       ▼       ▼
- ┌────────┐┌──────┐┌─────────┐┌───────┐┌────────────┐┌────────┐┌───┐┌─────┐
- │ Seeder ││Finder││Validator││Monitor││Synchronizer││Refresh.││Api││ Dvm │
- │one-shot││      ││         ││       ││            ││        ││   ││     │
- │  boot  ││disco.││ test ws ││health ││archive evts││refresh ││REST││NIP90│
- └───┬────┘└──┬───┘└────┬────┘└───┬───┘└─────┬──────┘└───┬────┘└─┬─┘└──┬──┘
-     │        │         │         │           │           │       │     │
-     │        ▼         ▼         ▼           ▼           │       ▼     ▼
-     │   ┌─────────┐┌───────┐ ┌────────┐ ┌─────────┐    │   HTTP   Nostr
-     ▼   │  APIs   ││Relays │ │ Relays │ │ Relays  │    │  clients clients
-seed file│ (nostr. ││(WS    │ │(NIP-11,│ │ (fetch  │ (no I/O)
-         │  watch) ││ shake)│ │ NIP-66)│ │ events) │
-         └─────────┘└───────┘ └───┬────┘ └─────────┘
-                                   │
-                                   ▼
-                           Nostr Network
-                        (kind 10166/30166)
+                    ┌───────────────────────────────────────────────┐
+                    │              PostgreSQL Database               │
+                    │                                               │
+                    │  relay ─── event_relay ─── event              │
+                    │  metadata ─── relay_metadata                  │
+                    │  service_state     11 materialized views      │
+                    └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬───┘
+                       │      │      │      │      │      │      │      │
+                       ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
+                    Seeder Finder Valid. Monitor Sync. Refresh. Api    Dvm
+                       │      │      │      │      │      │      │      │
+                       ▼      ▼      ▼      ▼      ▼      │      ▼      ▼
+                    seed   HTTP   Relays Relays  Relays (no I/O) HTTP  Nostr
+                    file   APIs   (WS)  (NIP-11, (fetch         clients
+                                         NIP-66)  events)          │
+                                           │                       ▼
+                                           ▼                  Nostr Network
+                                      Nostr Network           (kind 5050/
+                                    (kind 10166/30166)          6050)
 ```
 
 ### Services
@@ -121,11 +111,11 @@ Imports flow strictly downward:
           │    ┌───────────────────────┐
           │    │    relay_metadata     │
           │    │───────────────────────│
-          ├───►│ relay_url    FK ──► relay.url
-          │    │ metadata_id  FK ──┐
-          │    │ metadata_type FK ─┤► metadata(id, type)
-          │    │ generated_at BIGINT
-          │    │ PK(relay_url, generated_at, metadata_type)
+          └───►│ relay_url    FK ──► relay.url
+               │ metadata_id  FK ──┐
+               │ metadata_type FK ─┤► metadata(id, type)
+               │ generated_at BIGINT
+               │ PK(relay_url, generated_at, metadata_type)
                └──────────┬────────────┘
                           │
                ┌──────────┴────────────┐
