@@ -16,7 +16,6 @@ Tests:
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
 
@@ -38,6 +37,7 @@ from bigbrotr.services.monitor import (
     PublishingConfig,
 )
 from tests.unit.services.monitor.conftest import (
+    FIXED_TIME,
     _create_nip11,
     _create_nip66,
     _make_check_result,
@@ -695,21 +695,24 @@ class TestPublishAnnouncement:
 
     async def test_publish_announcement_interval_not_elapsed(self, stub: _MonitorStub) -> None:
         """Test that announcement is skipped when interval has not elapsed."""
-        now = time.time()
         stub._brotr.get_service_state = AsyncMock(
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
                     state_type=ServiceStateType.PUBLICATION,
                     state_key="last_announcement",
-                    state_value={"published_at": now},
-                    updated_at=int(now),
+                    state_value={"published_at": FIXED_TIME},
+                    updated_at=int(FIXED_TIME),
                 )
             ]
         )
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
-        ) as mock_broadcast:
+        with (
+            patch("bigbrotr.services.monitor.service.time") as mock_time,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
+            ) as mock_broadcast,
+        ):
+            mock_time.time.return_value = FIXED_TIME
             await stub.publish_announcement()
             mock_broadcast.assert_not_awaited()
 
@@ -730,7 +733,7 @@ class TestPublishAnnouncement:
 
     async def test_publish_announcement_interval_elapsed(self, stub: _MonitorStub) -> None:
         """Test successful announcement publish when interval has elapsed."""
-        old_timestamp = time.time() - 100000  # well past the 86400 interval
+        old_timestamp = FIXED_TIME - 100_000  # well past the 86400 interval
         stub._brotr.get_service_state = AsyncMock(
             return_value=[
                 ServiceState(
@@ -743,11 +746,15 @@ class TestPublishAnnouncement:
             ]
         )
 
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
-            new_callable=AsyncMock,
-            return_value=1,
-        ) as mock_broadcast:
+        with (
+            patch("bigbrotr.services.monitor.service.time") as mock_time,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_broadcast,
+        ):
+            mock_time.time.return_value = FIXED_TIME
             await stub.publish_announcement()
 
         mock_broadcast.assert_awaited_once()
@@ -797,21 +804,24 @@ class TestPublishProfile:
 
     async def test_publish_profile_interval_not_elapsed(self, stub: _MonitorStub) -> None:
         """Test that profile is skipped when interval has not elapsed."""
-        now = time.time()
         stub._brotr.get_service_state = AsyncMock(
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
                     state_type=ServiceStateType.PUBLICATION,
                     state_key="last_profile",
-                    state_value={"published_at": now},
-                    updated_at=int(now),
+                    state_value={"published_at": FIXED_TIME},
+                    updated_at=int(FIXED_TIME),
                 )
             ]
         )
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
-        ) as mock_broadcast:
+        with (
+            patch("bigbrotr.services.monitor.service.time") as mock_time,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
+            ) as mock_broadcast,
+        ):
+            mock_time.time.return_value = FIXED_TIME
             await stub.publish_profile()
             mock_broadcast.assert_not_awaited()
 
