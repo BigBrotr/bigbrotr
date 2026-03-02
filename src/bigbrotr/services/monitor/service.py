@@ -207,17 +207,10 @@ class Monitor(
     async def run(self) -> None:
         """Execute one complete monitoring cycle.
 
-        Orchestrates setup, publishing, monitoring, and cycle-level logging.
+        Orchestrates setup, publishing, monitoring, and cleanup.
         Delegates the core work to ``update_geo_databases``,
         ``publish_profile``, ``publish_announcement``, and ``monitor``.
         """
-        self._logger.info(
-            "cycle_started",
-            chunk_size=self._config.processing.chunk_size,
-            max_relays=self._config.processing.max_relays,
-            networks=self._config.networks.get_enabled_networks(),
-        )
-
         self.chunk_progress.reset()
         await self.update_geo_databases()
 
@@ -231,25 +224,15 @@ class Monitor(
             await self.publish_profile()
             await self.publish_announcement()
             await self.monitor()
-
-            self._logger.info(
-                "cycle_completed",
-                checked=self.chunk_progress.processed,
-                successful=self.chunk_progress.succeeded,
-                failed=self.chunk_progress.failed,
-                chunks=self.chunk_progress.chunks,
-                duration_s=self.chunk_progress.elapsed,
-            )
         finally:
             self.geo_readers.close()
 
-    async def cleanup(self) -> None:
+    async def cleanup(self) -> int:
         """Remove stale checkpoint state for relays that no longer exist."""
-        self._logger.info("cleanup_started")
         removed = await cleanup_stale(self._brotr, self.SERVICE_NAME)
         if removed > 0:
             self.inc_counter("total_stale_states_removed", removed)
-        self._logger.info("cleanup_completed", removed=removed)
+        return removed
 
     async def _update_geo_db(self, path: Path, url: str, db_name: str) -> None:
         """Download a single GeoLite2 database if missing or stale."""
@@ -337,6 +320,14 @@ class Monitor(
             )
 
         self._emit_progress_gauges()
+        self._logger.info(
+            "monitoring_completed",
+            checked=self.chunk_progress.processed,
+            successful=self.chunk_progress.succeeded,
+            failed=self.chunk_progress.failed,
+            chunks=self.chunk_progress.chunks,
+            duration_s=self.chunk_progress.elapsed,
+        )
         return self.chunk_progress.processed
 
     async def check_chunks(

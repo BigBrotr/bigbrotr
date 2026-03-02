@@ -117,33 +117,12 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         self._config: ValidatorConfig
 
     async def run(self) -> None:
-        """Execute one complete validation cycle.
-
-        Orchestrates validation and cycle-level logging. Cleanup of stale
-        and exhausted candidates is handled by ``cleanup()``, called
-        automatically by ``run_forever()`` before each cycle.
-        """
-        self._logger.info(
-            "cycle_started",
-            chunk_size=self._config.processing.chunk_size,
-            max_candidates=self._config.processing.max_candidates,
-            networks=self._config.networks.get_enabled_networks(),
-        )
-
+        """Execute one complete validation cycle."""
         self.chunk_progress.reset()
         await self.validate()
 
-        self._logger.info(
-            "cycle_completed",
-            validated=self.chunk_progress.succeeded,
-            invalidated=self.chunk_progress.failed,
-            chunks=self.chunk_progress.chunks,
-            duration_s=self.chunk_progress.elapsed,
-        )
-
-    async def cleanup(self) -> None:
+    async def cleanup(self) -> int:
         """Remove stale candidate state and exhausted candidates."""
-        self._logger.info("cleanup_started")
         removed = await cleanup_stale(self._brotr, self.SERVICE_NAME)
         if removed > 0:
             self.inc_counter("total_stale_states_removed", removed)
@@ -157,7 +136,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             if exhausted > 0:
                 self.inc_counter("total_exhausted_removed", exhausted)
 
-        self._logger.info("cleanup_completed", removed=removed, exhausted=exhausted)
+        return removed + exhausted
 
     async def validate(self) -> int:
         """Count, validate, and persist all pending candidates.
@@ -194,6 +173,13 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
                 )
 
         self._emit_progress_gauges()
+        self._logger.info(
+            "validation_completed",
+            validated=self.chunk_progress.succeeded,
+            invalidated=self.chunk_progress.failed,
+            chunks=self.chunk_progress.chunks,
+            duration_s=self.chunk_progress.elapsed,
+        )
         return self.chunk_progress.processed
 
     async def validate_candidate(self, candidate: Candidate) -> bool:

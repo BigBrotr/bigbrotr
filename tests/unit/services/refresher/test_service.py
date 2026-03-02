@@ -158,14 +158,14 @@ class TestRefresherRun:
             await refresher.run()
 
             cycle_completed_calls = [
-                call for call in mock_log.call_args_list if call[0][0] == "cycle_completed"
+                call for call in mock_log.call_args_list if call[0][0] == "refresh_completed"
             ]
             assert len(cycle_completed_calls) == 1
             assert cycle_completed_calls[0][1]["refreshed"] == 0
             assert cycle_completed_calls[0][1]["failed"] == 2
 
-    async def test_run_logs_cycle_started_and_completed(self, mock_refresher_brotr: Brotr) -> None:
-        """Test run logs cycle start and completion."""
+    async def test_run_logs_refresh_completed(self, mock_refresher_brotr: Brotr) -> None:
+        """Test run logs refresh completion."""
         config = RefresherConfig(
             refresh=RefreshConfig(views=["event_stats"]),
         )
@@ -175,11 +175,10 @@ class TestRefresherRun:
             await refresher.run()
 
             log_messages = [call[0][0] for call in mock_log.call_args_list]
-            assert "cycle_started" in log_messages
-            assert "cycle_completed" in log_messages
+            assert "refresh_completed" in log_messages
 
-    async def test_run_cycle_completed_counts(self, mock_refresher_brotr: Brotr) -> None:
-        """Test cycle_completed log contains correct refreshed/failed counts."""
+    async def test_run_refresh_completed_counts(self, mock_refresher_brotr: Brotr) -> None:
+        """Test refresh_completed log contains correct refreshed/failed counts."""
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
             side_effect=[None, asyncpg.PostgresError("error"), None]
         )
@@ -193,7 +192,7 @@ class TestRefresherRun:
             await refresher.run()
 
             cycle_completed_calls = [
-                call for call in mock_log.call_args_list if call[0][0] == "cycle_completed"
+                call for call in mock_log.call_args_list if call[0][0] == "refresh_completed"
             ]
             assert cycle_completed_calls[0][1]["refreshed"] == 2
             assert cycle_completed_calls[0][1]["failed"] == 1

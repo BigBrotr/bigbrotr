@@ -296,9 +296,7 @@ class TestSeederRun:
         config = SeederConfig(seed=SeedConfig(file_path="nonexistent.txt"))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        with patch.object(seeder._logger, "info") as mock_log:
-            await seeder.run()
-            mock_log.assert_any_call("cycle_completed", inserted=0)
+        await seeder.run()
 
     async def test_run_success(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test run completes successfully."""
@@ -317,10 +315,10 @@ class TestSeederRun:
 
         mock_seeder_brotr.upsert_service_state.assert_called()
 
-    async def test_run_logs_cycle_completion(
+    async def test_run_delegates_to_seed(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
     ) -> None:
-        """Test run logs cycle completion."""
+        """Test run delegates to seed method."""
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay.example.com\n")
 
@@ -332,11 +330,8 @@ class TestSeederRun:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        with patch.object(seeder._logger, "info") as mock_log:
-            await seeder.run()
-            # Check that cycle_completed was logged
-            log_messages = [call[0][0] for call in mock_log.call_args_list]
-            assert "cycle_completed" in log_messages
+        await seeder.run()
+        mock_seeder_brotr.upsert_service_state.assert_called()
 
 
 # ============================================================================

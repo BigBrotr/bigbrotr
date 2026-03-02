@@ -63,14 +63,13 @@ class Refresher(BaseService[RefresherConfig]):
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.REFRESHER
     CONFIG_CLASS: ClassVar[type[RefresherConfig]] = RefresherConfig
 
-    async def cleanup(self) -> None:
+    async def cleanup(self) -> int:
         """No-op: Refresher does not use service state."""
+        return 0
 
     async def run(self) -> None:
         """Execute one refresh cycle over all configured views."""
         views = self._config.refresh.views
-        self._logger.info("cycle_started", views=len(views))
-
         refreshed = 0
         failed = 0
 
@@ -87,4 +86,4 @@ class Refresher(BaseService[RefresherConfig]):
         self.set_gauge("views_failed", failed)
         self.inc_counter("total_views_refreshed", refreshed)
         self.inc_counter("total_views_failed", failed)
-        self._logger.info("cycle_completed", refreshed=refreshed, failed=failed)
+        self._logger.info("refresh_completed", refreshed=refreshed, failed=failed)
