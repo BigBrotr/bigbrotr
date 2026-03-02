@@ -21,3 +21,9 @@ networks:
     max_tasks: 100                 # Double the default for faster sync
   tor:
     enabled: true                  # Sync from Tor (.onion) relays
+
+overrides:
+  - url: "wss://relay.damus.io"
+    timeouts:
+      request: 60.0                # Extended request timeout for high-volume relay
+      relay: 7200.0                # Allow up to 2 hours per sync session

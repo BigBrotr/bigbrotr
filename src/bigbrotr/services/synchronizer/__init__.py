@@ -8,6 +8,8 @@ Re-exports all public symbols for backwards-compatible imports::
 from .configs import (
     ConcurrencyConfig,
     FilterConfig,
+    RelayOverride,
+    RelayOverrideTimeouts,
     SourceConfig,
     SynchronizerConfig,
     TimeoutsConfig,
@@ -21,6 +23,8 @@ __all__ = [
     "ConcurrencyConfig",
     "EventBatch",
     "FilterConfig",
+    "RelayOverride",
+    "RelayOverrideTimeouts",
     "SourceConfig",
     "SyncContext",
     "Synchronizer",

@@ -5,8 +5,9 @@ Module-level sync logic, event batch management, and context types.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -27,7 +28,6 @@ from bigbrotr.utils.protocol import create_client
 
 
 if TYPE_CHECKING:
-    import asyncio
     from collections.abc import Iterator
 
     from nostr_sdk import Event as NostrEvent
@@ -251,6 +251,31 @@ async def insert_batch(
 
     total_inserted = await insert_event_relays(brotr, event_relays)
     return total_inserted, invalid_count
+
+
+@dataclass(slots=True)
+class SyncCycleCounters:
+    """Per-cycle synchronization counters.
+
+    Groups relay/event outcome counts and the lock that guards
+    concurrent updates from ``TaskGroup`` workers.
+
+    See Also:
+        [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]:
+            Service that owns an instance of this dataclass.
+    """
+
+    synced_events: int = 0
+    synced_relays: int = 0
+    failed_relays: int = 0
+    invalid_events: int = 0
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    def reset(self) -> None:
+        self.synced_events = 0
+        self.synced_relays = 0
+        self.failed_relays = 0
+        self.invalid_events = 0
 
 
 @dataclass(slots=True)

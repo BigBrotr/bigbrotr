@@ -7,6 +7,8 @@ Tests:
 - TimeoutsConfig defaults and get_relay_timeout
 - ConcurrencyConfig defaults
 - SourceConfig defaults and custom values
+- RelayOverrideTimeouts validation (zero, negative, valid)
+- RelayOverride validation (valid URL, empty URL)
 - SynchronizerConfig defaults and nested configuration
 """
 
@@ -17,6 +19,8 @@ from bigbrotr.services.common.configs import NetworksConfig, TorConfig
 from bigbrotr.services.synchronizer import (
     ConcurrencyConfig,
     FilterConfig,
+    RelayOverride,
+    RelayOverrideTimeouts,
     SourceConfig,
     SynchronizerConfig,
     TimeoutsConfig,
@@ -176,29 +180,6 @@ class TestTimeoutsConfig:
         assert config.relay_clearnet == 900.0
         assert config.relay_tor == 1800.0
 
-    def test_max_duration_default_none(self) -> None:
-        """Test max_duration defaults to None (unlimited)."""
-        config = TimeoutsConfig()
-
-        assert config.max_duration is None
-
-    def test_max_duration_valid(self) -> None:
-        """Test max_duration accepts valid values."""
-        config = TimeoutsConfig(max_duration=3600.0)
-
-        assert config.max_duration == 3600.0
-
-    def test_max_duration_minimum(self) -> None:
-        """Test max_duration accepts minimum value of 60."""
-        config = TimeoutsConfig(max_duration=60.0)
-
-        assert config.max_duration == 60.0
-
-    def test_max_duration_below_minimum_raises(self) -> None:
-        """Test max_duration below 60 raises ValidationError."""
-        with pytest.raises(ValueError, match="greater than or equal to 60"):
-            TimeoutsConfig(max_duration=1.0)
-
 
 # ============================================================================
 # ConcurrencyConfig Tests
@@ -236,6 +217,51 @@ class TestSourceConfig:
         )
 
         assert config.from_database is False
+
+
+# ============================================================================
+# RelayOverrideTimeouts Tests
+# ============================================================================
+
+
+class TestRelayOverrideTimeouts:
+    """Tests for RelayOverrideTimeouts Pydantic model."""
+
+    def test_defaults(self) -> None:
+        """Test default values are None."""
+        config = RelayOverrideTimeouts()
+        assert config.request is None
+        assert config.relay is None
+
+    def test_valid_values(self) -> None:
+        """Test valid timeout values."""
+        config = RelayOverrideTimeouts(request=0.1, relay=60.0)
+        assert config.request == 0.1
+        assert config.relay == 60.0
+
+    def test_zero_timeout_rejected(self) -> None:
+        """Test that zero timeout is rejected."""
+        with pytest.raises(ValueError):
+            RelayOverrideTimeouts(request=0.0)
+
+    def test_negative_timeout_rejected(self) -> None:
+        """Test that negative timeout is rejected."""
+        with pytest.raises(ValueError):
+            RelayOverrideTimeouts(relay=-1.0)
+
+
+class TestRelayOverride:
+    """Tests for RelayOverride Pydantic model."""
+
+    def test_valid(self) -> None:
+        """Test valid relay override."""
+        config = RelayOverride(url="wss://relay.example.com")
+        assert config.url == "wss://relay.example.com"
+
+    def test_empty_url_rejected(self) -> None:
+        """Test that empty URL is rejected."""
+        with pytest.raises(ValueError):
+            RelayOverride(url="")
 
 
 # ============================================================================

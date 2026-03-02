@@ -51,17 +51,17 @@ class EventRelayCursor:
 
     Tracks how far event scanning has progressed for a given relay.
     The cursor position is defined by ``seen_at`` (timestamp) and
-    ``event_id`` (for deterministic tie-breaking within the same
-    timestamp).
+    optionally ``event_id`` (for deterministic tie-breaking within
+    the same timestamp).
 
     Valid field combinations:
 
-    - ``seen_at=None, event_id=None`` — new cursor, scan from beginning.
-    - ``seen_at=<int>, event_id=<bytes>`` — composite cursor pointing
-      to a specific row.
+    - ``seen_at=None, event_id=None`` — no cursor, scan from beginning.
+    - ``seen_at=<int>, event_id=None`` — timestamp-only cursor.
+    - ``seen_at=<int>, event_id=<bytes>`` — full composite cursor.
 
-    Partial cursors (one field set, the other ``None``) are invalid and
-    rejected at construction.
+    ``event_id`` without ``seen_at`` is invalid and rejected at
+    construction.
 
     Attributes:
         relay_url: Relay URL this cursor belongs to.
@@ -74,8 +74,8 @@ class EventRelayCursor:
     event_id: bytes | None = None
 
     def __post_init__(self) -> None:
-        if (self.seen_at is None) != (self.event_id is None):
-            msg = "seen_at and event_id must both be None or both be set"
+        if self.seen_at is None and self.event_id is not None:
+            msg = "event_id requires seen_at"
             raise ValueError(msg)
 
 
@@ -90,12 +90,12 @@ class EventCursor:
 
     Valid field combinations:
 
-    - ``created_at=None, event_id=None`` — new cursor, scan from beginning.
-    - ``created_at=<int>, event_id=<bytes>`` — composite cursor pointing
-      to a specific row.
+    - ``created_at=None, event_id=None`` — no cursor, scan from beginning.
+    - ``created_at=<int>, event_id=None`` — timestamp-only cursor.
+    - ``created_at=<int>, event_id=<bytes>`` — full composite cursor.
 
-    Partial cursors (one field set, the other ``None``) are invalid and
-    rejected at construction.
+    ``event_id`` without ``created_at`` is invalid and rejected at
+    construction.
 
     Attributes:
         created_at: Unix timestamp of the last processed event, or None.
@@ -106,6 +106,6 @@ class EventCursor:
     event_id: bytes | None = None
 
     def __post_init__(self) -> None:
-        if (self.created_at is None) != (self.event_id is None):
-            msg = "created_at and event_id must both be None or both be set"
+        if self.created_at is None and self.event_id is not None:
+            msg = "event_id requires created_at"
             raise ValueError(msg)

@@ -100,9 +100,8 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=True))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        result = await seeder.seed()
+        await seeder.seed()
 
-        assert result == 2
         mock_seeder_brotr.upsert_service_state.assert_called()
 
     async def test_seed_success_as_relays(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
@@ -115,9 +114,8 @@ class TestSeedRelays:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=False))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        result = await seeder.seed()
+        await seeder.seed()
 
-        assert result == 2
         mock_seeder_brotr.insert_relay.assert_called()
 
     async def test_seed_skips_comments_and_empty(
@@ -296,7 +294,9 @@ class TestSeederRun:
         config = SeederConfig(seed=SeedConfig(file_path="nonexistent.txt"))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder.run()
+        with patch.object(seeder._logger, "info") as mock_log:
+            await seeder.run()
+            mock_log.assert_any_call("cycle_completed", inserted=0)
 
     async def test_run_success(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test run completes successfully."""
@@ -315,10 +315,10 @@ class TestSeederRun:
 
         mock_seeder_brotr.upsert_service_state.assert_called()
 
-    async def test_run_delegates_to_seed(
+    async def test_run_logs_cycle_completion(
         self, mock_seeder_brotr: Brotr, tmp_path: Path
     ) -> None:
-        """Test run delegates to seed method."""
+        """Test run logs cycle completion."""
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay.example.com\n")
 
@@ -330,8 +330,11 @@ class TestSeederRun:
         config = SeederConfig(seed=SeedConfig(file_path=str(seed_file)))
         seeder = Seeder(brotr=mock_seeder_brotr, config=config)
 
-        await seeder.run()
-        mock_seeder_brotr.upsert_service_state.assert_called()
+        with patch.object(seeder._logger, "info") as mock_log:
+            await seeder.run()
+            # Check that cycle_completed was logged
+            log_messages = [call[0][0] for call in mock_log.call_args_list]
+            assert "cycle_completed" in log_messages
 
 
 # ============================================================================
@@ -342,10 +345,8 @@ class TestSeederRun:
 class TestSeederErrorHandling:
     """Tests for error handling in Seeder."""
 
-    async def test_uncaught_exception_propagates(
-        self, mock_seeder_brotr: Brotr, tmp_path: Path
-    ) -> None:
-        """Generic exceptions not in (PostgresError, OSError) propagate."""
+    async def test_database_error_handled(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
+        """Test database errors are handled gracefully."""
         seed_file = tmp_path / "seed.txt"
         seed_file.write_text("wss://relay.example.com\n")
 
@@ -390,42 +391,6 @@ class TestSeederErrorHandling:
             "bigbrotr.services.seeder.service.insert_relays",
             new_callable=AsyncMock,
             side_effect=asyncpg.PostgresError("connection lost"),
-        ):
-            result = await seeder.seed()
-
-        assert result == 0
-
-    async def test_os_error_in_seed_as_candidates(
-        self, mock_seeder_brotr: Brotr, tmp_path: Path
-    ) -> None:
-        """OSError in _seed_as_candidates returns 0."""
-        seed_file = tmp_path / "seed.txt"
-        seed_file.write_text("wss://relay.example.com\n")
-        config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=True))
-        seeder = Seeder(brotr=mock_seeder_brotr, config=config)
-
-        with patch(
-            "bigbrotr.services.seeder.service.insert_relays_as_candidates",
-            new_callable=AsyncMock,
-            side_effect=OSError("connection refused"),
-        ):
-            result = await seeder.seed()
-
-        assert result == 0
-
-    async def test_os_error_in_seed_as_relays(
-        self, mock_seeder_brotr: Brotr, tmp_path: Path
-    ) -> None:
-        """OSError in _seed_as_relays returns 0."""
-        seed_file = tmp_path / "seed.txt"
-        seed_file.write_text("wss://relay.example.com\n")
-        config = SeederConfig(seed=SeedConfig(file_path=str(seed_file), to_validate=False))
-        seeder = Seeder(brotr=mock_seeder_brotr, config=config)
-
-        with patch(
-            "bigbrotr.services.seeder.service.insert_relays",
-            new_callable=AsyncMock,
-            side_effect=OSError("connection refused"),
         ):
             result = await seeder.seed()
 

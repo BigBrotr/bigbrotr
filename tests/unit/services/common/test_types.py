@@ -2,8 +2,8 @@
 
 Tests:
 - Candidate: creation, failures property, frozen immutability
-- EventRelayCursor: valid combinations, partial cursor rejection, frozen
-- EventCursor: valid combinations, partial cursor rejection, frozen
+- EventRelayCursor: valid combinations, event_id-without-seen_at rejection, frozen
+- EventCursor: valid combinations, event_id-without-created_at rejection, frozen
 """
 
 from __future__ import annotations
@@ -72,6 +72,13 @@ class TestEventRelayCursor:
         assert cursor.seen_at is None
         assert cursor.event_id is None
 
+    def test_timestamp_only(self) -> None:
+        """Test cursor with timestamp but no event_id."""
+        cursor = EventRelayCursor(relay_url="wss://relay.example.com", seen_at=1700000000)
+
+        assert cursor.seen_at == 1700000000
+        assert cursor.event_id is None
+
     def test_full_cursor(self) -> None:
         """Test cursor with both timestamp and event_id."""
         event_id = b"\x00" * 32
@@ -84,14 +91,9 @@ class TestEventRelayCursor:
         assert cursor.seen_at == 1700000000
         assert cursor.event_id == event_id
 
-    def test_seen_at_without_event_id_raises(self) -> None:
-        """Test that seen_at without event_id raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            EventRelayCursor(relay_url="wss://relay.example.com", seen_at=1700000000)
-
     def test_event_id_without_seen_at_raises(self) -> None:
         """Test that event_id without seen_at raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
+        with pytest.raises(ValueError, match="event_id requires seen_at"):
             EventRelayCursor(relay_url="wss://relay.example.com", event_id=b"\x00" * 32)
 
     def test_frozen(self) -> None:
@@ -117,6 +119,13 @@ class TestEventCursor:
         assert cursor.created_at is None
         assert cursor.event_id is None
 
+    def test_timestamp_only(self) -> None:
+        """Test cursor with timestamp but no event_id."""
+        cursor = EventCursor(created_at=1700000000)
+
+        assert cursor.created_at == 1700000000
+        assert cursor.event_id is None
+
     def test_full_cursor(self) -> None:
         """Test cursor with both timestamp and event_id."""
         event_id = b"\x00" * 32
@@ -125,14 +134,9 @@ class TestEventCursor:
         assert cursor.created_at == 1700000000
         assert cursor.event_id == event_id
 
-    def test_created_at_without_event_id_raises(self) -> None:
-        """Test that created_at without event_id raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            EventCursor(created_at=1700000000)
-
     def test_event_id_without_created_at_raises(self) -> None:
         """Test that event_id without created_at raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
+        with pytest.raises(ValueError, match="event_id requires created_at"):
             EventCursor(event_id=b"\x00" * 32)
 
     def test_frozen(self) -> None:
