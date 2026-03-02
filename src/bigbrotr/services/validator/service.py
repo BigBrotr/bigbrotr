@@ -272,7 +272,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         """Validate a chunk of candidates concurrently.
 
         Runs all validations via ``asyncio.gather`` with per-network semaphores.
-        Progress tracking is handled by the caller (``_process_all``).
+        Progress tracking is handled by the caller (``validate_chunks``).
 
         Args:
             candidates: Candidates to validate.
@@ -327,7 +327,10 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
                     service_name=self.SERVICE_NAME,
                     state_type=ServiceStateType.CANDIDATE,
                     state_key=c.relay.url,
-                    state_value={**c.data, "failures": c.failures + 1},
+                    state_value={
+                        "network": c.relay.network.value,
+                        "failures": c.failures + 1,
+                    },
                     updated_at=now,
                 )
                 for c in invalid
