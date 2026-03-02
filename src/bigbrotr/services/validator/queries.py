@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.relay import Relay
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.services.common.queries import batched_insert
 from bigbrotr.services.common.types import CandidateCheckpoint
 
 
@@ -84,11 +85,7 @@ async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
         )
         for relay in new_relays
     ]
-    total = 0
-    batch_size = brotr.config.batch.max_size
-    for i in range(0, len(records), batch_size):
-        total += await brotr.upsert_service_state(records[i : i + batch_size])
-    return total
+    return await batched_insert(brotr, records, brotr.upsert_service_state)
 
 
 async def delete_promoted_candidates(brotr: Brotr) -> int:
@@ -268,11 +265,9 @@ async def promote_candidates(brotr: Brotr, candidates: list[CandidateCheckpoint]
         return 0
 
     relays = [Relay(c.key) for c in candidates]
-    inserted = 0
-    batch_size = brotr.config.batch.max_size
-    for i in range(0, len(relays), batch_size):
-        inserted += await brotr.insert_relay(relays[i : i + batch_size])
+    inserted = await batched_insert(brotr, relays, brotr.insert_relay)
 
+    batch_size = brotr.config.batch.max_size
     for i in range(0, len(candidates), batch_size):
         chunk = candidates[i : i + batch_size]
         await brotr.delete_service_state(
@@ -314,8 +309,4 @@ async def fail_candidates(brotr: Brotr, candidates: list[CandidateCheckpoint]) -
         )
         for c in candidates
     ]
-    total = 0
-    batch_size = brotr.config.batch.max_size
-    for i in range(0, len(records), batch_size):
-        total += await brotr.upsert_service_state(records[i : i + batch_size])
-    return total
+    return await batched_insert(brotr, records, brotr.upsert_service_state)
