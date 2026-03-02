@@ -470,9 +470,7 @@ class TestInsertCandidates:
         assert record.service_name == ServiceName.VALIDATOR
         assert record.state_type == ServiceStateType.CANDIDATE
         assert record.state_key == "wss://relay.example.com"
-        assert record.state_value["network"] == "clearnet"
-        assert record.state_value["failures"] == 0
-        assert "inserted_at" in record.state_value
+        assert record.state_value == {"network": "clearnet", "failures": 0}
         assert result == 1
 
     async def test_multiple_relays_partially_new(self, query_brotr: MagicMock) -> None:
@@ -703,7 +701,7 @@ class TestPromoteCandidates:
     async def test_inserts_relays_and_deletes_candidates(self, query_brotr: MagicMock) -> None:
         """Calls insert_relay then delete_service_state."""
         relay = _make_mock_relay("wss://promoted.example.com")
-        candidate = Candidate(relay=relay, data={"failures": 0})
+        candidate = Candidate(relay=relay, failures=0)
         query_brotr.insert_relay = AsyncMock(return_value=1)
         query_brotr.delete_service_state = AsyncMock(return_value=1)
 
@@ -729,8 +727,8 @@ class TestPromoteCandidates:
     async def test_multiple_candidates(self, query_brotr: MagicMock) -> None:
         """Passes all relays to insert_relay and their URLs to delete_service_state."""
         candidates = [
-            Candidate(relay=_make_mock_relay("wss://r1.example.com"), data={"failures": 0}),
-            Candidate(relay=_make_mock_relay("wss://r2.example.com"), data={"failures": 1}),
+            Candidate(relay=_make_mock_relay("wss://r1.example.com"), failures=0),
+            Candidate(relay=_make_mock_relay("wss://r2.example.com"), failures=1),
         ]
         query_brotr.insert_relay = AsyncMock(return_value=2)
         query_brotr.delete_service_state = AsyncMock(return_value=2)

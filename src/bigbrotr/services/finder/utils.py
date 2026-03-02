@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import jmespath
 
-from bigbrotr.services.common.utils import parse_relay_url
+from bigbrotr.services.common.utils import parse_relay
 
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ def extract_relays_from_response(data: Any, expression: str = "[*]") -> list[Rel
 
     Applies *expression* to the parsed JSON *data*, filters to string
     values, validates each through
-    [parse_relay_url][bigbrotr.services.common.utils.parse_relay_url],
+    [parse_relay][bigbrotr.services.common.utils.parse_relay],
     and returns a deduplicated list of Relay objects.
 
     Args:
@@ -39,7 +39,7 @@ def extract_relays_from_response(data: Any, expression: str = "[*]") -> list[Rel
     relays: list[Relay] = []
     for item in result:
         if isinstance(item, str):
-            validated = parse_relay_url(item)
+            validated = parse_relay(item)
             if validated and validated.url not in seen:
                 seen.add(validated.url)
                 relays.append(validated)
@@ -50,9 +50,9 @@ def extract_relays_from_tagvalues(rows: list[dict[str, Any]]) -> list[Relay]:
     """Extract and deduplicate relay URLs from event tagvalues.
 
     Strips the tag prefix (everything up to the first ``:``) from each
-    value and passes the remainder to ``parse_relay_url``.  All tag
+    value and passes the remainder to ``parse_relay``.  All tag
     types are examined -- not just ``r:`` -- since relay URLs can appear
-    in any tag.  Invalid values are rejected by ``parse_relay_url``.
+    in any tag.  Invalid values are rejected by ``parse_relay``.
 
     Args:
         rows: Event rows with ``tagvalues`` key (from
@@ -70,7 +70,7 @@ def extract_relays_from_tagvalues(rows: list[dict[str, Any]]) -> list[Relay]:
             continue
         for val in tagvalues:
             _, _, raw_val = val.partition(":")
-            validated = parse_relay_url(raw_val)
+            validated = parse_relay(raw_val)
             if validated and validated.url not in seen:
                 seen.add(validated.url)
                 relays.append(validated)

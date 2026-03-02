@@ -7,7 +7,7 @@ Discovers Nostr relay URLs from two sources:
    response (flat array, nested path, object keys, etc.) via
    [ApiSourceConfig][bigbrotr.services.finder.ApiSourceConfig].
 2. **Database events** -- Tag values from all stored events are parsed via
-   [parse_relay_url][bigbrotr.services.common.utils.parse_relay_url]; only
+   [parse_relay][bigbrotr.services.common.utils.parse_relay]; only
    valid ``wss://`` / ``ws://`` URLs pass validation. This is kind-agnostic:
    any event whose ``tagvalues`` column contains relay-like strings will
    contribute discovered URLs.
@@ -140,10 +140,10 @@ class Finder(BaseService[FinderConfig]):
     async def find_from_api(self) -> int:
         """Discover relay URLs from configured external API endpoints.
 
-        Loads per-source timestamps from a checkpoint, skips sources whose
-        ``interval`` has not elapsed, fetches the rest sequentially,
-        deduplicates across sources, and inserts discovered URLs as
-        validation candidates.
+        Loads per-source timestamps from individual checkpoint records
+        (one per API source URL), skips sources whose ``interval`` has
+        not elapsed, fetches the rest sequentially, deduplicates across
+        sources, and inserts discovered URLs as validation candidates.
 
         Returns:
             Number of relay URLs inserted as candidates.
@@ -164,7 +164,7 @@ class Finder(BaseService[FinderConfig]):
                 if not self.is_running:
                     break
 
-                last_checked = api_state.get(source.url, {}).get("last_checked_at", 0)
+                last_checked = api_state.get(source.url, 0)
                 if now - last_checked < source.interval:
                     self._logger.debug(
                         "api_skipped",
@@ -179,7 +179,7 @@ class Finder(BaseService[FinderConfig]):
                         if relay.url not in seen:
                             seen.add(relay.url)
                             all_relays.append(relay)
-                    api_state[source.url] = {"last_checked_at": int(time.time())}
+                    api_state[source.url] = int(time.time())
                     fetched_sources.append(source.url)
                     self._logger.debug(
                         "api_fetched", url=source.url, count=len(relays)
@@ -200,7 +200,9 @@ class Finder(BaseService[FinderConfig]):
                     )
 
         if fetched_sources:
-            await self._save_api_state(api_state)
+            await self._save_api_state(
+                {url: api_state[url] for url in fetched_sources}
+            )
 
         found = 0
         if all_relays:
@@ -246,32 +248,45 @@ class Finder(BaseService[FinderConfig]):
             data = await read_bounded_json(resp, self._config.api.max_response_size)
             return extract_relays_from_response(data, source.expression)
 
-    async def _load_api_state(self) -> dict[str, dict[str, int]]:
-        """Load per-source API timestamps from service_state."""
+    async def _load_api_state(self) -> dict[str, int]:
+        """Load per-source API timestamps from service_state.
+
+        Each API source has its own CHECKPOINT record keyed by source URL.
+        """
         try:
             records = await self._brotr.get_service_state(
-                self.SERVICE_NAME, ServiceStateType.CHECKPOINT, key="api_sources"
+                self.SERVICE_NAME, ServiceStateType.CHECKPOINT
             )
-            if records:
-                return dict(records[0].state_value)
-        except (asyncpg.PostgresError, OSError, ValueError, TypeError) as e:
+            state: dict[str, int] = {}
+            for r in records:
+                try:
+                    state[r.state_key] = int(r.state_value["timestamp"])
+                except (KeyError, ValueError, TypeError):
+                    continue
+            return state
+        except (asyncpg.PostgresError, OSError) as e:
             self._logger.warning(
                 "load_api_state_failed", error=str(e), error_type=type(e).__name__
             )
         return {}
 
-    async def _save_api_state(self, state: dict[str, dict[str, int]]) -> None:
-        """Persist per-source API timestamps to service_state."""
+    async def _save_api_state(self, state: dict[str, int]) -> None:
+        """Persist per-source API timestamps to service_state.
+
+        Each API source is stored as an individual CHECKPOINT record.
+        """
+        now = int(time.time())
         try:
             await self._brotr.upsert_service_state(
                 [
                     ServiceState(
                         service_name=self.SERVICE_NAME,
                         state_type=ServiceStateType.CHECKPOINT,
-                        state_key="api_sources",
-                        state_value=state,
-                        updated_at=int(time.time()),
+                        state_key=url,
+                        state_value={"timestamp": ts},
+                        updated_at=now,
                     )
+                    for url, ts in state.items()
                 ]
             )
         except (asyncpg.PostgresError, OSError) as e:

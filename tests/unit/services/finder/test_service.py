@@ -21,7 +21,7 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.services.common.types import EventRelayCursor
-from bigbrotr.services.common.utils import parse_relay_url
+from bigbrotr.services.common.utils import parse_relay
 from bigbrotr.services.finder import (
     ApiConfig,
     ApiSourceConfig,
@@ -219,7 +219,7 @@ class TestFinderFindFromApi:
         finder = Finder(brotr=mock_brotr, config=config)
         finder._load_api_state = AsyncMock(  # type: ignore[method-assign]
             return_value={
-                "https://api.example.com": {"last_checked_at": int(time.time()) - 100}
+                "https://api.example.com": int(time.time()) - 100
             }
         )
         finder._save_api_state = AsyncMock()  # type: ignore[method-assign]
@@ -247,7 +247,7 @@ class TestFinderFindFromApi:
         finder = Finder(brotr=mock_brotr, config=config)
         finder._load_api_state = AsyncMock(  # type: ignore[method-assign]
             return_value={
-                "https://api.example.com": {"last_checked_at": int(time.time()) - 7200}
+                "https://api.example.com": int(time.time()) - 7200
             }
         )
         finder._save_api_state = AsyncMock()  # type: ignore[method-assign]
@@ -895,46 +895,46 @@ class TestFinderEventScanConcurrency:
 
 
 class TestParseRelayUrl:
-    """Tests for parse_relay_url() utility function."""
+    """Tests for parse_relay() utility function."""
 
     def test_parse_valid_wss_url(self) -> None:
         """Test parsing valid wss:// URL."""
-        result = parse_relay_url("wss://relay.example.com")
+        result = parse_relay("wss://relay.example.com")
 
         assert result is not None
         assert result.url == "wss://relay.example.com"
 
     def test_parse_valid_ws_url(self) -> None:
         """Clearnet ws:// URL is automatically upgraded to wss://."""
-        result = parse_relay_url("ws://relay.example.com")
+        result = parse_relay("ws://relay.example.com")
 
         assert result is not None
         assert result.url == "wss://relay.example.com"
 
     def test_parse_invalid_url(self) -> None:
         """Test parsing invalid URL returns None."""
-        assert parse_relay_url("not-a-url") is None
-        assert parse_relay_url("http://wrong-scheme.com") is None
-        assert parse_relay_url("") is None
-        assert parse_relay_url(None) is None  # type: ignore[arg-type]
+        assert parse_relay("not-a-url") is None
+        assert parse_relay("http://wrong-scheme.com") is None
+        assert parse_relay("") is None
+        assert parse_relay(None) is None  # type: ignore[arg-type]
 
     def test_parse_tor_url(self) -> None:
         """Test parsing Tor .onion URL."""
-        result = parse_relay_url("ws://example.onion")
+        result = parse_relay("ws://example.onion")
 
         assert result is not None
         assert "onion" in result.url
 
     def test_parse_i2p_url(self) -> None:
         """Test parsing I2P .i2p URL."""
-        result = parse_relay_url("ws://example.i2p")
+        result = parse_relay("ws://example.i2p")
 
         assert result is not None
         assert "i2p" in result.url
 
     def test_parse_strips_whitespace(self) -> None:
         """Test parsing strips whitespace."""
-        result = parse_relay_url("  wss://relay.example.com  ")
+        result = parse_relay("  wss://relay.example.com  ")
 
         assert result is not None
         assert result.url == "wss://relay.example.com"
@@ -1125,18 +1125,43 @@ class TestFinderMetrics:
 
 
 class TestFinderLoadApiState:
-    """Tests for Finder._load_api_state() error handling."""
+    """Tests for Finder._load_api_state() method."""
 
-    async def test_corrupt_state_value_returns_empty(self, mock_brotr: Brotr) -> None:
-        """Corrupted state_value (TypeError/ValueError) returns empty dict."""
-        mock_record = MagicMock()
-        mock_record.state_value = "not-a-dict"  # dict() on a string yields chars as keys
-        mock_brotr.get_service_state = AsyncMock(return_value=[mock_record])  # type: ignore[method-assign]
+    async def test_loads_individual_checkpoint_records(self, mock_brotr: Brotr) -> None:
+        """Each CHECKPOINT record is loaded as url → timestamp."""
+        r1 = MagicMock()
+        r1.state_key = "https://api1.example.com"
+        r1.state_value = {"timestamp": 1700000000}
+        r2 = MagicMock()
+        r2.state_key = "https://api2.example.com"
+        r2.state_value = {"timestamp": 1700001000}
+        mock_brotr.get_service_state = AsyncMock(return_value=[r1, r2])  # type: ignore[method-assign]
 
         finder = Finder(brotr=mock_brotr)
-        # dict("not-a-dict") raises ValueError, should be caught
         result = await finder._load_api_state()
-        assert result == {}
+        assert result == {
+            "https://api1.example.com": 1700000000,
+            "https://api2.example.com": 1700001000,
+        }
+
+    async def test_corrupt_record_skipped(self, mock_brotr: Brotr) -> None:
+        """Records with missing or invalid timestamp are skipped."""
+        good = MagicMock()
+        good.state_key = "https://api1.example.com"
+        good.state_value = {"timestamp": 1700000000}
+        bad_missing = MagicMock()
+        bad_missing.state_key = "https://api2.example.com"
+        bad_missing.state_value = {}
+        bad_type = MagicMock()
+        bad_type.state_key = "https://api3.example.com"
+        bad_type.state_value = {"timestamp": "not-a-number"}
+        mock_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
+            return_value=[good, bad_missing, bad_type]
+        )
+
+        finder = Finder(brotr=mock_brotr)
+        result = await finder._load_api_state()
+        assert result == {"https://api1.example.com": 1700000000}
 
     async def test_db_error_returns_empty(self, mock_brotr: Brotr) -> None:
         """PostgresError from get_service_state returns empty dict."""

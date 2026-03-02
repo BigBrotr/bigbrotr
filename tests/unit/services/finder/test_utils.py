@@ -142,7 +142,7 @@ class TestExtractRelaysFromTagvalues:
         assert any("relay2.example.com" in u for u in urls)
 
     def test_non_url_tag_values_rejected(self) -> None:
-        """Non-URL tag values (hex IDs, hashtags) are rejected by parse_relay_url."""
+        """Non-URL tag values (hex IDs, hashtags) are rejected by parse_relay."""
         rows = [
             {
                 "tagvalues": [

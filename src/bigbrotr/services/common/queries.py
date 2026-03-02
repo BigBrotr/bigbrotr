@@ -8,12 +8,12 @@ Batch-insert wrappers split large inputs into chunks of
 ``BatchConfig.max_size`` so that services never need to manage Brotr's
 batch limit directly.
 
-The 14 query functions are grouped into four categories:
+The 15 query functions are grouped into four categories:
 
 - **Relay queries**: ``fetch_relays``, ``fetch_relays_to_monitor``,
   ``insert_relays``, ``insert_relay_metadata``
-- **Event queries**: ``scan_event_relay``, ``scan_event``,
-  ``insert_event_relays``
+- **Event queries**: ``fetch_event_relay_cursors``, ``scan_event_relay``,
+  ``scan_event``, ``insert_event_relays``
 - **Candidate lifecycle**: ``insert_relays_as_candidates``,
   ``count_candidates``, ``fetch_candidates``, ``promote_candidates``,
   ``upsert_service_states``
@@ -44,6 +44,7 @@ from bigbrotr.models.relay import Relay
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 
 from .types import Candidate, EventCursor, EventRelayCursor
+from .utils import parse_relay_row
 
 
 if TYPE_CHECKING:
@@ -67,16 +68,17 @@ async def _fetch_relays(brotr: Brotr, query: str, *args: Any) -> list[Relay]:
     """Execute *query* via ``brotr.fetch`` and construct Relay objects from the rows.
 
     Shared implementation for :func:`fetch_relays` and
-    :func:`fetch_relays_to_monitor`.  Rows that fail ``Relay``
-    construction (invalid URL) are silently skipped.
+    :func:`fetch_relays_to_monitor`.  Uses
+    [parse_relay_row][bigbrotr.services.common.utils.parse_relay_row] to
+    construct each Relay and cross-check the stored network type.
+    Invalid rows are skipped.
     """
     rows = await brotr.fetch(query, *args)
     relays: list[Relay] = []
     for row in rows:
-        try:
-            relays.append(Relay(row["url"], row["discovered_at"]))
-        except (ValueError, TypeError) as e:
-            logger.warning("Skipping invalid relay URL %s: %s", row["url"], e)
+        relay = parse_relay_row(row)
+        if relay is not None:
+            relays.append(relay)
     return relays
 
 
@@ -165,7 +167,7 @@ async def fetch_relays_to_monitor(
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         monitored_before: Exclusive upper bound -- only relays whose
-            ``monitored_at`` is before this Unix timestamp (or NULL)
+            checkpoint ``timestamp`` is before this Unix timestamp (or NULL)
             are returned.
         networks: Network types to include.
 
@@ -184,9 +186,9 @@ async def fetch_relays_to_monitor(
         WHERE
             r.network = ANY($1)
             AND (ss.state_key IS NULL
-                 OR (ss.state_value->>'monitored_at')::BIGINT < $2)
+                 OR (ss.state_value->>'timestamp')::BIGINT < $2)
         ORDER BY
-            COALESCE((ss.state_value->>'monitored_at')::BIGINT, 0) ASC,
+            COALESCE((ss.state_value->>'timestamp')::BIGINT, 0) ASC,
             r.discovered_at ASC
         """,
         networks,
@@ -459,7 +461,7 @@ async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
             service_name=ServiceName.VALIDATOR,
             state_type=ServiceStateType.CANDIDATE,
             state_key=relay.url,
-            state_value={"failures": 0, "network": relay.network.value, "inserted_at": now},
+            state_value={"network": relay.network.value, "failures": 0},
             updated_at=now,
         )
         for relay in new_relays
@@ -559,7 +561,11 @@ async def fetch_candidates(
     candidates: list[Candidate] = []
     for row in rows:
         try:
-            candidates.append(Candidate(relay=Relay(row["state_key"]), data=row["state_value"]))
+            sv = row["state_value"]
+            candidates.append(Candidate(
+                relay=Relay(row["state_key"]),
+                failures=int(sv.get("failures", 0)),
+            ))
         except (ValueError, TypeError) as e:
             logger.warning("Skipping invalid candidate URL %s: %s", row["state_key"], e)
     return candidates
