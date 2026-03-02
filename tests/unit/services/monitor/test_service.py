@@ -19,6 +19,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay, RelayMetadata
 from bigbrotr.models.constants import NetworkType, ServiceName
@@ -548,6 +550,149 @@ class TestMonitorPersistResults:
 
 
 # ============================================================================
+# Check Chunk Tests
+# ============================================================================
+
+
+class TestMonitorCheckChunk:
+    """Tests for Monitor._check_chunk() method."""
+
+    async def test_check_chunk_cancelled_error_propagates(
+        self, mock_brotr: Brotr
+    ) -> None:
+        """CancelledError captured by gather(return_exceptions=True) is re-raised."""
+        import asyncio
+
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with (
+            patch.object(
+                monitor,
+                "check_relay",
+                new_callable=AsyncMock,
+                side_effect=asyncio.CancelledError,
+            ),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await monitor._check_chunk([relay])
+
+    async def test_check_chunk_keyboard_interrupt_in_results_propagates(
+        self, mock_brotr: Brotr
+    ) -> None:
+        """KeyboardInterrupt in gather results (defensive) is re-raised."""
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        # asyncio's task step re-raises KI before gather can capture it,
+        # but we mock gather to test our defensive re-raise code path.
+        with (
+            patch.object(monitor, "check_relay", return_value="sentinel"),
+            patch(
+                "bigbrotr.services.monitor.service.asyncio.gather",
+                new_callable=AsyncMock,
+                return_value=[KeyboardInterrupt()],
+            ),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            await monitor._check_chunk([relay])
+
+    async def test_check_chunk_system_exit_in_results_propagates(
+        self, mock_brotr: Brotr
+    ) -> None:
+        """SystemExit in gather results (defensive) is re-raised."""
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with (
+            patch.object(monitor, "check_relay", return_value="sentinel"),
+            patch(
+                "bigbrotr.services.monitor.service.asyncio.gather",
+                new_callable=AsyncMock,
+                return_value=[SystemExit(1)],
+            ),
+            pytest.raises(SystemExit),
+        ):
+            await monitor._check_chunk([relay])
+
+    async def test_check_chunk_regular_exception_goes_to_failed(
+        self, mock_brotr: Brotr
+    ) -> None:
+        """Regular Exception ends up in the failed list, not re-raised."""
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with patch.object(
+            monitor,
+            "check_relay",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("connection lost"),
+        ):
+            successful, failed = await monitor._check_chunk([relay])
+
+        assert successful == []
+        assert failed == [relay]
+
+    async def test_check_chunk_successful_result(self, mock_brotr: Brotr) -> None:
+        """CheckResult with data goes to successful list."""
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+
+        with patch.object(
+            monitor, "check_relay", new_callable=AsyncMock, return_value=result
+        ):
+            successful, failed = await monitor._check_chunk([relay])
+
+        assert len(successful) == 1
+        assert successful[0] == (relay, result)
+        assert failed == []
+
+    async def test_check_chunk_empty_result_goes_to_failed(
+        self, mock_brotr: Brotr
+    ) -> None:
+        """CheckResult with no data goes to the failed list."""
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        empty_result = _make_check_result()  # no metadata fields set
+
+        with patch.object(
+            monitor, "check_relay", new_callable=AsyncMock, return_value=empty_result
+        ):
+            successful, failed = await monitor._check_chunk([relay])
+
+        assert successful == []
+        assert failed == [relay]
+
+    async def test_check_chunk_base_exception_precedes_later_results(
+        self, mock_brotr: Brotr
+    ) -> None:
+        """BaseException in first result is raised even if later results are OK."""
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay1 = Relay("wss://relay1.example.com")
+        relay2 = Relay("wss://relay2.example.com")
+        good_result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+
+        with (
+            patch.object(monitor, "check_relay", return_value="sentinel"),
+            patch(
+                "bigbrotr.services.monitor.service.asyncio.gather",
+                new_callable=AsyncMock,
+                return_value=[KeyboardInterrupt(), good_result],
+            ),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            await monitor._check_chunk([relay1, relay2])
+
+
+# ============================================================================
 # Network Configuration Tests
 # ============================================================================
 
@@ -701,7 +846,7 @@ class TestPublishAnnouncement:
                     service_name=ServiceName.MONITOR,
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key="last_announcement",
-                    state_value={"published_at": FIXED_TIME},
+                    state_value={"timestamp": FIXED_TIME},
                     updated_at=int(FIXED_TIME),
                 )
             ]
@@ -740,7 +885,7 @@ class TestPublishAnnouncement:
                     service_name=ServiceName.MONITOR,
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key="last_announcement",
-                    state_value={"published_at": old_timestamp},
+                    state_value={"timestamp": old_timestamp},
                     updated_at=int(old_timestamp),
                 )
             ]
@@ -810,7 +955,7 @@ class TestPublishProfile:
                     service_name=ServiceName.MONITOR,
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key="last_profile",
-                    state_value={"published_at": FIXED_TIME},
+                    state_value={"timestamp": FIXED_TIME},
                     updated_at=int(FIXED_TIME),
                 )
             ]

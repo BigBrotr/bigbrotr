@@ -389,8 +389,10 @@ class Monitor(
         failed: list[Relay] = []
 
         for relay, result in zip(relays, results, strict=True):
-            # gather(return_exceptions=True) captures CancelledError as a result
-            if isinstance(result, asyncio.CancelledError):
+            # gather(return_exceptions=True) captures all exceptions as results;
+            # re-raise non-Exception BaseExceptions (CancelledError, KeyboardInterrupt,
+            # SystemExit) so they propagate instead of being silently swallowed.
+            if isinstance(result, BaseException) and not isinstance(result, Exception):
                 raise result
             if isinstance(result, CheckResult) and result.has_data:
                 successful.append((relay, result))
@@ -726,7 +728,7 @@ class Monitor(
                     service_name=self.SERVICE_NAME,
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key=relay.url,
-                    state_value={"monitored_at": now},
+                    state_value={"timestamp": now},
                     updated_at=now,
                 )
                 for relay in all_relays
@@ -760,7 +762,7 @@ class Monitor(
             ServiceStateType.CHECKPOINT,
             state_key,
         )
-        last_ts = results[0].state_value.get("published_at", 0) if results else 0
+        last_ts = results[0].state_value.get("timestamp", 0) if results else 0
         if time.time() - last_ts < interval:
             return
 
@@ -782,7 +784,7 @@ class Monitor(
                     service_name=self.SERVICE_NAME,
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key=state_key,
-                    state_value={"published_at": now},
+                    state_value={"timestamp": now},
                     updated_at=now,
                 ),
             ]
