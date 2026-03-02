@@ -175,14 +175,14 @@ class TestSynchronizerFetchCursors:
                     service_name=ServiceName.SYNCHRONIZER,
                     state_type=ServiceStateType.CURSOR,
                     state_key="wss://r1.com",
-                    state_value={"last_synced_at": 1000},
+                    state_value={"timestamp": 1000},
                     updated_at=1001,
                 ),
                 ServiceState(
                     service_name=ServiceName.SYNCHRONIZER,
                     state_type=ServiceStateType.CURSOR,
                     state_key="wss://r2.com",
-                    state_value={"last_synced_at": 2000},
+                    state_value={"timestamp": 2000},
                     updated_at=2001,
                 ),
             ]
@@ -198,7 +198,7 @@ class TestSynchronizerFetchCursors:
         }
 
     async def test_filters_cursors_with_missing_field(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Cursors missing last_synced_at are filtered out."""
+        """Cursors missing timestamp are filtered out."""
         config = SynchronizerConfig(
             time_range=TimeRangeConfig(use_relay_state=True),
         )
@@ -210,7 +210,7 @@ class TestSynchronizerFetchCursors:
                     service_name=ServiceName.SYNCHRONIZER,
                     state_type=ServiceStateType.CURSOR,
                     state_key="wss://r1.com",
-                    state_value={"last_synced_at": 1000},
+                    state_value={"timestamp": 1000},
                     updated_at=1001,
                 ),
                 ServiceState(

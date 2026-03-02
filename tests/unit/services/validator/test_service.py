@@ -460,13 +460,13 @@ class TestPersistence:
         call_args = mock_validator_brotr.upsert_service_state.call_args[0][0]
         assert call_args[0].state_value["failures"] == 3
 
-    async def test_invalid_candidates_preserve_data_fields(
+    async def test_invalid_candidates_state_value_fields(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """Test invalid candidates preserve all data fields (network, etc)."""
+        """Test invalid candidates get state_value with network from relay and incremented failures."""
         mock_validator_brotr._pool.fetch = AsyncMock(
             side_effect=[
-                [make_candidate_row("wss://invalid.relay.com", network="tor", failures=1)],
+                [make_candidate_row("ws://abc.onion", network="tor", failures=1)],
                 [],
             ]
         )
@@ -483,8 +483,7 @@ class TestPersistence:
         mock_validator_brotr.upsert_service_state.assert_called_once()
         call_args = mock_validator_brotr.upsert_service_state.call_args[0][0]
         data = call_args[0].state_value
-        assert data["failures"] == 2
-        assert data["network"] == "tor"  # Preserved from original data
+        assert data == {"network": "tor", "failures": 2}
 
 
 # ============================================================================

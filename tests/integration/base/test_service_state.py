@@ -27,7 +27,7 @@ class TestServiceState:
             service_name=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.example.com",
-            state_value={"last_synced_at": 1700000000},
+            state_value={"timestamp": 1700000000},
             updated_at=now,
         )
         count = await brotr.upsert_service_state([state])
@@ -38,7 +38,7 @@ class TestServiceState:
         assert rows[0].service_name == ServiceName.FINDER
         assert rows[0].state_type == ServiceStateType.CURSOR
         assert rows[0].state_key == "wss://relay.example.com"
-        assert rows[0].state_value["last_synced_at"] == 1700000000
+        assert rows[0].state_value["timestamp"] == 1700000000
         assert rows[0].updated_at == now
 
     async def test_upsert_empty_batch(self, brotr: Brotr):
@@ -52,7 +52,7 @@ class TestServiceState:
             service_name=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.example.com",
-            state_value={"last_synced_at": 1700000000},
+            state_value={"timestamp": 1700000000},
             updated_at=now,
         )
         await brotr.upsert_service_state([original])
@@ -61,14 +61,14 @@ class TestServiceState:
             service_name=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.example.com",
-            state_value={"last_synced_at": 1700001000},
+            state_value={"timestamp": 1700001000},
             updated_at=now + 60,
         )
         await brotr.upsert_service_state([updated])
 
         rows = await brotr.get_service_state(ServiceName.FINDER, ServiceStateType.CURSOR)
         assert len(rows) == 1
-        assert rows[0].state_value["last_synced_at"] == 1700001000
+        assert rows[0].state_value["timestamp"] == 1700001000
         assert rows[0].updated_at == now + 60
 
     async def test_get_all_for_service_type(self, brotr: Brotr):

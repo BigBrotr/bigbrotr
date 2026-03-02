@@ -16,7 +16,7 @@ The synchronization workflow proceeds as follows:
 
 Note:
     Cursor-based pagination ensures each relay is synced incrementally.
-    The cursor (``last_synced_at`` timestamp) is stored as a
+    The cursor (``timestamp``) is stored as a
     [ServiceState][bigbrotr.models.service_state.ServiceState] record
     with ``state_type='cursor'``.  Cursor updates are batched (flushed
     every ``cursor_flush_interval`` relays) for crash resilience.
@@ -182,7 +182,7 @@ class Synchronizer(
         """Batch-fetch all relay sync cursors in a single query.
 
         Returns:
-            Dict mapping relay URL to ``last_synced_at`` timestamp.
+            Dict mapping relay URL to sync timestamp.
         """
         if not self._config.time_range.use_relay_state:
             return {}
@@ -190,10 +190,10 @@ class Synchronizer(
         states = await self._brotr.get_service_state(self.SERVICE_NAME, ServiceStateType.CURSOR)
         cursors: dict[str, int] = {}
         for s in states:
-            if "last_synced_at" not in s.state_value:
+            if "timestamp" not in s.state_value:
                 continue
             try:
-                cursors[s.state_key] = int(s.state_value["last_synced_at"])
+                cursors[s.state_key] = int(s.state_value["timestamp"])
             except (ValueError, TypeError) as e:
                 self._logger.warning("invalid_cursor_data", relay=s.state_key, error=str(e))
         return cursors
@@ -331,9 +331,9 @@ class Synchronizer(
         if not self._config.time_range.use_relay_state:
             return self._config.time_range.default_start
 
-        last_synced_at = cursors.get(relay.url)
-        if last_synced_at is not None:
-            return last_synced_at + 1
+        cursor_ts = cursors.get(relay.url)
+        if cursor_ts is not None:
+            return cursor_ts + 1
 
         return self._config.time_range.default_start
 
@@ -347,7 +347,7 @@ class Synchronizer(
                     service_name=self.SERVICE_NAME,
                     state_type=ServiceStateType.CURSOR,
                     state_key=relay.url,
-                    state_value={"last_synced_at": end_time},
+                    state_value={"timestamp": end_time},
                     updated_at=int(time.time()),
                 )
             )
