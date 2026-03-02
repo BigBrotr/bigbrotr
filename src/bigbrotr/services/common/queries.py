@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 _T = TypeVar("_T")
 
 
-async def _batched_insert(
+async def batched_insert(
     brotr: Brotr,
     records: list[_T],
     method: Callable[[list[_T]], Awaitable[int]],
@@ -61,4 +61,4 @@ async def upsert_service_states(brotr: Brotr, records: list[ServiceState]) -> in
     Returns:
         Number of records upserted.
     """
-    return await _batched_insert(brotr, records, brotr.upsert_service_state)
+    return await batched_insert(brotr, records, brotr.upsert_service_state)

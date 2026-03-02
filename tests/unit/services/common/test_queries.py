@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from bigbrotr.services.common.queries import (
-    _batched_insert,
+    batched_insert,
     upsert_service_states,
 )
 
@@ -44,12 +44,12 @@ def query_brotr() -> MagicMock:
 
 
 class TestBatchedInsert:
-    """Tests for _batched_insert() helper."""
+    """Tests for batched_insert() helper."""
 
     async def test_empty_returns_zero(self, query_brotr: MagicMock) -> None:
         """Returns 0 without calling the method when records is empty."""
         method = AsyncMock(return_value=5)
-        result = await _batched_insert(query_brotr, [], method)
+        result = await batched_insert(query_brotr, [], method)
         assert result == 0
         method.assert_not_called()
 
@@ -58,7 +58,7 @@ class TestBatchedInsert:
         query_brotr.config.batch.max_size = 100
         method = AsyncMock(return_value=3)
 
-        result = await _batched_insert(query_brotr, [1, 2, 3], method)
+        result = await batched_insert(query_brotr, [1, 2, 3], method)
 
         assert result == 3
         method.assert_awaited_once_with([1, 2, 3])
@@ -68,7 +68,7 @@ class TestBatchedInsert:
         query_brotr.config.batch.max_size = 2
         method = AsyncMock(return_value=2)
 
-        result = await _batched_insert(query_brotr, [1, 2, 3, 4, 5], method)
+        result = await batched_insert(query_brotr, [1, 2, 3, 4, 5], method)
 
         assert result == 6  # 2 + 2 + 2
         assert method.await_count == 3
@@ -81,7 +81,7 @@ class TestBatchedInsert:
         query_brotr.config.batch.max_size = 2
         method = AsyncMock(return_value=2)
 
-        result = await _batched_insert(query_brotr, [1, 2, 3, 4], method)
+        result = await batched_insert(query_brotr, [1, 2, 3, 4], method)
 
         assert result == 4
         assert method.await_count == 2
@@ -95,8 +95,8 @@ class TestBatchedInsert:
 class TestUpsertServiceStates:
     """Tests for upsert_service_states() batch splitting."""
 
-    async def test_delegates_to_batched_insert(self, query_brotr: MagicMock) -> None:
-        """Calls brotr.upsert_service_state via _batched_insert."""
+    async def test_delegates_tobatched_insert(self, query_brotr: MagicMock) -> None:
+        """Calls brotr.upsert_service_state via batched_insert."""
         query_brotr.upsert_service_state = AsyncMock(return_value=2)
 
         records = [MagicMock(), MagicMock()]
