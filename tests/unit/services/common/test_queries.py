@@ -27,13 +27,13 @@ from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.queries import (
     _batched_insert,
-    cleanup_service_state,
+    cleanup_stale,
     count_candidates,
     delete_exhausted_candidates,
-    fetch_all_relays,
     fetch_candidates,
+    fetch_event_relay_cursors,
+    fetch_relays,
     fetch_relays_to_monitor,
-    filter_new_relays,
     insert_event_relays,
     insert_relay_metadata,
     insert_relays,
@@ -59,7 +59,7 @@ def query_brotr() -> MagicMock:
     brotr.fetchrow = AsyncMock(return_value={"count": 0})
     brotr.fetchval = AsyncMock(return_value=0)
     brotr.execute = AsyncMock(return_value="DELETE 0")
-    brotr.upsert_service_state = AsyncMock()
+    brotr.upsert_service_state = AsyncMock(return_value=0)
     brotr.get_service_state = AsyncMock(return_value=[])
     brotr.config.batch.max_size = 1000
 
@@ -113,11 +113,11 @@ def _make_dict_row(data: dict[str, Any]) -> dict[str, Any]:
 
 
 class TestFetchAllRelays:
-    """Tests for fetch_all_relays()."""
+    """Tests for fetch_relays()."""
 
     async def test_calls_fetch(self, query_brotr: MagicMock) -> None:
         """Calls brotr.fetch with a query selecting url, network, discovered_at."""
-        await fetch_all_relays(query_brotr)
+        await fetch_relays(query_brotr)
 
         query_brotr.fetch.assert_awaited_once()
         sql = query_brotr.fetch.call_args[0][0]
@@ -133,7 +133,7 @@ class TestFetchAllRelays:
         )
         query_brotr.fetch = AsyncMock(return_value=[row])
 
-        result = await fetch_all_relays(query_brotr)
+        result = await fetch_relays(query_brotr)
 
         assert len(result) == 1
         assert result[0].url == "wss://relay.example.com"
@@ -154,7 +154,7 @@ class TestFetchAllRelays:
         ]
         query_brotr.fetch = AsyncMock(return_value=rows)
 
-        result = await fetch_all_relays(query_brotr)
+        result = await fetch_relays(query_brotr)
 
         assert len(result) == 2
         assert result[0].url == "wss://valid.relay.com"
@@ -162,53 +162,103 @@ class TestFetchAllRelays:
 
     async def test_empty_result(self, query_brotr: MagicMock) -> None:
         """Returns an empty list when no relays exist."""
-        result = await fetch_all_relays(query_brotr)
+        result = await fetch_relays(query_brotr)
 
         assert result == []
+
+
+# ============================================================================
+# TestFetchEventRelayCursors
+# ============================================================================
+
+
+class TestFetchEventRelayCursors:
+    """Tests for fetch_event_relay_cursors()."""
+
+    async def test_returns_cursor_for_relay_with_state(self, query_brotr: MagicMock) -> None:
+        """Relay with stored cursor returns populated EventRelayCursor."""
+        rows = [
+            _make_dict_row(
+                {"url": "wss://relay.com", "seen_at": "1700000000", "event_id": "ab" * 32}
+            ),
+        ]
+        query_brotr.fetch = AsyncMock(return_value=rows)
+
+        result = await fetch_event_relay_cursors(query_brotr)
+
+        assert len(result) == 1
+        cursor = result[0]
+        assert cursor.relay_url == "wss://relay.com"
+        assert cursor.seen_at == 1700000000
+        assert cursor.event_id == bytes.fromhex("ab" * 32)
+
+    async def test_returns_empty_cursor_for_relay_without_state(
+        self, query_brotr: MagicMock
+    ) -> None:
+        """Relay without stored cursor returns EventRelayCursor with None fields."""
+        rows = [
+            _make_dict_row({"url": "wss://new.relay.com", "seen_at": None, "event_id": None}),
+        ]
+        query_brotr.fetch = AsyncMock(return_value=rows)
+
+        result = await fetch_event_relay_cursors(query_brotr)
+
+        assert len(result) == 1
+        cursor = result[0]
+        assert cursor.relay_url == "wss://new.relay.com"
+        assert cursor.seen_at is None
+        assert cursor.event_id is None
+
+    async def test_mixed_relays_with_and_without_cursors(self, query_brotr: MagicMock) -> None:
+        """Mix of relays with and without stored cursors."""
+        rows = [
+            _make_dict_row(
+                {"url": "wss://has-cursor.com", "seen_at": "100", "event_id": "cd" * 32}
+            ),
+            _make_dict_row({"url": "wss://no-cursor.com", "seen_at": None, "event_id": None}),
+        ]
+        query_brotr.fetch = AsyncMock(return_value=rows)
+
+        result = await fetch_event_relay_cursors(query_brotr)
+
+        assert len(result) == 2
+        by_url = {c.relay_url: c for c in result}
+        assert by_url["wss://has-cursor.com"].seen_at == 100
+        assert by_url["wss://no-cursor.com"].seen_at is None
+
+    async def test_invalid_cursor_data_falls_back_to_empty(self, query_brotr: MagicMock) -> None:
+        """Corrupt cursor data (non-hex event_id) falls back to empty cursor."""
+        rows = [
+            _make_dict_row({"url": "wss://corrupt.com", "seen_at": "100", "event_id": "not-hex"}),
+        ]
+        query_brotr.fetch = AsyncMock(return_value=rows)
+
+        result = await fetch_event_relay_cursors(query_brotr)
+
+        assert len(result) == 1
+        cursor = result[0]
+        assert cursor.seen_at is None
+        assert cursor.event_id is None
+
+    async def test_empty_database(self, query_brotr: MagicMock) -> None:
+        """Empty relay table returns empty list."""
+        result = await fetch_event_relay_cursors(query_brotr)
+
+        assert result == []
+
+    async def test_query_uses_left_join(self, query_brotr: MagicMock) -> None:
+        """Query uses LEFT JOIN on service_state."""
+        await fetch_event_relay_cursors(query_brotr)
+
+        query_brotr.fetch.assert_awaited_once()
+        sql = query_brotr.fetch.call_args[0][0]
+        assert "LEFT JOIN service_state" in sql
+        assert "FROM relay" in sql
 
 
 # ============================================================================
 # TestFilterNewRelayUrls
 # ============================================================================
-
-
-class TestFilterNewRelays:
-    """Tests for filter_new_relays()."""
-
-    async def test_calls_fetch_with_correct_params(self, query_brotr: MagicMock) -> None:
-        """Passes urls, ServiceName.VALIDATOR, and ServiceStateType.CANDIDATE."""
-        relays = [Relay("wss://new1.example.com"), Relay("wss://new2.example.com")]
-
-        await filter_new_relays(query_brotr, relays)
-
-        query_brotr.fetch.assert_awaited_once()
-        args = query_brotr.fetch.call_args
-        sql = args[0][0]
-        assert "unnest($1::text[])" in sql
-        assert "service_name = $2" in sql
-        assert "state_type = $3" in sql
-        assert args[0][1] == ["wss://new1.example.com", "wss://new2.example.com"]
-        assert args[0][2] == ServiceName.VALIDATOR
-        assert args[0][3] == ServiceStateType.CANDIDATE
-
-    async def test_returns_filtered_relays(self, query_brotr: MagicMock) -> None:
-        """Returns only relays whose URL is genuinely new."""
-        query_brotr.fetch = AsyncMock(
-            return_value=[_make_dict_row({"url": "wss://new1.example.com"})]
-        )
-        relays = [Relay("wss://new1.example.com"), Relay("wss://existing.example.com")]
-
-        result = await filter_new_relays(query_brotr, relays)
-
-        assert len(result) == 1
-        assert result[0].url == "wss://new1.example.com"
-
-    async def test_empty_input(self, query_brotr: MagicMock) -> None:
-        """Returns empty list without querying the database."""
-        result = await filter_new_relays(query_brotr, [])
-
-        assert result == []
-        query_brotr.fetch.assert_not_awaited()
 
 
 # ============================================================================
@@ -220,7 +270,7 @@ class TestFetchRelaysToMonitor:
     """Tests for fetch_relays_to_monitor()."""
 
     async def test_calls_fetch_with_correct_params(self, query_brotr: MagicMock) -> None:
-        """Passes networks, monitored_before, ServiceName.MONITOR, ServiceStateType.MONITORING."""
+        """Passes networks, monitored_before, ServiceName.MONITOR, ServiceStateType.CHECKPOINT."""
         await fetch_relays_to_monitor(
             query_brotr,
             monitored_before=1700000000,
@@ -237,7 +287,7 @@ class TestFetchRelaysToMonitor:
         assert args[0][1] == [NetworkType.CLEARNET]
         assert args[0][2] == 1700000000
         assert args[0][3] == ServiceName.MONITOR
-        assert args[0][4] == ServiceStateType.MONITORING
+        assert args[0][4] == ServiceStateType.CHECKPOINT
 
     async def test_returns_relay_objects(self, query_brotr: MagicMock) -> None:
         """Returns Relay domain objects."""
@@ -398,15 +448,16 @@ class TestInsertCandidates:
     """Tests for insert_relays_as_candidates()."""
 
     async def test_filters_then_upserts(self, query_brotr: MagicMock) -> None:
-        """Calls filter_new_relays internally, then upserts only new relays."""
+        """Filters new relays internally, then upserts only new ones."""
         relay = _make_mock_relay()
         query_brotr.fetch = AsyncMock(
             return_value=[_make_dict_row({"url": "wss://relay.example.com"})]
         )
+        query_brotr.upsert_service_state = AsyncMock(return_value=1)
 
         result = await insert_relays_as_candidates(query_brotr, [relay])
 
-        # filter_new_relays called via brotr.fetch
+        # _filter_new_relays called via brotr.fetch
         query_brotr.fetch.assert_awaited_once()
         sql = query_brotr.fetch.call_args[0][0]
         assert "unnest($1::text[])" in sql
@@ -438,6 +489,7 @@ class TestInsertCandidates:
                 _make_dict_row({"url": "ws://r3.onion"}),
             ]
         )
+        query_brotr.upsert_service_state = AsyncMock(return_value=2)
 
         result = await insert_relays_as_candidates(query_brotr, relays)
 
@@ -480,6 +532,7 @@ class TestInsertCandidates:
                 _make_dict_row({"url": "wss://r3.example.com"}),
             ]
         )
+        query_brotr.upsert_service_state = AsyncMock(side_effect=[2, 1])
 
         result = await insert_relays_as_candidates(query_brotr, relays)
 
@@ -696,81 +749,6 @@ class TestPromoteCandidates:
 
 
 # ============================================================================
-# TestDeleteStaleState
-# ============================================================================
-
-
-class TestCleanupStaleState:
-    """Tests for cleanup_service_state()."""
-
-    async def test_cursor_uses_not_exists(self, query_brotr: MagicMock) -> None:
-        """CURSOR state uses NOT EXISTS (relay removed → state is stale)."""
-        query_brotr.fetchval = AsyncMock(return_value=3)
-
-        result = await cleanup_service_state(
-            query_brotr, ServiceName.FINDER, ServiceStateType.CURSOR
-        )
-
-        query_brotr.fetchval.assert_awaited_once()
-        args = query_brotr.fetchval.call_args
-        sql = args[0][0]
-        assert "DELETE FROM service_state" in sql
-        assert "NOT EXISTS" in sql
-        assert args[0][1] == ServiceName.FINDER
-        assert args[0][2] == ServiceStateType.CURSOR
-        assert result == 3
-
-    async def test_monitoring_uses_not_exists(self, query_brotr: MagicMock) -> None:
-        """MONITORING state uses NOT EXISTS (relay removed → state is stale)."""
-        query_brotr.fetchval = AsyncMock(return_value=5)
-
-        result = await cleanup_service_state(
-            query_brotr, ServiceName.MONITOR, ServiceStateType.MONITORING
-        )
-
-        args = query_brotr.fetchval.call_args
-        sql = args[0][0]
-        assert "NOT EXISTS" in sql
-        assert args[0][1] == ServiceName.MONITOR
-        assert args[0][2] == ServiceStateType.MONITORING
-        assert result == 5
-
-    async def test_candidate_uses_exists(self, query_brotr: MagicMock) -> None:
-        """CANDIDATE state uses EXISTS (relay promoted → candidate is stale)."""
-        query_brotr.fetchval = AsyncMock(return_value=7)
-
-        result = await cleanup_service_state(
-            query_brotr, ServiceName.VALIDATOR, ServiceStateType.CANDIDATE
-        )
-
-        args = query_brotr.fetchval.call_args
-        sql = args[0][0]
-        assert "DELETE FROM service_state" in sql
-        assert "AND EXISTS" in sql
-        assert "NOT EXISTS" not in sql
-        assert args[0][1] == ServiceName.VALIDATOR
-        assert args[0][2] == ServiceStateType.CANDIDATE
-        assert result == 7
-
-    async def test_returns_zero_when_none_deleted(self, query_brotr: MagicMock) -> None:
-        """Returns 0 when no stale rows exist."""
-        query_brotr.fetchval = AsyncMock(return_value=0)
-
-        result = await cleanup_service_state(
-            query_brotr, ServiceName.SYNCHRONIZER, ServiceStateType.CURSOR
-        )
-
-        assert result == 0
-
-    async def test_rejects_non_relay_keyed_type(self, query_brotr: MagicMock) -> None:
-        """Raises ValueError for state types whose keys are not relay URLs."""
-        with pytest.raises(ValueError, match="relay-keyed"):
-            await cleanup_service_state(
-                query_brotr, ServiceName.MONITOR, ServiceStateType.PUBLICATION
-            )
-
-
-# ============================================================================
 # Batch insert helper
 # ============================================================================
 
@@ -904,3 +882,80 @@ class TestUpsertServiceStates:
 
         assert result == 6  # 2 + 2 + 2
         assert query_brotr.upsert_service_state.await_count == 3
+
+
+# ============================================================================
+# Cleanup Stale States Tests
+# ============================================================================
+
+
+class TestCleanupStaleStates:
+    """Tests for cleanup_stale()."""
+
+    async def test_candidate_uses_exists(self, query_brotr: MagicMock) -> None:
+        """CANDIDATE branch uses EXISTS (relay promoted → candidate is stale)."""
+        query_brotr.fetchval = AsyncMock(return_value=0)
+
+        await cleanup_stale(query_brotr, ServiceName.VALIDATOR)
+
+        # Find the CANDIDATE call (first call since CANDIDATE is first in enum)
+        calls = query_brotr.fetchval.call_args_list
+        candidate_call = next(
+            c for c in calls if c[0][1] == ServiceName.VALIDATOR and c[0][2] == ServiceStateType.CANDIDATE
+        )
+        sql = candidate_call[0][0]
+        assert "DELETE FROM service_state" in sql
+        assert "AND EXISTS" in sql
+        assert "NOT EXISTS" not in sql
+
+    async def test_cursor_uses_not_exists_with_ws_guard(self, query_brotr: MagicMock) -> None:
+        """CURSOR branch uses NOT EXISTS with ws% guard."""
+        query_brotr.fetchval = AsyncMock(return_value=0)
+
+        await cleanup_stale(query_brotr, ServiceName.FINDER)
+
+        calls = query_brotr.fetchval.call_args_list
+        cursor_call = next(
+            c for c in calls if c[0][2] == ServiceStateType.CURSOR
+        )
+        sql = cursor_call[0][0]
+        assert "NOT EXISTS" in sql
+        assert "LIKE 'ws%'" in sql
+
+    async def test_checkpoint_uses_not_exists_with_ws_guard(self, query_brotr: MagicMock) -> None:
+        """CHECKPOINT branch uses NOT EXISTS with ws% guard."""
+        query_brotr.fetchval = AsyncMock(return_value=0)
+
+        await cleanup_stale(query_brotr, ServiceName.MONITOR)
+
+        calls = query_brotr.fetchval.call_args_list
+        checkpoint_call = next(
+            c for c in calls if c[0][2] == ServiceStateType.CHECKPOINT
+        )
+        sql = checkpoint_call[0][0]
+        assert "NOT EXISTS" in sql
+        assert "LIKE 'ws%'" in sql
+
+    async def test_aggregates_total(self, query_brotr: MagicMock) -> None:
+        """Returns total count across all state types."""
+        query_brotr.fetchval = AsyncMock(side_effect=[2, 3, 5])
+
+        result = await cleanup_stale(query_brotr, ServiceName.VALIDATOR)
+
+        assert result == 10
+
+    async def test_returns_zero_for_none(self, query_brotr: MagicMock) -> None:
+        """Returns 0 when fetchval returns None for all types."""
+        query_brotr.fetchval = AsyncMock(return_value=None)
+
+        result = await cleanup_stale(query_brotr, ServiceName.FINDER)
+
+        assert result == 0
+
+    async def test_iterates_all_state_types(self, query_brotr: MagicMock) -> None:
+        """Calls fetchval once per ServiceStateType."""
+        query_brotr.fetchval = AsyncMock(return_value=0)
+
+        await cleanup_stale(query_brotr, ServiceName.VALIDATOR)
+
+        assert query_brotr.fetchval.call_count == len(ServiceStateType)
