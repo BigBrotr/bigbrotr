@@ -11,25 +11,25 @@ from bigbrotr.services.common.types import EventRelayCursor
 
 
 if TYPE_CHECKING:
-    from .service import Finder
+    from bigbrotr.core.brotr import Brotr
 
 
 logger = logging.getLogger(__name__)
 
 
-async def delete_stale_cursors(finder: Finder) -> int:
+async def delete_stale_cursors(brotr: Brotr) -> int:
     """Remove cursor state for relays that no longer exist.
 
     Deletes CURSOR records whose ``state_key`` does not match any relay in
     the relay table.
 
     Args:
-        finder: The [Finder][bigbrotr.services.finder.Finder] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
 
     Returns:
         Number of deleted rows.
     """
-    count: int = await finder._brotr.fetchval(
+    count: int = await brotr.fetchval(
         """
         WITH deleted AS (
             DELETE FROM service_state
@@ -46,20 +46,20 @@ async def delete_stale_cursors(finder: Finder) -> int:
     return count
 
 
-async def delete_stale_api_checkpoints(finder: Finder) -> int:
+async def delete_stale_api_checkpoints(brotr: Brotr, active_urls: list[str]) -> int:
     """Remove API checkpoint state for sources no longer in the config.
 
     Deletes CHECKPOINT records whose ``state_key`` (source URL) is not
-    present in the currently configured API sources.
+    present in the given list of active source URLs.
 
     Args:
-        finder: The [Finder][bigbrotr.services.finder.Finder] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        active_urls: Currently configured API source URLs to keep.
 
     Returns:
         Number of deleted rows.
     """
-    active_urls = [s.url for s in finder._config.api.sources]
-    count: int = await finder._brotr.fetchval(
+    count: int = await brotr.fetchval(
         """
         WITH deleted AS (
             DELETE FROM service_state
@@ -77,7 +77,7 @@ async def delete_stale_api_checkpoints(finder: Finder) -> int:
     return count
 
 
-async def fetch_event_relay_cursors(finder: Finder) -> list[EventRelayCursor]:
+async def fetch_event_relay_cursors(brotr: Brotr) -> list[EventRelayCursor]:
     """Fetch all relays with their event-scanning cursor position.
 
     Performs a single ``LEFT JOIN`` between the ``relay`` table and
@@ -91,14 +91,14 @@ async def fetch_event_relay_cursors(finder: Finder) -> list[EventRelayCursor]:
     rescanned from the beginning.
 
     Args:
-        finder: The [Finder][bigbrotr.services.finder.Finder] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
 
     Returns:
         List of
         [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor],
         one per relay in the database.
     """
-    rows = await finder._brotr.fetch(
+    rows = await brotr.fetch(
         """
         SELECT r.url,
                (ss.state_value->>'seen_at') AS seen_at,
@@ -136,7 +136,7 @@ async def fetch_event_relay_cursors(finder: Finder) -> list[EventRelayCursor]:
 
 
 async def scan_event_relay(
-    finder: Finder,
+    brotr: Brotr,
     cursor: EventRelayCursor,
     limit: int,
 ) -> list[dict[str, Any]]:
@@ -147,7 +147,7 @@ async def scan_event_relay(
     ``seen_at=None`` (new cursor), scanning starts from the beginning.
 
     Args:
-        finder: The [Finder][bigbrotr.services.finder.Finder] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         cursor: [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor]
             with relay URL and pagination position.
         limit: Maximum rows per batch.
@@ -156,7 +156,7 @@ async def scan_event_relay(
         List of dicts with all event columns plus ``seen_at`` from the
         ``event_relay`` junction.
     """
-    rows = await finder._brotr.fetch(
+    rows = await brotr.fetch(
         """
         SELECT e.id AS event_id, e.pubkey, e.created_at, e.kind,
                e.tags, e.tagvalues, e.content, e.sig, er.seen_at
@@ -175,7 +175,7 @@ async def scan_event_relay(
     return [dict(row) for row in rows]
 
 
-async def load_api_checkpoints(finder: Finder) -> dict[str, int]:
+async def load_api_checkpoints(brotr: Brotr) -> dict[str, int]:
     """Load per-source API timestamps from CHECKPOINT records.
 
     Fetches all CHECKPOINT records for the Finder and extracts the
@@ -184,12 +184,12 @@ async def load_api_checkpoints(finder: Finder) -> dict[str, int]:
     skipped.
 
     Args:
-        finder: The [Finder][bigbrotr.services.finder.Finder] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
 
     Returns:
         Mapping of state key (source URL) to Unix timestamp of last fetch.
     """
-    records = await finder._brotr.get_service_state(
+    records = await brotr.get_service_state(
         ServiceName.FINDER, ServiceStateType.CHECKPOINT
     )
     state: dict[str, int] = {}
@@ -201,14 +201,14 @@ async def load_api_checkpoints(finder: Finder) -> dict[str, int]:
     return state
 
 
-async def save_api_checkpoints(finder: Finder, state: dict[str, int]) -> None:
+async def save_api_checkpoints(brotr: Brotr, state: dict[str, int]) -> None:
     """Persist per-source API timestamps as CHECKPOINT records.
 
     Args:
-        finder: The [Finder][bigbrotr.services.finder.Finder] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         state: Mapping of source URL to Unix timestamp to persist.
     """
-    await finder._brotr.upsert_service_state(
+    await brotr.upsert_service_state(
         [
             ServiceState(
                 service_name=ServiceName.FINDER,
@@ -221,7 +221,7 @@ async def save_api_checkpoints(finder: Finder, state: dict[str, int]) -> None:
     )
 
 
-async def save_event_relay_cursor(finder: Finder, cursor: EventRelayCursor) -> None:
+async def save_event_relay_cursor(brotr: Brotr, cursor: EventRelayCursor) -> None:
     """Persist the scan cursor position for a relay.
 
     No-op if the cursor has no position (``seen_at`` or ``event_id`` is
@@ -229,13 +229,13 @@ async def save_event_relay_cursor(finder: Finder, cursor: EventRelayCursor) -> N
     storing that is pointless.
 
     Args:
-        finder: The [Finder][bigbrotr.services.finder.Finder] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         cursor: [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor]
             with relay URL and pagination position.
     """
     if cursor.seen_at is None or cursor.event_id is None:
         return
-    await finder._brotr.upsert_service_state(
+    await brotr.upsert_service_state(
         [
             ServiceState(
                 service_name=ServiceName.FINDER,

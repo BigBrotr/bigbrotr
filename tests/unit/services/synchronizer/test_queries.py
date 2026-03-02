@@ -28,14 +28,6 @@ def query_brotr() -> MagicMock:
     return brotr
 
 
-@pytest.fixture
-def mock_synchronizer(query_brotr: MagicMock) -> MagicMock:
-    s = MagicMock()
-    s._brotr = query_brotr
-    s.SERVICE_NAME = ServiceName.SYNCHRONIZER
-    return s
-
-
 # ============================================================================
 # TestDeleteStaleCursors
 # ============================================================================
@@ -44,12 +36,10 @@ def mock_synchronizer(query_brotr: MagicMock) -> MagicMock:
 class TestDeleteStaleCursors:
     """Tests for delete_stale_cursors()."""
 
-    async def test_calls_fetchval_with_correct_params(
-        self, mock_synchronizer: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_calls_fetchval_with_correct_params(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=5)
 
-        result = await delete_stale_cursors(mock_synchronizer)
+        result = await delete_stale_cursors(query_brotr)
 
         query_brotr.fetchval.assert_awaited_once()
         args = query_brotr.fetchval.call_args
@@ -60,12 +50,10 @@ class TestDeleteStaleCursors:
         assert args[0][2] == ServiceStateType.CURSOR
         assert result == 5
 
-    async def test_returns_zero_on_none(
-        self, mock_synchronizer: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_returns_zero_on_none(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=None)
 
-        result = await delete_stale_cursors(mock_synchronizer)
+        result = await delete_stale_cursors(query_brotr)
 
         assert result == 0
 

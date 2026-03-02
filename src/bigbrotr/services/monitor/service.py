@@ -182,7 +182,7 @@ class Monitor(
 
     async def cleanup(self) -> int:
         """Remove stale checkpoint state for relays that no longer exist."""
-        return await delete_stale_checkpoints(self)
+        return await delete_stale_checkpoints(self._brotr)
 
     async def _update_geo_db(self, path: Path, url: str, db_name: str) -> None:
         """Download a single GeoLite2 database if missing or stale."""
@@ -255,7 +255,7 @@ class Monitor(
         started_at = time.time()
         monotonic_start = time.monotonic()
         monitored_before = int(started_at - self._config.discovery.interval)
-        relays = await fetch_relays_to_monitor(self, monitored_before, networks)
+        relays = await fetch_relays_to_monitor(self._brotr, monitored_before, networks)
 
         total = len(relays)
         processed = 0
@@ -680,7 +680,7 @@ class Monitor(
             metadata = collect_metadata(successful, self._config.processing.store)
             if metadata:
                 try:
-                    count = await insert_relay_metadata(self, metadata)
+                    count = await insert_relay_metadata(self._brotr, metadata)
                     self._logger.debug("metadata_inserted", count=count)
                     self.inc_counter("total_metadata_stored", count)
                 except (asyncpg.PostgresError, OSError) as e:
@@ -690,7 +690,7 @@ class Monitor(
         all_relays = [relay for relay, _ in successful] + failed
         if all_relays:
             try:
-                await save_monitoring_markers(self, all_relays, now)
+                await save_monitoring_markers(self._brotr, all_relays, now)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("monitoring_save_failed", error=str(e))
 

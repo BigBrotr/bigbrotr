@@ -15,8 +15,6 @@ from bigbrotr.services.common.types import CandidateCheckpoint
 if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
 
-    from .service import Validator
-
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +91,7 @@ async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
     return total
 
 
-async def delete_promoted_candidates(validator: Validator) -> int:
+async def delete_promoted_candidates(brotr: Brotr) -> int:
     """Remove candidates that have already been promoted to the relay table.
 
     Deletes CHECKPOINT records whose ``state_key`` matches a URL that now
@@ -102,13 +100,12 @@ async def delete_promoted_candidates(validator: Validator) -> int:
     failed.
 
     Args:
-        validator: The [Validator][bigbrotr.services.validator.Validator]
-            instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
 
     Returns:
         Number of deleted rows.
     """
-    count: int = await validator._brotr.fetchval(
+    count: int = await brotr.fetchval(
         """
         WITH deleted AS (
             DELETE FROM service_state
@@ -125,23 +122,22 @@ async def delete_promoted_candidates(validator: Validator) -> int:
     return count
 
 
-async def delete_exhausted_candidates(validator: Validator) -> int:
+async def delete_exhausted_candidates(brotr: Brotr, max_failures: int) -> int:
     """Remove candidates that have exceeded the failure threshold.
 
     Deletes CHECKPOINT records whose ``failures`` counter meets or exceeds
-    ``validator._config.cleanup.max_failures``. Called during cleanup when
-    ``cleanup.enabled`` is ``True`` to prevent permanently broken relays from
-    consuming validation resources indefinitely.
+    ``max_failures``. Called during cleanup when ``cleanup.enabled`` is
+    ``True`` to prevent permanently broken relays from consuming validation
+    resources indefinitely.
 
     Args:
-        validator: The [Validator][bigbrotr.services.validator.Validator]
-            instance; provides both the database handle and the configured
-            ``max_failures`` threshold.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        max_failures: Failure threshold above which candidates are removed.
 
     Returns:
         Number of deleted rows.
     """
-    count: int = await validator._brotr.fetchval(
+    count: int = await brotr.fetchval(
         """
         WITH deleted AS (
             DELETE FROM service_state
@@ -154,20 +150,20 @@ async def delete_exhausted_candidates(validator: Validator) -> int:
         """,
         ServiceName.VALIDATOR,
         ServiceStateType.CHECKPOINT,
-        validator._config.cleanup.max_failures,
+        max_failures,
     )
     return count
 
 
 async def count_candidates(
-    validator: Validator,
+    brotr: Brotr,
     networks: list[NetworkType],
     attempted_before: int,
 ) -> int:
     """Count pending validation candidates for the given networks.
 
     Args:
-        validator: The [Validator][bigbrotr.services.validator.Validator] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         networks: Network types to include.
         attempted_before: Only count candidates whose last validation
             attempt ``timestamp`` is before this Unix timestamp. Candidates
@@ -176,7 +172,7 @@ async def count_candidates(
     Returns:
         Total count of matching candidates.
     """
-    row = await validator._brotr.fetchrow(
+    row = await brotr.fetchrow(
         """
         SELECT COUNT(*)::int AS count
         FROM service_state
@@ -195,7 +191,7 @@ async def count_candidates(
 
 
 async def fetch_candidates(
-    validator: Validator,
+    brotr: Brotr,
     networks: list[NetworkType],
     attempted_before: int,
     limit: int,
@@ -209,7 +205,7 @@ async def fetch_candidates(
     with a warning.
 
     Args:
-        validator: The [Validator][bigbrotr.services.validator.Validator] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         networks: Network types to include.
         attempted_before: Only fetch candidates whose last validation
             attempt ``timestamp`` is before this Unix timestamp. Candidates
@@ -220,7 +216,7 @@ async def fetch_candidates(
         List of [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint]
         instances.
     """
-    rows = await validator._brotr.fetch(
+    rows = await brotr.fetch(
         """
         SELECT state_key, state_value
         FROM service_state
@@ -256,11 +252,11 @@ async def fetch_candidates(
     return candidates
 
 
-async def promote_candidates(validator: Validator, candidates: list[CandidateCheckpoint]) -> int:
+async def promote_candidates(brotr: Brotr, candidates: list[CandidateCheckpoint]) -> int:
     """Insert relays and remove their candidate records.
 
     Args:
-        validator: The [Validator][bigbrotr.services.validator.Validator] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         candidates: Validated
             [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint] objects
             to promote from ``service_state`` to the relays table.
@@ -273,13 +269,13 @@ async def promote_candidates(validator: Validator, candidates: list[CandidateChe
 
     relays = [Relay(c.key) for c in candidates]
     inserted = 0
-    batch_size = validator._brotr.config.batch.max_size
+    batch_size = brotr.config.batch.max_size
     for i in range(0, len(relays), batch_size):
-        inserted += await validator._brotr.insert_relay(relays[i : i + batch_size])
+        inserted += await brotr.insert_relay(relays[i : i + batch_size])
 
     for i in range(0, len(candidates), batch_size):
         chunk = candidates[i : i + batch_size]
-        await validator._brotr.delete_service_state(
+        await brotr.delete_service_state(
             [ServiceName.VALIDATOR] * len(chunk),
             [ServiceStateType.CHECKPOINT] * len(chunk),
             [c.key for c in chunk],
@@ -287,14 +283,14 @@ async def promote_candidates(validator: Validator, candidates: list[CandidateChe
     return inserted
 
 
-async def fail_candidates(validator: Validator, candidates: list[CandidateCheckpoint]) -> int:
+async def fail_candidates(brotr: Brotr, candidates: list[CandidateCheckpoint]) -> int:
     """Increment the failure counter on invalid candidates.
 
     Builds [ServiceState][bigbrotr.models.service_state.ServiceState] records
     with ``failures + 1`` and upserts them.
 
     Args:
-        validator: The [Validator][bigbrotr.services.validator.Validator] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         candidates: [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint]
             objects that failed validation.
 
@@ -319,7 +315,7 @@ async def fail_candidates(validator: Validator, candidates: list[CandidateCheckp
         for c in candidates
     ]
     total = 0
-    batch_size = validator._brotr.config.batch.max_size
+    batch_size = brotr.config.batch.max_size
     for i in range(0, len(records), batch_size):
-        total += await validator._brotr.upsert_service_state(records[i : i + batch_size])
+        total += await brotr.upsert_service_state(records[i : i + batch_size])
     return total

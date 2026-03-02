@@ -121,9 +121,11 @@ class Validator(NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
 
     async def cleanup(self) -> int:
         """Remove promoted candidates and exhausted candidates."""
-        removed = await delete_promoted_candidates(self)
+        removed = await delete_promoted_candidates(self._brotr)
         if self._config.cleanup.enabled:
-            removed += await delete_exhausted_candidates(self)
+            removed += await delete_exhausted_candidates(
+                self._brotr, self._config.cleanup.max_failures
+            )
         return removed
 
     async def validate(self) -> int:
@@ -139,7 +141,7 @@ class Validator(NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
 
         attempted_before = int(time.time() - self._config.processing.interval)
 
-        total = await count_candidates(self, networks, attempted_before)
+        total = await count_candidates(self._brotr, networks, attempted_before)
         self._logger.info("candidates_available", total=total)
 
         self.set_gauge("total", total)
@@ -153,8 +155,8 @@ class Validator(NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
         chunk_num = 0
 
         async for valid, invalid in self._validate_chunks(networks, attempted_before):
-            failed_count = await fail_candidates(self, invalid)
-            promoted_count = await promote_candidates(self, valid)
+            failed_count = await fail_candidates(self._brotr, invalid)
+            promoted_count = await promote_candidates(self._brotr, valid)
 
             processed += len(valid) + len(invalid)
             cumulative_promoted += promoted_count
@@ -237,7 +239,7 @@ class Validator(NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
             else:
                 limit = chunk_size
 
-            candidates = await fetch_candidates(self, networks, attempted_before, limit)
+            candidates = await fetch_candidates(self._brotr, networks, attempted_before, limit)
             if not candidates:
                 break
 

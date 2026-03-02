@@ -39,14 +39,6 @@ def query_brotr() -> MagicMock:
     return brotr
 
 
-@pytest.fixture
-def mock_validator(query_brotr: MagicMock) -> MagicMock:
-    v = MagicMock()
-    v._brotr = query_brotr
-    v._config.cleanup.max_failures = 5
-    return v
-
-
 def _make_dict_row(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
@@ -144,12 +136,10 @@ class TestInsertCandidates:
 class TestDeletePromotedCandidates:
     """Tests for delete_promoted_candidates()."""
 
-    async def test_calls_fetchval_with_correct_params(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_calls_fetchval_with_correct_params(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=2)
 
-        result = await delete_promoted_candidates(mock_validator)
+        result = await delete_promoted_candidates(query_brotr)
 
         query_brotr.fetchval.assert_awaited_once()
         args = query_brotr.fetchval.call_args
@@ -161,12 +151,10 @@ class TestDeletePromotedCandidates:
         assert args[0][2] == ServiceStateType.CHECKPOINT
         assert result == 2
 
-    async def test_returns_zero_when_none_deleted(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_returns_zero_when_none_deleted(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=None)
 
-        result = await delete_promoted_candidates(mock_validator)
+        result = await delete_promoted_candidates(query_brotr)
 
         assert result == 0
 
@@ -179,12 +167,10 @@ class TestDeletePromotedCandidates:
 class TestDeleteExhaustedCandidates:
     """Tests for delete_exhausted_candidates()."""
 
-    async def test_calls_fetchval_with_correct_params(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_calls_fetchval_with_correct_params(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=3)
 
-        result = await delete_exhausted_candidates(mock_validator)
+        result = await delete_exhausted_candidates(query_brotr, max_failures=5)
 
         query_brotr.fetchval.assert_awaited_once()
         args = query_brotr.fetchval.call_args
@@ -194,15 +180,13 @@ class TestDeleteExhaustedCandidates:
         assert ">= $3" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CHECKPOINT
-        assert args[0][3] == 5  # max_failures from mock_validator._config
+        assert args[0][3] == 5
         assert result == 3
 
-    async def test_returns_zero_when_none_deleted(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_returns_zero_when_none_deleted(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=0)
 
-        result = await delete_exhausted_candidates(mock_validator)
+        result = await delete_exhausted_candidates(query_brotr, max_failures=5)
 
         assert result == 0
 
@@ -215,13 +199,11 @@ class TestDeleteExhaustedCandidates:
 class TestCountCandidates:
     """Tests for count_candidates()."""
 
-    async def test_calls_fetchrow_with_correct_params(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_calls_fetchrow_with_correct_params(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchrow = AsyncMock(return_value={"count": 15})
 
         result = await count_candidates(
-            mock_validator,
+            query_brotr,
             networks=[NetworkType.CLEARNET, NetworkType.TOR],
             attempted_before=1700000000,
         )
@@ -241,12 +223,10 @@ class TestCountCandidates:
         assert args[0][4] == 1700000000
         assert result == 15
 
-    async def test_returns_zero_when_row_is_none(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_returns_zero_when_row_is_none(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchrow = AsyncMock(return_value=None)
 
-        result = await count_candidates(mock_validator, [NetworkType.CLEARNET], 1700000000)
+        result = await count_candidates(query_brotr, [NetworkType.CLEARNET], 1700000000)
 
         assert result == 0
 
@@ -259,11 +239,9 @@ class TestCountCandidates:
 class TestFetchCandidates:
     """Tests for fetch_candidates()."""
 
-    async def test_calls_fetch_with_correct_params(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_calls_fetch_with_correct_params(self, query_brotr: MagicMock) -> None:
         await fetch_candidates(
-            mock_validator,
+            query_brotr,
             networks=[NetworkType.CLEARNET],
             attempted_before=1700000000,
             limit=50,
@@ -285,9 +263,7 @@ class TestFetchCandidates:
         assert args[0][4] == 1700000000
         assert args[0][5] == 50
 
-    async def test_returns_candidate_checkpoint_objects(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_returns_candidate_checkpoint_objects(self, query_brotr: MagicMock) -> None:
         row = _make_dict_row(
             {
                 "state_key": "wss://relay.example.com",
@@ -296,7 +272,7 @@ class TestFetchCandidates:
         )
         query_brotr.fetch = AsyncMock(return_value=[row])
 
-        result = await fetch_candidates(mock_validator, [NetworkType.CLEARNET], 1700000000, 50)
+        result = await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 1700000000, 50)
 
         assert len(result) == 1
         assert isinstance(result[0], CandidateCheckpoint)
@@ -305,9 +281,7 @@ class TestFetchCandidates:
         assert result[0].network == NetworkType.CLEARNET
         assert result[0].failures == 0
 
-    async def test_skips_invalid_network(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_skips_invalid_network(self, query_brotr: MagicMock) -> None:
         rows = [
             _make_dict_row(
                 {
@@ -328,15 +302,13 @@ class TestFetchCandidates:
         ]
         query_brotr.fetch = AsyncMock(return_value=rows)
 
-        result = await fetch_candidates(mock_validator, [NetworkType.CLEARNET], 1700000000, 50)
+        result = await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 1700000000, 50)
 
         assert len(result) == 1
         assert result[0].key == "wss://relay.example.com"
 
-    async def test_empty_result(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
-        result = await fetch_candidates(mock_validator, [NetworkType.CLEARNET], 1700000000, 50)
+    async def test_empty_result(self, query_brotr: MagicMock) -> None:
+        result = await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 1700000000, 50)
 
         assert result == []
 
@@ -349,9 +321,7 @@ class TestFetchCandidates:
 class TestPromoteCandidates:
     """Tests for promote_candidates()."""
 
-    async def test_inserts_relays_and_deletes_candidates(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_inserts_relays_and_deletes_candidates(self, query_brotr: MagicMock) -> None:
         candidate = CandidateCheckpoint(
             key="wss://promoted.example.com",
             timestamp=1700000000,
@@ -361,7 +331,7 @@ class TestPromoteCandidates:
         query_brotr.insert_relay = AsyncMock(return_value=1)
         query_brotr.delete_service_state = AsyncMock(return_value=1)
 
-        result = await promote_candidates(mock_validator, [candidate])
+        result = await promote_candidates(query_brotr, [candidate])
 
         query_brotr.insert_relay.assert_awaited_once()
         relays = query_brotr.insert_relay.call_args[0][0]
@@ -374,17 +344,13 @@ class TestPromoteCandidates:
         )
         assert result == 1
 
-    async def test_empty_candidate_list(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
-        result = await promote_candidates(mock_validator, [])
+    async def test_empty_candidate_list(self, query_brotr: MagicMock) -> None:
+        result = await promote_candidates(query_brotr, [])
 
         query_brotr.insert_relay.assert_not_awaited()
         assert result == 0
 
-    async def test_multiple_candidates(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_multiple_candidates(self, query_brotr: MagicMock) -> None:
         candidates = [
             CandidateCheckpoint(
                 key="wss://r1.example.com",
@@ -402,7 +368,7 @@ class TestPromoteCandidates:
         query_brotr.insert_relay = AsyncMock(return_value=2)
         query_brotr.delete_service_state = AsyncMock(return_value=2)
 
-        result = await promote_candidates(mock_validator, candidates)
+        result = await promote_candidates(query_brotr, candidates)
 
         relays = query_brotr.insert_relay.call_args[0][0]
         assert [r.url for r in relays] == ["wss://r1.example.com", "wss://r2.example.com"]
@@ -422,9 +388,7 @@ class TestPromoteCandidates:
 class TestFailCandidates:
     """Tests for fail_candidates()."""
 
-    async def test_increments_failures(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_increments_failures(self, query_brotr: MagicMock) -> None:
         candidate = CandidateCheckpoint(
             key="wss://bad.example.com",
             timestamp=1700000000,
@@ -433,7 +397,7 @@ class TestFailCandidates:
         )
         query_brotr.upsert_service_state = AsyncMock(return_value=1)
 
-        result = await fail_candidates(mock_validator, [candidate])
+        result = await fail_candidates(query_brotr, [candidate])
 
         query_brotr.upsert_service_state.assert_awaited_once()
         records = query_brotr.upsert_service_state.call_args[0][0]
@@ -442,10 +406,8 @@ class TestFailCandidates:
         assert records[0].state_key == "wss://bad.example.com"
         assert result == 1
 
-    async def test_empty_list(
-        self, mock_validator: MagicMock, query_brotr: MagicMock
-    ) -> None:
-        result = await fail_candidates(mock_validator, [])
+    async def test_empty_list(self, query_brotr: MagicMock) -> None:
+        result = await fail_candidates(query_brotr, [])
 
         query_brotr.upsert_service_state.assert_not_awaited()
         assert result == 0

@@ -12,17 +12,16 @@ from bigbrotr.services.common.utils import parse_relay_row
 
 
 if TYPE_CHECKING:
+    from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
     from bigbrotr.models.constants import NetworkType
     from bigbrotr.models.relay_metadata import RelayMetadata
-
-    from .service import Monitor
 
 
 logger = logging.getLogger(__name__)
 
 
-async def delete_stale_checkpoints(monitor: Monitor) -> int:
+async def delete_stale_checkpoints(brotr: Brotr) -> int:
     """Remove checkpoint state for relays that no longer exist.
 
     Deletes CHECKPOINT records whose relay-URL key (``state_key LIKE 'ws%'``)
@@ -30,12 +29,12 @@ async def delete_stale_checkpoints(monitor: Monitor) -> int:
     ``last_announcement`` and ``last_profile`` are not touched.
 
     Args:
-        monitor: The [Monitor][bigbrotr.services.monitor.Monitor] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
 
     Returns:
         Number of deleted rows.
     """
-    count: int = await monitor._brotr.fetchval(
+    count: int = await brotr.fetchval(
         """
         WITH deleted AS (
             DELETE FROM service_state
@@ -47,14 +46,14 @@ async def delete_stale_checkpoints(monitor: Monitor) -> int:
         )
         SELECT count(*)::int FROM deleted
         """,
-        monitor.SERVICE_NAME,
+        ServiceName.MONITOR,
         ServiceStateType.CHECKPOINT,
     ) or 0
     return count
 
 
 async def fetch_relays_to_monitor(
-    monitor: Monitor,
+    brotr: Brotr,
     monitored_before: int,
     networks: list[NetworkType],
 ) -> list[Relay]:
@@ -66,7 +65,7 @@ async def fetch_relays_to_monitor(
     Rows that fail ``Relay`` construction are skipped.
 
     Args:
-        monitor: The [Monitor][bigbrotr.services.monitor.Monitor] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         monitored_before: Exclusive upper bound -- only relays whose
             checkpoint ``timestamp`` is before this Unix timestamp (or NULL)
             are returned.
@@ -75,7 +74,7 @@ async def fetch_relays_to_monitor(
     Returns:
         List of [Relay][bigbrotr.models.relay.Relay] instances.
     """
-    rows = await monitor._brotr.fetch(
+    rows = await brotr.fetch(
         """
         SELECT r.url, r.network, r.discovered_at
         FROM relay r
@@ -104,7 +103,7 @@ async def fetch_relays_to_monitor(
     return relays
 
 
-async def insert_relay_metadata(monitor: Monitor, records: list[RelayMetadata]) -> int:
+async def insert_relay_metadata(brotr: Brotr, records: list[RelayMetadata]) -> int:
     """Batch-insert relay-metadata junction records.
 
     Splits *records* into batches respecting
@@ -114,7 +113,7 @@ async def insert_relay_metadata(monitor: Monitor, records: list[RelayMetadata]) 
     (cascade mode).
 
     Args:
-        monitor: The [Monitor][bigbrotr.services.monitor.Monitor] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         records: [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
             instances to insert.
 
@@ -124,13 +123,13 @@ async def insert_relay_metadata(monitor: Monitor, records: list[RelayMetadata]) 
     if not records:
         return 0
     total = 0
-    batch_size = monitor._brotr.config.batch.max_size
+    batch_size = brotr.config.batch.max_size
     for i in range(0, len(records), batch_size):
-        total += await monitor._brotr.insert_relay_metadata(records[i : i + batch_size])
+        total += await brotr.insert_relay_metadata(records[i : i + batch_size])
     return total
 
 
-async def save_monitoring_markers(monitor: Monitor, relays: list[Relay], now: int) -> None:
+async def save_monitoring_markers(brotr: Brotr, relays: list[Relay], now: int) -> None:
     """Upsert monitoring checkpoint markers for a batch of relays.
 
     Called after each health-check chunk to record the timestamp of the
@@ -138,17 +137,17 @@ async def save_monitoring_markers(monitor: Monitor, relays: list[Relay], now: in
     same discovery interval.
 
     Args:
-        monitor: The [Monitor][bigbrotr.services.monitor.Monitor] instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
         relays: Relays that were checked (successful and failed).
         now: Unix timestamp to store as the checkpoint value.
     """
     records: list[ServiceState] = [
         ServiceState(
-            service_name=monitor.SERVICE_NAME,
+            service_name=ServiceName.MONITOR,
             state_type=ServiceStateType.CHECKPOINT,
             state_key=relay.url,
             state_value={"timestamp": now},
         )
         for relay in relays
     ]
-    await upsert_service_states(monitor._brotr, records)
+    await upsert_service_states(brotr, records)

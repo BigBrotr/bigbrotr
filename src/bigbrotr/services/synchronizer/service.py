@@ -131,7 +131,7 @@ class Synchronizer(
 
     async def cleanup(self) -> int:
         """Remove stale cursor state for relays that no longer exist."""
-        return await delete_stale_cursors(self)
+        return await delete_stale_cursors(self._brotr)
 
     async def synchronize(self) -> int:
         """Fetch relays and sync events from all of them.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.utils import parse_relay_row
 
@@ -12,8 +13,6 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models.event_relay import EventRelay
     from bigbrotr.models.relay import Relay
-
-    from .service import Synchronizer
 
 
 async def fetch_relays(brotr: Brotr) -> list[Relay]:
@@ -44,21 +43,19 @@ async def fetch_relays(brotr: Brotr) -> list[Relay]:
     return relays
 
 
-async def delete_stale_cursors(synchronizer: Synchronizer) -> int:
+async def delete_stale_cursors(brotr: Brotr) -> int:
     """Remove cursor state for relays that no longer exist.
 
     Deletes CURSOR records whose ``state_key`` does not match any relay in
     the relay table.
 
     Args:
-        synchronizer: The
-            [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]
-            instance.
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
 
     Returns:
         Number of deleted rows.
     """
-    count: int = await synchronizer._brotr.fetchval(
+    count: int = await brotr.fetchval(
         """
         WITH deleted AS (
             DELETE FROM service_state
@@ -69,7 +66,7 @@ async def delete_stale_cursors(synchronizer: Synchronizer) -> int:
         )
         SELECT count(*)::int FROM deleted
         """,
-        synchronizer.SERVICE_NAME,
+        ServiceName.SYNCHRONIZER,
         ServiceStateType.CURSOR,
     ) or 0
     return count

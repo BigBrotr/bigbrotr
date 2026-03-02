@@ -120,8 +120,9 @@ class Finder(BaseService[FinderConfig]):
 
     async def cleanup(self) -> int:
         """Remove stale state: orphaned relay cursors and obsolete API checkpoints."""
-        removed = await delete_stale_cursors(self)
-        removed += await delete_stale_api_checkpoints(self)
+        removed = await delete_stale_cursors(self._brotr)
+        active_urls = [s.url for s in self._config.api.sources]
+        removed += await delete_stale_api_checkpoints(self._brotr, active_urls)
         return removed
 
     async def find(self) -> int:
@@ -155,7 +156,7 @@ class Finder(BaseService[FinderConfig]):
         if not self._config.api.enabled:
             return 0
 
-        api_state = await load_api_checkpoints(self)
+        api_state = await load_api_checkpoints(self._brotr)
         now = int(time.time())
 
         seen: set[str] = set()
@@ -172,7 +173,8 @@ class Finder(BaseService[FinderConfig]):
                 fetched_sources.append(source.url)
 
         if fetched_sources:
-            await save_api_checkpoints(self, {url: api_state[url] for url in fetched_sources})
+            checkpoints = {url: api_state[url] for url in fetched_sources}
+            await save_api_checkpoints(self._brotr, checkpoints)
 
         found = await insert_relays_as_candidates(self._brotr, all_relays)
 
@@ -264,7 +266,7 @@ class Finder(BaseService[FinderConfig]):
             return 0
 
         try:
-            cursors = await fetch_event_relay_cursors(self)
+            cursors = await fetch_event_relay_cursors(self._brotr)
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.warning("fetch_cursors_failed", error=str(e), error_type=type(e).__name__)
             return 0
@@ -364,7 +366,7 @@ class Finder(BaseService[FinderConfig]):
                 break
 
             try:
-                rows = await scan_event_relay(self, cursor, self._config.events.batch_size)
+                rows = await scan_event_relay(self._brotr, cursor, self._config.events.batch_size)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.warning(
                     "relay_event_query_failed",
@@ -398,7 +400,7 @@ class Finder(BaseService[FinderConfig]):
                     break
 
             try:
-                await save_event_relay_cursor(self, cursor)
+                await save_event_relay_cursor(self._brotr, cursor)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error(
                     "cursor_update_failed",

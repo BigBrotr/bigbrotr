@@ -37,14 +37,6 @@ def query_brotr() -> MagicMock:
     return brotr
 
 
-@pytest.fixture
-def mock_finder(query_brotr: MagicMock) -> MagicMock:
-    f = MagicMock()
-    f._brotr = query_brotr
-    f._config.api.sources = []
-    return f
-
-
 def _make_dict_row(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
@@ -57,12 +49,10 @@ def _make_dict_row(data: dict[str, Any]) -> dict[str, Any]:
 class TestDeleteStaleCursors:
     """Tests for delete_stale_cursors()."""
 
-    async def test_calls_fetchval_with_correct_params(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_calls_fetchval_with_correct_params(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=3)
 
-        result = await delete_stale_cursors(mock_finder)
+        result = await delete_stale_cursors(query_brotr)
 
         query_brotr.fetchval.assert_awaited_once()
         args = query_brotr.fetchval.call_args
@@ -73,12 +63,10 @@ class TestDeleteStaleCursors:
         assert args[0][2] == ServiceStateType.CURSOR
         assert result == 3
 
-    async def test_returns_zero_on_none(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_returns_zero_on_none(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=None)
 
-        result = await delete_stale_cursors(mock_finder)
+        result = await delete_stale_cursors(query_brotr)
 
         assert result == 0
 
@@ -91,15 +79,12 @@ class TestDeleteStaleCursors:
 class TestDeleteStaleApiCheckpoints:
     """Tests for delete_stale_api_checkpoints()."""
 
-    async def test_deletes_inactive_sources(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
-        src = MagicMock()
-        src.url = "https://active.example.com"
-        mock_finder._config.api.sources = [src]
+    async def test_deletes_inactive_sources(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=2)
 
-        result = await delete_stale_api_checkpoints(mock_finder)
+        result = await delete_stale_api_checkpoints(
+            query_brotr, ["https://active.example.com"]
+        )
 
         args = query_brotr.fetchval.call_args
         sql = args[0][0]
@@ -110,12 +95,10 @@ class TestDeleteStaleApiCheckpoints:
         assert args[0][3] == ["https://active.example.com"]
         assert result == 2
 
-    async def test_returns_zero_on_none(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_returns_zero_on_none(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=None)
 
-        result = await delete_stale_api_checkpoints(mock_finder)
+        result = await delete_stale_api_checkpoints(query_brotr, [])
 
         assert result == 0
 
@@ -128,9 +111,7 @@ class TestDeleteStaleApiCheckpoints:
 class TestFetchEventRelayCursors:
     """Tests for fetch_event_relay_cursors()."""
 
-    async def test_returns_cursor_for_relay_with_state(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_returns_cursor_for_relay_with_state(self, query_brotr: MagicMock) -> None:
         rows = [
             _make_dict_row(
                 {"url": "wss://relay.com", "seen_at": "1700000000", "event_id": "ab" * 32}
@@ -138,7 +119,7 @@ class TestFetchEventRelayCursors:
         ]
         query_brotr.fetch = AsyncMock(return_value=rows)
 
-        result = await fetch_event_relay_cursors(mock_finder)
+        result = await fetch_event_relay_cursors(query_brotr)
 
         assert len(result) == 1
         cursor = result[0]
@@ -147,14 +128,14 @@ class TestFetchEventRelayCursors:
         assert cursor.event_id == bytes.fromhex("ab" * 32)
 
     async def test_returns_empty_cursor_for_relay_without_state(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
+        self, query_brotr: MagicMock
     ) -> None:
         rows = [
             _make_dict_row({"url": "wss://new.relay.com", "seen_at": None, "event_id": None}),
         ]
         query_brotr.fetch = AsyncMock(return_value=rows)
 
-        result = await fetch_event_relay_cursors(mock_finder)
+        result = await fetch_event_relay_cursors(query_brotr)
 
         assert len(result) == 1
         cursor = result[0]
@@ -163,34 +144,30 @@ class TestFetchEventRelayCursors:
         assert cursor.event_id is None
 
     async def test_invalid_cursor_data_falls_back_to_empty(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
+        self, query_brotr: MagicMock
     ) -> None:
         rows = [
             _make_dict_row({"url": "wss://corrupt.com", "seen_at": "100", "event_id": "not-hex"}),
         ]
         query_brotr.fetch = AsyncMock(return_value=rows)
 
-        result = await fetch_event_relay_cursors(mock_finder)
+        result = await fetch_event_relay_cursors(query_brotr)
 
         assert len(result) == 1
         cursor = result[0]
         assert cursor.seen_at is None
         assert cursor.event_id is None
 
-    async def test_query_uses_left_join(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
-        await fetch_event_relay_cursors(mock_finder)
+    async def test_query_uses_left_join(self, query_brotr: MagicMock) -> None:
+        await fetch_event_relay_cursors(query_brotr)
 
         query_brotr.fetch.assert_awaited_once()
         sql = query_brotr.fetch.call_args[0][0]
         assert "LEFT JOIN service_state" in sql
         assert "FROM relay" in sql
 
-    async def test_empty_database(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
-        result = await fetch_event_relay_cursors(mock_finder)
+    async def test_empty_database(self, query_brotr: MagicMock) -> None:
+        result = await fetch_event_relay_cursors(query_brotr)
 
         assert result == []
 
@@ -203,16 +180,14 @@ class TestFetchEventRelayCursors:
 class TestScanEventRelay:
     """Tests for scan_event_relay()."""
 
-    async def test_scan_with_cursor(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_scan_with_cursor(self, query_brotr: MagicMock) -> None:
         event_id = b"\xab" * 32
         cursor = EventRelayCursor(
             relay_url="wss://source.relay.com",
             seen_at=1700000000,
             event_id=event_id,
         )
-        await scan_event_relay(mock_finder, cursor, limit=500)
+        await scan_event_relay(query_brotr, cursor, limit=500)
 
         query_brotr.fetch.assert_awaited_once()
         args = query_brotr.fetch.call_args
@@ -227,21 +202,17 @@ class TestScanEventRelay:
         assert args[0][3] == event_id
         assert args[0][4] == 500
 
-    async def test_scan_no_cursor(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_scan_no_cursor(self, query_brotr: MagicMock) -> None:
         cursor = EventRelayCursor(relay_url="wss://source.relay.com")
-        await scan_event_relay(mock_finder, cursor, limit=100)
+        await scan_event_relay(query_brotr, cursor, limit=100)
 
         args = query_brotr.fetch.call_args
         assert args[0][2] is None
         assert args[0][3] is None
 
-    async def test_scan_empty(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_scan_empty(self, query_brotr: MagicMock) -> None:
         cursor = EventRelayCursor(relay_url="wss://source.relay.com")
-        result = await scan_event_relay(mock_finder, cursor, limit=100)
+        result = await scan_event_relay(query_brotr, cursor, limit=100)
 
         assert result == []
 
@@ -254,9 +225,7 @@ class TestScanEventRelay:
 class TestLoadApiCheckpoints:
     """Tests for load_api_checkpoints()."""
 
-    async def test_happy_path(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_happy_path(self, query_brotr: MagicMock) -> None:
         r1 = MagicMock()
         r1.state_key = "https://api1.example.com"
         r1.state_value = {"timestamp": 1700000000}
@@ -265,7 +234,7 @@ class TestLoadApiCheckpoints:
         r2.state_value = {"timestamp": 1700001000}
         query_brotr.get_service_state = AsyncMock(return_value=[r1, r2])
 
-        result = await load_api_checkpoints(mock_finder)
+        result = await load_api_checkpoints(query_brotr)
 
         query_brotr.get_service_state.assert_awaited_once_with(
             ServiceName.FINDER, ServiceStateType.CHECKPOINT
@@ -275,9 +244,7 @@ class TestLoadApiCheckpoints:
             "https://api2.example.com": 1700001000,
         }
 
-    async def test_skips_malformed(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_skips_malformed(self, query_brotr: MagicMock) -> None:
         good = MagicMock()
         good.state_key = "https://api1.example.com"
         good.state_value = {"timestamp": 1700000000}
@@ -286,14 +253,12 @@ class TestLoadApiCheckpoints:
         bad.state_value = {}
         query_brotr.get_service_state = AsyncMock(return_value=[good, bad])
 
-        result = await load_api_checkpoints(mock_finder)
+        result = await load_api_checkpoints(query_brotr)
 
         assert result == {"https://api1.example.com": 1700000000}
 
-    async def test_empty(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
-        result = await load_api_checkpoints(mock_finder)
+    async def test_empty(self, query_brotr: MagicMock) -> None:
+        result = await load_api_checkpoints(query_brotr)
 
         assert result == {}
 
@@ -306,16 +271,14 @@ class TestLoadApiCheckpoints:
 class TestSaveApiCheckpoints:
     """Tests for save_api_checkpoints()."""
 
-    async def test_upserts_checkpoint_per_url(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_upserts_checkpoint_per_url(self, query_brotr: MagicMock) -> None:
         state = {
             "https://api1.example.com": 1700000000,
             "https://api2.example.com": 1700001000,
         }
         query_brotr.upsert_service_state = AsyncMock(return_value=2)
 
-        await save_api_checkpoints(mock_finder, state)
+        await save_api_checkpoints(query_brotr, state)
 
         query_brotr.upsert_service_state.assert_awaited_once()
         records: list[ServiceState] = query_brotr.upsert_service_state.call_args[0][0]
@@ -336,9 +299,7 @@ class TestSaveApiCheckpoints:
 class TestSaveEventRelayCursor:
     """Tests for save_event_relay_cursor()."""
 
-    async def test_happy_path(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_happy_path(self, query_brotr: MagicMock) -> None:
         cursor = EventRelayCursor(
             relay_url="wss://relay.example.com",
             seen_at=1700000200,
@@ -346,7 +307,7 @@ class TestSaveEventRelayCursor:
         )
         query_brotr.upsert_service_state = AsyncMock(return_value=1)
 
-        await save_event_relay_cursor(mock_finder, cursor)
+        await save_event_relay_cursor(query_brotr, cursor)
 
         query_brotr.upsert_service_state.assert_awaited_once()
         records: list[ServiceState] = query_brotr.upsert_service_state.call_args[0][0]
@@ -358,12 +319,10 @@ class TestSaveEventRelayCursor:
         assert state.state_value["seen_at"] == 1700000200
         assert state.state_value["event_id"] == (b"\xab" * 32).hex()
 
-    async def test_noop_when_blank(
-        self, mock_finder: MagicMock, query_brotr: MagicMock
-    ) -> None:
+    async def test_noop_when_blank(self, query_brotr: MagicMock) -> None:
         cursor = EventRelayCursor(relay_url="wss://relay.example.com")
         query_brotr.upsert_service_state = AsyncMock(return_value=0)
 
-        await save_event_relay_cursor(mock_finder, cursor)
+        await save_event_relay_cursor(query_brotr, cursor)
 
         query_brotr.upsert_service_state.assert_not_awaited()
