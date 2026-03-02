@@ -67,13 +67,10 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
-from bigbrotr.services.common.queries import (
-    cleanup_stale,
-    fetch_relays,
-    upsert_service_states,
-)
+from bigbrotr.services.common.queries import upsert_service_states
 
 from .configs import SynchronizerConfig
+from .queries import delete_stale_cursors, fetch_relays
 from .utils import SyncBatchState, SyncContext, sync_relay_events
 
 
@@ -134,10 +131,7 @@ class Synchronizer(
 
     async def cleanup(self) -> int:
         """Remove stale cursor state for relays that no longer exist."""
-        removed = await cleanup_stale(self._brotr, self.SERVICE_NAME)
-        if removed > 0:
-            self.inc_counter("total_stale_states_removed", removed)
-        return removed
+        return await delete_stale_cursors(self)
 
     async def synchronize(self) -> int:
         """Fetch relays and sync events from all of them.
@@ -348,7 +342,6 @@ class Synchronizer(
                     state_type=ServiceStateType.CURSOR,
                     state_key=relay.url,
                     state_value={"timestamp": end_time},
-                    updated_at=int(time.time()),
                 )
             )
             if len(batch.cursor_updates) >= batch.cursor_flush_interval:

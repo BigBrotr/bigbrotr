@@ -277,4 +277,3 @@ class TestRefresherMetrics:
             await refresher.run()
 
         mock_counter.assert_any_call("total_views_failed", 1)
-

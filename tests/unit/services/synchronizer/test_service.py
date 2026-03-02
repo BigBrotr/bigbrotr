@@ -10,7 +10,7 @@ Tests:
   cursor flush, error handling, ExceptionGroup)
 - Prometheus metric emission
 - Network filtering
-- Stale cursor cleanup
+- Orphaned cursor cleanup
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -176,14 +176,12 @@ class TestSynchronizerFetchCursors:
                     state_type=ServiceStateType.CURSOR,
                     state_key="wss://r1.com",
                     state_value={"timestamp": 1000},
-                    updated_at=1001,
                 ),
                 ServiceState(
                     service_name=ServiceName.SYNCHRONIZER,
                     state_type=ServiceStateType.CURSOR,
                     state_key="wss://r2.com",
                     state_value={"timestamp": 2000},
-                    updated_at=2001,
                 ),
             ]
         )
@@ -211,14 +209,12 @@ class TestSynchronizerFetchCursors:
                     state_type=ServiceStateType.CURSOR,
                     state_key="wss://r1.com",
                     state_value={"timestamp": 1000},
-                    updated_at=1001,
                 ),
                 ServiceState(
                     service_name=ServiceName.SYNCHRONIZER,
                     state_type=ServiceStateType.CURSOR,
                     state_key="wss://r2.com",
                     state_value={"stale_field": 999},
-                    updated_at=1001,
                 ),
             ]
         )
@@ -331,7 +327,6 @@ class TestSynchronizerRun:
         assert len(relays_arg) == 1
 
 
-
 # ============================================================================
 # Synchronizer _run_sync Tests
 # ============================================================================
@@ -369,9 +364,7 @@ class TestSynchronizerRunSync:
         sync.set_gauge.assert_any_call("events_synced", 10)
         sync.set_gauge.assert_any_call("relays_scanned", 1)
 
-    async def test_run_sync_handles_task_group_errors(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
+    async def test_run_sync_handles_task_group_errors(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test that ExceptionGroup from TaskGroup is handled gracefully."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         sync.inc_counter = MagicMock()  # type: ignore[method-assign]
@@ -387,9 +380,7 @@ class TestSynchronizerRunSync:
         assert result == 0
         sync.inc_counter.assert_any_call("total_sync_failures", 1)
 
-    async def test_run_sync_timeout_counts_as_failure(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
+    async def test_run_sync_timeout_counts_as_failure(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test TimeoutError from wait_for counts as scan failure."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         sync.inc_counter = MagicMock()  # type: ignore[method-assign]
@@ -444,9 +435,7 @@ class TestSynchronizerRunSync:
         assert result == 0
         sync.inc_counter.assert_any_call("total_sync_failures", 1)
 
-    async def test_run_sync_cursor_update_flushed(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
+    async def test_run_sync_cursor_update_flushed(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test cursor updates are flushed at end of sync."""
         config = SynchronizerConfig(
             concurrency=ConcurrencyConfig(cursor_flush_interval=50),
@@ -464,9 +453,7 @@ class TestSynchronizerRunSync:
 
         mock_synchronizer_brotr.upsert_service_state.assert_called()
 
-    async def test_run_sync_cursor_periodic_flush(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
+    async def test_run_sync_cursor_periodic_flush(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test cursor updates are periodically flushed when batch size reached."""
         config = SynchronizerConfig(
             concurrency=ConcurrencyConfig(
@@ -490,9 +477,7 @@ class TestSynchronizerRunSync:
         # Multiple calls: periodic flushes + final flush
         assert mock_synchronizer_brotr.upsert_service_state.call_count >= 2
 
-    async def test_run_sync_final_cursor_flush_error(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
+    async def test_run_sync_final_cursor_flush_error(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test final cursor flush handles DB errors gracefully."""
         config = SynchronizerConfig(
             concurrency=ConcurrencyConfig(cursor_flush_interval=999),
@@ -515,9 +500,7 @@ class TestSynchronizerRunSync:
 
         assert result == 1
 
-    async def test_run_sync_skip_when_start_ge_end(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
+    async def test_run_sync_skip_when_start_ge_end(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test relay is skipped when start_time >= end_time."""
         config = SynchronizerConfig(
             time_range=TimeRangeConfig(
@@ -590,9 +573,7 @@ class TestSynchronizerPhaseTimeout:
         assert result is None
         mock_sync.assert_not_called()
 
-    async def test_max_duration_within_limit_proceeds(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
+    async def test_max_duration_within_limit_proceeds(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test relay proceeds when max_duration is not exceeded."""
         import asyncio
         import time as time_mod
@@ -617,9 +598,7 @@ class TestSynchronizerPhaseTimeout:
 
         assert result == (10, 0)
 
-    async def test_max_duration_none_allows_unlimited(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
+    async def test_max_duration_none_allows_unlimited(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test max_duration=None does not limit sync phase."""
         config = SynchronizerConfig(
             timeouts=TimeoutsConfig(max_duration=None),
@@ -639,9 +618,7 @@ class TestSynchronizerPhaseTimeout:
         assert result == 10
         sync.set_gauge.assert_any_call("relays_scanned", 1)
 
-    async def test_max_duration_run_sync_integration(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
+    async def test_max_duration_run_sync_integration(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test max_duration=60 via _run_sync skips relays when phase exceeded."""
         import time as time_mod
 
@@ -672,7 +649,9 @@ class TestSynchronizerPhaseTimeout:
                 new_callable=AsyncMock,
                 return_value=(5, 0),
             ) as mock_sync,
-            patch("bigbrotr.services.synchronizer.service.time.monotonic", side_effect=fake_monotonic),
+            patch(
+                "bigbrotr.services.synchronizer.service.time.monotonic", side_effect=fake_monotonic
+            ),
         ):
             result = await sync._run_sync([relay], {})
 
@@ -776,9 +755,7 @@ class TestSynchronizerMetrics:
         sync.inc_counter.assert_any_call("total_events_synced", 0)
         sync.inc_counter.assert_any_call("total_events_invalid", 0)
 
-    async def test_synchronize_returns_events_synced(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
+    async def test_synchronize_returns_events_synced(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test synchronize() returns total events synced."""
         mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
@@ -901,27 +878,13 @@ class TestSynchronizerNetworkFilter:
 class TestSynchronizerCleanup:
     """Tests for cleanup() in Synchronizer."""
 
-    async def test_cleanup_calls_query(self, mock_synchronizer_brotr: Brotr) -> None:
-        """cleanup() calls cleanup_stale and logs."""
-        with patch(
-            "bigbrotr.services.synchronizer.service.cleanup_stale",
-            new_callable=AsyncMock,
-            return_value=3,
-        ) as mock_query:
-            sync = Synchronizer(brotr=mock_synchronizer_brotr)
-            await sync.cleanup()
-
-            mock_query.assert_awaited_once_with(mock_synchronizer_brotr, sync.SERVICE_NAME)
-
-    async def test_cleanup_increments_counter(self, mock_synchronizer_brotr: Brotr) -> None:
-        """cleanup() increments counter when stale states removed."""
-        with patch(
-            "bigbrotr.services.synchronizer.service.cleanup_stale",
-            new_callable=AsyncMock,
-            return_value=5,
-        ):
-            sync = Synchronizer(brotr=mock_synchronizer_brotr)
-            with patch.object(sync, "inc_counter") as mock_counter:
-                await sync.cleanup()
-
-            mock_counter.assert_called_once_with("total_stale_states_removed", 5)
+    async def test_cleanup_removes_orphaned_cursors(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        mock_synchronizer_brotr.fetchval = AsyncMock(return_value=3)
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        result = await sync.cleanup()
+        mock_synchronizer_brotr.fetchval.assert_awaited_once()
+        sql = mock_synchronizer_brotr.fetchval.call_args[0][0]
+        assert "NOT EXISTS" in sql
+        assert result == 3

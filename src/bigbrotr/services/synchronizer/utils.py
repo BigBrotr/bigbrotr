@@ -22,8 +22,9 @@ from nostr_sdk import (
 
 from bigbrotr.core.logger import format_kv_pairs
 from bigbrotr.models import Event, EventRelay
-from bigbrotr.services.common.queries import insert_event_relays
 from bigbrotr.utils.protocol import create_client
+
+from .queries import insert_event_relays
 
 
 if TYPE_CHECKING:

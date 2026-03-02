@@ -267,9 +267,7 @@ class BaseService(ABC, Generic[ConfigT]):
 
                 self.inc_counter("cycles_success")
                 if metrics_enabled:
-                    CYCLE_DURATION_SECONDS.labels(service=self.SERVICE_NAME).observe(
-                        run_duration
-                    )
+                    CYCLE_DURATION_SECONDS.labels(service=self.SERVICE_NAME).observe(run_duration)
                 self.set_gauge("last_cycle_timestamp", time.time())
                 self.set_gauge("consecutive_failures", 0)
                 consecutive_failures = 0

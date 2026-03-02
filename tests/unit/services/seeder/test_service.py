@@ -315,9 +315,7 @@ class TestSeederRun:
 
         mock_seeder_brotr.upsert_service_state.assert_called()
 
-    async def test_run_delegates_to_seed(
-        self, mock_seeder_brotr: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_run_delegates_to_seed(self, mock_seeder_brotr: Brotr, tmp_path: Path) -> None:
         """Test run delegates to seed method."""
         seed_file = tmp_path / "seed_relays.txt"
         seed_file.write_text("wss://relay.example.com\n")
