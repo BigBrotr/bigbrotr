@@ -136,10 +136,12 @@ class TestFinderFindFromApi:
             )
         )
         finder = Finder(brotr=mock_brotr, config=config)
-        finder._load_api_state = AsyncMock(return_value={})  # type: ignore[method-assign]
-        finder._save_api_state = AsyncMock()  # type: ignore[method-assign]
-
-        result = await finder.find_from_api()
+        with patch(
+            "bigbrotr.services.finder.service.load_api_checkpoints",
+            new_callable=AsyncMock,
+            return_value={},
+        ):
+            result = await finder.find_from_api()
 
         assert result == 0
 
@@ -153,12 +155,18 @@ class TestFinderFindFromApi:
             )
         )
         finder = Finder(brotr=mock_brotr, config=config)
-        finder._load_api_state = AsyncMock(return_value={})  # type: ignore[method-assign]
-        finder._save_api_state = AsyncMock()  # type: ignore[method-assign]
-
         mock_response = _mock_api_response(["wss://relay1.com", "wss://relay2.com"])
 
         with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
             patch("aiohttp.ClientSession") as mock_session_cls,
             patch(
                 "bigbrotr.services.finder.service.insert_relays_as_candidates",
@@ -175,7 +183,7 @@ class TestFinderFindFromApi:
             result = await finder.find_from_api()
 
             assert result == 2
-            finder._save_api_state.assert_awaited_once()
+            mock_save.assert_awaited_once()
 
     async def test_find_from_api_handles_errors(self, mock_brotr: Brotr) -> None:
         """Test API fetch handles errors gracefully."""
@@ -187,10 +195,18 @@ class TestFinderFindFromApi:
             )
         )
         finder = Finder(brotr=mock_brotr, config=config)
-        finder._load_api_state = AsyncMock(return_value={})  # type: ignore[method-assign]
-        finder._save_api_state = AsyncMock()  # type: ignore[method-assign]
-
-        with patch("aiohttp.ClientSession") as mock_session_cls:
+        with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ),
+            patch("aiohttp.ClientSession") as mock_session_cls,
+        ):
             mock_session = MagicMock()
             mock_session.get = MagicMock(side_effect=aiohttp.ClientError("Connection failed"))
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
@@ -201,60 +217,58 @@ class TestFinderFindFromApi:
 
             assert result == 0
 
-    async def test_find_from_api_skips_source_within_interval(
-        self, mock_brotr: Brotr
-    ) -> None:
+    async def test_find_from_api_skips_source_within_interval(self, mock_brotr: Brotr) -> None:
         """Test that sources within their interval are skipped."""
         config = FinderConfig(
             api=ApiConfig(
                 enabled=True,
                 sources=[
-                    ApiSourceConfig(
-                        url="https://api.example.com", interval=3600.0
-                    ),
+                    ApiSourceConfig(url="https://api.example.com", interval=3600.0),
                 ],
                 request_delay=0,
             )
         )
         finder = Finder(brotr=mock_brotr, config=config)
-        finder._load_api_state = AsyncMock(  # type: ignore[method-assign]
-            return_value={
-                "https://api.example.com": int(time.time()) - 100
-            }
-        )
-        finder._save_api_state = AsyncMock()  # type: ignore[method-assign]
+        with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value={"https://api.example.com": int(time.time()) - 100},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+        ):
+            result = await finder.find_from_api()
 
-        result = await finder.find_from_api()
+            assert result == 0
+            mock_save.assert_not_awaited()
 
-        assert result == 0
-        finder._save_api_state.assert_not_awaited()
-
-    async def test_find_from_api_fetches_source_past_interval(
-        self, mock_brotr: Brotr
-    ) -> None:
+    async def test_find_from_api_fetches_source_past_interval(self, mock_brotr: Brotr) -> None:
         """Test that sources past their interval are fetched."""
         config = FinderConfig(
             api=ApiConfig(
                 enabled=True,
                 sources=[
-                    ApiSourceConfig(
-                        url="https://api.example.com", interval=3600.0
-                    ),
+                    ApiSourceConfig(url="https://api.example.com", interval=3600.0),
                 ],
                 request_delay=0,
             )
         )
         finder = Finder(brotr=mock_brotr, config=config)
-        finder._load_api_state = AsyncMock(  # type: ignore[method-assign]
-            return_value={
-                "https://api.example.com": int(time.time()) - 7200
-            }
-        )
-        finder._save_api_state = AsyncMock()  # type: ignore[method-assign]
-
         mock_response = _mock_api_response(["wss://relay1.com"])
 
         with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value={"https://api.example.com": int(time.time()) - 7200},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
             patch("aiohttp.ClientSession") as mock_session_cls,
             patch(
                 "bigbrotr.services.finder.service.insert_relays_as_candidates",
@@ -271,7 +285,7 @@ class TestFinderFindFromApi:
             result = await finder.find_from_api()
 
             assert result == 1
-            finder._save_api_state.assert_awaited_once()
+            mock_save.assert_awaited_once()
 
 
 # ============================================================================
@@ -1013,12 +1027,18 @@ class TestFinderMetrics:
         )
         finder = Finder(brotr=mock_brotr, config=config)
         finder.set_gauge = MagicMock()  # type: ignore[method-assign]
-        finder._load_api_state = AsyncMock(return_value={})  # type: ignore[method-assign]
-        finder._save_api_state = AsyncMock()  # type: ignore[method-assign]
-
         mock_response = _mock_api_response(["wss://relay1.com", "wss://relay2.com"])
 
         with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ),
             patch("aiohttp.ClientSession") as mock_session_cls,
             patch(
                 "bigbrotr.services.finder.service.insert_relays_as_candidates",
@@ -1059,12 +1079,18 @@ class TestFinderMetrics:
         finder = Finder(brotr=mock_brotr, config=config)
         finder.set_gauge = MagicMock()  # type: ignore[method-assign]
         finder.inc_counter = MagicMock()  # type: ignore[method-assign]
-        finder._load_api_state = AsyncMock(return_value={})  # type: ignore[method-assign]
-        finder._save_api_state = AsyncMock()  # type: ignore[method-assign]
-
         mock_response = _mock_api_response(["wss://relay1.com", "wss://relay2.com"])
 
         with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ),
             patch("aiohttp.ClientSession") as mock_session_cls,
             patch(
                 "bigbrotr.services.finder.service.insert_relays_as_candidates",
@@ -1120,105 +1146,6 @@ class TestFinderMetrics:
 
 
 # ============================================================================
-# Finder _load_api_state Tests
-# ============================================================================
-
-
-class TestFinderLoadApiState:
-    """Tests for Finder._load_api_state() method."""
-
-    async def test_loads_individual_checkpoint_records(self, mock_brotr: Brotr) -> None:
-        """Each CHECKPOINT record is loaded as url → timestamp."""
-        r1 = MagicMock()
-        r1.state_key = "https://api1.example.com"
-        r1.state_value = {"timestamp": 1700000000}
-        r2 = MagicMock()
-        r2.state_key = "https://api2.example.com"
-        r2.state_value = {"timestamp": 1700001000}
-        mock_brotr.get_service_state = AsyncMock(return_value=[r1, r2])  # type: ignore[method-assign]
-
-        finder = Finder(brotr=mock_brotr)
-        result = await finder._load_api_state()
-        assert result == {
-            "https://api1.example.com": 1700000000,
-            "https://api2.example.com": 1700001000,
-        }
-
-    async def test_corrupt_record_skipped(self, mock_brotr: Brotr) -> None:
-        """Records with missing or invalid timestamp are skipped."""
-        good = MagicMock()
-        good.state_key = "https://api1.example.com"
-        good.state_value = {"timestamp": 1700000000}
-        bad_missing = MagicMock()
-        bad_missing.state_key = "https://api2.example.com"
-        bad_missing.state_value = {}
-        bad_type = MagicMock()
-        bad_type.state_key = "https://api3.example.com"
-        bad_type.state_value = {"timestamp": "not-a-number"}
-        mock_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
-            return_value=[good, bad_missing, bad_type]
-        )
-
-        finder = Finder(brotr=mock_brotr)
-        result = await finder._load_api_state()
-        assert result == {"https://api1.example.com": 1700000000}
-
-    async def test_db_error_returns_empty(self, mock_brotr: Brotr) -> None:
-        """PostgresError from get_service_state returns empty dict."""
-        mock_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
-            side_effect=asyncpg.PostgresError("db error")
-        )
-
-        finder = Finder(brotr=mock_brotr)
-        result = await finder._load_api_state()
-        assert result == {}
-
-    async def test_empty_records_returns_empty(self, mock_brotr: Brotr) -> None:
-        """Empty records list returns empty dict."""
-        mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
-
-        finder = Finder(brotr=mock_brotr)
-        result = await finder._load_api_state()
-        assert result == {}
-
-
-# ============================================================================
-# Finder _save_cursor Tests
-# ============================================================================
-
-
-class TestFinderSaveCursor:
-    """Tests for Finder._save_cursor() error handling."""
-
-    async def test_cursor_update_failure_does_not_raise(self, mock_brotr: Brotr) -> None:
-        """Cursor update failure is logged but does not raise."""
-        mock_brotr.upsert_service_state = AsyncMock(  # type: ignore[method-assign]
-            side_effect=asyncpg.PostgresError("cursor flush failed")
-        )
-
-        finder = Finder(brotr=mock_brotr)
-        cursor = EventRelayCursor(
-            relay_url="wss://source.relay.com",
-            seen_at=1700000001,
-            event_id=b"\xab" * 32,
-        )
-
-        # Should NOT raise despite cursor update failure
-        await finder._save_cursor(cursor)
-
-    async def test_cursor_missing_fields_logs_error(self, mock_brotr: Brotr) -> None:
-        """Cursor with missing seen_at/event_id logs error and returns."""
-        mock_brotr.upsert_service_state = AsyncMock()  # type: ignore[method-assign]
-
-        finder = Finder(brotr=mock_brotr)
-        cursor = EventRelayCursor(relay_url="wss://source.relay.com")
-
-        # Should NOT raise, just log error
-        await finder._save_cursor(cursor)
-        mock_brotr.upsert_service_state.assert_not_awaited()
-
-
-# ============================================================================
 # Finder Cleanup State Tests
 # ============================================================================
 
@@ -1226,27 +1153,15 @@ class TestFinderSaveCursor:
 class TestFinderCleanup:
     """Tests for cleanup() in Finder."""
 
-    async def test_cleanup_calls_query(self, mock_brotr: Brotr) -> None:
-        """cleanup() calls cleanup_stale and logs."""
-        with patch(
-            "bigbrotr.services.finder.service.cleanup_stale",
-            new_callable=AsyncMock,
-            return_value=5,
-        ) as mock_query:
-            finder = Finder(brotr=mock_brotr)
-            await finder.cleanup()
-
-            mock_query.assert_awaited_once_with(mock_brotr, finder.SERVICE_NAME)
-
-    async def test_cleanup_increments_counter(self, mock_brotr: Brotr) -> None:
-        """cleanup() increments counter when stale states removed."""
-        with patch(
-            "bigbrotr.services.finder.service.cleanup_stale",
-            new_callable=AsyncMock,
-            return_value=3,
-        ):
-            finder = Finder(brotr=mock_brotr)
-            with patch.object(finder, "inc_counter") as mock_counter:
-                await finder.cleanup()
-
-            mock_counter.assert_called_once_with("total_stale_states_removed", 3)
+    async def test_cleanup_removes_orphaned_cursors_and_stale_checkpoints(
+        self, mock_brotr: Brotr
+    ) -> None:
+        mock_brotr.fetchval = AsyncMock(side_effect=[3, 2])
+        finder = Finder(brotr=mock_brotr)
+        result = await finder.cleanup()
+        assert mock_brotr.fetchval.await_count == 2
+        cursor_sql = mock_brotr.fetchval.call_args_list[0][0][0]
+        checkpoint_sql = mock_brotr.fetchval.call_args_list[1][0][0]
+        assert "NOT EXISTS" in cursor_sql
+        assert "NOT (state_key = ANY" in checkpoint_sql
+        assert result == 5

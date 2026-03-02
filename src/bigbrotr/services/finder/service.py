@@ -14,7 +14,7 @@ Discovers Nostr relay URLs from two sources:
 
 Discovered URLs are inserted as validation candidates for the
 [Validator][bigbrotr.services.validator.Validator] service via
-[insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates].
+[insert_relays_as_candidates][bigbrotr.services.validator.queries.insert_relays_as_candidates].
 
 Note:
     Event scanning uses per-relay cursor-based pagination so that
@@ -62,21 +62,26 @@ import asyncpg
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.queries import (
-    cleanup_stale,
-    fetch_event_relay_cursors,
-    insert_relays_as_candidates,
-    scan_event_relay,
-)
 from bigbrotr.services.common.types import EventRelayCursor
+from bigbrotr.services.validator.queries import insert_relays_as_candidates
 from bigbrotr.utils.http import read_bounded_json
 
 from .configs import ApiSourceConfig, FinderConfig
+from .queries import (
+    delete_stale_api_checkpoints,
+    delete_stale_cursors,
+    fetch_event_relay_cursors,
+    load_api_checkpoints,
+    save_api_checkpoints,
+    save_event_relay_cursor,
+    scan_event_relay,
+)
 from .utils import extract_relays_from_response, extract_relays_from_tagvalues
 
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
 
@@ -87,7 +92,7 @@ class Finder(BaseService[FinderConfig]):
     Discovers Nostr relay URLs from external APIs and stored database events,
     then inserts them as validation candidates for the
     [Validator][bigbrotr.services.validator.Validator] service via
-    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates].
+    [insert_relays_as_candidates][bigbrotr.services.validator.queries.insert_relays_as_candidates].
 
     See Also:
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Configuration
@@ -114,10 +119,9 @@ class Finder(BaseService[FinderConfig]):
         await self.find()
 
     async def cleanup(self) -> int:
-        """Remove stale cursor state for relays that no longer exist."""
-        removed = await cleanup_stale(self._brotr, self.SERVICE_NAME)
-        if removed > 0:
-            self.inc_counter("total_stale_states_removed", removed)
+        """Remove stale state: orphaned relay cursors and obsolete API checkpoints."""
+        removed = await delete_stale_cursors(self)
+        removed += await delete_stale_api_checkpoints(self)
         return removed
 
     async def find(self) -> int:
@@ -151,7 +155,7 @@ class Finder(BaseService[FinderConfig]):
         if not self._config.api.enabled:
             return 0
 
-        api_state = await self._load_api_state()
+        api_state = await load_api_checkpoints(self)
         now = int(time.time())
 
         seen: set[str] = set()
@@ -159,67 +163,63 @@ class Finder(BaseService[FinderConfig]):
         fetched_sources: list[str] = []
 
         async with aiohttp.ClientSession() as session:
-            enabled = [s for s in self._config.api.sources if s.enabled]
-            for i, source in enumerate(enabled):
-                if not self.is_running:
-                    break
-
-                last_checked = api_state.get(source.url, 0)
-                if now - last_checked < source.interval:
-                    self._logger.debug(
-                        "api_skipped",
-                        url=source.url,
-                        seconds_left=source.interval - (now - last_checked),
-                    )
-                    continue
-
-                try:
-                    relays = await self._fetch_single_api(session, source)
-                    for relay in relays:
-                        if relay.url not in seen:
-                            seen.add(relay.url)
-                            all_relays.append(relay)
-                    api_state[source.url] = int(time.time())
-                    fetched_sources.append(source.url)
-                    self._logger.debug(
-                        "api_fetched", url=source.url, count=len(relays)
-                    )
-
-                    if (
-                        self._config.api.request_delay > 0
-                        and i < len(enabled) - 1
-                        and await self.wait(self._config.api.request_delay)
-                    ):
-                        break
-                except (TimeoutError, OSError, aiohttp.ClientError, ValueError) as e:
-                    self._logger.warning(
-                        "api_fetch_failed",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        url=source.url,
-                    )
+            async for source, relays in self._iter_api_relays(session, api_state, now):
+                for relay in relays:
+                    if relay.url not in seen:
+                        seen.add(relay.url)
+                        all_relays.append(relay)
+                api_state[source.url] = int(time.time())
+                fetched_sources.append(source.url)
 
         if fetched_sources:
-            await self._save_api_state(
-                {url: api_state[url] for url in fetched_sources}
-            )
+            await save_api_checkpoints(self, {url: api_state[url] for url in fetched_sources})
 
-        found = 0
-        if all_relays:
-            try:
-                found = await insert_relays_as_candidates(self._brotr, all_relays)
-            except (asyncpg.PostgresError, OSError) as e:
-                self._logger.error(
-                    "insert_candidates_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    count=len(all_relays),
-                )
+        found = await insert_relays_as_candidates(self._brotr, all_relays)
 
         self.set_gauge("api_candidates", found)
         self.inc_counter("total_api_candidates", found)
         self._logger.info("apis_completed", found=found, collected=len(all_relays))
         return found
+
+    async def _iter_api_relays(
+        self,
+        session: aiohttp.ClientSession,
+        api_state: dict[str, int],
+        now: int,
+    ) -> AsyncIterator[tuple[ApiSourceConfig, list[Relay]]]:
+        """Yield (source, relays) for each enabled API source that is due for refresh."""
+        enabled = [s for s in self._config.api.sources if s.enabled]
+        for i, source in enumerate(enabled):
+            if not self.is_running:
+                return
+
+            last_checked = api_state.get(source.url, 0)
+            if now - last_checked < source.interval:
+                self._logger.debug(
+                    "api_skipped",
+                    url=source.url,
+                    seconds_left=source.interval - (now - last_checked),
+                )
+                continue
+
+            try:
+                relays = await self._fetch_single_api(session, source)
+                self._logger.debug("api_fetched", url=source.url, count=len(relays))
+                yield source, relays
+            except (TimeoutError, OSError, aiohttp.ClientError, ValueError) as e:
+                self._logger.warning(
+                    "api_fetch_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    url=source.url,
+                )
+
+            if (
+                self._config.api.request_delay > 0
+                and i < len(enabled) - 1
+                and await self.wait(self._config.api.request_delay)
+            ):
+                return
 
     async def _fetch_single_api(
         self, session: aiohttp.ClientSession, source: ApiSourceConfig
@@ -248,52 +248,6 @@ class Finder(BaseService[FinderConfig]):
             data = await read_bounded_json(resp, self._config.api.max_response_size)
             return extract_relays_from_response(data, source.expression)
 
-    async def _load_api_state(self) -> dict[str, int]:
-        """Load per-source API timestamps from service_state.
-
-        Each API source has its own CHECKPOINT record keyed by source URL.
-        """
-        try:
-            records = await self._brotr.get_service_state(
-                self.SERVICE_NAME, ServiceStateType.CHECKPOINT
-            )
-            state: dict[str, int] = {}
-            for r in records:
-                try:
-                    state[r.state_key] = int(r.state_value["timestamp"])
-                except (KeyError, ValueError, TypeError):
-                    continue
-            return state
-        except (asyncpg.PostgresError, OSError) as e:
-            self._logger.warning(
-                "load_api_state_failed", error=str(e), error_type=type(e).__name__
-            )
-        return {}
-
-    async def _save_api_state(self, state: dict[str, int]) -> None:
-        """Persist per-source API timestamps to service_state.
-
-        Each API source is stored as an individual CHECKPOINT record.
-        """
-        now = int(time.time())
-        try:
-            await self._brotr.upsert_service_state(
-                [
-                    ServiceState(
-                        service_name=self.SERVICE_NAME,
-                        state_type=ServiceStateType.CHECKPOINT,
-                        state_key=url,
-                        state_value={"timestamp": ts},
-                        updated_at=now,
-                    )
-                    for url, ts in state.items()
-                ]
-            )
-        except (asyncpg.PostgresError, OSError) as e:
-            self._logger.error(
-                "save_api_state_failed", error=str(e), error_type=type(e).__name__
-            )
-
     # ── Event discovery ────────────────────────────────────────────
 
     async def find_from_events(self) -> int:
@@ -309,8 +263,13 @@ class Finder(BaseService[FinderConfig]):
         if not self._config.events.enabled:
             return 0
 
-        cursors = await self._fetch_cursors()
+        try:
+            cursors = await fetch_event_relay_cursors(self)
+        except (asyncpg.PostgresError, OSError) as e:
+            self._logger.warning("fetch_cursors_failed", error=str(e), error_type=type(e).__name__)
+            return 0
         if not cursors:
+            self._logger.debug("no_relays_to_scan")
             return 0
 
         self._logger.debug("events_scan_started", relay_count=len(cursors))
@@ -331,22 +290,7 @@ class Finder(BaseService[FinderConfig]):
         )
         return found
 
-    async def _fetch_cursors(self) -> list[EventRelayCursor]:
-        """Fetch per-relay cursor positions for event scanning."""
-        try:
-            cursors = await fetch_event_relay_cursors(self._brotr)
-        except (asyncpg.PostgresError, OSError) as e:
-            self._logger.warning(
-                "fetch_cursors_failed", error=str(e), error_type=type(e).__name__
-            )
-            return []
-        if not cursors:
-            self._logger.debug("no_relays_to_scan")
-        return cursors
-
-    async def _run_event_scans(
-        self, cursors: list[EventRelayCursor]
-    ) -> tuple[int, int, int, int]:
+    async def _run_event_scans(self, cursors: list[EventRelayCursor]) -> tuple[int, int, int, int]:
         """Scan all relays concurrently and aggregate results.
 
         Returns:
@@ -420,9 +364,7 @@ class Finder(BaseService[FinderConfig]):
                 break
 
             try:
-                rows = await scan_event_relay(
-                    self._brotr, cursor, self._config.events.batch_size
-                )
+                rows = await scan_event_relay(self, cursor, self._config.events.batch_size)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.warning(
                     "relay_event_query_failed",
@@ -445,9 +387,7 @@ class Finder(BaseService[FinderConfig]):
 
             if relays:
                 try:
-                    candidates_found += await insert_relays_as_candidates(
-                        self._brotr, relays
-                    )
+                    candidates_found += await insert_relays_as_candidates(self._brotr, relays)
                 except (asyncpg.PostgresError, OSError) as e:
                     self._logger.error(
                         "insert_candidates_failed",
@@ -457,43 +397,19 @@ class Finder(BaseService[FinderConfig]):
                     )
                     break
 
-            await self._save_cursor(cursor)
+            try:
+                await save_event_relay_cursor(self, cursor)
+            except (asyncpg.PostgresError, OSError) as e:
+                self._logger.error(
+                    "cursor_update_failed",
+                    relay=relay_url,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                break
             events_scanned += len(rows)
 
             if len(rows) < self._config.events.batch_size:
                 break
 
         return events_scanned, candidates_found
-
-    async def _save_cursor(self, cursor: EventRelayCursor) -> None:
-        """Persist the scan cursor position for a relay."""
-        if cursor.seen_at is None or cursor.event_id is None:
-            self._logger.error(
-                "cursor_fields_missing",
-                relay=cursor.relay_url,
-                seen_at=cursor.seen_at,
-                event_id=cursor.event_id,
-            )
-            return
-        try:
-            await self._brotr.upsert_service_state(
-                [
-                    ServiceState(
-                        service_name=self.SERVICE_NAME,
-                        state_type=ServiceStateType.CURSOR,
-                        state_key=cursor.relay_url,
-                        state_value={
-                            "seen_at": cursor.seen_at,
-                            "event_id": cursor.event_id.hex(),
-                        },
-                        updated_at=int(time.time()),
-                    )
-                ]
-            )
-        except (asyncpg.PostgresError, OSError) as e:
-            self._logger.error(
-                "cursor_update_failed",
-                relay=cursor.relay_url,
-                error=str(e),
-                error_type=type(e).__name__,
-            )
