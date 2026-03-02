@@ -2,8 +2,11 @@
 
 import pytest
 
+from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import (
     ClearnetConfig,
+    I2pConfig,
+    LokiConfig,
     NetworksConfig,
     TorConfig,
 )
@@ -20,41 +23,53 @@ from bigbrotr.services.validator import (
 
 
 class TestProcessingConfig:
-    """Tests for ProcessingConfig Pydantic model."""
+    """Tests for ProcessingConfig validation and defaults."""
 
-    def test_default_values(self) -> None:
-        """Test default processing configuration."""
-        config = ProcessingConfig()
-        assert config.chunk_size == 100
-        assert config.max_candidates is None
+    def test_defaults(self) -> None:
+        cfg = ProcessingConfig()
+        assert cfg.chunk_size == 1000
+        assert cfg.max_candidates is None
+        assert cfg.interval == 3600.0
 
-    def test_custom_values(self) -> None:
-        """Test custom processing configuration."""
-        config = ProcessingConfig(chunk_size=200, max_candidates=1000)
-        assert config.chunk_size == 200
-        assert config.max_candidates == 1000
+    def test_chunk_size_minimum(self) -> None:
+        cfg = ProcessingConfig(chunk_size=100)
+        assert cfg.chunk_size == 100
 
-    def test_chunk_size_bounds(self) -> None:
-        """Test chunk_size validation bounds."""
-        # Valid values
-        config_min = ProcessingConfig(chunk_size=10)
-        assert config_min.chunk_size == 10
+    def test_chunk_size_maximum(self) -> None:
+        cfg = ProcessingConfig(chunk_size=10000)
+        assert cfg.chunk_size == 10000
 
-        config_max = ProcessingConfig(chunk_size=1000)
-        assert config_max.chunk_size == 1000
-
-        # Below minimum
+    def test_chunk_size_below_minimum_rejected(self) -> None:
         with pytest.raises(ValueError):
-            ProcessingConfig(chunk_size=5)
+            ProcessingConfig(chunk_size=99)
 
-        # Above maximum
+    def test_chunk_size_above_maximum_rejected(self) -> None:
         with pytest.raises(ValueError):
-            ProcessingConfig(chunk_size=2000)
+            ProcessingConfig(chunk_size=10001)
 
     def test_max_candidates_none(self) -> None:
-        """Test max_candidates can be None (unlimited)."""
-        config = ProcessingConfig(max_candidates=None)
-        assert config.max_candidates is None
+        cfg = ProcessingConfig(max_candidates=None)
+        assert cfg.max_candidates is None
+
+    def test_max_candidates_minimum(self) -> None:
+        cfg = ProcessingConfig(max_candidates=1)
+        assert cfg.max_candidates == 1
+
+    def test_max_candidates_zero_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            ProcessingConfig(max_candidates=0)
+
+    def test_interval_zero(self) -> None:
+        cfg = ProcessingConfig(interval=0.0)
+        assert cfg.interval == 0.0
+
+    def test_interval_maximum(self) -> None:
+        cfg = ProcessingConfig(interval=604_800.0)
+        assert cfg.interval == 604_800.0
+
+    def test_interval_above_maximum_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            ProcessingConfig(interval=604_801.0)
 
 
 # ============================================================================
@@ -63,32 +78,29 @@ class TestProcessingConfig:
 
 
 class TestCleanupConfig:
-    """Tests for CleanupConfig Pydantic model."""
+    """Tests for CleanupConfig validation and defaults."""
 
-    def test_default_values(self) -> None:
-        """Test default cleanup configuration."""
-        config = CleanupConfig()
-        assert config.enabled is False
-        assert config.max_failures == 100
+    def test_defaults(self) -> None:
+        cfg = CleanupConfig()
+        assert cfg.enabled is False
+        assert cfg.max_failures == 720
 
-    def test_custom_values(self) -> None:
-        """Test custom cleanup configuration."""
-        config = CleanupConfig(enabled=True, max_failures=5)
-        assert config.enabled is True
-        assert config.max_failures == 5
+    def test_enabled_true(self) -> None:
+        cfg = CleanupConfig(enabled=True)
+        assert cfg.enabled is True
 
-    def test_max_failures_bounds(self) -> None:
-        """Test max_failures validation bounds."""
-        # Valid values
-        config_min = CleanupConfig(max_failures=1)
-        assert config_min.max_failures == 1
+    def test_max_failures_minimum(self) -> None:
+        cfg = CleanupConfig(max_failures=1)
+        assert cfg.max_failures == 1
 
-        config_max = CleanupConfig(max_failures=1000)
-        assert config_max.max_failures == 1000
-
-        # Below minimum
+    def test_max_failures_zero_rejected(self) -> None:
         with pytest.raises(ValueError):
             CleanupConfig(max_failures=0)
+
+    def test_custom_values(self) -> None:
+        cfg = CleanupConfig(enabled=True, max_failures=100)
+        assert cfg.enabled is True
+        assert cfg.max_failures == 100
 
 
 # ============================================================================
@@ -97,95 +109,174 @@ class TestCleanupConfig:
 
 
 class TestValidatorConfig:
-    """Tests for ValidatorConfig."""
+    """Tests for ValidatorConfig and inherited BaseServiceConfig fields."""
 
-    def test_default_config(self) -> None:
-        """Test default configuration values."""
-        config = ValidatorConfig()
-
-        assert config.interval == 300.0
-        assert config.processing.chunk_size == 100
-        assert config.processing.max_candidates is None
-        assert config.cleanup.enabled is False
-        assert config.cleanup.max_failures == 100
-        assert config.networks.clearnet.max_tasks == 50
-
-    def test_custom_config(self) -> None:
-        """Test custom configuration values."""
-        config = ValidatorConfig(
-            interval=600.0,
-            processing={"chunk_size": 200, "max_candidates": 1000},
-            cleanup={"enabled": True, "max_failures": 5},
-        )
-
-        assert config.interval == 600.0
-        assert config.processing.chunk_size == 200
-        assert config.processing.max_candidates == 1000
-        assert config.cleanup.enabled is True
-        assert config.cleanup.max_failures == 5
-
-    def test_chunk_size_bounds(self) -> None:
-        """Test chunk_size validation bounds."""
-        with pytest.raises(ValueError):
-            ValidatorConfig(processing={"chunk_size": 5})  # Below 10
-
-        with pytest.raises(ValueError):
-            ValidatorConfig(processing={"chunk_size": 2000})  # Above 1000
+    def test_defaults(self) -> None:
+        cfg = ValidatorConfig()
+        assert cfg.interval == 300.0
+        assert cfg.max_consecutive_failures == 5
+        assert isinstance(cfg.networks, NetworksConfig)
+        assert isinstance(cfg.processing, ProcessingConfig)
+        assert isinstance(cfg.cleanup, CleanupConfig)
 
     def test_interval_minimum(self) -> None:
-        """Test interval minimum constraint."""
+        cfg = ValidatorConfig(interval=60.0)
+        assert cfg.interval == 60.0
+
+    def test_interval_below_minimum_rejected(self) -> None:
         with pytest.raises(ValueError):
-            ValidatorConfig(interval=30.0)
+            ValidatorConfig(interval=59.9)
 
-    def test_networks_config(self) -> None:
-        """Test networks configuration."""
-        config = ValidatorConfig(
-            networks=NetworksConfig(
-                clearnet=ClearnetConfig(max_tasks=100),
-                tor=TorConfig(enabled=True, max_tasks=10),
-            )
-        )
-        assert config.networks.clearnet.max_tasks == 100
-        assert config.networks.tor.enabled is True
-        assert config.networks.tor.max_tasks == 10
+    def test_max_consecutive_failures_zero(self) -> None:
+        cfg = ValidatorConfig(max_consecutive_failures=0)
+        assert cfg.max_consecutive_failures == 0
+
+    def test_max_consecutive_failures_above_maximum_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            ValidatorConfig(max_consecutive_failures=101)
+
+    def test_nested_processing_via_dict(self) -> None:
+        cfg = ValidatorConfig(processing={"chunk_size": 200, "max_candidates": 5000})
+        assert cfg.processing.chunk_size == 200
+        assert cfg.processing.max_candidates == 5000
+
+    def test_nested_cleanup_via_dict(self) -> None:
+        cfg = ValidatorConfig(cleanup={"enabled": True, "max_failures": 50})
+        assert cfg.cleanup.enabled is True
+        assert cfg.cleanup.max_failures == 50
+
+    def test_nested_networks(self) -> None:
+        cfg = ValidatorConfig(networks=NetworksConfig(tor=TorConfig(enabled=True)))
+        assert cfg.networks.tor.enabled is True
+
+    def test_processing_validation_propagated(self) -> None:
+        with pytest.raises(ValueError):
+            ValidatorConfig(processing={"chunk_size": 50})
 
 
 # ============================================================================
-# Network Configuration Tests
+# NetworksConfig Tests
 # ============================================================================
 
 
-class TestNetworkConfiguration:
-    """Tests for network configuration via ValidatorConfig.networks."""
+class TestNetworksConfig:
+    """Tests for NetworksConfig container and helper methods."""
 
-    def test_enabled_networks_default(self) -> None:
-        """Test default enabled networks via config."""
-        config = NetworksConfig()
-        enabled = config.get_enabled_networks()
-        assert "clearnet" in enabled
+    def test_defaults(self) -> None:
+        cfg = NetworksConfig()
+        assert cfg.clearnet.enabled is True
+        assert cfg.tor.enabled is False
+        assert cfg.i2p.enabled is False
+        assert cfg.loki.enabled is False
 
-    def test_enabled_networks_with_tor(self) -> None:
-        """Test enabled networks with Tor enabled."""
-        config = NetworksConfig(
+    def test_get_enabled_networks_default(self) -> None:
+        cfg = NetworksConfig()
+        assert cfg.get_enabled_networks() == [NetworkType.CLEARNET]
+
+    def test_get_enabled_networks_with_tor(self) -> None:
+        cfg = NetworksConfig(tor=TorConfig(enabled=True))
+        enabled = cfg.get_enabled_networks()
+        assert NetworkType.CLEARNET in enabled
+        assert NetworkType.TOR in enabled
+
+    def test_get_enabled_networks_all_disabled(self) -> None:
+        cfg = NetworksConfig(clearnet=ClearnetConfig(enabled=False))
+        assert cfg.get_enabled_networks() == []
+
+    def test_get_enabled_networks_all_enabled(self) -> None:
+        cfg = NetworksConfig(
             clearnet=ClearnetConfig(enabled=True),
             tor=TorConfig(enabled=True),
+            i2p=I2pConfig(enabled=True),
+            loki=LokiConfig(enabled=True),
         )
-        enabled = config.get_enabled_networks()
-        assert "clearnet" in enabled
-        assert "tor" in enabled
+        assert len(cfg.get_enabled_networks()) == 4
 
-    def test_network_config_for_clearnet(self) -> None:
-        """Test getting network config for clearnet."""
-        config = NetworksConfig(clearnet=ClearnetConfig(timeout=10.0, max_tasks=25))
+    def test_get_returns_correct_config(self) -> None:
+        cfg = NetworksConfig(clearnet=ClearnetConfig(timeout=15.0))
+        assert cfg.get(NetworkType.CLEARNET).timeout == 15.0
 
-        assert config.clearnet.timeout == 10.0
-        assert config.clearnet.max_tasks == 25
+    def test_get_proxy_url_clearnet_always_none(self) -> None:
+        assert NetworksConfig().get_proxy_url(NetworkType.CLEARNET) is None
 
-    def test_network_config_for_tor(self) -> None:
-        """Test getting network config for Tor."""
-        config = NetworksConfig(
-            tor=TorConfig(enabled=True, timeout=60.0, proxy_url="socks5://tor:9050")
-        )
+    def test_get_proxy_url_tor_when_enabled(self) -> None:
+        cfg = NetworksConfig(tor=TorConfig(enabled=True, proxy_url="socks5://tor:9050"))
+        assert cfg.get_proxy_url(NetworkType.TOR) == "socks5://tor:9050"
 
-        assert config.tor.timeout == 60.0
-        assert config.tor.proxy_url == "socks5://tor:9050"
+    def test_get_proxy_url_tor_when_disabled(self) -> None:
+        assert NetworksConfig(tor=TorConfig(enabled=False)).get_proxy_url(NetworkType.TOR) is None
+
+    def test_is_enabled_clearnet_default(self) -> None:
+        assert NetworksConfig().is_enabled(NetworkType.CLEARNET) is True
+
+    def test_is_enabled_tor_default(self) -> None:
+        assert NetworksConfig().is_enabled(NetworkType.TOR) is False
+
+
+# ============================================================================
+# Per-Network Config Tests
+# ============================================================================
+
+
+class TestClearnetConfig:
+    """Tests for ClearnetConfig defaults and field bounds."""
+
+    def test_defaults(self) -> None:
+        cfg = ClearnetConfig()
+        assert cfg.enabled is True
+        assert cfg.proxy_url is None
+        assert cfg.max_tasks == 50
+        assert cfg.timeout == 10.0
+
+    def test_max_tasks_minimum(self) -> None:
+        assert ClearnetConfig(max_tasks=1).max_tasks == 1
+
+    def test_max_tasks_above_maximum_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            ClearnetConfig(max_tasks=201)
+
+    def test_timeout_minimum(self) -> None:
+        assert ClearnetConfig(timeout=1.0).timeout == 1.0
+
+    def test_timeout_above_maximum_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            ClearnetConfig(timeout=121.0)
+
+
+class TestTorConfig:
+    """Tests for TorConfig defaults and proxy settings."""
+
+    def test_defaults(self) -> None:
+        cfg = TorConfig()
+        assert cfg.enabled is False
+        assert cfg.proxy_url == "socks5://tor:9050"
+        assert cfg.max_tasks == 10
+        assert cfg.timeout == 30.0
+
+    def test_custom_proxy(self) -> None:
+        assert TorConfig(proxy_url="socks5://localhost:9150").proxy_url == "socks5://localhost:9150"
+
+    def test_proxy_can_be_none(self) -> None:
+        assert TorConfig(proxy_url=None).proxy_url is None
+
+
+class TestI2pConfig:
+    """Tests for I2pConfig defaults."""
+
+    def test_defaults(self) -> None:
+        cfg = I2pConfig()
+        assert cfg.enabled is False
+        assert cfg.proxy_url == "socks5://i2p:4447"
+        assert cfg.max_tasks == 5
+        assert cfg.timeout == 45.0
+
+
+class TestLokiConfig:
+    """Tests for LokiConfig defaults."""
+
+    def test_defaults(self) -> None:
+        cfg = LokiConfig()
+        assert cfg.enabled is False
+        assert cfg.proxy_url == "socks5://lokinet:1080"
+        assert cfg.max_tasks == 5
+        assert cfg.timeout == 30.0

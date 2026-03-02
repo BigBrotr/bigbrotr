@@ -1,10 +1,12 @@
 """Unit tests for the Validator service."""
 
-from unittest.mock import AsyncMock, patch
+import asyncio
+from unittest.mock import AsyncMock, call, patch
+
+import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models.constants import ServiceName
-from bigbrotr.models.service_state import ServiceStateType
+from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.services.common.configs import (
     ClearnetConfig,
     I2pConfig,
@@ -12,624 +14,561 @@ from bigbrotr.services.common.configs import (
     NetworksConfig,
     TorConfig,
 )
+from bigbrotr.services.common.types import CandidateCheckpoint
 from bigbrotr.services.validator import (
     Validator,
     ValidatorConfig,
 )
 
-from .conftest import make_candidate_row
+
+def make_candidate(
+    url: str,
+    network: NetworkType = NetworkType.CLEARNET,
+    failures: int = 0,
+) -> CandidateCheckpoint:
+    """Return a typed CandidateCheckpoint for patched-query tests."""
+    return CandidateCheckpoint(key=url, timestamp=0, network=network, failures=failures)
 
 
 # ============================================================================
-# Validator Initialization Tests
+# Initialization Tests
 # ============================================================================
 
 
-class TestValidator:
-    """Tests for Validator initialization."""
-
-    def test_init_default_config(self, mock_validator_brotr: Brotr) -> None:
-        """Test validator with default config."""
-        validator = Validator(brotr=mock_validator_brotr)
-
-        assert validator._config.interval == 300.0
-        assert validator._config.processing.chunk_size == 100
-
-    def test_init_custom_config(self, mock_validator_brotr: Brotr) -> None:
-        """Test validator with custom config."""
-        config = ValidatorConfig(interval=600.0, processing={"chunk_size": 200})
-        validator = Validator(brotr=mock_validator_brotr, config=config)
-
-        assert validator._config.interval == 600.0
-        assert validator._config.processing.chunk_size == 200
+class TestValidatorInit:
+    """Tests for Validator construction and class attributes."""
 
     def test_service_name(self, mock_validator_brotr: Brotr) -> None:
-        """Test service name attribute."""
-        validator = Validator(brotr=mock_validator_brotr)
-        assert validator.SERVICE_NAME == "validator"
+        assert Validator(mock_validator_brotr).SERVICE_NAME == ServiceName.VALIDATOR
 
-    def test_config_class(self, mock_validator_brotr: Brotr) -> None:
-        """Test config class attribute."""
-        assert ValidatorConfig == Validator.CONFIG_CLASS
+    def test_config_class(self) -> None:
+        assert Validator.CONFIG_CLASS is ValidatorConfig
+
+    def test_default_config_applied(self, mock_validator_brotr: Brotr) -> None:
+        v = Validator(mock_validator_brotr)
+        assert v._config.interval == 300.0
+        assert v._config.processing.chunk_size == 1000
+
+    def test_custom_config_stored(self, mock_validator_brotr: Brotr) -> None:
+        cfg = ValidatorConfig(interval=600.0, processing={"chunk_size": 200})
+        v = Validator(mock_validator_brotr, config=cfg)
+        assert v._config.interval == 600.0
+        assert v._config.processing.chunk_size == 200
 
 
 # ============================================================================
-# Validator Run Tests
+# run() Tests
 # ============================================================================
 
 
 class TestValidatorRun:
-    """Tests for validator run cycle."""
+    """Tests for Validator.run()."""
+
+    async def test_run_delegates_to_validate(self, mock_validator_brotr: Brotr) -> None:
+        """run() is a thin wrapper that calls validate() exactly once."""
+        v = Validator(mock_validator_brotr)
+        with patch.object(v, "validate", new_callable=AsyncMock, return_value=0) as mock_validate:
+            await v.run()
+        mock_validate.assert_awaited_once()
 
     async def test_run_with_no_candidates(self, mock_validator_brotr: Brotr) -> None:
-        """Test run completes when no candidates exist."""
-        validator = Validator(brotr=mock_validator_brotr)
-        await validator.run()
-
-        assert validator.chunk_progress.succeeded == 0
-        assert validator.chunk_progress.failed == 0
-
-    async def test_run_validates_candidates(self, mock_validator_brotr: Brotr) -> None:
-        """Test basic validation flow."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[
-                [make_candidate_row("wss://relay1.com"), make_candidate_row("wss://relay2.com")],
-                [],
-            ]
-        )
-
-        validator = Validator(brotr=mock_validator_brotr)
-
-        async def mock_is_nostr_relay(relay, proxy_url, timeout):
-            return "relay1" in relay.url
-
-        with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", side_effect=mock_is_nostr_relay
-        ):
-            await validator.run()
-
-        assert validator.chunk_progress.succeeded == 1
-        assert validator.chunk_progress.failed == 1
-
-    async def test_run_progress_reset(self, mock_validator_brotr: Brotr) -> None:
-        """Test progress is reset at start of run."""
-        validator = Validator(brotr=mock_validator_brotr)
-        validator.chunk_progress.succeeded = 10
-        validator.chunk_progress.failed = 5
-
-        await validator.run()
-
-        assert validator.chunk_progress.succeeded == 0
-        assert validator.chunk_progress.failed == 0
+        """Smoke test: run() completes without error when there are no candidates."""
+        mock_validator_brotr._pool.fetch = AsyncMock(return_value=[])
+        await Validator(mock_validator_brotr).run()
 
 
 # ============================================================================
-# Chunk Processing Tests
+# validate() Tests
 # ============================================================================
 
 
-class TestChunkProcessing:
-    """Tests for chunk-based processing."""
+class TestValidate:
+    """Tests for Validator.validate() cycle logic."""
 
-    async def test_loads_chunks_until_empty(self, mock_validator_brotr: Brotr) -> None:
-        """Test validator loads chunks until no more candidates."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[
-                [make_candidate_row(f"wss://relay{i}.com") for i in range(100)],
-                [make_candidate_row(f"wss://relay{i + 100}.com") for i in range(50)],
-                [],
-            ]
-        )
+    async def test_no_networks_enabled_returns_zero(self, mock_validator_brotr: Brotr) -> None:
+        """If all networks are disabled, validate() logs a warning and returns 0."""
+        cfg = ValidatorConfig(networks=NetworksConfig(clearnet=ClearnetConfig(enabled=False)))
+        v = Validator(mock_validator_brotr, config=cfg)
+        result = await v.validate()
+        assert result == 0
 
-        config = ValidatorConfig(processing={"chunk_size": 100})
-        validator = Validator(brotr=mock_validator_brotr, config=config)
-
-        with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay",
-            new_callable=AsyncMock,
-            return_value=True,
+    async def test_empty_candidates_returns_zero(self, mock_validator_brotr: Brotr) -> None:
+        """When count_candidates returns 0, validate() returns 0 without looping."""
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
-            await validator.run()
+            result = await Validator(mock_validator_brotr).validate()
+        assert result == 0
 
-        assert validator.chunk_progress.succeeded == 150
+    async def test_one_chunk_all_promoted(self, mock_validator_brotr: Brotr) -> None:
+        """All valid candidates yield the correct processed count."""
+        candidates = [make_candidate(f"wss://r{i}.com") for i in range(3)]
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=3,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                side_effect=[candidates, []],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.promote_candidates",
+                new_callable=AsyncMock,
+                return_value=3,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fail_candidates",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.is_nostr_relay",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            result = await Validator(mock_validator_brotr).validate()
+        assert result == 3
+
+    async def test_one_chunk_all_failed(self, mock_validator_brotr: Brotr) -> None:
+        """All invalid candidates yield the correct processed count."""
+        candidates = [make_candidate(f"wss://r{i}.com") for i in range(4)]
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=4,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                side_effect=[candidates, []],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.promote_candidates",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fail_candidates",
+                new_callable=AsyncMock,
+                return_value=4,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.is_nostr_relay",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
+            result = await Validator(mock_validator_brotr).validate()
+        assert result == 4
+
+    async def test_mixed_chunk_splits_valid_invalid(self, mock_validator_brotr: Brotr) -> None:
+        """Candidates returning True go to promote_candidates; False go to fail_candidates."""
+        c_valid = make_candidate("wss://good.com")
+        c_invalid = make_candidate("wss://bad.com")
+
+        async def mock_is_nostr_relay(relay, proxy, timeout):
+            return "good" in relay.url
+
+        promote_mock = AsyncMock(return_value=1)
+        fail_mock = AsyncMock(return_value=1)
+
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=2,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                side_effect=[[c_valid, c_invalid], []],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.promote_candidates",
+                promote_mock,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fail_candidates",
+                fail_mock,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.is_nostr_relay",
+                side_effect=mock_is_nostr_relay,
+            ),
+        ):
+            result = await Validator(mock_validator_brotr).validate()
+
+        assert result == 2
+        promoted_list = promote_mock.call_args[0][1]
+        failed_list = fail_mock.call_args[0][1]
+        assert len(promoted_list) == 1
+        assert len(failed_list) == 1
+        assert promoted_list[0].key == "wss://good.com"
+        assert failed_list[0].key == "wss://bad.com"
+
+    async def test_multiple_chunks_accumulate(self, mock_validator_brotr: Brotr) -> None:
+        """validate() accumulates processed count across multiple chunks."""
+        chunk1 = [make_candidate(f"wss://a{i}.com") for i in range(5)]
+        chunk2 = [make_candidate(f"wss://b{i}.com") for i in range(3)]
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=8,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                side_effect=[chunk1, chunk2, []],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.promote_candidates",
+                new_callable=AsyncMock,
+                side_effect=[5, 3],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fail_candidates",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.is_nostr_relay",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            result = await Validator(mock_validator_brotr).validate()
+        assert result == 8
 
     async def test_respects_max_candidates_limit(self, mock_validator_brotr: Brotr) -> None:
-        """Test validator respects max_candidates limit."""
+        """validate() stops after max_candidates have been processed."""
+        cfg = ValidatorConfig(processing={"chunk_size": 100, "max_candidates": 100})
+        chunk = [make_candidate(f"wss://r{i}.com") for i in range(100)]
+        fetch_mock = AsyncMock(side_effect=[chunk, []])
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=10,
+            ),
+            patch("bigbrotr.services.validator.service.fetch_candidates", fetch_mock),
+            patch(
+                "bigbrotr.services.validator.service.promote_candidates",
+                new_callable=AsyncMock,
+                return_value=5,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fail_candidates",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.is_nostr_relay",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            result = await Validator(mock_validator_brotr, config=cfg).validate()
+        assert result == 100
 
-        def mock_fetch(query, *args, timeout=None):
-            # args order: (service_name, data_type, networks, run_start_ts, limit)
-            limit = args[4] if len(args) > 4 else 100
-            if limit <= 0:
-                return []
-            if not hasattr(mock_fetch, "_call_count"):
-                mock_fetch._call_count = 0
-            mock_fetch._call_count += 1
+    async def test_exception_in_validation_counted_as_invalid(
+        self, mock_validator_brotr: Brotr
+    ) -> None:
+        """An exception raised by is_nostr_relay is logged and the candidate is failed."""
+        c = make_candidate("wss://broken.com")
+        fail_mock = AsyncMock(return_value=1)
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                side_effect=[[c], []],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.promote_candidates",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch("bigbrotr.services.validator.service.fail_candidates", fail_mock),
+            patch(
+                "bigbrotr.services.validator.service.is_nostr_relay",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            result = await Validator(mock_validator_brotr).validate()
 
-            if mock_fetch._call_count == 1:
-                return [make_candidate_row(f"wss://relay{i}.com") for i in range(min(limit, 100))]
-            if mock_fetch._call_count == 2:
-                return [
-                    make_candidate_row(f"wss://relay{i + 100}.com") for i in range(min(limit, 100))
-                ]
-            return []
+        assert result == 1
+        failed_list = fail_mock.call_args[0][1]
+        assert len(failed_list) == 1
+        assert failed_list[0].key == "wss://broken.com"
 
-        mock_validator_brotr._pool.fetch = AsyncMock(side_effect=mock_fetch)
+    async def test_cancelled_error_propagates(self, mock_validator_brotr: Brotr) -> None:
+        """asyncio.CancelledError raised by is_nostr_relay propagates out of validate()."""
+        c = make_candidate("wss://relay.com")
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                side_effect=[[c], []],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.is_nostr_relay",
+                new_callable=AsyncMock,
+                side_effect=asyncio.CancelledError,
+            ),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await Validator(mock_validator_brotr).validate()
 
-        config = ValidatorConfig(processing={"chunk_size": 100, "max_candidates": 150})
-        validator = Validator(brotr=mock_validator_brotr, config=config)
+    async def test_db_error_during_persist_propagates(self, mock_validator_brotr: Brotr) -> None:
+        """A database error during promote_candidates propagates to the caller."""
+        c = make_candidate("wss://relay.com")
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                side_effect=[[c], []],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.promote_candidates",
+                new_callable=AsyncMock,
+                side_effect=OSError("db down"),
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fail_candidates",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.is_nostr_relay",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            pytest.raises(OSError, match="db down"),
+        ):
+            await Validator(mock_validator_brotr).validate()
 
+
+# ============================================================================
+# _validate_candidate() Tests
+# ============================================================================
+
+
+class TestValidateCandidate:
+    """Tests for Validator._validate_candidate() per-relay probe."""
+
+    async def test_valid_relay_returns_true(self, mock_validator_brotr: Brotr) -> None:
+        v = Validator(mock_validator_brotr)
+
+        c = make_candidate("wss://good.com")
         with patch(
             "bigbrotr.services.validator.service.is_nostr_relay",
             new_callable=AsyncMock,
             return_value=True,
         ):
-            await validator.run()
+            assert await v._validate_candidate(c) is True
 
-        assert validator.chunk_progress.succeeded == 150
+    async def test_invalid_relay_returns_false(self, mock_validator_brotr: Brotr) -> None:
+        v = Validator(mock_validator_brotr)
 
-
-# ============================================================================
-# Network-Aware Validation Tests
-# ============================================================================
-
-
-class TestNetworkAwareValidation:
-    """Tests for network-specific validation behavior."""
-
-    async def test_clearnet_uses_clearnet_timeout(self, mock_validator_brotr: Brotr) -> None:
-        """Test clearnet relays use clearnet timeout."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[[make_candidate_row("wss://relay.com", network="clearnet")], []]
-        )
-
-        config = ValidatorConfig(
-            networks=NetworksConfig(clearnet=ClearnetConfig(timeout=5.0, max_tasks=10))
-        )
-        validator = Validator(brotr=mock_validator_brotr, config=config)
-
+        c = make_candidate("wss://bad.com")
         with patch(
             "bigbrotr.services.validator.service.is_nostr_relay",
             new_callable=AsyncMock,
-            return_value=True,
-        ) as mock:
-            await validator.run()
-            mock.assert_called_once()
-            _, _, timeout = mock.call_args[0]
-            assert timeout == 5.0
+            return_value=False,
+        ):
+            assert await v._validate_candidate(c) is False
 
-    async def test_tor_uses_tor_timeout(self, mock_validator_brotr: Brotr) -> None:
-        """Test Tor relays use Tor timeout."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[[make_candidate_row("ws://onion.onion", network="tor")], []]
-        )
+    async def test_timeout_error_returns_false(self, mock_validator_brotr: Brotr) -> None:
+        v = Validator(mock_validator_brotr)
 
-        config = ValidatorConfig(networks=NetworksConfig(tor=TorConfig(timeout=45.0, max_tasks=5)))
-        validator = Validator(brotr=mock_validator_brotr, config=config)
-
+        c = make_candidate("wss://slow.com")
         with patch(
             "bigbrotr.services.validator.service.is_nostr_relay",
             new_callable=AsyncMock,
-            return_value=True,
-        ) as mock:
-            await validator.run()
-            mock.assert_called_once()
-            _, _, timeout = mock.call_args[0]
-            assert timeout == 45.0
+            side_effect=TimeoutError,
+        ):
+            assert await v._validate_candidate(c) is False
 
-    async def test_tor_uses_proxy(self, mock_validator_brotr: Brotr) -> None:
-        """Test Tor relays use proxy URL."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[[make_candidate_row("ws://onion.onion", network="tor")], []]
-        )
+    async def test_os_error_returns_false(self, mock_validator_brotr: Brotr) -> None:
+        v = Validator(mock_validator_brotr)
 
-        config = ValidatorConfig(
-            networks=NetworksConfig(tor=TorConfig(enabled=True, proxy_url="socks5://tor:9050"))
-        )
-        validator = Validator(brotr=mock_validator_brotr, config=config)
-
+        c = make_candidate("wss://unreachable.com")
         with patch(
             "bigbrotr.services.validator.service.is_nostr_relay",
             new_callable=AsyncMock,
-            return_value=True,
-        ) as mock:
-            await validator.run()
-            mock.assert_called_once()
-            _, proxy_url, _ = mock.call_args[0]
-            assert proxy_url == "socks5://tor:9050"
+            side_effect=OSError("refused"),
+        ):
+            assert await v._validate_candidate(c) is False
+
+    async def test_unknown_network_returns_false(self, mock_validator_brotr: Brotr) -> None:
+        """NetworkSemaphores.get() returns None for non-operational types; candidate is skipped."""
+        v = Validator(mock_validator_brotr)
+        # UNKNOWN is not in OPERATIONAL_NETWORKS so its semaphore is None.
+        c = make_candidate("wss://relay.com", network=NetworkType.UNKNOWN)
+        result = await v._validate_candidate(c)
+        assert result is False
 
     async def test_clearnet_uses_no_proxy(self, mock_validator_brotr: Brotr) -> None:
-        """Test clearnet relays don't use proxy."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[[make_candidate_row("wss://relay.com", network="clearnet")], []]
-        )
+        v = Validator(mock_validator_brotr)
 
-        validator = Validator(brotr=mock_validator_brotr)
+        c = make_candidate("wss://relay.com")
+        with patch(
+            "bigbrotr.services.validator.service.is_nostr_relay",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock:
+            await v._validate_candidate(c)
+        _, proxy_url, _ = mock.call_args[0]
+        assert proxy_url is None
+
+
+# ============================================================================
+# Network Routing Tests
+# ============================================================================
+
+
+class TestNetworkRouting:
+    """Tests that _validate_candidate routes timeout and proxy correctly per network."""
+
+    async def _run_single(
+        self, mock_validator_brotr: Brotr, cfg: ValidatorConfig, candidate: CandidateCheckpoint
+    ) -> tuple[str | None, float]:
+        """Helper: run _validate_candidate and return (proxy_url, timeout)."""
+        v = Validator(mock_validator_brotr, config=cfg)
 
         with patch(
             "bigbrotr.services.validator.service.is_nostr_relay",
             new_callable=AsyncMock,
             return_value=True,
         ) as mock:
-            await validator.run()
-            mock.assert_called_once()
-            _, proxy_url, _ = mock.call_args[0]
-            assert proxy_url is None
+            await v._validate_candidate(candidate)
+        _, proxy_url, timeout = mock.call_args[0]
+        return proxy_url, timeout
 
-    async def test_i2p_uses_i2p_settings(self, mock_validator_brotr: Brotr) -> None:
-        """Test I2P relays use I2P timeout and proxy."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[[make_candidate_row("ws://test.i2p", network="i2p")], []]
+    async def test_clearnet_timeout_and_no_proxy(self, mock_validator_brotr: Brotr) -> None:
+        cfg = ValidatorConfig(networks=NetworksConfig(clearnet=ClearnetConfig(timeout=7.0)))
+        proxy, timeout = await self._run_single(
+            mock_validator_brotr, cfg, make_candidate("wss://relay.com")
         )
+        assert proxy is None
+        assert timeout == 7.0
 
-        config = ValidatorConfig(
+    async def test_tor_proxy_and_timeout(self, mock_validator_brotr: Brotr) -> None:
+        cfg = ValidatorConfig(
             networks=NetworksConfig(
-                i2p=I2pConfig(enabled=True, timeout=60.0, proxy_url="socks5://i2p:4447")
+                tor=TorConfig(enabled=True, proxy_url="socks5://tor:9050", timeout=45.0)
             )
         )
-        validator = Validator(brotr=mock_validator_brotr, config=config)
-
-        with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay",
-            new_callable=AsyncMock,
-            return_value=True,
-        ) as mock:
-            await validator.run()
-            mock.assert_called_once()
-            _, proxy_url, timeout = mock.call_args[0]
-            assert proxy_url == "socks5://i2p:4447"
-            assert timeout == 60.0
-
-    async def test_lokinet_uses_lokinet_settings(self, mock_validator_brotr: Brotr) -> None:
-        """Test Lokinet relays use Lokinet timeout and proxy."""
-        mock_validator_brotr._pool._mock_connection.fetch = AsyncMock(
-            side_effect=[[make_candidate_row("ws://test.loki", network="loki")], []]
+        proxy, timeout = await self._run_single(
+            mock_validator_brotr, cfg, make_candidate("ws://abc.onion", network=NetworkType.TOR)
         )
+        assert proxy == "socks5://tor:9050"
+        assert timeout == 45.0
 
-        config = ValidatorConfig(
+    async def test_i2p_proxy_and_timeout(self, mock_validator_brotr: Brotr) -> None:
+        cfg = ValidatorConfig(
             networks=NetworksConfig(
-                loki=LokiConfig(enabled=True, timeout=30.0, proxy_url="socks5://loki:1080")
+                i2p=I2pConfig(enabled=True, proxy_url="socks5://i2p:4447", timeout=60.0)
             )
         )
-        validator = Validator(brotr=mock_validator_brotr, config=config)
+        proxy, timeout = await self._run_single(
+            mock_validator_brotr, cfg, make_candidate("ws://test.i2p", network=NetworkType.I2P)
+        )
+        assert proxy == "socks5://i2p:4447"
+        assert timeout == 60.0
 
-        with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay",
-            new_callable=AsyncMock,
-            return_value=True,
-        ) as mock:
-            await validator.run()
-            mock.assert_called_once()
-            _, proxy_url, timeout = mock.call_args[0]
-            assert proxy_url == "socks5://loki:1080"
-            assert timeout == 30.0
+    async def test_loki_proxy_and_timeout(self, mock_validator_brotr: Brotr) -> None:
+        cfg = ValidatorConfig(
+            networks=NetworksConfig(
+                loki=LokiConfig(enabled=True, proxy_url="socks5://lokinet:1080", timeout=30.0)
+            )
+        )
+        proxy, timeout = await self._run_single(
+            mock_validator_brotr, cfg, make_candidate("ws://test.loki", network=NetworkType.LOKI)
+        )
+        assert proxy == "socks5://lokinet:1080"
+        assert timeout == 30.0
 
 
 # ============================================================================
-# Error Handling Tests
-# ============================================================================
-
-
-class TestErrorHandling:
-    """Tests for error handling."""
-
-    async def test_validation_exception_handled(self, mock_validator_brotr: Brotr) -> None:
-        """Test exceptions during validation are handled."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[[make_candidate_row("wss://relay.com")], []]
-        )
-
-        validator = Validator(brotr=mock_validator_brotr)
-
-        with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay",
-            new_callable=AsyncMock,
-            side_effect=Exception("Connection error"),
-        ):
-            await validator.run()
-
-        assert validator.chunk_progress.succeeded == 0
-        assert validator.chunk_progress.failed == 1
-
-    async def test_database_error_during_persist_logged(self, mock_validator_brotr: Brotr) -> None:
-        """Test database errors during persist are logged."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[[make_candidate_row("wss://relay.com")], []]
-        )
-        mock_validator_brotr.upsert_service_state = AsyncMock(side_effect=OSError("DB error"))
-
-        validator = Validator(brotr=mock_validator_brotr)
-
-        with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay",
-            new_callable=AsyncMock,
-            return_value=False,
-        ):
-            await validator.run()
-
-        assert validator.chunk_progress.failed == 1
-
-    async def test_all_candidates_fail_validation(self, mock_validator_brotr: Brotr) -> None:
-        """Test run completes when all validations fail."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[[make_candidate_row(f"wss://relay{i}.com") for i in range(10)], []]
-        )
-
-        validator = Validator(brotr=mock_validator_brotr)
-
-        with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay",
-            new_callable=AsyncMock,
-            return_value=False,
-        ):
-            await validator.run()
-
-        assert validator.chunk_progress.succeeded == 0
-        assert validator.chunk_progress.failed == 10
-
-    async def test_graceful_shutdown(self, mock_validator_brotr: Brotr) -> None:
-        """Test is_running flag controls processing loop."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[
-                [make_candidate_row(f"wss://relay{i}.com") for i in range(10)],
-                [],
-            ]
-        )
-
-        validator = Validator(brotr=mock_validator_brotr)
-
-        with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay",
-            new_callable=AsyncMock,
-            return_value=True,
-        ):
-            await validator.run()
-
-        total = validator.chunk_progress.succeeded + validator.chunk_progress.failed
-        assert total == 10
-
-        # Test stopping via is_running
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[
-                [make_candidate_row(f"wss://relay{i}.com") for i in range(10)],
-                [],
-            ]
-        )
-        validator2 = Validator(brotr=mock_validator_brotr)
-        validator2.request_shutdown()
-        await validator2.run()
-
-        assert validator2.is_running is False
-
-
-# ============================================================================
-# Persistence Tests
-# ============================================================================
-
-
-class TestPersistence:
-    """Tests for result persistence."""
-
-    async def test_valid_relays_inserted_and_candidates_deleted(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
-        """Test valid relays are inserted and candidates removed."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[[make_candidate_row("wss://valid.relay.com")], []]
-        )
-        mock_validator_brotr.insert_relay = AsyncMock(return_value=1)  # type: ignore[method-assign]
-        mock_validator_brotr.delete_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
-
-        validator = Validator(brotr=mock_validator_brotr)
-
-        with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay",
-            new_callable=AsyncMock,
-            return_value=True,
-        ):
-            await validator.run()
-
-        mock_validator_brotr.insert_relay.assert_awaited_once()
-        relays = mock_validator_brotr.insert_relay.call_args[0][0]
-        assert len(relays) == 1
-        assert relays[0].url == "wss://valid.relay.com"
-
-        mock_validator_brotr.delete_service_state.assert_awaited_once()
-        delete_args = mock_validator_brotr.delete_service_state.call_args
-        assert delete_args[0][0] == [ServiceName.VALIDATOR]
-        assert delete_args[0][1] == [ServiceStateType.CANDIDATE]
-        assert delete_args[0][2] == ["wss://valid.relay.com"]
-
-    async def test_invalid_candidates_failures_incremented(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
-        """Test invalid candidates have failures incremented."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[[make_candidate_row("wss://invalid.relay.com", failures=2)], []]
-        )
-
-        validator = Validator(brotr=mock_validator_brotr)
-
-        with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay",
-            new_callable=AsyncMock,
-            return_value=False,
-        ):
-            await validator.run()
-
-        mock_validator_brotr.upsert_service_state.assert_called_once()
-        call_args = mock_validator_brotr.upsert_service_state.call_args[0][0]
-        assert call_args[0].state_value["failures"] == 3
-
-    async def test_invalid_candidates_state_value_fields(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
-        """Test invalid candidates get state_value with network from relay and incremented failures."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[
-                [make_candidate_row("ws://abc.onion", network="tor", failures=1)],
-                [],
-            ]
-        )
-
-        validator = Validator(brotr=mock_validator_brotr)
-
-        with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay",
-            new_callable=AsyncMock,
-            return_value=False,
-        ):
-            await validator.run()
-
-        mock_validator_brotr.upsert_service_state.assert_called_once()
-        call_args = mock_validator_brotr.upsert_service_state.call_args[0][0]
-        data = call_args[0].state_value
-        assert data == {"network": "tor", "failures": 2}
-
-
-# ============================================================================
-# Cleanup Tests
+# cleanup() Tests
 # ============================================================================
 
 
 class TestCleanup:
-    """Tests for cleanup operations."""
+    """Tests for Validator.cleanup() lifecycle hook."""
 
-    async def test_cleanup_calls_query(self, mock_validator_brotr: Brotr) -> None:
-        """Test cleanup() delegates to cleanup_stale query."""
+    async def test_removes_promoted_candidates(self, mock_validator_brotr: Brotr) -> None:
+        mock_validator_brotr.fetchval = AsyncMock(return_value=3)
+        result = await Validator(mock_validator_brotr).cleanup()
+        mock_validator_brotr.fetchval.assert_awaited_once()
+        sql = mock_validator_brotr.fetchval.call_args[0][0]
+        assert "AND EXISTS" in sql
+        assert result == 3
+
+    async def test_calls_delete_exhausted_when_enabled(self, mock_validator_brotr: Brotr) -> None:
+        mock_validator_brotr.fetchval = AsyncMock(return_value=0)
+        cfg = ValidatorConfig(cleanup={"enabled": True, "max_failures": 10})
         with patch(
-            "bigbrotr.services.validator.service.cleanup_stale",
+            "bigbrotr.services.validator.service.delete_exhausted_candidates",
             new_callable=AsyncMock,
             return_value=5,
-        ) as mock_query:
-            validator = Validator(brotr=mock_validator_brotr)
-            await validator.cleanup()
-            mock_query.assert_awaited_once_with(mock_validator_brotr, validator.SERVICE_NAME)
-
-    async def test_cleanup_increments_counter(self, mock_validator_brotr: Brotr) -> None:
-        """Test cleanup() increments counter when stale states removed."""
-        with patch(
-            "bigbrotr.services.validator.service.cleanup_stale",
-            new_callable=AsyncMock,
-            return_value=3,
-        ):
-            validator = Validator(brotr=mock_validator_brotr)
-            with patch.object(validator, "inc_counter") as mock_counter:
-                await validator.cleanup()
-            mock_counter.assert_called_once_with("total_stale_states_removed", 3)
-
-    async def test_cleanup_deletes_exhausted_when_enabled(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
-        """Test cleanup() deletes exhausted candidates when enabled."""
-        with patch(
-            "bigbrotr.services.validator.service.cleanup_stale",
-            new_callable=AsyncMock,
-            return_value=0,
-        ), patch(
-            "bigbrotr.services.validator.service.delete_exhausted_candidates",
-            new_callable=AsyncMock,
-            return_value=3,
         ) as mock_delete:
-            config = ValidatorConfig(cleanup={"enabled": True, "max_failures": 5})
-            validator = Validator(brotr=mock_validator_brotr, config=config)
-            await validator.cleanup()
-            mock_delete.assert_awaited_once_with(mock_validator_brotr, 5)
+            result = await Validator(mock_validator_brotr, config=cfg).cleanup()
+        mock_delete.assert_awaited_once()
+        assert result == 5
 
-    async def test_cleanup_skips_exhausted_when_disabled(
-        self, mock_validator_brotr: Brotr
-    ) -> None:
-        """Test cleanup() skips exhausted deletion when disabled."""
+    async def test_skips_delete_exhausted_when_disabled(self, mock_validator_brotr: Brotr) -> None:
+        mock_validator_brotr.fetchval = AsyncMock(return_value=0)
         with patch(
-            "bigbrotr.services.validator.service.cleanup_stale",
-            new_callable=AsyncMock,
-            return_value=0,
-        ), patch(
             "bigbrotr.services.validator.service.delete_exhausted_candidates",
             new_callable=AsyncMock,
         ) as mock_delete:
-            config = ValidatorConfig(cleanup={"enabled": False})
-            validator = Validator(brotr=mock_validator_brotr, config=config)
-            await validator.cleanup()
-            mock_delete.assert_not_awaited()
+            await Validator(mock_validator_brotr).cleanup()
+        mock_delete.assert_not_awaited()
 
-
-# ============================================================================
-# Integration Tests
-# ============================================================================
-
-
-class TestValidatorIntegration:
-    """Integration tests for Validator."""
-
-    async def test_full_validation_cycle(self, mock_validator_brotr: Brotr) -> None:
-        """Test complete validation cycle with mixed results."""
-        mock_validator_brotr._pool._mock_connection.fetch = AsyncMock(
-            side_effect=[
-                [
-                    make_candidate_row("wss://good.relay.com"),
-                    make_candidate_row("wss://bad.relay.com"),
-                    make_candidate_row("wss://error.relay.com"),
-                ],
-                [],
-            ]
-        )
-
-        validator = Validator(brotr=mock_validator_brotr)
-
-        async def mock_validation(relay, proxy, timeout):
-            if "good" in relay.url:
-                return True
-            if "error" in relay.url:
-                raise Exception("Connection error")
-            return False
-
+    async def test_returns_sum_of_promoted_and_exhausted(
+        self, mock_validator_brotr: Brotr
+    ) -> None:
+        mock_validator_brotr.fetchval = AsyncMock(return_value=4)
+        cfg = ValidatorConfig(cleanup={"enabled": True, "max_failures": 5})
         with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay", side_effect=mock_validation
+            "bigbrotr.services.validator.service.delete_exhausted_candidates",
+            new_callable=AsyncMock,
+            return_value=6,
         ):
-            await validator.run()
-
-        # 1 valid (good), 2 failures (bad + error)
-        assert validator.chunk_progress.succeeded == 1
-        assert validator.chunk_progress.failed == 2
-
-    async def test_validation_with_multiple_networks(self, mock_validator_brotr: Brotr) -> None:
-        """Test validation with candidates from multiple networks."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[
-                [
-                    make_candidate_row("wss://clearnet.relay.com", network="clearnet"),
-                    make_candidate_row("ws://onion.relay.onion", network="tor"),
-                ],
-                [],
-            ]
-        )
-
-        config = ValidatorConfig(
-            networks=NetworksConfig(
-                clearnet=ClearnetConfig(timeout=5.0),
-                tor=TorConfig(enabled=True, timeout=30.0, proxy_url="socks5://tor:9050"),
-            )
-        )
-        validator = Validator(brotr=mock_validator_brotr, config=config)
-
-        call_args_list = []
-
-        async def capture_args(relay, proxy, timeout):
-            call_args_list.append((relay.url, proxy, timeout))
-            return True
-
-        with patch("bigbrotr.services.validator.service.is_nostr_relay", side_effect=capture_args):
-            await validator.run()
-
-        # Verify correct timeouts/proxies were used
-        clearnet_call = next(c for c in call_args_list if "clearnet" in c[0])
-        tor_call = next(c for c in call_args_list if "onion" in c[0])
-
-        assert clearnet_call[1] is None  # No proxy for clearnet
-        assert clearnet_call[2] == 5.0
-
-        assert tor_call[1] == "socks5://tor:9050"
-        assert tor_call[2] == 30.0
+            result = await Validator(mock_validator_brotr, config=cfg).cleanup()
+        assert result == 10
 
 
 # ============================================================================
@@ -638,28 +577,173 @@ class TestValidatorIntegration:
 
 
 class TestValidatorMetrics:
-    """Tests for Validator Prometheus counter emissions."""
+    """Tests for Prometheus gauge and counter emissions from validate()."""
 
-    async def test_promoted_counter_emitted(self, mock_validator_brotr: Brotr) -> None:
-        """Promoting valid candidates emits total_promoted counter."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[
-                [make_candidate_row("wss://valid1.com"), make_candidate_row("wss://valid2.com")],
-                [],
-            ]
-        )
-        mock_validator_brotr.insert_relay = AsyncMock(return_value=2)
-
-        validator = Validator(brotr=mock_validator_brotr)
-
+    async def test_total_gauge_set_to_candidate_count(self, mock_validator_brotr: Brotr) -> None:
+        """'total' gauge is set to the count returned by count_candidates."""
         with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=42,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            v = Validator(mock_validator_brotr)
+            with patch.object(v, "set_gauge") as mock_gauge:
+                await v.validate()
+        mock_gauge.assert_any_call("total", 42)
+
+    async def test_gauges_reset_to_zero_at_cycle_start(self, mock_validator_brotr: Brotr) -> None:
+        """validated/not_validated/chunk gauges are reset to 0 before the loop."""
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            v = Validator(mock_validator_brotr)
+            with patch.object(v, "set_gauge") as mock_gauge:
+                await v.validate()
+
+        calls = {(c.args[0], c.args[1]) for c in mock_gauge.call_args_list}
+        assert ("validated", 0) in calls
+        assert ("not_validated", 0) in calls
+        assert ("chunk", 0) in calls
+
+    async def test_validated_gauge_accumulates_across_chunks(
+        self, mock_validator_brotr: Brotr
+    ) -> None:
+        """'validated' gauge is non-decreasing and reaches total promoted after all chunks."""
+        chunk1 = [make_candidate(f"wss://a{i}.com") for i in range(3)]
+        chunk2 = [make_candidate(f"wss://b{i}.com") for i in range(2)]
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=5,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                side_effect=[chunk1, chunk2, []],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.promote_candidates",
+                new_callable=AsyncMock,
+                side_effect=[3, 2],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fail_candidates",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch(
                 "bigbrotr.services.validator.service.is_nostr_relay",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
-            patch.object(validator, "inc_counter") as mock_counter,
         ):
-            await validator.run()
+            v = Validator(mock_validator_brotr)
+            gauge_calls: list[tuple[str, int]] = []
+            with patch.object(
+                v, "set_gauge", side_effect=lambda n, val: gauge_calls.append((n, val))
+            ):
+                await v.validate()
 
-        mock_counter.assert_any_call("total_promoted", 2)
+        validated_values = [val for name, val in gauge_calls if name == "validated"]
+        assert validated_values == sorted(validated_values)
+        assert validated_values[-1] == 5
+
+    async def test_chunk_gauge_increments_per_chunk(self, mock_validator_brotr: Brotr) -> None:
+        """'chunk' gauge reaches the total number of chunks processed."""
+        chunk1 = [make_candidate("wss://r1.com")]
+        chunk2 = [make_candidate("wss://r2.com")]
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=2,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                side_effect=[chunk1, chunk2, []],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.promote_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fail_candidates",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.is_nostr_relay",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            v = Validator(mock_validator_brotr)
+            gauge_calls: list[tuple[str, int]] = []
+            with patch.object(
+                v, "set_gauge", side_effect=lambda n, val: gauge_calls.append((n, val))
+            ):
+                await v.validate()
+
+        chunk_values = [val for name, val in gauge_calls if name == "chunk"]
+        assert chunk_values[-1] == 2
+
+    async def test_total_promoted_counter_emitted_per_chunk(
+        self, mock_validator_brotr: Brotr
+    ) -> None:
+        """inc_counter('total_promoted', N) is called after each chunk."""
+        chunk1 = [make_candidate(f"wss://a{i}.com") for i in range(3)]
+        chunk2 = [make_candidate(f"wss://b{i}.com") for i in range(2)]
+        with (
+            patch(
+                "bigbrotr.services.validator.service.count_candidates",
+                new_callable=AsyncMock,
+                return_value=5,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fetch_candidates",
+                new_callable=AsyncMock,
+                side_effect=[chunk1, chunk2, []],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.promote_candidates",
+                new_callable=AsyncMock,
+                side_effect=[3, 2],
+            ),
+            patch(
+                "bigbrotr.services.validator.service.fail_candidates",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.validator.service.is_nostr_relay",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            v = Validator(mock_validator_brotr)
+            with patch.object(v, "inc_counter") as mock_counter:
+                await v.validate()
+
+        assert mock_counter.call_args_list == [
+            call("total_promoted", 3),
+            call("total_promoted", 2),
+        ]

@@ -7,14 +7,18 @@ import pytest
 from bigbrotr.core.brotr import Brotr
 
 
-def make_candidate_row(url: str, network: str = "clearnet", failures: int = 0) -> dict:
+def make_candidate_row(
+    url: str,
+    network: str = "clearnet",
+    failures: int = 0,
+    timestamp: int = 0,
+) -> dict:
     """Create a mock candidate row from database."""
     return {
         "service_name": "validator",
-        "state_type": "candidate",
+        "state_type": "checkpoint",
         "state_key": url,
-        "state_value": {"network": network, "failures": failures},
-        "updated_at": 1700000000,
+        "state_value": {"network": network, "failures": failures, "timestamp": timestamp},
     }
 
 

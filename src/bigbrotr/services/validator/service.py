@@ -15,7 +15,7 @@ Note:
     Each cycle initializes per-network semaphores from
     [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig],
     cleans up stale/exhausted candidates, then processes remaining
-    candidates in configurable chunks. Candidate priority is ordered by
+    candidates in configurable chunks. CandidateCheckpoint priority is ordered by
     fewest failures first (most likely to succeed).
 
 See Also:
@@ -54,33 +54,32 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, ClassVar
 
-import asyncpg
-
 from bigbrotr.core.base_service import BaseService
-from bigbrotr.models.constants import NetworkType, ServiceName
-from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.mixins import ChunkProgressMixin, NetworkSemaphoresMixin
-from bigbrotr.services.common.queries import (
-    cleanup_stale,
-    count_candidates,
-    delete_exhausted_candidates,
-    fetch_candidates,
-    promote_candidates,
-    upsert_service_states,
-)
+from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.relay import Relay
+from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
 from bigbrotr.utils.protocol import is_nostr_relay
 
 from .configs import ValidatorConfig
+from .queries import (
+    count_candidates,
+    delete_exhausted_candidates,
+    delete_promoted_candidates,
+    fail_candidates,
+    fetch_candidates,
+    promote_candidates,
+)
 
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from bigbrotr.core.brotr import Brotr
-    from bigbrotr.services.common.types import Candidate
+    from bigbrotr.models.constants import NetworkType
+    from bigbrotr.services.common.types import CandidateCheckpoint
 
 
-class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
+class Validator(NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
     """Validates relay candidates by checking if they speak the Nostr protocol.
 
     Processes candidate URLs discovered by the
@@ -105,7 +104,7 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         [Monitor][bigbrotr.services.monitor.Monitor]: Downstream service
             that health-checks promoted relays.
         [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay]:
-            WebSocket probe used by ``validate_candidate()``.
+            WebSocket probe used by ``_validate_candidate()``.
     """
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.VALIDATOR
@@ -118,71 +117,66 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
 
     async def run(self) -> None:
         """Execute one complete validation cycle."""
-        self.chunk_progress.reset()
         await self.validate()
 
     async def cleanup(self) -> int:
-        """Remove stale candidate state and exhausted candidates."""
-        removed = await cleanup_stale(self._brotr, self.SERVICE_NAME)
-        if removed > 0:
-            self.inc_counter("total_stale_states_removed", removed)
-
-        exhausted = 0
+        """Remove promoted candidates and exhausted candidates."""
+        removed = await delete_promoted_candidates(self)
         if self._config.cleanup.enabled:
-            exhausted = await delete_exhausted_candidates(
-                self._brotr,
-                self._config.cleanup.max_failures,
-            )
-            if exhausted > 0:
-                self.inc_counter("total_exhausted_removed", exhausted)
-
-        return removed + exhausted
+            removed += await delete_exhausted_candidates(self)
+        return removed
 
     async def validate(self) -> int:
-        """Count, validate, and persist all pending candidates.
-
-        High-level entry point that counts available candidates, processes
-        them in chunks via ``validate_chunks``, persists results, and emits
-        progress metrics. Returns the total number of candidates processed.
-
-        This is the method ``run()`` delegates to after cleanup. It can also
-        be called standalone when cleanup is not desired.
+        """Validate all pending candidates and persist results.
 
         Returns:
             Total number of candidates processed (valid + invalid).
         """
         networks = self._config.networks.get_enabled_networks()
-
-        self.chunk_progress.total = await count_candidates(self._brotr, networks)
-        self._logger.info("candidates_available", total=self.chunk_progress.total)
-        self._emit_progress_gauges()
-
         if not networks:
             self._logger.warning("no_networks_enabled")
-        else:
-            async for valid, invalid in self.validate_chunks():
-                self.chunk_progress.record(succeeded=len(valid), failed=len(invalid))
-                await self._persist_results(valid, invalid)
-                self._emit_progress_gauges()
-                self._logger.info(
-                    "chunk_completed",
-                    chunk=self.chunk_progress.chunks,
-                    valid=len(valid),
-                    invalid=len(invalid),
-                    remaining=self.chunk_progress.remaining,
-                )
+            return 0
 
-        self._emit_progress_gauges()
-        self._logger.info(
-            "validation_completed",
-            validated=self.chunk_progress.succeeded,
-            invalidated=self.chunk_progress.failed,
-            chunks=self.chunk_progress.chunks,
-            duration_s=self.chunk_progress.elapsed,
-        )
-        return self.chunk_progress.processed
+        attempted_before = int(time.time() - self._config.processing.interval)
 
-    async def validate_candidate(self, candidate: Candidate) -> bool:
+        total = await count_candidates(self, networks, attempted_before)
+        self._logger.info("candidates_available", total=total)
+
+        self.set_gauge("total", total)
+        self.set_gauge("validated", 0)
+        self.set_gauge("not_validated", 0)
+        self.set_gauge("chunk", 0)
+
+        processed = 0
+        cumulative_promoted = 0
+        cumulative_failed = 0
+        chunk_num = 0
+
+        async for valid, invalid in self._validate_chunks(networks, attempted_before):
+            failed_count = await fail_candidates(self, invalid)
+            promoted_count = await promote_candidates(self, valid)
+
+            processed += len(valid) + len(invalid)
+            cumulative_promoted += promoted_count
+            cumulative_failed += failed_count
+            chunk_num += 1
+
+            self.inc_counter("total_promoted", promoted_count)
+            self.set_gauge("validated", cumulative_promoted)
+            self.set_gauge("not_validated", cumulative_failed)
+            self.set_gauge("chunk", chunk_num)
+
+            self._logger.info(
+                "chunk_completed",
+                chunk=chunk_num,
+                promoted=promoted_count,
+                failed=failed_count,
+                remaining=total - processed,
+            )
+
+        return processed
+
+    async def _validate_candidate(self, candidate: CandidateCheckpoint) -> bool:
         """Validate a single relay candidate by connecting and testing the Nostr protocol.
 
         Uses the network-specific semaphore and proxy settings from
@@ -191,39 +185,45 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay].
 
         Args:
-            candidate: [Candidate][bigbrotr.services.common.types.Candidate]
+            candidate: [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint]
                 to validate.
 
         Returns:
             ``True`` if the relay speaks Nostr protocol, ``False`` otherwise.
         """
-        relay = candidate.relay
-        semaphore = self.network_semaphores.get(relay.network)
+        network = candidate.network
+        semaphore = self.network_semaphores.get(network)
 
         if semaphore is None:
-            self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
+            self._logger.warning("unknown_network", url=candidate.key, network=network.value)
             return False
 
         async with semaphore:
-            network_config = self._config.networks.get(relay.network)
-            proxy_url = self._config.networks.get_proxy_url(relay.network)
+            network_config = self._config.networks.get(network)
+            proxy_url = self._config.networks.get_proxy_url(network)
             try:
+                relay = Relay(candidate.key)
                 return await is_nostr_relay(relay, proxy_url, network_config.timeout)
             except (TimeoutError, OSError):
                 return False
 
-    async def validate_chunks(self) -> AsyncIterator[tuple[list[Candidate], list[Candidate]]]:
-        """Yield ``(valid_candidates, invalid_candidates)`` for each processed chunk.
+    async def _validate_chunks(
+        self,
+        networks: list[NetworkType],
+        attempted_before: int,
+    ) -> AsyncIterator[tuple[list[CandidateCheckpoint], list[CandidateCheckpoint]]]:
+        """Fetch, validate, and yield candidate chunks.
 
         Handles chunk fetching, budget calculation, and concurrent validation.
-        Persistence is left to the caller. Networks, chunk size, and candidate
-        limit are read from
-        [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig].
+        Persistence is left to the caller.
+
+        Args:
+            networks: Enabled network types to process.
+            attempted_before: Unix timestamp cutoff for candidate retry interval.
 
         Yields:
-            Tuple of (valid Candidate list, invalid Candidate list) per chunk.
+            Tuple of (valid CandidateCheckpoint list, invalid CandidateCheckpoint list) per chunk.
         """
-        networks = self._config.networks.get_enabled_networks()
         chunk_size = self._config.processing.chunk_size
         max_candidates = self._config.processing.max_candidates
         processed = 0
@@ -237,115 +237,30 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
             else:
                 limit = chunk_size
 
-            candidates = await self._fetch_chunk(networks, limit)
+            candidates = await fetch_candidates(self, networks, attempted_before, limit)
             if not candidates:
                 break
 
-            valid, invalid = await self._validate_chunk(candidates)
+            tasks = [self._validate_candidate(c) for c in candidates]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            valid: list[CandidateCheckpoint] = []
+            invalid: list[CandidateCheckpoint] = []
+
+            for candidate, result in zip(candidates, results, strict=True):
+                if isinstance(result, asyncio.CancelledError):
+                    raise result
+                if isinstance(result, BaseException):
+                    self._logger.warning(
+                        "validate_unexpected_error",
+                        url=candidate.key,
+                        error=str(result),
+                    )
+                    invalid.append(candidate)
+                elif result is True:
+                    valid.append(candidate)
+                else:
+                    invalid.append(candidate)
+
             processed += len(valid) + len(invalid)
             yield valid, invalid
-
-    async def _fetch_chunk(self, networks: list[NetworkType], limit: int) -> list[Candidate]:
-        """Fetch the next chunk of candidates ordered by priority.
-
-        Prioritizes candidates with fewer failures (more likely to succeed),
-        then by age (FIFO within the same failure count). Only fetches
-        candidates updated before the cycle start to avoid reprocessing.
-
-        Args:
-            networks: Enabled network types to fetch.
-            limit: Maximum candidates to return.
-
-        Returns:
-            List of Candidate objects, possibly empty if none remain.
-        """
-        return await fetch_candidates(
-            self._brotr,
-            networks,
-            int(self.chunk_progress.started_at),
-            limit,
-        )
-
-    async def _validate_chunk(
-        self, candidates: list[Candidate]
-    ) -> tuple[list[Candidate], list[Candidate]]:
-        """Validate a chunk of candidates concurrently.
-
-        Runs all validations via ``asyncio.gather`` with per-network semaphores.
-        Progress tracking is handled by the caller (``validate_chunks``).
-
-        Args:
-            candidates: Candidates to validate.
-
-        Returns:
-            Tuple of (valid_candidates, invalid_candidates).
-        """
-        tasks = [self.validate_candidate(c) for c in candidates]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        valid: list[Candidate] = []
-        invalid: list[Candidate] = []
-
-        for candidate, result in zip(candidates, results, strict=True):
-            if isinstance(result, asyncio.CancelledError):
-                raise result
-            if isinstance(result, BaseException):
-                self._logger.warning(
-                    "validate_unexpected_error",
-                    url=candidate.relay.url,
-                    error=str(result),
-                )
-                invalid.append(candidate)
-            elif result is True:
-                valid.append(candidate)
-            else:
-                invalid.append(candidate)
-
-        return valid, invalid
-
-    async def _persist_results(self, valid: list[Candidate], invalid: list[Candidate]) -> None:
-        """Persist validation results to the database.
-
-        Invalid candidates have their failure counter incremented (as
-        [ServiceState][bigbrotr.models.service_state.ServiceState]
-        updates) for prioritization in future cycles. Valid candidates are
-        inserted into the relays table and their candidate
-        records deleted via
-        [promote_candidates][bigbrotr.services.common.queries.promote_candidates].
-
-        Args:
-            valid: [Candidate][bigbrotr.services.common.types.Candidate]
-                objects that passed validation.
-            invalid: [Candidate][bigbrotr.services.common.types.Candidate]
-                objects that failed validation.
-        """
-        # Update failed candidates
-        if invalid:
-            now = int(time.time())
-            updates: list[ServiceState] = [
-                ServiceState(
-                    service_name=self.SERVICE_NAME,
-                    state_type=ServiceStateType.CANDIDATE,
-                    state_key=c.relay.url,
-                    state_value={
-                        "network": c.relay.network.value,
-                        "failures": c.failures + 1,
-                    },
-                    updated_at=now,
-                )
-                for c in invalid
-            ]
-            try:
-                await upsert_service_states(self._brotr, updates)
-            except (asyncpg.PostgresError, OSError) as e:
-                self._logger.error("update_failed", count=len(invalid), error=str(e))
-
-        # Promote valid candidates (atomic: insert + delete in one transaction)
-        if valid:
-            try:
-                await promote_candidates(self._brotr, valid)
-                for c in valid:
-                    self._logger.info("promoted", url=c.relay.url, network=c.relay.network.value)
-                self.inc_counter("total_promoted", len(valid))
-            except (asyncpg.PostgresError, OSError) as e:
-                self._logger.error("promote_failed", count=len(valid), error=str(e))
