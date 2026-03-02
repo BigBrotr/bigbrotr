@@ -59,21 +59,15 @@ import asyncio
 import random
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 import asyncpg
 from nostr_sdk import EventBuilder, Filter, Keys, Kind, Tag
 
 from bigbrotr.core.base_service import BaseService
-from bigbrotr.models import Metadata, MetadataType, Relay
 from bigbrotr.models.constants import EventKind, NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.nips.event_builders import (
-    build_monitor_announcement,
-    build_profile_event,
-    build_relay_discovery,
-)
-from bigbrotr.nips.nip11 import Nip11, Nip11Options, Nip11Selection
+from bigbrotr.nips.nip11 import Nip11, Nip11Options
 from bigbrotr.nips.nip66 import (
     Nip66DnsMetadata,
     Nip66GeoMetadata,
@@ -81,31 +75,40 @@ from bigbrotr.nips.nip66 import (
     Nip66NetMetadata,
     Nip66RttDependencies,
     Nip66RttMetadata,
-    Nip66Selection,
     Nip66SslMetadata,
 )
 from bigbrotr.services.common.mixins import (
-    ChunkProgressMixin,
     GeoReaderMixin,
     NetworkSemaphoresMixin,
-)
-from bigbrotr.services.common.queries import (
-    cleanup_stale,
-    fetch_relays_to_monitor,
-    insert_relay_metadata,
-    upsert_service_states,
 )
 from bigbrotr.utils.http import download_bounded_file
 from bigbrotr.utils.protocol import broadcast_events
 
 from .configs import MetadataFlags, MonitorConfig, RetryConfig
-from .utils import collect_metadata, get_reason, get_success, safe_result
+from .queries import (
+    delete_stale_checkpoints,
+    fetch_relays_to_monitor,
+    insert_relay_metadata,
+    save_monitoring_markers,
+)
+from .utils import (
+    CheckResult,
+    build_kind_0,
+    build_kind_10166,
+    build_kind_30166,
+    collect_metadata,
+    get_publish_relays,
+    get_reason,
+    get_success,
+    safe_result,
+)
 
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Coroutine
 
     from bigbrotr.core.brotr import Brotr
+    from bigbrotr.models import Relay
     from bigbrotr.nips.nip11.info import Nip11InfoMetadata
 
 
@@ -114,56 +117,7 @@ _SECONDS_PER_DAY = 86_400
 _T = TypeVar("_T")
 
 
-class CheckResult(NamedTuple):
-    """Result of a single relay health check.
-
-    Each field contains the typed NIP metadata container if that check was run
-    and produced data, or ``None`` if the check was skipped (disabled in config)
-    or failed completely. Use ``has_data`` to test whether any check produced
-    results.
-
-    Attributes:
-        generated_at: Unix timestamp when the health check was performed.
-        nip11: NIP-11 relay information document (name, description, pubkey, etc.).
-        nip66_rtt: Round-trip times for open/read/write operations in milliseconds.
-        nip66_ssl: SSL certificate validation (valid, expiry timestamp, issuer).
-        nip66_geo: Geolocation data (country, city, coordinates, timezone, geohash).
-        nip66_net: Network information (IP address, ASN, organization).
-        nip66_dns: DNS resolution data (IPs, CNAME, nameservers, reverse DNS).
-        nip66_http: HTTP metadata (server software and framework headers).
-
-    See Also:
-        [MetadataFlags][bigbrotr.services.monitor.MetadataFlags]: Boolean
-            flags controlling which check types are computed and stored.
-    """
-
-    generated_at: int = 0
-    nip11: Nip11InfoMetadata | None = None
-    nip66_rtt: Nip66RttMetadata | None = None
-    nip66_ssl: Nip66SslMetadata | None = None
-    nip66_geo: Nip66GeoMetadata | None = None
-    nip66_net: Nip66NetMetadata | None = None
-    nip66_dns: Nip66DnsMetadata | None = None
-    nip66_http: Nip66HttpMetadata | None = None
-
-    @property
-    def has_data(self) -> bool:
-        """True if at least one NIP check produced data."""
-        return any(
-            (
-                self.nip11,
-                self.nip66_rtt,
-                self.nip66_ssl,
-                self.nip66_geo,
-                self.nip66_net,
-                self.nip66_dns,
-                self.nip66_http,
-            )
-        )
-
-
 class Monitor(
-    ChunkProgressMixin,
     NetworkSemaphoresMixin,
     GeoReaderMixin,
     BaseService[MonitorConfig],
@@ -211,7 +165,6 @@ class Monitor(
         Delegates the core work to ``update_geo_databases``,
         ``publish_profile``, ``publish_announcement``, and ``monitor``.
         """
-        self.chunk_progress.reset()
         await self.update_geo_databases()
 
         compute = self._config.processing.compute
@@ -229,10 +182,7 @@ class Monitor(
 
     async def cleanup(self) -> int:
         """Remove stale checkpoint state for relays that no longer exist."""
-        removed = await cleanup_stale(self._brotr, self.SERVICE_NAME)
-        if removed > 0:
-            self.inc_counter("total_stale_states_removed", removed)
-        return removed
+        return await delete_stale_checkpoints(self)
 
     async def _update_geo_db(self, path: Path, url: str, db_name: str) -> None:
         """Download a single GeoLite2 database if missing or stale."""
@@ -296,39 +246,64 @@ class Monitor(
 
         if not networks:
             self._logger.warning("no_networks_enabled")
-            self._emit_progress_gauges()
-            return self.chunk_progress.processed
+            self.set_gauge("total", 0)
+            self.set_gauge("processed", 0)
+            self.set_gauge("success", 0)
+            self.set_gauge("failure", 0)
+            return 0
 
-        relays = await self._fetch_relays(networks)
-        self.chunk_progress.total = len(relays)
-        self._logger.info("relays_available", total=self.chunk_progress.total)
-        self._emit_progress_gauges()
+        started_at = time.time()
+        monotonic_start = time.monotonic()
+        monitored_before = int(started_at - self._config.discovery.interval)
+        relays = await fetch_relays_to_monitor(self, monitored_before, networks)
+
+        total = len(relays)
+        processed = 0
+        succeeded = 0
+        failed_count = 0
+        chunks = 0
+
+        self._logger.info("relays_available", total=total)
+        self.set_gauge("total", total)
+        self.set_gauge("processed", processed)
+        self.set_gauge("success", succeeded)
+        self.set_gauge("failure", failed_count)
 
         async for successful, failed in self.check_chunks(relays):
-            self.chunk_progress.record(succeeded=len(successful), failed=len(failed))
+            succeeded += len(successful)
+            failed_count += len(failed)
+            processed += len(successful) + len(failed)
+            chunks += 1
             self.inc_counter("total_checks_succeeded", len(successful))
             self.inc_counter("total_checks_failed", len(failed))
             await self.publish_relay_discoveries(successful)
             await self._persist_results(successful, failed)
-            self._emit_progress_gauges()
+            self.set_gauge("total", total)
+            self.set_gauge("processed", processed)
+            self.set_gauge("success", succeeded)
+            self.set_gauge("failure", failed_count)
             self._logger.info(
                 "chunk_completed",
-                chunk=self.chunk_progress.chunks,
+                chunk=chunks,
                 successful=len(successful),
                 failed=len(failed),
-                remaining=self.chunk_progress.remaining,
+                remaining=total - processed,
             )
 
-        self._emit_progress_gauges()
+        elapsed = round(time.monotonic() - monotonic_start, 1)
+        self.set_gauge("total", total)
+        self.set_gauge("processed", processed)
+        self.set_gauge("success", succeeded)
+        self.set_gauge("failure", failed_count)
         self._logger.info(
             "monitoring_completed",
-            checked=self.chunk_progress.processed,
-            successful=self.chunk_progress.succeeded,
-            failed=self.chunk_progress.failed,
-            chunks=self.chunk_progress.chunks,
-            duration_s=self.chunk_progress.elapsed,
+            checked=processed,
+            successful=succeeded,
+            failed=failed_count,
+            chunks=chunks,
+            duration_s=elapsed,
         )
-        return self.chunk_progress.processed
+        return processed
 
     async def check_chunks(
         self,
@@ -359,15 +334,6 @@ class Monitor(
             chunk = relays[i : i + chunk_size]
             successful, failed = await self._check_chunk(chunk)
             yield successful, failed
-
-    async def _fetch_relays(self, networks: list[NetworkType]) -> list[Relay]:
-        """Fetch all relays due for monitoring.
-
-        See Also:
-            ``fetch_relays_to_monitor``: The SQL query executed.
-        """
-        monitored_before = int(self.chunk_progress.started_at - self._config.discovery.interval)
-        return await fetch_relays_to_monitor(self._brotr, monitored_before, networks)
 
     async def _check_chunk(
         self, relays: list[Relay]
@@ -714,7 +680,7 @@ class Monitor(
             metadata = collect_metadata(successful, self._config.processing.store)
             if metadata:
                 try:
-                    count = await insert_relay_metadata(self._brotr, metadata)
+                    count = await insert_relay_metadata(self, metadata)
                     self._logger.debug("metadata_inserted", count=count)
                     self.inc_counter("total_metadata_stored", count)
                 except (asyncpg.PostgresError, OSError) as e:
@@ -723,24 +689,10 @@ class Monitor(
         # Save monitoring markers for all checked relays
         all_relays = [relay for relay, _ in successful] + failed
         if all_relays:
-            markers: list[ServiceState] = [
-                ServiceState(
-                    service_name=self.SERVICE_NAME,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key=relay.url,
-                    state_value={"timestamp": now},
-                    updated_at=now,
-                )
-                for relay in all_relays
-            ]
             try:
-                await upsert_service_states(self._brotr, markers)
+                await save_monitoring_markers(self, all_relays, now)
             except (asyncpg.PostgresError, OSError) as e:
                 self._logger.error("monitoring_save_failed", error=str(e))
-
-    def _get_publish_relays(self, section_relays: list[Relay] | None) -> list[Relay]:
-        """Get relays for event publishing, falling back to the global publishing relays."""
-        return section_relays if section_relays is not None else self._config.publishing.relays
 
     async def _publish_if_due(  # noqa: PLR0913
         self,
@@ -785,7 +737,6 @@ class Monitor(
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key=state_key,
                     state_value={"timestamp": now},
-                    updated_at=now,
                 ),
             ]
         )
@@ -795,10 +746,10 @@ class Monitor(
         ann = self._config.announcement
         await self._publish_if_due(
             enabled=ann.enabled,
-            relays=self._get_publish_relays(ann.relays),
+            relays=get_publish_relays(ann.relays, self._config.publishing.relays),
             interval=ann.interval,
             state_key="last_announcement",
-            builder=self._build_kind_10166(),
+            builder=build_kind_10166(self._config),
             event_name="announcement",
             timeout=self._config.publishing.timeout,
         )
@@ -808,10 +759,10 @@ class Monitor(
         profile = self._config.profile
         await self._publish_if_due(
             enabled=profile.enabled,
-            relays=self._get_publish_relays(profile.relays),
+            relays=get_publish_relays(profile.relays, self._config.publishing.relays),
             interval=profile.interval,
             state_key="last_profile",
-            builder=self._build_kind_0(),
+            builder=build_kind_0(self._config.profile),
             event_name="profile",
             timeout=self._config.publishing.timeout,
         )
@@ -819,14 +770,14 @@ class Monitor(
     async def publish_relay_discoveries(self, successful: list[tuple[Relay, CheckResult]]) -> None:
         """Publish Kind 30166 relay discovery events for successful health checks."""
         disc = self._config.discovery
-        relays = self._get_publish_relays(disc.relays)
+        relays = get_publish_relays(disc.relays, self._config.publishing.relays)
         if not disc.enabled or not relays:
             return
 
         builders: list[EventBuilder] = []
         for relay, result in successful:
             try:
-                builders.append(self._build_kind_30166(relay, result))
+                builders.append(build_kind_30166(relay, result, disc.include))
             except (ValueError, KeyError, TypeError) as e:
                 self._logger.debug("build_30166_failed", url=relay.url, error=str(e))
 
@@ -846,60 +797,3 @@ class Monitor(
                     count=len(builders),
                     error="no relays reachable",
                 )
-
-    def _build_kind_0(self) -> EventBuilder:
-        """Build Kind 0 profile metadata event per NIP-01."""
-        p = self._config.profile
-        return build_profile_event(
-            name=p.name,
-            about=p.about,
-            picture=p.picture,
-            nip05=p.nip05,
-            website=p.website,
-            banner=p.banner,
-            lud16=p.lud16,
-        )
-
-    def _build_kind_10166(self) -> EventBuilder:
-        """Build Kind 10166 monitor announcement event per NIP-66."""
-        include = self._config.discovery.include
-        enabled_networks = [
-            network for network in NetworkType if self._config.networks.is_enabled(network)
-        ]
-        first_network = enabled_networks[0] if enabled_networks else NetworkType.CLEARNET
-        timeout_ms = int(self._config.networks.get(first_network).timeout * 1000)
-        return build_monitor_announcement(
-            interval=int(self._config.interval),
-            timeout_ms=timeout_ms,
-            enabled_networks=enabled_networks,
-            nip11_selection=Nip11Selection(info=include.nip11_info),
-            nip66_selection=Nip66Selection(
-                rtt=include.nip66_rtt,
-                ssl=include.nip66_ssl,
-                geo=include.nip66_geo,
-                net=include.nip66_net,
-                dns=include.nip66_dns,
-                http=include.nip66_http,
-            ),
-        )
-
-    def _build_kind_30166(self, relay: Relay, result: CheckResult) -> EventBuilder:
-        """Build a Kind 30166 relay discovery event per NIP-66."""
-        include = self._config.discovery.include
-
-        nip11_canonical_json = ""
-        if result.nip11 and include.nip11_info:
-            meta = Metadata(type=MetadataType.NIP11_INFO, data=result.nip11.to_dict())
-            nip11_canonical_json = meta.canonical_json
-
-        return build_relay_discovery(
-            relay.url,
-            relay.network.value,
-            nip11_canonical_json,
-            rtt_data=result.nip66_rtt.data if result.nip66_rtt and include.nip66_rtt else None,
-            ssl_data=result.nip66_ssl.data if result.nip66_ssl and include.nip66_ssl else None,
-            net_data=result.nip66_net.data if result.nip66_net and include.nip66_net else None,
-            geo_data=result.nip66_geo.data if result.nip66_geo and include.nip66_geo else None,
-            nip11_data=result.nip11.data if result.nip11 and include.nip11_info else None,
-            rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
-        )
