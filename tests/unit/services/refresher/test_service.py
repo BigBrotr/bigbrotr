@@ -89,8 +89,8 @@ class TestRefresherRun:
 
         assert mock_refresher_brotr.refresh_materialized_view.call_count == 11
 
-    async def test_run_logs_per_view_duration(self, mock_refresher_brotr: Brotr) -> None:
-        """Test run logs duration for each view."""
+    async def test_run_logs_per_view(self, mock_refresher_brotr: Brotr) -> None:
+        """Test run logs each successfully refreshed view."""
         config = RefresherConfig(
             refresh=RefreshConfig(views=["event_stats"]),
         )
@@ -104,7 +104,6 @@ class TestRefresherRun:
             ]
             assert len(view_refreshed_calls) == 1
             assert view_refreshed_calls[0][1]["view"] == "event_stats"
-            assert "duration" in view_refreshed_calls[0][1]
 
     async def test_run_continues_on_failure(self, mock_refresher_brotr: Brotr) -> None:
         """Test run continues refreshing after a view fails."""
@@ -159,14 +158,14 @@ class TestRefresherRun:
             await refresher.run()
 
             cycle_completed_calls = [
-                call for call in mock_log.call_args_list if call[0][0] == "cycle_completed"
+                call for call in mock_log.call_args_list if call[0][0] == "refresh_completed"
             ]
             assert len(cycle_completed_calls) == 1
             assert cycle_completed_calls[0][1]["refreshed"] == 0
             assert cycle_completed_calls[0][1]["failed"] == 2
 
-    async def test_run_logs_cycle_started_and_completed(self, mock_refresher_brotr: Brotr) -> None:
-        """Test run logs cycle start and completion."""
+    async def test_run_logs_refresh_completed(self, mock_refresher_brotr: Brotr) -> None:
+        """Test run logs refresh completion."""
         config = RefresherConfig(
             refresh=RefreshConfig(views=["event_stats"]),
         )
@@ -176,11 +175,10 @@ class TestRefresherRun:
             await refresher.run()
 
             log_messages = [call[0][0] for call in mock_log.call_args_list]
-            assert "cycle_started" in log_messages
-            assert "cycle_completed" in log_messages
+            assert "refresh_completed" in log_messages
 
-    async def test_run_cycle_completed_counts(self, mock_refresher_brotr: Brotr) -> None:
-        """Test cycle_completed log contains correct refreshed/failed counts."""
+    async def test_run_refresh_completed_counts(self, mock_refresher_brotr: Brotr) -> None:
+        """Test refresh_completed log contains correct refreshed/failed counts."""
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
             side_effect=[None, asyncpg.PostgresError("error"), None]
         )
@@ -194,7 +192,7 @@ class TestRefresherRun:
             await refresher.run()
 
             cycle_completed_calls = [
-                call for call in mock_log.call_args_list if call[0][0] == "cycle_completed"
+                call for call in mock_log.call_args_list if call[0][0] == "refresh_completed"
             ]
             assert cycle_completed_calls[0][1]["refreshed"] == 2
             assert cycle_completed_calls[0][1]["failed"] == 1
@@ -280,21 +278,3 @@ class TestRefresherMetrics:
 
         mock_counter.assert_any_call("total_views_failed", 1)
 
-    async def test_set_gauge_duration(self, mock_refresher_brotr: Brotr) -> None:
-        """Total refresh duration gauge emitted with deterministic timing."""
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["event_stats", "relay_stats"]),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        # 6 calls: cycle_start, view1_start, view1_end, view2_start, view2_end, cycle_end
-        with (
-            patch.object(refresher, "set_gauge") as mock_gauge,
-            patch(
-                "bigbrotr.services.refresher.service.time.monotonic",
-                side_effect=[100.0, 100.5, 101.0, 101.0, 102.0, 102.5],
-            ),
-        ):
-            await refresher.run()
-
-        mock_gauge.assert_any_call("total_refresh_duration", 2.5)

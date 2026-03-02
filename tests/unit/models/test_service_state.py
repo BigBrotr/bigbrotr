@@ -18,19 +18,17 @@ class TestServiceStateType:
     """Test ServiceStateType StrEnum."""
 
     def test_members(self):
-        assert len(ServiceStateType) == 4
+        assert len(ServiceStateType) == 3
         assert set(ServiceStateType) == {
             ServiceStateType.CANDIDATE,
+            ServiceStateType.CHECKPOINT,
             ServiceStateType.CURSOR,
-            ServiceStateType.MONITORING,
-            ServiceStateType.PUBLICATION,
         }
 
     def test_values(self):
         assert ServiceStateType.CANDIDATE == "candidate"
+        assert ServiceStateType.CHECKPOINT == "checkpoint"
         assert ServiceStateType.CURSOR == "cursor"
-        assert ServiceStateType.MONITORING == "monitoring"
-        assert ServiceStateType.PUBLICATION == "publication"
 
     def test_is_str_enum(self):
         assert issubclass(ServiceStateType, StrEnum)
@@ -95,7 +93,7 @@ class TestServiceStateConstruction:
     def test_frozen(self):
         state = ServiceState(
             service_name=ServiceName.MONITOR,
-            state_type=ServiceStateType.MONITORING,
+            state_type=ServiceStateType.CHECKPOINT,
             state_key="batch_1",
             state_value={"done": True},
             updated_at=1700000000,

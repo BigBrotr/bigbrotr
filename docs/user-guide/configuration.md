@@ -390,7 +390,7 @@ api:
     - url: "https://api.nostr.watch/v1/offline"
       enabled: true
       timeout: 30.0
-  delay_between_requests: 1.0
+  request_delay: 1.0
 ```
 
 | Field | Type | Default | Range | Description |
@@ -406,7 +406,7 @@ api:
 | `api.sources[].enabled` | bool | `true` | - | Enable this source |
 | `api.sources[].timeout` | float | `30.0` | 0.1-120.0 | HTTP request timeout |
 | `api.sources[].connect_timeout` | float | `10.0` | 0.1-60.0 | HTTP connect timeout |
-| `api.delay_between_requests` | float | `1.0` | 0.0-10.0 | Delay between API calls |
+| `api.request_delay` | float | `1.0` | 0.0-10.0 | Delay between API calls |
 
 ---
 

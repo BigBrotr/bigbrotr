@@ -2,7 +2,6 @@
 Unit tests for services.finder configuration models.
 
 Tests:
-- ConcurrencyConfig
 - EventsConfig
 - ApiSourceConfig
 - ApiConfig
@@ -14,43 +13,9 @@ import pytest
 from bigbrotr.services.finder import (
     ApiConfig,
     ApiSourceConfig,
-    ConcurrencyConfig,
     EventsConfig,
     FinderConfig,
 )
-
-
-# ============================================================================
-# ConcurrencyConfig Tests
-# ============================================================================
-
-
-class TestConcurrencyConfig:
-    """Tests for ConcurrencyConfig Pydantic model."""
-
-    def test_default_values(self) -> None:
-        """Test default concurrency configuration."""
-        config = ConcurrencyConfig()
-        assert config.max_parallel_events == 10
-
-    def test_custom_values(self) -> None:
-        """Test custom concurrency configuration."""
-        config = ConcurrencyConfig(max_parallel_events=20)
-        assert config.max_parallel_events == 20
-
-    def test_max_parallel_events_bounds(self) -> None:
-        """Test max_parallel_events validation bounds."""
-        config_min = ConcurrencyConfig(max_parallel_events=1)
-        assert config_min.max_parallel_events == 1
-
-        config_max = ConcurrencyConfig(max_parallel_events=50)
-        assert config_max.max_parallel_events == 50
-
-        with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel_events=0)
-
-        with pytest.raises(ValueError):
-            ConcurrencyConfig(max_parallel_events=51)
 
 
 # ============================================================================
@@ -66,6 +31,9 @@ class TestEventsConfig:
         config = EventsConfig()
         assert config.enabled is True
         assert config.batch_size == 1000
+        assert config.parallel_relays == 50
+        assert config.max_relay_time is None
+        assert config.max_duration == 86400.0
 
     def test_disabled(self) -> None:
         """Test can disable events scanning."""
@@ -74,21 +42,51 @@ class TestEventsConfig:
 
     def test_batch_size_bounds(self) -> None:
         """Test batch_size validation bounds."""
-        # Min bound
         config_min = EventsConfig(batch_size=100)
         assert config_min.batch_size == 100
 
-        # Max bound
         config_max = EventsConfig(batch_size=10000)
         assert config_max.batch_size == 10000
 
-        # Below min
         with pytest.raises(ValueError):
             EventsConfig(batch_size=50)
 
-        # Above max
         with pytest.raises(ValueError):
             EventsConfig(batch_size=20000)
+
+    def test_parallel_relays_bounds(self) -> None:
+        """Test parallel_relays validation bounds."""
+        config_min = EventsConfig(parallel_relays=1)
+        assert config_min.parallel_relays == 1
+
+        config_max = EventsConfig(parallel_relays=200)
+        assert config_max.parallel_relays == 200
+
+        with pytest.raises(ValueError):
+            EventsConfig(parallel_relays=0)
+
+        with pytest.raises(ValueError):
+            EventsConfig(parallel_relays=201)
+
+    def test_max_relay_time_custom(self) -> None:
+        """Test max_relay_time can be set."""
+        config = EventsConfig(max_relay_time=30.0)
+        assert config.max_relay_time == 30.0
+
+    def test_max_relay_time_below_minimum(self) -> None:
+        """Test max_relay_time below minimum is rejected."""
+        with pytest.raises(ValueError):
+            EventsConfig(max_relay_time=0.5)
+
+    def test_max_duration_custom(self) -> None:
+        """Test max_duration can be set."""
+        config = EventsConfig(max_duration=120.0)
+        assert config.max_duration == 120.0
+
+    def test_max_duration_below_minimum(self) -> None:
+        """Test max_duration below minimum is rejected."""
+        with pytest.raises(ValueError):
+            EventsConfig(max_duration=0.5)
 
 
 # ============================================================================
@@ -106,7 +104,7 @@ class TestApiSourceConfig:
         assert config.url == "https://api.example.com"
         assert config.enabled is True
         assert config.timeout == 30.0
-        assert config.jmespath == "[*]"
+        assert config.expression == "[*]"
 
     def test_custom_values(self) -> None:
         """Test custom API source configuration."""
@@ -130,18 +128,18 @@ class TestApiSourceConfig:
         config_max = ApiSourceConfig(url="https://api.com", timeout=120.0)
         assert config_max.timeout == 120.0
 
-    def test_custom_jmespath_expression(self) -> None:
+    def test_custom_expression(self) -> None:
         config = ApiSourceConfig(
             url="https://api.example.com",
-            jmespath="data.relays[*].url",
+            expression="data.relays[*].url",
         )
-        assert config.jmespath == "data.relays[*].url"
+        assert config.expression == "data.relays[*].url"
 
-    def test_invalid_jmespath_expression_rejected(self) -> None:
+    def test_invalid_expression_rejected(self) -> None:
         with pytest.raises(ValueError, match="invalid JMESPath expression"):
             ApiSourceConfig(
                 url="https://api.example.com",
-                jmespath="[*",
+                expression="[*",
             )
 
     def test_connect_timeout_exceeds_timeout_rejected(self) -> None:
@@ -153,6 +151,16 @@ class TestApiSourceConfig:
         """Test that connect_timeout == timeout is accepted."""
         config = ApiSourceConfig(url="https://api.com", timeout=10.0, connect_timeout=10.0)
         assert config.connect_timeout == 10.0
+
+    def test_allow_insecure_default_false(self) -> None:
+        """Test insecure connections are disabled by default."""
+        config = ApiSourceConfig(url="https://api.com")
+        assert config.allow_insecure is False
+
+    def test_allow_insecure_enabled(self) -> None:
+        """Test insecure connections can be enabled per source."""
+        config = ApiSourceConfig(url="https://internal.api.com", allow_insecure=True)
+        assert config.allow_insecure is True
 
 
 # ============================================================================
@@ -169,8 +177,7 @@ class TestApiConfig:
 
         assert config.enabled is True
         assert len(config.sources) == 2
-        assert config.delay_between_requests == 1.0
-        assert config.verify_ssl is True
+        assert config.request_delay == 1.0
 
     def test_default_sources(self) -> None:
         """Test default API sources include nostr.watch."""
@@ -191,11 +198,6 @@ class TestApiConfig:
 
         assert len(config.sources) == 2
         assert config.sources[0].url == "https://custom1.api.com"
-
-    def test_verify_ssl_disabled(self) -> None:
-        """Test SSL verification can be disabled."""
-        config = ApiConfig(verify_ssl=False)
-        assert config.verify_ssl is False
 
     def test_max_response_size_default(self) -> None:
         """Test default max_response_size is 5 MB."""
@@ -245,7 +247,11 @@ class TestFinderConfig:
         assert config.events.enabled is False
         assert config.api.enabled is False
 
-    def test_concurrency_config(self) -> None:
-        """Test concurrency configuration."""
-        config = FinderConfig(concurrency=ConcurrencyConfig(max_parallel_events=15))
-        assert config.concurrency.max_parallel_events == 15
+    def test_events_config(self) -> None:
+        """Test events configuration with all fields."""
+        config = FinderConfig(
+            events=EventsConfig(parallel_relays=15, max_relay_time=30.0, max_duration=120.0)
+        )
+        assert config.events.parallel_relays == 15
+        assert config.events.max_relay_time == 30.0
+        assert config.events.max_duration == 120.0

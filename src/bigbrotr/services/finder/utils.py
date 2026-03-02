@@ -16,12 +16,13 @@ if TYPE_CHECKING:
     from bigbrotr.models import Relay
 
 
-def extract_urls_from_response(data: Any, expression: str = "[*]") -> list[str]:
-    """Extract URL strings from a JSON API response via a JMESPath expression.
+def extract_relays_from_response(data: Any, expression: str = "[*]") -> list[Relay]:
+    """Extract and validate relay URLs from a JSON API response.
 
-    Applies *expression* to the parsed JSON *data* and filters the result
-    to only string values.  Validation (scheme, host, etc.) is left to the
-    caller.
+    Applies *expression* to the parsed JSON *data*, filters to string
+    values, validates each through
+    [parse_relay_url][bigbrotr.services.common.utils.parse_relay_url],
+    and returns a deduplicated list of Relay objects.
 
     Args:
         data: Parsed JSON response (any type).
@@ -29,32 +30,39 @@ def extract_urls_from_response(data: Any, expression: str = "[*]") -> list[str]:
             strings.  Defaults to ``[*]`` (identity on a flat list).
 
     Returns:
-        List of extracted URL strings (may contain duplicates or invalid
-        values -- the caller decides how to validate them).
+        Deduplicated list of [Relay][bigbrotr.models.relay.Relay] objects.
     """
     result = jmespath.search(expression, data)
     if not isinstance(result, list):
         return []
-    return [item for item in result if isinstance(item, str)]
+    seen: set[str] = set()
+    relays: list[Relay] = []
+    for item in result:
+        if isinstance(item, str):
+            validated = parse_relay_url(item)
+            if validated and validated.url not in seen:
+                seen.add(validated.url)
+                relays.append(validated)
+    return relays
 
 
-def extract_relays_from_rows(rows: list[dict[str, Any]]) -> dict[str, Relay]:
+def extract_relays_from_tagvalues(rows: list[dict[str, Any]]) -> list[Relay]:
     """Extract and deduplicate relay URLs from event tagvalues.
 
-    Each tagvalue is stored with a key prefix (``"r:wss://relay.com"``).
-    This function strips the prefix via :meth:`str.partition` (splitting
-    only on the first ``:``, so ``wss://`` in the URL is preserved) and
-    passes the raw value to ``parse_relay_url``.
+    Strips the tag prefix (everything up to the first ``:``) from each
+    value and passes the remainder to ``parse_relay_url``.  All tag
+    types are examined -- not just ``r:`` -- since relay URLs can appear
+    in any tag.  Invalid values are rejected by ``parse_relay_url``.
 
     Args:
         rows: Event rows with ``tagvalues`` key (from
             ``scan_event_relay``).
 
     Returns:
-        Mapping of normalized relay URL to
-        [Relay][bigbrotr.models.relay.Relay] for deduplication.
+        Deduplicated list of [Relay][bigbrotr.models.relay.Relay] objects.
     """
-    relays: dict[str, Relay] = {}
+    seen: set[str] = set()
+    relays: list[Relay] = []
 
     for row in rows:
         tagvalues = row.get("tagvalues")
@@ -63,7 +71,8 @@ def extract_relays_from_rows(rows: list[dict[str, Any]]) -> dict[str, Relay]:
         for val in tagvalues:
             _, _, raw_val = val.partition(":")
             validated = parse_relay_url(raw_val)
-            if validated:
-                relays[validated.url] = validated
+            if validated and validated.url not in seen:
+                seen.add(validated.url)
+                relays.append(validated)
 
     return relays

@@ -450,7 +450,7 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | Function | Purpose |
 |----------|---------|
 | `get_all_relay_urls(brotr)` | All relay URLs |
-| `fetch_all_relays(brotr)` | All relays with network + discovered_at |
+| `fetch_relays(brotr)` | All relays with network + discovered_at |
 | `filter_new_relay_urls(brotr, urls)` | URLs not yet in relay table |
 | `insert_relays(brotr, relays)` | Insert relays directly into relay table |
 | `fetch_relays_to_monitor(brotr, ...)` | Fetch relays due for monitoring |

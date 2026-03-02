@@ -699,7 +699,7 @@ class TestPublishAnnouncement:
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.PUBLICATION,
+                    state_type=ServiceStateType.CHECKPOINT,
                     state_key="last_announcement",
                     state_value={"published_at": FIXED_TIME},
                     updated_at=int(FIXED_TIME),
@@ -738,7 +738,7 @@ class TestPublishAnnouncement:
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.PUBLICATION,
+                    state_type=ServiceStateType.CHECKPOINT,
                     state_key="last_announcement",
                     state_value={"published_at": old_timestamp},
                     updated_at=int(old_timestamp),
@@ -808,7 +808,7 @@ class TestPublishProfile:
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.PUBLICATION,
+                    state_type=ServiceStateType.CHECKPOINT,
                     state_key="last_profile",
                     state_value={"published_at": FIXED_TIME},
                     updated_at=int(FIXED_TIME),
@@ -1225,11 +1225,6 @@ class TestMonitorMetrics:
             patch.object(monitor, "check_chunks", side_effect=fake_check_chunks),
             patch.object(monitor, "publish_relay_discoveries", new_callable=AsyncMock),
             patch.object(monitor, "_persist_results", new_callable=AsyncMock),
-            patch(
-                "bigbrotr.services.monitor.service.cleanup_service_state",
-                new_callable=AsyncMock,
-                return_value=0,
-            ),
         ):
             await monitor.monitor()
 
