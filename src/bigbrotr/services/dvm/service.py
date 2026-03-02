@@ -1,9 +1,9 @@
 """NIP-90 Data Vending Machine service for Nostr protocol database queries.
 
-Listens for kind 5050 job requests on configured relays, executes
+Listens for NIP-90 job requests on configured relays, executes
 read-only queries via the shared
 [Catalog][bigbrotr.services.common.catalog.Catalog], and publishes
-results as kind 6050 events.  Per-table pricing via
+results as job-result events (request kind + 1000).  Per-table pricing via
 [TableConfig][bigbrotr.services.common.configs.TableConfig]
 enables the NIP-90 bid/payment-required mechanism.
 
@@ -106,7 +106,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         if self._client is not None:
             try:
                 await self._client.shutdown()
-            except Exception as e:
+            except Exception as e:  # nostr-sdk FFI can raise arbitrary errors on shutdown
                 self._logger.debug("client_shutdown_error", error=str(e))
             self._client = None
             self._logger.info("client_disconnected")
@@ -216,7 +216,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
                 return
 
         try:
-            limit = int(params.get("limit", 100))
+            limit = int(params.get("limit", self._config.default_page_size))
             offset = int(params.get("offset", 0))
         except (ValueError, TypeError):
             await self._publish_error(
